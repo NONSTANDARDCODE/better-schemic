@@ -1,5 +1,5 @@
-// The NEUTRAL driver SDK — the public surface the SurrealDB driver package (`@schemic/surrealdb`)
-// consumes from `@schemic/core/driver`. It re-exports ONLY dialect-free building blocks: the
+// The NEUTRAL driver SDK — the public surface the SurrealDB driver package (`@better-schemic/surrealdb`)
+// consumes from `@better-schemic/core/driver`. It re-exports ONLY dialect-free building blocks: the
 // Driver contract + registry, the portable IR types + constructors, and the config/diff types a
 // driver's ops reference. It deliberately does NOT re-export any concrete driver (that would drag a
 // dialect's whole tree into every consumer); the internal barrel (driver/index.ts) keeps those for

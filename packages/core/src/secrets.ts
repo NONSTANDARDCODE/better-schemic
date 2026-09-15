@@ -53,7 +53,7 @@ export const envSecretProvider: SecretProvider = {
     const value = process.env[ref.name];
     if (value === undefined) {
       throw new Error(
-        `schemic: secret ${ref.kind}(${JSON.stringify(ref.name)}) is not set in the environment`,
+        `better-schemic: secret ${ref.kind}(${JSON.stringify(ref.name)}) is not set in the environment`,
       );
     }
     return value;

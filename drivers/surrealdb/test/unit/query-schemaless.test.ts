@@ -1,4 +1,4 @@
-// @schemic/surrealdb/query SCHEMALESS: targeting a table not modeled in Schemic — pass a plain
+// @better-schemic/surrealdb/query SCHEMALESS: targeting a table not modeled in Better-schemic — pass a plain
 // name string or an SDK `Table`. The data is `Record<string, unknown>` (no codec), callback rows
 // are a proxy (any field -> a generic ref), and everything else composes unchanged.
 

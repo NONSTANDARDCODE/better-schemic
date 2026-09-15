@@ -11,7 +11,7 @@ import returns from "./04-returns";
 
 /** Every permutation of the `DEFINE FUNCTION` statement, in grammar order. A function is a standalone
  *  def (`defineFunction(name, args).body(…)`), so each item pins its single `DEFINE FUNCTION …` line.
- *  Schemic authors args / -> return / body / PERMISSIONS / COMMENT + OVERWRITE / IF NOT EXISTS;
+ *  Better-schemic authors args / -> return / body / PERMISSIONS / COMMENT + OVERWRITE / IF NOT EXISTS;
  *  GRAPHQL_ALIAS / GRAPHQL_DEPRECATED (new in v3.1.0) have no `s.*` surface yet. */
 export const defineFunctionCoverage = coverage("DEFINE FUNCTION", [
   // [ OVERWRITE | IF NOT EXISTS ] fn::@name ( @args ) [ -> @type ] { @body } [ PERMISSIONS ] [ COMMENT ]

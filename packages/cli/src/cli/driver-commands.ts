@@ -18,7 +18,7 @@ import {
   ok,
   type ParsedCommandArgs,
   style,
-} from "@schemic/core";
+} from "@better-schemic/core";
 import type { Command } from "commander";
 import { runAction } from "./action";
 import { registerInspectVerbs } from "./inspect";
@@ -172,7 +172,7 @@ export async function registerDriverCommands(program: Command): Promise<void> {
         .command(kind)
         .summary(`inspect + manage ${style.bold(kind)} resources`)
         .description(
-          `\`${kind}\` commands: the universal \`ls\`/\`info\` (any kind) plus any driver verbs from @schemic/${driverName}.`,
+          `\`${kind}\` commands: the universal \`ls\`/\`info\` (any kind) plus any driver verbs from @better-schemic/${driverName}.`,
         );
       groups.set(kind, g);
     }

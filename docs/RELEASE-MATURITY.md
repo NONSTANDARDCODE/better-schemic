@@ -1,6 +1,6 @@
 # Release maturity — alpha → beta → stable
 
-A living checklist for graduating Schemic's release stage. Each stage is a **promise to users about
+A living checklist for graduating Better-schemic's release stage. Each stage is a **promise to users about
 API stability and data safety**, not a feature count. Tick a box only when it's *durably* true (not
 "works once"). **core-dev owns this doc** — it's cross-cutting and directly informs when a beta/stable
 tag gets cut; package owners update the rows they own.
@@ -46,7 +46,7 @@ Mostly a hardening road, not a build road.
 - [ ] **Self-serve docs** — the docs site + migration/upgrade guides; users can learn it without us.
 - [ ] **Test depth green in CI** — the repo-wide type-test suite (attest, per-expression instantiation
       budgets), e2e-vs-live, parity, and the example-cookbook goldens.
-- [ ] **Upgrade story** — versioned snapshots + a path to migrate projects from older Schemic versions
+- [ ] **Upgrade story** — versioned snapshots + a path to migrate projects from older Better-schemic versions
       (1.0 implies we support that).
 - [ ] **Semver commitment documented** — a public policy: what "breaking" means, deprecation windows.
 

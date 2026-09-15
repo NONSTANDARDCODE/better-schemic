@@ -1,11 +1,11 @@
 // Driver-contributed CLI commands (sc access rotate/check, sc table find) — run() logic against a live
-// SurrealDB (gated on SURREAL_URL, like the other live tests). Core's dispatch is tested in @schemic/cli;
+// SurrealDB (gated on SURREAL_URL, like the other live tests). Core's dispatch is tested in @better-schemic/cli;
 // here we cover the surreal dialect logic with a mock CommandContext.
 
 import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { envSecretProvider } from "@schemic/core";
+import { envSecretProvider } from "@better-schemic/core";
 import { Surreal } from "surrealdb";
 import { surrealCommands } from "../../src/commands";
 

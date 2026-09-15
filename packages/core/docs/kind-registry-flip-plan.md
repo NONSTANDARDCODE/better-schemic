@@ -156,7 +156,7 @@ structural equal); `exclude` stays `Set<string>` table-names.
 
 Both drivers flagged: `buildKindDiff` up/down is byte-exact, but `items`/`full` are per-OBJECT
 (table-level) while the fixed-slot engine is per-FIELD (`field:user:name`) — so wiring `Driver.diff` to
-production would coarsen `schemic diff` and break per-field display goldens. **Manuel's call: keep
+production would coarsen `better-schemic diff` and break per-field display goldens. **Manuel's call: keep
 per-field display.** Fixed (additive): `KindEngine` gains optional `displayItems(prev, next):
 DiffItem[]`, used by `buildKindDiff` for `items` (a change diffs the two) and `full` (`displayItems(
 undefined, next)` projects per-sub-object adds); default = one whole-object item. A structured kind

@@ -3,7 +3,7 @@
 // and show the DDL gap — all generic over the registry (core-v2). Each DB is its own world: you author
 // and diff with the SAME driver (kinds aren't cross-driver), so there is no cross-dialect lowering.
 
-import type { ResolvedConfig } from "@schemic/core";
+import type { ResolvedConfig } from "@better-schemic/core";
 import {
   buildKindDiff,
   type DiffItem,
@@ -15,7 +15,7 @@ import {
   type PortableObject,
   plural,
   style,
-} from "@schemic/core";
+} from "@better-schemic/core";
 
 /** A loaded, opaque driver connection (each driver's `connect` returns its own type). */
 type Conn = unknown;

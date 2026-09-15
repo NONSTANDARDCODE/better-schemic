@@ -18,7 +18,7 @@ import {
   planKinds,
   snapshotKinds,
   snapshotObjects,
-} from "@schemic/core";
+} from "@better-schemic/core";
 import {
   defineAccess,
   defineAnalyzer,
@@ -27,8 +27,8 @@ import {
   defineTable,
   s,
   surql,
-} from "@schemic/surrealdb";
-import { surrealDriver } from "@schemic/surrealdb/driver";
+} from "@better-schemic/surrealdb";
+import { surrealDriver } from "@better-schemic/surrealdb/driver";
 import { schemaStruct } from "../../src/cli/lower";
 import { structuredSnapshot } from "../../src/cli/structure";
 import { diffSnapshots } from "../../src/cli/surreal-diff";

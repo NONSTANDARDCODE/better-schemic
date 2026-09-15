@@ -15,7 +15,7 @@ const ENTRY = join(import.meta.dir, "../src/index.ts");
 
 /** Run the scaffolder (always --no-install --no-git -y) into a temp dir; returns paths + exit code. */
 function scaffold(args: string[]) {
-  const root = mkdtempSync(join(tmpdir(), "create-schemic-"));
+  const root = mkdtempSync(join(tmpdir(), "create-better-schemic-"));
   const app = join(root, "app");
   const r = spawnSync(
     "bun",
@@ -35,7 +35,7 @@ function scaffold(args: string[]) {
   };
 }
 
-describe("create-schemic", () => {
+describe("create-better-schemic", () => {
   it("scaffolds the project envelope for surrealdb", () => {
     const s = scaffold(["--driver", "surrealdb"]);
     try {
@@ -44,12 +44,12 @@ describe("create-schemic", () => {
       expect(existsSync(join(s.app, "tsconfig.json"))).toBe(true);
       expect(existsSync(join(s.app, ".gitignore"))).toBe(true);
       const deps = s.pkg().dependencies;
-      expect(deps["@schemic/cli"]).toBeDefined();
-      expect(deps["@schemic/surrealdb"]).toBeDefined();
+      expect(deps["@better-schemic/cli"]).toBeDefined();
+      expect(deps["@better-schemic/surrealdb"]).toBeDefined();
       expect(deps.surrealdb).toBeDefined();
       expect(deps.zod).toBeDefined();
-      // bun/npm hoist core transitively — no direct @schemic/core dep
-      expect(deps["@schemic/core"]).toBeUndefined();
+      // bun/npm hoist core transitively — no direct @better-schemic/core dep
+      expect(deps["@better-schemic/core"]).toBeUndefined();
       // the type declaration for the `with { type: "text" }` seed imports needs resolveJsonModule
       expect(s.ts().compilerOptions.resolveJsonModule).toBe(true);
     } finally {
@@ -57,17 +57,17 @@ describe("create-schemic", () => {
     }
   });
 
-  it("adds a direct @schemic/core dep under pnpm (strict node_modules)", () => {
+  it("adds a direct @better-schemic/core dep under pnpm (strict node_modules)", () => {
     const s = scaffold(["--driver", "surrealdb", "--pm", "pnpm"]);
     try {
-      expect(s.pkg().dependencies["@schemic/core"]).toBeDefined();
+      expect(s.pkg().dependencies["@better-schemic/core"]).toBeDefined();
     } finally {
       rmSync(s.root, { recursive: true, force: true });
     }
   });
 
   it("MERGES into an existing project without clobbering it", () => {
-    const root = mkdtempSync(join(tmpdir(), "create-schemic-"));
+    const root = mkdtempSync(join(tmpdir(), "create-better-schemic-"));
     const app = join(root, "app");
     mkdirSync(app, { recursive: true });
     writeFileSync(
@@ -90,10 +90,10 @@ describe("create-schemic", () => {
       expect(pkg.name).toBe("my-app"); // kept
       expect(pkg.version).toBe("1.2.3"); // kept
       expect(pkg.scripts.dev).toBe("vite"); // their script kept
-      expect(pkg.scripts.db).toBe("schemic"); // ours added
+      expect(pkg.scripts.db).toBe("better-schemic"); // ours added
       expect(pkg.dependencies.zod).toBe("^4.0.0"); // their version kept, not overwritten
-      expect(pkg.dependencies["@schemic/cli"]).toBeDefined(); // added
-      expect(pkg.dependencies["@schemic/surrealdb"]).toBeDefined(); // added
+      expect(pkg.dependencies["@better-schemic/cli"]).toBeDefined(); // added
+      expect(pkg.dependencies["@better-schemic/surrealdb"]).toBeDefined(); // added
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

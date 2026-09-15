@@ -1,6 +1,6 @@
-# Building a Schemic driver — onboarding index
+# Building a Better-schemic driver — onboarding index
 
-The authoritative starting point for a NEW driver package (`@schemic/<driver>`). Owned by `core-dev`.
+The authoritative starting point for a NEW driver package (`@better-schemic/<driver>`). Owned by `core-dev`.
 It ties together the contract you implement, the package skeleton you mirror, and the ratified
 cross-driver conventions that are NON-negotiable. Read this first, then the linked docs for depth.
 
@@ -9,17 +9,17 @@ Use it as the structural template for a new driver package.
 
 ## 1. What core owns vs what you own
 
-- **Core owns** (`@schemic/core`): the dialect-neutral engine (kind registry, diff, snapshot,
+- **Core owns** (`@better-schemic/core`): the dialect-neutral engine (kind registry, diff, snapshot,
   migration spine), the `Driver` contract, the neutral authoring substrate (`SFieldBase`, the Zod
   `s.*` field base, `PortableType`, codecs), and the CLI. You implement AGAINST these; you never edit
   them. Contract changes are proposed to `core-dev` (DM).
-- **You own** (`@schemic/<driver>`): the dialect's `s.*` authoring surface, the `lower`/`emit`/
+- **You own** (`@better-schemic/<driver>`): the dialect's `s.*` authoring surface, the `lower`/`emit`/
   `introspect` behavior of each kind, the connection factory, and the driver's ORM/query surface.
 
 ## 2. The Driver contract
 
 `packages/core/src/driver/driver.ts` — `interface Driver<Conn, Tbl, Def>`. Import everything from the
-neutral SDK entry **`@schemic/core/driver`** (`packages/core/src/driver/sdk.ts`) — never reach into
+neutral SDK entry **`@better-schemic/core/driver`** (`packages/core/src/driver/sdk.ts`) — never reach into
 core internals. The contract splits into:
 
 **Required (the spine):**
@@ -48,7 +48,7 @@ hardcodes `if surreal`):**
 - `serverInfo?` — a human server identity for `doctor`.
 - `query?` — raw READ for connection resolvers + `seed`.
 - `callable?: CallableFunctions<Conn>` — the `.call()` surface for user-defined DB functions.
-- `initScaffold?` / `scaffoldEntity?` — the files `schemic init` / `schemic new` write.
+- `initScaffold?` / `scaffoldEntity?` — the files `better-schemic init` / `better-schemic new` write.
 
 **The one round-trip invariant that governs everything:**
 `author -> lower -> explode -> emit -> introspect -> buildKindDiff` MUST be a ZERO diff for a clean,
@@ -57,8 +57,8 @@ serves this.
 
 ## 3. Registration + the dual-instance rule (READ THIS)
 
-Ship `registerDriver(myDriver)` as a SIDE-EFFECT of the `@schemic/<driver>/driver` subpath ONLY. The
-registry is a `globalThis` `Symbol.for("@schemic/core.driverRegistry")` singleton so the CLI's core
+Ship `registerDriver(myDriver)` as a SIDE-EFFECT of the `@better-schemic/<driver>/driver` subpath ONLY. The
+registry is a `globalThis` `Symbol.for("@better-schemic/core.driverRegistry")` singleton so the CLI's core
 and the project's core share ONE map. Two consequences:
 - Any module-level registry YOU keep (field registries, kind maps) must ALSO be a `globalThis`
   `Symbol.for` singleton — the subpath split duplicates plain module-level state, and a bundled `lib/`
@@ -93,11 +93,11 @@ Purpose-based subpaths, so app code only bundles what it imports (`package.json#
 
 | Subpath | Contents | Side effects |
 |---|---|---|
-| `@schemic/<driver>` | authoring: `s.*`, `define*`, the raw-body tag; SDK value re-exports | **NONE** (pure) |
-| `@schemic/<driver>/connection` | the `<driver>Connection(...)` factory | none |
-| `@schemic/<driver>/query` | the opt-in query builder (composes `@schemic/core/query`) | none |
-| `@schemic/<driver>/client` | the bound ORM client (`connect`) | none |
-| `@schemic/<driver>/driver` | the `Driver` impl + `lower`/`emit*`/`introspect` + `registerDriver` | registers |
+| `@better-schemic/<driver>` | authoring: `s.*`, `define*`, the raw-body tag; SDK value re-exports | **NONE** (pure) |
+| `@better-schemic/<driver>/connection` | the `<driver>Connection(...)` factory | none |
+| `@better-schemic/<driver>/query` | the opt-in query builder (composes `@better-schemic/core/query`) | none |
+| `@better-schemic/<driver>/client` | the bound ORM client (`connect`) | none |
+| `@better-schemic/<driver>/driver` | the `Driver` impl + `lower`/`emit*`/`introspect` + `registerDriver` | registers |
 
 The CLI loader REQUIRES the `/driver` entry (drivers >= alpha.21). Keep `emit*`/`lower`/`introspect`
 OUT of the authoring index so importing `s.*` never drags the engine into an app bundle. The SurrealDB
@@ -111,7 +111,7 @@ source layout is the clean template.
   `defineConfig().connection(name, factory, ...)` with accumulated typed `ctx.connections`.
   (`packages/core/docs/MULTI-CONNECTION.md`.)
 - **Config-as-factory**: `defineConfig` returns the typed `connect(name, args?)`; accept default OR
-  named `schemic` export; `schemic.ts` discovered.
+  named `betterSchemic` export (legacy: `schemic`); `better-schemic.ts` discovered (`schemic.ts` legacy).
 - **ORM client** at `/client`: `connect(name?)` managed / `connect(sdkClient)` BYO (BYO `close` is a
   NO-OP, hard rule), AsyncDisposable, pre-bound thenable builders; split writes
   (`create(T).content(...)`, `update(T,id).merge/.content/.set`, delete/`remove`); rows carry their
@@ -129,7 +129,7 @@ source layout is the clean template.
   against the REAL engine (the fn-catalog exhaustive-sweep pattern), and keep an exhaustive
   `docs/COVERAGE.md` from day one (author -> emit -> introspect -> diff status per feature; template:
   `packages/core/docs/DRIVER-COVERAGE.md`). Back it with the machine-checked reconcile
-  (`describeCoverageReconcile` from `@schemic/core/testing` + a `coverage-manifest.ts`) so the
+  (`describeCoverageReconcile` from `@better-schemic/core/testing` + a `coverage-manifest.ts`) so the
   done-vs-todo list can't silently drift from the registered kinds — see the template's reconcile
   section.
 - **DB-backed tests must raise bun's default timeout.** `bun test`'s per-test timeout is **5s**, which a

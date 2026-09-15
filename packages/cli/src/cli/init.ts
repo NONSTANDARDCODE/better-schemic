@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import type { Driver } from "@schemic/core";
+import type { Driver } from "@better-schemic/core";
 
 export interface InitResult {
   created: string[];
@@ -33,7 +33,7 @@ export function init(cwd: string, driver: Driver<unknown>): InitResult {
   const scaffold = driver.initScaffold?.();
   if (!scaffold)
     throw new Error(
-      `the "${driver.name}" driver does not support \`schemic init\` scaffolding.`,
+      `the "${driver.name}" driver does not support \`better-schemic init\` scaffolding.`,
     );
   const files: Record<string, string> = {
     ...scaffold,

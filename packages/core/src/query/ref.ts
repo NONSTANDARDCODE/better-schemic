@@ -1,7 +1,7 @@
 /**
  * The neutral carrier a driver's field reference extends so the core projection inference can read its
- * app-value type — the cross-driver contract for `@schemic/core/query`. Builders are driver-owned (each
- * driver ships its own `FieldRef` with its own operators at `@schemic/<driver>/query`); the ONE thing
+ * app-value type — the cross-driver contract for `@better-schemic/core/query`. Builders are driver-owned (each
+ * driver ships its own `FieldRef` with its own operators at `@better-schemic/<driver>/query`); the ONE thing
  * core needs from any such ref is the *decoded app value* it stands for, carried here as a phantom.
  *
  * A driver's ref does: `interface SurrealRef<T> extends FieldRefBase<T> { eq(v: T): Expr; … }`.

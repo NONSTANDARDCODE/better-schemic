@@ -5,11 +5,11 @@
  * are ACCEPTED by a real SurrealDB and round-trip: apply v1, apply the generated up-migration to
  * reach v2 (verified via `INFO FOR TABLE … STRUCTURE`), then the down-migration to revert to v1.
  * Auto-skips when no DB is reachable. Imports `defineTable`/`s` by PACKAGE name so the table
- * types line up with the `@schemic/core`-typed diff-engine signatures.
+ * types line up with the `@better-schemic/core`-typed diff-engine signatures.
  */
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { defineTable, s } from "@schemic/surrealdb";
-import { emitTable } from "@schemic/surrealdb/driver";
+import { defineTable, s } from "@better-schemic/surrealdb";
+import { emitTable } from "@better-schemic/surrealdb/driver";
 import { Surreal } from "surrealdb";
 import { z } from "zod";
 import { buildSnapshot, diffSnapshots } from "../../src/cli/surreal-diff";

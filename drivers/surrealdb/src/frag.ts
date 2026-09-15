@@ -1,5 +1,5 @@
 /**
- * The typed-fragment carrier — `Surql<R>` is the `BoundQuery` subclass every schemic-built
+ * The typed-fragment carrier — `Surql<R>` is the `BoundQuery` subclass every better-schemic-built
  * fragment returns (the `surql` tag, the `surql.fn` catalog), adding the ONE retype hook:
  * `.as<T>()` (the `[T]` rule: an expression of type `T` IS a one-statement query `[T]`).
  * Its own module so the authoring index and the catalog share it without a cycle.

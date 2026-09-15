@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { formatPatch, summarizeKinds, tokenDiff } from "@schemic/core";
+import { formatPatch, summarizeKinds, tokenDiff } from "@better-schemic/core";
 // Import `s`/`table` by package name (like the CLI does) so the table types line up with the
-// `@schemic/core`-typed signatures in cli/diff (avoids src-vs-lib duplicate-declaration errors).
+// `@better-schemic/core`-typed signatures in cli/diff (avoids src-vs-lib duplicate-declaration errors).
 import {
   type AccessDef,
   defineAccess,
@@ -11,8 +11,8 @@ import {
   defineTable,
   s,
   surql,
-} from "@schemic/surrealdb";
-import { emitTable } from "@schemic/surrealdb/driver";
+} from "@better-schemic/surrealdb";
+import { emitTable } from "@better-schemic/surrealdb/driver";
 import { EMPTY_SNAPSHOT } from "../../src/cli/structure";
 import {
   buildSnapshot,

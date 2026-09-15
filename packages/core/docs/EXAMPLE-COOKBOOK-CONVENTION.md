@@ -89,8 +89,8 @@ emits one flat catalog:
   consumer that **vendors** a copy (e.g. the `schemichq/web` repo commits it under
   `packages/landing/`) can spot staleness at a glance and re-sync deliberately.
 - **Delivery**: committed in this repo today; consumers pin it by git commit.
-  When `@schemic/*` start publishing, the same shape promotes to a published
-  `@schemic/examples` package — consumers' code is unchanged.
+  When `@better-schemic/*` start publishing, the same shape promotes to a published
+  `@better-schemic/examples` package — consumers' code is unchanged.
 
 ## Reference implementations
 

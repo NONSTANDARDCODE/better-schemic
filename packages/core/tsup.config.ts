@@ -1,6 +1,6 @@
 import { defineConfig } from "tsup";
 
-// @schemic/core is a pure library now — no CLI bin (that's @schemic/cli). Entries: the neutral engine
+// @better-schemic/core is a pure library now — no CLI bin (that's @better-schemic/cli). Entries: the neutral engine
 // (`.`), the config helper (`/config`), the neutral driver SDK (`/driver`), the authoring base
 // (`/authoring` — SFieldBase, what each driver's `s.*` builds on), and the driver conformance suite
 // (`/testing` — bun:test-based, run by each driver against its own surface).

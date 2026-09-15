@@ -89,7 +89,7 @@ Plain `Expr` forms stay (untyped quick path). `$auth` typing: `defineAccess(...)
 
 ## Also ratified alongside
 - **Auto-block**: a multi-statement event/function `then`/body (top-level `;` outside
-  strings/braces) is wrapped `{ … }` by the emitter — authors write statements, schemic owns the
+  strings/braces) is wrapped `{ … }` by the emitter — authors write statements, better-schemic owns the
   grammar. Round-trip vs introspection must stay drift-free.
 - **Lazy refs**: `s.recordId(() => User)` — thunk accepted wherever a table is; names resolve at
   emit/type-derivation (post-module-eval), runtime schema via `z.lazy`. Kills import cycles from

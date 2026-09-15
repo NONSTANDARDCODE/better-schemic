@@ -10,7 +10,7 @@
 // NESTED in the table object (a table HAS fields — they are the shared substrate, not a kind), and the
 // table kind owns field-level diff inside its `overwrite`.
 
-import type { PortableObject, Ref } from "@schemic/core";
+import type { PortableObject, Ref } from "@better-schemic/core";
 import type {
   StructAccess,
   StructAnalyzer,

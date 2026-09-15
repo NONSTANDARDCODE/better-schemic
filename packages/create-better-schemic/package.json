@@ -1,18 +1,18 @@
 {
-  "name": "create-schemic",
+  "name": "create-better-schemic",
   "version": "0.1.0-alpha.24",
-  "description": "Scaffold a new Schemic project — package.json, tsconfig, a driver, and the database/ schema, in one command.",
+  "description": "Scaffold a new Better-schemic project — package.json, tsconfig, a driver, and the database/ schema, in one command.",
   "license": "MIT",
   "author": "Vertio Solutions",
-  "homepage": "https://schemic.dev",
+  "homepage": "https://github.com/NONSTANDARDCODE/better-schemic",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/schemichq/schemic.git",
-    "directory": "packages/create-schemic"
+    "url": "git+https://github.com/NONSTANDARDCODE/better-schemic.git",
+    "directory": "packages/create-better-schemic"
   },
   "type": "module",
   "bin": {
-    "create-schemic": "lib/index.js"
+    "create-better-schemic": "lib/index.js"
   },
   "sideEffects": false,
   "publishConfig": {

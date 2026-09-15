@@ -1,12 +1,12 @@
 # Changelog — better-schemic
 
-All notable changes to the better-schemic packages (`@schemic/core`, `@schemic/cli`,
-`@schemic/surrealdb`, `create-schemic`, `schemic`) are recorded here. The packages release
+All notable changes to the better-schemic packages (`@better-schemic/core`, `@better-schemic/cli`,
+`@better-schemic/surrealdb`, `create-better-schemic`, `better-schemic`) are recorded here. The packages release
 **in lockstep** (one version across all five), so this is a single changelog.
 
 > **Fork notice.** better-schemic is a **SurrealDB-only** fork of
-> [Schemic](https://github.com/schemichq/schemic), forked from schemic commit
-> [`720ada2`](https://github.com/schemichq/schemic/commit/720ada27d3995ac96bd2000289bacb895bd9c06e).
+> [Schemic](https://github.com/NONSTANDARDCODE/better-schemic), forked from schemic commit
+> [`720ada2`](https://github.com/NONSTANDARDCODE/better-schemic/commit/720ada27d3995ac96bd2000289bacb895bd9c06e).
 > The pre-fork history is preserved frozen in [`CHANGELOG_OLD.md`](./CHANGELOG_OLD.md) for
 > reference — no new entries go there. Versioning continues the schemic numbering.
 > The `Unreleased` section below carries over everything that was unreleased in the OLD
@@ -19,13 +19,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 ## [Unreleased]
 
 ### Removed (fork)
-- **repo:** the PostgreSQL driver (`drivers/postgres`, `@schemic/postgres`) — removed at the fork.
-  better-schemic is SurrealDB-only: `drivers/surrealdb` is the single driver, `create-schemic` and
+- **repo:** the PostgreSQL driver (`drivers/postgres`, `@better-schemic/postgres`) — removed at the fork.
+  better-schemic is SurrealDB-only: `drivers/surrealdb` is the single driver, `create-better-schemic` and
   `sc init` scaffold SurrealDB projects, and the release/land scripts cover the five remaining
-  packages (`core`, `cli`, `surrealdb`, `create-schemic`, `schemic`).
+  packages (`core`, `cli`, `surrealdb`, `create-better-schemic`, `better-schemic`).
 - **repo:** the `@electric-sql/pglite` dev dependency (was the postgres test engine).
 
 ### Changed (fork)
+- **repo:** package rename schemic → better-schemic — `@schemic/*` is now `@better-schemic/*`,
+  `schemic` is `better-schemic` (bin `better-schemic` + `sc`), `create-schemic` is
+  `create-better-schemic`, and the scaffolded config is `better-schemic.config.ts` exporting
+  `betterSchemic` (`SchemicConfig` → `BetterSchemicConfig`, `SchemicProject` →
+  `BetterSchemicProject`). BACKWARD COMPAT: the CLI still loads `schemic.config.ts` / `schemic.ts`
+  and the named `schemic` export, still resolves the legacy `@schemic/<driver>` scope, and still
+  honors `SCHEMIC_DEBUG` / `SCHEMIC_NO_BOOTSTRAP` / `SCHEMIC_*_TIMEOUT_MS` (the `BETTER_SCHEMIC_*`
+  spellings win when both are set). The `sc` (CLI) and `s` (authoring) handles are unchanged.
 - **repo:** project identity schemic → better-schemic (README, CLI docs, roadmap, `AGENTS.md`,
   release-maturity notes). The engine + CLI stay dialect-neutral; SurrealDB is the supported driver.
 - **docs:** design docs that used the PostgreSQL driver as the worked second-driver example
@@ -57,7 +65,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `scripts/type-perf.ts` (NOT bun — attest locates source files through node stack frames), as a
   SEPARATE CI job out of the hot land gate. Worked reference in `packages/core/test/types/`; the
   standard + adoption steps are in `docs/TYPE-PERF-TESTING.md` (drivers adopt).
-- **core:** `@schemic/core/testing` gains a shared COVERAGE RECONCILE — `describeCoverageReconcile`
+- **core:** `@better-schemic/core/testing` gains a shared COVERAGE RECONCILE — `describeCoverageReconcile`
   (+ the pure `reconcileCoverage` and `KindCoverage`/`FeatureCoverage` types) reconciles a driver's
   declared coverage manifest against the LIVE facts: `registry.names()` must exactly equal the declared
   kinds (both directions, so the registered-kind side can't drift from code) and every `[x]` feature
@@ -82,7 +90,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 - **core:** ORM client P1 foundation — `OrmClientBase` (disposable bound-client contract: `close` +
   `[Symbol.asyncDispose]`, so `await using db = await connect()` auto-closes), the `asyncDisposable`
   mixin, and `resolveConnection(name?)` (managed path over the project config).
-- **surrealdb:** the bound ORM client (P1 reads) at `@schemic/surrealdb/client` —
+- **surrealdb:** the bound ORM client (P1 reads) at `@better-schemic/surrealdb/client` —
   `connect(name?)` MANAGED from the config / `connect(client)` BYO (close = no-op), `db.select(table)`
   pre-bound + awaitable (thenable builder; standalone `.run(db)` still works), AsyncDisposable
   + a disposable `forkSession()`.

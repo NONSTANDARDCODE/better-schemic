@@ -3,18 +3,18 @@
 **Status:** design proposal for alignment (core-dev). **Date:** 2026-07-02.
 **Owner:** core-dev leads the neutral contract; each driver implements its bound client.
 **Motivates:** turn the opt-in query layer into a cohesive ORM by giving it a *connection* — the one
-piece missing so that `db.select(...)` / `db.create(...)` work against a Schemic-managed (or BYO)
+piece missing so that `db.select(...)` / `db.create(...)` work against a Better-schemic-managed (or BYO)
 connection, instead of the user hand-wiring a client and threading it through `.run(externalDb)`.
 **Priority (per Manuel):** complement the ORM we are building (public, app-developer facing) FIRST;
-Schemic Studio is a second consumer of the same layer.
+Better-schemic Studio is a second consumer of the same layer.
 
 ## 1. Why now — what already exists, and the one gap
 
 The pieces of an ORM are already built and independently shipped:
 
-- **Query builder** — `select().where().orderBy().return()` + `defineFunction().call()` (`@schemic/<driver>/query` over `@schemic/core/query`).
+- **Query builder** — `select().where().orderBy().return()` + `defineFunction().call()` (`@better-schemic/<driver>/query` over `@better-schemic/core/query`).
 - **Derived write schemas** — `TableDef.create` / `.update` (typed, Standard-Schema-composable) + `encode`/`decode` codecs (app ⇄ wire).
-- **Connection config** — `schemic.config.ts` `connections` map, the `<driver>Connection(...)` factories, and the multi-connection **resolver engine** (keyed collections, `ctx.connections.<name>`, per-tenant / DB-per-user).
+- **Connection config** — `better-schemic.config.ts` `connections` map, the `<driver>Connection(...)` factories, and the multi-connection **resolver engine** (keyed collections, `ctx.connections.<name>`, per-tenant / DB-per-user).
 
 The **gap**: the query layer requires **bring-your-own client** — `select(User).run(db)`, where `db` is a
 separately-constructed, separately-connected `new Surreal()`. So a user configures a
@@ -78,12 +78,12 @@ connection, so no `.run(externalDb)` threading.
 
 ## 3. Contract ownership (mirrors the query toolkit)
 
-- **core** — a neutral `OrmClient` contract in `@schemic/core`: the shape of `connect`, the bound
+- **core** — a neutral `OrmClient` contract in `@better-schemic/core`: the shape of `connect`, the bound
   `select`/`call`, the split write builders (`create(T).content(...)` / `update(T,id).merge(...)` /
   `delete(T,id)` + `.return(...)`), `close`, and `[Symbol.asyncDispose]`. Plus the managed-connect glue
-  over the resolver engine. Same split as `@schemic/core/query` (neutral toolkit) ← `@schemic/<driver>/query`.
-- **drivers** — each implements its bound client over its native connection type (surreal `Surreal`), composing the core contract. Lives at `@schemic/<driver>/query` (or a new
-  `@schemic/<driver>/client` subpath — see open Q).
+  over the resolver engine. Same split as `@better-schemic/core/query` (neutral toolkit) ← `@better-schemic/<driver>/query`.
+- **drivers** — each implements its bound client over its native connection type (surreal `Surreal`), composing the core contract. Lives at `@better-schemic/<driver>/query` (or a new
+  `@better-schemic/<driver>/client` subpath — see open Q).
 
 ## 4. Deliberate NON-goals (scope discipline)
 
@@ -93,12 +93,12 @@ connection, so no `.run(externalDb)` threading.
 - **We do NOT deprecate BYO-client.** `.run(client)` and `connect(client)` remain first-class so an app
   with its own pool never ends up with two.
 - **Schema-as-code stays the identity.** The ORM/connection layer is a value-add on top of migrations +
-  authoring, not a pivot to "Schemic is your runtime." Framing: *your schema config is also your
+  authoring, not a pivot to "Better-schemic is your runtime." Framing: *your schema config is also your
   connection config.*
 
 ## 5. Positioning (vs surqlize / other ORMs)
 
-surqlize is the SurrealDB-only ORM; drizzle/prisma are single-dialect. Schemic's edge is **one
+surqlize is the SurrealDB-only ORM; drizzle/prisma are single-dialect. Better-schemic's edge is **one
 source of truth**: the same `s.*` schema drives migrations, the query builder, runtime validation
 (`create`/`update`), and now the connection — all SurrealDB-native. That's the differentiator
 worth building deliberately; it keeps us complementary to surqlize (a user can still drop to the native
@@ -117,7 +117,7 @@ client / surqlize for driver-specific power via BYO).
 ## 7. Open questions (for Manuel + drivers)
 
 1. **Naming:** `connect()` vs `createClient()`; the handle `db` vs `orm` vs `client`. (Lean: `connect()` + `db`.)
-2. **Client home:** extend `@schemic/<driver>/query`, or a new side-effectful `@schemic/<driver>/client`
+2. **Client home:** extend `@better-schemic/<driver>/query`, or a new side-effectful `@better-schemic/<driver>/client`
    subpath (keeps `/query` composable + pure; connect pulls the connection factory, which is side-effectful).
 3. **Sync vs async:** managed `connect()` is async (it connects); BYO `connect(client)` can be sync. OK to
    have both, or normalize to always-async for one signature?

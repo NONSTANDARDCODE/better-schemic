@@ -6,7 +6,7 @@
 
 ## 1. The idea
 
-Make `@schemic/core` a **generic kinded-definable engine**. Core stops hard-coding the *object kinds* a
+Make `@better-schemic/core` a **generic kinded-definable engine**. Core stops hard-coding the *object kinds* a
 schema can contain (`table`/`field`/`index`/`event`/`function`/`access`). Instead, each driver
 **registers KINDS**, and each kind brings:
 

@@ -8,11 +8,11 @@ import {
 } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import * as p from "@clack/prompts";
-// The @schemic versions this scaffolder pins are its OWN version (the packages release lockstep), so a
+// The @better-schemic versions this scaffolder pins are its OWN version (the packages release lockstep), so a
 // fresh project always gets a matching set. Inlined at build by tsup.
-import { version as SCHEMIC_VERSION } from "../package.json";
+import { version as BETTER_SCHEMIC_VERSION } from "../package.json";
 
-const RANGE = `^${SCHEMIC_VERSION}`;
+const RANGE = `^${BETTER_SCHEMIC_VERSION}`;
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 
@@ -23,7 +23,7 @@ const DRIVERS: Record<
 > = {
   surrealdb: {
     label: "SurrealDB",
-    pkg: "@schemic/surrealdb",
+    pkg: "@better-schemic/surrealdb",
     deps: { surrealdb: "^2.0.3", zod: "^4.3.5" },
   },
 };
@@ -58,14 +58,14 @@ function parseArgs(argv: string[]): Options {
 }
 
 function printHelp(): void {
-  console.log(`create-schemic — scaffold a new Schemic project
+  console.log(`create-better-schemic — scaffold a new Better-schemic project
 
-Usage: create-schemic [directory] [options]
+Usage: create-better-schemic [directory] [options]
 
 Options:
   --driver <name>   ${DRIVER_NAMES.join(" | ")}
   --pm <name>       ${PMS.join(" | ")} (the package manager to install with)
-  --no-install      scaffold only; don't install or run \`schemic init\`
+  --no-install      scaffold only; don't install or run \`better-schemic init\`
   --no-git          don't run \`git init\`
   -y, --yes         accept defaults, no prompts
   -h, --help        show this help`);
@@ -89,21 +89,21 @@ function abortIfCancel<T>(value: T | symbol): T {
 
 // --- templates ---------------------------------------------------------------------------------
 
-// One `db` script aliases the `schemic` CLI — `bun run db gen`, `bun run db migrate`, `bun run db seed`,
+// One `db` script aliases the `better-schemic` CLI — `bun run db gen`, `bun run db migrate`, `bun run db seed`,
 // etc. (bun/pnpm/yarn forward the subcommand directly; npm needs `npm run db -- gen`).
 const SCRIPTS: Record<string, string> = {
-  db: "schemic",
+  db: "better-schemic",
 };
 
-/** Runtime deps for `driver` under `pm` (pnpm needs @schemic/core directly — strict node_modules). */
+/** Runtime deps for `driver` under `pm` (pnpm needs @better-schemic/core directly — strict node_modules). */
 function depMap(driver: string, pm: Pm): Record<string, string> {
   const d = DRIVERS[driver];
   const deps: Record<string, string> = {
-    "@schemic/cli": RANGE,
+    "@better-schemic/cli": RANGE,
     [d.pkg]: RANGE,
     ...d.deps,
   };
-  if (pm === "pnpm") deps["@schemic/core"] = RANGE;
+  if (pm === "pnpm") deps["@better-schemic/core"] = RANGE;
   return deps;
 }
 
@@ -220,7 +220,7 @@ async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
   const tty = !!process.stdin.isTTY && !opts.yes;
 
-  p.intro(bold("create-schemic"));
+  p.intro(bold("create-better-schemic"));
 
   // 1. directory / name
   let dir = opts.dir;
@@ -228,12 +228,12 @@ async function main(): Promise<void> {
     dir = abortIfCancel(
       await p.text({
         message: "Project directory",
-        placeholder: "schemic-app",
-        defaultValue: "schemic-app",
+        placeholder: "better-schemic-app",
+        defaultValue: "better-schemic-app",
       }),
     );
   }
-  dir ||= "schemic-app";
+  dir ||= "better-schemic-app";
   const target = resolve(process.cwd(), dir);
   const name = basename(target);
   mkdirSync(target, { recursive: true });
@@ -304,14 +304,14 @@ async function main(): Promise<void> {
     applyTsconfig(target),
     writeIfAbsent(target, ".gitignore", GITIGNORE),
   ];
-  const header = isExisting ? `Adding Schemic to ${name}` : name;
+  const header = isExisting ? `Adding Better-schemic to ${name}` : name;
   p.log.step(
     `${bold(header)} ${dim(`(${DRIVERS[driver].label})`)}\n${written.join("\n")}`,
   );
   if (opts.git && !existsSync(join(target, ".git")))
     run("git", ["init", "-q"], target);
 
-  // 5. install + compose on `schemic init` (which scaffolds config + database/ via the driver)
+  // 5. install + compose on `better-schemic init` (which scaffolds config + database/ via the driver)
   if (install) {
     const s = p.spinner();
     s.start(`Installing dependencies with ${pm}`);
@@ -319,7 +319,7 @@ async function main(): Promise<void> {
     if (!r.ok) {
       s.stop(`${pm} install failed`);
       p.log.error(r.out.trim().split("\n").slice(-8).join("\n"));
-      p.outro(`Fix the install, then run ${bold("schemic init")}.`);
+      p.outro(`Fix the install, then run ${bold("better-schemic init")}.`);
       process.exit(1);
     }
     s.stop("Dependencies installed");
@@ -328,13 +328,14 @@ async function main(): Promise<void> {
     const cliJs = join(
       target,
       "node_modules",
-      "@schemic",
+      "@better-schemic",
       "cli",
       "lib",
       "cli.js",
     );
     // Mark the inner init as already-bootstrapped so it scaffolds directly (never forwards back here).
-    process.env.SCHEMIC_NO_BOOTSTRAP = "1";
+    process.env.BETTER_SCHEMIC_NO_BOOTSTRAP = "1";
+    process.env.SCHEMIC_NO_BOOTSTRAP = "1"; // legacy alias
     run(runtime, [cliJs, "init", "--driver", driver], target);
   }
 
@@ -345,7 +346,7 @@ async function main(): Promise<void> {
     pm === "npm" ? `npm run db -- ${sub}` : `${pm} run db ${sub}`;
   const steps = install
     ? `${cd}cp .env.example .env   ${dim("# set your connection")}\n${dbCmd("gen")}\n${dbCmd("migrate")}`
-    : `${cd}${pm} install\n${pm} exec schemic init --driver ${driver}\ncp .env.example .env\n${dbCmd("gen")}`;
+    : `${cd}${pm} install\n${pm} exec better-schemic init --driver ${driver}\ncp .env.example .env\n${dbCmd("gen")}`;
   p.note(steps, "Next steps");
   p.outro(`${bold(name)} is ready.`);
 }

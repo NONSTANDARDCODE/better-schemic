@@ -1,6 +1,6 @@
 # Authoring convention: the chainable escape-hatch method `.$<driver>(wire, codec?)`
 
-> A **documentation convention**, not core code: `@schemic/core`'s `SFieldBase`
+> A **documentation convention**, not core code: `@better-schemic/core`'s `SFieldBase`
 > stays dialect-neutral; each driver owns its dialect-named method. Greenlit by
 > Manuel (2026-06-18) per the standing directive "all drivers must expose a
 > chainable `.$<driver>` method".

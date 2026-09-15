@@ -1,13 +1,13 @@
 // SurrealDB driver-contributed CLI commands — `sc <kind> <verb> [args]`. Core's dispatch resolves the
 // connection + hands `run(ctx, parsed)` a CommandContext; THIS file owns the SurrealDB logic. Authored
-// against the landed DriverCommand contract (@schemic/core/driver). The driver validates positional
+// against the landed DriverCommand contract (@better-schemic/core/driver). The driver validates positional
 // arity itself; use `ctx.io` for all output (never stdio directly).
-import { isSecretRef, loadDefs } from "@schemic/core";
+import { isSecretRef, loadDefs } from "@better-schemic/core";
 import type {
   CommandContext,
   DriverCommand,
   ParsedCommandArgs,
-} from "@schemic/core/driver";
+} from "@better-schemic/core/driver";
 import { escapeIdent, type Surreal } from "surrealdb";
 import { lowerAccess } from "./cli/lower";
 import { introspectStructured, type StructAccess } from "./cli/structure";

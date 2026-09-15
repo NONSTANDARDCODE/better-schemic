@@ -1,4 +1,4 @@
-// @schemic/core/query toolkit: projection result-type inference (`Project`) + the runtime projection
+// @better-schemic/core/query toolkit: projection result-type inference (`Project`) + the runtime projection
 // codec (`projectionSchema`/`decodeProjection`). The driver-owned builder composes these; here we drive
 // them directly with a fake ref + a real Zod codec (string <-> Date) to prove decode actually transforms.
 
@@ -40,7 +40,7 @@ type _nested = Expect<
 // array projection:
 type _arr = Expect<Equal<Project<FakeRef<number>[]>, number[]>>;
 
-describe("@schemic/core/query — projection codec (runtime)", () => {
+describe("@better-schemic/core/query — projection codec (runtime)", () => {
   // A real codec: wire string <-> app Date (decode must transform, not pass through).
   const dateCodec = z.codec(z.string(), z.date(), {
     decode: (s) => new Date(s),

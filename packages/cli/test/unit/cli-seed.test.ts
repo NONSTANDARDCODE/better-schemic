@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ResolvedConfig } from "@schemic/core";
+import type { ResolvedConfig } from "@better-schemic/core";
 import { seed } from "../../src/cli/migrate";
 
 /** A fake driver connection that records which seeds ran + any SQL they applied. */
@@ -21,7 +21,7 @@ describe("seed (folder of named scripts)", () => {
   const cfg = () => ({ root }) as unknown as ResolvedConfig;
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), "schemic-seed-"));
+    root = mkdtempSync(join(tmpdir(), "better-schemic-seed-"));
     const dir = join(root, "database/seed");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "schema.surql"), "DEFINE TABLE user;\n");

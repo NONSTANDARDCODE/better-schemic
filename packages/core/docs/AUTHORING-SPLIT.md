@@ -3,7 +3,7 @@
 Status: **Approach A — B1 class split DONE.** Follows the engine genericization
 (snapshot + diff + migration-runner are already driver-parametric). This phase
 makes the **authoring layer** driver-parametric so SurrealDB can be pulled out of
-`@schemic/core` and a second driver's builder can plug in the same way.
+`@better-schemic/core` and a second driver's builder can plug in the same way.
 
 > **Implementation revision (B1).** The `portableBuilders` factory sketched below
 > turned out **not to be cleanly typeable**: a generic `portableBuilders<M>(mk: M)`
@@ -38,10 +38,10 @@ standardized App-land, per-DB Wire/native layer**. Concretely:
 
 - The **portable** part of `s.*` — the zod-native field factories (`s.string()`,
   `s.int()`, `s.datetime()`, `s.email()`, …) and the portable chainable wrappers
-  (`.optional()`, `.array()`, `.default()`, codecs) — lives in `@schemic/core`.
+  (`.optional()`, `.array()`, `.default()`, codecs) — lives in `@better-schemic/core`.
 - The **native** part — `SurrealMeta`, `RecordId`, the `string::is_*` format
   fields, every `$`-method (`$default`/`$assert`/`$computed`/`$permissions`/…) —
-  lives in `@schemic/surrealdb`, which extends the core base and re-exports a single
+  lives in `@better-schemic/surrealdb`, which extends the core base and re-exports a single
   `s` that is a drop-in superset.
 - A second driver plugs in by the **same mechanism**: its
   own field subclass + native metadata + native `$`-methods, re-exporting its own
@@ -62,14 +62,14 @@ generic, schema-changing methods is the design challenge.
 
 ## Approach A (chosen): portable base + dialect subclass
 
-The base class in `@schemic/core` holds **only portable** methods plus an opaque
+The base class in `@better-schemic/core` holds **only portable** methods plus an opaque
 `native` slot. A protected `rebuild` hook constructs the *concrete dialect* class
 at runtime; each dialect subclass adds its native `$`-methods and `declare`-
 retypes the inherited portable wrappers (signature-only — zero runtime cost) so
 chaining preserves the dialect's type.
 
 ```ts
-// ========== @schemic/core: the portable base ==========
+// ========== @better-schemic/core: the portable base ==========
 export abstract class SField<
   S extends z.ZodType,
   Flags extends string = never,
@@ -122,7 +122,7 @@ export function portableBuilders<F extends SField<z.ZodType, never, unknown>>(
 ```
 
 ```ts
-// ========== @schemic/surrealdb: the dialect extension ==========
+// ========== @better-schemic/surrealdb: the dialect extension ==========
 export class SurrealField<S extends z.ZodType, Flags extends string = never>
   extends SField<S, Flags, SurrealMeta>
 {
@@ -237,7 +237,7 @@ The engine (the driver-neutral orchestration in `cli/*` + the `Driver`
 interface) consumes only the **authoring contract** from the builder:
 `TableDef`, `Shape`, `StandaloneDef`, and the base `SField` type — the things
 `driver.lower(tables, defs)`, the schema-loader, and `migrate` pass around. These
-stay in `@schemic/core`. The driver reads `SField.schema` (portable) and
+stay in `@better-schemic/core`. The driver reads `SField.schema` (portable) and
 `SField.native` (its own metadata); only the surreal driver interprets
 `SurrealMeta`. The dialect-specific lowering (`cli/lower.ts` → Struct) and DDL
 (`ddl.ts`, `cli/structure.ts`, …) are already behind `surrealDriver` and move out
@@ -245,14 +245,14 @@ in phase C.
 
 ## Staging (keeps every test green until the physical move)
 
-- **B1 — done (refactor in place, inside `@schemic/core`).** Extracted the portable
+- **B1 — done (refactor in place, inside `@better-schemic/core`).** Extracted the portable
   base `SFieldBase`; `SField extends SFieldBase<…, SurrealMeta>` is the extension
   (here it's named `SField`, not `SurrealField` — keeping the public name minimizes
   churn; it can be renamed at the physical move). No generic `portableBuilders` (see
   the revision note at the top); `s` is unchanged. Behavior identical; tests still
-  `import { s, defineTable } from "@schemic/core"` and pass unchanged.
+  `import { s, defineTable } from "@better-schemic/core"` and pass unchanged.
 - **C — physical extraction.** Move `SField` (the extension) + natives + `ddl.ts` +
-  the surreal `cli/*` modules to `@schemic/surrealdb`; have core publicly export the
+  the surreal `cli/*` modules to `@better-schemic/surrealdb`; have core publicly export the
   authoring contract (`SFieldBase`/`TableDef`/`Shape`/`StandaloneDef`) + `Driver`/
    portable types + `ResolvedConfig`; re-point examples/docs/tests. A second driver's authoring
    follows as the parallel `SqlField extends SFieldBase` subclass

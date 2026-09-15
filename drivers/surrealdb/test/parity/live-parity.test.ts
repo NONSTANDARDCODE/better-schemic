@@ -1,17 +1,17 @@
 /**
  * PARITY — live round-trip against SurrealDB.
  *
- * Proves the DDL @schemic/core emits is ACCEPTED by a real SurrealDB (probed on 3.1.3)
+ * Proves the DDL @better-schemic/core emits is ACCEPTED by a real SurrealDB (probed on 3.1.3)
  * and round-trips through `INFO FOR TABLE ... STRUCTURE`. Skipped automatically when no
  * DB is reachable (CI / no DB), exactly like `test/live`.
  *
  * ISOLATION: everything runs inside a dedicated scratch namespace `__sz_parity` and a
- * fresh database that is DROPPED on teardown. It NEVER touches the `tracker`/`@schemic/core`
+ * fresh database that is DROPPED on teardown. It NEVER touches the `tracker`/`@better-schemic/core`
  * namespaces. We drive the SDK directly with explicit `.use({ namespace, database })`
  * rather than the shared `tryConnect` helper (whose default db must not be written to).
  */
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { planKinds } from "@schemic/core";
+import { planKinds } from "@better-schemic/core";
 import { Surreal, surql } from "surrealdb";
 import { z } from "zod";
 import { emitDefStatement, emitTable } from "../../src/ddl";
@@ -144,7 +144,7 @@ const Big = defineTable("pl_big", {
   uniq: s.string().$unique(),
 });
 
-live("DB accepts @schemic/core's generated DDL", () => {
+live("DB accepts @better-schemic/core's generated DDL", () => {
   test("the whole mixed-type table applies with ZERO rejections", async () => {
     const rejected = await applyEach(
       db!,
@@ -332,10 +332,10 @@ live("batch 1 + 2 features round-trip on the DB", () => {
   });
 });
 
-// --- These document live-confirmed GAPS: features the DB ACCEPTS but @schemic/core
+// --- These document live-confirmed GAPS: features the DB ACCEPTS but @better-schemic/core
 //     cannot express (or expresses lossily). Marked todo so the suite stays green. ---
-live("known gaps (DB supports these; @schemic/core does not)", () => {
-  test("object-literal union is accepted by the DB (@schemic/core emits plain object)", async () => {
+live("known gaps (DB supports these; @better-schemic/core does not)", () => {
+  test("object-literal union is accepted by the DB (@better-schemic/core emits plain object)", async () => {
     const rejected = await applyEach(
       db!,
       `DEFINE TABLE pl_litobj SCHEMAFULL; DEFINE FIELD r ON TABLE pl_litobj TYPE { kind: "a", x: string } | { kind: "b", y: number };`,

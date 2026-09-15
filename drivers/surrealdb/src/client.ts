@@ -1,7 +1,7 @@
-// The bound ORM CLIENT for SurrealDB (`@schemic/surrealdb/client`): connection-bound reads (P1,
+// The bound ORM CLIENT for SurrealDB (`@better-schemic/surrealdb/client`): connection-bound reads (P1,
 // `select`) + writes (P2, split builders `create`/`update`/`delete`) — no `.run(externalDb)` — over a
-// Schemic-MANAGED (resolved from the project config) or a BYO (wrap-your-own) SurrealDB connection.
-// Built on core's neutral OrmClientBase (disposable lifecycle). See @schemic/core
+// Better-schemic-MANAGED (resolved from the project config) or a BYO (wrap-your-own) SurrealDB connection.
+// Built on core's neutral OrmClientBase (disposable lifecycle). See @better-schemic/core
 // docs/proposals/managed-connections-and-orm-client.md.
 
 import {
@@ -9,7 +9,7 @@ import {
   type OrmClientBase,
   type ResolvedConfig,
   resolveConnection,
-} from "@schemic/core";
+} from "@better-schemic/core";
 import {
   type BoundQuery,
   type RecordId,
@@ -132,12 +132,12 @@ export class RawQuery<R extends unknown[] = unknown[]>
 
 /** Managed-connection options for {@link connect} (a subset of core's `resolveConnection`). */
 export interface ConnectOptions {
-  /** Path to `schemic.config.ts` (else auto-discovered from `cwd`). */
+  /** Path to `better-schemic.config.ts` (else auto-discovered from `cwd`). */
   config?: string;
   /** Working directory to discover the config from. */
   cwd?: string;
   /** The resolver's args (its declared 2nd param) for a PARAMETERIZED connection. Untyped here —
-   *  for per-connection typed args use the config factory: `schemic.connect(name, args)`. */
+   *  for per-connection typed args use the config factory: `betterSchemic.connect(name, args)`. */
   args?: unknown;
 }
 

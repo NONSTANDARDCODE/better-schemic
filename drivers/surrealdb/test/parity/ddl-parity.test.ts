@@ -1,8 +1,8 @@
 /**
  * PARITY — generated DDL assertions (no DB).
  *
- * Section-by-section feature audit of the @schemic/core SCHEMA/DDL layer against
- * SurrealDB's SurQL `DEFINE` statements. Each `test` pins the exact DDL @schemic/core
+ * Section-by-section feature audit of the @better-schemic/core SCHEMA/DDL layer against
+ * SurrealDB's SurQL `DEFINE` statements. Each `test` pins the exact DDL @better-schemic/core
  * emits for a feature (simple + complex/edge case); `test.todo` marks a confirmed GAP
  * (the SurQL it would need is in the comment + PARITY.md). The live round-trips that
  * prove SurrealDB 3.1.3 ACCEPTS this DDL live are in `live-parity.test.ts`.
@@ -124,7 +124,7 @@ describe("types — string formats (string::is_* baked when the DB has the valid
   });
 
   test("non-bakeable formats stay a plain string (no fabricated regex)", () => {
-    // The DB has no string::is_<fmt> for these — @schemic/core leaves them assert-free.
+    // The DB has no string::is_<fmt> for these — @better-schemic/core leaves them assert-free.
     expect(fieldDdl(s.jwt())).toBe("DEFINE FIELD f ON TABLE t TYPE string;");
     expect(fieldDdl(s.cuid())).toBe("DEFINE FIELD f ON TABLE t TYPE string;");
     expect(fieldDdl(s.nanoid())).toBe("DEFINE FIELD f ON TABLE t TYPE string;");
@@ -243,7 +243,7 @@ describe("types — GAPS (confirmed against the DB)", () => {
 
   // Object-LITERAL unions: the DB accepts
   //   TYPE { kind: "a", x: string } | { kind: "b", y: number }
-  // but @schemic/core collapses a discriminatedUnion of objects to a plain `object`.
+  // but @better-schemic/core collapses a discriminatedUnion of objects to a plain `object`.
   test("object-literal union collapses to plain object (lossy)", () => {
     const ddl = fieldDdl(
       s.discriminatedUnion("kind", [

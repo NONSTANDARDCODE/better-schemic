@@ -1,4 +1,4 @@
-// SurrealDB-specific config types — relocated out of @schemic/core/config, which is now connections-only
+// SurrealDB-specific config types — relocated out of @better-schemic/core/config, which is now connections-only
 // and dialect-free. A `surrealConnection({ … })` carries these; the resolution engine strips the neutral
 // base (schema/key/migrations) and the rest lands in `ResolvedConfig.params` (read it as {@link SurrealParams}).
 
@@ -41,7 +41,7 @@ export interface EmbeddedCapabilities {
 }
 
 /**
- * Run `schemic check`'s replay on an EMBEDDED in-process SurrealDB via the optional `@surrealdb/node`
+ * Run `better-schemic check`'s replay on an EMBEDDED in-process SurrealDB via the optional `@surrealdb/node`
  * package (install it yourself — `npm i -D @surrealdb/node`). Options pass through to
  * `createNodeEngines`; `backend`/`path` choose the storage. No external server, your data untouched.
  */
@@ -60,7 +60,7 @@ export interface SurrealZodCheckEmbedded {
   transaction_timeout?: number;
 }
 
-/** `schemic check` options (lives on a SurrealDB connection's config; rides into `params.check`). */
+/** `better-schemic check` options (lives on a SurrealDB connection's config; rides into `params.check`). */
 export interface SurrealZodCheck {
   /**
    * Engine for the migration replay:
@@ -78,7 +78,7 @@ export interface SurrealZodCheck {
   /**
    * Connection used for the `remote` engine, merged field-by-field over the connection's own params.
    * The replay spins up throwaway scratch databases and drops them — it NEVER reads or writes your real
-   * database — but it DOES reach the server. Point this at a local/scratch SurrealDB so `schemic check`
+   * database — but it DOES reach the server. Point this at a local/scratch SurrealDB so `better-schemic check`
    * never touches production. Falls back to the connection params for any field you omit.
    */
   db?: Partial<SurrealZodConnection>;
@@ -89,6 +89,6 @@ export interface SurrealZodCheck {
  * `check` replay config. `connect`/`introspect`/`checkReplay` read `config.params as SurrealParams`.
  */
 export interface SurrealParams extends SurrealZodConnection {
-  /** `schemic check` overrides — e.g. a dedicated connection for its migration replay. */
+  /** `better-schemic check` overrides — e.g. a dedicated connection for its migration replay. */
   check?: SurrealZodCheck;
 }

@@ -1,4 +1,4 @@
-import { defineRelation, defineTable, s } from "@schemic/surrealdb";
+import { defineRelation, defineTable, s } from "@better-schemic/surrealdb";
 import { cover } from "../_kit";
 
 const Person = defineTable("person", { id: s.string() });

@@ -1,4 +1,4 @@
-# SurrealQL Syntax Coverage — `@schemic/surrealdb`
+# SurrealQL Syntax Coverage — `@better-schemic/surrealdb`
 
 A grammar-accurate tracker for **100% of SurrealQL's syntax**. Each statement is reproduced as a
 **verbatim grammar block from the [SurrealQL reference](https://surrealdb.com/docs/surrealql)** (with
@@ -17,11 +17,11 @@ its full branching), followed by a checkbox for every clause/branch.
   fetched. If SurrealDB's grammar changes, re-fetch.
 
 **Legend:** `[ ]` not yet marked covered · `[x]` Manuel-confirmed covered by a `coverage/` item.
-Statements Schemic does not author (DML/control-flow) are tracked here for the **query layer**'s sake.
+Statements Better-schemic does not author (DML/control-flow) are tracked here for the **query layer**'s sake.
 
 **Validation basis:** grammar blocks are cross-checked against the **SurrealDB engine source** itself — the
 parser (`core/src/syn/parser/stmt/*`) and the canonical `Display`/`ToSql` impls (`core/src/sql/statements/*`,
-the exact form `INFO FOR …` serializes). Verified against tag **`v3.1.4`** (the version `@schemic/surrealdb`
+the exact form `INFO FOR …` serializes). Verified against tag **`v3.1.4`** (the version `@better-schemic/surrealdb`
 round-trips against) and re-checked against `3.2.0-nightly` (`main`); clauses present in both are unmarked,
 divergences are called out inline. Clauses that are **engine-confirmed but absent from the public docs site**
 are included (this is a 100%-syntax map) and tagged _(engine-confirmed; undocumented on the reference site)_.
@@ -596,7 +596,7 @@ INFO FOR [
 
 - [ ] `INFO FOR ROOT` · [ ] `INFO FOR NS|NAMESPACE` · [ ] `INFO FOR DB|DATABASE` · [ ] `INFO FOR TABLE @table` · [ ] `INFO FOR USER @user [ON @level]` · [ ] `INFO FOR INDEX @index ON @table`
 - [ ] `… VERSION @version` (point-in-time, on ROOT/NS/DB/TABLE only — not USER/INDEX; `sql/statements/info.rs`)
-- [ ] `… STRUCTURE` (the structured form Schemic introspects with)
+- [ ] `… STRUCTURE` (the structured form Better-schemic introspects with)
 
 ---
 

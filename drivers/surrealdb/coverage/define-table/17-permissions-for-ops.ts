@@ -1,4 +1,4 @@
-import { defineTable, surql } from "@schemic/surrealdb";
+import { defineTable, surql } from "@better-schemic/surrealdb";
 import { cover } from "../_kit";
 
 export default cover(import.meta.url, {

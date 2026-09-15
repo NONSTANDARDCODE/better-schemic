@@ -1,4 +1,4 @@
-import { isSecretRef, type SecretRef } from "@schemic/core";
+import { isSecretRef, type SecretRef } from "@better-schemic/core";
 import { BoundQuery, escapeIdent, toSurqlString } from "surrealdb";
 import type { z } from "zod";
 import {
@@ -445,7 +445,7 @@ export function braceBody(e: Expr): string {
 
 /**
  * Render one event `THEN` entry, AUTO-BLOCKING multi-statement bodies: authors write statements,
- * schemic owns the grammar. A bare entry with a top-level `;` becomes `{ …; }`; whitespace collapses
+ * better-schemic owns the grammar. A bare entry with a top-level `;` becomes `{ …; }`; whitespace collapses
  * to single spaces (quote-aware) — matching INFO's canonical spelling for blocks (single line,
  * trailing `;` kept), so authored and introspected structs compare equal. A single statement stays
  * bare (a trailing `;` is stripped — INFO returns single `THEN`s without one).
@@ -586,7 +586,7 @@ function warnInlineKey(access: string): void {
   if (warnedInlineKeys.has(access)) return;
   warnedInlineKeys.add(access);
   console.warn(
-    `schemic: access "${access}" has an inline literal KEY — prefer env()/secret() so the secret stays out of source + migration files.`,
+    `better-schemic: access "${access}" has an inline literal KEY — prefer env()/secret() so the secret stays out of source + migration files.`,
   );
 }
 

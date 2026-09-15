@@ -1,5 +1,5 @@
 /**
- * `@schemic/surrealdb/query` — the SurrealDB-native, opt-in query builder over `@schemic/core/query`.
+ * `@better-schemic/surrealdb/query` — the SurrealDB-native, opt-in query builder over `@better-schemic/core/query`.
  * Driver-OWNED surface: the operators + the lowering to SurrealQL live here; the cross-driver machinery
  * (projection inference + the projection decode) is reused from core.
  *
@@ -10,7 +10,7 @@
  * `$parent.<col>`), plus the single-row terminals `one()`/`get(T, id)` and `count()`.
  * Decode-by-default; `.raw()` opts out. Writes live in `./write`; `block()` in `./block`.
  */
-import type { FieldRefBase } from "@schemic/core/query";
+import type { FieldRefBase } from "@better-schemic/core/query";
 import {
   BoundQuery,
   escapeIdent,
@@ -594,7 +594,7 @@ export function select<const TDs extends readonly AnyTableDef[]>(
   tables: TDs,
   conn?: Queryable,
 ): Select<TDs[number], App<TDs[number]>>;
-/** UNTYPED SELECT over a table not modeled in Schemic — pass a plain name string or an SDK `Table`.
+/** UNTYPED SELECT over a table not modeled in Better-schemic — pass a plain name string or an SDK `Table`.
  *  The row is `Record<string, unknown>` (no decode); callback rows are a proxy (any field is a
  *  generic ref). Optionally target a record by id. */
 export function select(

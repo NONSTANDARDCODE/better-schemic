@@ -9,7 +9,7 @@
  * and an outer-row ref inside a subquery lower to `$parent.name` automatically.
  */
 
-import { brandRef, type FieldRefBase } from "@schemic/core/query";
+import { brandRef, type FieldRefBase } from "@better-schemic/core/query";
 import { BoundQuery, escapeIdent, type RecordId } from "surrealdb";
 import { type RefMethodSpec, refMethods } from "../fn";
 import type { App, ParamDef, ParamRef, Range, TableDef } from "../pure";
@@ -85,7 +85,7 @@ export type Expr = ExprNode & ExprOps;
 export type Predicate = Expr | BoundQuery;
 
 /** The Expr brand (`Symbol.for` — readable across layers without importing this module). */
-const EXPR_BRAND: unique symbol = Symbol.for("schemic.surrealdb.expr") as never;
+const EXPR_BRAND: unique symbol = Symbol.for("better-schemic.surrealdb.expr") as never;
 /** Is this a builder predicate Expr? (`block().return((s) => s.res.id.isNotNone())`). */
 export function isExpr(v: unknown): v is Expr {
   return (
@@ -518,7 +518,7 @@ export function mkRef(state: RefState): FieldRef<unknown> {
   // Interpolation: a PLAIN column ref splices as its escaped column path (the tag's colref
   // brand); a derived/`$var` ref splices as its rendered fragment.
   if (!state.wrap && "col" in state.root)
-    impl[Symbol.for("schemic.surrealdb.colref")] = state.root.col;
+    impl[Symbol.for("better-schemic.surrealdb.colref")] = state.root.col;
   impl[FRAGMENT] = (): BoundQuery => {
     const ctx: Ctx = { vars: {} };
     const text = renderRef(state, ctx);

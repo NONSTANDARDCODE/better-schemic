@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Driver, driverNames, registerDriver } from "@schemic/core";
+import { type Driver, driverNames, registerDriver } from "@better-schemic/core";
 import { resolveOne, resolveTargets } from "../../src/cli/resolve";
 
-// Fixtures live UNDER the package so a jiti-loaded config's `import "@schemic/core"` resolves through
+// Fixtures live UNDER the package so a jiti-loaded config's `import "@better-schemic/core"` resolves through
 // packages/cli/node_modules (a /tmp dir has no node_modules to walk up into).
 const BASE = join(import.meta.dir, "..", ".tmp-resolve");
 
@@ -28,8 +28,8 @@ const faux = {
 function writeConfig(body: string): string {
   const dir = mkdtempSync(join(BASE, "p-"));
   mkdirSync(join(dir, "schema"), { recursive: true });
-  writeFileSync(join(dir, "schemic.config.ts"), body, "utf8");
-  return join(dir, "schemic.config.ts");
+  writeFileSync(join(dir, "better-schemic.config.ts"), body, "utf8");
+  return join(dir, "better-schemic.config.ts");
 }
 
 beforeAll(() => {
@@ -43,8 +43,8 @@ afterAll(() => {
 
 // A project with a single default connection + a 2-element tenant collection (resolver, --arg-aware).
 const COLLECTION = `
-import { connectionEntry } from "@schemic/core";
-import { defineConfig } from "@schemic/core/config";
+import { connectionEntry } from "@better-schemic/core";
+import { defineConfig } from "@better-schemic/core/config";
 export default defineConfig({
   defaultConnection: "primary",
   connections: {
@@ -137,8 +137,8 @@ describe("resolveTargets — lazy cross-connection proxy", () => {
   test("a resolver can query a sibling, which is opened then closed", async () => {
     queries.length = 0;
     const config = writeConfig(`
-import { connectionEntry } from "@schemic/core";
-import { defineConfig } from "@schemic/core/config";
+import { connectionEntry } from "@better-schemic/core";
+import { defineConfig } from "@better-schemic/core/config";
 export default defineConfig({
   defaultConnection: "child",
   connections: {
@@ -158,8 +158,8 @@ export default defineConfig({
 
   test("a resolution cycle errors instead of looping", async () => {
     const config = writeConfig(`
-import { connectionEntry } from "@schemic/core";
-import { defineConfig } from "@schemic/core/config";
+import { connectionEntry } from "@better-schemic/core";
+import { defineConfig } from "@better-schemic/core/config";
 export default defineConfig({
   defaultConnection: "a",
   connections: {

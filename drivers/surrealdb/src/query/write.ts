@@ -14,12 +14,12 @@
  * are SurrealDB-native extras.
  */
 
-import type { FieldRefBase } from "@schemic/core/query";
+import type { FieldRefBase } from "@better-schemic/core/query";
 import {
   decodeProjection,
   type Project,
   type ProjectionField,
-} from "@schemic/core/query";
+} from "@better-schemic/core/query";
 import { BoundQuery, escapeIdent, RecordId, Table } from "surrealdb";
 import type {
   App,

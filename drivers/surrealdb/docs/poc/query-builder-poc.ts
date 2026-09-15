@@ -2,12 +2,12 @@
  * Query-builder feasibility POC (TYPES ONLY — runtime is stubbed).
  *
  * Goal: prove that a fluent `select(table).where(...).return(...)` builder can be
- * driven entirely by a @schemic/core `s` table definition, and that its RESULT
+ * driven entirely by a @better-schemic/core `s` table definition, and that its RESULT
  * TYPE is correctly INFERRED as the *decoded* `App` shape (codecs applied:
  * datetime -> Date, uuid -> string, recordId -> RecordId), with projections
  * narrowing the result to exactly the selected fields.
  *
- * This is the load-bearing risk for "build a query builder on top of @schemic/core".
+ * This is the load-bearing risk for "build a query builder on top of @better-schemic/core".
  * If this compiles, the core inference threading is feasible.
  *
  * Compile with:  bunx tsc --noEmit -p tsconfig.json   (from this directory)
@@ -44,7 +44,7 @@ const User = defineTable("user", {
   manager: s.recordId("user").optional(), // record link -> RecordId<"user">
 });
 
-// The decoded app type, straight from @schemic/core. The builder must reproduce
+// The decoded app type, straight from @better-schemic/core. The builder must reproduce
 // this for a full-row select.
 type UserApp = App<typeof User>;
 

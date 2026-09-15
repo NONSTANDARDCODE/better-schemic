@@ -1,4 +1,4 @@
-// The shared coverage-reconcile helper (@schemic/core/testing) — proves the PURE reconcileCoverage
+// The shared coverage-reconcile helper (@better-schemic/core/testing) — proves the PURE reconcileCoverage
 // logic passes a well-formed manifest and flags each drift mode. Uses a minimal fake registry so the
 // checks are exercised without a real driver.
 import { describe, expect, test } from "bun:test";

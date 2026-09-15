@@ -1,5 +1,5 @@
 /**
- * The @schemic/surrealdb SYNTAX-COVERAGE suite — exhaustive, tsc-checked permutations of every
+ * The @better-schemic/surrealdb SYNTAX-COVERAGE suite — exhaustive, tsc-checked permutations of every
  * `DEFINE …` statement, each pinned to the exact DDL it emits. Internal completeness net (NOT the
  * public examples gallery). See `_kit.ts` and `test/coverage/*`.
  */

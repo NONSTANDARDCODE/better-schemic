@@ -1,5 +1,5 @@
 /**
- * Shared kit for the @schemic/surrealdb REFERENCE example cookbook.
+ * Shared kit for the @better-schemic/surrealdb REFERENCE example cookbook.
  *
  * Each example is a REAL, tsc-checked `.ts` file under its group folder: `example(import.meta.url, {
  * title, note?, ddl, def })`. `def` is the actual authoring expression (so `tsc` type-checks every

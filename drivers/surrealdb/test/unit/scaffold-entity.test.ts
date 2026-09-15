@@ -1,5 +1,5 @@
 /**
- * `schemic new <kind> <name>` -> surrealDriver.scaffoldEntity(kind, name). Each template must be a
+ * `better-schemic new <kind> <name>` -> surrealDriver.scaffoldEntity(kind, name). Each template must be a
  * VALID authoring module: we eval the generated `define*` expression and assert it emits real DDL for
  * `name` (catching template typos / bad API usage), plus the throw paths (inline-only + unknown kinds).
  */
@@ -57,7 +57,7 @@ describe("scaffoldEntity — authorable kinds emit valid DDL", () => {
       const src = scaffoldEntity(kind, "thing_one");
       // PascalCase export name from the snake_case input.
       expect(src).toContain("export const ThingOne =");
-      expect(src).toContain('from "@schemic/surrealdb"');
+      expect(src).toContain('from "@better-schemic/surrealdb"');
       expect(emitScaffold(src)).toContain(includes);
     });
   }

@@ -12,7 +12,7 @@
  * Side-effect-free; imports only the render primitives — safe from the authoring index.
  */
 
-import type { FieldRefBase } from "@schemic/core/query";
+import type { FieldRefBase } from "@better-schemic/core/query";
 import type { BoundQuery } from "surrealdb";
 import { Surql } from "./frag";
 import type { ParamDef, ParamRef } from "./pure";

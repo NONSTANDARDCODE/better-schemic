@@ -8,7 +8,7 @@
  * exactly like the other live parity suites. Isolated in its own scratch namespace/db, dropped on teardown.
  */
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { planKinds } from "@schemic/core";
+import { planKinds } from "@better-schemic/core";
 import { Surreal, surql } from "surrealdb";
 import { emitDefStatement, emitTable } from "../../src/ddl";
 import { introspectAll } from "../../src/kinds/explode";

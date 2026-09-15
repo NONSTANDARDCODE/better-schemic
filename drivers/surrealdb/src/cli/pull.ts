@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import type { ResolvedConfig } from "@schemic/core";
+import type { ResolvedConfig } from "@better-schemic/core";
 import {
   existingTables,
   type Filter,
@@ -11,8 +11,8 @@ import {
   parseFilter,
   type RenderedUnit,
   scanLocalEntities,
-} from "@schemic/core";
-import { loadDefs } from "@schemic/core";
+} from "@better-schemic/core";
+import { loadDefs } from "@better-schemic/core";
 import { formatSurql } from "./format";
 import type { Surreal } from "surrealdb";
 import { formatForAssert } from "../pure";
@@ -666,14 +666,14 @@ function tableUnit(t: StructTable, ctx: RenderCtx): RenderedUnit {
   // A view's code uses no `s.*` builder — import only the factory then (avoids an unused `s` import).
   const needsS = t.view === undefined && code.includes("s.");
   const imports = [
-    `import { ${needsS ? "s, " : ""}${factory} } from "@schemic/surrealdb";`,
+    `import { ${needsS ? "s, " : ""}${factory} } from "@better-schemic/surrealdb";`,
   ];
   // Cross-table value imports (one per referenced table, sorted, self excluded).
   for (const dep of [...ctx.imports].filter((d) => d !== t.name).sort()) {
     imports.push(`import { ${ctx.constOf(dep)} } from "./${dep}";`);
   }
   // `surql` lives in surrealdb (where hand-authored files import it from) — a separate line, never
-  // folded into the @schemic/surrealdb import (which would reprint/reorder that import on every pull).
+  // folded into the @better-schemic/surrealdb import (which would reprint/reorder that import on every pull).
   if (code.includes("surql`"))
     imports.push(`import { surql } from "surrealdb";`);
   return {
@@ -942,7 +942,7 @@ function planFile(
 function functionUnit(fn: StructFunction): RenderedUnit {
   const code = renderFunctionConst(fn);
   const names = ["defineFunction", ...(code.includes("s.") ? ["s"] : [])];
-  const imports = [`import { ${names.join(", ")} } from "@schemic/surrealdb";`];
+  const imports = [`import { ${names.join(", ")} } from "@better-schemic/surrealdb";`];
   // `surql` from surrealdb on its own line (see tableUnit) — a function body is always a surql expr.
   if (code.includes("surql`"))
     imports.push(`import { surql } from "surrealdb";`);
@@ -958,7 +958,7 @@ function functionUnit(fn: StructFunction): RenderedUnit {
 /** The rendered unit for one db-level access def. */
 function accessUnit(a: StructAccess): RenderedUnit {
   const code = renderAccessConst(a);
-  const imports = [`import { defineAccess } from "@schemic/surrealdb";`];
+  const imports = [`import { defineAccess } from "@better-schemic/surrealdb";`];
   if (code.includes("surql`"))
     imports.push(`import { surql } from "surrealdb";`);
   return {
@@ -1019,7 +1019,7 @@ function analyzerUnit(a: StructAnalyzer): RenderedUnit {
     name: a.name,
     exportName: fnConst(a.name),
     code: renderAnalyzerConst(a),
-    imports: [`import { defineAnalyzer } from "@schemic/surrealdb";`],
+    imports: [`import { defineAnalyzer } from "@better-schemic/surrealdb";`],
   };
 }
 
@@ -1075,7 +1075,7 @@ function paramUnit(p: StructParam): RenderedUnit {
     name: p.name,
     exportName: fnConst(p.name),
     code: renderParamConst(p),
-    imports: [`import { defineParam } from "@schemic/surrealdb";`],
+    imports: [`import { defineParam } from "@better-schemic/surrealdb";`],
   };
 }
 
@@ -1121,11 +1121,11 @@ function mergeImports(units: RenderedUnit[]): string[] {
         .filter(Boolean))
         set.add(s);
     }
-  // @schemic/surrealdb first, then the relative cross-file imports (sorted).
+  // @better-schemic/surrealdb first, then the relative cross-file imports (sorted).
   order.sort((a, b) =>
-    a === "@schemic/surrealdb"
+    a === "@better-schemic/surrealdb"
       ? -1
-      : b === "@schemic/surrealdb"
+      : b === "@better-schemic/surrealdb"
         ? 1
         : a.localeCompare(b),
   );
@@ -1205,8 +1205,8 @@ function assembleCombined(
     accesses.length > 0 ||
     ordered.some((r) => r.usesSurql);
   const names = ["s", ...factories];
-  const imports = [`import { ${names.join(", ")} } from "@schemic/surrealdb";`];
-  // `surql` from surrealdb on its own line (see tableUnit), kept out of the @schemic/surrealdb import.
+  const imports = [`import { ${names.join(", ")} } from "@better-schemic/surrealdb";`];
+  // `surql` from surrealdb on its own line (see tableUnit), kept out of the @better-schemic/surrealdb import.
   if (usesSurql) imports.push(`import { surql } from "surrealdb";`);
   // Params + analyzers first — functions/events may reference $params; a FULLTEXT index its analyzer.
   const body = [

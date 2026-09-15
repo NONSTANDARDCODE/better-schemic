@@ -1,6 +1,6 @@
-# @schemic/surrealdb
+# @better-schemic/surrealdb
 
-The SurrealDB driver for [Schemic](https://github.com/schemichq/schemic) — author
+The SurrealDB driver for [Better-schemic](https://github.com/NONSTANDARDCODE/better-schemic) — author
 your SurrealDB schema in TypeScript and generate SurrealQL DDL, types, and
 migrations from that one definition.
 
@@ -11,27 +11,27 @@ migrations from that one definition.
 ## Install
 
 ```bash
-bun add @schemic/cli @schemic/surrealdb zod
+bun add @better-schemic/cli @better-schemic/surrealdb zod
 ```
 
 `zod` is a required peer. `@surrealdb/node` is an optional peer (the embedded
-in-memory engine `schemic check` can replay into). The `surrealdb` SDK ships with
+in-memory engine `better-schemic check` can replay into). The `surrealdb` SDK ships with
 the driver — you only import it directly in seed or app query code.
 
 ## Quick start
 
-Scaffold a project (`sc` is the short alias for `schemic`):
+Scaffold a project (`sc` is the short alias for `better-schemic`):
 
 ```bash
 sc init
 ```
 
-`init` writes a `schemic.config.ts`, a sample `user` schema, a seed stub, and
+`init` writes a `better-schemic.config.ts`, a sample `user` schema, a seed stub, and
 `.env.example`. The sample schema:
 
 ```ts
 // database/schema/tables/user.ts
-import { defineTable, s, surql } from "@schemic/surrealdb";
+import { defineTable, s, surql } from "@better-schemic/surrealdb";
 
 export const User = defineTable("user", {
   name: s.string().$assert(surql`string::len($value) > 0`),
@@ -50,12 +50,12 @@ DEFINE INDEX user_email_idx ON TABLE user FIELDS email UNIQUE;
 DEFINE FIELD createdAt ON TABLE user TYPE datetime DEFAULT time::now() READONLY;
 ```
 
-The connection lives in `schemic.config.ts` — a named connection from the
+The connection lives in `better-schemic.config.ts` — a named connection from the
 `surrealConnection` factory (no `driver:` string to keep in sync):
 
 ```ts
-import { defineConfig } from "@schemic/core/config";
-import { surrealConnection } from "@schemic/surrealdb/connection";
+import { defineConfig } from "@better-schemic/core/config";
+import { surrealConnection } from "@better-schemic/surrealdb/connection";
 
 export default defineConfig({
   connections: {
@@ -89,14 +89,14 @@ A table definition carries codecs that bridge your app values and the database
 wire format. `decode` turns a returned row into typed values (a `datetime`
 becomes a `Date`, a `uuid` a string, record links resolve); `encode` and
 `encodePartial` build the payloads you write back. You keep the `surrealdb` SDK
-for queries — Schemic owns the schema, DDL, migrations, and row types.
+for queries — Better-schemic owns the schema, DDL, migrations, and row types.
 
 ## Docs
 
 Full guides, concepts, and reference live at
-[surreal.schemic.dev/docs](https://surreal.schemic.dev/docs). For a
+[docs](https://github.com/NONSTANDARDCODE/better-schemic). For a
 feature-by-feature map, see [docs/COVERAGE.md](docs/COVERAGE.md). This package is
-part of the [Schemic](https://github.com/schemichq/schemic) toolkit.
+part of the [Better-schemic](https://github.com/NONSTANDARDCODE/better-schemic) toolkit.
 
 ## License
 

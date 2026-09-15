@@ -1,4 +1,4 @@
-import { defineAnalyzer } from "@schemic/surrealdb";
+import { defineAnalyzer } from "@better-schemic/surrealdb";
 import { cover } from "../_kit";
 
 export default cover(import.meta.url, {

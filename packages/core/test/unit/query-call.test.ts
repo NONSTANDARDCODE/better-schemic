@@ -1,4 +1,4 @@
-// @schemic/core/query `callFunction`: invoke a defined DB function via the `callable` capability and
+// @better-schemic/core/query `callFunction`: invoke a defined DB function via the `callable` capability and
 // decode the raw result through the function's `.returns(R)` schema. Driven here with a fake callable +
 // a real Zod codec (string <-> Date) to prove the decode-by-default differentiator.
 
@@ -11,7 +11,7 @@ const dateCodec = z.codec(z.string(), z.date(), {
   encode: (d) => d.toISOString(),
 });
 
-describe("@schemic/core/query — callFunction", () => {
+describe("@better-schemic/core/query — callFunction", () => {
   test("invokes by name with the args, then decodes the result through the return schema", async () => {
     const calls: { name: string; args: Record<string, unknown> }[] = [];
     const callable: CallableFunctions = {

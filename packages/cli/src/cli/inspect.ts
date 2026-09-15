@@ -22,7 +22,7 @@ import {
   readSnapshot,
   snapshotObjects,
   style,
-} from "@schemic/core";
+} from "@better-schemic/core";
 import type { Command } from "commander";
 import { runAction } from "./action";
 import { type ResolveOpts, resolveOne } from "./resolve";

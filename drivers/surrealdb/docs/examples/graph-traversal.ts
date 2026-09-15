@@ -1,5 +1,5 @@
 /**
- * Graph traversal showcase — the typed `->edge->node` surface of `@schemic/surrealdb/query`.
+ * Graph traversal showcase — the typed `->edge->node` surface of `@better-schemic/surrealdb/query`.
  *
  * Run it:  bun run docs/examples/graph-traversal.ts
  * Each query prints the SurQL it lowers to (shown inline as `// =>` comments, verified against a live

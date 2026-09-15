@@ -1,4 +1,4 @@
-import type { SeedContext } from "@schemic/core";
+import type { SeedContext } from "@better-schemic/core";
 import type { Surreal } from "surrealdb";
 
 /**

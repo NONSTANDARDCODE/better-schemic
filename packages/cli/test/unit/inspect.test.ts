@@ -2,7 +2,7 @@
 // --snapshot/--live mutually exclusive), table-scoped addressing (parent hook, owner fallback), and
 // per-kind address listing.
 import { describe, expect, test } from "bun:test";
-import type { KindEngine, KindRegistry, PortableObject } from "@schemic/core";
+import type { KindEngine, KindRegistry, PortableObject } from "@better-schemic/core";
 import {
   addressesOfKind,
   addressOf,

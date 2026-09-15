@@ -17,7 +17,7 @@
 // calling another fn::). Edges to functions outside the diff are ignored by the spine, so over-reporting
 // is harmless. (SEARCH index -> analyzer edges land when the analyzer kind is registered.)
 
-import type { AnyTable, AuthoredDef, Ref } from "@schemic/core";
+import type { AnyTable, AuthoredDef, Ref } from "@better-schemic/core";
 import type { Surreal } from "surrealdb";
 import { schemaStruct } from "../cli/lower";
 import { normalizeDb } from "../cli/struct";

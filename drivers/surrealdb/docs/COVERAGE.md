@@ -1,4 +1,4 @@
-# Coverage — `@schemic/surrealdb`
+# Coverage — `@better-schemic/surrealdb`
 
 A complete, honest map of **every piece of SurrealDB's schema/DDL surface** vs what this driver
 actually supports. Gaps are listed explicitly, not guessed — so what's missing is visible.
@@ -204,7 +204,7 @@ This is where the honesty lives — projections, redactions, and emit-but-don't-
 
 ## Kind inventory (core-v2 kind-registry migration)
 
-Tracks the migration of this driver's object kinds onto the `@schemic/core` **kind registry**
+Tracks the migration of this driver's object kinds onto the `@better-schemic/core` **kind registry**
 (`packages/core/docs/kind-registry-contract.md`). Lists **every** kind SurrealDB has — including ones
 not registered yet — so the gaps stay visible. `field` is **substrate nested in `table`**, not a kind.
 

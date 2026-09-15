@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import type { ResolvedConfig } from "@schemic/core";
+import type { ResolvedConfig } from "@better-schemic/core";
 import {
   type Authored,
   type AuthoredDef,
@@ -39,7 +39,7 @@ import {
   style,
   timestamp,
   writeSnapshot,
-} from "@schemic/core";
+} from "@better-schemic/core";
 
 /**
  * Build the canonical STORED snapshot from the authored schema: explode authoring into kinded
@@ -252,7 +252,7 @@ async function recordApplied(
  * — respecting `filter`, the same one `pull` used — and, when it differs from the stored snapshot,
  * write a migration capturing that delta, recorded as already-applied (those objects already exist
  * in the DB, so the DDL must not re-run). Only what is actually in the DB is baselined: any
- * hand-written schema not yet in the DB stays pending for the next `schemic gen`. Returns the migration's
+ * hand-written schema not yet in the DB stays pending for the next `better-schemic gen`. Returns the migration's
  * metadata, or `created: false` when nothing changed.
  */
 export async function baseline(
@@ -263,13 +263,13 @@ export async function baseline(
   const driver = getDriver(config.driver ?? "surrealdb");
   const reg = driver.registry;
   // What actually exists in the live DB (canonical portable objects), used ONLY to scope the
-  // baseline: hand-written schema not yet in the DB stays pending for the next `schemic gen` rather
+  // baseline: hand-written schema not yet in the DB stays pending for the next `better-schemic gen` rather
   // than being silently marked applied. introspectAll already canonicalizes (== lowering).
   const live = await driver.introspectAll(
     db,
     new Set([config.migrationsTable, `${config.migrationsTable}_lock`]),
   );
-  // The snapshot stores GENERATOR-form schema (what `schemic gen`/`schemic diff` compare against
+  // The snapshot stores GENERATOR-form schema (what `better-schemic gen`/`better-schemic diff` compare against
   // offline). We take the just-pulled disk schema and keep only the objects present in the DB —
   // intersecting by `kind:name` so the stored form stays the canonical (generator) one, not the INFO form.
   const { tables, defs, fileOf } = await loadDefs(config.schemaPath);
@@ -325,7 +325,7 @@ export function clearMigrationFiles(config: ResolvedConfig): string[] {
  * fresh baseline). When the live DB already matches the schema (`drift` false), drop the now-stale
  * applied-records and record the baseline as already-applied — its DDL is never re-run. When the DB
  * differs (`drift` true), leave the history untouched and report the baseline as still pending (the
- * next `schemic migrate` applies it). Caller handles the no-connection case.
+ * next `better-schemic migrate` applies it). Caller handles the no-connection case.
  */
 export async function reconcileBaseline(
   db: unknown,

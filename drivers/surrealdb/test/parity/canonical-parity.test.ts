@@ -1,11 +1,11 @@
 /**
  * CANONICAL PARITY — the two DDL emitters must agree.
  *
- * @schemic/core has two "canonical DDL" emitters that have to produce identical output for an
+ * @better-schemic/core has two "canonical DDL" emitters that have to produce identical output for an
  * equivalent schema, or the diff engine reports phantom changes:
- *   - the GENERATOR (`emit` in `ddl.ts`)        — TS defs -> DDL, used by offline `schemic gen`/`schemic diff`
+ *   - the GENERATOR (`emit` in `ddl.ts`)        — TS defs -> DDL, used by offline `better-schemic gen`/`better-schemic diff`
  *   - the INTROSPECTOR (`canonical*` in `structure.ts`) — live `INFO … STRUCTURE` -> DDL, used by
- *     `schemic diff --live`/shadow-verify
+ *     `better-schemic diff --live`/shadow-verify
  * They are independent today (each world compares against itself), but shadow-verify will compare
  * one against the other — so they must converge. This harness applies a broad corpus to a real DB,
  * reads it back, and asserts the generator's snapshot DDL equals the introspected DDL per object.

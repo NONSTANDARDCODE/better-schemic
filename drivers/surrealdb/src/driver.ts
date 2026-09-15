@@ -1,8 +1,8 @@
 /**
- * `@schemic/surrealdb/driver` — the engine surface: the SurrealDB `Driver` implementation, the
+ * `@better-schemic/surrealdb/driver` — the engine surface: the SurrealDB `Driver` implementation, the
  * SurrealQL DDL emitters, and the `registerDriver` SIDE-EFFECT (registers `surrealDriver` with the
- * `@schemic/core` registry on import, so the CLI's `getDriver("surrealdb")` resolves). CLI/engine-only
- * — kept OUT of the side-effect-free authoring index (`@schemic/surrealdb`) so `s.*` never drags the
+ * `@better-schemic/core` registry on import, so the CLI's `getDriver("surrealdb")` resolves). CLI/engine-only
+ * — kept OUT of the side-effect-free authoring index (`@better-schemic/surrealdb`) so `s.*` never drags the
  * emit/diff engine into an app bundle. The CLI loader imports this subpath to register the driver.
  */
 

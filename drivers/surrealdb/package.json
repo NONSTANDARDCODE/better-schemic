@@ -1,13 +1,13 @@
 {
-  "name": "@schemic/surrealdb",
+  "name": "@better-schemic/surrealdb",
   "version": "0.1.0-alpha.24",
-  "description": "SurrealDB driver + authoring for Schemic — s.* schema definition, SurrealQL DDL, introspection, migrations.",
+  "description": "SurrealDB driver + authoring for Better-schemic — s.* schema definition, SurrealQL DDL, introspection, migrations.",
   "license": "MIT",
   "author": "Vertio Solutions",
-  "homepage": "https://surreal.schemic.dev",
+  "homepage": "https://github.com/NONSTANDARDCODE/better-schemic",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/schemichq/schemic.git",
+    "url": "git+https://github.com/NONSTANDARDCODE/better-schemic.git",
     "directory": "drivers/surrealdb"
   },
   "type": "module",
@@ -73,7 +73,7 @@
     "lint": "biome check ."
   },
   "dependencies": {
-    "@schemic/core": "workspace:*"
+    "@better-schemic/core": "workspace:*"
   },
   "peerDependencies": {
     "@surrealdb/node": "*",
@@ -88,7 +88,7 @@
   "devDependencies": {
     "@ark/attest": "0.56.3",
     "@biomejs/biome": "^2.3.11",
-    "@schemic/cli": "workspace:*",
+    "@better-schemic/cli": "workspace:*",
     "@types/bun": "latest",
     "surrealdb": "^2.0.3",
     "tsup": "^8",

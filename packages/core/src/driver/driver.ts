@@ -156,7 +156,7 @@ export interface ShadowCapability<Conn> {
  * `invoke` calls a defined function by name with already-encoded args and returns the function's RAW
  * result (the driver extracts it from its own response shape — surreal `RETURN fn::name($a)` yields the
  * value; a row-returning call yields a row set). The caller decodes that raw value through the
- * function's `.returns(R)` schema via `callFunction` in `@schemic/core/query`. A defined function still
+ * function's `.returns(R)` schema via `callFunction` in `@better-schemic/core/query`. A defined function still
  * emits/migrates via the schema engine regardless; this capability only adds INVOCATION.
  */
 export interface CallableFunctions<Conn = unknown> {
@@ -363,11 +363,11 @@ export interface Driver<
    */
   readonly callable?: CallableFunctions<Conn>;
   /**
-   * The dialect-specific files `schemic init` scaffolds, keyed by project-relative path: a
-   * connections-only `schemic.config.ts` (using this driver's `<driver>Connection` factory), a sample
+   * The dialect-specific files `better-schemic init` scaffolds, keyed by project-relative path: a
+   * connections-only `better-schemic.config.ts` (using this driver's `<driver>Connection` factory), a sample
    * schema module in this dialect's `s.*`, a seed stub, a `.env.example`, … The CLI writes them
    * verbatim (never overwriting) alongside the dialect-neutral migration snapshot it records itself.
-   * Absent -> `schemic init` can't scaffold a project for this driver.
+   * Absent -> `better-schemic init` can't scaffold a project for this driver.
    */
   initScaffold?(): Record<string, string>;
   /**
@@ -375,19 +375,19 @@ export interface Driver<
    * `kind` named `name` (e.g. `("table", "user")` -> a `defineTable("user", { … })` module in this
    * dialect's authoring). Returns the file text; the CLI writes it under the kind's
    * {@link KindRegistry.display} folder. THROW for a kind this driver can't author (the CLI surfaces
-   * the message). Absent -> `schemic new` is unavailable for this driver.
+   * the message). Absent -> `better-schemic new` is unavailable for this driver.
    */
   scaffoldEntity?(kind: string, name: string): string;
 }
 
 // --- Registry -----------------------------------------------------------------------------------
 
-// Shared across every loaded copy of `@schemic/core` so the registry is process-global — the CLI run
+// Shared across every loaded copy of `@better-schemic/core` so the registry is process-global — the CLI run
 // via `bunx` resolves its own core, while a driver loaded from the user's project resolves the
 // project's core; without sharing, the driver self-registers in one Map and the CLI reads an empty
 // one. Keyed by a REGISTERED symbol (`Symbol.for`) — same key in every instance, but no string-keyed
 // `globalThis` pollution and namespaced so it can't collide.
-const REGISTRY_KEY = Symbol.for("@schemic/core.driverRegistry");
+const REGISTRY_KEY = Symbol.for("@better-schemic/core.driverRegistry");
 const REGISTRY: Map<string, Driver<unknown>> = ((
   globalThis as Record<symbol, Map<string, Driver<unknown>> | undefined>
 )[REGISTRY_KEY] ??= new Map<string, Driver<unknown>>());

@@ -34,16 +34,16 @@ describe("asyncDisposable mixin", () => {
 });
 
 // Integration: resolveConnection against a real temp config (loadProject reads it from disk).
-// The temp dir sits under the repo checkout so `@schemic/core` resolves via the workspace node_modules.
+// The temp dir sits under the repo checkout so `@better-schemic/core` resolves via the workspace node_modules.
 describe("resolveConnection", () => {
   const dir = mkdtempSync(join(import.meta.dir, "..", "..", ".orm-test-"));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
   const writeConfig = (body: string) =>
     writeFileSync(
-      join(dir, "schemic.config.ts"),
-      `import { defineConfig } from "@schemic/core/config";\n` +
-        `import { connectionEntry } from "@schemic/core";\n` +
+      join(dir, "better-schemic.config.ts"),
+      `import { defineConfig } from "@better-schemic/core/config";\n` +
+        `import { connectionEntry } from "@better-schemic/core";\n` +
         `const conn = (over = {}) => connectionEntry("testdriver", { schema: "./database/schema", ...over });\n` +
         body,
     );

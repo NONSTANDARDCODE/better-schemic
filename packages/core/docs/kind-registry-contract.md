@@ -27,7 +27,7 @@ the *substrate* every kind builds on. **Fields/types are NOT a kind.**
 > freely; carry dialect clauses verbatim; never compromise fidelity for an imagined cross-DB common
 > denominator.
 
-## 2. What core now exports (`@schemic/core`)
+## 2. What core now exports (`@better-schemic/core`)
 
 ```ts
 import {
@@ -45,7 +45,7 @@ import {
   snapshotObjects,
   introspectKinds,       // (registry, conn) -> PortableObject[] — reverse, fanned out per kind
   orderObjects,          // the dependency-graph topo-sort (exposed for testing)
-} from "@schemic/core";
+} from "@better-schemic/core";
 ```
 
 The spine works on **portable objects** (both sides already lowered) — exactly like the fixed-slot
@@ -93,7 +93,7 @@ Semantics core relies on:
 - **`displayItems` keeps per-field diff DISPLAY** (optional). The spine's default display is ONE item
   per portable object — so a table change shows as a single `table:…` item. A structured kind overrides
   `displayItems` to decompose a change into per-SUB-OBJECT items (per-FIELD: `field:user:name`), each
-   carrying its owner `table` so `schemic diff` GROUPS them hierarchically under their table — preserving
+   carrying its owner `table` so `better-schemic diff` GROUPS them hierarchically under their table — preserving
    today's per-field output. Called `(prev, next)` for a change; `(undefined, next)` lists the object's
    sub-items as adds (the `--full` projection). **DISPLAY ONLY** — never affects up/down DDL
    (`emit`/`overwrite`). Reuse the per-field diff you already compute (Surreal `diffSnapshots().items`).

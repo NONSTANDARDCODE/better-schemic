@@ -1,20 +1,20 @@
-# @schemic/cli
+# @better-schemic/cli
 
-The command-line interface for [Schemic](https://github.com/schemichq/schemic) —
-`schemic` (with the short alias `sc`) generates and runs schema migrations against
+The command-line interface for [Better-schemic](https://github.com/NONSTANDARDCODE/better-schemic) —
+`better-schemic` (with the short alias `sc`) generates and runs schema migrations against
 any database. It's **dialect-agnostic**: the CLI loads your database driver from
-`schemic.config.ts`, so the same commands work whatever you're targeting.
+`better-schemic.config.ts`, so the same commands work whatever you're targeting.
 
 ## Install
 
 Install the CLI alongside a driver:
 
 ```bash
-bun add @schemic/cli @schemic/surrealdb
+bun add @better-schemic/cli @better-schemic/surrealdb
 ```
 
 The CLI is dialect-neutral; the driver provides the authoring types and the DDL.
-See [`@schemic/surrealdb`](../surrealdb#readme) for its exact peer deps and quickstart.
+See [`@better-schemic/surrealdb`](../surrealdb#readme) for its exact peer deps and quickstart.
 
 ## Quick start
 
@@ -22,7 +22,7 @@ See [`@schemic/surrealdb`](../surrealdb#readme) for its exact peer deps and quic
 sc init                      # scaffold a SurrealDB project
 ```
 
-`init` writes a `schemic.config.ts`, a sample schema, a seed stub, and
+`init` writes a `better-schemic.config.ts`, a sample schema, a seed stub, and
 `.env.example`. From there:
 
 ```bash
@@ -57,8 +57,8 @@ Run `sc <command> --help` for flags. Support for some commands varies by driver
 ## Docs
 
 Full guides, concepts, and reference live at
-[schemic.dev](https://schemic.dev). This package is part of the
-[Schemic](https://github.com/schemichq/schemic) toolkit.
+[docs](https://github.com/NONSTANDARDCODE/better-schemic). This package is part of the
+[Better-schemic](https://github.com/NONSTANDARDCODE/better-schemic) toolkit.
 
 ## License
 

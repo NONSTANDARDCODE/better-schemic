@@ -31,7 +31,7 @@ drift).
 **1. Declare coverage as data** — a `test/coverage-manifest.ts` mirroring this doc, typed by core:
 
 ```ts
-import type { KindCoverage, FeatureCoverage } from "@schemic/core/testing";
+import type { KindCoverage, FeatureCoverage } from "@better-schemic/core/testing";
 
 export const KIND_MANIFEST: KindCoverage[] = [
   { name: "table", status: "x" },
@@ -48,11 +48,11 @@ export const FEATURE_MANIFEST: FeatureCoverage[] = [
 and is **required for every `[x]` feature**. List `~`/` ` entries too — they fix the denominator so
 gaps stay visible.
 
-**2. Reconcile it in one `*.test.ts`** — the enforcement is `@schemic/core/testing`, so you write only
+**2. Reconcile it in one `*.test.ts`** — the enforcement is `@better-schemic/core/testing`, so you write only
 the call:
 
 ```ts
-import { describeCoverageReconcile } from "@schemic/core/testing";
+import { describeCoverageReconcile } from "@better-schemic/core/testing";
 import { registry } from "../src/kinds";
 import { KIND_MANIFEST, FEATURE_MANIFEST } from "./coverage-manifest";
 
@@ -85,7 +85,7 @@ The `reconcileCoverage(...)` pure function is exported too, if you'd rather asse
 
 ---
 
-## Worked example — `@schemic/surrealdb` (illustrative; replace with your DB's surface)
+## Worked example — `@better-schemic/surrealdb` (illustrative; replace with your DB's surface)
 
 > Statuses below are placeholders to show the FORMAT — `driver-dev-surrealdb` sets the real marks.
 

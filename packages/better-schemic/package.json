@@ -1,0 +1,28 @@
+{
+  "name": "better-schemic",
+  "version": "0.1.0-alpha.24",
+  "description": "The Better-schemic CLI — schema-as-code migrations for SurrealDB. Alias for @better-schemic/cli (bunx better-schemic / npx better-schemic).",
+  "license": "MIT",
+  "author": "Vertio Solutions",
+  "homepage": "https://github.com/NONSTANDARDCODE/better-schemic",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NONSTANDARDCODE/better-schemic.git",
+    "directory": "packages/better-schemic"
+  },
+  "type": "module",
+  "bin": {
+    "better-schemic": "bin.mjs",
+    "sc": "bin.mjs"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "bin.mjs",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@better-schemic/cli": "^0.1.0-alpha.6"
+  }
+}

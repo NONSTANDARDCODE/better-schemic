@@ -99,10 +99,10 @@ describe("renderPerFile", () => {
     expect(out).toContain(".$default(0)");
     expect(out).toContain(".$default(surql`time::now()`)");
     expect(out).not.toContain(".$default(surql`false`)");
-    // surql is imported from surrealdb, NOT folded into the @schemic/core import.
+    // surql is imported from surrealdb, NOT folded into the @better-schemic/core import.
     expect(out).toContain(`import { surql } from "surrealdb";`);
     expect(out).toContain(
-      `import { s, defineTable } from "@schemic/surrealdb";`,
+      `import { s, defineTable } from "@better-schemic/surrealdb";`,
     );
   });
 

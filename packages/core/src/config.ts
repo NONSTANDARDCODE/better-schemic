@@ -1,14 +1,15 @@
 /**
- * Configuration for the `schemic` CLI — author it in `schemic.config.ts`.
+ * Configuration for the `better-schemic` CLI — author it in `better-schemic.config.ts`
+ * (`schemic.config.ts` still loads as a legacy alias).
  *
  * A project declares one or more named CONNECTIONS, each built by a per-driver factory
- * (`<driver>Connection(...)` exported from `@schemic/<driver>/connection`). Connection values are EXPLICIT —
+ * (`<driver>Connection(...)` exported from `@better-schemic/<driver>/connection`). Connection values are EXPLICIT —
  * there is no env-var magic; read env yourself where you want it (`url: process.env.MY_URL`).
- * See `@schemic/core` docs/MULTI-CONNECTION.md.
+ * See `@better-schemic/core` docs/MULTI-CONNECTION.md.
  *
  * ```ts
- * import { defineConfig } from "@schemic/core/config";
- * import { surrealConnection } from "@schemic/surrealdb/connection";
+ * import { defineConfig } from "@better-schemic/core/config";
+ * import { surrealConnection } from "@better-schemic/surrealdb/connection";
  *
  * export default defineConfig({
  *   connections: {
@@ -38,7 +39,7 @@ import type {
   ResolvedConnectionHandle,
 } from "./connection";
 
-export interface SchemicConfig {
+export interface BetterSchemicConfig {
   /** Named database connections — each produced by a per-driver `<driver>Connection(...)` factory. */
   connections: Record<string, AnyConnectionEntry>;
   /**
@@ -48,9 +49,14 @@ export interface SchemicConfig {
   defaultConnection?: string;
   /** Table that records applied migrations (per connection). Default `_migrations`. */
   migrationsTable?: string;
-  /** Optional seed script run by `schemic seed`. */
+  /** Optional seed script run by `better-schemic seed`. */
   seed?: string;
 }
+
+/**
+ * Legacy alias — prefer {@link BetterSchemicConfig}.
+ */
+export type SchemicConfig = BetterSchemicConfig;
 
 /** The bound ORM client type a {@link ConnectionEntry} opens (inferred from the driver factory). */
 // biome-ignore lint/suspicious/noExplicitAny: matching the erased Args slot.
@@ -67,9 +73,9 @@ export type EntryArgs<E> =
  * (the resolver's declared 2nd param — absent for a static/argless connection), and returns that
  * entry's own client type (a heterogeneous-driver project types per-connection). A PARAMETERIZED
  * connection whose resolver returns an ARRAY is bulk-only: `connect` throws a teaching error — pass
- * `args` selecting ONE config. The client is disposable: `await using db = await schemic.connect()`.
+ * `args` selecting ONE config. The client is disposable: `await using db = await betterSchemic.connect()`.
  */
-export interface SchemicProject<
+export interface BetterSchemicProject<
   Conns extends Record<string, AnyConnectionEntry>,
 > {
   connect<N extends keyof Conns & string>(
@@ -79,14 +85,15 @@ export interface SchemicProject<
 }
 
 /**
- * Type + enrich a Schemic config: returns the config with a typed `connect()` attached — the config
- * itself is the factory. The loader accepts a `default` export OR the NAMED `schemic` export; the
- * scaffolded form is the named one (deterministic auto-import, no file rename needed):
+ * Type + enrich a Better-schemic config: returns the config with a typed `connect()` attached — the config
+ * itself is the factory. The loader accepts a `default` export OR the NAMED `betterSchemic` export
+ * (`schemic` still loads as a legacy alias); the scaffolded form is the named one
+ * (deterministic auto-import, no file rename needed):
  *
  * ```ts
- * // schemic.config.ts (a bare schemic.ts also works)
- * export const schemic = defineConfig({ connections: { ... } });
- * // app code: import { schemic } from "./schemic.config";  →  await using db = await schemic.connect();
+ * // better-schemic.config.ts (better-schemic.ts, schemic.config.ts, and schemic.ts also load)
+ * export const betterSchemic = defineConfig({ connections: { ... } });
+ * // app code: import { betterSchemic } from "./better-schemic.config";  →  await using db = await betterSchemic.connect();
  * ```
  */
 /**
@@ -122,7 +129,7 @@ export interface ChainableDriverFactory<
  * form remains for static maps.
  */
 export interface ChainedConfig<Conns extends Record<string, AnyConnectionEntry>>
-  extends SchemicProject<Conns> {
+  extends BetterSchemicProject<Conns> {
   connections: Conns;
   defaultConnection?: string;
   migrationsTable?: string;
@@ -143,24 +150,24 @@ export interface ChainedConfig<Conns extends Record<string, AnyConnectionEntry>>
 
 /** Start a CHAINED config: `defineConfig().connection("main", surrealConnection, {...})`. */
 export function defineConfig(
-  base?: Omit<SchemicConfig, "connections">,
+  base?: Omit<BetterSchemicConfig, "connections">,
 ): ChainedConfig<Record<never, never>>;
 /** Type + enrich a literal config — returns it with the typed `connect()` attached. */
-export function defineConfig<const C extends SchemicConfig>(
+export function defineConfig<const C extends BetterSchemicConfig>(
   config: C,
-): C & SchemicProject<C["connections"]>;
+): C & BetterSchemicProject<C["connections"]>;
 export function defineConfig(
-  config?: SchemicConfig | Omit<SchemicConfig, "connections">,
+  config?: BetterSchemicConfig | Omit<BetterSchemicConfig, "connections">,
 ): unknown {
   const isLiteral = !!config && "connections" in config;
-  const base: SchemicConfig = isLiteral
-    ? (config as SchemicConfig)
+  const base: BetterSchemicConfig = isLiteral
+    ? (config as BetterSchemicConfig)
     : {
-        ...(config as Omit<SchemicConfig, "connections"> | undefined),
+        ...(config as Omit<BetterSchemicConfig, "connections"> | undefined),
         connections: {},
       };
 
-  const withApi = (cfg: SchemicConfig): unknown => ({
+  const withApi = (cfg: BetterSchemicConfig): unknown => ({
     ...cfg,
     async connect(name?: string, args?: unknown) {
       // Lazy: authoring/loading a config stays light; the client machinery loads only when used.
@@ -184,3 +191,9 @@ export function defineConfig(
 
   return withApi(base);
 }
+
+/**
+ * Legacy alias — prefer {@link BetterSchemicProject}.
+ */
+export type SchemicProject<Conns extends Record<string, AnyConnectionEntry>> =
+  BetterSchemicProject<Conns>;

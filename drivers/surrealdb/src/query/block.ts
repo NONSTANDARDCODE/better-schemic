@@ -17,7 +17,7 @@
  * (`Frag<R>` — the `[T]` rule).
  */
 
-import type { FieldRefBase } from "@schemic/core/query";
+import type { FieldRefBase } from "@better-schemic/core/query";
 import { BoundQuery } from "surrealdb";
 import { isRange, type ParamDef, type ParamRef, type Range } from "../pure";
 import {

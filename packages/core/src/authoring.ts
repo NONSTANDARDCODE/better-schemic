@@ -82,7 +82,7 @@ export abstract class SFieldBase<
 
   /**
    * Standard Schema interface (https://standardschema.dev), forwarded from the wrapped Zod schema so a
-   * Schemic field IS a drop-in Standard Schema — it slots straight into any consumer (tRPC, TanStack
+   * Better-schemic field IS a drop-in Standard Schema — it slots straight into any consumer (tRPC, TanStack
    * Form/Router, …) without unwrapping. `validate` runs the DECODE direction (wire -> app), matching
    * `decode`/`parse`. We wrap Zod by composition (not subclassing), so this getter is what carries the
    * `~standard` contract across the wrapper; without it only `field.schema` would be compliant.

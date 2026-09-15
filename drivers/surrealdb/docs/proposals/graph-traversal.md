@@ -1,4 +1,4 @@
-# Proposal: Graph traversal for `@schemic/surrealdb/query`
+# Proposal: Graph traversal for `@better-schemic/surrealdb/query`
 
 Status: **RATIFIED** (design signed off by Manuel). Grounded in the empirical grammar map at
 `docs/graph-syntax-map.md` (every form live-probed against surreal 3.1.4).
@@ -64,7 +64,7 @@ This enrichment is the foundational build step.
 
 ## Filters
 
-| SurQL | Schemic |
+| SurQL | Better-schemic |
 |---|---|
 | `->E->(node WHERE …)` | `.out(E).where(n => …)` |
 | `->(E WHERE …)->node` | `.outEdges(E).where(e => …).node()` |
@@ -78,7 +78,7 @@ narrowing.
 A polymorphic edge `DEFINE TABLE knows TYPE RELATION FROM user TO user|agent|topic` has
 `out: record<user | agent | topic>`. So:
 
-| SurQL | Schemic | Result type |
+| SurQL | Better-schemic | Result type |
 |---|---|---|
 | `->knows->?` | `u.out(Knows)` | `NodeTraversal<User \| Agent \| Topic>` |
 | `->knows->user` | `u.out(Knows, User)` | `NodeTraversal<User>` |
@@ -93,7 +93,7 @@ Named to match the rest of the surface — `select(...).return(...)`, write `.re
 `block().return(...)` all already mean "reshape the output," and `.return` already nests (subqueries
 drop into `.return` objects) and already handles bare-ref vs object. Traversal reuses it verbatim.
 
-| You want | Schemic | Emits |
+| You want | Better-schemic | Emits |
 |---|---|---|
 | one field (flat) | `.return(i => i.name)` | `->…->ingredient.name` |
 | several / **alias** | `.return(i => ({ title: i.name }))` | `.{ title: name }` |
@@ -112,7 +112,7 @@ Bare ref → flat projection; object literal → `.{…}` destructure. Same shap
 A traversal is a set. `x IN ->E->node` / `->E->node CONTAINS x` / `ANYINSIDE […]` map to our already
 ratified array vocabulary:
 
-| SurQL | Schemic |
+| SurQL | Better-schemic |
 |---|---|
 | `x IN ->owns->product` | `u.out(Owns).contains(x)` |
 | `->owns->product ANYINSIDE […]` | `u.out(Owns).containsAny([…])` |
@@ -161,7 +161,7 @@ enrichment (shared with reads) lands now; the write *builder* comes after.
 
 ## Core touchpoint
 
-The union-ref/union-row typing rides on core's neutral `Row`/`Project` types (`@schemic/core/query`).
+The union-ref/union-row typing rides on core's neutral `Row`/`Project` types (`@better-schemic/core/query`).
 If exposing an `A | B` row ref needs a core-side change, that is a `core-dev` DM — not landed
 unilaterally. Flagged during build; the surrealdb-local spine does not otherwise depend on it.
 

@@ -21,7 +21,7 @@ import {
   setDefaultTimeout,
   test,
 } from "bun:test";
-import { planKinds } from "@schemic/core";
+import { planKinds } from "@better-schemic/core";
 import { Surreal, surql } from "surrealdb";
 import { renderPerFile } from "../../src/cli/pull";
 import { introspectStructured } from "../../src/cli/structure";
@@ -334,7 +334,7 @@ live("AS SELECT (pre-computed view)", () => {
     expect(pulled).toContain("SELECT name, age FROM dt_person WHERE age >= 18");
     // a view's TS uses no `s.*` — only the factory + surql are imported.
     expect(pulled).toContain(
-      'import { defineView } from "@schemic/surrealdb";',
+      'import { defineView } from "@better-schemic/surrealdb";',
     );
     expect(pulled).not.toContain(".schemaless()");
   });

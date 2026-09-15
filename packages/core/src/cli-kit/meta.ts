@@ -19,7 +19,7 @@ import type { KindSnapshot } from "../kind";
  * `emitKinds`). Diffed against the next `generate`. `files` maps each object's name to its
  * project-root-relative source file (display-only; attached to diff items by the CLI). Pre-launch:
  * the format is free to change, so there is no on-disk version migration — an unrecognized snapshot
- * is treated as empty (regenerate via `schemic gen --baseline`).
+ * is treated as empty (regenerate via `better-schemic gen --baseline`).
  */
 export interface StoredSnapshot {
   version: 3;
@@ -57,7 +57,7 @@ export const EMPTY_STORED: StoredSnapshot = emptyStored();
 
 /**
  * Read the stored snapshot. Pre-launch: any snapshot that isn't the current `version: 3` shape (a
- * pre-portable v1/v2, or absent) is treated as EMPTY — regenerate with `schemic gen --baseline`.
+ * pre-portable v1/v2, or absent) is treated as EMPTY — regenerate with `better-schemic gen --baseline`.
  */
 export function readSnapshot(metaDir: string): StoredSnapshot {
   const path = join(metaDir, SNAPSHOT_FILE);

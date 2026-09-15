@@ -15,7 +15,7 @@ import {
   type ScalarName,
   scalar,
   union,
-} from "@schemic/core";
+} from "@better-schemic/core";
 
 const SCALARS = new Set<string>([
   "any",

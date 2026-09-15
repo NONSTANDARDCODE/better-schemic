@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { DriverCommand } from "@schemic/core";
+import type { DriverCommand } from "@better-schemic/core";
 import { toParsedArgs } from "../src/cli/driver-commands";
 
 const cmd = (over: Partial<DriverCommand>): DriverCommand => ({

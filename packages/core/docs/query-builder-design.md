@@ -1,4 +1,4 @@
-# @schemic/core Query Builder — Design Exploration
+# @better-schemic/core Query Builder — Design Exploration
 
 > Status: **research + design + feasibility proof**. Nothing here is built into the
 > package. The companion POC under [`poc/`](./poc/query-builder-poc.ts) proves the
@@ -8,7 +8,7 @@
 
 ## 1. Goal & positioning
 
-Build a **type-safe SurrealQL query builder** on top of @schemic/core's `s` schemas
+Build a **type-safe SurrealQL query builder** on top of @better-schemic/core's `s` schemas
 and codecs, with the explicit goal of **replacing the official `surqlize` ORM**.
 
 Targets:
@@ -25,10 +25,10 @@ Targets:
 ### Our differentiator vs surqlize
 
 surqlize defines a **parallel** type system (`t.string()`, `t.date()`, …) that is
-*only* a query/validation model. @schemic/core's `s.*` is a **Zod schema +
+*only* a query/validation model. @better-schemic/core's `s.*` is a **Zod schema +
 SurrealQL DDL metadata + codec**, so:
 
-| Capability | surqlize | @schemic/core builder |
+| Capability | surqlize | @better-schemic/core builder |
 |---|---|---|
 | Schema authoring | `t.*` (query-only) | `s.*` (Zod, also drives DDL + codecs) |
 | Read results | validated against `t.*`, dates via ad-hoc `DateType.parse` | **decoded through Zod codecs → real `App` types** (`Date`, `string`-from-`Uuid`, `RecordId`, `Decimal`, `Duration`, `bytes`…) |
@@ -150,7 +150,7 @@ arrays (`CONTAINS`, `IN`, `CONTAINSALL`), `~`/`@@` on strings, `<|k|>` on vector
 
 #### Ratified cross-driver op vocabulary (builder names are NEUTRAL)
 
-The operator method NAMES are Schemic's neutral surface — uniform across drivers —
+The operator method NAMES are Better-schemic's neutral surface — uniform across drivers —
 and each driver LOWERS them to its native operator (so dialect faithfulness lives at
 the emit layer, not the call site):
 
@@ -260,7 +260,7 @@ match).
 **Locked (2026-06-06):**
 - **Decoding:** decode by default → `App` types via codecs; `.raw()` opts out per query.
 - **Entrypoint:** free functions are primary — `select(db, Table)…` (works with any db at any time, tree-shakeable). PLUS an optional registry that *binds* a db and re-exposes `newSession()`/`forkSession()` from the underlying Surreal session. Rejected `orm(db, ...defs)`: the `...defs` spread doesn't scale, and schemas already come from the `TableDef` passed to `select()`.
-- **Boundary:** a `@schemic/core/orm` subpath export (opt-in, keeps core lean).
+- **Boundary:** a `@better-schemic/core/orm` subpath export (opt-in, keeps core lean).
 - **Status:** design committed; **build deferred** — finish other backlog first.
 - **Still open:** function-library parity strategy (hand-write vs codegen from the SurrealQL function index) — a Phase-4 call.
 
@@ -279,7 +279,7 @@ match).
 4. **Function-library parity strategy.** Hand-write (full control, large) vs codegen
    from the SurrealQL function index (faster, needs a generator)? Affects phase-4
    effort the most.
-5. **Naming / package boundary.** New subpath (`@schemic/core/query`) or separate
+5. **Naming / package boundary.** New subpath (`@better-schemic/core/query`) or separate
    package? And builder result default — `App[]` vs single-record helpers
    (`.one()`/`.val()`).
 

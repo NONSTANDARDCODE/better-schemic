@@ -1,4 +1,4 @@
-// The bound ORM client (@schemic/surrealdb/client) P1 — reads. Live-gated on SURREAL_URL (like the
+// The bound ORM client (@better-schemic/surrealdb/client) P1 — reads. Live-gated on SURREAL_URL (like the
 // other live tests). Covers the novel mechanics: BYO wrapping, the pre-bound + awaitable `select`
 // (no `.run(db)`), the dispose rule (BYO close = no-op), forkSession, and backward-compat of the
 // standalone `select(table).run(conn)` path.
@@ -10,7 +10,7 @@ import { setDefaultTimeout } from "bun:test";
 setDefaultTimeout(120_000);
 
 import { describe, expect, test } from "bun:test";
-import { defineConfig } from "@schemic/core/config";
+import { defineConfig } from "@better-schemic/core/config";
 import { Surreal } from "surrealdb";
 import { z } from "zod";
 import { type Client, connect } from "../../src/client";
@@ -283,7 +283,7 @@ describe("config-as-factory (surrealConnection)", () => {
   });
 
   test("connect(name, args) types args per connection (compile-time)", () => {
-    const schemic = defineConfig({
+    const betterSchemic = defineConfig({
       connections: {
         fixed: surrealConnection({
           schema: "./x",
@@ -303,13 +303,13 @@ describe("config-as-factory (surrealConnection)", () => {
     });
     // Compile-only (never invoked — no network): args autocomplete + reject per connection.
     const _check = () => {
-      void schemic.connect("tenant", { region: "eu", org: "acme" });
+      void betterSchemic.connect("tenant", { region: "eu", org: "acme" });
       // @ts-expect-error — wrong args shape (region must be a string)
-      void schemic.connect("tenant", { region: 5 });
+      void betterSchemic.connect("tenant", { region: 5 });
       // @ts-expect-error — a static connection takes no args
-      void schemic.connect("fixed", { region: "eu" });
+      void betterSchemic.connect("fixed", { region: "eu" });
       // @ts-expect-error — unknown connection name
-      void schemic.connect("nope");
+      void betterSchemic.connect("nope");
     };
     expect(typeof _check).toBe("function");
   });
@@ -317,7 +317,7 @@ describe("config-as-factory (surrealConnection)", () => {
   test.skipIf(!URL)(
     "defineConfig(...).connect(name) opens a typed MANAGED client via the factory",
     async () => {
-      const schemic = defineConfig({
+      const betterSchemic = defineConfig({
         connections: {
           default: surrealConnection({
             schema: "./_unused_for_connect",
@@ -330,7 +330,7 @@ describe("config-as-factory (surrealConnection)", () => {
           }),
         },
       });
-      const db = await schemic.connect("default"); // MANAGED — the factory's client-opener runs
+      const db = await betterSchemic.connect("default"); // MANAGED — the factory's client-opener runs
       await db.query(
         "REMOVE TABLE IF EXISTS orm_user; CREATE orm_user:1 SET name='z', age=1;",
       );

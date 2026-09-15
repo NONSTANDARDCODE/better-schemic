@@ -1,12 +1,12 @@
 # Multi-connection (one project, many databases)
 
-> Status: **design** (not yet implemented). Lands in the **CLI/config layer** (`@schemic/cli`), on
+> Status: **design** (not yet implemented). Lands in the **CLI/config layer** (`@better-schemic/cli`), on
 > top of the driver-agnostic model — it adds no dialect code. Companion to `MULTI-DB-SPIKE.md`
 > (which makes one connection target one driver) and the "CLI is as agnostic as core" principle.
 
 ## Goal
 
-A single Schemic project addresses **multiple database connections**, covering three scenarios with
+A single Better-schemic project addresses **multiple database connections**, covering three scenarios with
 one model:
 
 1. **N homogeneous DBs** — e.g. 3 SurrealDB instances sharing one schema (prod/staging/shard).
@@ -38,8 +38,8 @@ with "the installed driver owns connection". The factory injects the driver tag,
 `driver: "…"` string.
 
 ```ts
-import { surrealConnection } from "@schemic/surrealdb";
-import { libsqlConnection } from "@schemic/libsql";
+import { surrealConnection } from "@better-schemic/surrealdb";
+import { libsqlConnection } from "@better-schemic/libsql";
 
 defineConfig({
   connections: {
@@ -66,7 +66,7 @@ named `default`.
 ### The factory contract
 
 ```ts
-// @schemic/core exports the neutral types; each driver exports a factory bound to ITS connection type `C`.
+// @better-schemic/core exports the neutral types; each driver exports a factory bound to ITS connection type `C`.
 
 /** Opaque, branded output of any <driver>Connection(...) — the only thing defineConfig accepts. Never hand-authored. */
 interface ConnectionEntry { /* internal { driver, resolve } */ }
@@ -79,7 +79,7 @@ interface ResolveContext {
   env: NodeJS.ProcessEnv;
 }
 
-// e.g. @schemic/surrealdb ships these overloads (C = the surreal connection type, with ns/authLevel/…):
+// e.g. @better-schemic/surrealdb ships these overloads (C = the surreal connection type, with ns/authLevel/…):
 //   function surrealConnection(config: C): ConnectionEntry;                                       // single, static
 //   function surrealConnection(resolve: (ctx: ResolveContext) => C | Promise<C>): ConnectionEntry; // single, dynamic
 //   function surrealConnection(                                                                    // a COLLECTION
@@ -131,7 +131,7 @@ driver layer changes.
 ## Composition / boundaries
 
 - **All of this is CLI/config-layer**, neutral. The connection registry, resolver evaluation, lazy proxy,
-  collection keying, and fan-out live in `@schemic/cli`; each connection just names a driver. Consistent with
+  collection keying, and fan-out live in `@better-schemic/cli`; each connection just names a driver. Consistent with
   "CLI is as agnostic as core."
 - Driver-layer additions: only the optional `query` capability (for resolvers/seed). `connect`/`close`/`diff`/
   `apply`/`MigrationStore` already compose per-connection.
@@ -149,15 +149,15 @@ driver layer changes.
   target selection — bare live commands error when ambiguous rather than guessing.
 - **Resolver caching:** lazy + memoized **per CLI invocation** (a resolver + its control-DB query runs once per
   run). Under `--watch`, the resolved set is **cached for the session** (schema-file saves don't change the
-  tenant list); re-resolve only on an explicit trigger (refresh key, or `schemic.config.ts` changing).
+  tenant list); re-resolve only on an explicit trigger (refresh key, or `better-schemic.config.ts` changing).
   `--arg` resolves only the requested subset.
 
 ## Future complementary layer — multi-PROJECT workspace
 
 Distinct from multi-*connection* (many connections, one config): a **workspace of independent projects** —
-each subfolder its own `schemic.config.ts` (own schema + migrations + connection). Best for genuinely
+each subfolder its own `better-schemic.config.ts` (own schema + migrations + connection). Best for genuinely
 independent schemas/services in a monorepo. The CLI discovers child configs and runs a command across them
-(`schemic migrate --project api`, `--all-projects`). The two axes compose: *one config, many connections*
+(`better-schemic migrate --project api`, `--all-projects`). The two axes compose: *one config, many connections*
 (shared-schema fan-out / coordinated) vs *many configs, one each* (independent). **Build multi-connection
 first** (it covers the novel cases — tenants, heterogeneous fan-out); add the subfolder/workspace discovery
 layer later as a thin wrapper.

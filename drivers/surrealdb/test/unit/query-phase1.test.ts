@@ -1,4 +1,4 @@
-// @schemic/surrealdb/query Phase-1 READS: the richer WHERE operators (in/notIn, contains*,
+// @better-schemic/surrealdb/query Phase-1 READS: the richer WHERE operators (in/notIn, contains*,
 // startsWith/endsWith, NONE checks), START pagination, and the terminals one()/get()/count().
 // Lowering + type narrowing unit-tested; a live block (SURREAL_URL-gated) verifies semantics.
 

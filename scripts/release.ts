@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { join } from "node:path";
 /**
- * Lockstep release for all @schemic packages.
+ * Lockstep release for all @better-schemic packages.
  *
  *   bun scripts/release.ts <version|next> [--dry-run]
  *
@@ -9,7 +9,7 @@ import { join } from "node:path";
  * 0.1.0-alpha.11) — the continuous-deployment path (see scripts/land.ts / AGENTS.md).
  *
  * Encapsulates the publish gotchas we have hit (see memory: publish-pin-gotcha):
- *  - `bun publish` rewrites each dependent's `@schemic/core: workspace:*` using bun.lock, and a bare
+ *  - `bun publish` rewrites each dependent's `@better-schemic/core: workspace:*` using bun.lock, and a bare
  *    version bump does NOT refresh that recorded version. So we REBUILD the lockfile (rm + install).
  *  - We then PACK-VERIFY every dependent actually pins core@<version> BEFORE publishing anything (a
  *    wrong pin can't be fixed without burning the version).
@@ -28,13 +28,25 @@ if (!versionArg || versionArg.startsWith("-")) {
 }
 
 const ROOT = join(import.meta.dir, "..");
-// core first (dependents pin it); create-schemic last — it has NO @schemic deps (it scaffolds version
+// core first (dependents pin it); create-better-schemic last — it has NO @better-schemic deps (it scaffolds version
 // strings), so it isn't pin-verified, just bumped + published lockstep so it scaffolds matching versions.
-const ORDER = ["core", "cli", "surrealdb", "create-schemic", "schemic"];
+const ORDER = [
+  "core",
+  "cli",
+  "surrealdb",
+  "create-better-schemic",
+  "better-schemic",
+];
 const DEPENDENTS = ["cli", "surrealdb"];
 // driver packages live in drivers/, everything else in packages/
 const DRIVERS = new Set(["surrealdb"]);
-const pkgDir = (p: string) => join(ROOT, DRIVERS.has(p) ? "drivers" : "packages", p);
+const pkgDir = (p: string) =>
+  join(ROOT, DRIVERS.has(p) ? "drivers" : "packages", p);
+// Display name: scoped packages vs the two unscoped aliases.
+const displayName = (p: string) =>
+  p === "better-schemic" || p === "create-better-schemic"
+    ? p
+    : `@better-schemic/${p}`;
 
 // `next` -> bump the trailing .N of core's current version (0.1.0-alpha.10 -> 0.1.0-alpha.11).
 async function resolveVersion(arg: string): Promise<string> {
@@ -62,7 +74,7 @@ for (const p of ORDER) {
     path,
     txt.replace(/"version":\s*"[^"]*"/, `"version": "${version}"`),
   );
-  console.log(`set @schemic/${p} -> ${version}`);
+  console.log(`set ${displayName(p)} -> ${version}`);
 }
 
 // 2. rebuild the lockfile so `workspace:*` rewrites to the NEW version (a bare bump won't refresh it)
@@ -72,20 +84,20 @@ await $`bun install`.cwd(ROOT).quiet();
 
 // 3. pack-verify each dependent pins core@<version> BEFORE publishing anything
 for (const p of DEPENDENTS) {
-  const tgz = `schemic-${p}-${version}.tgz`;
+  const tgz = `better-schemic-${p}-${version}.tgz`;
   await $`bun pm pack`.cwd(pkgDir(p)).quiet();
   const manifest = JSON.parse(
     await $`tar -xzf ${tgz} -O package/package.json`.cwd(pkgDir(p)).text(),
   );
   await $`rm -f ${tgz}`.cwd(pkgDir(p));
-  const pin = manifest.dependencies?.["@schemic/core"];
+  const pin = manifest.dependencies?.["@better-schemic/core"];
   if (pin !== version) {
     console.error(
-      `ABORT: @schemic/${p} pins core@${pin}, expected ${version} — lockfile not refreshed.`,
+      `ABORT: @better-schemic/${p} pins core@${pin}, expected ${version} — lockfile not refreshed.`,
     );
     process.exit(1);
   }
-  console.log(`verified @schemic/${p} -> core@${pin}`);
+  console.log(`verified @better-schemic/${p} -> core@${pin}`);
 }
 
 if (dryRun) {
@@ -95,9 +107,9 @@ if (dryRun) {
 
 // 4. publish core first, then the dependents (prepack builds each)
 for (const p of ORDER) {
-  console.log(`publishing @schemic/${p}@${version}...`);
+  console.log(`publishing ${displayName(p)}@${version}...`);
   await $`bun publish`.cwd(pkgDir(p));
 }
 console.log(
-  `\nReleased @schemic/* ${version}. Verify: bun pm view @schemic/cli version`,
+  `\nReleased @better-schemic/* ${version}. Verify: bun pm view @better-schemic/cli version`,
 );

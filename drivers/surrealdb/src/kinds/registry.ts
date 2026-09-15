@@ -23,7 +23,7 @@ import {
   lowerSchema,
   type PortableObject,
   type Ref,
-} from "@schemic/core";
+} from "@better-schemic/core";
 import { EMPTY_SNAPSHOT, type Snapshot } from "../cli/structure";
 import { formatSurql } from "../cli/format";
 import { diffSnapshots } from "../cli/surreal-diff";

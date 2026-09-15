@@ -1,5 +1,5 @@
 /**
- * Verifies the @schemic/surrealdb REFERENCE example cookbook (`examples/*`): every catalog entry must
+ * Verifies the @better-schemic/surrealdb REFERENCE example cookbook (`examples/*`): every catalog entry must
  * emit EXACTLY its documented `ddl`. Each entry's `defs` are DERIVED from its `code` snippet (see
  * `examples/_kit.ts#ex`), so `expect(emit(defs)).toBe(ddl)` is exactly `emit(eval(code)) === ddl` — the
  * strongest honesty check: `code`, `defs`, and `ddl` cannot disagree. Change the emitter and this fails

@@ -80,7 +80,7 @@ export interface KindEngine<
    */
   canonical?(portable: P): string;
   /**
-   * Fine-grained DISPLAY items for a change of this object — so `schemic diff` shows per-SUB-OBJECT
+   * Fine-grained DISPLAY items for a change of this object — so `better-schemic diff` shows per-SUB-OBJECT
    * changes (a table decomposes into per-FIELD items: `field:user:name` changed), each carrying its
    * owner `table` so the display GROUPS them hierarchically under it, instead of one coarse whole-object
    * item. Called `(prev, next)`: a change diffs the two; `(undefined, next)` lists the object's

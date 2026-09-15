@@ -7,7 +7,7 @@
 // traversal is a `FRAGMENT`, so it drops into `.return({...})` and `surql` templates like a subquery.
 // Empirical grammar backing every form: `docs/graph-syntax-map.md`.
 
-import type { FieldRefBase } from "@schemic/core/query";
+import type { FieldRefBase } from "@better-schemic/core/query";
 import { BoundQuery, escapeIdent, type RecordId } from "surrealdb";
 import {
   type App,

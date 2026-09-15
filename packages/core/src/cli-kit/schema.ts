@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import type { Authored, AuthoredDef } from "@schemic/core";
+import type { Authored, AuthoredDef } from "@better-schemic/core";
 import { makeJiti } from "./config";
 
 /**
@@ -30,7 +30,7 @@ export interface AnyTable extends Authored {
 
 /**
  * Duck-typed `TableDef` check. We avoid `instanceof` on purpose: the user's schema and the
- * CLI may end up with different module instances of `@schemic/core`, so we recognize a table
+ * CLI may end up with different module instances of `@better-schemic/core`, so we recognize a table
  * by shape instead. (Structural access into `emitStatements` works regardless.)
  */
 function isTableDef(v: unknown): v is AnyTable {

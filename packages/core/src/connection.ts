@@ -51,7 +51,7 @@ export interface ResolveContext {
  * `resolve` always normalizes to an ARRAY (a single connection -> one element, a collection -> many).
  */
 export interface ConnectionEntry<Client = unknown, Args = undefined> {
-  readonly __schemic: "connection";
+  readonly __betterSchemic: "connection";
   readonly driver: string;
   resolve(ctx: ResolveContext, args?: Args): Promise<ConnectionConfigBase[]>;
   /**
@@ -98,7 +98,7 @@ export function connectionEntry<
   },
 ): ConnectionEntry<Client, Args> {
   return {
-    __schemic: "connection",
+    __betterSchemic: "connection",
     driver,
     ...(extras?.client ? { client: extras.client } : {}),
     ...(extras?.label ? { label: extras.label } : {}),
@@ -115,6 +115,6 @@ export function isConnectionEntry(v: unknown): v is ConnectionEntry {
   return (
     typeof v === "object" &&
     v !== null &&
-    (v as { __schemic?: unknown }).__schemic === "connection"
+    (v as { __betterSchemic?: unknown }).__betterSchemic === "connection"
   );
 }

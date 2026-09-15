@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { SFieldBase as CoreSFieldBase } from "@schemic/core/authoring";
+import { SFieldBase as CoreSFieldBase } from "@better-schemic/core/authoring";
 import { s } from "../../src/index";
 
 // DRIFT GUARD. surrealdb's `SField` can't extend core's `SFieldBase` (smart-id table covariance vs the

@@ -1,4 +1,4 @@
-// kind-registry.poc.ts — STANDALONE compiling spike (stubs the Schemic surface).
+// kind-registry.poc.ts — STANDALONE compiling spike (stubs the Better-schemic surface).
 // Thesis: core can be a GENERIC "kinded-definable engine". Each driver registers KINDS via `createKind`
 // — every kind brings its OWN authoring builder (any shape/chain, fully typed) + its engine behavior
 // (lower/diff/emit). Core orchestrates generically over the registry — it never names "table"/"function".

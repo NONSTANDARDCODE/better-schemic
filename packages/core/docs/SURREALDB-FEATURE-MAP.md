@@ -1,9 +1,9 @@
-# SurrealDB / SurrealQL Complete Feature Map ↔ @schemic/core parity
+# SurrealDB / SurrealQL Complete Feature Map ↔ @better-schemic/core parity
 
 > **Deep crawl** of the *entire* SurrealDB documentation site (709-page sitemap, the
 > `docs/reference/query-language/**` reference exhaustively), cataloging **every** data type,
 > statement, clause, index kind, function (all 26 namespaces, ~570 signatures), operator,
-> parameter, and primitive — then assessing @schemic/core's **schema/DDL layer** parity against
+> parameter, and primitive — then assessing @better-schemic/core's **schema/DDL layer** parity against
 > the schema-relevant subset.
 >
 > This supersedes the shallower `PARITY.md` (which hit only the main `DEFINE` pages and skipped
@@ -49,7 +49,7 @@ below are annotated `✅ batch 1` / `✅ batch 2` where closed.
 
 | Status | Meaning | Count (schema-relevant features) |
 |---|---|---|
-| ✅ | Supported by @schemic/core today | ~80 (batch 1: `set<T>`/`COMPUTED`/`CHANGEFEED`/`COUNT`; batch 2: `REFERENCE`/`RELATION ENFORCED`/sized array-set/+10 validators) |
+| ✅ | Supported by @better-schemic/core today | ~80 (batch 1: `set<T>`/`COMPUTED`/`CHANGEFEED`/`COUNT`; batch 2: `REFERENCE`/`RELATION ENFORCED`/sized array-set/+10 validators) |
 | ⚠️ | Partial / lossy | 2 (object-literal union→object, variadic tuple→array) |
 | ❌ | **Schema-layer gap** (DDL the DB accepts, no `s.*` builder) | **~16** (was 24; batch 1 + batch 2 each closed 4) |
 | 🔮 | Future ORM/query-layer (DML, ~570 functions, operators, params, graph) | ~620 (cataloged, not DDL) |
@@ -90,7 +90,7 @@ are:
    (derived, read-only/create-optional column).
 
 2. **`DEFINE EVENT … ASYNC [RETRY n] [MAXDEPTH n]`** 🆕 (❌, medium) — async/retrying events are a
-   new clause; @schemic/core's `defineEvent`/`.event()` only emit `WHEN/THEN`. Also missing:
+   new clause; @better-schemic/core's `defineEvent`/`.event()` only emit `WHEN/THEN`. Also missing:
    `COMMENT` on events. *Live-verified*: `DEFINE EVENT ev ON e ASYNC RETRY 3 MAXDEPTH 2 WHEN … THEN …`.
    ```surql
    DEFINE EVENT audit ON TABLE order ASYNC RETRY 3 MAXDEPTH 2 WHEN $event="UPDATE" THEN { … };
@@ -104,7 +104,7 @@ are:
 
 4. **`COMMENT` on index/event (and other DEFINE) objects** 🆕 (⚠️, low) — `COMMENT` exists on
    `DEFINE EVENT`, `DEFINE INDEX`, `DEFINE PARAM`, `DEFINE ANALYZER`, `DEFINE SEQUENCE`,
-   `DEFINE BUCKET`, `DEFINE DATABASE`/`NAMESPACE`. @schemic/core only wires `COMMENT` on table, field,
+   `DEFINE BUCKET`, `DEFINE DATABASE`/`NAMESPACE`. @better-schemic/core only wires `COMMENT` on table, field,
    and function. Index/event comments are unreachable.
 
 5. **Index `[FIELDS | COLUMNS]` + `CONCURRENTLY` + `DEFER`** 🆕 (❌, low) — `PARITY.md` mentioned
@@ -113,7 +113,7 @@ are:
    FULLTEXT + COUNT both accept `CONCURRENTLY`.
 
 6. **`DEFINE ACCESS RECORD … WITH JWT [ALGORITHM…|URL…] [WITH ISSUER KEY …]`** 🆕 (⚠️, medium) —
-   the current RECORD access syntax nests a `WITH JWT …` block (token issuance config). @schemic/core
+   the current RECORD access syntax nests a `WITH JWT …` block (token issuance config). @better-schemic/core
    models RECORD and JWT as *separate* access kinds; it cannot emit a RECORD access that also pins
    its JWT signing config. (`AUTHENTICATE` is supported; `WITH JWT`/`WITH ISSUER` are not.)
 
@@ -129,7 +129,7 @@ are:
 10. **`literal` object-union is richer than "discriminated"** 🆕 (⚠️) — the DB's object-literal union
     is *not* limited to a shared discriminator key; any set of object shapes is a valid field type and
     coercion picks the matching branch. *Live-verified* `{ error: "Continue" } | { error: "Retry", id: string }`
-    round-trips with full per-branch structure. @schemic/core collapses **both** `discriminatedUnion`
+    round-trips with full per-branch structure. @better-schemic/core collapses **both** `discriminatedUnion`
     **and** plain `union` of objects to bare `object`.
 
 11. **`set<T, N>` sized set** ✅ **batch 2** (was ❌) — sized `array<T,N>` / `set<T,N>` via
@@ -159,7 +159,7 @@ are:
 ## Data types — `s.*` → SurQL `TYPE`
 Docs root: https://surrealdb.com/docs/reference/query-language/language-primitives/data-types
 
-| Type | SurQL | @schemic/core | Status | Doc |
+| Type | SurQL | @better-schemic/core | Status | Doc |
 |---|---|---|---|---|
 | string | `string` | `s.string()` | ✅ | …/data-types/strings |
 | bool | `bool` | `s.boolean()` | ✅ | …/data-types/booleans |
@@ -209,7 +209,7 @@ Docs root: https://surrealdb.com/docs/reference/query-language/language-primitiv
 ## `DEFINE` statements
 Docs root: https://surrealdb.com/docs/reference/query-language/statements/define/overview
 
-| Statement | @schemic/core | Status | Notes (live-verified syntax on 3.1.3) |
+| Statement | @better-schemic/core | Status | Notes (live-verified syntax on 3.1.3) |
 |---|---|---|---|
 | DEFINE TABLE | `defineTable`/`defineRelation` | ✅ | head clauses below; `CHANGEFEED` ✅ batch 1; `ENFORCED` ✅ batch 2; **`AS SELECT` ❌** |
 | DEFINE FIELD | `s.*` + `$`-clauses | ✅ | `COMPUTED` ✅ batch 1; `REFERENCE` ✅ batch 2 |
@@ -236,7 +236,7 @@ Full syntax (verbatim): `DEFINE TABLE [OVERWRITE|IF NOT EXISTS] @name [DROP] [SC
 [TYPE [ANY|NORMAL|RELATION [IN|FROM]@t [OUT|TO]@t [ENFORCED]]] [AS SELECT … FROM … [WHERE …]
 [GROUP [BY …|ALL]]] [CHANGEFEED @dur [INCLUDE ORIGINAL]] [PERMISSIONS …] [COMMENT @string]`
 
-| Clause | @schemic/core | Status |
+| Clause | @better-schemic/core | Status |
 |---|---|---|
 | TYPE NORMAL / ANY | default / `.typeAny()` | ✅ |
 | TYPE RELATION (FROM/TO, open) | `defineRelation().from(A).to(B)` | ✅ |
@@ -255,7 +255,7 @@ Full syntax (verbatim): `DEFINE FIELD … ON [TABLE] @t [TYPE @type | object [FL
 [READONLY] [VALUE @expr] [ASSERT @expr] [PERMISSIONS …] [COMMENT @string]` — and a separate
 **`COMPUTED @expression`** form.
 
-| Clause | @schemic/core | Status |
+| Clause | @better-schemic/core | Status |
 |---|---|---|
 | TYPE / FLEXIBLE | inferred / `.flexible()` | ✅ |
 | DEFAULT [ALWAYS] | `.$default()` / `.$defaultAlways()` | ✅ |
@@ -273,7 +273,7 @@ Full special-clause grammar (verbatim): `UNIQUE | COUNT | FULLTEXT ANALYZER @a [
 [TYPE @t] [DIST @dist] [DEGREE @deg] [L_BUILD @lb] [ALPHA @a] [HASHED_VECTOR]]` plus `[FIELDS|COLUMNS]`,
 `[COMMENT]`, `[CONCURRENTLY]`, `[DEFER]`.
 
-| Kind | @schemic/core | Status |
+| Kind | @better-schemic/core | Status |
 |---|---|---|
 | plain / UNIQUE / composite | `.$index()/.$unique()/.index(name,[…],{unique})` | ✅ |
 | COUNT 🆕 | `.index(name, [], { count: true })` | ✅ batch 1 |
@@ -348,7 +348,7 @@ and PERMISSIONS, so the schema layer must accept them as opaque `surql\`…\`` (
 17 reserved: `$access` 🆕, `$action`/`$file`/`$target` 🆕, `$auth`, `$before`, `$after`, `$event`,
 `$input`, `$parent`, `$this`, `$reference` 🆕, `$request` 🆕, `$session`, `$token`, `$value`. (`$scope`
 is legacy → `$access`.) These appear inside table/field PERMISSIONS, ASSERT, VALUE, DEFAULT, and
-event/function bodies — @schemic/core passes them through opaquely in `surql\`…\``, which is correct.
+event/function bodies — @better-schemic/core passes them through opaquely in `surql\`…\``, which is correct.
 
 ---
 
@@ -370,7 +370,7 @@ event/function bodies — @schemic/core passes them through opaquely in `surql\`
 | Formatters | date/time/timezone strftime-style formatters for `time::format` | 🔮 |
 
 `ALTER` 🆕 deserves a note: SurrealDB has a full `ALTER` family (access/analyzer/api/bucket/config/
-database/event/field/function/indexes/namespace/param/sequence/system/table/user). @schemic/core's CLI
+database/event/field/function/indexes/namespace/param/sequence/system/table/user). @better-schemic/core's CLI
 achieves schema evolution via diff + `OVERWRITE`/`REMOVE` rather than `ALTER`; not a gap, just an
 implementation choice to note.
 

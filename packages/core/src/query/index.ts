@@ -1,6 +1,6 @@
 /**
- * `@schemic/core/query` — the dialect-neutral query toolkit. NOT a query builder: builders are
- * driver-owned (each driver ships its own at `@schemic/<driver>/query`). Core owns the *machinery* every
+ * `@better-schemic/core/query` — the dialect-neutral query toolkit. NOT a query builder: builders are
+ * driver-owned (each driver ships its own at `@better-schemic/<driver>/query`). Core owns the *machinery* every
  * driver builder reuses so the hard parts aren't reimplemented per driver:
  *
  * - `FieldRefBase<T>` — the carrier a driver's field ref extends, so result inference is cross-driver.
@@ -10,7 +10,7 @@
  *   `.returns(R)` (the neutral half of the (B) `.call()`).
  */
 
-// Re-exported so a driver builds its `.call()` from one import (`@schemic/core/query`).
+// Re-exported so a driver builds its `.call()` from one import (`@better-schemic/core/query`).
 export type { CallableFunctions } from "../driver/driver";
 export { callFunction } from "./call";
 export {

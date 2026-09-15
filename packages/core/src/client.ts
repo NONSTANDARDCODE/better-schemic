@@ -1,6 +1,6 @@
 // The neutral foundation for the bound ORM CLIENT (P1) — the runtime read/write handle each driver
 // builds on. Core owns only the dialect-agnostic parts: the disposable lifecycle contract and the
-// managed-connection resolution. A driver's client (`@schemic/<driver>/client`) extends `OrmClientBase`,
+// managed-connection resolution. A driver's client (`@better-schemic/<driver>/client`) extends `OrmClientBase`,
 // binds its native connection, and adds its TYPED `select`/`call` (+ writes in P2). See
 // docs/proposals/managed-connections-and-orm-client.md.
 
@@ -9,7 +9,7 @@ import {
   type ResolvedConfig,
   resolveConnectionConfig,
 } from "./cli-kit/config";
-import type { SchemicConfig } from "./config";
+import type { BetterSchemicConfig } from "./config";
 import type { AnyConnectionEntry, ResolveContext } from "./connection";
 
 /**
@@ -40,7 +40,7 @@ export function asyncDisposable<T extends { close(): Promise<void> }>(
 export interface ResolveConnectionOptions {
   /** Connection name; defaults to `defaultConnection`, else the sole connection, else `"default"`. */
   name?: string;
-  /** Path to `schemic.config.ts` (else auto-discovered from `cwd`). */
+  /** Path to `better-schemic.config.ts` (else auto-discovered from `cwd`). */
   config?: string;
   /** Working directory to discover the config + resolve relative paths from. */
   cwd?: string;
@@ -53,7 +53,7 @@ export interface ResolveConnectionOptions {
  * via ITS entry's embedded client opener (so a resolver can query another connection to enumerate a
  * fleet), with CYCLE detection; everything opened during resolution is closed when it settles.
  */
-function makeRuntimeContext(config: SchemicConfig, root: string) {
+function makeRuntimeContext(config: BetterSchemicConfig, root: string) {
   const opened = new Map<string, Promise<unknown>>();
   const resolving = new Set<string>();
 
@@ -67,7 +67,7 @@ function makeRuntimeContext(config: SchemicConfig, root: string) {
     if (!entry) throw new Error(`ctx.connections.${name}: no such connection`);
     if (!entry.client) {
       throw new Error(
-        `ctx.connections.${name}: the "${entry.driver}" connection factory predates runtime cross-connection access — update @schemic/${entry.driver}`,
+        `ctx.connections.${name}: the "${entry.driver}" connection factory predates runtime cross-connection access — update @better-schemic/${entry.driver}`,
       );
     }
     resolving.add(name);
@@ -166,7 +166,7 @@ export async function resolveConnection(
  * {@link resolveConnection} (disk-discovered config) and {@link connectFromConfig} (`config.connect`).
  */
 export async function resolveFromConfig(
-  config: SchemicConfig,
+  config: BetterSchemicConfig,
   root: string,
   opts: { name?: string; args?: unknown } = {},
 ): Promise<{
@@ -216,7 +216,7 @@ function exactlyOne(r: {
   if (r.resolved.length !== 1) {
     throw new Error(
       `connection "${r.name}" resolved to ${r.resolved.length} configs (${r.labels.join(", ")}) — ` +
-        `a parameterized/bulk connection. Pass args selecting exactly one, e.g. schemic.connect("${r.name}", { ... }).`,
+        `a parameterized/bulk connection. Pass args selecting exactly one, e.g. betterSchemic.connect("${r.name}", { ... }).`,
     );
   }
   return r.resolved[0];
@@ -226,10 +226,10 @@ function exactlyOne(r: {
  * The runtime behind `config.connect(name, args?)` (see `defineConfig`): resolve the entry from the
  * in-memory config and open its bound ORM client via the factory-embedded
  * {@link AnyConnectionEntry.client} opener. The static return type is the entry's own client type
- * (inferred per entry in `SchemicProject`).
+ * (inferred per entry in `BetterSchemicProject`).
  */
 export async function connectFromConfig(
-  config: SchemicConfig,
+  config: BetterSchemicConfig,
   name?: string,
   args?: unknown,
 ): Promise<unknown> {
@@ -237,7 +237,7 @@ export async function connectFromConfig(
   const resolved = exactlyOne(r);
   if (!r.entry.client) {
     throw new Error(
-      `the "${r.entry.driver}" connection factory predates config.connect() — update @schemic/${r.entry.driver} to a version whose ${r.entry.driver}Connection embeds a client opener`,
+      `the "${r.entry.driver}" connection factory predates config.connect() — update @better-schemic/${r.entry.driver} to a version whose ${r.entry.driver}Connection embeds a client opener`,
     );
   }
   return r.entry.client(resolved);

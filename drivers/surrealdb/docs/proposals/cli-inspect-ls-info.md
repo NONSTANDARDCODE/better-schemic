@@ -1,7 +1,7 @@
 # Proposal: `ls` / `info` — inspect schema resources (snapshot or DB)
 
 Status: **PROPOSED** (Manuel-approved shape; core-dev owns the CLI implementation). Author:
-driver-dev-surrealdb. A cross-driver `@schemic/cli` feature — spec'd here because the data comes from
+driver-dev-surrealdb. A cross-driver `@better-schemic/cli` feature — spec'd here because the data comes from
 the driver's introspection + the neutral kind registry; core-dev implements the command.
 
 ## Motivation
@@ -79,7 +79,7 @@ extend the surrealdb introspection to surface it — flag it and I'll add it dri
 
 ## Ownership + next step
 
-`ls`/`info` live in `@schemic/cli` (**core-dev**), generated generically from the kind registry so all
+`ls`/`info` live in `@better-schemic/cli` (**core-dev**), generated generically from the kind registry so all
 drivers inherit them. This doc is the spec; core-dev owns the command implementation + the final calls
 on `--from` default, `info` addressing, and output formatting. driver-dev-surrealdb guarantees the
 introspection data behind it and adopts any introspection-contract change core-dev needs.

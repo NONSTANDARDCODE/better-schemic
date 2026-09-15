@@ -1,5 +1,5 @@
 /**
- * Kit for the @schemic/surrealdb SYNTAX-COVERAGE suite.
+ * Kit for the @better-schemic/surrealdb SYNTAX-COVERAGE suite.
  *
  * Same file-based pattern as the `examples/` cookbook, but EXHAUSTIVE: one real, tsc-checked `.ts` file
  * per permutation of a SurrealQL `DEFINE …` statement, so every documented clause + option is exercised

@@ -1,4 +1,4 @@
-// The multi-connection RESOLUTION ENGINE (design: @schemic/core docs/MULTI-CONNECTION.md). A project's
+// The multi-connection RESOLUTION ENGINE (design: @better-schemic/core docs/MULTI-CONNECTION.md). A project's
 // config maps names to CONNECTIONS; this layer turns a CLI invocation + addressing flags into the
 // concrete {@link ResolvedConfig}(s) the commands run against:
 //   - `--connection <name>`        a single connection (or a whole collection, fanned out)
@@ -26,11 +26,11 @@ import {
   type ResolvedConfig,
   type ResolvedConnectionHandle,
   resolveConnectionConfig,
-} from "@schemic/core";
+} from "@better-schemic/core";
 
 /**
  * Dynamically load + register a database driver by name. Drivers are separate packages
- * (`@schemic/<name>`) that self-register with the core registry on import; the CLI itself contains no
+ * (`@better-schemic/<name>`) that self-register with the core registry on import; the CLI itself contains no
  * dialect code and discovers the driver from the project's connection config at runtime. Idempotent.
  */
 /** Pick a package's COMPILED entry from its exports, deliberately skipping the `bun` condition. */
@@ -79,7 +79,9 @@ function compiledEntry(
 
 export async function ensureDriver(name: string): Promise<void> {
   if (driverNames().includes(name)) return;
-  const pkg = `@schemic/${name}`;
+  // Canonical scope first; the legacy `@schemic/<name>` scope still loads (pre-rename installs).
+  const pkgs = [`@better-schemic/${name}`, `@schemic/${name}`];
+  const pkg = pkgs[0];
   // Try the USER's project (cwd) first, then the CLI's own module scope — the CLI is often run via
   // `bunx`/`npx` from a temp dir, so a driver installed in the user's project must be found by cwd.
   let lastErr: unknown;
@@ -87,22 +89,24 @@ export async function ensureDriver(name: string): Promise<void> {
   // A driver registers via its `/driver` engine entry (the authoring index is side-effect-free, so
   // importing it never registers). Load `/driver` from cwd's scope first (the CLI is often run via
   // bunx/npx from a temp dir, so a driver in the user's project must be found by cwd), then the CLI's own.
-  for (const base of [join(process.cwd(), "noop.js"), import.meta.url]) {
-    const entry = compiledEntry(pkg, base, "./driver");
-    if (!entry) continue;
+  for (const candidate of pkgs) {
+    for (const base of [join(process.cwd(), "noop.js"), import.meta.url]) {
+      const entry = compiledEntry(candidate, base, "./driver");
+      if (!entry) continue;
+      try {
+        await import(pathToFileURL(entry).href);
+        loaded = true;
+        break;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    if (loaded) break;
+    // Plain specifier covers an unbuilt monorepo checkout (no lib; resolves the `/driver` bun -> src export).
     try {
-      await import(pathToFileURL(entry).href);
+      await import(`${candidate}/driver`);
       loaded = true;
       break;
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  // Plain specifier covers an unbuilt monorepo checkout (no lib; resolves the `/driver` bun -> src export).
-  if (!loaded) {
-    try {
-      await import(`${pkg}/driver`);
-      loaded = true;
     } catch (e) {
       lastErr = e;
     }

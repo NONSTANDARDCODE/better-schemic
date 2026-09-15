@@ -1,4 +1,4 @@
-import { defineAccess, surql } from "@schemic/surrealdb";
+import { defineAccess, surql } from "@better-schemic/surrealdb";
 import { cover } from "../_kit";
 
 export default cover(import.meta.url, {

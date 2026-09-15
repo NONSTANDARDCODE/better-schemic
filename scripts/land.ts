@@ -177,7 +177,7 @@ const newVer = JSON.parse(
 const driverDirs = new Set(["surrealdb"]); // these live under drivers/, the rest packages/
 gitIO(
   "add",
-  ...["core", "cli", "surrealdb", "create-schemic", "schemic"].map(
+  ...["core", "cli", "surrealdb", "create-better-schemic", "better-schemic"].map(
     (p) => `${driverDirs.has(p) ? "drivers" : "packages"}/${p}/package.json`,
   ),
   "bun.lock",

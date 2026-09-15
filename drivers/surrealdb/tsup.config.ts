@@ -14,7 +14,7 @@ export default defineConfig({
   dts: true,
   clean: true,
   sourcemap: true,
-  // Keep @schemic/core external — one shared module instance (its registries/WeakMaps must match
-  // the jiti-loaded user schema's, which imports `s` from here -> @schemic/core).
-  external: ["@schemic/core", /^@schemic\/core\//],
+  // Keep @better-schemic/core external — one shared module instance (its registries/WeakMaps must match
+  // the jiti-loaded user schema's, which imports `s` from here -> @better-schemic/core).
+  external: ["@better-schemic/core", /^@better-schemic\/core\//],
 });

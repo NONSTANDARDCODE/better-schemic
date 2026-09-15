@@ -1,6 +1,6 @@
 /**
  * The SCHEMALESS (untyped) table adapter — lets the query builder target a table that wasn't
- * modeled in Schemic: pass a plain name string or an SDK `Table` instead of a `TableDef`. There is
+ * modeled in Better-schemic: pass a plain name string or an SDK `Table` instead of a `TableDef`. There is
  * no schema, so the data is `Record<string, unknown>`, `.content`/`.merge`/`.set` take a raw object
  * (no codec validation), rows come back undecoded, and callback rows (`.where`/`.set`/`.return`)
  * are a PROXY — any field name resolves to a generic ref. Everything else composes unchanged.
@@ -12,7 +12,7 @@ import type { RelationDef, TableDef } from "../pure";
 
 /** Marker brand for the untyped adapter (a registered symbol so it survives dual-instance loading). */
 export const SCHEMALESS: unique symbol = Symbol.for(
-  "schemic.surrealdb.schemaless",
+  "better-schemic.surrealdb.schemaless",
 );
 
 /** A plain name string or an SDK `Table` — the untyped alternative to a `TableDef`. */

@@ -1,4 +1,4 @@
-import { defineTable, s } from "@schemic/surrealdb";
+import { defineTable, s } from "@better-schemic/surrealdb";
 import { example } from "../_kit";
 
 /** A domain type with no wire representation of its own — the codec below maps it to/from a string. */

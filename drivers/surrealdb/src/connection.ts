@@ -1,13 +1,13 @@
-// The SurrealDB connection factory — binds the neutral `connectionEntry` (from @schemic/core) to the
+// The SurrealDB connection factory — binds the neutral `connectionEntry` (from @better-schemic/core) to the
 // SurrealDB connection shape, so `defineConfig({ connections: { … } })` gets a typed `surrealConnection`
-// with no hand-authored `driver: "…"` string. Design: @schemic/core docs/MULTI-CONNECTION.md.
+// with no hand-authored `driver: "…"` string. Design: @better-schemic/core docs/MULTI-CONNECTION.md.
 
 import {
   type ConnectionConfigBase,
   type ConnectionEntry,
   connectionEntry,
   type ResolveContext,
-} from "@schemic/core/driver";
+} from "@better-schemic/core/driver";
 import type { Client } from "./client";
 import type { SurrealZodCheck, SurrealZodConnection } from "./config";
 
@@ -31,14 +31,14 @@ export type {
 export interface SurrealConnectionConfig
   extends ConnectionConfigBase,
     SurrealZodConnection {
-  /** `schemic check` overrides — e.g. a dedicated scratch connection for the migration replay. */
+  /** `better-schemic check` overrides — e.g. a dedicated scratch connection for the migration replay. */
   check?: SurrealZodCheck;
 }
 
 /**
  * Build a SurrealDB {@link ConnectionEntry} for a config's `connections` map: a single static config,
  * or a resolver — `(ctx, args) => config | config[]`. Declare the resolver's `args` as its (typed) 2nd
- * param; `schemic.connect(name, args)` then autocompletes + type-checks them per connection. A single
+ * param; `betterSchemic.connect(name, args)` then autocompletes + type-checks them per connection. A single
  * returned config is directly connectable; an ARRAY is a bulk fleet (migrations enumerate it; `connect`
  * throws a teaching error — pass args selecting one). Inside a resolver, `ctx.connections.<sibling>`
  * lazily opens another connection (e.g. query the control-plane DB to enumerate tenants).

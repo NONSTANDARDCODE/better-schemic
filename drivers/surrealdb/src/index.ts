@@ -1,13 +1,13 @@
 /**
- * @schemic/surrealdb — author SurrealDB schemas with Zod.
+ * @better-schemic/surrealdb — author SurrealDB schemas with Zod.
  *
  * The **authoring** surface and nothing else: define tables/relations with `s.*` (a drop-in for `z.*`)
  * and map JS <-> DB across Zod's two channels via codecs (`decode`/`encode`). This entry is
  * **side-effect-free** — importing it registers no driver and pulls in neither the DDL emit engine nor
  * the diff/migration engine, so `s.*` is safe in app bundles. The engine surfaces live in subpaths:
- *   - `@schemic/surrealdb/driver`     — the `Driver` impl + `emit*` + the `registerDriver` side-effect.
- *   - `@schemic/surrealdb/connection` — the `surrealConnection` factory + connection config types.
- *   - `@schemic/surrealdb/query`      — the opt-in typed query builder.
+ *   - `@better-schemic/surrealdb/driver`     — the `Driver` impl + `emit*` + the `registerDriver` side-effect.
+ *   - `@better-schemic/surrealdb/connection` — the `surrealConnection` factory + connection config types.
+ *   - `@better-schemic/surrealdb/query`      — the opt-in typed query builder.
  */
 
 import { BoundQuery, escapeIdent, surql as sdkSurql, Table } from "surrealdb";
@@ -32,8 +32,8 @@ import {
 // Fragment brands (Symbol.for -> cross-instance safe): a value carrying FRAGMENT produces a
 // BoundQuery when asked (query builders); one carrying COLREF splices as an escaped column path
 // (query-layer FieldRefs). Symbol-keyed so this authoring index never imports the query layer.
-const FRAGMENT = Symbol.for("schemic.surrealdb.fragment");
-const COLREF = Symbol.for("schemic.surrealdb.colref");
+const FRAGMENT = Symbol.for("better-schemic.surrealdb.fragment");
+const COLREF = Symbol.for("better-schemic.surrealdb.colref");
 
 /** Resolve a known schema reference to its spliced TEXT, or `undefined` to bind it as a value. */
 function markerText(v: unknown): string | undefined {
@@ -143,7 +143,7 @@ export {
   isSecretRef,
   type SecretRef,
   secret,
-} from "@schemic/core/authoring";
+} from "@better-schemic/core/authoring";
 export type { RecordIdValue, SurrealSession } from "surrealdb";
 // The SDK surface apps need, re-exported so an app never has to depend on "surrealdb" directly —
 // importing it from HERE guarantees a SINGLE package instance (the SDK's #private classes are

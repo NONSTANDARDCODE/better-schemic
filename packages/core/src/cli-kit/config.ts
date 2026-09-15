@@ -1,13 +1,18 @@
 import { existsSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
-import type { SchemicConfig } from "@schemic/core/config";
+import type { BetterSchemicConfig } from "@better-schemic/core/config";
 import { createJiti } from "jiti";
 import type { ConnectionConfigBase, ResolveContext } from "../connection";
 
-// `schemic.ts` is the scaffolded name (the config IS the app's DB module — `schemic.connect()`);
-// the `schemic.config.*` spellings keep working. Checked LAST + shape-guarded, so an unrelated
-// `./schemic.ts` helper module in a project never shadows a real `schemic.config.ts`.
+// `better-schemic.ts` is the scaffolded name (the config IS the app's DB module — `betterSchemic.connect()`);
+// the legacy `schemic.config.*` / `schemic.ts` spellings keep working. Checked LAST + shape-guarded, so an unrelated
+// `./better-schemic.ts` helper module in a project never shadows a real `better-schemic.config.ts`.
 const CONFIG_NAMES = [
+  "better-schemic.config.ts",
+  "better-schemic.config.mjs",
+  "better-schemic.config.js",
+  "better-schemic.ts",
+  // Legacy aliases (pre-rename) — still discovered, after the canonical names.
   "schemic.config.ts",
   "schemic.config.mjs",
   "schemic.config.js",
@@ -74,7 +79,7 @@ export interface ResolvedConfig {
 
 /**
  * A jiti instance for loading the project's TS/ESM modules. Caches are off so `--watch` re-reads
- * edited schema files. (Bare deps like `@schemic/core` are native-imported, so registries stay shared.)
+ * edited schema files. (Bare deps like `@better-schemic/core` are native-imported, so registries stay shared.)
  */
 export function makeJiti() {
   return createJiti(import.meta.url, {
@@ -84,18 +89,18 @@ export function makeJiti() {
   });
 }
 
-/** Find + load `schemic.ts` / `schemic.config.ts` into the dialect-neutral {@link SchemicConfig}. */
+/** Find + load `better-schemic.ts` / `better-schemic.config.ts` (legacy `schemic.*` aliases included) into the dialect-neutral {@link BetterSchemicConfig}. */
 export async function loadProject(opts?: {
   config?: string;
   cwd?: string;
-}): Promise<{ config: SchemicConfig; root: string }> {
+}): Promise<{ config: BetterSchemicConfig; root: string }> {
   const cwd = opts?.cwd ?? process.cwd();
   const candidates = opts?.config
     ? [resolve(cwd, opts.config)]
     : CONFIG_NAMES.map((n) => resolve(cwd, n)).filter((p) => existsSync(p));
   if (!candidates.length || !existsSync(candidates[0])) {
     throw new Error(
-      "No schemic.ts / schemic.config.ts found — run `schemic init` first.",
+      "No better-schemic.ts / better-schemic.config.ts found — run `better-schemic init` first.",
     );
   }
   const jiti = makeJiti();
@@ -103,28 +108,41 @@ export async function loadProject(opts?: {
     const root = dirname(path);
     loadDotEnv(root); // populate process.env before the config module's explicit reads
     const loaded = (await jiti.import(path)) as {
-      default?: SchemicConfig;
-      schemic?: SchemicConfig;
-    } & SchemicConfig;
-    // Accept a default export OR the named `schemic` export — the scaffolded form is the NAMED one
-    // (`export const schemic = defineConfig(...)`), so app code auto-imports a deterministic
-    // identifier (`import { schemic } from "./schemic.config"` -> `schemic.connect()`). Selected by
-    // SHAPE, not presence: jiti's interopDefault makes `loaded.default` a truthy proxy even when the
-    // module has no real default export, so a presence chain would shadow the named export.
-    const config = [loaded.default, loaded.schemic, loaded].find(
-      (c): c is SchemicConfig =>
+      default?: BetterSchemicConfig;
+      betterSchemic?: BetterSchemicConfig;
+      schemic?: BetterSchemicConfig;
+    } & BetterSchemicConfig;
+    // Accept a default export OR the named `betterSchemic` export (legacy: `schemic`) — the scaffolded
+    // form is the NAMED one (`export const betterSchemic = defineConfig(...)`), so app code auto-imports
+    // a deterministic identifier (`import { betterSchemic } from "./better-schemic.config"` ->
+    // `betterSchemic.connect()`). Selected by SHAPE, not presence: jiti's interopDefault makes
+    // `loaded.default` a truthy proxy even when the module has no real default export, so a presence
+    // chain would shadow the named export.
+    const config = [
+      loaded.default,
+      loaded.betterSchemic,
+      loaded.schemic,
+      loaded,
+    ].find(
+      (c): c is BetterSchemicConfig =>
         !!c && typeof c === "object" && "connections" in c,
     );
     if (config?.connections && Object.keys(config.connections).length > 0) {
       return { config, root };
     }
-    // An AUTO-discovered bare `schemic.ts` without a connections map is an unrelated helper module,
-    // not a config — skip it (an explicitly-passed or `schemic.config.*` file still errors loudly).
-    if (!opts?.config && basename(path) === "schemic.ts") continue;
+    // An AUTO-discovered bare `better-schemic.ts` (or legacy `schemic.ts`) without a connections map is
+    // an unrelated helper module, not a config — skip it (an explicitly-passed or `*.config.*` file
+    // still errors loudly).
+    if (
+      !opts?.config &&
+      (basename(path) === "better-schemic.ts" ||
+        basename(path) === "schemic.ts")
+    )
+      continue;
     throw new Error(`Invalid config at ${path}: expected a "connections" map.`);
   }
   throw new Error(
-    'No Schemic config found — ./schemic.ts exists but doesn\'t export a config with a "connections" map. Run `schemic init`, or export one via defineConfig.',
+    'No Better-schemic config found — ./better-schemic.ts exists but doesn\'t export a config with a "connections" map. Run `better-schemic init`, or export one via defineConfig.',
   );
 }
 
@@ -134,11 +152,11 @@ export async function loadProject(opts?: {
  * it). A resolver returning a COLLECTION yields one ResolvedConfig per keyed entry.
  *
  * NOTE (WIP — multi-connection): the full resolution engine (lazy proxy DAG, `--connection`/`--all`
- * addressing, collection fan-out) lives in `@schemic/cli`; this builder handles a single resolved
+ * addressing, collection fan-out) lives in `@better-schemic/cli`; this builder handles a single resolved
  * connection config. See docs/MULTI-CONNECTION.md.
  */
 export function resolveConnectionConfig(
-  config: SchemicConfig,
+  config: BetterSchemicConfig,
   connection: string,
   conn: ConnectionConfigBase,
   driver: string,

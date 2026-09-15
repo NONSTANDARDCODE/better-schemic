@@ -1,4 +1,4 @@
-import { defineEvent, surql } from "@schemic/surrealdb";
+import { defineEvent, surql } from "@better-schemic/surrealdb";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {

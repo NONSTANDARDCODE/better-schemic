@@ -1,4 +1,4 @@
-// End-to-end harness: drive the real `schemic` CLI as a subprocess against a throwaway in-memory
+// End-to-end harness: drive the real `better-schemic` CLI as a subprocess against a throwaway in-memory
 // SurrealDB, in a throwaway project directory. This exercises the WHOLE app — arg parsing, config
 // loading, jiti schema loading, the live DB, and the exact stdout/exit-code a user would see —
 // rather than calling command functions directly (which we can't anyway: the CLI calls
@@ -39,7 +39,7 @@ import {
 export const SURREAL_PKG = resolve(import.meta.dir, "../..");
 /** packages/ — where core + cli live; the driver packages now live in drivers/ (see SURREAL_PKG). */
 const PKGS = resolve(import.meta.dir, "../../../..", "packages");
-/** The `schemic` CLI entry — the CLI lives in its own @schemic/cli package now. */
+/** The `better-schemic` CLI entry — the CLI lives in its own @better-schemic/cli package now. */
 const CLI = join(PKGS, "cli", "src/cli/index.ts");
 
 /** Whether the e2e suite can run (needs the local `surreal` binary for the in-memory server). */
@@ -87,9 +87,9 @@ export interface Harness {
   url: string;
   /** A fresh, unique database name (the server is shared; the database isolates each test). */
   freshDb(): string;
-  /** Scaffold an empty project dir with a node_modules symlink farm so `@schemic/core` resolves. */
+  /** Scaffold an empty project dir with a node_modules symlink farm so `@better-schemic/core` resolves. */
   scaffold(): string;
-  /** Run `schemic <args>` in `cwd`, pointed at database `db`. Extra `env` overrides the defaults. */
+  /** Run `better-schemic <args>` in `cwd`, pointed at database `db`. Extra `env` overrides the defaults. */
   run(
     args: string[],
     opts: { cwd: string; db: string; env?: Record<string, string> },
@@ -103,15 +103,15 @@ export interface Harness {
 }
 
 /**
- * Build the node_modules symlink farm so a scaffolded project's `import "@schemic/surrealdb"` resolves
- * to THIS workspace source (bun -> src export, one module instance), along with its @schemic/core +
+ * Build the node_modules symlink farm so a scaffolded project's `import "@better-schemic/surrealdb"` resolves
+ * to THIS workspace source (bun -> src export, one module instance), along with its @better-schemic/core +
  * surrealdb + zod deps.
  */
 function linkDeps(root: string): void {
   const nm = join(root, "node_modules");
-  mkdirSync(join(nm, "@schemic"), { recursive: true }); // scoped pkg needs its scope dir
-  symlinkSync(SURREAL_PKG, join(nm, "@schemic", "surrealdb"));
-  symlinkSync(join(PKGS, "core"), join(nm, "@schemic", "core"));
+  mkdirSync(join(nm, "@better-schemic"), { recursive: true }); // scoped pkg needs its scope dir
+  symlinkSync(SURREAL_PKG, join(nm, "@better-schemic", "surrealdb"));
+  symlinkSync(join(PKGS, "core"), join(nm, "@better-schemic", "core"));
   for (const dep of ["surrealdb", "zod"]) {
     symlinkSync(
       realpathSync(join(SURREAL_PKG, "node_modules", dep)),
@@ -191,7 +191,7 @@ export function tableFile(body: string): string {
 /** The `user` table the sample schema ships with, optionally with extra field lines spliced in. */
 export function userSchema(extraFields = ""): string {
   return `import { surql } from "surrealdb";
-import { s, defineTable } from "@schemic/surrealdb";
+import { s, defineTable } from "@better-schemic/surrealdb";
 
 export const User = defineTable("user", {
   id: s.string(),

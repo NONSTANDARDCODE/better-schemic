@@ -3,7 +3,7 @@
  * single line; this pretty-prints them (statement-per-line, indented nested blocks, wide object
  * literals one-entry-per-line) so pulled schema files read like hand-written ones. Purely
  * whitespace: `normalize` canonicalizes formatting on both sides of every compare, so formatted
- * output can never phantom-diff. Exported from `@schemic/surrealdb/driver` (display panes,
+ * output can never phantom-diff. Exported from `@better-schemic/surrealdb/driver` (display panes,
  * tooling) as {@link formatSurql}.
  */
 

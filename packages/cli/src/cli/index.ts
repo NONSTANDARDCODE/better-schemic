@@ -44,7 +44,7 @@ import {
   summarizeKinds,
   unifiedDiff,
   writeSnapshot,
-} from "@schemic/core";
+} from "@better-schemic/core";
 import { Command, Help, Option } from "commander";
 // The CLI's own version — sourced from package.json (inlined at build) so it never drifts from the
 // published package version the way a hardcoded string does.
@@ -129,7 +129,7 @@ const duplicateHeader = (n: number) =>
   `${plural(n, "table")} defined more than once (last definition silently wins):`;
 
 /**
- * Run a command action, then exit — the shared {@link runAction} (clean, SCHEMIC_DEBUG-aware error
+ * Run a command action, then exit — the shared {@link runAction} (clean, BETTER_SCHEMIC_DEBUG-aware error
  * formatting + forced exit so a lingering SDK handle can't hang the process). Watch commands return a
  * never-settling promise, so they keep running until SIGINT.
  */
@@ -250,7 +250,7 @@ function watchLoop(
 }
 
 const configFlag = (cmd: Command): Command =>
-  cmd.option("-c, --config <path>", "path to schemic.config.ts");
+  cmd.option("-c, --config <path>", "path to better-schemic.config.ts");
 
 const dbFlags = (cmd: Command): Command =>
   configFlag(cmd)
@@ -284,21 +284,21 @@ const dbFlags = (cmd: Command): Command =>
 
 const program = new Command();
 program
-  .name("schemic")
+  .name("better-schemic")
   .description(
     "Schema-as-code migrations for any database — generate DDL, diff, and migrate via drivers",
   )
   .version(CLI_VERSION)
-  .showHelpAfterError("(run `schemic --help` for usage)")
+  .showHelpAfterError("(run `better-schemic --help` for usage)")
   .addHelpText(
     "after",
     `
 Examples:
-  $ schemic init                 scaffold database/ (schemas + migrations) + config
-  $ schemic gen add_users        create a migration from schema changes
-  $ schemic migrate              apply pending migrations
-  $ schemic push --watch         keep the database in sync while you edit
-  $ schemic diff --live          show how the schema differs from the live database
+  $ better-schemic init                 scaffold database/ (schemas + migrations) + config
+  $ better-schemic gen add_users        create a migration from schema changes
+  $ better-schemic migrate              apply pending migrations
+  $ better-schemic push --watch         keep the database in sync while you edit
+  $ better-schemic diff --live          show how the schema differs from the live database
 `,
   );
 
@@ -352,20 +352,24 @@ program
       try {
         await ensureDriver(name);
       } catch (e) {
-        // The driver isn't installed → this project isn't set up yet. Hand off to create-schemic,
+        // The driver isn't installed → this project isn't set up yet. Hand off to create-better-schemic,
         // which writes the project envelope (package.json/tsconfig), installs the driver, and re-runs
         // init — working for a bare OR an existing project. The env guard breaks any re-forward loop
-        // if the driver is present-but-unloadable (create-schemic sets it on the inner init).
-        if (process.env.SCHEMIC_NO_BOOTSTRAP) throw e;
+        // if the driver is present-but-unloadable (create-better-schemic sets it on the inner init).
+        if (
+          process.env.BETTER_SCHEMIC_NO_BOOTSTRAP ??
+          process.env.SCHEMIC_NO_BOOTSTRAP
+        )
+          throw e;
         console.log(
           style.dim(
-            "This project isn't set up for Schemic yet — bootstrapping with create-schemic…\n",
+            "This project isn't set up for Better-schemic yet — bootstrapping with create-better-schemic…\n",
           ),
         );
         const runner = process.versions.bun ? ["bun", "x"] : ["npx", "-y"];
         const r = spawnSync(
           runner[0],
-          [...runner.slice(1), "create-schemic", ".", "--driver", name],
+          [...runner.slice(1), "create-better-schemic", ".", "--driver", name],
           { stdio: "inherit", cwd: process.cwd() },
         );
         process.exit(r.status ?? 1);
@@ -376,7 +380,7 @@ program
         console.log(style.dim(`  · ${f} (exists, skipped)`));
       console.log(
         created.length
-          ? `\n${ok("Initialized. Edit database/schema, then run `schemic gen`.")}`
+          ? `\n${ok("Initialized. Edit database/schema, then run `better-schemic gen`.")}`
           : "\nNothing to do — already initialized.",
       );
     });
@@ -640,7 +644,7 @@ const genAction = (
           ));
         if (!proceed) {
           throw new Error(
-            `${plural(existing.length, "migration")} already exist in ${migDir} — a baseline would re-define objects they already created.\n  Re-run \`schemic gen --baseline --force\` to replace them with one fresh baseline.`,
+            `${plural(existing.length, "migration")} already exist in ${migDir} — a baseline would re-define objects they already created.\n  Re-run \`better-schemic gen --baseline --force\` to replace them with one fresh baseline.`,
           );
         }
         squashed = clearMigrationFiles(config);
@@ -657,12 +661,12 @@ const genAction = (
       activeDriver(config).registry,
       plan.diff.items ?? [],
     );
-    // The change summary gives the scope you're naming; `schemic diff` is the +/- comparison view.
+    // The change summary gives the scope you're naming; `better-schemic diff` is the +/- comparison view.
     console.log(
       `${plural(plan.diff.up.length, "change")}${kinds ? ` — ${kinds}` : ""}.`,
     );
     // Show the migration you're ABOUT to write — the rendered DDL — BEFORE prompting for a name, so you
-    // review the actual statements that will replay while you name them (`schemic diff` is the +/- view).
+    // review the actual statements that will replay while you name them (`better-schemic diff` is the +/- view).
     const body = renderMigrationPreview(config, plan.diff)
       .replace(/\n+$/, "")
       .split("\n")
@@ -682,7 +686,7 @@ const genAction = (
       `${ok(res.file ?? "migration written")}  ${style.dim(`(+${res.up} up / ${res.down} down)`)}`,
     );
     // After a squash, reconcile the live DB's migration history (best-effort): when the DB already
-    // matches the schema, record the baseline as applied so its DDL isn't re-run and `schemic status`
+    // matches the schema, record the baseline as applied so its DDL isn't re-run and `better-schemic status`
     // stays clean. Unreachable / drifted → leave it pending and say so.
     if (squashed) {
       console.log(
@@ -703,7 +707,7 @@ const genAction = (
             style.dim(
               state === "applied"
                 ? "  database matched the schema — baseline recorded as applied."
-                : "  database differs from the schema — baseline left pending; run `schemic migrate`.",
+                : "  database differs from the schema — baseline left pending; run `better-schemic migrate`.",
             ),
           );
         } finally {
@@ -712,7 +716,7 @@ const genAction = (
       } catch (e) {
         console.log(
           style.dim(
-            `  database not reconciled (${errMsg(e)}) — baseline is pending; run \`schemic migrate\` to apply it.`,
+            `  database not reconciled (${errMsg(e)}) — baseline is pending; run \`better-schemic migrate\` to apply it.`,
           ),
         );
       }
@@ -739,18 +743,18 @@ addGenCommand(
 );
 addGenCommand(program.command("generate [name]", { hidden: true }));
 
-// `snapshot` groups operations on the migration snapshot (the state `schemic gen`/`schemic diff` compare
-// against). `reset` clears it so the next `schemic gen` baselines the full schema.
+// `snapshot` groups operations on the migration snapshot (the state `better-schemic gen`/`better-schemic diff` compare
+// against). `reset` clears it so the next `better-schemic gen` baselines the full schema.
 const snapshot = program
   .command("snapshot")
   .description(
-    "Manage the migration snapshot (what `schemic gen`/`schemic diff` compare against)",
+    "Manage the migration snapshot (what `better-schemic gen`/`better-schemic diff` compare against)",
   );
 configFlag(
   snapshot
     .command("reset")
     .description(
-      "Clear the snapshot — the next `schemic gen` baselines the full schema",
+      "Clear the snapshot — the next `better-schemic gen` baselines the full schema",
     ),
 ).action((opts: CommonOpts) => {
   run(async () => {
@@ -764,12 +768,14 @@ configFlag(
     if (existing.length) {
       console.log(
         style.dim(
-          `  ${plural(existing.length, "migration")} still on disk — run \`schemic gen --baseline --force\` to replace them with one fresh baseline. (A plain \`schemic gen\` would add a baseline alongside them.)`,
+          `  ${plural(existing.length, "migration")} still on disk — run \`better-schemic gen --baseline --force\` to replace them with one fresh baseline. (A plain \`better-schemic gen\` would add a baseline alongside them.)`,
         ),
       );
     } else {
       console.log(
-        style.dim("  The next `schemic gen` will baseline the full schema."),
+        style.dim(
+          "  The next `better-schemic gen` will baseline the full schema.",
+        ),
       );
     }
   });
@@ -814,7 +820,7 @@ dbFlags(
           return;
         }
         if (!rows.length) {
-          console.log("No migrations yet. Run `schemic gen`.");
+          console.log("No migrations yet. Run `better-schemic gen`.");
           return;
         }
         for (const r of rows) {
@@ -884,7 +890,7 @@ dbFlags(
     //    real database. A driver without the capability can only `check --schema`.
     if (!driver.checkReplay) {
       throw new Error(
-        `the "${config.driver ?? "surrealdb"}" driver does not support migration replay — run \`schemic check --schema\` to validate the schema only.`,
+        `the "${config.driver ?? "surrealdb"}" driver does not support migration replay — run \`better-schemic check --schema\` to validate the schema only.`,
       );
     }
     const diff = await driver.checkReplay(config, opts, parseFilter({}), (m) =>
@@ -899,7 +905,7 @@ dbFlags(
     );
     console.log(formatDiff(diff, {}));
     console.log(
-      `\n${style.dim(`${summarizeKinds(driver.registry, diff.items ?? [])} differ. \`schemic gen\` writes a migration to reconcile.`)}`,
+      `\n${style.dim(`${summarizeKinds(driver.registry, diff.items ?? [])} differ. \`better-schemic gen\` writes a migration to reconcile.`)}`,
     );
     process.exitCode = 1;
   });
@@ -953,7 +959,7 @@ dbFlags(
       row("params", "(none)");
     }
     console.log(style.bold("\nVersions"));
-    row("@schemic/core", program.version() ?? "?");
+    row("@better-schemic/core", program.version() ?? "?");
     row("node", process.version);
     console.log(style.bold("\nStatus"));
     try {
@@ -1013,7 +1019,7 @@ configFlag(
       throw new Error(`the "${config.driver}" driver can't scaffold entities.`);
     if (config.schemaIsFile)
       throw new Error(
-        "`schemic new` needs a schema directory — your schema is a single file.",
+        "`better-schemic new` needs a schema directory — your schema is a single file.",
       );
     // The driver authors the file (throws for a kind it can't); it lands under the kind's folder.
     const content = driver.scaffoldEntity(kind, name);
@@ -1027,7 +1033,7 @@ configFlag(
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, content);
     console.log(
-      `${ok(relative(config.root, target))}  ${style.dim("— author its fields, then `schemic gen`")}`,
+      `${ok(relative(config.root, target))}  ${style.dim("— author its fields, then `better-schemic gen`")}`,
     );
   });
 });
@@ -1085,7 +1091,7 @@ kindFlags(
         const kinds = summarizeKinds(driver.registry, items);
         if (opts.dryRun) {
           console.log(
-            `\n${style.dim(`${plural(stmts.length, "change")}${kinds ? ` — ${kinds}` : ""} — run \`schemic push\` to apply.`)}`,
+            `\n${style.dim(`${plural(stmts.length, "change")}${kinds ? ` — ${kinds}` : ""} — run \`better-schemic push\` to apply.`)}`,
           );
           return;
         }
@@ -1199,7 +1205,7 @@ async function pullPass(
   if (!opts.write) {
     if (changed.length)
       console.log(
-        `\n${style.dim(`${plural(changed.length, "file")} would change — run \`schemic pull --write\` to apply.`)}`,
+        `\n${style.dim(`${plural(changed.length, "file")} would change — run \`better-schemic pull --write\` to apply.`)}`,
       );
     if (atRisk.length) printLocalOnly(atRisk);
     return true;
@@ -1215,7 +1221,7 @@ async function pullPass(
   }
   const written = applyPull(plan);
   // Baseline: sync the snapshot + record the pulled state as already-applied, so the schema matches the
-  // DB and `schemic diff` doesn't report the freshly-pulled objects as pending.
+  // DB and `better-schemic diff` doesn't report the freshly-pulled objects as pending.
   const base = await baseline(db, config);
   const removed = plan.files.filter((f) => f.action === "delete").length;
   // Local-only entities mixed with other code: surfaced but not safely deletable.

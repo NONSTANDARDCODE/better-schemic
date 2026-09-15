@@ -82,7 +82,7 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
-      # DRIVER suites import @schemic/core/* as a package — node/tsx resolves those via the node
+      # DRIVER suites import @better-schemic/core/* as a package — node/tsx resolves those via the node
       # condition (lib/), not the bun/src one — so core (and any cross-imported package) must be BUILT
       # first, or the suite throws ERR_MODULE_NOT_FOUND. (A package's OWN suite imports its src/ by
       # relative path and needs no build; the cross-package imports are what require it.)

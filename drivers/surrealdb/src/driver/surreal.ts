@@ -21,8 +21,8 @@ import type {
   RenderedUnit,
   ResolvedConfig,
   ShadowCapability,
-} from "@schemic/core";
-import { registerDriver } from "@schemic/core";
+} from "@better-schemic/core";
+import { registerDriver } from "@better-schemic/core";
 import { escapeIdent, type Surreal } from "surrealdb";
 import {
   connectEmbedded,
@@ -135,7 +135,7 @@ const migrations: MigrationStore<Surreal> = {
       );
     } catch {
       throw new Error(
-        "Migrations are locked — another run is in progress. If it's stale, run `schemic unlock`.",
+        "Migrations are locked — another run is in progress. If it's stale, run `better-schemic unlock`.",
       );
     }
   },
@@ -291,11 +291,11 @@ export const surrealDriver: Driver<
     return `SurrealDB ${v}`;
   },
 
-  // The files `schemic init` scaffolds for a fresh SurrealDB project (connections-only config + sample
+  // The files `better-schemic init` scaffolds for a fresh SurrealDB project (connections-only config + sample
   // s.* schema + seed + .env.example); the CLI writes them and adds the neutral migration snapshot.
   initScaffold,
 
-  // `schemic new <kind> <name>`: the starter `s.*`/`define*` module for one entity (table/relation/
+  // `better-schemic new <kind> <name>`: the starter `s.*`/`define*` module for one entity (table/relation/
   // view/function/access/event/analyzer); throws for inline-only (index/field) or unknown kinds.
   scaffoldEntity,
 
@@ -312,7 +312,7 @@ export const surrealDriver: Driver<
       (engine === "auto" && surrealBinaryAvailable(check?.binary));
     if (engine === "binary" && !useBinary) {
       throw new Error(
-        'check.engine "binary" needs the `surreal` CLI on PATH (or set `check.binary`). Run `schemic check --schema` to skip the replay.',
+        'check.engine "binary" needs the `surreal` CLI on PATH (or set `check.binary`). Run `better-schemic check --schema` to skip the replay.',
       );
     }
 
@@ -367,7 +367,7 @@ export const surrealDriver: Driver<
         db = await surrealConnect(checkCfg, over as CfgOverrides);
       } catch (e) {
         throw new Error(
-          `${e instanceof Error ? e.message : String(e)}\n  (run \`schemic check --schema\` to skip the replay, install the \`surreal\` CLI for an in-memory engine, or set \`check.db\` to point the replay at a scratch server)`,
+          `${e instanceof Error ? e.message : String(e)}\n  (run \`better-schemic check --schema\` to skip the replay, install the \`surreal\` CLI for an in-memory engine, or set \`check.db\` to point the replay at a scratch server)`,
         );
       }
       cleanup = async () => {

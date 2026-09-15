@@ -1,15 +1,19 @@
 // SurrealDB connection runtime — split out of cli/config.ts so that module stays dialect-neutral
 // (config types + loadConfig only). This is the Surreal driver's `connect` implementation; it imports
-// the surrealdb SDK and belongs to @schemic/surrealdb at the physical split.
+// the surrealdb SDK and belongs to @better-schemic/surrealdb at the physical split.
 
-import type { ConnectionOverrides, ResolvedConfig } from "@schemic/core";
+import type { ConnectionOverrides, ResolvedConfig } from "@better-schemic/core";
 import { escapeIdent, Surreal } from "surrealdb";
 import type { AuthLevel, SurrealParams } from "../config";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 const envMs = (name: string, fallback: number): number => {
-  const n = Number(process.env[name]);
+  // Legacy `SCHEMIC_*` spellings still work; the `BETTER_SCHEMIC_*` spelling wins when both are set.
+  const raw =
+    process.env[name] ??
+    process.env[name.replace("BETTER_SCHEMIC_", "SCHEMIC_")];
+  const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : fallback;
 };
 
@@ -23,10 +27,10 @@ const envMs = (name: string, fallback: number): number => {
  * SDK does not reject promptly on a refused port even with `reconnect: false` — measured: a closed
  * port burned the whole ceiling — so this alone cannot distinguish "down" from "slow".)
  */
-const CONNECT_TIMEOUT_MS = envMs("SCHEMIC_CONNECT_TIMEOUT_MS", 30_000);
+const CONNECT_TIMEOUT_MS = envMs("BETTER_SCHEMIC_CONNECT_TIMEOUT_MS", 30_000);
 
 /** How long the pre-flight TCP probe waits before declaring the host unreachable. */
-const PROBE_TIMEOUT_MS = envMs("SCHEMIC_PROBE_TIMEOUT_MS", 2_000);
+const PROBE_TIMEOUT_MS = envMs("BETTER_SCHEMIC_PROBE_TIMEOUT_MS", 2_000);
 
 /**
  * Pre-flight: can we even open a TCP socket to the endpoint? This is what makes a DOWN server fail

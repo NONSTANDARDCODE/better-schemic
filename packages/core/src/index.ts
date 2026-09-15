@@ -1,9 +1,9 @@
 /**
- * @schemic/core — the dialect-neutral engine for Schemic.
+ * @better-schemic/core — the dialect-neutral engine for Better-schemic.
  *
  * The Driver contract + the portable schema IR + the neutral migration/diff/snapshot/CLI-support
  * engine. NO database dialect and NO authoring surface (`s.*`/`defineTable`) live here — those ship
- * in the SurrealDB driver package (`@schemic/surrealdb`). `@schemic/cli` and the driver build
+ * in the SurrealDB driver package (`@better-schemic/surrealdb`). `@better-schemic/cli` and the driver build
  * build on the surface re-exported below.
  */
 
@@ -87,11 +87,14 @@ export {
 } from "./client";
 // --- config-as-factory types (defineConfig lives on the `./config` subpath) --------------------
 export type {
+  BetterSchemicConfig,
+  BetterSchemicProject,
   ChainableDriverFactory,
   ChainCtx,
   ChainedConfig,
   EntryArgs,
   EntryClient,
+  SchemicConfig,
   SchemicProject,
 } from "./config";
 // --- multi-connection contract (docs/MULTI-CONNECTION.md) -------------------------------------

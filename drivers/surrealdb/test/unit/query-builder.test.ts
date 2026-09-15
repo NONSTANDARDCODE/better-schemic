@@ -1,4 +1,4 @@
-// @schemic/surrealdb/query — exercises the query builder end to end over @schemic/core/query:
+// @better-schemic/surrealdb/query — exercises the query builder end to end over @better-schemic/core/query:
 // SurrealQL lowering, decode-by-default (a datetime codec field -> real Date), and type-level proof
 // that a bare select yields App<TD> and `.return(...)` yields the projected decoded shape.
 
@@ -50,7 +50,7 @@ type ValueNestedRes = Awaited<ReturnType<(typeof valueNestedQ)["run"]>>;
 type _valueNested = Expect<Equal<ValueNestedRes[number], { titles: string[] }>>;
 
 // --- SurrealQL lowering --------------------------------------------------------------------------
-describe("@schemic/surrealdb/query — lowering", () => {
+describe("@better-schemic/surrealdb/query — lowering", () => {
   test("where + orderBy + limit -> SurrealQL + named binds", () => {
     const { sql, vars } = select(Post)
       .where((p) => p.title.eq("hi"))
@@ -159,7 +159,7 @@ describe("@schemic/surrealdb/query — lowering", () => {
 });
 
 // --- decode-by-default (no server) ---------------------------------------------------------------
-describe("@schemic/surrealdb/query — decode", () => {
+describe("@better-schemic/surrealdb/query — decode", () => {
   test("projection decodes through core's codec (datetime -> Date)", () => {
     const rows = select(Post)
       .return((p) => ({ when: p.createdAt }))

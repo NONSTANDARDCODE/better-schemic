@@ -1,12 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Diff, ResolvedConfig } from "@schemic/core";
+import type { Diff, ResolvedConfig } from "@better-schemic/core";
 import {
   type Filter,
   listMigrations,
   loadDefs,
   parseFilter,
-} from "@schemic/core";
+} from "@better-schemic/core";
 import { escapeIdent, type Surreal } from "surrealdb";
 import type { SurrealParams } from "../config";
 import { type DefineStatement, overwriteStatement } from "../ddl";
@@ -157,7 +157,7 @@ async function replayMigrations(
 /**
  * Verify that replaying every migration from zero reconstructs the declared schema — the only check
  * that catches "the sum of the migrations no longer equals the schema" (a hand-edited migration, or
- * a schema change someone forgot to `schemic gen`). Replays the migrations into one scratch DB and applies
+ * a schema change someone forgot to `better-schemic gen`). Replays the migrations into one scratch DB and applies
  * the current schema into another, then diffs the two introspected snapshots; since BOTH sides are
  * normalized through SurrealDB (`INFO`), only genuine drift shows up. An empty diff means they agree.
  * `up` is what the migrations are missing relative to the schema. Needs root/namespace auth.

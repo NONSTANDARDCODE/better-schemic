@@ -1,4 +1,4 @@
-# `@schemic/surrealdb` reference cookbook
+# `@better-schemic/surrealdb` reference cookbook
 
 A **verified** catalog of every implemented authoring feature, paired with the exact SurrealQL DDL it
 emits. Use it to look up "how do I author X, and what does it produce?" when revisiting a feature or
@@ -9,7 +9,7 @@ Each example is a **real, `tsc`-checked `.ts` file** under its group folder, aut
 
 ```ts
 // examples/tables/schemafull-the-default.ts
-import { defineTable, s } from "@schemic/surrealdb";
+import { defineTable, s } from "@better-schemic/surrealdb";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {

@@ -1,4 +1,4 @@
-// `schemic pull` end to end: idempotency (the regression lock for the surql-import / literal-default
+// `better-schemic pull` end to end: idempotency (the regression lock for the surql-import / literal-default
 // fixes), the local-only guard (--merge / --discard), and the documented codec asymmetries.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -39,7 +39,7 @@ e2e("pull", () => {
         root,
         "database/schema/tables/flag.ts",
         `import { surql } from "surrealdb";
-import { s, defineTable } from "@schemic/surrealdb";
+import { s, defineTable } from "@better-schemic/surrealdb";
 
 export const Flag = defineTable("flag", {
   id: s.string(),
@@ -63,10 +63,10 @@ export const Flag = defineTable("flag", {
       // An expression default keeps surql, imported from surrealdb on its own line.
       expect(flag).toContain(".$default(surql`time::now()`)");
       expect(flag).toContain(`import { surql } from "surrealdb";`);
-      // surql is NEVER folded into the @schemic/core import.
+      // surql is NEVER folded into the @better-schemic/core import.
       const szLine = flag
         .split("\n")
-        .find((l) => l.includes('from "@schemic/surrealdb"'));
+        .find((l) => l.includes('from "@better-schemic/surrealdb"'));
       expect(szLine).toBeDefined();
       expect(szLine).not.toContain("surql");
 
@@ -84,7 +84,7 @@ export const Flag = defineTable("flag", {
       H.write(
         root,
         "database/schema/tables/flag.ts",
-        `import { s, defineTable } from "@schemic/surrealdb";
+        `import { s, defineTable } from "@better-schemic/surrealdb";
 
 export const Flag = defineTable("flag", {
   id: s.string(),
@@ -98,7 +98,7 @@ export const Flag = defineTable("flag", {
       H.write(
         root,
         "database/schema/tables/flag.ts",
-        `import { s, defineTable } from "@schemic/surrealdb";
+        `import { s, defineTable } from "@better-schemic/surrealdb";
 
 export const Flag = defineTable("flag", {
   id: s.string(),
@@ -137,7 +137,7 @@ export const Flag = defineTable("flag", {
       H.write(
         root,
         "database/schema/tables/flag.ts",
-        `import { s, defineTable } from "@schemic/surrealdb";
+        `import { s, defineTable } from "@better-schemic/surrealdb";
 
 export const Flag = defineTable("flag", {
   id: s.string(),
@@ -149,7 +149,7 @@ export const Flag = defineTable("flag", {
       H.write(
         root,
         "database/schema/tables/flag.ts",
-        `import { s, defineTable } from "@schemic/surrealdb";
+        `import { s, defineTable } from "@better-schemic/surrealdb";
 
 export const Flag = defineTable("flag", {
   id: s.string(),
@@ -195,7 +195,7 @@ export const Flag = defineTable("flag", {
     "whole-table local-only: surfaced in preview, kept by --merge, file deleted by --discard",
     async () => {
       const { root, run } = await setupBare();
-      const flag = `import { s, defineTable } from "@schemic/surrealdb";
+      const flag = `import { s, defineTable } from "@better-schemic/surrealdb";
 
 export const Flag = defineTable("flag", {
   id: s.string(),
@@ -209,7 +209,7 @@ export const Flag = defineTable("flag", {
       H.write(
         root,
         "database/schema/tables/draft.ts",
-        `import { s, defineTable } from "@schemic/surrealdb";
+        `import { s, defineTable } from "@better-schemic/surrealdb";
 
 export const Draft = defineTable("draft", {
   id: s.string(),
@@ -255,7 +255,7 @@ export const Draft = defineTable("draft", {
       H.write(
         root,
         "database/schema/tables/mix.ts",
-        `import { s, defineTable } from "@schemic/surrealdb";
+        `import { s, defineTable } from "@better-schemic/surrealdb";
 
 export const HELPER = 42;
 export const Mix = defineTable("mix", {
@@ -312,7 +312,7 @@ e2e("migration guards", () => {
       H.write(
         root,
         "database/schema/tables/post.ts",
-        `import { s, defineTable } from "@schemic/surrealdb";
+        `import { s, defineTable } from "@better-schemic/surrealdb";
 
 export const Post = defineTable("post", {
   id: s.string(),

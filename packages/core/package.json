@@ -1,13 +1,13 @@
 {
-  "name": "@schemic/core",
+  "name": "@better-schemic/core",
   "version": "0.1.0-alpha.24",
-  "description": "The dialect-neutral engine for Schemic — Driver contract, portable schema IR, and the migration/diff/snapshot engine.",
+  "description": "The dialect-neutral engine for Better-schemic — Driver contract, portable schema IR, and the migration/diff/snapshot engine.",
   "license": "MIT",
   "author": "Vertio Solutions",
-  "homepage": "https://schemic.dev",
+  "homepage": "https://github.com/NONSTANDARDCODE/better-schemic",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/schemichq/schemic.git",
+    "url": "git+https://github.com/NONSTANDARDCODE/better-schemic.git",
     "directory": "packages/core"
   },
   "type": "module",

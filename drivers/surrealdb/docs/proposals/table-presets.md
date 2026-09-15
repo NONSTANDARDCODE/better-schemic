@@ -1,6 +1,6 @@
 # Table presets — `defineTable.preset()` + `TableDef.use()`
 
-**Status:** ratified cross-driver (core-dev), implemented in `@schemic/surrealdb`.
+**Status:** ratified cross-driver (core-dev), implemented in `@better-schemic/surrealdb`.
 **Origin:** gulybyte's real-world `tenantTableSchema` helper (tenant column + timestamps +
 tenant-scoped permissions + guard event, stamped onto every table), generalized into a
 first-class composition primitive.

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatItems } from "@schemic/core";
+import { formatItems } from "@better-schemic/core";
 import { EMPTY_SNAPSHOT } from "../../src/cli/structure";
 import { buildSnapshot, diffSnapshots } from "../../src/cli/surreal-diff";
 import { defineTable, s } from "../../src/pure";

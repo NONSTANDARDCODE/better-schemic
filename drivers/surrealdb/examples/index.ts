@@ -1,5 +1,5 @@
 /**
- * The @schemic/surrealdb REFERENCE example cookbook — a folder of real, tsc-checked example files.
+ * The @better-schemic/surrealdb REFERENCE example cookbook — a folder of real, tsc-checked example files.
  * Each example is a `.ts` module under its group folder; `emit(defs) === ddl` is asserted by
  * test/examples/reference.test.ts. See packages/core/docs/EXAMPLE-COOKBOOK-CONVENTION.md.
  */

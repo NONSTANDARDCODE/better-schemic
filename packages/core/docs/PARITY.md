@@ -1,6 +1,6 @@
-# @schemic/core ↔ SurrealDB Schema/DDL Parity Report
+# @better-schemic/core ↔ SurrealDB Schema/DDL Parity Report
 
-> Audit of the @schemic/core **schema / DDL layer** (`s.*`, `defineTable`/`defineRelation`/
+> Audit of the @better-schemic/core **schema / DDL layer** (`s.*`, `defineTable`/`defineRelation`/
 > `defineEvent`/`defineFunction`/`defineAccess`, `emitTable`/`emitStatements`/`emitField`/
 > `emitDefStatement`) against SurrealDB's full feature set and the SurrealQL `DEFINE`
 > language. Source of truth: the official docs (URLs at the bottom). Live verification:
@@ -16,12 +16,12 @@
 
 **Overall read: the schema layer has strong, correct parity for everyday SurrealDB
 modeling.** Every `DEFINE TABLE`, `DEFINE FIELD`, `DEFINE INDEX`, `DEFINE EVENT`,
-`DEFINE FUNCTION`, and `DEFINE ACCESS` statement that @schemic/core generates for a broad
+`DEFINE FUNCTION`, and `DEFINE ACCESS` statement that @better-schemic/core generates for a broad
 mixed-type table (60 fields covering scalars, native types, records, collections, literals,
 unions, nested objects, FLEXIBLE, and every field clause) was **accepted by SurrealDB 3.1.3
 with ZERO rejections**, and the core types round-trip faithfully through `INFO … STRUCTURE`.
 
-**No live rejections / real bugs were found** — @schemic/core never emits DDL the DB refuses.
+**No live rejections / real bugs were found** — @better-schemic/core never emits DDL the DB refuses.
 The gaps below are missing *expressiveness*, not broken output.
 
 The optionality model is also correct: `option<T>` is emitted, the DB desugars it to
@@ -148,7 +148,7 @@ s.hexadecimal() / s.latitude() / s.longitude() / s.ip() / s.domain()
 
 ### Types (`s.*` → DDL `TYPE`)
 
-| Feature | SurQL `TYPE` | @schemic/core | Status | Notes |
+| Feature | SurQL `TYPE` | @better-schemic/core | Status | Notes |
 |---|---|---|---|---|
 | string | `string` | `s.string()` | ✅ | |
 | bool | `bool` | `s.boolean()` | ✅ | |
@@ -190,7 +190,7 @@ s.hexadecimal() / s.latitude() / s.longitude() / s.ip() / s.domain()
 
 ### DEFINE statements
 
-| Statement | @schemic/core | Status | Notes |
+| Statement | @better-schemic/core | Status | Notes |
 |---|---|---|---|
 | DEFINE TABLE | `defineTable` / `defineRelation` | ✅ | |
 | DEFINE FIELD | shape fields (`s.*` + `$`-clauses) | ✅ | |
@@ -210,7 +210,7 @@ s.hexadecimal() / s.latitude() / s.longitude() / s.ip() / s.domain()
 
 ### Table clauses
 
-| Clause | SurQL | @schemic/core | Status |
+| Clause | SurQL | @better-schemic/core | Status |
 |---|---|---|---|
 | TYPE NORMAL | `TYPE NORMAL` | default | ✅ |
 | TYPE ANY | `TYPE ANY` | `.typeAny()` | ✅ |
@@ -227,7 +227,7 @@ s.hexadecimal() / s.latitude() / s.longitude() / s.ip() / s.domain()
 
 ### Field clauses
 
-| Clause | SurQL | @schemic/core | Status |
+| Clause | SurQL | @better-schemic/core | Status |
 |---|---|---|---|
 | TYPE | `TYPE <type>` | inferred from schema | ✅ |
 | FLEXIBLE | `TYPE object FLEXIBLE` | `.flexible()` / `.loose()` | ✅ |
@@ -244,7 +244,7 @@ s.hexadecimal() / s.latitude() / s.longitude() / s.ip() / s.domain()
 
 ### Indexes
 
-| Kind | SurQL | @schemic/core | Status |
+| Kind | SurQL | @better-schemic/core | Status |
 |---|---|---|---|
 | plain (single) | `… FIELDS f` | `.$index()` | ✅ |
 | UNIQUE (single) | `… FIELDS f UNIQUE` | `.$unique()` | ✅ |
@@ -295,7 +295,7 @@ used internally by the CLI/migration layer, but are not part of the authoring su
   `references<table>` are also NOT field types on 3.1.3 (back-references are the `<~` /
   `COMPUTED` query path), so they are correctly absent from the type matrix.
 - **Geometry**: bare `point`/`line`/etc. are NOT valid bare field types (only `point` is);
-  @schemic/core correctly emits `geometry<kind>`, which is accepted for all 7 kinds.
+  @better-schemic/core correctly emits `geometry<kind>`, which is accepted for all 7 kinds.
 
 ---
 

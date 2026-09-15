@@ -1,4 +1,4 @@
-import { defineRelation } from "@schemic/surrealdb";
+import { defineRelation } from "@better-schemic/surrealdb";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {

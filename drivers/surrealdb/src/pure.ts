@@ -1,8 +1,8 @@
 // Type-only (erased at runtime, so the authoring index stays side-effect-free): a `DEFINE ACCESS` key
 // may be an env()/secret() reference instead of an inline literal.
-import type { SecretRef } from "@schemic/core";
-import { isSecretRef } from "@schemic/core/authoring";
-import type { FieldRefBase } from "@schemic/core/query";
+import type { SecretRef } from "@better-schemic/core";
+import { isSecretRef } from "@better-schemic/core/authoring";
+import type { FieldRefBase } from "@better-schemic/core/query";
 import {
   type Bound,
   BoundExcluded,
@@ -37,11 +37,11 @@ import { z } from "zod";
  * Kept on the schema — not the field — so it composes through array()/optional()/nesting.
  *
  * These two registries are module-level mutable singletons read across the authoring index <-> the
- * `@schemic/surrealdb/driver` subpath, which can load as SEPARATE module instances (the CLI jiti-loads
+ * `@better-schemic/surrealdb/driver` subpath, which can load as SEPARATE module instances (the CLI jiti-loads
  * the user schema -> the index; the CLI loader imports /driver). A plain `new WeakMap()` would then be
  * DUPLICATED — `s.*` registers codecs/shapes in one, the driver's lower()/inferField read the other,
  * and gen fails ("s.custom() has no SurrealQL type"). So key each on a REGISTERED symbol (same key in
- * every instance) so both halves share ONE map. Mirrors @schemic/core's driver registry (driver.ts).
+ * every instance) so both halves share ONE map. Mirrors @better-schemic/core's driver registry (driver.ts).
  */
 function globalSingleton<T>(key: symbol, make: () => T): T {
   const slots = globalThis as Record<symbol, T | undefined>;
@@ -49,7 +49,7 @@ function globalSingleton<T>(key: symbol, make: () => T): T {
   return slots[key] as T;
 }
 export const surrealTypeRegistry = globalSingleton(
-  Symbol.for("@schemic/surrealdb.surrealTypeRegistry"),
+  Symbol.for("@better-schemic/surrealdb.surrealTypeRegistry"),
   () => new WeakMap<z.ZodType, string>(),
 );
 
@@ -59,7 +59,7 @@ export const surrealTypeRegistry = globalSingleton(
  * `Symbol.for` singleton for the same cross-instance reason as {@link surrealTypeRegistry}.
  */
 export const objectFieldsRegistry = globalSingleton(
-  Symbol.for("@schemic/surrealdb.objectFieldsRegistry"),
+  Symbol.for("@better-schemic/surrealdb.objectFieldsRegistry"),
   () => new WeakMap<z.ZodType, Record<string, AnyField>>(),
 );
 
@@ -352,7 +352,7 @@ export abstract class SFieldBase<
   ) {}
 
   /** Standard Schema (v1) interop — delegates to the underlying Zod schema, so every `s.*` field is a
-   *  valid `StandardSchemaV1` (`field['~standard'].validate(input)`), matching `@schemic/core`'s base. */
+   *  valid `StandardSchemaV1` (`field['~standard'].validate(input)`), matching `@better-schemic/core`'s base. */
   get ["~standard"](): S["~standard"] {
     return this.schema["~standard"];
   }
@@ -413,7 +413,7 @@ export abstract class SFieldBase<
     return this.safeDecodeAsync(value);
   }
 
-  // --- Mirrored from @schemic/core's SFieldBase. The full unification (extending core's base) is
+  // --- Mirrored from @better-schemic/core's SFieldBase. The full unification (extending core's base) is
   // blocked by surreal's smart-id table covariance (see surrealdb-sfieldbase-unification-blocked), so
   // shared-base methods are mirrored here instead — each delegates to the inner Zod schema exactly as
   // core does. `test/unit/sfieldbase-parity.test.ts` reflects core's prototype and fails loudly if core
@@ -676,7 +676,7 @@ function applyObjectMode(
  * The SurrealDB field — the dialect extension of {@link SFieldBase}. Adds SurrealDB-native authoring
  * (the `$`-methods over `SurrealMeta`: DEFAULT/VALUE/ASSERT/PERMISSIONS/REFERENCE/…) and re-types the
  * inherited portable Zod wrappers so a chain stays a `SField`. `s.*` produces these. In the package
- * split this class moves to `@schemic/surrealdb` (see docs/AUTHORING-SPLIT.md).
+ * split this class moves to `@better-schemic/surrealdb` (see docs/AUTHORING-SPLIT.md).
  */
 export class SField<
   S extends z.ZodType = z.ZodType,
@@ -880,7 +880,7 @@ export class SField<
   // schema's same-named method so `s.string().email().min(3).trim()` is a true Zod drop-in (copy Zod
   // code, identical behaviour on every driver). They do NOT emit a DB ASSERT: the $-prefixed forms
   // ($min/$assert/…) are the explicit DDL channel. This is the deliberate two-channel split — non-$ =
-  // app validation, $ = DB constraint — Schemic's core mental model, identical across drivers. ---
+  // app validation, $ = DB constraint — Better-schemic's core mental model, identical across drivers. ---
   // Runtime-dispatched: the method just calls the inner schema's same-named method, throwing the way
   // Zod would if it doesn't apply to this field's base type (e.g. `.regex()` on a number).
   private chain(method: string, ...args: unknown[]): SField<S, Flags> {
@@ -1158,7 +1158,7 @@ export class SField<
     });
   }
   /**
-   * Teach @schemic/core how to store this value in SurrealDB: give the **wire type** as an `s.*`
+   * Teach @better-schemic/core how to store this value in SurrealDB: give the **wire type** as an `s.*`
    * field (its SurrealQL DDL type and Zod schema are derived from it) plus a codec
    * (`encode`: app -> wire, `decode`: wire -> app). This turns an otherwise-unmappable field
    * (e.g. `s.custom`/`s.instanceof`) into a real table field and clears the no-mapping brand;
@@ -2614,7 +2614,7 @@ type IsAny<T> = 0 extends 1 & T ? true : false;
 /** Surfaced (as a compile error on the `.use(...)` argument) when a preset column collides with a table
  *  column. `.use` still returns a plain `TableDef`, so it stays a clean `AnyTable` subtype. */
 export interface PresetColumnConflict<K> {
-  readonly __schemicPresetColumnConflict: K;
+  readonly __betterSchemicPresetColumnConflict: K;
 }
 /** Constrain a `.use(...)` argument: if the preset's columns clash with the table's, intersect the
  *  marker so the passed preset no longer matches (a compile error naming the conflicting key). The
@@ -3711,7 +3711,7 @@ interface FunctionConfig {
 export type CallArgs<A extends Shape> = { [K in keyof A]: App<A[K]> };
 
 const PARAM_REF_BRAND: unique symbol = Symbol.for(
-  "schemic.surrealdb.paramref",
+  "better-schemic.surrealdb.paramref",
 ) as never;
 
 /** A `$param.path` reference (built via `surql.$`) — splices as text (`$after.email`), never
@@ -3720,7 +3720,7 @@ const PARAM_REF_BRAND: unique symbol = Symbol.for(
 export class ParamRef<T = unknown> {
   /** PHANTOM value type — lets typed operands (`u.age.gte(a.threshold)`) type-check. */
   declare readonly __t?: T;
-  /** Cross-realm brand: `Symbol.for("schemic.surrealdb.paramref")`. */
+  /** Cross-realm brand: `Symbol.for("better-schemic.surrealdb.paramref")`. */
   readonly [PARAM_REF_BRAND] = true;
   constructor(readonly path: readonly string[]) {}
   /** The spliced text: `$after.email` (segments after the param name are escaped). */
@@ -3753,7 +3753,7 @@ export function paramProxy(path: readonly string[]): ParamRef {
 /** A BARE column-path reference (permissions exprs use bare field names, not `$this.…`) —
  *  splices via the query layer's colref brand (`Symbol.for`, no import needed). */
 function colProxy(path: readonly string[]): unknown {
-  const target = { [Symbol.for("schemic.surrealdb.colref")]: path.join(".") };
+  const target = { [Symbol.for("better-schemic.surrealdb.colref")]: path.join(".") };
   return new Proxy(target, {
     get(t, key) {
       if (typeof key === "string" && !(key in t) && key !== "then")
@@ -3897,7 +3897,7 @@ export function isParamRef(v: unknown): v is ParamRef {
 // --- ranges (a SurrealQL VALUE, not a query clause) -----------------------------------------------
 
 const RANGE_BRAND: unique symbol = Symbol.for(
-  "schemic.surrealdb.range",
+  "better-schemic.surrealdb.range",
 ) as never;
 
 /** One end of a {@link Range}: the bound value, and whether it is EXCLUDED from the range. */
@@ -3918,7 +3918,7 @@ export interface RangeBound<T> {
  * `<array>(1..=5)`. Bounds BIND as params in expression position (verified on 3.1.4).
  */
 export class Range<T = unknown> {
-  /** Cross-realm brand: `Symbol.for("schemic.surrealdb.range")`. */
+  /** Cross-realm brand: `Symbol.for("better-schemic.surrealdb.range")`. */
   readonly [RANGE_BRAND] = true;
   constructor(
     /** The start bound; `undefined` = open (`..b`). */
@@ -4037,7 +4037,7 @@ export type CallArgsIn<A extends Shape> = {
  *  a builder/block via `toQuery()`) to its `BoundQuery`; everything else passes through. */
 function callArgFragment(v: unknown): unknown {
   const make = (v as Record<symbol, unknown> | null)?.[
-    Symbol.for("schemic.surrealdb.fragment")
+    Symbol.for("better-schemic.surrealdb.fragment")
   ];
   if (typeof make === "function") return make.call(v);
   return toQueryValue(v);
@@ -4329,7 +4329,7 @@ interface AccessConfig {
  * Registered via `Symbol.for` so it survives duplicate module instances (subpath splits).
  */
 export const INCOMPLETE_DEF: unique symbol = Symbol.for(
-  "schemic.surrealdb.incompleteDef",
+  "better-schemic.surrealdb.incompleteDef",
 );
 
 /** A non-terminal builder stage: carries the teaching message to throw. See {@link INCOMPLETE_DEF}. */
@@ -4872,7 +4872,7 @@ export interface RefState {
 
 /** The ref-state brand (`Symbol.for` — survives package-split dual instances). */
 export const REF_STATE: unique symbol = Symbol.for(
-  "schemic.surrealdb.refstate",
+  "better-schemic.surrealdb.refstate",
 ) as never;
 
 /** Read a value's ref state (undefined if it isn't a field ref). */
@@ -4905,7 +4905,7 @@ export function renderRef(s: RefState, ctx: Ctx): string {
 /** The fragment brand the `surql` tag reads (`Symbol.for` -> shared without importing this
  *  module): a value carrying it interpolates as its lowered `(subquery)` with bindings merged. */
 export const FRAGMENT: unique symbol = Symbol.for(
-  "schemic.surrealdb.fragment",
+  "better-schemic.surrealdb.fragment",
 ) as never;
 
 /** Coerce a fragment-able value to its `BoundQuery` (a `BoundQuery` passes through; a builder /
@@ -4965,7 +4965,7 @@ export function operandText(v: unknown, ctx: Ctx): string {
 }
 
 /** The Expr brand (`Symbol.for` — checked here without importing the expr layer). */
-const EXPR_BRAND = Symbol.for("schemic.surrealdb.expr");
+const EXPR_BRAND = Symbol.for("better-schemic.surrealdb.expr");
 
 /** A `defineParam` def used AS a value — the def IS the reference: splice `$<name>`. Duck-typed
  *  (kind + name + config) so it survives package-split dual instances. */

@@ -1,8 +1,8 @@
-// A shared DRIVER CONFORMANCE suite — the runtime contract a `@schemic/<driver>` must satisfy, asserted
+// A shared DRIVER CONFORMANCE suite — the runtime contract a `@better-schemic/<driver>` must satisfy, asserted
 // with `bun:test`. Each driver runs it against its own authoring surface:
 //
-//   import { describeDriverConformance } from "@schemic/core/testing";
-//   import { defineTable, s, surrealDriver } from "@schemic/surrealdb";
+//   import { describeDriverConformance } from "@better-schemic/core/testing";
+//   import { defineTable, s, surrealDriver } from "@better-schemic/surrealdb";
 //   describeDriverConformance({ name: "surrealdb", s, driver: surrealDriver, defineEntity: defineTable });
 //
 // WHY a test, not a type: the zod drop-in builders (`s.string()` = `new <D>Field(z.string())`) are
@@ -48,7 +48,7 @@ export interface DriverConformanceOptions {
 
 /**
  * The canonical zod DROP-IN set every driver's `s` MUST expose — the structural Zod builders that make
- * a `@schemic/<driver>` a drop-in for `z`. Each maps to the DB's natural representation (a driver may
+ * a `@better-schemic/<driver>` a drop-in for `z`. Each maps to the DB's natural representation (a driver may
  * also offer richer native aliases, e.g. `text`/`varchar` alongside `string`). `object`/`array` nest a
  * `literal` (present everywhere) so a missing `string` doesn't cascade into their tests.
  */
@@ -88,7 +88,7 @@ function isField(v: unknown): boolean {
 }
 
 /**
- * Assert a `@schemic/<driver>` conforms to the Schemic driver contract: the Driver is registered with
+ * Assert a `@better-schemic/<driver>` conforms to the Better-schemic driver contract: the Driver is registered with
  * the IR pipeline + execution ops, and its `s` is a Zod-drop-in SUPERSET (the canonical drop-in set is
  * present, carries the right schemas, composes through wrappers, and lowers to the portable IR).
  */
@@ -164,7 +164,7 @@ export function describeDriverConformance(
       test("an entity of drop-in fields explodes + lowers + emits, carrying every field", () => {
         const shape: Record<string, unknown> = {};
         for (const { key, build } of DROP_INS) shape[`f_${key}`] = build(s);
-        const entity = defineEntity("schemic_conformance_probe", shape);
+        const entity = defineEntity("better_schemic_conformance_probe", shape);
 
         // explode (authoring -> kinded definables) -> lowerSchema -> portable objects.
         const portable = lowerSchema(
@@ -367,7 +367,7 @@ export interface CoverageReconcileOptions {
  * Register the coverage reconcile as a `bun:test` block — one named `test(...)` per check, so CI reads
  * granularly. A driver calls this from a single `*.test.ts` with its manifest + `testDir`:
  *
- *   import { describeCoverageReconcile } from "@schemic/core/testing";
+ *   import { describeCoverageReconcile } from "@better-schemic/core/testing";
  *   import { registry } from "../src/kinds";
  *   import { KIND_MANIFEST, FEATURE_MANIFEST } from "./coverage-manifest";
  *   describeCoverageReconcile({ name: "sqlite", registry, kinds: KIND_MANIFEST,

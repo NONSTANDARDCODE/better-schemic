@@ -1,4 +1,4 @@
-// @schemic/surrealdb/query WRITES (ORM P2): the split builders create(T).content(data) /
+// @better-schemic/surrealdb/query WRITES (ORM P2): the split builders create(T).content(data) /
 // update(T, id).merge|content|set / remove(T, id) — SurrealQL lowering, codec-channel validation
 // (fail-fast ZodError at the call site), RETURN modes + the shared projection callback, and
 // type-level proof of the result shapes.

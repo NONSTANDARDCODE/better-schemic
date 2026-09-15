@@ -98,7 +98,7 @@ async function waitUntilReady(
 }
 
 /**
- * Spawn an ephemeral in-memory SurrealDB using the local `surreal` binary — for `schemic check`'s
+ * Spawn an ephemeral in-memory SurrealDB using the local `surreal` binary — for `better-schemic check`'s
  * migration replay. It runs on the user's EXACT SurrealDB version, needs no external server, and
  * never touches their data. Capabilities are fully allowed (`--allow-all`): it's a throwaway
  * instance running the user's own schema, so asserts/defaults/scripted functions all work. The
