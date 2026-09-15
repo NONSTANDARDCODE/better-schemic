@@ -2,7 +2,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/assets/banner.png" />
-  <img alt="Schemic — schema-as-code for any database, in the Zod you already know" src=".github/assets/banner-light.png" />
+  <img alt="Schemic — schema-as-code for SurrealDB, in the Zod you already know" src=".github/assets/banner-light.png" />
 </picture>
 
 <br />
@@ -19,25 +19,21 @@ Schemic lets you define your database schema once in TypeScript — with the
 **[Zod](https://zod.dev) API you already know** — and turns that single definition
 into your database's native DDL, end-to-end types, and reviewable migrations.
 
-The engine and CLI are **dialect-neutral**; each database is an installable
-**driver**, so the same schema targets any of them. One source of truth — no
-separate ORM model, no code generation, no drift.
+The engine and CLI are **dialect-neutral**; **SurrealDB** is the supported
+database driver. One source of truth — no separate ORM model, no code
+generation, no drift.
 
 ## Drivers
 
-- [`@schemic/surrealdb`](drivers/surrealdb#readme) — **SurrealDB** · available
-- [`@schemic/postgres`](drivers/postgres#readme) — **PostgreSQL** · in progress
-
-More drivers are planned. The authoring API and the CLI are the same across
-every driver — only the generated DDL differs.
+- [`@schemic/surrealdb`](drivers/surrealdb#readme) — **SurrealDB**
 
 ## Packages
 
 | Package | What it is |
 | --- | --- |
 | [`@schemic/core`](packages/core#readme) | The dialect-neutral engine: the `Driver` contract, the portable schema IR, and the migration / diff / snapshot engine. Zero dialect code. |
-| [`@schemic/cli`](packages/cli#readme) | The `schemic` / `sc` binary — also dialect-neutral; loads your driver from `config.driver`. |
-| `@schemic/<driver>` | A database driver: connection, authoring, and the dialect's DDL. See [Drivers](#drivers) for the available ones. |
+| [`@schemic/cli`](packages/cli#readme) | The `schemic` / `sc` binary — also dialect-neutral; loads the SurrealDB driver from `config.driver`. |
+| [`@schemic/surrealdb`](drivers/surrealdb#readme) | The SurrealDB driver: connection, authoring, and SurrealQL DDL. |
 
 ## The workflow
 
@@ -53,16 +49,14 @@ sc status      # show applied vs pending migrations
 sc pull        # introspect a live database back into TypeScript
 ```
 
-The authoring API and the DDL it generates are driver-specific — see your
-driver's README for the exact builders and output.
+The authoring API and the DDL it generates are documented in the
+[SurrealDB driver's README](drivers/surrealdb#readme).
 
 ## Status
 
 **Alpha (`0.x`).** APIs may still change.
 
-- [x] **SurrealDB** driver — the most complete · [coverage](drivers/surrealdb/docs/COVERAGE.md)
-- [ ] **PostgreSQL** driver — in progress · [coverage](drivers/postgres/docs/COVERAGE.md)
-- [ ] more drivers
+- [x] **SurrealDB** driver — [coverage](drivers/surrealdb/docs/COVERAGE.md)
 
 ## Development
 

@@ -57,18 +57,6 @@ describe("create-schemic", () => {
     }
   });
 
-  it("scaffolds postgres deps (pglite, no surrealdb SDK)", () => {
-    const s = scaffold(["--driver", "postgres"]);
-    try {
-      const deps = s.pkg().dependencies;
-      expect(deps["@schemic/postgres"]).toBeDefined();
-      expect(deps["@electric-sql/pglite"]).toBeDefined();
-      expect(deps.surrealdb).toBeUndefined();
-    } finally {
-      rmSync(s.root, { recursive: true, force: true });
-    }
-  });
-
   it("adds a direct @schemic/core dep under pnpm (strict node_modules)", () => {
     const s = scaffold(["--driver", "surrealdb", "--pm", "pnpm"]);
     try {

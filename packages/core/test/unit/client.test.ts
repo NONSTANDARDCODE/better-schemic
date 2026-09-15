@@ -34,7 +34,7 @@ describe("asyncDisposable mixin", () => {
 });
 
 // Integration: resolveConnection against a real temp config (loadProject reads it from disk).
-// The temp dir sits under the worktree so `@schemic/core` resolves via the workspace node_modules.
+// The temp dir sits under the repo checkout so `@schemic/core` resolves via the workspace node_modules.
 describe("resolveConnection", () => {
   const dir = mkdtempSync(join(import.meta.dir, "..", "..", ".orm-test-"));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));

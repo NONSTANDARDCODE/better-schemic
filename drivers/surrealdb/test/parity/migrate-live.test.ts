@@ -14,7 +14,7 @@ import { Surreal } from "surrealdb";
 import { z } from "zod";
 import { buildSnapshot, diffSnapshots } from "../../src/cli/surreal-diff";
 
-// The workspace gate runs every package's suite IN PARALLEL — PGlite's CPU burst can slow a live
+// The workspace gate runs every package's suite IN PARALLEL — parallel-suite CPU contention can slow a live
 // connect/DDL past bun's 5s DEFAULT hook timeout, failing the `beforeEach`/`afterAll` below as an
 // "(unnamed)" test. `beforeAll`s that say `120_000` explicitly are already covered; the default
 // applies to every hook that doesn't. Isolated runs are unaffected.

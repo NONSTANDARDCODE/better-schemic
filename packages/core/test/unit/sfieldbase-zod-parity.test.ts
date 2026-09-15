@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import * as z from "zod";
 import { SFieldBase } from "../../src/authoring";
 
-// Minimal concrete field — drivers subclass SFieldBase exactly this way (SField / PgField).
+// Minimal concrete field — drivers subclass SFieldBase exactly this way (SField).
 class TestField<
   S extends z.ZodType = z.ZodType,
   F extends string = never,

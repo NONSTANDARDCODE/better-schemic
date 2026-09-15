@@ -1,4 +1,4 @@
-// The DRIVER interface — the dialect seam for multi-DB support (see docs/MULTI-DB-SPIKE.md).
+// The DRIVER interface — the dialect seam (see docs/MULTI-DB-SPIKE.md).
 //
 // Everything dialect-specific lives behind a `Driver`: lowering authoring to the Struct-IR, emitting
 // DDL, introspecting a live DB, normalizing to a canonical form, and executing. Everything ABOVE the
@@ -6,8 +6,8 @@
 // dialect-free and calls these ops.
 //
 // The connection type is a driver-private parameter `Conn`: the orchestration treats it opaquely and
-// only ever hands it back to the SAME driver. So the Surreal driver is `Driver<Surreal>`, a future
-// Postgres driver is `Driver<PgClient>`, and core never sees either concrete type. The AUTHORING
+// only ever hands it back to the SAME driver. So the Surreal driver is `Driver<Surreal>`, and core
+// never sees the concrete type. The AUTHORING
 // types (`Tbl`/`Def`) are driver-private the same way — opaque to core beyond the neutral
 // `Authored`/`AuthoredDef` bounds — so the neutral engine never names a dialect's concrete builder
 // (`TableDef`/`StandaloneDef`).
@@ -104,7 +104,7 @@ export interface MigrationRecord {
  * driver's own connection type.
  */
 export interface MigrationStore<Conn = unknown> {
-  /** This dialect's migration-file extension, e.g. `".surql"` (SurrealDB) or `".sql"` (Postgres). */
+  /** This dialect's migration-file extension, e.g. `".surql"` (SurrealDB). */
   readonly extension: string;
   /** Render a diff as this dialect's migration-file body (e.g. SurrealQL `IF $direction` up/down). */
   render(tag: string, diff: Diff): string;
@@ -155,7 +155,7 @@ export interface ShadowCapability<Conn> {
  * User-defined DB functions — the `.call` side of the query layer's (B) surface (DB functions as code).
  * `invoke` calls a defined function by name with already-encoded args and returns the function's RAW
  * result (the driver extracts it from its own response shape — surreal `RETURN fn::name($a)` yields the
- * value; pg `SELECT … FROM name($a)` yields a row set). The caller decodes that raw value through the
+ * value; a row-returning call yields a row set). The caller decodes that raw value through the
  * function's `.returns(R)` schema via `callFunction` in `@schemic/core/query`. A defined function still
  * emits/migrates via the schema engine regardless; this capability only adds INVOCATION.
  */
@@ -169,7 +169,7 @@ export interface CallableFunctions<Conn = unknown> {
 
 // --- driver-contributed CLI commands -----------------------------------------------------------
 // A driver may contribute dialect-specific commands invoked as `sc <kind> <verb> [args]` (e.g. surreal
-// `sc access rotate <name>`, postgres `sc matview refresh <name>`). CORE provides only the general
+// `sc access rotate <name>`). CORE provides only the general
 // mechanism: it discovers `driver.commands`, registers each, parses argv against `args`, resolves the
 // connection, and dispatches to `run` with a {@link CommandContext}. The DRIVER owns the dialect logic
 // and the meaning of each kind/verb/arg — core never names one. Depth is fixed at kind/verb.
@@ -264,7 +264,7 @@ export interface Driver<
   explode(tables: Tbl[], defs: Def[]): Definable[];
   /**
    * Live connection -> ALL portable objects, fanned across kinds from ONE read (INFO STRUCTURE /
-   * pg_catalog). Must canonicalize IDENTICALLY to lowering (a clean apply round-trips to a zero diff)
+   * the system catalog). Must canonicalize IDENTICALLY to lowering (a clean apply round-trips to a zero diff)
    * and be COMPLETE (return every diffable kind, else presence-phantom-diffs). `exclude` skips tables
    * by name.
    */
@@ -295,8 +295,8 @@ export interface Driver<
   /** Reduce a live diff (from {@link diffLive}) to the statements `push` applies; `prune: false` keeps removals. */
   syncPlan?(diff: Diff, prune?: boolean): string[];
   /**
-   * Dialect-specific CLI commands invoked as `sc <kind> <verb> [args]` — e.g. surreal `access rotate`,
-   * postgres `matview refresh`. Core discovers + dispatches them generically (see {@link DriverCommand});
+   * Dialect-specific CLI commands invoked as `sc <kind> <verb> [args]` — e.g. surreal `access rotate`.
+   * Core discovers + dispatches them generically (see {@link DriverCommand});
    * it never names a kind/verb. Absent -> this driver contributes no extra commands.
    */
   readonly commands?: readonly DriverCommand<Conn>[];

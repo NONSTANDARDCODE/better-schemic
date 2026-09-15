@@ -18,22 +18,21 @@ Legend: ✅ done · 🚧 in progress · 🟡 partial · ⏳ not started
   CLI loader now **requires** `/driver` (index fallback removed). **Closed.**
 
 **Drivers (M1–M5)**
-- ✅ Typed single-table `select().where().orderBy().limit().return()` → SQL → decode-by-default,
-  `.raw()`. Live on both `@schemic/postgres/query` + `@schemic/surrealdb/query`.
+- ✅ Typed single-table `select().where().orderBy().limit().return()` → SurrealQL → decode-by-default,
+  `.raw()` on `@schemic/surrealdb/query`.
 
 ## Phase 1 — DB functions as code (`.call`) 🚧
 
 - ✅ core `callFunction` — invoke via `callable` + decode through `.returns(R)`.
-- 🚧 driver `invoke` + `defineFunction(args).returns(R).call(db, args)` — **surrealdb ✅**; **postgres
-  ⏸ on hold** (Manuel).
+- ✅ driver `invoke` + `defineFunction(args).returns(R).call(db, args)` on surrealdb.
 - ⏳ raw-body ↔ `.returns()` **soundness shadow-check** (design: `query-layer-soundness.md`) — gated on
-  the drivers exposing `callable` + a `shadowInvoke`.
+  the driver exposing `callable` + a `shadowInvoke`.
 
 ## Phase 2 — writes ⏳
 `CREATE` / `UPDATE` / `DELETE` / `UPSERT` + `RETURN`. Mostly driver-owned (reuse `TableDef.encode`).
 
 ## Phase 3 — multi-table ⏳
-surrealdb graph (`->`/`<-`) + `FETCH`; postgres joins / CTE. Driver-native (`native` constructs).
+surrealdb graph (`->`/`<-`) + `FETCH`.
 
 ## Phase 4 — function library + operators ⏳
 The `fn.*` namespaces to parity + full operator coverage.
@@ -53,9 +52,7 @@ remaining piece.
 
 ---
 
-## Parallel track — driver schema coverage *(not the query layer)*
-Per-driver DDL completeness, tracked in each driver's `docs/COVERAGE.md`.
-- ✅ **postgres:** standalone DDL objects (sequence/domain/extension/matview), functions/triggers/RLS,
-  composite + non-id FKs, rich indexes (gin/gist/brin/hash + partial).
+## Parallel track — driver schema coverage
+SurrealDB DDL completeness, tracked in `drivers/surrealdb/docs/COVERAGE.md`.
 - ✅ **surrealdb:** full `DEFINE ANALYZER` coverage + fluent `defineAnalyzer`.
-- ⏳ ongoing per-dialect gaps.
+- ⏳ ongoing gaps.

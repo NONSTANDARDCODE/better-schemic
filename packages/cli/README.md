@@ -10,18 +10,16 @@ any database. It's **dialect-agnostic**: the CLI loads your database driver from
 Install the CLI alongside a driver:
 
 ```bash
-bun add @schemic/cli @schemic/surrealdb   # or @schemic/postgres, …
+bun add @schemic/cli @schemic/surrealdb
 ```
 
 The CLI is dialect-neutral; the driver provides the authoring types and the DDL.
-See each driver's README for its exact peer deps and quickstart —
-[`@schemic/surrealdb`](../surrealdb#readme), [`@schemic/postgres`](../postgres#readme).
+See [`@schemic/surrealdb`](../surrealdb#readme) for its exact peer deps and quickstart.
 
 ## Quick start
 
 ```bash
-sc init                      # scaffold a project (default driver: surrealdb)
-sc init --driver postgres    # …or scaffold for a specific driver
+sc init                      # scaffold a SurrealDB project
 ```
 
 `init` writes a `schemic.config.ts`, a sample schema, a seed stub, and
@@ -37,7 +35,7 @@ sc status           # show applied vs pending
 
 | Command | What it does |
 | --- | --- |
-| `init [--driver <name>]` | Scaffold a project — config, schema, seed, `.env.example` (default driver: `surrealdb`). |
+| `init [--driver <name>]` | Scaffold a project — config, schema, seed, `.env.example`. |
 | `gen [name]` | Write a migration from the schema diff. |
 | `migrate [count]` | Apply pending migrations — all, the next N, or `--to <tag>` (alias: `up`). |
 | `rollback [count]` | Revert applied migrations, newest first (alias: `down`). |

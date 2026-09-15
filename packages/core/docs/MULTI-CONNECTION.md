@@ -10,8 +10,7 @@ A single Schemic project addresses **multiple database connections**, covering t
 one model:
 
 1. **N homogeneous DBs** — e.g. 3 SurrealDB instances sharing one schema (prod/staging/shard).
-2. **Heterogeneous** — a SurrealDB *and* a Postgres (and/or libsql, …) in one project.
-3. **DB-per-tenant / per-user** — one shared schema, a *dynamic* set of connections discovered at
+2. **DB-per-tenant / per-user** — one shared schema, a *dynamic* set of connections discovered at
    run time (often by querying a control DB).
 
 ## The keystone rule: *what* vs *where*
@@ -89,8 +88,7 @@ interface ResolveContext {
 // The array overload makes `key` MANDATORY in a collection and absent for a single connection — typed, explicit.
 ```
 
-**Naming:** distinct `<driver>Connection` names (`surrealConnection` / `postgresConnection` /
-`libsqlConnection`) so importing from two drivers at once (heterogeneous projects) never collides. A
+**Naming:** the distinct `surrealConnection` name so a future second driver never collides. A
 namespaced `surreal.connection({…})` grouping the driver's surface (`surreal.s`, `surreal.connection`) is an
 acceptable alternative.
 
@@ -106,8 +104,8 @@ falls out of access order — no explicit declaration. Cycles are detected and e
 `ctx.args` to resolve a narrow subset (e.g. `--arg tenant=123` → resolve only that tenant's connection,
 never touching the other 10k).
 
-Raw reads in a resolver use a new **optional driver capability** `query(conn, sql, vars) → rows` (surreal/
-postgres/libsql all have it; `seed` can use it too). It stays driver-agnostic — the resolver never names a
+Raw reads in a resolver use a new **optional driver capability** `query(conn, sql, vars) → rows`
+(`seed` can use it too). It stays driver-agnostic — the resolver never names a
 dialect.
 
 ## CLI addressing

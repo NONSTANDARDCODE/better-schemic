@@ -47,7 +47,7 @@ jobs:
       - name: Typecheck
         run: bun run --filter '*' typecheck
 
-      # Postgres tests run on embedded PGlite (no service). SurrealDB live/parity tests skip gracefully
+      # SurrealDB live/parity tests skip gracefully
       # when no server is reachable — add a surrealdb service container later to exercise them in CI.
       - name: Test
         run: bun run --filter '*' test

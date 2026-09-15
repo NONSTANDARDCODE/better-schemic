@@ -31,7 +31,7 @@ import { emitKinds, type KindRegistry, lowerSchema } from "./kind";
 type Authoring = Record<string, any>;
 
 export interface DriverConformanceOptions {
-  /** The driver's registry name (e.g. `"surrealdb"`, `"postgres"`). */
+  /** The driver's registry name (e.g. `"surrealdb"`). */
   name: string;
   /** The driver's authoring namespace — the `s` each package exports. */
   s: Authoring;

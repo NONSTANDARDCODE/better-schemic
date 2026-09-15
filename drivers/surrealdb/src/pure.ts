@@ -594,7 +594,7 @@ export abstract class SFieldBase<
 
   // Unguarded (no `this:`-receiver type-guard) so an object-field SUBCLASS like SObjectField stays
   // assignable to `AnyField` — a `this`-param guard makes object fields' `this` type diverge from
-  // `AnyField`'s and breaks structural assignability (it's why postgres ships these unguarded too).
+  // `AnyField`'s and breaks structural assignability.
   // On a non-object field `applyObjectMode` is a pass-through, so the call is a harmless no-op.
   /** Allow arbitrary extra keys on the field's object(s) — `FLEXIBLE` in DDL. Mirrors Zod's `.loose()`,
    *  and descends through `array`/`set`/union/wrapper layers so `s.array(s.object({…})).flexible()`
@@ -1440,8 +1440,8 @@ function liftShape(shape: Shape): {
 }
 
 /**
- * The composable object field returned by {@link s.object}. Mirrors Zod's `ZodObject` (and
- * `@schemic/postgres`'s `PgObjectField`): the composition methods (`.extend`/`.pick`/`.omit`/…) live on
+ * The composable object field returned by {@link s.object}. Mirrors Zod's `ZodObject`:
+ * the composition methods (`.extend`/`.pick`/`.omit`/…) live on
  * THIS subclass, not the base `SField`, so the base + `AnyField` stay free of the generic-return methods
  * that would break structural assignability (see the SFieldBase-unification catch-22). Each method
  * forwards to the inner `z.object`, re-registers the `objectFieldsRegistry` entry (so nested DDL keeps

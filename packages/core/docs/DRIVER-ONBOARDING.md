@@ -4,9 +4,8 @@ The authoritative starting point for a NEW driver package (`@schemic/<driver>`).
 It ties together the contract you implement, the package skeleton you mirror, and the ratified
 cross-driver conventions that are NON-negotiable. Read this first, then the linked docs for depth.
 
-The two reference drivers: **`drivers/postgres`** (SQL-relational — the closest reference for any
-SQL/libSQL/SQLite dialect) and **`drivers/surrealdb`** (document/graph — a different model, but the
-richest feature surface). Pick the one nearest your dialect as your structural template.
+The reference driver is **`drivers/surrealdb`** (document/graph — the richest feature surface).
+Use it as the structural template for a new driver package.
 
 ## 1. What core owns vs what you own
 
@@ -66,7 +65,7 @@ and the project's core share ONE map. Two consequences:
   only reveals it in e2e. (See `packages/core/docs/AUTHORING-SPLIT.md`.)
 - If your DB SDK has nominal `#private` classes (most do), make it a PEER dependency and re-export its
   value surface from your authoring index, so an app resolves ONE copy — dual instances break
-  `instanceof` and cross-instance assignability. (surrealdb hit this live; postgres/PGlite too.)
+  `instanceof` and cross-instance assignability. (The SurrealDB driver hit this live.)
 
 ## 4. The kind registry
 
@@ -101,8 +100,8 @@ Purpose-based subpaths, so app code only bundles what it imports (`package.json#
 | `@schemic/<driver>/driver` | the `Driver` impl + `lower`/`emit*`/`introspect` + `registerDriver` | registers |
 
 The CLI loader REQUIRES the `/driver` entry (drivers >= alpha.21). Keep `emit*`/`lower`/`introspect`
-OUT of the authoring index so importing `s.*` never drags the engine into an app bundle. Postgres
-source layout is the clean template: `authoring.ts -> lower.ts -> emit.ts -> driver.ts -> kinds.ts`.
+OUT of the authoring index so importing `s.*` never drags the engine into an app bundle. The SurrealDB
+source layout is the clean template.
 
 ## 6. Must-mirror conventions (all ratified cross-driver — NON-negotiable)
 
@@ -134,7 +133,7 @@ source layout is the clean template: `authoring.ts -> lower.ts -> emit.ts -> dri
   done-vs-todo list can't silently drift from the registered kinds — see the template's reconcile
   section.
 - **DB-backed tests must raise bun's default timeout.** `bun test`'s per-test timeout is **5s**, which a
-  real database round-trip (PGlite, an ephemeral SurrealDB, a live handshake) blows past under load —
+  real database round-trip (an ephemeral SurrealDB, a live handshake) blows past under load —
   the whole workspace's suites run sequentially in the land gate, so "under load" is the normal case.
   Prefer your package's `test` **script** (`bun test --timeout=30000`): one line, and a new test file
   can't forget it. Explicit `setDefaultTimeout(30_000)` at the top of *every* DB-backed file also works,
@@ -148,14 +147,10 @@ source layout is the clean template: `authoring.ts -> lower.ts -> emit.ts -> dri
 
 ## 7. Process
 
-- Work in your OWN git worktree on your OWN branch (the checkout is shared — never commit on `main` or
-  another agent's branch). Request integration with a one-line PR in `#prs` (write-only: post and
-  leave; `core-dev` is the only listener and lands from there — confirmations come back in `#general`
-  or DM). Additive + green + backward-compatible auto-lands; a BREAKING waits on Manuel.
-- `core-dev` lands via `bun scripts/land.ts <branch>` (gate = build + typecheck + per-package tests; a
-  red gate rolls `main` back). Landing ACCUMULATES; releases are cut lockstep on Manuel's word.
-- Core/API questions: DM `core-dev` (or `#general`). `#drivers` is `core-dev`'s broadcast channel for
-  completed core + public-API changes you must track — read it, don't post in it.
+- Work on a branch (never commit directly on `main`). Keep changes additive + green +
+  backward-compatible; a BREAKING change needs maintainer approval.
+- Land via `bun scripts/land.ts <branch>` (gate = build + typecheck + per-package tests; a
+  red gate rolls `main` back). Landing ACCUMULATES; releases are cut lockstep on the maintainer's word.
 
 ## 8. Deeper reading
 

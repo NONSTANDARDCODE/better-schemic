@@ -123,5 +123,5 @@ Plain `Expr` forms stay (untyped quick path). `$auth` typing: `defineAccess(...)
   carrier directly (`Fragmentable`).
 
 Cross-driver: the conventions (fragment typing rule, `Def.call` shape, helper namespace on the
-tag, contextual callbacks) mirror to pg on its `sql` tag — flagged to core-dev for ratification;
+tag, contextual callbacks) are written so a future second driver can mirror them on its own tag;
 contents stay dialect-native.

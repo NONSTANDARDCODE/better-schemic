@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
- * Land a green, backward-compatible PR branch onto `main`. This is core-dev's one-command merge step
- * (see CLAUDE.md "Landing + releases"):
+ * Land a green, backward-compatible PR branch onto `main`. This is the one-command merge step
+ * (see AGENTS.md "Landing + releases"):
  *
  *   1. rebase <branch> onto origin/main (in its worktree) so the merge is a clean fast-forward
  *   2. fast-forward-merge it into the local main checkout (NOT pushed yet)
@@ -53,7 +53,7 @@ const die = (msg: string): never => {
 // --- preflight: a clean main checkout ----------------------------------------------------------
 if (git("rev-parse", "--abbrev-ref", "HEAD") !== "main")
   die("the main checkout must be on `main` (this script integrates into it).");
-// tracked changes block the merge; untracked (e.g. .claude/) are fine.
+// tracked changes block the merge; untracked scratch files are fine.
 if (
   git("status", "--porcelain")
     .split("\n")
@@ -129,13 +129,12 @@ if (!flag("--no-test")) {
     run("bun", ["run", "--filter", "*", "build"]);
     run("bun", ["run", "--filter", "*", "typecheck"]);
     // Tests run SEQUENTIALLY per package: --filter '*' runs them in parallel, and CPU contention
-    // (PGlite's ~2min suite alongside surreal's live-server e2e boots) starves the e2e beforeAll
+    // (surreal's live-server e2e boots) starves the e2e beforeAll
     // hooks into timeouts — repeated false gate failures. Sequential costs wall-clock, never truth.
     for (const dir of [
       "packages/core",
       "packages/cli",
       "drivers/surrealdb",
-      "drivers/postgres",
     ]) {
       run("bun", ["run", "--cwd", dir, "test"]);
     }
@@ -175,10 +174,10 @@ run("bun", ["scripts/release.ts", "next"]);
 const newVer = JSON.parse(
   readFileSync(join(ROOT, "packages/core/package.json"), "utf8"),
 ).version as string;
-const driverDirs = new Set(["surrealdb", "postgres"]); // these live under drivers/, the rest packages/
+const driverDirs = new Set(["surrealdb"]); // these live under drivers/, the rest packages/
 gitIO(
   "add",
-  ...["core", "cli", "surrealdb", "postgres", "create-schemic", "schemic"].map(
+  ...["core", "cli", "surrealdb", "create-schemic", "schemic"].map(
     (p) => `${driverDirs.has(p) ? "drivers" : "packages"}/${p}/package.json`,
   ),
   "bun.lock",

@@ -3,7 +3,7 @@
 Status: **Approach A — B1 class split DONE.** Follows the engine genericization
 (snapshot + diff + migration-runner are already driver-parametric). This phase
 makes the **authoring layer** driver-parametric so SurrealDB can be pulled out of
-`@schemic/core` and a `@schemic/postgres` builder can plug in the same way.
+`@schemic/core` and a second driver's builder can plug in the same way.
 
 > **Implementation revision (B1).** The `portableBuilders` factory sketched below
 > turned out **not to be cleanly typeable**: a generic `portableBuilders<M>(mk: M)`
@@ -43,7 +43,7 @@ standardized App-land, per-DB Wire/native layer**. Concretely:
   fields, every `$`-method (`$default`/`$assert`/`$computed`/`$permissions`/…) —
   lives in `@schemic/surrealdb`, which extends the core base and re-exports a single
   `s` that is a drop-in superset.
-- A second driver (`@schemic/postgres`) plugs in by the **same mechanism**: its
+- A second driver plugs in by the **same mechanism**: its
   own field subclass + native metadata + native `$`-methods, re-exporting its own
   `s`.
 
@@ -159,41 +159,41 @@ export const s = {
 ```
 
 ```ts
-// ========== @schemic/postgres: the SAME mechanism (the generalization proof) ==========
-export interface PgMeta {
+// ========== a second (SQL) driver: the SAME mechanism (the generalization proof) ==========
+export interface SqlMeta {
   default?: SqlExpr;
   check?: SqlExpr[];
   generated?: SqlExpr;
 }
 
-export class PgField<S extends z.ZodType, Flags extends string = never>
-  extends SField<S, Flags, PgMeta>
+export class SqlField<S extends z.ZodType, Flags extends string = never>
+  extends SField<S, Flags, SqlMeta>
 {
-  protected rebuild<S2 extends z.ZodType, F2 extends string>(s: S2, n: PgMeta) {
-    return new PgField<S2, F2>(s, n);
+  protected rebuild<S2 extends z.ZodType, F2 extends string>(s: S2, n: SqlMeta) {
+    return new SqlField<S2, F2>(s, n);
   }
-  declare optional: () => PgField<z.ZodOptional<S>, Flags>;
+  declare optional: () => SqlField<z.ZodOptional<S>, Flags>;
   // ...
 
-  $default(v: z.output<S> | SqlExpr): PgField<S, Flags | "create"> {
+  $default(v: z.output<S> | SqlExpr): SqlField<S, Flags | "create"> {
     /* … */
   }
-  $check(e: SqlExpr): PgField<S, Flags> {
-    /* pg-native — NOT surreal's $assert */
+  $check(e: SqlExpr): SqlField<S, Flags> {
+    /* sql-native — NOT surreal's $assert */
   }
 }
 
 export const s = {
-  ...portableBuilders((schema, n) => new PgField(schema, n)),
-  serial: () => new PgField(z.int(), { generated: sql`identity` }),
-  jsonb: <T extends z.ZodType>(t: T) => new PgField(t, {}),
+  ...portableBuilders((schema, n) => new SqlField(schema, n)),
+  serial: () => new SqlField(z.int(), { generated: sql`identity` }),
+  jsonb: <T extends z.ZodType>(t: T) => new SqlField(t, {}),
 };
 ```
 
 ### Why A
 
 - Idiomatic OO; perfect IDE types across the chain.
-- Native method *sets* differ freely per dialect (surreal `$assert` vs pg `$check`)
+- Native method *sets* differ freely per dialect (surreal `$assert` vs sql `$check`)
   — no forced union, no untyped escape hatch.
 - A new driver's authoring is a parallel ~30-line subclass + its own `s`.
 
@@ -222,7 +222,7 @@ class SField<S, Flags, D extends Dialect> {
 ```
 
 Rejected: the native method *set* is fixed across all dialects (a union), so
-surreal-only `$assert` and pg-only `$check` can't coexist cleanly without an
+surreal-only `$assert` and sql-only `$check` can't coexist cleanly without an
 untyped `.$(patch)` escape hatch — a worse contributor API.
 
 ### C — structural contract only (Drizzle-style)
@@ -254,8 +254,8 @@ in phase C.
 - **C — physical extraction.** Move `SField` (the extension) + natives + `ddl.ts` +
   the surreal `cli/*` modules to `@schemic/surrealdb`; have core publicly export the
   authoring contract (`SFieldBase`/`TableDef`/`Shape`/`StandaloneDef`) + `Driver`/
-  portable types + `ResolvedConfig`; re-point examples/docs/tests. Add
-  `@schemic/postgres` authoring as the parallel `PgField extends SFieldBase` subclass
-  with its own per-dialect portable factories.
+   portable types + `ResolvedConfig`; re-point examples/docs/tests. A second driver's authoring
+   follows as the parallel `SqlField extends SFieldBase` subclass
+   with its own per-dialect portable factories.
 
 This is the only phase that touches import paths; B1 does not.

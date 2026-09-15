@@ -42,6 +42,4 @@ dist/
 history.txt
 # private client example — never committed
 packages/example-credilisto/
-.claude/
-drivers/postgres/examples/_capture/
 .vscode/

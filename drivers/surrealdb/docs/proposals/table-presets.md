@@ -46,7 +46,7 @@ object itself), so it hangs off `defineTable`, not the `define*` family, and is 
 | `indexes` | **append**. |
 
 The four slot **names** are the cross-driver contract; contents are dialect-specific
-(surreal `TablePermissions`/events vs pg RLS/triggers).
+(surreal `TablePermissions`/events).
 
 ## Why single-arg chained `.use(a).use(b)` (not variadic)
 

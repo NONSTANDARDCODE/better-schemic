@@ -17,7 +17,7 @@ The pieces of an ORM are already built and independently shipped:
 - **Connection config** — `schemic.config.ts` `connections` map, the `<driver>Connection(...)` factories, and the multi-connection **resolver engine** (keyed collections, `ctx.connections.<name>`, per-tenant / DB-per-user).
 
 The **gap**: the query layer requires **bring-your-own client** — `select(User).run(db)`, where `db` is a
-separately-constructed, separately-connected `new Surreal()` / pg client. So a user configures a
+separately-constructed, separately-connected `new Surreal()`. So a user configures a
 connection *once* in the config (for migrations) and then **re-declares it** to run a query. Two sources
 of truth, out of sync, and no first-class runtime entry point. Connection management closes exactly this.
 
@@ -30,8 +30,8 @@ const db = await connect();              // the default connection
 const db = await connect("reporting");   // a named connection
 const db = await connect("tenant", { key: "acme" }); // one element of a keyed collection
 
-// (b) BYO — wrap an existing client / pool (drizzle model; NEVER forces a second pool)
-const db = connect(myPgPool);            // or connect(mySurrealClient)
+// (b) BYO — wrap an existing client (drizzle model; NEVER forces a second pool)
+const db = connect(mySurrealClient);
 ```
 Managed `connect()` reuses the **same** resolver + `<driver>Connection` factories the CLI already uses,
 so the config is the one place connection info lives. BYO stays a peer, not an afterthought — apps that
@@ -49,10 +49,10 @@ a scoped client auto-closes at block exit:
 Dispose semantics differ by origin, and this is a **hard rule**: a **managed** client disposes by closing
 the connection *it opened*; a **BYO** client's dispose is a **no-op on the pool** — we never close a
 client the user owns. On top of the neutral disposable client, a driver may expose its own scoped,
-disposable sub-handle — SurrealDB `db.forkSession()` (fork the auth/session context), Postgres
-`db.session()` / a pooled-client checkout — each `await using`-friendly, releasing on dispose:
+disposable sub-handle — SurrealDB `db.forkSession()` (fork the auth/session context) — each
+`await using`-friendly, releasing on dispose:
 ```ts
-await using session = await db.forkSession();   // surreal; pg: db.session()
+await using session = await db.forkSession();   // surreal
 ```
 Neutral contract = a disposable client; the forked/scoped flavor is the driver's own (named per dialect).
 
@@ -73,8 +73,8 @@ await db.close();
 ```
 `.content` replaces / full-value (validated by `User.create`); `.merge` deep-merges / partial (by
 `User.update`); `.set(...)` explicit; `.return(...)` picks the returned projection. Surreal's
-CONTENT-vs-MERGE (replace vs recursive merge) lands on `.content`/`.merge` directly; postgres maps the
-same names to INSERT / partial-UPDATE. `db` owns the connection, so no `.run(externalDb)` threading.
+CONTENT-vs-MERGE (replace vs recursive merge) lands on `.content`/`.merge` directly. `db` owns the
+connection, so no `.run(externalDb)` threading.
 
 ## 3. Contract ownership (mirrors the query toolkit)
 
@@ -82,14 +82,13 @@ same names to INSERT / partial-UPDATE. `db` owns the connection, so no `.run(ext
   `select`/`call`, the split write builders (`create(T).content(...)` / `update(T,id).merge(...)` /
   `delete(T,id)` + `.return(...)`), `close`, and `[Symbol.asyncDispose]`. Plus the managed-connect glue
   over the resolver engine. Same split as `@schemic/core/query` (neutral toolkit) ← `@schemic/<driver>/query`.
-- **drivers** — each implements its bound client over its native connection type (surreal `Surreal`,
-  pg `PgConn`/pool), composing the core contract. Lives at `@schemic/<driver>/query` (or a new
+- **drivers** — each implements its bound client over its native connection type (surreal `Surreal`), composing the core contract. Lives at `@schemic/<driver>/query` (or a new
   `@schemic/<driver>/client` subpath — see open Q).
 
 ## 4. Deliberate NON-goals (scope discipline)
 
-- **We do NOT build a pool manager.** Pooling / reconnect / keep-alive is delegated to the native driver
-  client (pg pool, PGlite, the Surreal SDK). Owning a Prisma-grade pool is the scope trap; we stay a thin
+- **We do NOT build a pool manager.** Pooling / reconnect / keep-alive is delegated to the native
+  Surreal SDK client. Owning a Prisma-grade pool is the scope trap; we stay a thin
   bind over what the driver already does well.
 - **We do NOT deprecate BYO-client.** `.run(client)` and `connect(client)` remain first-class so an app
   with its own pool never ends up with two.
@@ -99,9 +98,9 @@ same names to INSERT / partial-UPDATE. `db` owns the connection, so no `.run(ext
 
 ## 5. Positioning (vs surqlize / other ORMs)
 
-surqlize is the SurrealDB-only ORM; drizzle/prisma are single-dialect. Schemic's edge is **cross-driver
-+ one source of truth**: the same `s.*` schema drives migrations, the query builder, runtime validation
-(`create`/`update`), and now the connection — across SurrealDB *and* Postgres. That's the differentiator
+surqlize is the SurrealDB-only ORM; drizzle/prisma are single-dialect. Schemic's edge is **one
+source of truth**: the same `s.*` schema drives migrations, the query builder, runtime validation
+(`create`/`update`), and now the connection — all SurrealDB-native. That's the differentiator
 worth building deliberately; it keeps us complementary to surqlize (a user can still drop to the native
 client / surqlize for driver-specific power via BYO).
 

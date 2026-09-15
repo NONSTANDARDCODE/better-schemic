@@ -11,9 +11,8 @@
 // codecs) — the substrate every kind builds on. Fields/types are NOT a kind: a table HAS fields, a
 // function's args ARE fields, an index REFERENCES fields. See docs/kind-registry.md.
 //
-// The registry is PER-DRIVER, not a module global: multiple drivers (`@schemic/surrealdb`,
-// `@schemic/postgres`) are registered at once and each defines its own `"table"`/`"function"`, so a
-// shared global map would collide. A driver builds one `KindRegistry` and registers its kinds into it.
+// The registry is PER-DRIVER, not a module global: a driver builds one `KindRegistry` and registers
+// its kinds into it.
 
 /**
  * An authored definable, tagged with the KIND that owns it. Core dispatches on `kind` alone — every
@@ -73,8 +72,8 @@ export interface KindEngine<
    * The CANONICAL change-detection key: the spine treats prev/next of the same object as a CHANGE iff
    * their `canonical` differs. Default (omitted) = `emit(portable).join("\n")` — so a kind whose `emit`
    * is already its canonical form needs nothing. Override when `emit` is FAITHFUL but some clauses must
-   * be EXCLUDED from equality — because the DB rewrites them on read (PG `'x'` -> `'x'::text`, `a>0` ->
-   * `(a>0)`) or never introspects them (a COMMENT, an index) — so a faithful `emit` would phantom-diff a
+   * be EXCLUDED from equality — because the DB rewrites them on read (a cast suffix like `'x'::text`,
+   * added parens like `(a>0)`) or never introspects them (a COMMENT, an index) — so a faithful `emit` would phantom-diff a
    * freshly-applied schema against `introspect`. Return `emit` MINUS those clauses: they stay create-time
    * faithful in `emit`, but don't count as changes. `canonical(a) === canonical(b)` MUST mean "no
    * migration needed". Affects ONLY classification; `emit`/`overwrite` (the DDL) are unaffected.
@@ -113,7 +112,7 @@ export interface KindEngine<
   parent?(portable: P): Ref | undefined;
   /**
    * Live connection -> all portable objects of THIS kind (the reverse direction). Introspection is
-   * often one `INFO`/`pg_catalog` read yielding every kind at once; a driver backs all of its kinds'
+   * often one `INFO`/catalog read yielding every kind at once; a driver backs all of its kinds'
    * `introspect` with one shared (memoized) read and slices out this kind's objects. Omitted -> this
    * kind isn't introspectable (diff/emit still work from authored state).
    */

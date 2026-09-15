@@ -23,10 +23,7 @@ Graduate when you'd be embarrassed to make another breaking change.
 - [ ] **Authoring surface settled** — `s.*` / `define*`, no more reshaping (types/defaults/modifiers).
 - [ ] **Query-builder surface settled** — reads + writes + graph + schemaless; no more breaking flips
       (the write-model array-default flip was the last big one — hold this line now).
-- [ ] **Driver contract stable** — it stops churning. Proof: a second driver reaches parity **without
-      forcing core-contract changes**.
-- [ ] **PostgreSQL at parity with SurrealDB** — the "the abstraction is actually dialect-neutral" proof;
-      one driver can be over-fit, two validate core.
+- [ ] **Driver contract stable** — it stops churning.
 - [ ] **CLI surface settled** — commands + flags; no renames/removals expected.
 - [ ] **Core loop round-trips** for the flagship driver: author → emit DDL → diff → migrate →
       introspect/pull, drift-free.
@@ -58,10 +55,8 @@ Mostly a hardening road, not a build road.
 ## Where we are now (snapshot — keep dated)
 
 **2026-07-08** — mid-alpha. Engine + SurrealDB are capable; the query builder is rich (graph reads,
-array-default writes, bulk/upsert/relate, schemaless). Still alpha because the API is actively reshaping
-and PostgreSQL isn't at parity.
+array-default writes, bulk/upsert/relate, schemaless). Still alpha because the API is actively reshaping.
 
-The two things that most gate **beta**, in order:
+The thing that most gates **beta**, in order:
 
-1. **PostgreSQL at parity without contract changes** — the "the abstraction is real" proof.
-2. **Freeze the authoring + query surface** — stop the breaking flips.
+1. **Freeze the authoring + query surface** — stop the breaking flips.

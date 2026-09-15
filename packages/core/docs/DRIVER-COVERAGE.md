@@ -141,7 +141,7 @@ The `reconcileCoverage(...)` pure function is exported too, if you'd rather asse
 - [n/a] `DEFINE NAMESPACE / DATABASE` — managed at connect time, not part of the schema
 
 ### Driver semantics / known gaps
-- Note any **projection** (e.g. Postgres collapsing `option<T>` and `T | null` into one nullable
+- Note any **projection** (e.g. a SQL dialect collapsing `option<T>` and `T | null` into one nullable
   column), anything **dropped** on `normalize`, secrets that are **redacted** on introspect, or
   features that **emit but don't introspect** (so they can't round-trip to `[x]` yet). Be explicit —
   this section is where the honesty lives.

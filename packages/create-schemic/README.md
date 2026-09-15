@@ -10,7 +10,7 @@ npm create schemic@latest        # or: bun create schemic, pnpm create schemic
 Interactive by default (project directory, driver, and whether/how to install). Flags:
 
 ```
-create-schemic [directory] [--driver surrealdb|postgres] [--pm bun|npm|pnpm|yarn]
+create-schemic [directory] [--driver surrealdb] [--pm bun|npm|pnpm|yarn]
                [--no-install] [--no-git] [-y]
 ```
 

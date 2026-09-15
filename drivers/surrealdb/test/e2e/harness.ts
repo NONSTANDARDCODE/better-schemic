@@ -6,7 +6,7 @@
 // database (isolation) and its own scaffolded project dir.
 import { setDefaultTimeout } from "bun:test";
 
-// The workspace gate runs every package's suite IN PARALLEL — PGlite's CPU burst can slow live
+// The workspace gate runs every package's suite IN PARALLEL — parallel-suite CPU contention can slow live
 // connects/DDL far past bun's default, timing out hooks (reported as "(unnamed)" tests). Live work
 // gets a generous ceiling; isolated runs are unaffected.
 //

@@ -23,7 +23,7 @@ import type { KindSnapshot } from "../kind";
  */
 export interface StoredSnapshot {
   version: 3;
-  /** The driver that authored this snapshot ("surrealdb", "postgres", …). */
+  /** The driver that authored this snapshot ("surrealdb"). */
   driver: string;
   /** Portable objects grouped by kind. */
   schema: KindSnapshot;

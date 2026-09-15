@@ -6,7 +6,7 @@ import { join } from "node:path";
  *   bun scripts/release.ts <version|next> [--dry-run]
  *
  * `next` auto-bumps the trailing prerelease number from core's current version (0.1.0-alpha.10 ->
- * 0.1.0-alpha.11) — the continuous-deployment path (see scripts/land.ts / CLAUDE.md).
+ * 0.1.0-alpha.11) — the continuous-deployment path (see scripts/land.ts / AGENTS.md).
  *
  * Encapsulates the publish gotchas we have hit (see memory: publish-pin-gotcha):
  *  - `bun publish` rewrites each dependent's `@schemic/core: workspace:*` using bun.lock, and a bare
@@ -30,10 +30,10 @@ if (!versionArg || versionArg.startsWith("-")) {
 const ROOT = join(import.meta.dir, "..");
 // core first (dependents pin it); create-schemic last — it has NO @schemic deps (it scaffolds version
 // strings), so it isn't pin-verified, just bumped + published lockstep so it scaffolds matching versions.
-const ORDER = ["core", "cli", "surrealdb", "postgres", "create-schemic", "schemic"];
-const DEPENDENTS = ["cli", "surrealdb", "postgres"];
+const ORDER = ["core", "cli", "surrealdb", "create-schemic", "schemic"];
+const DEPENDENTS = ["cli", "surrealdb"];
 // driver packages live in drivers/, everything else in packages/
-const DRIVERS = new Set(["surrealdb", "postgres"]);
+const DRIVERS = new Set(["surrealdb"]);
 const pkgDir = (p: string) => join(ROOT, DRIVERS.has(p) ? "drivers" : "packages", p);
 
 // `next` -> bump the trailing .N of core's current version (0.1.0-alpha.10 -> 0.1.0-alpha.11).

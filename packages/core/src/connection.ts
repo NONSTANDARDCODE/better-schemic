@@ -62,7 +62,7 @@ export interface ConnectionEntry<Client = unknown, Args = undefined> {
   client?(config: ResolvedConfig): Promise<Client>;
   /**
    * Dialect-specific DISPLAY identity for a resolved config (bulk reporting / errors / logs) —
-   * e.g. surreal `ns/db`, pg `host/db`. Precedence: config `key` > this hook > positional `name[i]`.
+   * e.g. surreal `ns/db`. Precedence: config `key` > this hook > positional `name[i]`.
    */
   label?(config: ResolvedConfig): string;
   /** PHANTOM (never assigned) — anchors `Client`/`Args` so `config.connect` can infer them per entry. */

@@ -1,6 +1,6 @@
 # Kind Registry — driver contract (core-v2 hand-off)
 
-> **Audience:** driver owners (`driver-dev-surrealdb`, `driver-dev-postgres`).
+> **Audience:** driver owners (`driver-dev-surrealdb`).
 > **Status:** core slice 1 shipped on `feat/kind-registry` (commit `dbd3f7d`). The contract below is
 > **live and additive** — your existing `Driver`/`PortableDb` path is untouched and still runs. Nothing
 > breaks until we deliberately retire the fixed slots (last step). **No action required to keep working
@@ -79,13 +79,13 @@ Semantics core relies on:
   stable for an unchanged object, core classifies add/change/remove for free. (Same idea as the
   fixed-slot engine's `before.ddl !== after.ddl`.)
 - **`canonical` separates change-detection from emit** (optional). Override it when your `emit` is
-  FAITHFUL but some clauses must be EXCLUDED from equality — the DB rewrites them on read (Postgres
-  `'x'` -> `'x'::text`, `a>0` -> `(a>0)`) or never introspects them (a COMMENT, an index) — so a
+  FAITHFUL but some clauses must be EXCLUDED from equality — the DB rewrites them on read (a SQL
+  engine: `'x'` -> `'x'::text`, `a>0` -> `(a>0)`) or never introspects them (a COMMENT, an index) — so a
   faithful `emit` would phantom-diff a freshly-applied schema against `introspect`. Return `emit` MINUS
   those clauses: they stay create-time faithful in `emit` but don't count as changes. `canonical(a) ===
   canonical(b)` MUST mean "no migration needed". Affects ONLY classification; the emitted DDL is
   unaffected. (Surreal doesn't need it — its `INFO STRUCTURE` forms are introspect-matchable, so emit
-  IS canonical; Postgres does, for `DEFAULT`/`CHECK`/`GENERATED`/`COMMENT`/`UNIQUE`-index.)
+  IS canonical; a SQL engine does, for `DEFAULT`/`CHECK`/`GENERATED`/`COMMENT`/`UNIQUE`-index.)
 - **`overwrite` is optional.** An opaque kind (function/access) omits it and core recreates
   (`remove(prev)` + `emit(next)`). A structured kind (table) implements it for clause-level
   `ALTER`/`OVERWRITE` that preserves data.
@@ -93,12 +93,11 @@ Semantics core relies on:
 - **`displayItems` keeps per-field diff DISPLAY** (optional). The spine's default display is ONE item
   per portable object — so a table change shows as a single `table:…` item. A structured kind overrides
   `displayItems` to decompose a change into per-SUB-OBJECT items (per-FIELD: `field:user:name`), each
-  carrying its owner `table` so `schemic diff` GROUPS them hierarchically under their table — preserving
-  today's per-field output. Called `(prev, next)` for a change; `(undefined, next)` lists the object's
-  sub-items as adds (the `--full` projection). **DISPLAY ONLY** — never affects up/down DDL
-  (`emit`/`overwrite`). Reuse the per-field diff you already compute (Surreal `diffSnapshots().items`;
-  Postgres per-column from `overwrite`). Manuel's call: per-field display is the product behavior; both
-  drivers implement `displayItems` at the flip so the diff UX is unchanged.
+   carrying its owner `table` so `schemic diff` GROUPS them hierarchically under their table — preserving
+   today's per-field output. Called `(prev, next)` for a change; `(undefined, next)` lists the object's
+   sub-items as adds (the `--full` projection). **DISPLAY ONLY** — never affects up/down DDL
+   (`emit`/`overwrite`). Reuse the per-field diff you already compute (Surreal `diffSnapshots().items`).
+   Manuel's call: per-field display is the product behavior; the driver implements `displayItems` at the flip so the diff UX is unchanged.
 
 ### `KindRegistry.define` — registration preserves your DX
 
@@ -122,9 +121,8 @@ export const defineFunction = registry.define({
 });
 ```
 
-The registry is **per-driver** (one per package), NOT a global — because `@schemic/surrealdb` and
-`@schemic/postgres` are registered at once and each defines its own `"table"`/`"function"`; a shared
-global map would collide.
+The registry is **per-driver** (one per package), NOT a global — because each driver defines its own
+`"table"`/`"function"` kinds; a shared global map would collide.
 
 ## 3. The migration ask (start with `table`)
 
@@ -141,8 +139,7 @@ there first, while it's still cheap to reshape (pre-launch).
 2. **`index` and `event` as their OWN kinds** — each with `deps`/`owner` pointing at its table (an
    index/event emits after, and clusters next to, its table). This is exactly the ordering POC's model.
 3. **`access` / `function`** (opaque) — trivial once the structured path is proven.
-4. Driver-specific natives (Surreal `ANALYZER`/`PARAM`/`USER`/`MODEL`; PG `EXTENSION`/`DOMAIN`/`ENUM`/
-   `SEQUENCE`) become `define` calls, not new core slots.
+4. Driver-specific natives (Surreal `ANALYZER`/`PARAM`/`USER`/`MODEL`) become `define` calls, not new core slots.
 5. Core retires the fixed `PortableDb` slots **last**.
 
 **Parity is the bar for each step:** the kind's `planKinds` output must match the live fixed-slot
@@ -165,11 +162,7 @@ a claim of completeness):
 - **SurrealDB** — `table` (NORMAL/RELATION/ANY), `field`*, `index` (UNIQUE/SEARCH/MTREE/HNSW), `event`,
   `function` (`fn::`), `access` (RECORD/JWT), `param` (`DEFINE PARAM`), `analyzer`, `user`, `model`
   (`DEFINE MODEL`), `namespace`/`database` (if in scope), `config` (`DEFINE CONFIG GRAPHQL/API`),
-  `api`/`bucket` (3.x, if targeted). *`field` is **substrate nested in `table`**, not its own kind.
-- **PostgreSQL** — `table`, `column`*, `index`, `constraint` (PK/FK/UNIQUE/CHECK/EXCLUDE), `view`,
-  `materialized_view`, `sequence`, `type`/`enum`/`domain` (`CREATE TYPE`), `function`, `procedure`,
-  `trigger`, `extension`, `schema`, `role`/`grant` (if in scope), `policy` (RLS). *`column` is
-  **substrate nested in `table`**.
+   `api`/`bucket` (3.x, if targeted). *`field` is **substrate nested in `table`**, not its own kind.
 
 Mark a kind `[x]` only when it **round-trips** (author → emit → introspect → diff = zero). The
 inventory is what tells us — at a glance — how far each driver is through the migration.
@@ -193,7 +186,7 @@ changing) — so you can always return the full `deps` set.
 ## 5. Introspect fan-out (resolved)
 
 The contract is **per-kind** (`KindEngine.introspect`). Introspection is usually ONE `INFO STRUCTURE` /
-`pg_catalog` read that yields every kind at once — so back all of your kinds' `introspect` with a
+system-catalog read that yields every kind at once — so back all of your kinds' `introspect` with a
 **single memoized read** of `conn` and slice out each kind's objects. `introspectKinds` then fans out
 across kinds at the cost of that one round-trip. A kind that omits `introspect` simply isn't
 introspectable.
@@ -222,10 +215,10 @@ introspect(conn, ex)  = assemble(await introspectKinds(this.registry, conn));   
 // assemble:  the inverse — fold the kind objects back into PortableDb's slots for the boundary
 ```
 
-Anything beyond the fixed slots (Surreal `param`/`analyzer`/`model`; PG `sequence`/`enum`/`domain`)
+Anything beyond the fixed slots (Surreal `param`/`analyzer`/`model`)
 maps to the existing generic `natives` slot for now. The snapshot stays `PortableDb`.
 
-**Stage 2 — the flip (LAST, ONCE, coordinated by core-dev).** After **both** drivers are
+**Stage 2 — the flip (LAST, ONCE, coordinated by core-dev).** After the driver is
 registry-internal and table-kind parity-green, core does the real Option-A flip in one coordinated
 slice: the `Driver` contract gains a `registry`, the CLI routes schema ops through
 `lowerSchema`/`buildKindDiff`/`emitKinds`/`introspectKinds`, the stored snapshot becomes a
@@ -251,8 +244,8 @@ This is §8's last step; it's driven by core against your **real, green** kind e
   field add/change/remove shifts the table's `emit`, so the table flags changed and `overwrite` emits
   the field-level delta.
 - **Authoring fan-out (one authored object → many kind objects) — DRIVER-SIDE EXPLODE, no contract
-  hook.** A dialect that authors indexes/events/constraints **inline** on the table (Surreal; Postgres)
-  expands one authored `TableDef` into `[table, ...index, ...event]` `Definable`s (each tagged with its
+   hook.** A dialect that authors indexes/events/constraints **inline** on the table (Surreal does)
+   expands one authored `TableDef` into `[table, ...index, ...event]` `Definable`s (each tagged with its
   `kind`) **inside its own `Driver.lower`, before calling `lowerSchema`**. `KindEngine.lower` stays a
   clean 1:1; the fan-out is dialect-specific authoring, and `lowerSchema` takes `Definable[]` so the
   driver preprocesses freely. Keep source-file linkage driver-side — exploded children inherit the

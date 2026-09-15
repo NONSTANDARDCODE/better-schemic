@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import * as z from "zod";
 import { SFieldBase } from "../../src/authoring";
 
-// A minimal concrete field — drivers subclass SFieldBase exactly this way (see SField / PgField).
+// A minimal concrete field — drivers subclass SFieldBase exactly this way (see SField).
 // We only need a real instance to assert the forwarded `~standard` contract.
 class TestField<
   S extends z.ZodType = z.ZodType,

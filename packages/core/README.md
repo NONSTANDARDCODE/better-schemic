@@ -1,18 +1,17 @@
 # @schemic/core
 
 The dialect-neutral engine behind [Schemic](https://github.com/schemichq/schemic) — schema-as-code
-for any database. It defines the **driver contract**, the **portable schema IR**, and the
-**diff / migration / snapshot** engine that the CLI runs over any driver.
+for SurrealDB. It defines the **driver contract**, the **portable schema IR**, and the
+**diff / migration / snapshot** engine that the CLI runs over the SurrealDB driver.
 
 `@schemic/core` has **no authoring surface of its own** — you don't write schemas with it directly.
-A database driver provides that:
+The SurrealDB driver provides that:
 
-- A **driver** for your database — [`@schemic/surrealdb`](../surrealdb#readme) or
-  [`@schemic/postgres`](../postgres#readme) — gives you the `s.*` authoring API and emits the DDL.
+- [`@schemic/surrealdb`](../../drivers/surrealdb#readme) gives you the `s.*` authoring API and emits SurrealQL DDL.
 - [`@schemic/cli`](../cli#readme) gives you the `schemic` / `sc` commands.
 
-The CLI loads your driver from `schemic.config.ts` and orchestrates this engine generically, so the
-same workflow — author → diff → generate → migrate — works whatever database you target.
+The CLI loads the driver from `schemic.config.ts` and orchestrates this engine generically — author →
+diff → generate → migrate.
 
 ## When you touch it directly
 
@@ -21,8 +20,8 @@ piece you import from it is the config helper:
 
 ```ts
 import { defineConfig } from "@schemic/core/config";
-// pair it with a connection factory from your driver
-// (e.g. surrealConnection from @schemic/surrealdb, postgresConnection from @schemic/postgres)
+// pair it with a connection factory from the driver
+// (e.g. surrealConnection from @schemic/surrealdb)
 ```
 
 With bun, npm, or yarn, `@schemic/core` is pulled in transitively (it's a dependency of the CLI and

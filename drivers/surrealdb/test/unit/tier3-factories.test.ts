@@ -1,5 +1,4 @@
 // Tier-3 Zod-parity factories: the long-tail `s.*` so a `z.` -> `s.` find-replace is a literal drop-in.
-// Cross-driver names agreed with driver-dev-postgres; DDL mappings confirmed by core-dev.
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { emitTable } from "../../src/driver";

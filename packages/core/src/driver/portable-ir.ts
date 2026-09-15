@@ -4,7 +4,7 @@
 // natives) + the per-slot object types (`PortableTable`/`PortableEvent`/…): a schema is now a flat
 // `PortableObject[]` of OPEN kinds (see ../kind), each driver owning its own portable shape. What
 // stays in core is the SUBSTRATE every kind composes — a field's structured {@link PortableType} +
-// its clauses — so a table kind (Postgres `PgTablePortable`, …) nests `PortableField`s and the
+// its clauses — so a table kind nests `PortableField`s and the
 // cross-driver field model + Zod drop-in keep working.
 //
 // Field/permission CLAUSES (default/value/assert/index spec/…) are carried verbatim as dialect
@@ -34,7 +34,7 @@ export interface PortableField {
   assert?: string;
   /**
    * A field-level CHECK constraint (dialect boolean expression, carried verbatim). DISTINCT from
-   * `assert`: that is Surreal's `ASSERT`; this is the SQL `CHECK` a driver like Postgres emits. A
+   * `assert`: that is Surreal's `ASSERT`; this is the SQL `CHECK` a SQL driver emits. A
    * driver maps whichever of the two it supports and surfaces the other as a capability gap.
    */
   check?: string;

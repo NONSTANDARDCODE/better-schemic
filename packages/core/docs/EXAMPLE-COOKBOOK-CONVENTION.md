@@ -95,4 +95,3 @@ emits one flat catalog:
 ## Reference implementations
 
 - **SurrealDB** — `drivers/surrealdb/examples/*.ts` (`allGroups`), on `main`.
-- **Postgres** — `drivers/postgres/examples/reference/*.ts` (`allGroups`), on `main`.

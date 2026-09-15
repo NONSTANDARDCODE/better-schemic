@@ -14,7 +14,7 @@ escape-hatch method named for the dialect:
 .$<drivername>(wire, codec?)
 ```
 
-- **`<drivername>`** = the driver's slug (`.$surreal`, `.$postgres`, `.$mysql`, …).
+- **`<drivername>`** = the driver's slug (`.$surreal`, …).
 - **`wire`**: an `s.*` field (or a raw Zod type) that supplies the **storage /
   DDL type** of the column.
 - **`codec?`**: optional `{ encode(app): wire; decode(wire): app }`. Omitted →
@@ -45,20 +45,15 @@ given a storage type + codec directly). The two are complementary:
 
 For the method's `codec` to **infer** `wire`'s type (instead of `unknown`), a
 driver's `s.*` **leaf factories SHOULD return precisely-typed fields** (e.g.
-`s.varchar(n): PgField<z.ZodString>`), not a widened `Field<ZodType>`. Surreal's
-leaves are precisely typed; pg's `mk()` currently widens — a known pg-side
-follow-up (tracked in `@schemic/postgres` COVERAGE). The method still works at
-runtime when widened; only the static `encode`/`decode` param types degrade.
+`s.string(): SField<z.ZodString>`), not a widened `Field<ZodType>`.
 
 ## Reference implementations
 
 - **SurrealDB** — `.$surreal(wire, codec?)` (`drivers/surrealdb/src/pure.ts`).
-- **Postgres** — `.$postgres(wire, codec?)` (`drivers/postgres/src/authoring.ts`).
 
 ```ts
-// app value -> stored column, both drivers, same shape:
+// app value -> stored column:
 s.instanceof(Money).$surreal(s.string(), { encode, decode })   // surreal
-s.instanceof(Money).$postgres(s.varchar(32), { encode, decode }) // postgres
 ```
 
 ## Rationale

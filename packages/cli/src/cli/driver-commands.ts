@@ -1,5 +1,5 @@
 // Dispatch for DRIVER-CONTRIBUTED CLI commands — `sc <kind> <verb> [args]` (e.g. surreal
-// `sc access rotate <name>`, postgres `sc matview refresh <name>`). Core owns ONLY this mechanism:
+// `sc access rotate <name>`). Core owns ONLY this mechanism:
 // it discovers `driver.commands`, registers each under its kind, parses argv, resolves the connection,
 // and dispatches to `command.run` with a CommandContext. The driver owns each kind/verb's meaning.
 //

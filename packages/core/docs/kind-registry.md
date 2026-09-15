@@ -111,9 +111,8 @@ Everything *object-kind-specific* moves to the drivers.
 ## 6. Wins
 
 - **New schema-object kinds = "register a kind", zero core change.** Directly kills the
-  definable-coverage backlog: SurrealDB `ANALYZER`/`PARAM`/`USER`/`MODEL`, Postgres
-  `EXTENSION`/`DOMAIN`/`ENUM`/`SEQUENCE` become `createKind` calls, not new `PortableDb` slots + engine
-  special-cases.
+  definable-coverage backlog: SurrealDB `ANALYZER`/`PARAM`/`USER`/`MODEL` become `createKind` calls,
+  not new `PortableDb` slots + engine special-cases.
 - **Capability-gating falls out for free** — a driver that doesn't register a kind simply doesn't have it
   (Redis: no `defineFunction`). Same philosophy as the query-layer `callable` + the conformance suite:
   the *contract* is the gate, never `if surreal`.
@@ -155,7 +154,7 @@ Everything *object-kind-specific* moves to the drivers.
    So erasure is only at the engine boundary, exactly like `Conn`/`Authored` are opaque in the Driver
    contract today. (POC does this.)
 4. **Introspect (reverse).** `KindEngine.introspect(conn): P[]` per kind — but introspection is often one
-   `INFO`/`pg_catalog` read that yields *all* kinds at once. Likely a driver-level `introspectAll(conn)`
+   `INFO`/catalog read that yields *all* kinds at once. Likely a driver-level `introspectAll(conn)`
    that fans out into per-kind objects, rather than N independent reads. Settle when wiring a driver.
 5. **Fields/types are substrate, not a kind** — confirmed (§3). The boundary between "neutral field/type
    vocabulary" and "kind" needs a crisp line so kinds compose fields without re-inventing them.
@@ -177,7 +176,7 @@ The converged multi-DB engine works today; migrate **kind-by-kind, green at each
    validate it there while the contract is still cheap to reshape. And function-first wouldn't exercise
    cross-kind ordering against real tables (they'd still be on the fixed slots).
 3. Then the opaque kinds (`access`/`function`) — trivial once the structured path is proven — and the
-   driver-specific natives (Surreal `ANALYZER`/`PARAM`/…; PG `EXTENSION`/`DOMAIN`/`ENUM`/…) as `define`
+   driver-specific natives (Surreal `ANALYZER`/`PARAM`/…) as `define`
    calls, not new core slots.
 4. Retire the fixed slots last. (Snapshot format is free to change — pre-launch, no v2→v3 migration.)
 

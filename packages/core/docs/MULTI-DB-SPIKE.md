@@ -1,7 +1,7 @@
 # Multi-DB Spike — surreal-zod beyond SurrealDB (DRAFT for review)
 
 Status: **spike / exploration.** Branch `spike/multi-db` (worktree, off `spike/zod-codecs`).
-Author: `sdk-v2-developer`. Ground truth for core/CLI: `@sdk-developer`. Target driver #2: **PostgreSQL**.
+Author: `sdk-v2-developer`. Ground truth for core/CLI: `@sdk-developer`. Target driver #2: **a SQL database**.
 
 ## Goal
 
@@ -52,11 +52,11 @@ type PortableType =
   | { t: "set"; elem: PortableType; size?: number }
   | { t: "union"; members: PortableType[] }      // members kept canonical-sorted by normalize()
   | { t: "object"; fields: Record<string, PortableType>; flexible?: boolean }
-  | { t: "record"; tables: string[] }            // Surreal-native; PG → FK column / unsupported.
+  | { t: "record"; tables: string[] }            // Surreal-native; SQL → FK column / unsupported.
                                                  //   NB: the id-VALUE type (RecordIdField's V) is
                                                  //   intentionally NOT in the IR — DDL `record<user>`
                                                  //   never encodes it; it's App/Wire-side (TS-only).
-  | { t: "geometry"; kind: GeometryKind }        // Surreal-native; PG → PostGIS or unsupported
+  | { t: "geometry"; kind: GeometryKind }        // Surreal-native; SQL → full-text/vector extension or unsupported
   | { t: "any" }
   | { t: "never" }
   | { t: "native"; db: string; name: string; params?: unknown }; // escape hatch for DB-specific types
@@ -71,10 +71,10 @@ type PortableType =
   `.optional()` → `option<…>` and `.nullable()` → `… | null` from separate branches. `normalize()`
   must reproduce the existing **fold rule**: `nullable(option(X))` → `option(nullable(X))` (i.e.
   `option<X> | null` → `option<X | null>`), so `.optional().nullable()` ≡ `.nullish()`. A driver maps
-  these to its own nullability story (PG: `option` ≈ column omittable / has a DEFAULT, `nullable` ≈
+  these to its own nullability story (SQL: `option` ≈ column omittable / has a DEFAULT, `nullable` ≈
   `NULL` vs `NOT NULL`).
-- **`native`** is the escape hatch: a DB-specific type that has no portable meaning (e.g. PG `tsvector`,
-  Surreal `geometry` if we choose not to portably model it). It carries the owning `db` so a portable
+- **`native`** is the escape hatch: a DB-specific type that has no portable meaning (e.g. a SQL full-text
+  vector type, Surreal `geometry` if we choose not to portably model it). It carries the owning `db` so a portable
   schema authored for one DB can't silently "work" on another.
 - Drivers own two pure functions: `emitType(PortableType) -> string` and (for introspection)
   `parseType(...) -> PortableType` — or introspect straight to portable.
@@ -83,7 +83,7 @@ type PortableType =
 
 ```ts
 interface Driver {
-  readonly name: string;                              // "surrealdb" | "postgres"
+  readonly name: string;                              // "surrealdb" | "acme-sql"
 
   lower(def: TableDef | StandaloneDef): Struct;        // authoring → IR   (shared walk + driver type-infer)
   emit(struct: Struct): Statement[];                   // IR → DDL         (the dialect)
@@ -100,8 +100,8 @@ interface Driver {
 
 `apply` must surface **transaction support**: `migrate` wraps the up/down statements **and** the
 `_migrations` bookkeeping in a single `BEGIN`/`COMMIT` today, so a driver either runs the batch
-atomically or declares it can't (and the migration model degrades to best-effort with a warning). PG is
-naturally transactional for DDL; Surreal wraps via its own transaction.
+atomically or declares it can't (and the migration model degrades to best-effort with a warning). A SQL
+engine is naturally transactional for DDL; Surreal wraps via its own transaction.
 
 `emit`/`introspect`/`normalize` become per-driver translations of the **one** portable IR. The Surreal
 driver is driver #1: today's `src/ddl.ts` + `cli/structure.ts` + `cli/struct.ts` extracted behind it,
@@ -119,9 +119,9 @@ re-exports **all Zod natives** for full drop-in **plus** its own native types.
 - **`@surreal-zod/surreal`** — Surreal `Driver`: `ddl.ts`/`structure.ts`/`struct.ts`/`introspect.ts`/
   `pull.ts` + native types & codecs (`recordId`, `datetime`, `uuid`, `duration`, `decimal`, `geometry`,
   bytes/file). `sz` export = all Zod natives + Surreal natives.
-- **`@surreal-zod/postgres`** — spike target: PG DDL emitter, `information_schema`/`pg_catalog`
-  introspection, PG native types (`jsonb`, arrays, enums, `numeric(p,s)`, …) + codecs. `sz` export =
-  all Zod natives + PG natives (no `recordId`).
+- **A SQL driver package** — spike target: SQL DDL emitter, standard information-schema
+  introspection, SQL native types (`jsonb`, arrays, enums, `numeric(p,s)`, …) + codecs. `sz` export =
+  all Zod natives + SQL natives (no `recordId`).
 
 > Open product question (NOT decided here): the umbrella/brand name once it's no longer Surreal-only.
 > Flagged for the maintainer; does not block the spike.
@@ -130,9 +130,9 @@ re-exports **all Zod natives** for full drop-in **plus** its own native types.
 
 The two-channel Zod concept (App type ⇄ Wire type via `encode`/`decode`) is reusable; the **native
 type identities and their codecs are per-DB**. Surreal's `RecordId`/`DateTime`/`Geometry` codecs live
-in `@surreal-zod/surreal`; PG gets its own (`jsonb` ⇄ object, `timestamptz` ⇄ Date, arrays, etc.).
+in `@surreal-zod/surreal`; the SQL driver gets its own (`jsonb` ⇄ object, `timestamptz` ⇄ Date, arrays, etc.).
 Authoring can pin an explicit DB type through `sz` (richer than plain Zod) where the portable scalar
-is too coarse (e.g. PG `numeric(10,2)` vs a bare `decimal`).
+is too coarse (e.g. SQL `numeric(10,2)` vs a bare `decimal`).
 
 ## Part 5 — shadow-DB becomes a driver capability
 
@@ -141,9 +141,9 @@ Surreal canonicalizes by round-tripping emitted DDL through a throwaway in-proce
 `Driver.shadow()` capability:
 
 - **Surreal**: keeps the in-process `@surrealdb/node` shadow.
-- **PostgreSQL**: either a throwaway database/temp schema (`CREATE SCHEMA … ; … ; DROP SCHEMA`) or a
-  **pure-code normalizer** (PG's catalog is well-defined, so canonicalization without a live round-trip
-  is viable — preferred for the spike to avoid a hard PG-process dependency).
+- **SQL engines**: either a throwaway database/temp schema (`CREATE SCHEMA … ; … ; DROP SCHEMA`) or a
+  **pure-code normalizer** (the SQL catalog is well-defined, so canonicalization without a live round-trip
+  is viable — preferred for the spike to avoid a hard second-engine dependency).
 
 A driver without `shadow()` MUST provide a `normalize()` strong enough to canonicalize purely.
 
@@ -188,16 +188,16 @@ IR and derive/emit DDL on demand (a manageable snapshot-format migration).
 2. **De-stringify the IR**: `inferField` → `PortableType`; Surreal `emitType` reproduces current
    strings. Flip diff equality to structured `deepEqual` over the normalized portable IR — gated on the
    ported **struct-parity** oracle staying green.
-3. **`@surreal-zod/postgres` skeleton**: emit `CREATE TABLE` for a handful of scalar fields + a tiny
-   App/Wire codec set; introspect via `information_schema`; round-trip a trivial schema through the diff.
-4. **CLI shell + migration model run unmodified** against the PG driver for a minimal schema (the proof
-   the seam holds end-to-end).
+3. **SQL-driver skeleton**: emit `CREATE TABLE` for a handful of scalar fields + a tiny
+  App/Wire codec set; introspect via the information schema; round-trip a trivial schema through the diff.
+4. **CLI shell + migration model run unmodified** against the SQL driver for a minimal schema (the proof
+  the seam holds end-to-end).
 
 ## Spike outcome (built & green)
 
 All four milestones are implemented in `packages/core/src/driver/` and proven by tests
 (`bun test test/unit` → 316 pass; typecheck + biome clean). The thesis holds: **an authored `sz.*`
-schema migrates to a real Postgres engine and round-trips to zero diff.**
+schema migrates to a real SQL engine and round-trips to zero diff.**
 
 - **`portable.ts`** — the `PortableType` keystone + constructors (the `option`/`nullable` split and
   the `.nullish()` fold live here).
@@ -210,22 +210,22 @@ schema migrates to a real Postgres engine and round-trips to zero diff.**
 - **`driver.ts`** — the `Driver<Conn>` interface (pivoting on `PortableDb`) + registry.
 - **`surreal.ts`** — `surrealDriver`: a thin adapter that lifts/lowers at its boundaries and delegates
   to the existing engine functions. Behavior-preserving (the 299-test suite is untouched).
-- **`postgres.ts`** — `postgresDriver`: portable IR → `CREATE TABLE` (PK, FK, nullability, jsonb),
-  `information_schema` → portable IR, a pure-code `normalize`, and **PGlite** (embedded Postgres in
-  WASM) as both the execution engine and the `shadow` capability. The end-to-end round-trip and
-  change-detection are proven in `test/unit/driver-postgres.test.ts`.
+- **`sql.ts`** — `sqlDriver`: portable IR → `CREATE TABLE` (PK, FK, nullability, jsonb),
+  information schema → portable IR, a pure-code `normalize`, and an embedded in-process SQL engine
+  as both the execution engine and the `shadow` capability. The end-to-end round-trip and
+  change-detection are proven in `test/unit/driver-sql.test.ts`.
 
 **Validated findings:**
 - The portable IR is a **rich superset**; each driver's `normalize()` *projects* it onto what the DB
-  can represent. Postgres collapses `option<T>` and `T | null` into one nullable column (no
+  can represent. The SQL driver collapses `option<T>` and `T | null` into one nullable column (no
   column-level "absent"), folds nested objects into `jsonb`, and drops Surreal-only constructs
   (events/access/functions/relations/changefeed/permissions). All deliberate, none silent.
 - `record<user>` maps cleanly to a real relational **foreign key** and round-trips back to
   `record<user>` via FK introspection — a strong signal the portable type model is sound.
 - The equality flip to structured `deepEqual` is **safe given a green parity oracle** per driver.
 
-**CLI proof:** `sz diff --driver postgres` is wired (`cli/portable-diff.ts` + a `--driver` option +
-a `driver` config field). It authors from `sz.*`, connects to a real Postgres (embedded PGlite),
+**CLI proof:** `sz diff --driver sql` is wired (`cli/portable-diff.ts` + a `--driver` option +
+a `driver` config field). It authors from `sz.*`, connects to a real SQL engine (embedded in-process),
 introspects, compares via `driver.equal`, and prints the `CREATE TABLE`/FK gap — or "in sync". Both
 states demonstrated end-to-end through the `sz` binary; covered by `test/unit/portable-diff.test.ts`.
 The Surreal path is untouched (the `--driver` branch returns early for any non-surreal driver).
@@ -233,16 +233,16 @@ The Surreal path is untouched (the `--driver` branch returns early for any non-s
 **Not done (out of spike scope):** physically replacing `StructField.kind: string` with `PortableType`
 across the whole engine (the bridge de-risks it; the swap is mechanical follow-up); making the WRITE
 commands driver-parametric (`gen`/`migrate`/`snapshot`/`check` — only the read-only `diff` is wired;
-the full migration-file + snapshot pipeline is still DDL-string/Surreal-only); a Postgres-native
-authoring surface (`sz.pg.*`); arrays/enums round-trip is partial.
+the full migration-file + snapshot pipeline is still DDL-string/Surreal-only); a SQL-native
+authoring surface (`sz.sql.*`); arrays/enums round-trip is partial.
 
 ## Risks / open questions
 
 - **Surreal-isms with no portable peer** — `record<>` links, `geometry`, `changefeed`, RELATION
-  tables, `DEFINE ACCESS`/`EVENT`/`FUNCTION`. These either map to `native`, map to a PG analogue
+  tables, `DEFINE ACCESS`/`EVENT`/`FUNCTION`. These either map to `native`, map to a SQL analogue
   (record→FK, geometry→PostGIS), or are declared unsupported per-driver. Need a per-driver capability
   matrix.
-- **PG ⇄ Surreal asymmetry** — PG has types Surreal lacks (enums, `jsonb`, fixed-precision `numeric`,
+- **SQL ⇄ Surreal asymmetry** — SQL has types Surreal lacks (enums, `jsonb`, fixed-precision `numeric`,
   composite types) and vice-versa. The portable model must degrade gracefully both directions.
 - **Snapshot-format migration** — moving snapshots from DDL-string to portable IR needs a version bump
   + read-compat for existing `version: 1` snapshots.

@@ -17,10 +17,6 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
-  emit as pgEmit,
-  allGroups as pgGroups,
-} from "../drivers/postgres/examples/reference/index";
-import {
   emit as surrealEmit,
   allGroups as surrealGroups,
 } from "../drivers/surrealdb/examples/index";
@@ -42,7 +38,6 @@ const CATALOGS: DriverCatalog[] = [
     groups: surrealGroups,
     emit: surrealEmit,
   },
-  { driver: "postgres", lang: "sql", groups: pgGroups, emit: pgEmit },
 ];
 
 /** One flat catalog entry — the shape consumers render from. */

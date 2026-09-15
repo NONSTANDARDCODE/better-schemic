@@ -26,11 +26,6 @@ const DRIVERS: Record<
     pkg: "@schemic/surrealdb",
     deps: { surrealdb: "^2.0.3", zod: "^4.3.5" },
   },
-  postgres: {
-    label: "PostgreSQL (PGlite)",
-    pkg: "@schemic/postgres",
-    deps: { "@electric-sql/pglite": "^0.5.2", zod: "^4.3.5" },
-  },
 };
 const DRIVER_NAMES = Object.keys(DRIVERS);
 const PMS = ["bun", "npm", "pnpm", "yarn"] as const;

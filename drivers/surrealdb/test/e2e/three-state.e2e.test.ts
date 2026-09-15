@@ -18,12 +18,12 @@ if (!E2E_ENABLED)
 let H: Harness;
 beforeAll(async () => {
   if (E2E_ENABLED) H = await startHarness();
-}, 120_000); // gate parallelism: PGlite CPU contention slows the ephemeral server boot
+}, 120_000); // gate parallelism: parallel-suite CPU contention slows the ephemeral server boot
 afterAll(async () => {
   await H?.cleanup();
 }, 120_000); // EXPLICIT: the harness's setDefaultTimeout only reaches the FIRST file (see harness.ts)
 
-const T = 180_000; // headroom for gate parallelism (PGlite CPU contention)
+const T = 180_000; // headroom for gate parallelism (parallel-suite CPU contention)
 const POST = `import { s, defineTable } from "@schemic/surrealdb";
 
 export const Post = defineTable("post", {

@@ -585,7 +585,7 @@ describe("emitTable", () => {
   });
 
   test("`.flexible()`/`.loose()`/`.strict()` no-op on non-object fields", () => {
-    // The object-mode methods are unguarded (matching @schemic/postgres + enabling the SObjectField
+    // The object-mode methods are unguarded (enabling the SObjectField
     // subclass); on a non-object field `applyObjectMode` passes the schema through unchanged, so there
     // is no FLEXIBLE and the field emits exactly as without the call.
     const T = defineTable("t", {

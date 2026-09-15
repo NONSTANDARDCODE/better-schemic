@@ -42,7 +42,7 @@ and the single-read introspection.
 
 **`explode`** is the driver-side fan-out we already sanctioned (one inline-authored table →
 `[table, ...index, ...event/constraint]`), formalized as a contract method. **`introspectAll`** is the
-"one `INFO STRUCTURE`/`pg_catalog` read fanned per kind" resolution from contract §5, made a single
+"one `INFO STRUCTURE`/catalog read fanned per kind" resolution from contract §5, made a single
 driver hook (cheaper than N per-kind reads); core slices its result by `kind`.
 
 ## 3. Core changes (module by module)
@@ -92,10 +92,10 @@ shared CLI can't speak two contracts). So:
 1. Core cuts the flip on a branch off `feat/kind-registry`; both drivers cut adaptation branches off it.
 2. Core lands the contract + CLI changes with an in-core fake-driver registry (extend slice-1's test)
    driving every re-routed command path — green before any real driver.
-3. Integrate driver-by-driver into the flip branch; run each driver's full gate (surreal: unit + 19
-   e2e + live + parity; pg: unit + PGlite round-trips). Fix contract friction as it surfaces.
-4. When both are green on the flip branch, merge to `feat/kind-registry`, then to `main`.
-5. Post-flip: promote long-tail opaque kinds (pg sequence/enum/domain/view/trigger; surreal param/
+3. Integrate the driver into the flip branch; run its full gate (surreal: unit + 19
+   e2e + live + parity). Fix contract friction as it surfaces.
+4. When green on the flip branch, merge to `feat/kind-registry`, then to `main`.
+5. Post-flip: promote long-tail opaque kinds (surreal param/
    analyzer/model) to first-class, incrementally — each a `define` + parity test, no core change.
 
 ## 6. Risks & mitigations
@@ -103,15 +103,15 @@ shared CLI can't speak two contracts). So:
 - **Introspect canonicalization parity.** The reverse path (`introspectAll`) must yield objects that
   canonicalize identically to lowering, or every introspect phantom-diffs. This is the exact
   normalize/equal problem the multi-DB spike already solved per-driver; preserve it inside each
-  `KindEngine.lower` + the driver's introspect. The facade's PGlite/live round-trip tests already guard
-  it — keep them.
+   `KindEngine.lower` + the driver's introspect. The facade's live round-trip tests already guard
+   it — keep them.
 - **`introspectAll` COMPLETENESS (presence parity).** Two distinct phantom-diff failure modes — keep
   them straight: (1) CONTENT — an object present on both sides whose emit carries clauses the DB rewrites
   or doesn't introspect → fixed by `canonical` (strip those clauses from equality). (2) PRESENCE — a
   registered kind that `emit` creates but `introspectAll` doesn't return → a phantom add/remove vs live
   that `canonical` CANNOT touch. **Rule: `introspectAll` must return objects for every registered kind
-  that participates in diff** (e.g. pg reads unique indexes from `pg_catalog` so the `index` kind
-  round-trips, rather than folding indexes into the table as create-only). A kind that is genuinely
+   that participates in diff** (e.g. unique indexes must be introspected back so the `index` kind
+   round-trips, rather than folding indexes into the table as create-only). A kind that is genuinely
   create-only-and-uninspectable should not be diffed against live at all — flag it to core-dev if such a
   case exists; the default expectation is full round-trip.
 - **CLI breadth.** Many command paths touch `PortableDb`. Mitigate with the in-core fake-driver test
@@ -123,12 +123,12 @@ shared CLI can't speak two contracts). So:
 
 ## 6a. RESOLVED during sanity-check — `canonical` change-detection hook
 
-Postgres surfaced a real gap: the spine detected change via emit-string equality, but pg's `emit` is
-FAITHFUL (DEFAULT/CHECK/GENERATED/COMMENT/UNIQUE-index) while its equality DROPS those (PG rewrites
-exprs on read; comment/index aren't introspected) — so every such table would phantom-diff a clean
-apply against `introspectAll`, losing `diff`/`check` idempotency. **Fixed (additive):** `KindEngine`
+A SQL dialect surfaced a real gap: the spine detected change via emit-string equality, but a SQL
+`emit` is FAITHFUL (DEFAULT/CHECK/GENERATED/COMMENT/UNIQUE-index) while its equality DROPS those (the
+engine rewrites exprs on read; comment/index aren't introspected) — so every such table would phantom-diff
+a clean apply against `introspectAll`, losing `diff`/`check` idempotency. **Fixed (additive):** `KindEngine`
 gains an optional `canonical(portable): string` used for change-detection, defaulting to
-`emit(p).join("\n")`. Pg's table kind returns emit MINUS the rewrite-prone/non-introspected clauses,
+`emit(p).join("\n")`. The SQL table kind returns emit MINUS the rewrite-prone/non-introspected clauses,
 restoring today's emit/equal asymmetry exactly; emit stays faithful for fresh apply. Surreal is
 unaffected (omits it). Shipped on `feat/kind-registry` with tests; carries the multi-DB spike's
 normalize/equal knowledge into the kind model (risk §6, bullet 1).
@@ -163,8 +163,7 @@ undefined, next)` projects per-sub-object adds); default = one whole-object item
 returns per-field items, each carrying its owner `table` so the display GROUPS them under it (the
 hierarchy Manuel wants — note it's a DISPLAY grouping via the item's `table`, distinct from the
 `deps`/`owner` ORDERING system). DISPLAY ONLY — up/down DDL untouched. Per-kind (so per-driver):
-Surreal reuses `diffSnapshots().items`, Postgres its per-column `overwrite` deltas; surreal omits it
-until the flip (facade stays test-only). Shipped on `feat/kind-registry` with tests.
+Surreal reuses `diffSnapshots().items`; surreal omits it until the flip (facade stays test-only). Shipped on `feat/kind-registry` with tests.
 
 ## 7. Open items to finalize at execution
 

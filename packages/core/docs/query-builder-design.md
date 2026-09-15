@@ -154,15 +154,15 @@ The operator method NAMES are Schemic's neutral surface — uniform across drive
 and each driver LOWERS them to its native operator (so dialect faithfulness lives at
 the emit layer, not the call site):
 
-| Builder | Meaning | Semantics | surreal → | pg → | sqlite → |
-|---|---|---|---|---|---|
-| `.includes(sub)` | STRING contains substring | case-SENSITIVE; NULL/NONE column ⇒ no match (as `startsWith`/`endsWith`) | `CONTAINS` | `strpos()>0` | `instr()>0` |
-| `.contains(el)` / `.containsAny` / `.containsAll` | ARRAY membership (array columns only) | element/set membership | `CONTAINS`/`CONTAINSANY`/`CONTAINSALL` | `@>` / `&&` / `@>` | n/a (no array columns) |
+| Builder | Meaning | Semantics | surreal → | sqlite → |
+|---|---|---|---|---|
+| `.includes(sub)` | STRING contains substring | case-SENSITIVE; NULL/NONE column ⇒ no match (as `startsWith`/`endsWith`) | `CONTAINS` | `instr()>0` |
+| `.contains(el)` / `.containsAny` / `.containsAll` | ARRAY membership (array columns only) | element/set membership | `CONTAINS`/`CONTAINSANY`/`CONTAINSALL` | n/a (no array columns) |
 
 `.includes` matches `z.string().includes()`, so it reads consistently with the
 Zod-drop-in authoring surface. A **case-insensitive** substring match is a SEPARATE
 future op (e.g. `.includesInsensitive`) — do NOT fold case-folding into `.includes`.
-(Ratified 2026-07 across surrealdb/postgres/sqlite; surreal's SurrealQL uses the same
+(Ratified 2026-07; surreal's SurrealQL uses the same
 `CONTAINS` keyword for both string and array, so its string op is renamed
 `.contains → .includes` — cosmetic, still lowers to `CONTAINS`.)
 
