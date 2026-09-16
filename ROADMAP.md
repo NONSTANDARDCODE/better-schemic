@@ -8,7 +8,7 @@ Legend: ✅ done · 🚧 in progress · 🟡 partial · ⏳ not started
 
 ---
 
-## Phase 0 — typed reads + foundations ✅ *(complete; shipped alpha.18–.21)*
+## Phase 0 — typed reads + foundations ✅ *(complete; shipped upstream as schemic alpha.18–.21, now part of better-schemic `0.1.0-alpha.1`)*
 
 **Core (M0)**
 - ✅ **M0.1** `@better-schemic/core/query` toolkit — `Row`/`FieldRef` (`brandRef`), `Project<P>` projection

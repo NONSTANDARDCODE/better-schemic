@@ -1,6 +1,6 @@
 {
   "name": "@better-schemic/core",
-  "version": "0.1.0-alpha.24",
+  "version": "0.1.0-alpha.1",
   "description": "The dialect-neutral engine for Better-schemic — Driver contract, portable schema IR, and the migration/diff/snapshot engine.",
   "license": "MIT",
   "author": "Vertio Solutions",

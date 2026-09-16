@@ -1,6 +1,6 @@
 {
   "name": "create-better-schemic",
-  "version": "0.1.0-alpha.24",
+  "version": "0.1.0-alpha.1",
   "description": "Scaffold a new Better-schemic project — package.json, tsconfig, a driver, and the database/ schema, in one command.",
   "license": "MIT",
   "author": "Vertio Solutions",

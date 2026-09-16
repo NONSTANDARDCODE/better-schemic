@@ -66,6 +66,30 @@ async function resolveVersion(arg: string): Promise<string> {
 const version = await resolveVersion(versionArg);
 if (versionArg === "next") console.log(`auto-bumped -> ${version}`);
 
+// --dry-run is a PREVIEW: mutating package.json + bun.lock would leave the tree bumped, so the
+// next `next` run would skip the version we just verified (0.1.0-alpha.1 -> alpha.2). Snapshot the
+// six files it touches and restore them before exiting.
+const LOCK = join(ROOT, "bun.lock");
+const snapshot = async () => {
+  const files = new Map<string, string>();
+  for (const p of ORDER) {
+    const path = join(pkgDir(p), "package.json");
+    files.set(path, await Bun.file(path).text());
+  }
+  files.set(LOCK, await Bun.file(LOCK).text());
+  return files;
+};
+const restore = async (files: Map<string, string> | null) => {
+  if (!files) return;
+  for (const [path, text] of files) await Bun.write(path, text);
+};
+const before = dryRun ? await snapshot() : null;
+const abort = async (msg: string): Promise<never> => {
+  await restore(before);
+  console.error(msg);
+  process.exit(1);
+};
+
 // 1. set every package's version (targeted edit — don't reformat the file)
 for (const p of ORDER) {
   const path = join(pkgDir(p), "package.json");
@@ -74,7 +98,9 @@ for (const p of ORDER) {
     path,
     txt.replace(/"version":\s*"[^"]*"/, `"version": "${version}"`),
   );
-  console.log(`set ${displayName(p)} -> ${version}`);
+  console.log(
+    `${dryRun ? "would set" : "set"} ${displayName(p)} -> ${version}`,
+  );
 }
 
 // 2. rebuild the lockfile so `workspace:*` rewrites to the NEW version (a bare bump won't refresh it)
@@ -92,16 +118,19 @@ for (const p of DEPENDENTS) {
   await $`rm -f ${tgz}`.cwd(pkgDir(p));
   const pin = manifest.dependencies?.["@better-schemic/core"];
   if (pin !== version) {
-    console.error(
+    await abort(
       `ABORT: @better-schemic/${p} pins core@${pin}, expected ${version} — lockfile not refreshed.`,
     );
-    process.exit(1);
   }
   console.log(`verified @better-schemic/${p} -> core@${pin}`);
 }
 
 if (dryRun) {
-  console.log("dry-run: versions set + pins verified; skipping publish.");
+  await restore(before);
+  console.log(
+    `dry-run: ${version} verified (dependents pin core correctly); ` +
+      "package.json + bun.lock restored, nothing published.",
+  );
   process.exit(0);
 }
 

@@ -104,9 +104,9 @@ Purpose-based subpaths, so app code only bundles what it imports (`package.json#
 | `@better-schemic/<driver>/client` | the bound ORM client (`connect`) | none |
 | `@better-schemic/<driver>/driver` | the `Driver` impl + `lower`/`emit*`/`introspect` + `registerDriver` | registers |
 
-The CLI loader REQUIRES the `/driver` entry (drivers >= alpha.21). Keep `emit*`/`lower`/`introspect`
-OUT of the authoring index so importing `s.*` never drags the engine into an app bundle. The SurrealDB
-source layout is the clean template.
+The CLI loader REQUIRES the `/driver` entry (every `@better-schemic` driver ships it since
+`0.1.0-alpha.1`). Keep `emit*`/`lower`/`introspect` OUT of the authoring index so importing `s.*` never
+drags the engine into an app bundle. The SurrealDB source layout is the clean template.
 
 ## 6. Must-mirror conventions (all ratified cross-driver — NON-negotiable)
 

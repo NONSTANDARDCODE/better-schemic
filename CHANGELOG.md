@@ -8,15 +8,15 @@ All notable changes to the better-schemic packages (`@better-schemic/core`, `@be
 > [Schemic](https://github.com/NONSTANDARDCODE/better-schemic), forked from schemic commit
 > [`720ada2`](https://github.com/NONSTANDARDCODE/better-schemic/commit/720ada27d3995ac96bd2000289bacb895bd9c06e).
 > The pre-fork history is preserved frozen in [`CHANGELOG_OLD.md`](./CHANGELOG_OLD.md) for
-> reference — no new entries go there. Versioning continues the schemic numbering.
-> The `Unreleased` section below carries over everything that was unreleased in the OLD
-> changelog at the fork commit, plus the fork's own changes.
+> reference — no new entries go there. The fork restarts version numbering at `0.1.0-alpha.1`.
+> That section carries over everything that was unreleased in the OLD changelog at the fork
+> commit, plus the fork's own changes.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes **accumulate** under
 **Unreleased** and are stamped into a version section on release cut. Entries are tagged by package
 (**core** / **cli** / **surrealdb** / **setup**).
 
-## [Unreleased]
+## [0.1.0-alpha.1] - 2026-09-16
 
 ### Removed (fork)
 - **repo:** the PostgreSQL driver (`drivers/postgres`, `@better-schemic/postgres`) — removed at the fork.
@@ -117,7 +117,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   op (case-sensitive; a NULL/NONE column never matches; matches `z.string().includes()`), while
   `.contains` / `.containsAny` / `.containsAll` are ARRAY-membership ops (array columns only). Builder
   names are neutral; the driver lowers to its native operator (surreal `CONTAINS`,
-  sqlite `instr()>0`). BREAKING (alpha, unreleased — query P1 is post-`alpha.24`): surreal renamed its
+  sqlite `instr()>0`). BREAKING (alpha — query P1 landed after `alpha.24`): surreal renamed its
   string `.contains` -> `.includes` (arrays keep `.contains*`).
 - **surrealdb:** query WRITE model + GRAPH traversal — graph reads (`.out`/`.in` edge hops), faithful
   `ONLY` output modes, the full write surface (bulk writes, `upsert`, `relate`, `create(T, id)`,

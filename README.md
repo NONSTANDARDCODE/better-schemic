@@ -1,12 +1,5 @@
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/banner.png" />
-  <img alt="Better-schemic — schema-as-code for SurrealDB, in the Zod you already know" src=".github/assets/banner-light.png" />
-</picture>
-
-<br />
-
 [Docs](https://github.com/NONSTANDARDCODE/better-schemic) &nbsp;•&nbsp; [Drivers](#drivers) &nbsp;•&nbsp; [GitHub](https://github.com/NONSTANDARDCODE/better-schemic)
 
 [![npm](https://img.shields.io/npm/v/@better-schemic/cli)](https://www.npmjs.com/package/@better-schemic/cli) &nbsp; [![CI](https://github.com/NONSTANDARDCODE/better-schemic/actions/workflows/ci.yml/badge.svg)](https://github.com/NONSTANDARDCODE/better-schemic/actions/workflows/ci.yml) &nbsp; [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)

@@ -114,7 +114,7 @@ export async function ensureDriver(name: string): Promise<void> {
   if (!loaded)
     throw new Error(
       `could not load the "${name}" database driver from ${pkg}/driver. ` +
-        `Install it (and ensure it's >= 0.1.0-alpha.21, which exposes the /driver entry):\n    bun add ${pkg}\n  (${
+        `Install it (and ensure it's >= 0.1.0-alpha.1, which exposes the /driver entry):\n    bun add ${pkg}\n  (${
           lastErr instanceof Error ? lastErr.message : String(lastErr)
         })`,
     );

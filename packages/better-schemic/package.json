@@ -1,6 +1,6 @@
 {
   "name": "better-schemic",
-  "version": "0.1.0-alpha.24",
+  "version": "0.1.0-alpha.1",
   "description": "The Better-schemic CLI — schema-as-code migrations for SurrealDB. Alias for @better-schemic/cli (bunx better-schemic / npx better-schemic).",
   "license": "MIT",
   "author": "Vertio Solutions",
@@ -23,6 +23,6 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@better-schemic/cli": "^0.1.0-alpha.6"
+    "@better-schemic/cli": "^0.1.0-alpha.0"
   }
 }
