@@ -5,9 +5,13 @@
   ],
   "version": "0.0.1-0",
   "scripts": {
-    "gen:examples": "bun run scripts/gen-examples-manifest.ts"
+    "gen:examples": "bun run scripts/gen-examples-manifest.ts",
+    "skills-install": "bunx skills experimental_install"
   },
   "overrides": {
     "surrealdb": "2.0.3"
+  },
+  "dependencies": {
+    "skills": "^1.5.26"
   }
 }
