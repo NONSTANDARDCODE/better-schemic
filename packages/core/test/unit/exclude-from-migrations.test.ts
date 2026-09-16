@@ -45,10 +45,16 @@ const table: PTable = { kind: "table", name: "user" };
 const access: PAccess = { kind: "access", name: "api" };
 
 describe("excludeFromMigrations", () => {
-  test("registry.isExcludedFromMigrations reflects the flag", () => {
-    expect(registry.isExcludedFromMigrations("access")).toBe(true);
-    expect(registry.isExcludedFromMigrations("table")).toBe(false);
-    expect(registry.isExcludedFromMigrations("unregistered")).toBe(false);
+  test("registry.isExcludedFromMigrations reflects the flag (per object)", () => {
+    expect(registry.isExcludedFromMigrations(access)).toBe(true);
+    expect(registry.isExcludedFromMigrations(table)).toBe(false);
+    expect(registry.isExcludedFromMigrations({ kind: "unregistered", name: "x" })).toBe(false);
+  });
+
+  test("skipsIntrospection is true only for the boolean flag", () => {
+    expect(registry.skipsIntrospection("access")).toBe(true);
+    expect(registry.skipsIntrospection("table")).toBe(false);
+    expect(registry.skipsIntrospection("unregistered")).toBe(false);
   });
 
   test("snapshotKinds(schema, registry) drops the excluded kind", () => {
@@ -85,5 +91,48 @@ describe("excludeFromMigrations", () => {
       [{ kind: "access", name: "api" }],
     );
     expect(changed.up).toEqual([]);
+  });
+});
+
+describe("excludeFromMigrations predicate (per-object)", () => {
+  const predicateRegistry = new KindRegistry();
+  predicateRegistry.define({
+    name: "access",
+    build: (name: string): PAccess => ({ kind: "access", name }),
+    lower: (a) => a,
+    emit: (a) => [`DEFINE ACCESS ${a.name}`],
+    remove: (a) => [`REMOVE ACCESS ${a.name}`],
+    // The predicate under test: only `secret_*` objects are unmanaged.
+    excludeFromMigrations: (p) => p.name.startsWith("secret_"),
+  });
+  const pub: PAccess = { kind: "access", name: "public_a" };
+  const secret: PAccess = { kind: "access", name: "secret_a" };
+
+  test("isExcludedFromMigrations evaluates the predicate per object", () => {
+    expect(predicateRegistry.isExcludedFromMigrations(secret)).toBe(true);
+    expect(predicateRegistry.isExcludedFromMigrations(pub)).toBe(false);
+    // A predicate is never a STATIC exclusion — introspection still runs for the kind.
+    expect(predicateRegistry.skipsIntrospection("access")).toBe(false);
+  });
+
+  test("snapshotKinds drops only the excluded objects", () => {
+    const snap = snapshotKinds([pub, secret], predicateRegistry);
+    expect(snap.kinds.access?.map((o) => o.name)).toEqual(["public_a"]);
+  });
+
+  test("emitKinds skips only the excluded objects", () => {
+    const ddl = emitKinds(predicateRegistry, [pub, secret]).join("\n");
+    expect(ddl).toContain("DEFINE ACCESS public_a");
+    expect(ddl).not.toContain("secret_a");
+  });
+
+  test("buildKindDiff diffs only managed objects (add / remove)", () => {
+    const added = buildKindDiff(predicateRegistry, [], [pub, secret]);
+    expect(added.up.join("\n")).toContain("DEFINE ACCESS public_a");
+    expect(added.up.join("\n")).not.toContain("secret_a");
+
+    const removed = buildKindDiff(predicateRegistry, [pub, secret], []);
+    expect(removed.up.join("\n")).toContain("REMOVE ACCESS public_a");
+    expect(removed.up.join("\n")).not.toContain("secret_a");
   });
 });

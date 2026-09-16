@@ -121,9 +121,10 @@ export interface KindSnapshot {
 }
 
 /**
- * Group a flat portable schema into a snapshot (by kind). Pass `registry` to DROP kinds marked
- * {@link KindEngine.excludeFromMigrations} (e.g. SurrealDB `access`) so unmanaged, secret-bearing
- * objects never enter a snapshot / migration. Omit it to snapshot every object unchanged.
+ * Group a flat portable schema into a snapshot (by kind). Pass `registry` to DROP kinds/objects
+ * marked {@link KindEngine.excludeFromMigrations} (e.g. SurrealDB key-bearing access) so unmanaged,
+ * secret-bearing objects never enter a snapshot / migration. Omit it to snapshot every object
+ * unchanged.
  */
 export function snapshotKinds(
   schema: PortableObject[],
@@ -131,7 +132,7 @@ export function snapshotKinds(
 ): KindSnapshot {
   const kinds: Record<string, PortableObject[]> = {};
   for (const o of schema) {
-    if (registry?.isExcludedFromMigrations(o.kind)) continue;
+    if (registry?.isExcludedFromMigrations(o)) continue;
     const bucket = kinds[o.kind] ?? [];
     bucket.push(o);
     kinds[o.kind] = bucket;
@@ -198,9 +199,10 @@ function orderedChanges(
     const n = nextByKey.get(k);
     const portable = n ?? p;
     if (!portable) continue;
-    // Migration-unmanaged kinds (e.g. access) never diff — they're reconciled out-of-band by driver
-    // commands, so they must not appear in gen/migrate/diff-live output. Central choke point.
-    if (registry.isExcludedFromMigrations(portable.kind)) continue;
+    // Migration-unmanaged kinds/objects (e.g. key-bearing access) never diff — they're reconciled
+    // out-of-band by driver commands, so they must not appear in gen/migrate/diff-live output.
+    // Central choke point (a per-object predicate is fed the object that would be emitted).
+    if (registry.isExcludedFromMigrations(portable)) continue;
     const engine = registry.engine(portable.kind);
     if (!engine) continue;
     const node = orderNodeOf(engine, portable);
@@ -376,9 +378,10 @@ export function emitKinds(
   registry: KindRegistry,
   schema: PortableObject[],
 ): string[] {
-  // Skip migration-unmanaged kinds (e.g. access) — they're applied out-of-band by driver commands.
+  // Skip migration-unmanaged kinds/objects (e.g. key-bearing access) — they're applied out-of-band
+  // by driver commands.
   const managed = schema.filter(
-    (o) => !registry.isExcludedFromMigrations(o.kind),
+    (o) => !registry.isExcludedFromMigrations(o),
   );
   return orderedSchema(registry, managed).flatMap(({ engine, portable }) =>
     engine.emit(portable),
@@ -397,11 +400,12 @@ export async function introspectKinds(
   conn: unknown,
 ): Promise<PortableObject[]> {
   const out: PortableObject[] = [];
-  for (const [, engine] of registry.entries()) {
+  for (const [kind, engine] of registry.entries()) {
     if (!engine.introspect) continue;
-    // Skip migration-unmanaged kinds (e.g. access) so the live side never phantom-diffs against a
-    // schema that (by design) excludes them — they're reconciled out-of-band by driver commands.
-    if (engine.excludeFromMigrations) continue;
+    // Skip STATICALLY migration-unmanaged kinds so the live side never phantom-diffs against a
+    // schema that (by design) excludes them. A per-object predicate can't be evaluated without the
+    // object — introspection still runs, and the diff choke point filters by object afterwards.
+    if (registry.skipsIntrospection(kind)) continue;
     out.push(...(await engine.introspect(conn)));
   }
   return out;

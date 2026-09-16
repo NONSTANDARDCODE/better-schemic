@@ -170,8 +170,62 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   Every display/output boundary pretty-prints (`sc diff`, gen, live diff, migration files with
   line-aware indent) while every COMPARISON stays canonical single-line — snapshots unchanged, no
   phantom churn on upgrade.
+- **core:** `KindEngine.excludeFromMigrations` now accepts a PREDICATE (`(portable) => boolean`) in
+  addition to `boolean` — a kind can decide PER OBJECT whether it is migration-managed (`snapshotKinds`/
+  `buildKindDiff`/`emitKinds` feed the object). `KindRegistry.isExcludedFromMigrations(portable)` now
+  REQUIRES the object (a predicate can't be answered without it — no silent "managed" fallback), and
+  the new `skipsIntrospection(kind)` owns the static `true` case `introspectKinds` skips.
+- **surrealdb:** key-free `DEFINE ACCESS` is now migration-managed via that predicate — `TYPE RECORD`
+  (auto-generated session JWT), `TYPE JWT` via a JWKS `URL`, and `TYPE BEARER` (server-generated grant)
+  enter snapshots/diffs/`gen`/`migrate`/`baseline`, still gated by the opt-in `--access` flag. A
+  key-bearing `TYPE JWT` stays out-of-band (`sc access push/diff/rotate`): the canonical DDL omits the
+  redacted `KEY`, so re-applying would rotate it.
+- **surrealdb:** `$`-constraints now cover containers and wrapped fields — `$min`/`$max` apply to
+  arrays and sets (`array::len` bounds), `$length` applies to arrays (exact `array<T,N>` + equality
+  ASSERT) and `$size` to sets (exact `set<T,N>` + equality ASSERT), and all of
+  `$min/$max/$length/$size/$regex/$gt/$gte/$lt/$lte` look through `.optional()`/`.nullable()` (the Zod
+  check lands on the inner schema, wrappers preserved). A UNION bound is emitted only when ALL non-none
+  members share one family (string / number / array / set): a mixed union (`int | string`) has no single
+  valid SurrealQL function and no-ops (`.$assert(surql`…`)` is the explicit escape hatch).
+  `.$assert()` (no args) additionally derives container bounds from Zod's `min_length`/`max_length`/
+  `length_equals` (arrays) and `min_size`/`max_size`/`size_equals` (sets — gated to sets, since Zod
+  maps share those check names but lower to `object`).
 
 ### Fixed
+- **surrealdb:** an ASSERT on a NULLABLE field no longer rejects explicit NULL — SurrealDB skips an
+  assert only for NONE, so `T | null` / `option<T | null>` (and `s.union([…, s.null()])`) now emit
+  `ASSERT $value = NULL OR <expr>` (applied identically by the emitter and the Struct-IR lowering, so
+  the two sides converge). `len`/format functions error on NULL, so without the guard a valid NULL was
+  rejected (e.g. `s.number().nullable().$gt(0)`); a `null` union member is also ignored when deriving
+  the bound, so `s.union([s.string(), s.null()]).$max(10)` now bounds the string member. `.optional()`
+  is unchanged (the engine skips NONE) and custom `$assert` exprs are guarded the same way. The guard
+  is IDEMPOTENT (an already-guarded expr normalizes to exactly one), and `pull` reverses it to the bare
+  assert — so a pulled `s.number().nullable().$assert(surql\`$value > 0\`)` re-emits unchanged instead
+  of stacking a guard per pass.
+- **surrealdb:** a union with an `.optional()`/`.nullish()` member now lowers to the DB canonical form
+  — SurrealDB reports `option<X> | Y` as `none | X | Y`, so member types are FLATTENED to top-level
+  atoms and deduped (`s.union([s.string().optional(), s.int()])` → `option<string | int>`; an
+  `.optional()` + `.nullable()` pair → `option<string | null>`, not `option<string | string | null>`).
+  Previously the authored `option<string> | int` never matched `fromInfo`, phantom-diffing forever, and
+  a repeated member would have too.
+- **repo:** `src/cli/struct.ts` / `src/cli/introspect.ts` no longer contain literal NUL bytes (the
+  string separators are `\x00` escapes) — git treated them as BINARY, so their diffs were unreadable.
+- **repo:** `bun.lock` re-synced with the root `skills` dependency added by the skills-tooling commit —
+  `bun install --frozen-lockfile` (the land gate + CI) failed without the lockfile entry.
+- **surrealdb:** `$value` no longer strips a leading `option<>` — only DEFAULT/COMPUTED guarantee a
+  populated column; a VALUE expression may evaluate to NONE, and SurrealDB persists `option<T>`.
+  Stripping it emitted `TYPE T` while the DB stored `option<T>`, causing a phantom diff and rejected
+  writes (e.g. `IF cond THEN NONE ELSE $value END`). Because VALUE runs AFTER DEFAULT and re-validates
+  the type last, a field with BOTH `$default` and `$value` keeps `option<T>` too. The Struct-IR
+  normalizer (`fromTableDef` vs `fromInfo`) applies the same rule, so the round-trip converges.
+- **surrealdb:** `array<T, N>` / `set<T, N>` is EXACTLY N in SurrealQL — it is now inferred only from
+  Zod's exact-size checks (`length_equals` for arrays, `size_equals` for sets), never from `.max()`.
+  `s.array(e, { max })`/`s.set(e, { max })`/`.$max(N)` now emit `ASSERT array::len($value) <= N` on the
+  bare container type instead of a wrong exact-size `array<T, N>`. `pull` reverses exact sizes to
+  `.length(N)` (arrays) / `.size(N)` (sets) — it used to mangle `array<T, N>`/`set<T, N>` into
+  `s.any() /* … */`, and sized sets silently degraded to `set<T>`. The size now survives the live
+  `INFO` shape too: an array/set field always reports an `x.*` element child, and the renderer carries
+  `N` through that branch (the old reverse only worked for element-less synthetic inputs).
 - **core:** the DEFAULT migrations dir now follows the documented contract — RELATIVE TO THE SCHEMA
   (its sibling `migrations` dir) instead of a root-fixed `./database/migrations`. A nested schema
   (`schema: "./src/database/schema"`) previously split state: `init` scaffolded the snapshot

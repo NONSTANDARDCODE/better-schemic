@@ -33,7 +33,7 @@ describe("renderPerFile", () => {
     functions: [],
     accesses: [],
     analyzers: [],
-      params: [],
+    params: [],
   };
 
   test("renders one module per object, keyed by file path", () => {
@@ -216,6 +216,68 @@ describe("pull reverses native codecs / string formats", () => {
     ]);
     expect(out).toContain("doc: s.file()");
     expect(out).toContain('loc: s.geometry("point")');
+  });
+
+  test("exact `array<T, N>` reverses to .length(N); a sized set to .size(N)", () => {
+    const out = render([
+      sf("id", "string"),
+      sf("sized", "array<string, 3>"),
+      sf("sizedset", "set<int, 5>"),
+      sf("bounded", "array<string>", { assert: "array::len($value) <= 3" }),
+    ]);
+    expect(out).toContain("sized: s.string().array().length(3)");
+    expect(out).toContain("sizedset: s.set(s.int()).size(5)");
+    expect(out).toContain(
+      "bounded: s.string().array().$assert(surql`array::len($value) <= 3`)",
+    );
+  });
+
+  test("exact sizes survive the `.*` element shape INFO always materializes", () => {
+    // Real `INFO STRUCTURE` reports a `sized.*` element field, which routes renderField through the
+    // `*` branch (not `szType`) — the size must ride along there, or pull silently loses it.
+    const out = render([
+      sf("id", "string"),
+      sf("sized", "array<string, 3>"),
+      sf("sized.*", "string"),
+      sf("sizedset", "set<int, 5>"),
+      sf("sizedset.*", "int"),
+      sf("bound", "array<string>", { assert: "array::len($value) <= 2" }),
+      sf("bound.*", "string"),
+    ]);
+    expect(out).toContain("sized: s.string().array().length(3)");
+    expect(out).toContain("sizedset: s.set(s.int()).size(5)");
+    expect(out).toContain(
+      "bound: s.string().array().$assert(surql`array::len($value) <= 2`)",
+    );
+  });
+
+  test("a NULL-guarded assert reverses to its bare form (the type carries the nullability)", () => {
+    const out = render([
+      sf("id", "string"),
+      sf("nulg", "number | null", {
+        assert: "$value = NULL OR $value > 0",
+      }),
+      // A guarded FORMAT assert reverses all the way to the format builder.
+      sf("mail", "string | null", {
+        assert: "$value = NULL OR string::is_email($value)",
+      }),
+      sf("nul", "option<string | null>", {
+        assert: "$value = NULL OR string::len($value) >= 3",
+      }),
+      // Not nullable -> nothing to reverse; the assert stays literal.
+      sf("odd", "number", { assert: "$value = NULL OR $value > 0" }),
+    ]);
+    expect(out).toContain(
+      "nulg: s.number().nullable().$assert(surql`$value > 0`)",
+    );
+    expect(out).toContain("mail: s.email().nullable()");
+    expect(out).toContain(
+      "nul: s.string().nullable().optional().$assert(surql`string::len($value) >= 3`)",
+    );
+    expect(out).toContain(
+      "odd: s.number().$assert(surql`$value = NULL OR $value > 0`)",
+    );
+    expect(out).not.toContain("$value = NULL OR $value = NULL");
   });
 
   test("a NORMAL table keeps fields literally named `in`/`out`", () => {

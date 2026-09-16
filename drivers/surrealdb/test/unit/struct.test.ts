@@ -139,6 +139,28 @@ describe("normalizeTable", () => {
     expect(out.fields.map((f) => f.name)).toEqual(["tags", "tags.*"]);
   });
 
+  test("strips option<> for DEFAULT/COMPUTED but keeps it when a VALUE is set", () => {
+    const out = normalizeTable(
+      table([
+        field("withDefault", "option<string>", { default: "'x'" }),
+        field("withComputed", "option<int>", { computed: "1 + 1" }),
+        field("withValue", "option<int>", {
+          value: "IF x THEN NONE ELSE $value END",
+        }),
+        // VALUE runs AFTER DEFAULT and re-validates the type last -> the option<> stays.
+        field("withDefaultAndValue", "option<string>", {
+          default: "'x'",
+          value: "IF x THEN NONE ELSE $value END",
+        }),
+      ]),
+    );
+    const kindOf = (n: string) => out.fields.find((f) => f.name === n)?.kind;
+    expect(kindOf("withDefault")).toBe("string");
+    expect(kindOf("withComputed")).toBe("int");
+    expect(kindOf("withValue")).toBe("option<int>");
+    expect(kindOf("withDefaultAndValue")).toBe("option<string>");
+  });
+
   test("strips default permissions (table NONE, field FULL) to undefined", () => {
     const out = normalizeTable(
       table(

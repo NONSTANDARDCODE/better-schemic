@@ -170,11 +170,34 @@ describe("DB-side metadata clauses", () => {
     );
   });
 
-  test("$value -> VALUE and strips option<>", () => {
+  test("$value -> VALUE keeps option<> (the expr may evaluate to NONE)", () => {
     expect(
       ddl(s.string().optional().$value(surql`string::lowercase($value)`)),
     ).toBe(
-      "DEFINE FIELD x ON TABLE t TYPE string VALUE string::lowercase($value);",
+      "DEFINE FIELD x ON TABLE t TYPE option<string> VALUE string::lowercase($value);",
+    );
+  });
+
+  test("$default/$computed -> strips option<> (the column is always populated)", () => {
+    expect(ddl(s.string().optional().$default("x"))).toBe(
+      `DEFINE FIELD x ON TABLE t TYPE string DEFAULT "x";`,
+    );
+    expect(ddl(s.int().optional().$computed(surql`1 + 1`))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE int COMPUTED 1 + 1;",
+    );
+  });
+
+  test("$default + $value keeps option<> (VALUE runs last and may yield NONE)", () => {
+    expect(
+      ddl(
+        s
+          .string()
+          .optional()
+          .$default("x")
+          .$value(surql`IF true THEN NONE ELSE $value END`),
+      ),
+    ).toBe(
+      `DEFINE FIELD x ON TABLE t TYPE option<string> DEFAULT "x" VALUE IF true THEN NONE ELSE $value END;`,
     );
   });
 
@@ -317,6 +340,215 @@ describe("ASSERT generation", () => {
     expect(ddl(new SField(z.number().gte(0).lt(100)).$assert())).toBe(
       "DEFINE FIELD x ON TABLE t TYPE number ASSERT $value >= 0 AND $value < 100;",
     );
+  });
+
+  test("array $min/$max -> array::len bounds; NEVER a type size", () => {
+    expect(ddl(s.array(s.int()).$max(6))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE array<int> ASSERT array::len($value) <= 6;",
+    );
+    expect(ddl(s.array(s.int()).$min(1).$max(6))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE array<int> ASSERT array::len($value) >= 1 AND array::len($value) <= 6;",
+    );
+  });
+
+  test("array $length -> exact array<T, N> + array::len equality", () => {
+    expect(ddl(s.array(s.string()).$length(4))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE array<string, 4> ASSERT array::len($value) == 4;",
+    );
+    // Zod-native `.length()` is app-side but still infers the exact type (no ASSERT).
+    expect(typeOf(s.array(s.string()).length(4))).toBe("array<string, 4>");
+  });
+
+  test("set $max -> array::len bound; $size -> exact set<T, N>", () => {
+    expect(ddl(s.set(s.int()).$max(5))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE set<int> ASSERT array::len($value) <= 5;",
+    );
+    expect(ddl(s.set(s.int()).$size(5))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE set<int, 5> ASSERT array::len($value) == 5;",
+    );
+    // Zod-native `.size()` is app-side but still infers the exact type (no ASSERT).
+    expect(typeOf(s.set(s.int()).size(5))).toBe("set<int, 5>");
+    // `$length` is string/array only; a set has no `.length`.
+    expect(ddl(s.set(s.int()).$length(5))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE set<int>;",
+    );
+  });
+
+  test("union bound only when ALL members share one family", () => {
+    // Same-family unions: a literal counts as its value family, so "OK" + string is a STRING union.
+    expect(ddl(s.union([s.literal("OK"), s.string()]).$max(10))).toBe(
+      `DEFINE FIELD x ON TABLE t TYPE "OK" | string ASSERT string::len($value) <= 10;`,
+    );
+    // Numbers (with or without literals/none-ish members) -> bare value bound.
+    expect(ddl(s.union([s.int(), s.float()]).$max(10))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE int | float ASSERT $value <= 10;",
+    );
+    expect(ddl(s.union([s.int(), s.literal(0)]).$min(2))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE int | 0 ASSERT $value >= 2;",
+    );
+    // All-arrays -> array::len.
+    expect(
+      ddl(s.union([s.array(s.int()), s.array(s.string())]).$length(2)),
+    ).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE array<int> | array<string> ASSERT array::len($value) == 2;",
+    );
+    // MIXED families have no single valid function (`string::len` would measure a number's
+    // SQL-string form), so no bound is pushed — author an explicit `$assert` instead.
+    expect(ddl(s.union([s.int(), s.string()]).$min(2))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE int | string;",
+    );
+    expect(ddl(s.union([s.array(s.int()), s.string()]).$length(2))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE array<int> | string;",
+    );
+    expect(ddl(s.union([s.string(), s.boolean()]).$max(2))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE string | bool;",
+    );
+  });
+
+  test("a standalone literal/enum no-ops (no Zod .min/.max to refine)", () => {
+    expect(ddl(s.literal("OK").$max(10))).toBe(
+      `DEFINE FIELD x ON TABLE t TYPE "OK";`,
+    );
+    expect(ddl(s.enum(["a", "b"]).$min(1))).toBe(
+      `DEFINE FIELD x ON TABLE t TYPE "a" | "b";`,
+    );
+  });
+
+  test("$-constraints work through optional/nullable (schemaType + constrain unwrap)", () => {
+    // `.optional()` is safe unguarded: SurrealDB skips ASSERT for NONE.
+    expect(ddl(s.string().optional().$min(3))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE option<string> ASSERT string::len($value) >= 3;",
+    );
+    // `.nullable()` admits an explicit NULL (and SurrealDB runs asserts on NULL) -> guard it.
+    expect(ddl(s.number().nullable().$gt(0))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE number | null ASSERT $value = NULL OR $value > 0;",
+    );
+    expect(ddl(s.string().nullable().$min(3))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE string | null ASSERT $value = NULL OR string::len($value) >= 3;",
+    );
+    // `.nullish()` = option<T | null>: NONE is engine-skipped, NULL needs the guard.
+    expect(ddl(s.string().nullish().$min(3))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE option<string | null> ASSERT $value = NULL OR string::len($value) >= 3;",
+    );
+    // A null UNION member is ignorable for the bound (the guard admits the NULL itself).
+    expect(ddl(s.union([s.string(), s.null()]).$max(10))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE string | null ASSERT $value = NULL OR string::len($value) <= 10;",
+    );
+    // A mixed union stays unconstrained through wrappers too.
+    expect(ddl(s.union([s.int(), s.string()]).optional().$max(2))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE option<int | string>;",
+    );
+    // A same-family wrapped union still bounds.
+    expect(
+      ddl(
+        s
+          .union([s.literal("OK"), s.string()])
+          .optional()
+          .$max(2),
+      ),
+    ).toBe(
+      `DEFINE FIELD x ON TABLE t TYPE option<"OK" | string> ASSERT string::len($value) <= 2;`,
+    );
+    // The Zod check lands on the inner schema; the wrappers are preserved.
+    const f = s.string().nullish().$min(3);
+    expect(f.schema.safeParse(undefined).success).toBe(true);
+    expect(f.schema.safeParse(null).success).toBe(true);
+    expect(f.schema.safeParse("ab").success).toBe(false);
+    expect(f.schema.safeParse("abc").success).toBe(true);
+  });
+
+  test("format builders on a nullable field are null-guarded too", () => {
+    expect(ddl(s.email().nullable())).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE string | null ASSERT $value = NULL OR string::is_email($value);",
+    );
+    expect(ddl(s.email().optional())).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE option<string> ASSERT string::is_email($value);",
+    );
+  });
+
+  test("a union with an `.optional()` member hoists to option<…> (DB canonical form)", () => {
+    expect(typeOf(s.union([s.string().optional(), s.int()]))).toBe(
+      "option<string | int>",
+    );
+    expect(
+      typeOf(s.union([s.boolean().optional(), s.string().optional()])),
+    ).toBe("option<bool | string>");
+    // A `.nullish()` member keeps null: option<X | null>.
+    expect(typeOf(s.union([s.string().nullish(), s.int()]))).toBe(
+      "option<string | null | int>",
+    );
+    // Members are flattened to ATOMS and deduped: an `.optional()` + `.nullable()`/`.nullish()`
+    // pair must not emit the repeated member `string | string | null` (SurrealDB collapses it, so
+    // `fromTableDef` would phantom-diff forever).
+    expect(
+      typeOf(s.union([s.string().optional(), s.string().nullable()])),
+    ).toBe("option<string | null>");
+    expect(typeOf(s.union([s.string().optional(), s.string().nullish()]))).toBe(
+      "option<string | null>",
+    );
+  });
+
+  test("the NULL guard is idempotent (a pulled guarded assert re-emits unchanged)", () => {
+    // Exactly what `pull` writes back for a nullable constrained field.
+    expect(
+      ddl(s.number().nullable().$assert(surql`$value = NULL OR $value > 0`)),
+    ).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE number | null ASSERT $value = NULL OR $value > 0;",
+    );
+    // A legacy/duplicated guard canonicalizes to ONE (SurrealDB folds the repeats itself).
+    expect(
+      ddl(
+        s
+          .number()
+          .nullable()
+          .$assert(surql`$value = NULL OR  $value = NULL OR $value > 0`),
+      ),
+    ).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE number | null ASSERT $value = NULL OR $value > 0;",
+    );
+    // A guard on a NON-nullable type is user-authored — left exactly as written.
+    expect(ddl(s.number().$assert(surql`$value = NULL OR $value > 0`))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE number ASSERT $value = NULL OR $value > 0;",
+    );
+  });
+
+  test("$assert() derives array/set bounds with array::len (and through wrappers)", () => {
+    expect(ddl(s.array(s.string()).min(2).max(5).$assert())).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE array<string> ASSERT array::len($value) >= 2 AND array::len($value) <= 5;",
+    );
+    expect(ddl(s.array(s.string()).length(3).$assert())).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE array<string, 3> ASSERT array::len($value) == 3;",
+    );
+    // Zod sets use min_size/max_size/size_equals.
+    expect(ddl(s.set(s.int()).min(1).max(4).$assert())).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE set<int> ASSERT array::len($value) >= 1 AND array::len($value) <= 4;",
+    );
+    expect(ddl(s.set(s.int()).size(3).$assert())).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE set<int, 3> ASSERT array::len($value) == 3;",
+    );
+    expect(ddl(s.string().min(2).optional().$assert())).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE option<string> ASSERT string::len($value) >= 2;",
+    );
+    // A Zod map shares min_size/max_size — but it lowers to `object`, so no array::len nonsense.
+    expect(ddl(s.map(s.string(), s.int()).min(1).$assert())).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE object;\nDEFINE FIELD x.* ON TABLE t TYPE int;",
+    );
+  });
+
+  test("s.array/s.set { max } -> ASSERT bound, not an exact type size", () => {
+    expect(ddl(s.array(s.string(), { max: 3 }))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE array<string> ASSERT array::len($value) <= 3;",
+    );
+    expect(ddl(s.set(s.int(), { max: 5 }))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE set<int> ASSERT array::len($value) <= 5;",
+    );
+    // The bound is applied app-side too (the same Zod check `.$max` applies).
+    const arr = s.array(s.string(), { max: 3 });
+    expect(arr.schema.safeParse(["a", "b", "c"]).success).toBe(true);
+    expect(arr.schema.safeParse(["a", "b", "c", "d"]).success).toBe(false);
+    const set = s.set(s.int(), { max: 2 });
+    expect(set.schema.safeParse(new Set([1, 2])).success).toBe(true);
+    expect(set.schema.safeParse(new Set([1, 2, 3])).success).toBe(false);
   });
 });
 

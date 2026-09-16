@@ -16,6 +16,7 @@ import {
   scalar,
   union,
 } from "@better-schemic/core";
+import { splitTopUnion, topLevelSplitOnce } from "../surql-type-expr";
 
 const SCALARS = new Set<string>([
   "any",
@@ -42,35 +43,6 @@ const GEOMETRY_KINDS = new Set([
   "multipolygon",
   "collection",
 ]);
-
-/** Split a type expression on its top-level `|` (ignoring `|` inside `<…>`). */
-function splitTopUnion(expr: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let cur = "";
-  for (const c of expr) {
-    if (c === "<") depth++;
-    else if (c === ">") depth--;
-    if (c === "|" && depth === 0) {
-      parts.push(cur.trim());
-      cur = "";
-    } else cur += c;
-  }
-  parts.push(cur.trim());
-  return parts;
-}
-
-/** Split `s` once on the first top-level `sep` (outside `<…>`), or null if absent. */
-function topLevelSplitOnce(s: string, sep: string): [string, string] | null {
-  let depth = 0;
-  for (let i = 0; i < s.length; i++) {
-    const c = s[i];
-    if (c === "<") depth++;
-    else if (c === ">") depth--;
-    else if (c === sep && depth === 0) return [s.slice(0, i), s.slice(i + 1)];
-  }
-  return null;
-}
 
 /** Parse a (single/double) quoted string literal token, or null if it isn't one. */
 function parseStringLiteral(t: string): string | null {

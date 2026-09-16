@@ -5,6 +5,7 @@ import {
   existingTables,
   type Filter,
   type LocalOnly,
+  loadDefs,
   mergeUnits,
   type PullFilePlan,
   type PullPlan,
@@ -12,10 +13,11 @@ import {
   type RenderedUnit,
   scanLocalEntities,
 } from "@better-schemic/core";
-import { loadDefs } from "@better-schemic/core";
-import { formatSurql } from "./format";
 import type { Surreal } from "surrealdb";
+import { stripNullGuard } from "../ddl";
 import { formatForAssert } from "../pure";
+import { splitTopUnion, topLevelSplitOnce } from "../surql-type-expr";
+import { formatSurql } from "./format";
 import {
   type DbStructured,
   introspectStructured,
@@ -189,23 +191,6 @@ function makeResolver(graph: Map<string, Set<string>>, pulled: Set<string>) {
   };
 }
 
-/** Split a type expression on its top-level `|` (ignoring `|` inside `<…>`). */
-function splitTopUnion(expr: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let cur = "";
-  for (const c of expr) {
-    if (c === "<") depth++;
-    else if (c === ">") depth--;
-    if (c === "|" && depth === 0) {
-      parts.push(cur.trim());
-      cur = "";
-    } else cur += c;
-  }
-  parts.push(cur.trim());
-  return parts;
-}
-
 /** Parse a SurrealQL literal token (`'a'`, `"a"`, `42`, `true`) to its JS value, else null. */
 function parseLiteral(s: string): { value: string | number | boolean } | null {
   const t = s.trim();
@@ -238,7 +223,24 @@ function renderRecord(targetsRaw: string, ctx?: RenderCtx): string {
   return `s.recordId(${arg})`;
 }
 
-/** Map a SurrealQL type to an `s.*` expression (`ctx` resolves `record<…>` references). */
+/**
+ * The EXACT size of a container base type (`array<T, N>` / `set<T, N>`), or null when the type is
+ * bare/variably sized. Drives `.length(N)`/`.size(N)` when the `.*` element branch renders the
+ * container (`szType` handles the no-element case).
+ */
+function exactContainerSize(
+  base: string,
+): { kw: "array" | "set"; n: string } | null {
+  const m = /^(array|set)<([\s\S]+)>$/.exec(base.trim());
+  if (!m) return null;
+  const comma = topLevelSplitOnce(m[2], ",");
+  if (!comma || !/^\d+$/.test(comma[1].trim())) return null;
+  return { kw: m[1] as "array" | "set", n: comma[1].trim() };
+}
+
+/**
+ * Map a SurrealQL type to an `s.*` expression (`ctx` resolves `record<…>` references).
+ */
 function szType(type: string, ctx?: RenderCtx): string {
   const t = type.trim();
   // option<X> and the `none | X` form the DB reports.
@@ -251,10 +253,24 @@ function szType(type: string, ctx?: RenderCtx): string {
   const nullable = /^(.+?)\s*\|\s*null$/.exec(t);
   if (nullable) return `${szType(nullable[1], ctx)}.nullable()`;
 
+  // array<T, N> is EXACT N: re-author it with Zod's `.length(N)` (which inferField reads back as
+  // `length_equals` → `array<T, N>`); a bare `array<T>` keeps `.array()`.
   const arr = /^array<(.+)>$/.exec(t);
-  if (arr) return `${szType(arr[1], ctx)}.array()`;
+  if (arr) {
+    const sized = topLevelSplitOnce(arr[1], ",");
+    return sized
+      ? `${szType(sized[0], ctx)}.array().length(${sized[1].trim()})`
+      : `${szType(arr[1], ctx)}.array()`;
+  }
+  // set<T, N> is EXACT N too: re-author with Zod's `.size(N)` (`size_equals` → `set<T, N>`).
   const set = /^set<(.+)>$/.exec(t);
-  if (set) return `s.set(${szType(set[1], ctx)})`;
+  if (set) {
+    const sized = topLevelSplitOnce(set[1], ",");
+    const inner = szType(sized ? sized[0] : set[1], ctx);
+    return sized
+      ? `s.set(${inner}).size(${sized[1].trim()})`
+      : `s.set(${inner})`;
+  }
   const rec = /^record<(.+?)>$/.exec(t);
   if (rec) return renderRecord(rec[1], ctx);
 
@@ -366,10 +382,18 @@ function renderField(node: FieldNode, indent: string, ctx?: RenderCtx): string {
   const objChildren = [...node.children].filter(([k]) => k !== "*");
   const star = node.children.get("*");
   const wrap = p ? unwrapType(p.type) : null;
+  // A NULL-guarded assert (`$value = NULL OR …`) is machine-generated for a nullable field: the
+  // declared `| null` type already carries the nullability and the emitter re-adds the guard, so
+  // reverse it here. Leaving it would stack a SECOND guard on the next emit (phantom diff).
+  const assertText =
+    p?.assert !== undefined && wrap?.nullable
+      ? stripNullGuard(p.assert)
+      : p?.assert;
   // A `string` field whose ASSERT is exactly a baked `string::is_<fmt>($value)` round-trips back to
   // the format builder (`s.email()`, …) — the assert is the only signal, and it's dropped below
   // since the builder re-bakes it. Combined/extra asserts don't match, so they stay `string` + assert.
-  const fmt = p?.assert !== undefined ? formatForAssert(p.assert) : undefined;
+  const fmt =
+    assertText !== undefined ? formatForAssert(assertText) : undefined;
   let expr: string;
   if (p && wrap?.base === "object") {
     // Rebuild s.object from dotted children (empty if none) — even when wrapped in
@@ -389,11 +413,14 @@ function renderField(node: FieldNode, indent: string, ctx?: RenderCtx): string {
   } else if (p && star && /^(array|set)\b/.test(wrap?.base ?? "")) {
     // Any array/set: the element's full structure (incl. nested sub-fields) lives in the `*`
     // child — fold it into `<elem>.array()` / `s.set(<elem>)`. This beats parsing the element
-    // type from the parent kind, which would lose the element's sub-fields.
+    // type from the parent kind, which would lose the element's sub-fields. The parent's EXACT
+    // size (`array<T, N>`/`set<T, N>`, always present in INFO) rides along as `.length(N)`/`.size(N)`.
     const elem = renderField(star, indent, ctx);
-    expr = /^set\b/.test(wrap?.base ?? "")
-      ? `s.set(${elem})`
-      : `${elem}.array()`;
+    const size = exactContainerSize(wrap?.base ?? "");
+    if (/^set\b/.test(wrap?.base ?? ""))
+      expr = `s.set(${elem})${size?.kw === "set" ? `.size(${size.n})` : ""}`;
+    else
+      expr = `${elem}.array()${size?.kw === "array" ? `.length(${size.n})` : ""}`;
     // FLEXIBLE on an `array<object>` rides the array FIELD (the `.*` element stays plain object), so
     // `.loose()` here descends to loosen the element again on the next emit — re-emitting FLEXIBLE.
     if (p.flexible) expr += ".loose()";
@@ -434,8 +461,8 @@ function renderField(node: FieldNode, indent: string, ctx?: RenderCtx): string {
     if (p.value !== undefined) expr += `.$value(surql\`${p.value}\`)`;
     if (p.computed !== undefined) expr += `.$computed(surql\`${p.computed}\`)`;
     // The format builder re-bakes its `string::is_<fmt>` assert, so drop it when we reversed one.
-    if (p.assert !== undefined && !fmt)
-      expr += `.$assert(surql\`${p.assert}\`)`;
+    if (assertText !== undefined && assertText !== "" && !fmt)
+      expr += `.$assert(surql\`${assertText}\`)`;
     if (p.readonly) expr += ".$readonly()";
     if (p.comment) expr += `.$comment(${JSON.stringify(p.comment)})`;
     const perm = renderPerms(
@@ -548,9 +575,7 @@ function renderTableConst(
 
   // A LITERAL-typed id (`'default'`) marks a SINGLETON table — regenerate defineSingleton.
   const idField = t.fields.find((f) => f.name === "id");
-  const singletonId = idField
-    ? /^'(.*)'$/.exec(idField.kind)?.[1]
-    : undefined;
+  const singletonId = idField ? /^'(.*)'$/.exec(idField.kind)?.[1] : undefined;
 
   const name = ctx.constOf(t.name);
   const factory = isRelation
@@ -801,7 +826,10 @@ export async function planPull(
     db,
     new Set([config.migrationsTable, `${config.migrationsTable}_lock`]),
   );
-  const filtered = filterStructured(introspected, opts.filter ?? parseFilter({}));
+  const filtered = filterStructured(
+    introspected,
+    opts.filter ?? parseFilter({}),
+  );
   const { tables, functions, accesses, analyzers } = filtered;
   // SECRET GUARD: SurrealDB returns param values READABLY — rendering a live param that the
   // schema authors as secret/declared (out-of-band) would write its VALUE into source. Drop
@@ -942,7 +970,9 @@ function planFile(
 function functionUnit(fn: StructFunction): RenderedUnit {
   const code = renderFunctionConst(fn);
   const names = ["defineFunction", ...(code.includes("s.") ? ["s"] : [])];
-  const imports = [`import { ${names.join(", ")} } from "@better-schemic/surrealdb";`];
+  const imports = [
+    `import { ${names.join(", ")} } from "@better-schemic/surrealdb";`,
+  ];
   // `surql` from surrealdb on its own line (see tableUnit) — a function body is always a surql expr.
   if (code.includes("surql`"))
     imports.push(`import { surql } from "surrealdb";`);
@@ -1205,7 +1235,9 @@ function assembleCombined(
     accesses.length > 0 ||
     ordered.some((r) => r.usesSurql);
   const names = ["s", ...factories];
-  const imports = [`import { ${names.join(", ")} } from "@better-schemic/surrealdb";`];
+  const imports = [
+    `import { ${names.join(", ")} } from "@better-schemic/surrealdb";`,
+  ];
   // `surql` from surrealdb on its own line (see tableUnit), kept out of the @better-schemic/surrealdb import.
   if (usesSurql) imports.push(`import { surql } from "surrealdb";`);
   // Params + analyzers first — functions/events may reference $params; a FULLTEXT index its analyzer.

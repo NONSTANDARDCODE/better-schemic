@@ -83,7 +83,12 @@ to a `KindEngine<A, P>`:
 - `deps?/owner?` — cross-kind dependency edges for apply ordering.
 - `introspect?` — live -> portable for this kind.
 - `excludeFromMigrations?` — the kind opts OUT of the migration pipeline; it is managed out-of-band by
-  your own `sc <kind>` commands (worked example: surreal `DEFINE ACCESS`, `DEFINE PARAM` secrets).
+  your own `sc <kind>` commands (worked example: surreal key-bearing `DEFINE ACCESS`, `DEFINE PARAM`
+  secrets). Accepts `boolean | ((portable) => boolean)`: the PREDICATE form decides PER OBJECT, for a
+  kind whose objects are manageable only when they round-trip cleanly (surreal access: key-free defs
+  ride migrations, redacted-key ones don't). `isExcludedFromMigrations(portable)` requires the object;
+  only a boolean `true` also skips introspection (`skipsIntrospection(kind)`) — a predicate is decided
+  later, at the snapshot/diff/emit choke points.
 
 Fields/types are NOT a kind — they are the shared core substrate every kind composes.
 

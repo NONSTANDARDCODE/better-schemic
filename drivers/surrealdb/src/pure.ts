@@ -23,6 +23,18 @@ import {
   Uuid,
 } from "surrealdb";
 import { z } from "zod";
+import {
+  boundedFamily,
+  type CheckMethod,
+  deriveAsserts,
+  formatAssert,
+  formatForAssert,
+  isUnionSchema,
+  peelNullish,
+} from "./checks";
+
+// Re-exported here (the authoring surface): `pull` reverses a baked format ASSERT to `s.<format>()`.
+export { formatForAssert };
 
 /**
  * The "pure" approach: a field is a stock Zod schema + SurrealQL DDL metadata.
@@ -145,51 +157,6 @@ function toExpr(value: unknown): BoundQuery {
   return literal ? new BoundQuery(literal) : surql`${value}`;
 }
 
-/**
- * Zod string formats whose `string::is_<fmt>` validator exists on SurrealDB v3.x
- * (probed live on 3.1.3: `RETURN string::is_<fmt>("x")`). A matching format builder
- * bakes `string::is_<fmt>($value)` by default; formats absent here (nanoid/cuid/cuid2/
- * xid/ksuid/cidrv4/cidrv6/guid/base64/base64url/e164/jwt/emoji) stay assert-free — no
- * fabricated regex. `uuid` is the native `uuid` type, not a string format (no assert).
- */
-const STRING_IS_FORMATS = new Set([
-  "email",
-  "url",
-  "ulid",
-  "ipv4",
-  "ipv6",
-  // batch 2: 3.1.3 `string::is_*` validators with no Zod format builder (plain string
-  // app-side; the ASSERT enforces the format in SurrealDB).
-  "alpha",
-  "alphanum",
-  "ascii",
-  "numeric",
-  "semver",
-  "hexadecimal",
-  "latitude",
-  "longitude",
-  "ip",
-  "domain",
-]);
-
-/** Map a Zod string format to its SurrealDB `string::is_*` assert, when one exists. */
-function formatAssert(format: string): string | undefined {
-  return STRING_IS_FORMATS.has(format)
-    ? `string::is_${format}($value)`
-    : undefined;
-}
-
-/**
- * Reverse of {@link formatAssert}: recover a format name from a baked `string::is_<fmt>($value)`
- * assert. Used by `pull` to restore `s.<format>()` instead of `s.string().$assert(...)`. Returns
- * undefined for any other assert — including one that combines a format with extra text — so only an
- * exact, single-format assert reverses (a user's own assert is never swallowed).
- */
-export function formatForAssert(assert: string): string | undefined {
-  const m = /^string::is_([a-z0-9]+)\(\s*\$value\s*\)$/.exec(assert.trim());
-  return m && STRING_IS_FORMATS.has(m[1]) ? m[1] : undefined;
-}
-
 /** Build an SField for a Zod string-format schema, baking `string::is_<fmt>($value)`
  * when SurrealDB has that validator (else no assert). */
 function formatField<S extends z.ZodType>(
@@ -198,88 +165,6 @@ function formatField<S extends z.ZodType>(
 ): SField<S> {
   const frag = formatAssert(format);
   return new SField(schema, frag ? { asserts: [frag] } : {});
-}
-
-/** The check methods that live on concrete Zod subtypes (ZodString/ZodNumber) but not
- * the base `z.ZodType` — `$`-constraints call these (cast through this shape). */
-type CheckableSchema = {
-  min(n: number): z.ZodType;
-  max(n: number): z.ZodType;
-  length(n: number): z.ZodType;
-  regex(re: RegExp): z.ZodType;
-  gt(n: number): z.ZodType;
-  gte(n: number): z.ZodType;
-  lt(n: number): z.ZodType;
-  lte(n: number): z.ZodType;
-};
-
-/** One entry in a Zod schema's `_zod.def.checks`. */
-type ZodCheck = {
-  _zod: {
-    def: {
-      check?: string;
-      minimum?: number;
-      maximum?: number;
-      length?: number;
-      value?: number;
-      inclusive?: boolean;
-      format?: string;
-      pattern?: RegExp;
-    };
-  };
-};
-
-/**
- * Best-effort: derive DB `ASSERT` fragments from a Zod schema's checks. Reads the Zod 4
- * check shape (`schema._zod.def.checks[]._zod.def`): string `min_length`/`max_length`/
- * `length_equals`, `string_format` (regex -> `$value = /…/`; email/url/… -> `string::is_*`),
- * and number `greater_than`/`less_than` (with `inclusive`). The schema may itself be a
- * `string_format` (e.g. `z.email()`), so its top-level `def.format` is mapped too. Unknown
- * checks are skipped silently.
- */
-function deriveAsserts(schema: z.ZodType): string[] {
-  const def = schema._zod.def as {
-    check?: string;
-    format?: string;
-    checks?: ZodCheck[];
-  };
-  const out: string[] = [];
-
-  // The schema itself may be a string-format (z.email()/z.url()/…).
-  if (def.check === "string_format" && typeof def.format === "string") {
-    const frag = formatAssert(def.format);
-    if (frag) out.push(frag);
-  }
-
-  for (const c of def.checks ?? []) {
-    const d = c._zod.def;
-    switch (d.check) {
-      case "min_length":
-        out.push(`string::len($value) >= ${d.minimum}`);
-        break;
-      case "max_length":
-        out.push(`string::len($value) <= ${d.maximum}`);
-        break;
-      case "length_equals":
-        out.push(`string::len($value) == ${d.length}`);
-        break;
-      case "string_format":
-        if (d.format === "regex" && d.pattern) {
-          out.push(`$value = /${d.pattern.source}/`);
-        } else if (typeof d.format === "string") {
-          const frag = formatAssert(d.format);
-          if (frag) out.push(frag);
-        }
-        break;
-      case "greater_than":
-        out.push(`$value >${d.inclusive ? "=" : ""} ${d.value}`);
-        break;
-      case "less_than":
-        out.push(`$value <${d.inclusive ? "=" : ""} ${d.value}`);
-        break;
-    }
-  }
-  return out;
 }
 
 /** The schema one wrapper down — what `unwrap()` returns. */
@@ -819,31 +704,32 @@ export class SField<
   }
 
   // --- $-constraints: apply the app-side Zod check AND push a type-aware DB ASSERT. ---
-  // String-vs-number is read from the schema's own `def.type`; unsupported type/method
-  // combos no-op (return the field unchanged).
+  // The base type is read through `optional`/`nullable` wrappers (`schemaType`), and the Zod check is
+  // applied to the wrapped inner schema (`constrain`), so `s.string().optional().$min(3)` works.
+  // A UNION is bounded only when ALL its member types share one constraint family (string / number /
+  // array / set): `string::len` on a number member (or `array::len` on a string) would silently
+  // compare the wrong thing — SurrealDB casts across types — so a mixed union (e.g. `int | string`)
+  // no-ops; author an explicit `.$assert(surql`…`)` there. Unsupported combos no-op.
 
-  /** Min length (string) / minimum value (number). */
+  /** Min length (string/array/set) / minimum value (number). */
   $min(n: number): SField<S, Flags> {
-    if (this.schemaType === "string")
-      return this.constrain("min", n, `string::len($value) >= ${n}`);
-    if (this.schemaType === "number")
-      return this.constrain("min", n, `$value >= ${n}`);
-    return this;
+    return this.bound("min", n);
   }
-  /** Max length (string) / maximum value (number). */
+  /** Max length (string/array/set) / maximum value (number). */
   $max(n: number): SField<S, Flags> {
-    if (this.schemaType === "string")
-      return this.constrain("max", n, `string::len($value) <= ${n}`);
-    if (this.schemaType === "number")
-      return this.constrain("max", n, `$value <= ${n}`);
-    return this;
+    return this.bound("max", n);
   }
-  /** Exact length (string). */
+  /** Exact length (string/array) — the `$`-channel source of the `array<T, N>` type size (Zod
+   *  `.length()`, so it also infers the type; applies through optional/nullable wrappers). Arrays get
+   *  the equality ASSERT alongside the type so EVERY `$`-bound shows up in the clause map — one
+   *  uniform surface for `sc diff`/migrations, and the only encoding for an all-array union. */
   $length(n: number): SField<S, Flags> {
-    if (this.schemaType === "string") {
-      return this.constrain("length", n, `string::len($value) == ${n}`);
-    }
-    return this;
+    return this.bound("length", n);
+  }
+  /** Exact size (set) — the `$`-channel source of the `set<T, N>` type size (Zod `ZodSet.size`);
+   *  mirrors `$length`, ASSERT included, for the same uniformity. */
+  $size(n: number): SField<S, Flags> {
+    return this.bound("size", n);
   }
   /** Pattern match (string). */
   $regex(re: RegExp): SField<S, Flags> {
@@ -874,6 +760,32 @@ export class SField<
     if (this.schemaType === "number")
       return this.constrain("lte", n, `$value <= ${n}`);
     return this;
+  }
+  /**
+   * Apply a `$`-bound: the app-side Zod check AND the matching DB ASSERT, both derived from the
+   * field's single constraint family ({@link boundedFamily}). No-ops when the family is unsupported
+   * or the op doesn't apply to it (`$length` on a set, `$size` on an array, …). A union refines via
+   * the DB ASSERT only — Zod unions have no `.min/.max/.length/.size`.
+   */
+  private bound(
+    op: "min" | "max" | "length" | "size",
+    n: number,
+  ): SField<S, Flags> {
+    const family = boundedFamily(this.schema);
+    if (!family) return this;
+    if (op === "length" && family !== "string" && family !== "array")
+      return this;
+    if (op === "size" && family !== "set") return this;
+    const base =
+      family === "number"
+        ? "$value"
+        : family === "string"
+          ? "string::len($value)"
+          : "array::len($value)";
+    const frag = `${base} ${op === "min" ? ">=" : op === "max" ? "<=" : "=="} ${n}`;
+    return isUnionSchema(this.schema)
+      ? this.constrainAssert(frag)
+      : this.constrain(op, n, frag);
   }
 
   // --- Native Zod chain methods (APP-SIDE ONLY — the DDL is UNCHANGED). These forward to the inner Zod
@@ -923,6 +835,10 @@ export class SField<
   }
   length(value: number, params?: unknown): SField<S, Flags> {
     return this.chain("length", value, params);
+  }
+  /** Exact set size (app-side; `ZodSet.size` -> `set<T, N>`). Use `.$size(n)` for the DB ASSERT too. */
+  size(value: number, params?: unknown): SField<S, Flags> {
+    return this.chain("size", value, params);
   }
   // string patterns / transforms
   regex(re: RegExp, params?: unknown): SField<S, Flags> {
@@ -1026,9 +942,10 @@ export class SField<
     return this.chain("jwt", params);
   }
 
-  /** The underlying Zod schema's `def.type` ("string" / "number" / …). */
+  /** The underlying Zod schema's `def.type` ("string" / "number" / …), looking through
+   *  `optional`/`nullable` so a wrapped field still routes its `$`-constraints by base type. */
   private get schemaType(): string {
-    return (this.schema._zod.def as { type: string }).type;
+    return (peelNullish(this.schema).inner._zod.def as { type: string }).type;
   }
   /** Append ASSERT fragments, returning a new field (same type param + flags). */
   private pushAsserts(frags: (string | BoundQuery)[]): SField<S, Flags> {
@@ -1038,20 +955,27 @@ export class SField<
       asserts: [...(this.surreal.asserts ?? []), ...frags],
     });
   }
+  /** Push a DB-only ASSERT fragment, leaving the Zod schema untouched (for types whose Zod base has
+   *  no matching check — e.g. a `union`). */
+  private constrainAssert(frag: string): SField<S, Flags> {
+    return this.pushAsserts([frag]);
+  }
   /** Apply a concrete-subtype Zod check (`min`/`max`/`length`/`regex`/`gt`/…) and push its
-   * matching DB fragment, returning a new field carrying the refined schema. */
+   * matching DB fragment, returning a new field carrying the refined schema. The check is applied
+   * to the schema UNDER `optional`/`nullable` wrappers (which have no `.min`/`.max`/…), and the
+   * wrappers are re-applied in their original order so `nullish()` stays intact. */
   private constrain(
-    method: keyof CheckableSchema,
+    method: CheckMethod,
     arg: number | RegExp,
     frag: string,
   ): SField<S, Flags> {
+    const { inner, wraps } = peelNullish(this.schema);
     const apply = (
-      this.schema as unknown as Record<
-        string,
-        (a: number | RegExp) => z.ZodType
-      >
+      inner as unknown as Record<string, (a: number | RegExp) => z.ZodType>
     )[method];
-    return new SField(apply(arg) as S, {
+    let refined = apply.call(inner, arg);
+    for (const wrap of wraps.reverse()) refined = wrap(refined);
+    return new SField(refined as S, {
       ...this.surreal,
       asserts: [...(this.surreal.asserts ?? []), frag],
     });
@@ -1794,7 +1718,8 @@ export const s = {
     app: B,
     params: Parameters<typeof z.codec<A, B>>[2],
   ) => new SField(z.codec(wire, app, params)),
-  /** An array of `element`. `opts.max` -> sized `array<T, N>` (N is the MAX length). */
+  /** An array of `element`. `opts.max` bounds the length (`ASSERT array::len($value) <= N`); for an
+   *  EXACT `array<T, N>` use `.length(N)` / `.$length(N)`. */
   array: <F extends AnyField | z.ZodType>(
     element: F,
     opts?: { max?: number },
@@ -1802,9 +1727,7 @@ export const s = {
     const base = (
       element instanceof SField ? element : new SField(element)
     ).array() as SField<z.ZodArray<SchemaOf<F>>>;
-    return opts?.max === undefined
-      ? base
-      : new SField(base.schema.max(opts.max), base.surreal);
+    return opts?.max === undefined ? base : base.$max(opts.max);
   },
   /** A literal value type. */
   literal: <const T extends string | number | boolean | bigint>(value: T) =>
@@ -1868,15 +1791,16 @@ export const s = {
     key: K,
     value: V,
   ) => new SField(z.looseRecord(key, toZod(value) as SchemaOf<V>)),
-  /** A `Set<element>` -> SurrealQL `set<element>`. `opts.max` -> sized `set<T, N>` (MAX). */
+  /** A `Set<element>` -> SurrealQL `set<element>`. `opts.max` bounds the size
+   *  (`ASSERT array::len($value) <= N`); for an EXACT `set<T, N>` use `.size(N)` / `.$size(N)`. */
   set: <V extends AnyField | z.ZodType>(
     element: V,
     opts?: { max?: number },
   ): SField<z.ZodSet<SchemaOf<V>>> => {
-    const base = z.set(toZod(element) as SchemaOf<V>);
-    return new SField(
-      opts?.max === undefined ? base : base.max(opts.max),
-    ) as SField<z.ZodSet<SchemaOf<V>>>;
+    const base = new SField(z.set(toZod(element) as SchemaOf<V>)) as SField<
+      z.ZodSet<SchemaOf<V>>
+    >;
+    return opts?.max === undefined ? base : base.$max(opts.max);
   },
   /** The intersection of two schemas (object fields are merged in DDL). */
   intersection: <
@@ -3376,15 +3300,16 @@ type WithSingletonId<
 
 /** The fixed record-id key of a SINGLETON table (a string literal), or `never` for a normal
  *  table (whose id value type is broad). Drives the id-optional client/query overloads. */
-export type SingletonIdOf<TD> = TD extends TableDef<string, infer S>
-  ? S extends { id: RecordIdField<string, infer V> }
-    ? string extends V
-      ? never
-      : V extends string
-        ? V
-        : never
-    : never
-  : never;
+export type SingletonIdOf<TD> =
+  TD extends TableDef<string, infer S>
+    ? S extends { id: RecordIdField<string, infer V> }
+      ? string extends V
+        ? never
+        : V extends string
+          ? V
+          : never
+      : never
+    : never;
 
 /**
  * Define a SINGLETON table — a table meant to hold exactly ONE record (system-wide config,
@@ -3557,7 +3482,9 @@ export class RelationDef<
   }
   /** Restrict the source endpoint(s) (`in`) — a `TableDef`, a SurrealDB `Table`, a bare name string, or
    *  an array mixing them for a `FROM a | b` union. Endpoint names flow into the typed `in` record link. */
-  from<F extends TableRef>(ref: F): RelationDef<Name, S, NamesOf<F>, Out, F, ToRef> {
+  from<F extends TableRef>(
+    ref: F,
+  ): RelationDef<Name, S, NamesOf<F>, Out, F, ToRef> {
     return new RelationDef(
       this.name,
       this.edge,
@@ -3570,7 +3497,9 @@ export class RelationDef<
   }
   /** Restrict the target endpoint(s) (`out`) — a `TableDef`, a SurrealDB `Table`, a bare name string, or
    *  an array mixing them for a `TO a | b` union. Endpoint names flow into the typed `out` record link. */
-  to<T extends TableRef>(ref: T): RelationDef<Name, S, In, NamesOf<T>, FromRef, T> {
+  to<T extends TableRef>(
+    ref: T,
+  ): RelationDef<Name, S, In, NamesOf<T>, FromRef, T> {
     return new RelationDef(
       this.name,
       this.edge,
@@ -3753,7 +3682,9 @@ export function paramProxy(path: readonly string[]): ParamRef {
 /** A BARE column-path reference (permissions exprs use bare field names, not `$this.…`) —
  *  splices via the query layer's colref brand (`Symbol.for`, no import needed). */
 function colProxy(path: readonly string[]): unknown {
-  const target = { [Symbol.for("better-schemic.surrealdb.colref")]: path.join(".") };
+  const target = {
+    [Symbol.for("better-schemic.surrealdb.colref")]: path.join("."),
+  };
   return new Proxy(target, {
     get(t, key) {
       if (typeof key === "string" && !(key in t) && key !== "then")
@@ -4706,7 +4637,7 @@ export class ParamDef<T = unknown> {
   ) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
       throw new Error(
-        `defineParam("${name}"): the name must be a plain identifier (it becomes the \$param).`,
+        `defineParam("${name}"): the name must be a plain identifier (it becomes the $param).`,
       );
   }
   private withConfig(c: Partial<ParamConfig>): ParamDef<T> {
@@ -4743,8 +4674,7 @@ export function defineParam<const V>(name: string, value: V): ParamDef<V>;
 /** DECLARED param (untyped) — presence-only flow. */
 export function defineParam(name: string): ParamDef<unknown>;
 export function defineParam(name: string, value?: unknown): ParamDef<unknown> {
-  if (arguments.length < 2)
-    return new ParamDef(name, { mode: "declared" });
+  if (arguments.length < 2) return new ParamDef(name, { mode: "declared" });
   if (isSecretRef(value))
     return new ParamDef(name, { mode: "secret", secret: value });
   if (value instanceof SField)
@@ -4901,7 +4831,6 @@ export function renderRef(s: RefState, ctx: Ctx): string {
   return s.wrap ? s.wrap(base, ctx) : base;
 }
 
-
 /** The fragment brand the `surql` tag reads (`Symbol.for` -> shared without importing this
  *  module): a value carrying it interpolates as its lowered `(subquery)` with bindings merged. */
 export const FRAGMENT: unique symbol = Symbol.for(
@@ -4915,7 +4844,6 @@ export function fragOf(v: unknown): BoundQuery | undefined {
   const make = (v as Record<symbol, unknown> | null)?.[FRAGMENT];
   return typeof make === "function" ? (make.call(v) as BoundQuery) : undefined;
 }
-
 
 /** Merge a raw fragment's bindings into the pass's vars, renaming on collision (boundary-aware
  *  rewrite in the fragment text — `$b1` must not touch `$b10`). SDK-tagged fragments use globally
@@ -4937,7 +4865,6 @@ export function mergeRaw(q: BoundQuery, vars: Record<string, unknown>): string {
   }
   return text;
 }
-
 
 /** Render an operand in a lowering pass: a `$param` ref splices as text, a field ref renders
  *  token-aware, a fragment splices with bindings merged (builders self-parenthesize; a raw
@@ -5055,5 +4982,3 @@ export function renderData(v: unknown, ctx: Ctx): string {
   if (frag) return mergeRaw(frag, ctx.vars);
   return operandText(v, ctx);
 }
-
-

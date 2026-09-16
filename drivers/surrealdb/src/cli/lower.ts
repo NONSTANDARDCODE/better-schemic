@@ -10,6 +10,7 @@
 
 import { BoundQuery, escapeIdent, toSurqlString } from "surrealdb";
 import {
+  admitNullAssert,
   assertExpr,
   blockThen,
   braceBody,
@@ -21,16 +22,12 @@ import {
   inlineAnalyzerFunctions,
   upperFilterClause,
 } from "../ddl";
-import {
-  assertCompleteDef,
-  requireFunctionBody,
-  unknownDefKind,
-} from "../pure";
 import type {
   AccessDef,
   AnalyzerDef,
   FieldPermissions,
   FunctionDef,
+  ParamDef,
   PermOp,
   SField,
   Shape,
@@ -39,7 +36,11 @@ import type {
   TableDef,
   TableEvent,
   TablePermissions,
-  ParamDef,
+} from "../pure";
+import {
+  assertCompleteDef,
+  requireFunctionBody,
+  unknownDefKind,
 } from "../pure";
 import { normalizeDb } from "./struct";
 import type {
@@ -50,11 +51,11 @@ import type {
   StructField,
   StructFunction,
   StructIndex,
+  StructParam,
   StructPerm,
   StructPermissions,
   StructTable,
   StructTableKind,
-  StructParam,
 } from "./structure";
 
 const FIELD_PERM_OPS = ["select", "create", "update"] as const;
@@ -164,7 +165,7 @@ function lowerField(
     if (surreal.value) sf.value = inline(surreal.value);
     if (surreal.computed) sf.computed = inline(surreal.computed);
     const assert = assertExpr(surreal.asserts);
-    if (assert) sf.assert = assert;
+    if (assert) sf.assert = admitNullAssert(info.type, assert);
     if (surreal.readonly) sf.readonly = true;
     if (surreal.comment !== undefined) sf.comment = surreal.comment;
     // An internal field grants no record-user access (PERMISSIONS NONE) — it wins over `$permissions`.

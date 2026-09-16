@@ -242,13 +242,13 @@ export async function diffAgainstDb(
       s.table &&
       /^DEFINE FIELD OVERWRITE\b/.test(s.ddl)
     )
-      overwriteFields.add(`${s.table} ${untick(s.name)}`);
+      overwriteFields.add(`${s.table}\x00${untick(s.name)}`);
   if (overwriteFields.size) {
     const fieldRef =
       /^DEFINE FIELD (?:OVERWRITE |IF NOT EXISTS )?(`[^`]+`|\S+) ON TABLE (`[^`]+`|\S+)/;
     diff.up = diff.up.map((stmt) => {
       const m = fieldRef.exec(stmt);
-      return m && overwriteFields.has(`${untick(m[2])} ${untick(m[1])}`)
+      return m && overwriteFields.has(`${untick(m[2])}\x00${untick(m[1])}`)
         ? overwriteStatement(stmt)
         : stmt;
     });

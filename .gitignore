@@ -1,3 +1,5 @@
+.agents/
+
 # dependencies (bun install)
 node_modules
 

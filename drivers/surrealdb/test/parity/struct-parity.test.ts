@@ -80,10 +80,27 @@ const Big = defineTable("sp_big", {
   arrn: s.array(s.string(), { max: 3 }),
   setf: s.set(s.string()),
   opt: s.string().optional(),
+  // A union with an `.optional()` member hoists to `option<…>` (the DB canonical form).
+  unopt: s.union([s.string().optional(), s.int()]),
+  // `.optional()` + `.nullable()` members flatten to ATOMS — the repeated `string` must dedupe.
+  unoptn: s.union([s.string().optional(), s.string().nullable()]),
+  // Exact container sizes lower to `array<T, N>`/`set<T, N>` + their equality asserts.
+  exln: s.array(s.string()).$length(2),
+  exsz: s.set(s.int()).$size(4),
+  // A nullable constrained field: the assert is emitted null-guarded on BOTH sides.
+  nulc: s.string().nullable().$min(3),
+  // ...and a nullable FORMAT field (its guard must round-trip too).
+  mail: s.email().nullable(),
   role: s.enum(["admin", "user"]),
   obj: s.object({ a: s.string(), b: s.number().optional() }),
   def: s.string().$default("pending"),
   defa: s.datetime().$defaultAlways(surql`time::now()`),
+  // DEFAULT + VALUE: VALUE runs last and may yield NONE, so `option<>` must survive on BOTH sides.
+  defv: s
+    .string()
+    .optional()
+    .$default("x")
+    .$value(surql`IF $input = "x" THEN NONE ELSE $value END`),
   val: s.string().$value(surql`string::lowercase($value)`),
   asrt: s.number().$assert(surql`$value > 0`),
   ro: s.string().$readonly(),
