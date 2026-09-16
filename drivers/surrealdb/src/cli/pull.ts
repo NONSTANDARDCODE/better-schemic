@@ -238,6 +238,21 @@ function renderRecord(targetsRaw: string, ctx?: RenderCtx): string {
   return `s.recordId(${arg})`;
 }
 
+/**
+ * Split `s` once on the first top-level `,` (outside `<…>`), or null if absent. Used for the
+ * SurrealQL exact-size form `array<T, N>` / `set<T, N>`.
+ */
+function splitTopComma(s: string): [string, string] | null {
+  let depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "<") depth++;
+    else if (c === ">") depth--;
+    else if (c === "," && depth === 0) return [s.slice(0, i), s.slice(i + 1)];
+  }
+  return null;
+}
+
 /** Map a SurrealQL type to an `s.*` expression (`ctx` resolves `record<…>` references). */
 function szType(type: string, ctx?: RenderCtx): string {
   const t = type.trim();
@@ -251,10 +266,21 @@ function szType(type: string, ctx?: RenderCtx): string {
   const nullable = /^(.+?)\s*\|\s*null$/.exec(t);
   if (nullable) return `${szType(nullable[1], ctx)}.nullable()`;
 
+  // array<T, N> is EXACT N: re-author it with Zod's `.length(N)` (which inferField reads back as
+  // `length_equals` → `array<T, N>`); a bare `array<T>` keeps `.array()`.
   const arr = /^array<(.+)>$/.exec(t);
-  if (arr) return `${szType(arr[1], ctx)}.array()`;
+  if (arr) {
+    const sized = splitTopComma(arr[1]);
+    return sized
+      ? `${szType(sized[0], ctx)}.array().length(${sized[1].trim()})`
+      : `${szType(arr[1], ctx)}.array()`;
+  }
+  // ZodSet has no exact-length check, so a sized `set<T, N>` degrades to `set<T>` (tracked gap).
   const set = /^set<(.+)>$/.exec(t);
-  if (set) return `s.set(${szType(set[1], ctx)})`;
+  if (set) {
+    const sized = splitTopComma(set[1]);
+    return `s.set(${szType(sized ? sized[0] : set[1], ctx)})`;
+  }
   const rec = /^record<(.+?)>$/.exec(t);
   if (rec) return renderRecord(rec[1], ctx);
 

@@ -269,12 +269,13 @@ live("DB accepts @better-schemic/core's generated DDL", () => {
 });
 
 live("batch 1 + 2 features round-trip on the DB", () => {
-  test("s.set() -> set<T>, sized array<T,N> / set<T,N> round-trip", async () => {
+  test("s.set() -> set<T>; .length -> exact array<T,N>; { max } -> bounded base type", async () => {
     const T = defineTable("pl_b2_coll", {
       id: z.string(),
       tags: s.set(s.string()),
-      sized: s.array(s.string(), { max: 3 }),
-      sizedset: s.set(s.int(), { max: 5 }),
+      sized: s.array(s.string()).length(3),
+      bounded: s.array(s.string(), { max: 3 }),
+      boundedset: s.set(s.int(), { max: 5 }),
     });
     expect(await applyEach(db!, emitTable(T, { exists: "overwrite" }))).toEqual(
       [],
@@ -284,8 +285,10 @@ live("batch 1 + 2 features round-trip on the DB", () => {
     >("INFO FOR TABLE pl_b2_coll STRUCTURE;");
     const kind = (n: string) => info.fields.find((f) => f.name === n)?.kind;
     expect(kind("tags")).toBe("set<string>");
+    // `.length(3)` is the exact `array<T, N>` form; `{ max }` is a bound, so the type stays bare.
     expect(kind("sized")).toBe("array<string, 3>");
-    expect(kind("sizedset")).toBe("set<int, 5>");
+    expect(kind("bounded")).toBe("array<string>");
+    expect(kind("boundedset")).toBe("set<int>");
   });
 
   test("record REFERENCE [ON DELETE …] via .$reference()", async () => {

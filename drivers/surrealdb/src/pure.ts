@@ -230,20 +230,49 @@ type ZodCheck = {
 };
 
 /**
- * Best-effort: derive DB `ASSERT` fragments from a Zod schema's checks. Reads the Zod 4
- * check shape (`schema._zod.def.checks[]._zod.def`): string `min_length`/`max_length`/
- * `length_equals`, `string_format` (regex -> `$value = /…/`; email/url/… -> `string::is_*`),
- * and number `greater_than`/`less_than` (with `inclusive`). The schema may itself be a
- * `string_format` (e.g. `z.email()`), so its top-level `def.format` is mapped too. Unknown
- * checks are skipped silently.
+ * Peel the value-less `optional`/`nullable` wrappers off a schema (outermost first), returning the
+ * underlying schema plus the rebuild functions to re-wrap it in the SAME order. A wrapped value still
+ * IS its inner type for DDL purposes: `$`-constraints and `$assert()` derivation read the inner, and
+ * re-wrapping preserves `nullish()` (which is `optional<nullable<T>>`).
+ */
+function peelNullish(schema: z.ZodType): {
+  inner: z.ZodType;
+  wraps: ((s: z.ZodType) => z.ZodType)[];
+} {
+  const wraps: ((s: z.ZodType) => z.ZodType)[] = [];
+  let inner = schema;
+  for (;;) {
+    const def = inner._zod.def as { type: string; innerType?: z.ZodType };
+    if (def.type === "optional") wraps.push((s) => s.optional());
+    else if (def.type === "nullable") wraps.push((s) => s.nullable());
+    else break;
+    inner = def.innerType as z.ZodType;
+  }
+  return { inner, wraps };
+}
+
+/**
+ * Best-effort: derive DB `ASSERT` fragments from a Zod schema's checks, looking through
+ * `optional`/`nullable` wrappers. Reads the Zod 4 check shape (`schema._zod.def.checks[]._zod.def`):
+ * `min_length`/`max_length`/`length_equals` (strings AND arrays — emit `string::len`/`array::len`
+ * by base type), set `min_size`/`max_size`, `string_format` (regex -> `$value = /…/`;
+ * email/url/… -> `string::is_*`), and number `greater_than`/`less_than` (with `inclusive`). The
+ * schema may itself be a `string_format` (e.g. `z.email()`), so its top-level `def.format` is mapped
+ * too. Unknown checks are skipped silently.
  */
 function deriveAsserts(schema: z.ZodType): string[] {
-  const def = schema._zod.def as {
+  const { inner } = peelNullish(schema);
+  const def = inner._zod.def as {
+    type?: string;
     check?: string;
     format?: string;
     checks?: ZodCheck[];
   };
   const out: string[] = [];
+  // String and array checks share Zod's `min_length`/`max_length`/`length_equals` names; the
+  // SurrealQL function differs by base type.
+  const len =
+    def.type === "array" || def.type === "set" ? "array::len" : "string::len";
 
   // The schema itself may be a string-format (z.email()/z.url()/…).
   if (def.check === "string_format" && typeof def.format === "string") {
@@ -255,13 +284,19 @@ function deriveAsserts(schema: z.ZodType): string[] {
     const d = c._zod.def;
     switch (d.check) {
       case "min_length":
-        out.push(`string::len($value) >= ${d.minimum}`);
+        out.push(`${len}($value) >= ${d.minimum}`);
         break;
       case "max_length":
-        out.push(`string::len($value) <= ${d.maximum}`);
+        out.push(`${len}($value) <= ${d.maximum}`);
         break;
       case "length_equals":
-        out.push(`string::len($value) == ${d.length}`);
+        out.push(`${len}($value) == ${d.length}`);
+        break;
+      case "min_size":
+        out.push(`array::len($value) >= ${d.minimum}`);
+        break;
+      case "max_size":
+        out.push(`array::len($value) <= ${d.maximum}`);
         break;
       case "string_format":
         if (d.format === "regex" && d.pattern) {
@@ -819,29 +854,59 @@ export class SField<
   }
 
   // --- $-constraints: apply the app-side Zod check AND push a type-aware DB ASSERT. ---
-  // String-vs-number is read from the schema's own `def.type`; unsupported type/method
-  // combos no-op (return the field unchanged).
+  // The base type is read through `optional`/`nullable` wrappers (`schemaType`), and the Zod check is
+  // applied to the wrapped inner schema (`constrain`), so `s.string().optional().$min(3)` works.
+  // A `union` has no Zod `.min/.max/.length`, so those push the ASSERT for the matching member type
+  // only (`anyMemberType`), first-match string > number > array. Unsupported combos no-op.
 
-  /** Min length (string) / minimum value (number). */
+  /** Min length (string/array/set) / minimum value (number). */
   $min(n: number): SField<S, Flags> {
-    if (this.schemaType === "string")
+    const t = this.schemaType;
+    if (t === "string")
       return this.constrain("min", n, `string::len($value) >= ${n}`);
-    if (this.schemaType === "number")
-      return this.constrain("min", n, `$value >= ${n}`);
+    if (t === "number") return this.constrain("min", n, `$value >= ${n}`);
+    if (t === "array" || t === "set")
+      return this.constrain("min", n, `array::len($value) >= ${n}`);
+    if (t === "union") {
+      if (this.anyMemberType("string"))
+        return this.constrainAssert(`string::len($value) >= ${n}`);
+      if (this.anyMemberType("number"))
+        return this.constrainAssert(`$value >= ${n}`);
+      if (this.anyMemberType("array"))
+        return this.constrainAssert(`array::len($value) >= ${n}`);
+    }
     return this;
   }
-  /** Max length (string) / maximum value (number). */
+  /** Max length (string/array/set) / maximum value (number). */
   $max(n: number): SField<S, Flags> {
-    if (this.schemaType === "string")
+    const t = this.schemaType;
+    if (t === "string")
       return this.constrain("max", n, `string::len($value) <= ${n}`);
-    if (this.schemaType === "number")
-      return this.constrain("max", n, `$value <= ${n}`);
+    if (t === "number") return this.constrain("max", n, `$value <= ${n}`);
+    if (t === "array" || t === "set")
+      return this.constrain("max", n, `array::len($value) <= ${n}`);
+    if (t === "union") {
+      if (this.anyMemberType("string"))
+        return this.constrainAssert(`string::len($value) <= ${n}`);
+      if (this.anyMemberType("number"))
+        return this.constrainAssert(`$value <= ${n}`);
+      if (this.anyMemberType("array"))
+        return this.constrainAssert(`array::len($value) <= ${n}`);
+    }
     return this;
   }
-  /** Exact length (string). */
+  /** Exact length (string/array) — the only source of the `array<T, N>` type size. */
   $length(n: number): SField<S, Flags> {
-    if (this.schemaType === "string") {
+    const t = this.schemaType;
+    if (t === "string")
       return this.constrain("length", n, `string::len($value) == ${n}`);
+    if (t === "array")
+      return this.constrain("length", n, `array::len($value) == ${n}`);
+    if (t === "union") {
+      if (this.anyMemberType("string"))
+        return this.constrainAssert(`string::len($value) == ${n}`);
+      if (this.anyMemberType("array"))
+        return this.constrainAssert(`array::len($value) == ${n}`);
     }
     return this;
   }
@@ -1026,9 +1091,22 @@ export class SField<
     return this.chain("jwt", params);
   }
 
-  /** The underlying Zod schema's `def.type` ("string" / "number" / …). */
+  /** The underlying Zod schema's `def.type` ("string" / "number" / …), looking through
+   *  `optional`/`nullable` so a wrapped field still routes its `$`-constraints by base type. */
   private get schemaType(): string {
-    return (this.schema._zod.def as { type: string }).type;
+    return (peelNullish(this.schema).inner._zod.def as { type: string }).type;
+  }
+  /** Whether any member of this (possibly wrapped) union schema has base type `type`. */
+  private anyMemberType(type: string): boolean {
+    const opts = (
+      peelNullish(this.schema).inner._zod.def as { options?: z.ZodType[] }
+    ).options;
+    return (
+      opts?.some(
+        (o) =>
+          (peelNullish(o).inner._zod.def as { type: string }).type === type,
+      ) ?? false
+    );
   }
   /** Append ASSERT fragments, returning a new field (same type param + flags). */
   private pushAsserts(frags: (string | BoundQuery)[]): SField<S, Flags> {
@@ -1038,20 +1116,30 @@ export class SField<
       asserts: [...(this.surreal.asserts ?? []), ...frags],
     });
   }
+  /** Push a DB-only ASSERT fragment, leaving the Zod schema untouched (for types whose Zod base has
+   *  no matching check — e.g. a `union`). */
+  private constrainAssert(frag: string): SField<S, Flags> {
+    return this.pushAsserts([frag]);
+  }
   /** Apply a concrete-subtype Zod check (`min`/`max`/`length`/`regex`/`gt`/…) and push its
-   * matching DB fragment, returning a new field carrying the refined schema. */
+   * matching DB fragment, returning a new field carrying the refined schema. The check is applied
+   * to the schema UNDER `optional`/`nullable` wrappers (which have no `.min`/`.max`/…), and the
+   * wrappers are re-applied in their original order so `nullish()` stays intact. */
   private constrain(
     method: keyof CheckableSchema,
     arg: number | RegExp,
     frag: string,
   ): SField<S, Flags> {
+    const { inner, wraps } = peelNullish(this.schema);
     const apply = (
-      this.schema as unknown as Record<
+      inner as unknown as Record<
         string,
         (a: number | RegExp) => z.ZodType
       >
     )[method];
-    return new SField(apply(arg) as S, {
+    let refined = apply.call(inner, arg);
+    for (const wrap of wraps.reverse()) refined = wrap(refined);
+    return new SField(refined as S, {
       ...this.surreal,
       asserts: [...(this.surreal.asserts ?? []), frag],
     });
@@ -1794,7 +1882,8 @@ export const s = {
     app: B,
     params: Parameters<typeof z.codec<A, B>>[2],
   ) => new SField(z.codec(wire, app, params)),
-  /** An array of `element`. `opts.max` -> sized `array<T, N>` (N is the MAX length). */
+  /** An array of `element`. `opts.max` bounds the length (`ASSERT array::len($value) <= N`); for an
+   *  EXACT `array<T, N>` use `.length(N)` / `.$length(N)`. */
   array: <F extends AnyField | z.ZodType>(
     element: F,
     opts?: { max?: number },
@@ -1802,9 +1891,7 @@ export const s = {
     const base = (
       element instanceof SField ? element : new SField(element)
     ).array() as SField<z.ZodArray<SchemaOf<F>>>;
-    return opts?.max === undefined
-      ? base
-      : new SField(base.schema.max(opts.max), base.surreal);
+    return opts?.max === undefined ? base : base.$max(opts.max);
   },
   /** A literal value type. */
   literal: <const T extends string | number | boolean | bigint>(value: T) =>
@@ -1868,15 +1955,16 @@ export const s = {
     key: K,
     value: V,
   ) => new SField(z.looseRecord(key, toZod(value) as SchemaOf<V>)),
-  /** A `Set<element>` -> SurrealQL `set<element>`. `opts.max` -> sized `set<T, N>` (MAX). */
+  /** A `Set<element>` -> SurrealQL `set<element>`. `opts.max` bounds the size
+   *  (`ASSERT array::len($value) <= N`). */
   set: <V extends AnyField | z.ZodType>(
     element: V,
     opts?: { max?: number },
   ): SField<z.ZodSet<SchemaOf<V>>> => {
-    const base = z.set(toZod(element) as SchemaOf<V>);
-    return new SField(
-      opts?.max === undefined ? base : base.max(opts.max),
+    const base = new SField(
+      z.set(toZod(element) as SchemaOf<V>),
     ) as SField<z.ZodSet<SchemaOf<V>>>;
+    return opts?.max === undefined ? base : base.$max(opts.max);
   },
   /** The intersection of two schemas (object fields are merged in DDL). */
   intersection: <

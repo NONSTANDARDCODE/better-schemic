@@ -131,8 +131,13 @@ export interface KindEngine<
    * rotates on its own cadence. Such a kind is managed OUT-OF-BAND via the driver's own commands
    * (`sc <kind> …`). `emit`/`lower` still work (a driver command may use them); only the automatic
    * migration lifecycle skips it. Omitted/false = a normal, migration-managed kind.
+   *
+   * A PREDICATE form (`(portable) => boolean`) decides PER OBJECT — for a kind whose objects are
+   * managed only when they round-trip cleanly (e.g. SurrealDB access: key-free defs are manageable,
+   * key-bearing/redacted ones are not). Called with the object itself wherever one is available; a
+   * kind-only check can't evaluate it and treats the object as managed.
    */
-  excludeFromMigrations?: boolean;
+  excludeFromMigrations?: boolean | ((portable: PortableObject) => boolean);
 }
 
 /** Per-kind presentation metadata (labels + output folder). All optional; core fills defaults. */
@@ -209,12 +214,16 @@ export class KindRegistry {
   }
 
   /**
-   * Is `kind` UNMANAGED by the migration pipeline (its engine set {@link KindEngine.excludeFromMigrations})?
-   * The snapshot/diff/emit/introspect spine skips such kinds — see the flag's docs. An unregistered kind
-   * is treated as managed (false), so a stray object never gets silently dropped by a typo.
+   * Is `kind` (or, for a predicate flag, the PORTABLE object) UNMANAGED by the migration pipeline
+   * (its engine set {@link KindEngine.excludeFromMigrations})? The snapshot/diff/emit/introspect
+   * spine skips such objects — see the flag's docs. An unregistered kind is treated as managed
+   * (false), so a stray object never gets silently dropped by a typo; a predicate without an object
+   * is treated as managed too (the decision is per-object).
    */
-  isExcludedFromMigrations(kind: string): boolean {
-    return this.kinds.get(kind)?.excludeFromMigrations === true;
+  isExcludedFromMigrations(kind: string, portable?: PortableObject): boolean {
+    const flag = this.kinds.get(kind)?.excludeFromMigrations;
+    if (typeof flag === "function") return portable ? flag(portable) : false;
+    return flag === true;
   }
 
   /**

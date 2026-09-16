@@ -87,3 +87,50 @@ describe("excludeFromMigrations", () => {
     expect(changed.up).toEqual([]);
   });
 });
+
+describe("excludeFromMigrations predicate (per-object)", () => {
+  const predicateRegistry = new KindRegistry();
+  predicateRegistry.define({
+    name: "access",
+    build: (name: string): PAccess => ({ kind: "access", name }),
+    lower: (a) => a,
+    emit: (a) => [`DEFINE ACCESS ${a.name}`],
+    remove: (a) => [`REMOVE ACCESS ${a.name}`],
+    // The predicate under test: only `secret_*` objects are unmanaged.
+    excludeFromMigrations: (p) => p.name.startsWith("secret_"),
+  });
+  const pub: PAccess = { kind: "access", name: "public_a" };
+  const secret: PAccess = { kind: "access", name: "secret_a" };
+
+  test("isExcludedFromMigrations evaluates the predicate per object", () => {
+    expect(predicateRegistry.isExcludedFromMigrations("access", secret)).toBe(
+      true,
+    );
+    expect(predicateRegistry.isExcludedFromMigrations("access", pub)).toBe(
+      false,
+    );
+    // A predicate without an object can't be evaluated -> treated as managed.
+    expect(predicateRegistry.isExcludedFromMigrations("access")).toBe(false);
+  });
+
+  test("snapshotKinds drops only the excluded objects", () => {
+    const snap = snapshotKinds([pub, secret], predicateRegistry);
+    expect(snap.kinds.access?.map((o) => o.name)).toEqual(["public_a"]);
+  });
+
+  test("emitKinds skips only the excluded objects", () => {
+    const ddl = emitKinds(predicateRegistry, [pub, secret]).join("\n");
+    expect(ddl).toContain("DEFINE ACCESS public_a");
+    expect(ddl).not.toContain("secret_a");
+  });
+
+  test("buildKindDiff diffs only managed objects (add / remove)", () => {
+    const added = buildKindDiff(predicateRegistry, [], [pub, secret]);
+    expect(added.up.join("\n")).toContain("DEFINE ACCESS public_a");
+    expect(added.up.join("\n")).not.toContain("secret_a");
+
+    const removed = buildKindDiff(predicateRegistry, [pub, secret], []);
+    expect(removed.up.join("\n")).toContain("REMOVE ACCESS public_a");
+    expect(removed.up.join("\n")).not.toContain("secret_a");
+  });
+});

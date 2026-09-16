@@ -170,8 +170,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   Every display/output boundary pretty-prints (`sc diff`, gen, live diff, migration files with
   line-aware indent) while every COMPARISON stays canonical single-line — snapshots unchanged, no
   phantom churn on upgrade.
+- **core:** `KindEngine.excludeFromMigrations` now accepts a PREDICATE (`(portable) => boolean`) in
+  addition to `boolean` — a kind can decide PER OBJECT whether it is migration-managed (`snapshotKinds`/
+  `buildKindDiff`/`emitKinds` feed the object; `introspectKinds` still skips only statically-excluded
+  kinds).
+- **surrealdb:** key-free `DEFINE ACCESS` is now migration-managed via that predicate — `TYPE RECORD`
+  (auto-generated session JWT), `TYPE JWT` via a JWKS `URL`, and `TYPE BEARER` (server-generated grant)
+  enter snapshots/diffs/`gen`/`migrate`/`baseline`, still gated by the opt-in `--access` flag. A
+  key-bearing `TYPE JWT` stays out-of-band (`sc access push/diff/rotate`): the canonical DDL omits the
+  redacted `KEY`, so re-applying would rotate it.
+- **surrealdb:** `$`-constraints now cover containers and wrapped fields — `$min`/`$max` apply to
+  arrays and sets (`array::len` bounds), `$length` applies to arrays (exact `array<T,N>` + equality
+  ASSERT), and all of `$min/$max/$length/$regex/$gt/$gte/$lt/$lte` look through `.optional()`/
+  `.nullable()` (the Zod check lands on the inner schema, wrappers preserved). On a union, `$min`/
+  `$max`/`$length` push the ASSERT for the first matching member (string > number > array).
+  `.$assert()` (no args) additionally derives container bounds from Zod's `min_length`/`max_length`/
+  `length_equals` (arrays) and `min_size`/`max_size` (sets) with `array::len`.
 
 ### Fixed
+- **surrealdb:** `$value` no longer strips a leading `option<>` — only DEFAULT/COMPUTED guarantee a
+  populated column; a VALUE expression may evaluate to NONE, and SurrealDB persists `option<T>`.
+  Stripping it emitted `TYPE T` while the DB stored `option<T>`, causing a phantom diff and rejected
+  writes (e.g. `IF cond THEN NONE ELSE $value END`). The Struct-IR normalizer (`fromTableDef` vs
+  `fromInfo`) drops the wrapper for the same two clauses only, so the round-trip converges.
+- **surrealdb:** `array<T, N>` / `set<T, N>` is EXACTLY N in SurrealQL — it is now inferred only from
+  a Zod `length_equals` check (`.length(N)` / `.$length(N)`), never from `.max()`. `s.array(e, { max })`/
+  `s.set(e, { max })`/`.$max(N)` now emit `ASSERT array::len($value) <= N` on the bare container type
+  instead of a wrong exact-size `array<T, N>`. `pull` reverses exact arrays to `.length(N)` (it used to
+  mangle `array<T, N>`/`set<T, N>` into `s.any() /* … */`); exact `set<T, N>` is a documented gap (Zod
+  sets have no `.length`) and degrades to `set<T>`.
 - **core:** the DEFAULT migrations dir now follows the documented contract — RELATIVE TO THE SCHEMA
   (its sibling `migrations` dir) instead of a root-fixed `./database/migrations`. A nested schema
   (`schema: "./src/database/schema"`) previously split state: `init` scaffolded the snapshot

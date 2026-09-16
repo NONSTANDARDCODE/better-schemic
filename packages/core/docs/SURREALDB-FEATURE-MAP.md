@@ -132,9 +132,10 @@ are:
     round-trips with full per-branch structure. @better-schemic/core collapses **both** `discriminatedUnion`
     **and** plain `union` of objects to bare `object`.
 
-11. **`set<T, N>` sized set** ✅ **batch 2** (was ❌) — sized `array<T,N>` / `set<T,N>` via
-    `s.array(x, { max })` / `s.set(x, { max })` (N = MAX size; set stays set).
-    *Live-verified* `set<int, 5>` round-trips.
+11. **Array/set length bounds** ✅ **batch 3** — `s.array(x, { max })` / `s.set(x, { max })` emit a
+    length bound as `ASSERT array::len($value) <= N` (NOT `array<T,N>`: SurrealQL's `array<T,N>` is
+    EXACTLY N). Exact `array<T,N>` is authored via `.length(N)` / `.$length(N)`; exact `set<T,N>` has
+    no authoring path (Zod sets have no `.length`) and `pull` degrades it to `set<T>`.
 
 > **#1 (`COMPUTED`)** was the standout — a high-value, schema-author-facing field clause the prior
 > audit treated as out-of-scope query syntax. **Closed in batch 1** (along with `COUNT` index, plus
@@ -189,7 +190,8 @@ Docs root: https://surrealdb.com/docs/reference/query-language/language-primitiv
 | optional / nullable / nullish | `option<T>` / `T\|null` / `option<T\|null>` | `.optional()/.nullable()/.nullish()` | ✅ | …/data-types/none-and-null |
 | none / null | `none` / `null` | `s.null()` (none via optionality) | ✅ | …/data-types/none-and-null |
 | set (dedup) | `set<T>` | `s.set(x)` | ✅ batch 1 | emits `set<T>`, round-trips (was lossy → `array`). …/data-types/sets |
-| sized array / set | `array<T,N>` / `set<T,N>` | `s.array(x,{max:N})` / `s.set(x,{max:N})` | ✅ batch 2 | N = MAX size; set stays set. **Live-verified** `array<float,3>`, `set<int,5>`. …/data-types/arrays |
+| array length bound | `array<T>` + `ASSERT array::len <= N` | `s.array(x,{max:N})` / `.$max(N)` | ✅ batch 3 | N is a MAX bound, not `array<T,N>` (which is exact). Exact `array<T,N>` via `.length(N)`. …/data-types/arrays |
+| sized set | `set<T,N>` (exact) | — | ❌ | Zod sets have no `.length`; `pull` degrades `set<T,N>` to `set<T>`. `set<T>` + `{max}` bound is ✅. …/data-types/sets |
 | **object-literal union** | `{a:..} \| {b:..}` (any shapes) | `s.union`/`discriminatedUnion` of objects → `object` | ⚠️ | **lossy.** Live: full per-branch structure round-trips. …/data-types/literals |
 | **range** | `range` | — | ❌ | **Live-verified** bare `range` valid field type. …/data-types/ranges |
 | **regex** | `regex` | — | ❌ | **Live-verified** bare `regex` valid field type. …/data-types/regex |

@@ -58,8 +58,12 @@ live parity suites (`test/parity/{struct,live,canonical}-parity.test.ts`) and th
 - [x] `option<T | null>` — `.nullish()` / `s.nullish()`
 
 ### Containers
-- [x] `array<T>`, `array<T, N>` — `s.array(T, { max })`
-- [x] `set<T>`, `set<T, N>` — `s.set(T, { max })`
+- [x] `array<T>`, `array<T, N>` (EXACT N) — `s.array(T)` / `s.array(T).length(N)` (or `.$length(N)`
+  for the DB ASSERT too). Because `array<T, N>` is exactly N, `.max()` is NEVER a type size:
+  `s.array(T, { max: N })` / `.$max(N)` bound the length with `ASSERT array::len($value) <= N`.
+- [x] `set<T>` + bound — `s.set(T)` / `s.set(T, { max: N })` / `.$max(N)` (`ASSERT array::len($value) <= N`).
+  Gap: Zod sets have no exact-length check, so `set<T, N>` (exact) has no authoring path and `pull`
+  degrades it to `s.set(<T>)`.
 - [x] object / nested fields to arbitrary depth (`x.*`) — `s.object(shape)`
 - [x] tuples `[T1, T2, …]` — `s.tuple([...])`
 - [x] literal / literal-union (enums) — `s.literal()` / `s.enum()` / `s.nativeEnum()`
@@ -89,7 +93,11 @@ live parity suites (`test/parity/{struct,live,canonical}-parity.test.ts`) and th
 - [x] `VALUE <expr>` — `.$value(surql)`
 - [x] `COMPUTED <expr>` — `.$computed(surql)`
 - [x] `ASSERT <expr>` — `.$assert(surql?)`, plus `$`-constraints that bake asserts
-  (`.$min/$max/$length/$regex/$gt/$gte/$lt/$lte`)
+  (`.$min/$max/$length/$regex/$gt/$gte/$lt/$lte`). `$min`/`$max` cover string/number/array/set (and
+  union: the ASSERT targets the matching member, first-match string > number > array); `$length` is
+  string/array (exact `array<T, N>`). `$`-constraints look through `.optional()`/`.nullable()`.
+  `.$assert()` (no args) derives array bounds with `array::len` (Zod `min_length`/`max_length`/
+  `length_equals` on arrays, `min_size`/`max_size` on sets).
 - [x] string-format builders reverse from their baked `ASSERT` on pull — `s.email()`, `s.url()`,
   `s.ipv4/ipv6`, `s.ulid()`, `s.alpha/alphanum/ascii/numeric/semver/hexadecimal/latitude/longitude/ip/domain`
   recover as the builder (not raw `string ASSERT …`)
@@ -124,6 +132,13 @@ live parity suites (`test/parity/{struct,live,canonical}-parity.test.ts`) and th
     tracked as an allowlisted canonical divergence (see Driver semantics).
 
 ## Access / Auth
+
+Access is managed **per object** by the migration pipeline (gated by `--access`, off by default):
+**key-free** access — `TYPE RECORD` (its session JWT is auto-generated), `TYPE JWT` via a JWKS `URL`,
+and `TYPE BEARER` (server-generated grant) — round-trips the canonical DDL and rides
+`gen`/`migrate`/`baseline` like any other kind. A **key-bearing `TYPE JWT`** stays unmanaged (the
+canonical DDL omits the redacted `KEY`, so re-applying would rotate it) and is deployed out-of-band
+via `sc access push/diff/rotate/check`.
 
 - [x] `DEFINE ACCESS … TYPE RECORD (SIGNUP / SIGNIN / AUTHENTICATE)` — `defineAccess(name).record()`
 - [x] `DURATION FOR TOKEN / SESSION / GRANT` — `.duration(...)`. SurrealDB materializes duration
@@ -238,7 +253,7 @@ introspect path (the fixed-slot `Driver.introspect` is gone), live-validated to 
 | `index` (plain/UNIQUE/composite/COUNT) | `[x]` | `[x]` | `[x]` | `[x]` | own kind; `deps`/`owner` → table; change = recreate (REMOVE + DEFINE) |
 | `event` | `[x]` | `[x]` | `[x]` | `[x]` | own kind; `deps`/`owner` → table + `fn::` callees; change = `DEFINE EVENT OVERWRITE` |
 | `function` (`fn::`) | `[x]` | `[x]` | `[x]` | `[x]` | opaque kind; `deps` = other `fn::` it calls; change = `DEFINE FUNCTION OVERWRITE` |
-| `access` (RECORD/JWT/BEARER) | `[x]` | `[x]` | `[x]` | `[~]` | opaque kind; `deps` = `fn::` in SIGNUP/SIGNIN/AUTHENTICATE; change = `DEFINE ACCESS OVERWRITE`; introspect partial (JWT/BEARER secrets redacted, as on the legacy path) |
+| `access` (RECORD/JWT/BEARER) | `[x]` | `[x]` | `[x]` | `[~]` | opaque kind; managed PER OBJECT (`excludeFromMigrations` predicate): key-free access rides migrations (gated by `--access`), key-bearing `TYPE JWT` stays out-of-band; `deps` = `fn::` in SIGNUP/SIGNIN/AUTHENTICATE; change = `DEFINE ACCESS OVERWRITE`; introspect partial (JWT/BEARER secrets redacted, as on the legacy path) |
 | `analyzer` (`DEFINE ANALYZER`) | `[x]` | `[x]` | `[x]` | `[x]` | own kind; a FULLTEXT `index` `deps` on it (analyzer emits first); tokenizers/filters uppercased; default BM25 stripped → round-trips |
 | `param` (`DEFINE PARAM`) | `[ ]` | `[ ]` | `[ ]` | `[ ]` | not yet in the driver at all |
 | `user` (`DEFINE USER`) | `[ ]` | `[ ]` | `[ ]` | `[ ]` | not yet in the driver |

@@ -5,7 +5,7 @@ export default example(import.meta.url, {
   title: "Containers — array / set (with max), object, tuple",
   ddl: `DEFINE TABLE containers TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD tags ON TABLE containers TYPE array<string>;
-DEFINE FIELD top3 ON TABLE containers TYPE array<string, 3>;
+DEFINE FIELD top3 ON TABLE containers TYPE array<string> ASSERT array::len($value) <= 3;
 DEFINE FIELD uniq ON TABLE containers TYPE set<int>;
 DEFINE FIELD coords ON TABLE containers TYPE [float, float];
 DEFINE FIELD meta ON TABLE containers TYPE object;

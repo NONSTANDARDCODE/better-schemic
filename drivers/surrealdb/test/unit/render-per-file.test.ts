@@ -218,6 +218,20 @@ describe("pull reverses native codecs / string formats", () => {
     expect(out).toContain('loc: s.geometry("point")');
   });
 
+  test("exact `array<T, N>` reverses to .length(N); a sized set degrades to set<T>", () => {
+    const out = render([
+      sf("id", "string"),
+      sf("sized", "array<string, 3>"),
+      sf("sizedset", "set<int, 5>"),
+      sf("bounded", "array<string>", { assert: "array::len($value) <= 3" }),
+    ]);
+    expect(out).toContain("sized: s.string().array().length(3)");
+    expect(out).toContain("sizedset: s.set(s.int())");
+    expect(out).toContain(
+      "bounded: s.string().array().$assert(surql`array::len($value) <= 3`)",
+    );
+  });
+
   test("a NORMAL table keeps fields literally named `in`/`out`", () => {
     // Regression: `in`/`out` are the implicit endpoints of a RELATION only. On a plain table a user
     // can define record fields named `in`/`out` (`DEFINE FIELD in ON order TYPE record<person>`);

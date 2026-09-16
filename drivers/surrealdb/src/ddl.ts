@@ -224,22 +224,21 @@ export function inferField(
           : [];
       // `set<T>` is distinct from `array<T>` in SurrealDB (dedup) and round-trips — preserve it.
       const kw = def.type === "set" ? "set" : "array";
-      // `array<T, N>` / `set<T, N>` — N is a MAX size from a Zod `.max()` check
-      // (`max_length` on arrays, `max_size` on sets). No min in the SurrealQL form.
+      // `array<T, N>` / `set<T, N>` — N is an EXACT size in SurrealQL (not a maximum), so it maps ONLY
+      // from a Zod `length_equals` check (`.length(N)` / `.$length(N)`). A `.max()` bound is a DB
+      // ASSERT (`array::len($value) <= N`), never a type size.
       const checks =
         (
           def as {
             checks?: {
-              _zod?: { def?: { check?: string; maximum?: number } };
+              _zod?: { def?: { check?: string; length?: number } };
             }[];
           }
         ).checks ?? [];
-      const maximum = checks
+      const length = checks
         .map((c) => c._zod?.def)
-        .find(
-          (d) => d?.check === "max_length" || d?.check === "max_size",
-        )?.maximum;
-      const size = typeof maximum === "number" ? `, ${maximum}` : "";
+        .find((d) => d?.check === "length_equals")?.length;
+      const size = typeof length === "number" ? `, ${length}` : "";
       return {
         type: `${kw}<${elem.type}${size}>`,
         flexible: elem.flexible,
@@ -874,11 +873,10 @@ function emit(
 ): void {
   validateField(path, info, surreal, schemafull);
   let type = info.type;
-  // A DB-side DEFAULT/VALUE/COMPUTED means the column is always populated -> drop a leading option<>.
-  if (
-    (surreal?.default || surreal?.value || surreal?.computed) &&
-    type.startsWith("option<")
-  ) {
+  // A DB-side DEFAULT/COMPUTED guarantees a populated column -> drop a leading option<>. VALUE does
+  // NOT: the expression may evaluate to NONE (e.g. `IF cond THEN NONE ELSE $value END`), so SurrealDB
+  // persists the bare `option<T>` type — stripping it would phantom-diff and reject valid writes.
+  if ((surreal?.default || surreal?.computed) && type.startsWith("option<")) {
     type = type.slice("option<".length, -1);
   }
   // An array element is auto-created by SurrealDB, so a (kept) element DEFINE must OVERWRITE it.

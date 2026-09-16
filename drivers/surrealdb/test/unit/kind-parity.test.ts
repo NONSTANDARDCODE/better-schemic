@@ -334,28 +334,60 @@ describe("function kind parity (opaque)", () => {
   });
 });
 
-describe("access is EXCLUDED from the migration pipeline (managed out-of-band via sc access …)", () => {
-  // Access carries secrets + SurrealDB redacts keys on read, so it can't round-trip a committed
-  // migration; the access KindEngine sets excludeFromMigrations, so the registry (the production diff
-  // path) emits nothing for it — add/change/remove all produce empty up/down. (`sc access push/diff`
-  // manage it against the live DB instead.)
+describe("access is managed PER OBJECT (key-free rides migrations; key-bearing stays out-of-band)", () => {
+  // Key-free access (TYPE RECORD with no authored key) round-trips the canonical DDL, so it is a
+  // MANAGED migration kind — byte-parity with the internal `diffSnapshots` engine. A key-bearing
+  // TYPE JWT stays unmanaged: the canonical DDL omits the redacted KEY, so re-applying would rotate
+  // it (managed out-of-band via `sc access push/diff/rotate`).
   const acct = () =>
     defineAccess("acct").onDatabase().record().signin(surql`SELECT 1`);
 
-  test("adding an access produces no migration statements", () => {
-    expect(registry([], [], [], [acct()])).toEqual({ up: [], down: [] });
+  test("adding a key-free access emits DEFINE ACCESS (parity)", () => {
+    parity([], [], [], [acct()]);
   });
 
-  test("changing an access produces no migration statements", () => {
+  test("changing a key-free access emits an in-place change (parity)", () => {
     const changed = defineAccess("acct")
       .onDatabase()
       .record()
       .signin(surql`SELECT 2`);
-    expect(registry([], [], [acct()], [changed])).toEqual({ up: [], down: [] });
+    parity([], [], [acct()], [changed]);
   });
 
-  test("removing an access produces no migration statements", () => {
-    expect(registry([], [], [acct()], [])).toEqual({ up: [], down: [] });
+  test("removing a key-free access emits REMOVE ACCESS (parity)", () => {
+    parity([], [], [acct()], []);
+  });
+
+  test("a key-bearing TYPE JWT access stays unmanaged (no migration statements)", () => {
+    const jwt = () =>
+      defineAccess("jwt").onDatabase().jwt({ alg: "HS512", key: "secret" });
+    expect(registry([], [], [], [jwt()])).toEqual({ up: [], down: [] });
+  });
+
+  test("a JWKS-URL JWT access is key-free and managed (parity)", () => {
+    const jwks = () =>
+      defineAccess("ext").onDatabase().jwt({ url: "https://x/jwks.json" });
+    parity([], [], [], [jwks()]);
+  });
+
+  test("snapshotKinds keeps key-free access (RECORD/JWKS/BEARER), drops key-bearing JWT", () => {
+    const record = defineAccess("acct").onDatabase().record();
+    const jwks = defineAccess("ext")
+      .onDatabase()
+      .jwt({ url: "https://x/jwks.json" });
+    const bearer = defineAccess("svc").onDatabase().bearer({ for: "record" });
+    const jwt = defineAccess("jwt")
+      .onDatabase()
+      .jwt({ alg: "HS512", key: "secret" });
+    const snap = snapshotKinds(
+      lowerAll([], [record, jwks, bearer, jwt]),
+      surrealKinds,
+    );
+    expect(
+      snapshotObjects(snap)
+        .map((o) => `${o.kind}:${o.name}`)
+        .sort(),
+    ).toEqual(["access:acct", "access:ext", "access:svc"]);
   });
 });
 
@@ -391,17 +423,16 @@ describe("fn:: dependency ordering (function emits before its caller)", () => {
     );
   });
 
-  // NB: no "before an access whose SIGNIN calls it" case — access is excluded from the migration
-  // pipeline (excludeFromMigrations), so there's no DEFINE ACCESS in the emit to order against. The
-  // function it calls still emits (it's a normal migration kind); the ordering is just moot for access.
-  test("a function whose only caller is an (excluded) access still emits, alone", () => {
+  test("before an access whose SIGNIN calls it", () => {
     const access = defineAccess("acct")
       .onDatabase()
       .record()
       .signin(surql`SELECT * FROM user WHERE fn::fmt(email)`);
     const up = emitKinds(surrealKinds, lowerAll([], [fmt(), access]));
     expect(fnIdx(up)).toBeGreaterThanOrEqual(0);
-    expect(up.some((l) => /DEFINE ACCESS/.test(l))).toBe(false);
+    expect(fnIdx(up)).toBeLessThan(
+      up.findIndex((l) => /DEFINE ACCESS/.test(l)),
+    );
   });
 });
 

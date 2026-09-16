@@ -227,10 +227,16 @@ describe("types — optionality folding", () => {
     expect(typeOf(s.any().optional())).toBe("any");
   });
 
-  test("a DB-side DEFAULT/VALUE strips a leading option<>", () => {
-    // The column is always populated -> drop option<>.
+  test("a DB-side DEFAULT strips a leading option<>; VALUE does not", () => {
+    // DEFAULT guarantees a populated column -> drop option<>.
     expect(fieldDdl(s.string().optional().$default("x"))).toBe(
       'DEFINE FIELD f ON TABLE t TYPE string DEFAULT "x";',
+    );
+    // VALUE may evaluate to NONE -> the DB stores option<>; stripping would phantom-diff.
+    expect(
+      fieldDdl(s.string().optional().$value(surql`string::lowercase($value)`)),
+    ).toBe(
+      "DEFINE FIELD f ON TABLE t TYPE option<string> VALUE string::lowercase($value);",
     );
   });
 });
@@ -255,13 +261,21 @@ describe("types — GAPS (confirmed against the DB)", () => {
   });
   test.todo('GAP: object-literal union should emit `{ kind: "a", x: string } | { kind: "b", y: number }`', () => {});
 
-  // FIXED (batch 2): array<T, N> / set<T, N> max-size via `{ max }` (N is the MAX size).
-  test("sized array<T, N> / set<T, N> via { max }", () => {
-    expect(typeOf(s.array(s.string(), { max: 3 }))).toBe("array<string, 3>");
-    expect(typeOf(s.set(s.int(), { max: 5 }))).toBe("set<int, 5>");
-    // set stays `set` (never `array`), sized or not:
+  // FIXED (batch 3): `array<T, N>` is EXACT N in SurrealQL, so it maps only from `.length(N)` /
+  // `.$length(N)`; `{ max }` / `.$max()` is a DB ASSERT bound, never a type size.
+  test("exact array<T, N> via .length / .$length; { max } is an ASSERT bound", () => {
+    expect(typeOf(s.array(s.string()).length(3))).toBe("array<string, 3>");
+    expect(fieldDdl(s.array(s.string()).$length(3))).toBe(
+      "DEFINE FIELD f ON TABLE t TYPE array<string, 3> ASSERT array::len($value) == 3;",
+    );
+    expect(fieldDdl(s.array(s.string(), { max: 3 }))).toBe(
+      "DEFINE FIELD f ON TABLE t TYPE array<string> ASSERT array::len($value) <= 3;",
+    );
+    // set stays `set` (never `array`); { max } bounds it, and Zod has no exact-length check.
     expect(typeOf(s.set(s.string()))).toBe("set<string>");
-    expect(typeOf(s.set(s.string(), { max: 2 }))).toBe("set<string, 2>");
+    expect(fieldDdl(s.set(s.int(), { max: 5 }))).toBe(
+      "DEFINE FIELD f ON TABLE t TYPE set<int> ASSERT array::len($value) <= 5;",
+    );
   });
 
   // range / regex / point(bare) / function — valid DB field types with no s.* type.

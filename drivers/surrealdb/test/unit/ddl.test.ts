@@ -170,11 +170,20 @@ describe("DB-side metadata clauses", () => {
     );
   });
 
-  test("$value -> VALUE and strips option<>", () => {
+  test("$value -> VALUE keeps option<> (the expr may evaluate to NONE)", () => {
     expect(
       ddl(s.string().optional().$value(surql`string::lowercase($value)`)),
     ).toBe(
-      "DEFINE FIELD x ON TABLE t TYPE string VALUE string::lowercase($value);",
+      "DEFINE FIELD x ON TABLE t TYPE option<string> VALUE string::lowercase($value);",
+    );
+  });
+
+  test("$default/$computed -> strips option<> (the column is always populated)", () => {
+    expect(ddl(s.string().optional().$default("x"))).toBe(
+      `DEFINE FIELD x ON TABLE t TYPE string DEFAULT "x";`,
+    );
+    expect(ddl(s.int().optional().$computed(surql`1 + 1`))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE int COMPUTED 1 + 1;",
     );
   });
 
@@ -317,6 +326,97 @@ describe("ASSERT generation", () => {
     expect(ddl(new SField(z.number().gte(0).lt(100)).$assert())).toBe(
       "DEFINE FIELD x ON TABLE t TYPE number ASSERT $value >= 0 AND $value < 100;",
     );
+  });
+
+  test("array $min/$max -> array::len bounds; NEVER a type size", () => {
+    expect(ddl(s.array(s.int()).$max(6))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE array<int> ASSERT array::len($value) <= 6;",
+    );
+    expect(ddl(s.array(s.int()).$min(1).$max(6))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE array<int> ASSERT array::len($value) >= 1 AND array::len($value) <= 6;",
+    );
+  });
+
+  test("array $length -> exact array<T, N> + array::len equality", () => {
+    expect(ddl(s.array(s.string()).$length(4))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE array<string, 4> ASSERT array::len($value) == 4;",
+    );
+    // Zod-native `.length()` is app-side but still infers the exact type (no ASSERT).
+    expect(typeOf(s.array(s.string()).length(4))).toBe("array<string, 4>");
+  });
+
+  test("set $max -> array::len bound (Zod set has min/max, no .length)", () => {
+    expect(ddl(s.set(s.int()).$max(5))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE set<int> ASSERT array::len($value) <= 5;",
+    );
+  });
+
+  test("union $min/$max/$length push the first matching member's ASSERT", () => {
+    // Real case: a literal + string union with a max length on the string member.
+    expect(ddl(s.union([s.literal("OK"), s.string()]).$max(10))).toBe(
+      `DEFINE FIELD x ON TABLE t TYPE "OK" | string ASSERT string::len($value) <= 10;`,
+    );
+    // first-match priority: string > number > array.
+    expect(ddl(s.union([s.int(), s.string()]).$min(2))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE int | string ASSERT string::len($value) >= 2;",
+    );
+    expect(ddl(s.union([s.array(s.int()), s.string()]).$length(2))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE array<int> | string ASSERT string::len($value) == 2;",
+    );
+    // a number-only union still bounds the value.
+    expect(ddl(s.union([s.int(), s.float()]).$max(10))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE int | float ASSERT $value <= 10;",
+    );
+  });
+
+  test("$-constraints work through optional/nullable (schemaType + constrain unwrap)", () => {
+    expect(ddl(s.string().optional().$min(3))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE option<string> ASSERT string::len($value) >= 3;",
+    );
+    expect(ddl(s.number().nullable().$gt(0))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE number | null ASSERT $value > 0;",
+    );
+    expect(ddl(s.union([s.int(), s.string()]).optional().$max(2))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE option<int | string> ASSERT string::len($value) <= 2;",
+    );
+    // The Zod check lands on the inner schema; the wrappers are preserved.
+    const f = s.string().nullish().$min(3);
+    expect(f.schema.safeParse(undefined).success).toBe(true);
+    expect(f.schema.safeParse(null).success).toBe(true);
+    expect(f.schema.safeParse("ab").success).toBe(false);
+    expect(f.schema.safeParse("abc").success).toBe(true);
+  });
+
+  test("$assert() derives array/set bounds with array::len (and through wrappers)", () => {
+    expect(ddl(s.array(s.string()).min(2).max(5).$assert())).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE array<string> ASSERT array::len($value) >= 2 AND array::len($value) <= 5;",
+    );
+    expect(ddl(s.array(s.string()).length(3).$assert())).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE array<string, 3> ASSERT array::len($value) == 3;",
+    );
+    // Zod sets use min_size/max_size.
+    expect(ddl(s.set(s.int()).min(1).max(4).$assert())).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE set<int> ASSERT array::len($value) >= 1 AND array::len($value) <= 4;",
+    );
+    expect(ddl(s.string().min(2).optional().$assert())).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE option<string> ASSERT string::len($value) >= 2;",
+    );
+  });
+
+  test("s.array/s.set { max } -> ASSERT bound, not an exact type size", () => {
+    expect(ddl(s.array(s.string(), { max: 3 }))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE array<string> ASSERT array::len($value) <= 3;",
+    );
+    expect(ddl(s.set(s.int(), { max: 5 }))).toBe(
+      "DEFINE FIELD x ON TABLE t TYPE set<int> ASSERT array::len($value) <= 5;",
+    );
+    // The bound is applied app-side too (the same Zod check `.$max` applies).
+    const arr = s.array(s.string(), { max: 3 });
+    expect(arr.schema.safeParse(["a", "b", "c"]).success).toBe(true);
+    expect(arr.schema.safeParse(["a", "b", "c", "d"]).success).toBe(false);
+    const set = s.set(s.int(), { max: 2 });
+    expect(set.schema.safeParse(new Set([1, 2])).success).toBe(true);
+    expect(set.schema.safeParse(new Set([1, 2, 3])).success).toBe(false);
   });
 });
 
