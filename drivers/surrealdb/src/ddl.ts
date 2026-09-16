@@ -1,6 +1,7 @@
 import { isSecretRef, type SecretRef } from "@better-schemic/core";
 import { BoundQuery, escapeIdent, toSurqlString } from "surrealdb";
 import type { z } from "zod";
+import { exactSizeOf } from "./checks";
 import {
   type AccessDef,
   type AnalyzerDef,
@@ -21,6 +22,7 @@ import {
   type TablePermissions,
   unknownDefKind,
 } from "./pure";
+import { splitTopUnion } from "./surql-type-expr";
 
 /** Inline a BoundQuery's bindings into a literal SurrealQL string for DDL use. Exported so the
  *  Struct-IR lowering (`fromTableDef`) renders DEFAULT/VALUE/COMPUTED/permission exprs identically. */
@@ -40,7 +42,7 @@ export function inline(query: BoundQuery): string {
  * (custom `surql` asserts), keep strings (computed checks) as-is, dedupe while preserving order,
  * and AND-join. Each fragment is already a complete boolean expr. Returns "" when there are none.
  * Exported so the Struct-IR lowering (`fromTableDef`) can populate `StructField.assert` (the bare
- * expr) while the DDL emitter prepends the `ASSERT ` keyword via {@link renderAsserts}.
+ * expr) while the DDL emitter prepends the `ASSERT ` keyword via {@link admitNullAssert}.
  */
 export function assertExpr(asserts: SurrealMeta["asserts"]): string {
   if (!asserts?.length) return "";
@@ -52,10 +54,66 @@ export function assertExpr(asserts: SurrealMeta["asserts"]): string {
   return frags.join(" AND ");
 }
 
-/** The full `ASSERT <expr>` clause for the DDL emitter (or "" when there are no fragments). */
-function renderAsserts(asserts: SurrealMeta["asserts"]): string {
-  const expr = assertExpr(asserts);
-  return expr ? `ASSERT ${expr}` : "";
+/**
+ * Whether a SurrealQL type admits NULL — a top-level `null` member, including inside an `option<…>`
+ * (`.nullable()` → `T | null`, `.nullish()` → `option<T | null>`, `s.union([…, s.null()])`). A
+ * `null` nested in an element/record (`array<null | int>`) does NOT make the FIELD nullable.
+ */
+function admitsNullType(type: string): boolean {
+  const t = type.trim();
+  const inner = /^option<([\s\S]+)>$/.exec(t)?.[1] ?? t;
+  return /(^|\|)\s*null\s*(\||$)/.test(inner);
+}
+
+/** The canonical NULL-guard prefix {@link admitNullAssert} adds. */
+const NULL_GUARD = "$value = NULL OR ";
+
+/**
+ * Remove every leading NULL guard from an assert expr — the inverse of {@link admitNullAssert}.
+ * Used by `pull` to re-author a guarded assert as its bare form (the declared `| null` type already
+ * carries the nullability, and the emitter re-adds the guard), and to make the guard idempotent.
+ */
+export function stripNullGuard(expr: string): string {
+  const guard = /^\$value\s*=\s*NULL\s+OR\s+/;
+  let out = expr.trim();
+  while (guard.test(out)) out = out.replace(guard, "");
+  return out.trim();
+}
+
+/**
+ * Guard an ASSERT expr so NULL passes: SurrealDB runs asserts on NULL (it skips only NONE), and
+ * length/format functions ERROR on NULL — so an unguarded assert would reject a NULL that the
+ * declared `T | null`/`option<T | null>` type allows. The assert therefore constrains the NON-null
+ * value only: `$value = NULL OR (…)`. Applied identically by the emitter and the Struct-IR lowering
+ * (`fromTableDef`) so the two sides converge.
+ *
+ * Idempotent: an already-guarded expr (a hand-written `$assert`, or one `pull` wrote back out of the
+ * DB) normalizes to Exactly ONE guard. SurrealDB itself folds repeated `NULL OR` guards, so without
+ * this a pull→emit cycle would stack a guard per pass and phantom-diff forever.
+ */
+export function admitNullAssert(type: string, expr: string): string {
+  // No parentheses: the guard is a disjunction and `AND` binds tighter than `OR`, so
+  // `$value = NULL OR <expr>` is exactly "NULL passes OR the assert passes" for any expr. (SurrealDB
+  // also prints it back unparenthesized, so this keeps `fromTableDef` == `fromInfo`.)
+  if (!admitsNullType(type)) return expr;
+  return `${NULL_GUARD}${stripNullGuard(expr)}`;
+}
+
+/**
+ * Whether a DEFAULT/COMPUTED guarantees a populated column, so SurrealDB stores the BARE type:
+ * both the emitter (`emit`) and the Struct-IR normalizer (`normalizeField`) must strip `option<>`.
+ * A VALUE does NOT guarantee presence — it runs AFTER DEFAULT and may evaluate to NONE — and it
+ * re-validates the type last, so a field with BOTH `$default` and `$value` keeps `option<T>`.
+ */
+export function forcesBareType(clauses: {
+  default?: unknown;
+  value?: unknown;
+  computed?: unknown;
+}): boolean {
+  return (
+    clauses.computed !== undefined ||
+    (clauses.default !== undefined && clauses.value === undefined)
+  );
 }
 
 /** Read a Zod schema's internal def with a loose type for traversal. */
@@ -225,22 +283,13 @@ export function inferField(
       // `set<T>` is distinct from `array<T>` in SurrealDB (dedup) and round-trips — preserve it.
       const kw = def.type === "set" ? "set" : "array";
       // `array<T, N>` / `set<T, N>` — N is an EXACT size in SurrealQL (not a maximum), so it maps ONLY
-      // from a Zod `length_equals` check (`.length(N)` / `.$length(N)`). A `.max()` bound is a DB
-      // ASSERT (`array::len($value) <= N`), never a type size.
-      const checks =
-        (
-          def as {
-            checks?: {
-              _zod?: { def?: { check?: string; length?: number } };
-            }[];
-          }
-        ).checks ?? [];
-      const length = checks
-        .map((c) => c._zod?.def)
-        .find((d) => d?.check === "length_equals")?.length;
-      const size = typeof length === "number" ? `, ${length}` : "";
+      // from Zod's exact-size check: `.length(N)` / `.$length(N)` (`length_equals`) on arrays,
+      // `.size(N)` / `.$size(N)` (`size_equals`) on sets. A `.max()` bound is a DB ASSERT
+      // (`array::len($value) <= N`), never a type size.
+      const size = exactSizeOf(def, kw);
+      const sizeSql = typeof size === "number" ? `, ${size}` : "";
       return {
-        type: `${kw}<${elem.type}${size}>`,
+        type: `${kw}<${elem.type}${sizeSql}>`,
         flexible: elem.flexible,
         children,
       };
@@ -263,11 +312,26 @@ export function inferField(
         const t = zdef(o).type;
         return t === "undefined" || t === "void";
       };
-      const hasNone = opts.some(noneish);
+      let hasNone = opts.some(noneish);
       const members = opts
         .filter((o) => !noneish(o))
         .map((o) => inferField(o, seen));
-      const types = [...new Set(members.map((m) => m.type))];
+      // Flatten every member's type into top-level ATOMS, hoisting `option<…>` onto the union:
+      // SurrealDB canonicalizes `option<X> | Y` to `none | X | Y` (== `option<X | Y>`), and a
+      // member that is itself a union (`X | null`) contributes its members — e.g.
+      // `s.union([s.string().optional(), s.string().nullable()])` -> `option<string | null>`,
+      // exactly what `normalizeType`/`fromInfo` produce (duplicates would phantom-diff).
+      const atoms: string[] = [];
+      for (const m of members) {
+        const opt = /^option<([\s\S]+)>$/.exec(m.type);
+        let body = m.type;
+        if (opt) {
+          hasNone = true;
+          body = opt[1];
+        }
+        for (const atom of splitTopUnion(body)) if (atom) atoms.push(atom);
+      }
+      const types = [...new Set(atoms)];
       // A union whose type contains an object carries FLEXIBLE on the field (e.g. `object | string
       // FLEXIBLE`) when any object member was made flexible.
       const flexible = members.some((m) => m.flexible);
@@ -742,8 +806,7 @@ export function emitDefStatement(
     // Managed (inline literal) params inline the value; secret/declared params emit a `$__value`
     // PLACEHOLDER + a binding, resolved at `sc param push` — the value never reaches DDL text.
     const cfg = def.config;
-    const value =
-      cfg.mode === "value" ? toSurqlString(cfg.value) : "$__value";
+    const value = cfg.mode === "value" ? toSurqlString(cfg.value) : "$__value";
     let ddl = `DEFINE PARAM ${existsPrefix(opts)}$${def.name} VALUE ${value}`;
     if (cfg.permissions === false) ddl += " PERMISSIONS NONE";
     if (cfg.comment) ddl += ` COMMENT ${JSON.stringify(cfg.comment)}`;
@@ -873,10 +936,10 @@ function emit(
 ): void {
   validateField(path, info, surreal, schemafull);
   let type = info.type;
-  // A DB-side DEFAULT/COMPUTED guarantees a populated column -> drop a leading option<>. VALUE does
-  // NOT: the expression may evaluate to NONE (e.g. `IF cond THEN NONE ELSE $value END`), so SurrealDB
-  // persists the bare `option<T>` type — stripping it would phantom-diff and reject valid writes.
-  if ((surreal?.default || surreal?.computed) && type.startsWith("option<")) {
+  // A DEFAULT/COMPUTED guarantees a populated column, so SurrealDB stores the BARE type and the
+  // emitter strips the leading option<> ({@link forcesBareType} — the normalizer applies the same
+  // rule). A VALUE does NOT guarantee presence and re-validates the type last, so it keeps option<>.
+  if (forcesBareType(surreal ?? {}) && type.startsWith("option<")) {
     type = type.slice("option<".length, -1);
   }
   // An array element is auto-created by SurrealDB, so a (kept) element DEFINE must OVERWRITE it.
@@ -903,8 +966,9 @@ function emit(
   if (surreal?.value) clauses.VALUE = `VALUE ${inline(surreal.value)}`;
   if (surreal?.computed)
     clauses.COMPUTED = `COMPUTED ${inline(surreal.computed)}`;
-  const assertClause = renderAsserts(surreal?.asserts);
-  if (assertClause) clauses.ASSERT = assertClause;
+  const assertBody = assertExpr(surreal?.asserts);
+  if (assertBody)
+    clauses.ASSERT = `ASSERT ${admitNullAssert(type, assertBody)}`;
   if (surreal?.readonly) clauses.READONLY = "READONLY";
   if (surreal?.comment)
     clauses.COMMENT = `COMMENT ${JSON.stringify(surreal.comment)}`;

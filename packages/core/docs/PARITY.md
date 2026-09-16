@@ -66,10 +66,11 @@ s.recordId("person").reference({ onDelete: "cascade" })
 defineRelation("liked").from(User).to(Post).enforced()
 //→ DEFINE TABLE liked TYPE RELATION FROM user TO post ENFORCED SCHEMAFULL;
 
-// Array length bound — `{ max }`/`.$max()` is an ASSERT, never an exact type size
+// Array/set size — `{ max }`/`.$max()` is an ASSERT, never an exact type size
 s.array(s.string(), { max: 5 })
 //→ DEFINE FIELD tags ON TABLE t TYPE array<string> ASSERT array::len($value) <= 5;
-// EXACT array<T,N> comes from `.length(N)` / `.$length(N)` (SurrealQL's array<T,N> means exactly N).
+// EXACT sizes come from `.length(N)` / `.$length(N)` (array) and `.size(N)` / `.$size(N)` (set):
+// SurrealQL's array<T,N> / set<T,N> mean EXACTLY N, never "at most N".
 
 // +10 string::is_* validators (no Zod format builder; string + DB ASSERT)
 s.alpha() / s.alphanum() / s.ascii() / s.numeric() / s.semver() /
@@ -113,7 +114,8 @@ s.hexadecimal() / s.latitude() / s.longitude() / s.ip() / s.domain()
 
 > **Closed in batch 1** (`b76269d`): `set<T>`, `COMPUTED`, `CHANGEFEED`, `COUNT` index.
 > **Closed in batch 2**: record `REFERENCE [ON DELETE …]`, `RELATION … ENFORCED`, sized
-> `array<T,N>` / `set<T,N>`, +10 `string::is_*` validators — see the ✅ matrix rows below.
+> `array<T,N>` / `set<T,N>` (batch 3 corrected these to EXACT-N semantics — see the ✅ matrix rows
+> below), +10 `string::is_*` validators — see the ✅ matrix rows below.
 
 ### What is solidly covered (✅)
 
@@ -187,7 +189,7 @@ s.hexadecimal() / s.latitude() / s.longitude() / s.ip() / s.domain()
 | **object-literal union** | `{a:..}\|{b:..}` | `s.discriminatedUnion(...)` → `object` | ⚠️ | per-branch structure lost |
 | **range** | `range` | — | ❌ | no `s.range()` (bare `range` is a valid field type) |
 | **regex** | `regex` | — | ❌ | no `s.regexType()` |
-| array/set length bound | `array<T>` + ASSERT | `s.array(x,{max:N})` / `s.set(x,{max:N})` | ✅ batch 3 | N is a MAX bound (`ASSERT array::len($value) <= N`); exact `array<T,N>` via `.length(N)`; exact `set<T,N>` has no authoring path (Zod sets lack `.length`) |
+| array/set size bound | `array<T>` + ASSERT | `s.array(x,{max:N})` / `s.set(x,{max:N})` | ✅ batch 3 | N is a MAX bound (`ASSERT array::len($value) <= N`); exact `array<T,N>` via `.length(N)`, exact `set<T,N>` via `.size(N)` |
 
 ### DEFINE statements
 

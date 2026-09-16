@@ -261,9 +261,10 @@ describe("types — GAPS (confirmed against the DB)", () => {
   });
   test.todo('GAP: object-literal union should emit `{ kind: "a", x: string } | { kind: "b", y: number }`', () => {});
 
-  // FIXED (batch 3): `array<T, N>` is EXACT N in SurrealQL, so it maps only from `.length(N)` /
-  // `.$length(N)`; `{ max }` / `.$max()` is a DB ASSERT bound, never a type size.
-  test("exact array<T, N> via .length / .$length; { max } is an ASSERT bound", () => {
+  // FIXED (batch 3): `array<T, N>` / `set<T, N>` are EXACT N in SurrealQL, so they map only from
+  // `.length(N)` / `.$length(N)` (arrays) and `.size(N)` / `.$size(N)` (sets); `{ max }` / `.$max()`
+  // is a DB ASSERT bound, never a type size.
+  test("exact array/set sizes via .length/.size; { max } is an ASSERT bound", () => {
     expect(typeOf(s.array(s.string()).length(3))).toBe("array<string, 3>");
     expect(fieldDdl(s.array(s.string()).$length(3))).toBe(
       "DEFINE FIELD f ON TABLE t TYPE array<string, 3> ASSERT array::len($value) == 3;",
@@ -271,10 +272,14 @@ describe("types — GAPS (confirmed against the DB)", () => {
     expect(fieldDdl(s.array(s.string(), { max: 3 }))).toBe(
       "DEFINE FIELD f ON TABLE t TYPE array<string> ASSERT array::len($value) <= 3;",
     );
-    // set stays `set` (never `array`); { max } bounds it, and Zod has no exact-length check.
+    // set stays `set` (never `array`); { max } bounds it, `.size()` is the exact form.
     expect(typeOf(s.set(s.string()))).toBe("set<string>");
     expect(fieldDdl(s.set(s.int(), { max: 5 }))).toBe(
       "DEFINE FIELD f ON TABLE t TYPE set<int> ASSERT array::len($value) <= 5;",
+    );
+    expect(typeOf(s.set(s.int()).size(5))).toBe("set<int, 5>");
+    expect(fieldDdl(s.set(s.int()).$size(5))).toBe(
+      "DEFINE FIELD f ON TABLE t TYPE set<int, 5> ASSERT array::len($value) == 5;",
     );
   });
 

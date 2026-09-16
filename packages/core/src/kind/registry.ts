@@ -134,8 +134,9 @@ export interface KindEngine<
    *
    * A PREDICATE form (`(portable) => boolean`) decides PER OBJECT — for a kind whose objects are
    * managed only when they round-trip cleanly (e.g. SurrealDB access: key-free defs are manageable,
-   * key-bearing/redacted ones are not). Called with the object itself wherever one is available; a
-   * kind-only check can't evaluate it and treats the object as managed.
+   * key-bearing/redacted ones are not). The object is REQUIRED by
+   * {@link KindRegistry.isExcludedFromMigrations}; only a boolean `true` also skips introspection
+   * ({@link KindRegistry.skipsIntrospection}) — a predicate can't be decided there.
    */
   excludeFromMigrations?: boolean | ((portable: PortableObject) => boolean);
 }
@@ -214,16 +215,24 @@ export class KindRegistry {
   }
 
   /**
-   * Is `kind` (or, for a predicate flag, the PORTABLE object) UNMANAGED by the migration pipeline
-   * (its engine set {@link KindEngine.excludeFromMigrations})? The snapshot/diff/emit/introspect
-   * spine skips such objects — see the flag's docs. An unregistered kind is treated as managed
-   * (false), so a stray object never gets silently dropped by a typo; a predicate without an object
-   * is treated as managed too (the decision is per-object).
+   * Is this PORTABLE OBJECT UNMANAGED by the migration pipeline (its engine set
+   * {@link KindEngine.excludeFromMigrations})? The snapshot/diff/emit spine skips such objects — see
+   * the flag's docs. The OBJECT is required: a per-object predicate can't be evaluated without it, and
+   * defaulting to "managed" would let a key-bearing object slip into a migration. An unregistered kind
+   * is treated as managed (false), so a stray object never gets silently dropped by a typo.
    */
-  isExcludedFromMigrations(kind: string, portable?: PortableObject): boolean {
-    const flag = this.kinds.get(kind)?.excludeFromMigrations;
-    if (typeof flag === "function") return portable ? flag(portable) : false;
-    return flag === true;
+  isExcludedFromMigrations(portable: PortableObject): boolean {
+    const flag = this.kinds.get(portable.kind)?.excludeFromMigrations;
+    return typeof flag === "function" ? flag(portable) : flag === true;
+  }
+
+  /**
+   * Whether `kind` is STATICALLY excluded from migrations (`excludeFromMigrations === true`), so even
+   * introspection skips it. A per-object PREDICATE can't be decided without an object: introspection
+   * runs for the kind, and the diff/snapshot/emit choke points filter by object afterwards.
+   */
+  skipsIntrospection(kind: string): boolean {
+    return this.kinds.get(kind)?.excludeFromMigrations === true;
   }
 
   /**

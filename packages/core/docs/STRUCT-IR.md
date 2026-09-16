@@ -71,11 +71,10 @@ StructTable { name; kind:{kind:"NORMAL"|"ANY"|"RELATION"; in?; out?; enforced?};
    an extension). `record<b|a>` → `record<a|b>`.
 
 4. **`array<T>` vs `array<T,N>` vs `set<T,N>` — size lowering.** Element type folds into the parent
-   (`array` + `array.* TYPE object` → `array<object>`, today's `foldArrayElement`). **Open question
-   for review:** does `INFO STRUCTURE` report the max-size `N` in `kind` (`array<T, N>`)? If
-   `fromTableDef` emits the size (from `.max()`) but `fromInfo` doesn't, that's an asymmetry —
-   `normalize` would have to STRIP the size on both sides (lose it from the compare) or we accept it
-   only round-trips when INFO carries it. Need to confirm what 3.x INFO returns.
+   (`array` + `array.* TYPE object` → `array<object>`, today's `foldArrayElement`). **Resolved:**
+   `INFO STRUCTURE` reports the size in `kind`, and SurrealQL's `array<T,N>`/`set<T,N>` are EXACTLY N.
+   `.max()` is therefore never a type size — it is an ASSERT bound (`array::len($value) <= N`) — so the
+   size lowers only from Zod's exact-size checks (`length_equals`/`size_equals`) and round-trips as-is.
 
 5. **permission default — stripped symmetrically.** `normalize` reduces `permissions` to a canonical
    form: when every op is the kind default (FULL for fields, NONE for tables), set
@@ -125,8 +124,8 @@ diffable.
 
 ## Open questions for `@database-expert`
 
-- (4) Does 3.x `INFO ... STRUCTURE` carry `array`/`set` max-size in the `kind`? Drives whether size
-  participates in equality or must be stripped.
+- (4) ~~Does 3.x `INFO ... STRUCTURE` carry `array`/`set` max-size in the `kind`?~~ **Resolved:** yes —
+  the size is in `kind` and is EXACT N; `.max()` is an ASSERT, never a type size.
 - Is `record<a|b>` target order from INFO ever meaningful, or always safe to sort? (Assuming sort.)
 - Field-level `reference` (`REFERENCE ... ON DELETE ...`) representation — `fromInfo` currently
   leaves `reference?: unknown`; what does STRUCTURE return so both sides encode it identically?

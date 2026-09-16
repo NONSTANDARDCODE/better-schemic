@@ -57,13 +57,18 @@ live parity suites (`test/parity/{struct,live,canonical}-parity.test.ts`) and th
 - [x] `T | null` (present-but-null) — `.nullable()` / `s.nullable()`
 - [x] `option<T | null>` — `.nullish()` / `s.nullish()`
 
+> Asserts on nullable fields are NULL-guarded (`$value = NULL OR …`): SurrealDB runs `ASSERT` on NULL
+> but skips it only for NONE, so without the guard an explicit NULL that my `option<>`/`| null` type
+> admits would be rejected. `.optional()` needs no guard (NONE is engine-skipped). `pull` reverses the
+> guard to the bare assert (the type already carries the nullability), so the round-trip is a fixed point.
+
 ### Containers
 - [x] `array<T>`, `array<T, N>` (EXACT N) — `s.array(T)` / `s.array(T).length(N)` (or `.$length(N)`
   for the DB ASSERT too). Because `array<T, N>` is exactly N, `.max()` is NEVER a type size:
   `s.array(T, { max: N })` / `.$max(N)` bound the length with `ASSERT array::len($value) <= N`.
-- [x] `set<T>` + bound — `s.set(T)` / `s.set(T, { max: N })` / `.$max(N)` (`ASSERT array::len($value) <= N`).
-  Gap: Zod sets have no exact-length check, so `set<T, N>` (exact) has no authoring path and `pull`
-  degrades it to `s.set(<T>)`.
+- [x] `set<T>`, `set<T, N>` (EXACT N) — `s.set(T)` / `s.set(T).size(N)` (or `.$size(N)` for the DB
+  ASSERT too). `s.set(T, { max: N })` / `.$max(N)` bound the size with
+  `ASSERT array::len($value) <= N` (never a type size — `set<T, N>` is exactly N).
 - [x] object / nested fields to arbitrary depth (`x.*`) — `s.object(shape)`
 - [x] tuples `[T1, T2, …]` — `s.tuple([...])`
 - [x] literal / literal-union (enums) — `s.literal()` / `s.enum()` / `s.nativeEnum()`
@@ -93,11 +98,19 @@ live parity suites (`test/parity/{struct,live,canonical}-parity.test.ts`) and th
 - [x] `VALUE <expr>` — `.$value(surql)`
 - [x] `COMPUTED <expr>` — `.$computed(surql)`
 - [x] `ASSERT <expr>` — `.$assert(surql?)`, plus `$`-constraints that bake asserts
-  (`.$min/$max/$length/$regex/$gt/$gte/$lt/$lte`). `$min`/`$max` cover string/number/array/set (and
-  union: the ASSERT targets the matching member, first-match string > number > array); `$length` is
-  string/array (exact `array<T, N>`). `$`-constraints look through `.optional()`/`.nullable()`.
-  `.$assert()` (no args) derives array bounds with `array::len` (Zod `min_length`/`max_length`/
-  `length_equals` on arrays, `min_size`/`max_size` on sets).
+  (`.$min/$max/$length/$size/$regex/$gt/$gte/$lt/$lte`). `$min`/`$max` cover string/number/array/set;
+  `$length` is string/array (exact `array<T, N>`), `$size` is set (exact `set<T, N>`). On a UNION the
+  bound is pushed only when ALL non-none/non-null members share one family (string / number / array /
+  set) — a mixed union (`int | string`) has no single valid function and no-ops. `$`-constraints look
+  through `.optional()`/`.nullable()`. `.$assert()` (no args) derives array bounds with `array::len`
+  (Zod `min_length`/`max_length`/`length_equals` on arrays; `min_size`/`max_size`/`size_equals` on
+  sets — gated to sets, since Zod maps share those check names but lower to `object`).
+  **NULL:** SurrealDB runs `ASSERT` on NULL (it skips only NONE), and `len`/format functions error on
+  it — so an assert on a NULLABLE field (`T | null`, `option<T | null>`, or a `s.union([…, s.null()])`)
+  is emitted null-guarded: `$value = NULL OR <expr>`. `.optional()` is unguarded (the engine skips NONE).
+- [x] unions stay in the DB's canonical form — a member's `option<…>` is hoisted to the union
+  (`s.union([s.string().optional(), s.int()])` → `option<string | int>`), so `fromTableDef` ==
+  `fromInfo` (no phantom diff).
 - [x] string-format builders reverse from their baked `ASSERT` on pull — `s.email()`, `s.url()`,
   `s.ipv4/ipv6`, `s.ulid()`, `s.alpha/alphanum/ascii/numeric/semver/hexadecimal/latitude/longitude/ip/domain`
   recover as the builder (not raw `string ASSERT …`)

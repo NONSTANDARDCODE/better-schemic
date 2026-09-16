@@ -10,10 +10,19 @@
  * namespaces. We drive the SDK directly with explicit `.use({ namespace, database })`
  * rather than the shared `tryConnect` helper (whose default db must not be written to).
  */
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  setDefaultTimeout,
+  test,
+} from "bun:test";
 import { planKinds } from "@better-schemic/core";
 import { Surreal, surql } from "surrealdb";
 import { z } from "zod";
+import { renderPerFile } from "../../src/cli/pull";
+import { introspectStructured } from "../../src/cli/structure";
 import { emitDefStatement, emitTable } from "../../src/ddl";
 import { introspectAll } from "../../src/kinds/explode";
 import { lowerAll, surrealKinds } from "../../src/kinds/registry";
@@ -93,6 +102,13 @@ async function applyEach(
     }
   }
   return rejected;
+}
+
+/** Assert exactly one statement was rejected, and for a TYPE/ASSERT reason (not a syntax slip). */
+function expectRejected(rejected: { error: string }[]): string {
+  expect(rejected).toHaveLength(1);
+  expect(rejected[0].error).toMatch(/must conform|Expected `|coerce/i);
+  return rejected[0].error;
 }
 
 // A broad mixed-type table exercising most of the type system + every field clause.
@@ -269,11 +285,12 @@ live("DB accepts @better-schemic/core's generated DDL", () => {
 });
 
 live("batch 1 + 2 features round-trip on the DB", () => {
-  test("s.set() -> set<T>; .length -> exact array<T,N>; { max } -> bounded base type", async () => {
+  test("s.set() -> set<T>; .length/.size -> exact sizes; { max } -> bounded base type", async () => {
     const T = defineTable("pl_b2_coll", {
       id: z.string(),
       tags: s.set(s.string()),
       sized: s.array(s.string()).length(3),
+      sizedset: s.set(s.int()).size(5),
       bounded: s.array(s.string(), { max: 3 }),
       boundedset: s.set(s.int(), { max: 5 }),
     });
@@ -285,10 +302,140 @@ live("batch 1 + 2 features round-trip on the DB", () => {
     >("INFO FOR TABLE pl_b2_coll STRUCTURE;");
     const kind = (n: string) => info.fields.find((f) => f.name === n)?.kind;
     expect(kind("tags")).toBe("set<string>");
-    // `.length(3)` is the exact `array<T, N>` form; `{ max }` is a bound, so the type stays bare.
+    // `.length(3)`/`.size(5)` are the exact `array<T, N>`/`set<T, N>` forms; `{ max }` is a bound,
+    // so the type stays bare.
     expect(kind("sized")).toBe("array<string, 3>");
+    expect(kind("sizedset")).toBe("set<int, 5>");
     expect(kind("bounded")).toBe("array<string>");
     expect(kind("boundedset")).toBe("set<int>");
+  });
+
+  test("exact sizes are ENFORCED on write; { max } bounds only the top end", async () => {
+    const T = defineTable("pl_b3_len", {
+      id: z.string(),
+      exact: s.array(s.string()).length(3),
+      exactset: s.set(s.int()).size(2),
+      bounded: s.array(s.string(), { max: 3 }),
+    });
+    expect(await applyEach(db!, emitTable(T, { exists: "overwrite" }))).toEqual(
+      [],
+    );
+    const create = (
+      id: string,
+      exact: string,
+      exactset: string,
+      bounded: string,
+    ) =>
+      `CREATE pl_b3_len:${id} SET exact = ${exact}, exactset = ${exactset}, bounded = ${bounded};`;
+    // exact == N and bounded <= N pass.
+    expect(
+      await applyEach(
+        db!,
+        create("ok", "['a','b','c']", "<set>[1,2]", "['a']"),
+      ),
+    ).toEqual([]);
+    // exact N rejects N-1 and N+1...
+    expectRejected(
+      await applyEach(db!, create("short", "['a','b']", "<set>[1,2]", "[]")),
+    );
+    expectRejected(
+      await applyEach(
+        db!,
+        create("long", "['a','b','c','d']", "<set>[1,2]", "[]"),
+      ),
+    );
+    // ...and the exact set rejects a wrong size too (bounded has no lower bound).
+    expectRejected(
+      await applyEach(
+        db!,
+        create("setshort", "['a','b','c']", "<set>[1]", "[]"),
+      ),
+    );
+    expectRejected(
+      await applyEach(
+        db!,
+        create("setlong", "['a','b','c']", "<set>[1,2,3]", "[]"),
+      ),
+    );
+  });
+
+  test("nullable fields admit NULL; derived asserts are null-guarded", async () => {
+    const T = defineTable("pl_b3_null", {
+      id: z.string(),
+      n: s.number().nullable().$gt(0),
+      email: s.email().nullable(),
+      nush: s.string().nullish().$min(2),
+    });
+    expect(await applyEach(db!, emitTable(T, { exists: "overwrite" }))).toEqual(
+      [],
+    );
+    // NULL is a value the type admits -> every assert lets it through.
+    expect(
+      await applyEach(
+        db!,
+        "CREATE pl_b3_null:nulls SET n = NULL, email = NULL, nush = NULL;",
+      ),
+    ).toEqual([]);
+    // NONE is absent -> allowed for the nullish field, rejected where the type is `T | null`.
+    expect(
+      await applyEach(
+        db!,
+        "CREATE pl_b3_null:none SET n = NULL, email = NULL;",
+      ),
+    ).toEqual([]);
+    // Valid non-null values pass; invalid ones are still rejected by the guarded assert.
+    expect(
+      await applyEach(
+        db!,
+        "CREATE pl_b3_null:ok SET n = 5, email = 'a@b.com', nush = 'xy';",
+      ),
+    ).toEqual([]);
+    expectRejected(
+      await applyEach(
+        db!,
+        "CREATE pl_b3_null:badn SET n = -1, email = NULL, nush = NULL;",
+      ),
+    );
+    expectRejected(
+      await applyEach(
+        db!,
+        "CREATE pl_b3_null:bademail SET n = NULL, email = 'nope', nush = NULL;",
+      ),
+    );
+    expectRejected(
+      await applyEach(
+        db!,
+        "CREATE pl_b3_null:badshort SET n = NULL, email = NULL, nush = 'x';",
+      ),
+    );
+  });
+
+  test("pull reverses null guards + exact sizes to bare source (no re-emit churn)", async () => {
+    const T = defineTable("pl_b3_pull", {
+      id: z.string(),
+      nulg: s.number().nullable().$gt(0),
+      mail: s.email().nullable(),
+      exarr: s.array(s.string()).$length(2),
+      exset: s.set(s.int()).$size(4),
+    });
+    expect(await applyEach(db!, emitTable(T, { exists: "overwrite" }))).toEqual(
+      [],
+    );
+    // The live INFO shape has `x.*` element children — the renderer must still carry the size, and
+    // must undo the null guard the emitter baked (the `| null` type re-adds it on the next emit).
+    const info = await introspectStructured(db!, new Set());
+    const out = [...renderPerFile(info, (_k, n) => n).values()].join("\n");
+    expect(out).toContain(
+      "nulg: s.number().nullable().$assert(surql`$value > 0`)",
+    );
+    expect(out).toContain("mail: s.email().nullable()");
+    expect(out).toContain(
+      "exarr: s.string().array().length(2).$assert(surql`array::len($value) == 2`)",
+    );
+    expect(out).toContain(
+      "exset: s.set(s.int()).size(4).$assert(surql`array::len($value) == 4`)",
+    );
+    expect(out).not.toContain("$value = NULL OR $value = NULL");
   });
 
   test("record REFERENCE [ON DELETE …] via .$reference()", async () => {

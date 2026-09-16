@@ -132,7 +132,7 @@ export function snapshotKinds(
 ): KindSnapshot {
   const kinds: Record<string, PortableObject[]> = {};
   for (const o of schema) {
-    if (registry?.isExcludedFromMigrations(o.kind, o)) continue;
+    if (registry?.isExcludedFromMigrations(o)) continue;
     const bucket = kinds[o.kind] ?? [];
     bucket.push(o);
     kinds[o.kind] = bucket;
@@ -202,7 +202,7 @@ function orderedChanges(
     // Migration-unmanaged kinds/objects (e.g. key-bearing access) never diff — they're reconciled
     // out-of-band by driver commands, so they must not appear in gen/migrate/diff-live output.
     // Central choke point (a per-object predicate is fed the object that would be emitted).
-    if (registry.isExcludedFromMigrations(portable.kind, portable)) continue;
+    if (registry.isExcludedFromMigrations(portable)) continue;
     const engine = registry.engine(portable.kind);
     if (!engine) continue;
     const node = orderNodeOf(engine, portable);
@@ -381,7 +381,7 @@ export function emitKinds(
   // Skip migration-unmanaged kinds/objects (e.g. key-bearing access) — they're applied out-of-band
   // by driver commands.
   const managed = schema.filter(
-    (o) => !registry.isExcludedFromMigrations(o.kind, o),
+    (o) => !registry.isExcludedFromMigrations(o),
   );
   return orderedSchema(registry, managed).flatMap(({ engine, portable }) =>
     engine.emit(portable),
@@ -400,12 +400,12 @@ export async function introspectKinds(
   conn: unknown,
 ): Promise<PortableObject[]> {
   const out: PortableObject[] = [];
-  for (const [, engine] of registry.entries()) {
+  for (const [kind, engine] of registry.entries()) {
     if (!engine.introspect) continue;
     // Skip STATICALLY migration-unmanaged kinds so the live side never phantom-diffs against a
     // schema that (by design) excludes them. A per-object predicate can't be evaluated without the
     // object — introspection still runs, and the diff choke point filters by object afterwards.
-    if (engine.excludeFromMigrations === true) continue;
+    if (registry.skipsIntrospection(kind)) continue;
     out.push(...(await engine.introspect(conn)));
   }
   return out;

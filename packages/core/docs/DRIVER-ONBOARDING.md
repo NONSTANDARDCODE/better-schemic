@@ -86,7 +86,9 @@ to a `KindEngine<A, P>`:
   your own `sc <kind>` commands (worked example: surreal key-bearing `DEFINE ACCESS`, `DEFINE PARAM`
   secrets). Accepts `boolean | ((portable) => boolean)`: the PREDICATE form decides PER OBJECT, for a
   kind whose objects are manageable only when they round-trip cleanly (surreal access: key-free defs
-  ride migrations, redacted-key ones don't).
+  ride migrations, redacted-key ones don't). `isExcludedFromMigrations(portable)` requires the object;
+  only a boolean `true` also skips introspection (`skipsIntrospection(kind)`) — a predicate is decided
+  later, at the snapshot/diff/emit choke points.
 
 Fields/types are NOT a kind — they are the shared core substrate every kind composes.
 

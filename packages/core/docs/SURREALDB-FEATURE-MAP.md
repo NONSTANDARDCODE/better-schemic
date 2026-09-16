@@ -134,8 +134,9 @@ are:
 
 11. **Array/set length bounds** ✅ **batch 3** — `s.array(x, { max })` / `s.set(x, { max })` emit a
     length bound as `ASSERT array::len($value) <= N` (NOT `array<T,N>`: SurrealQL's `array<T,N>` is
-    EXACTLY N). Exact `array<T,N>` is authored via `.length(N)` / `.$length(N)`; exact `set<T,N>` has
-    no authoring path (Zod sets have no `.length`) and `pull` degrades it to `set<T>`.
+    EXACTLY N). Exact sizes are authored via `.length(N)` / `.$length(N)` (array) and `.size(N)` /
+    `.$size(N)` (set — Zod 4's `ZodSet.size` → `size_equals`), and `pull` reverses `set<T,N>` back to
+    `.size(N)`.
 
 > **#1 (`COMPUTED`)** was the standout — a high-value, schema-author-facing field clause the prior
 > audit treated as out-of-scope query syntax. **Closed in batch 1** (along with `COUNT` index, plus
@@ -191,7 +192,7 @@ Docs root: https://surrealdb.com/docs/reference/query-language/language-primitiv
 | none / null | `none` / `null` | `s.null()` (none via optionality) | ✅ | …/data-types/none-and-null |
 | set (dedup) | `set<T>` | `s.set(x)` | ✅ batch 1 | emits `set<T>`, round-trips (was lossy → `array`). …/data-types/sets |
 | array length bound | `array<T>` + `ASSERT array::len <= N` | `s.array(x,{max:N})` / `.$max(N)` | ✅ batch 3 | N is a MAX bound, not `array<T,N>` (which is exact). Exact `array<T,N>` via `.length(N)`. …/data-types/arrays |
-| sized set | `set<T,N>` (exact) | — | ❌ | Zod sets have no `.length`; `pull` degrades `set<T,N>` to `set<T>`. `set<T>` + `{max}` bound is ✅. …/data-types/sets |
+| sized set | `set<T,N>` (exact) | `s.set(x).size(N)` / `.$size(N)` | ✅ batch 3 | `data-types/sets` |
 | **object-literal union** | `{a:..} \| {b:..}` (any shapes) | `s.union`/`discriminatedUnion` of objects → `object` | ⚠️ | **lossy.** Live: full per-branch structure round-trips. …/data-types/literals |
 | **range** | `range` | — | ❌ | **Live-verified** bare `range` valid field type. …/data-types/ranges |
 | **regex** | `regex` | — | ❌ | **Live-verified** bare `regex` valid field type. …/data-types/regex |

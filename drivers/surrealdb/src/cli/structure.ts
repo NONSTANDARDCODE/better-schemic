@@ -1,5 +1,6 @@
 import { escapeIdent, type Surreal } from "surrealdb";
 import { type DefineStatement, renderAsync } from "../ddl";
+import { splitTopUnion } from "../surql-type-expr";
 
 /** A snapshot statement: the emitted DDL plus the source file it came from (for `diff` annotations). */
 export type SnapshotStatement = DefineStatement & {
@@ -209,23 +210,6 @@ function endpointName(v: unknown): string {
 // Build a deterministic DDL string per object from the structured data, so two semantically-equal
 // schemas compare equal regardless of how SurrealDB happened to format/order them. Both sides of
 // `diff --live` (the live DB and the shadow-applied schema) go through this same builder.
-
-/** Split a type expression on its top-level `|` (ignoring `|` inside `<…>`). */
-function splitTopUnion(expr: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let cur = "";
-  for (const c of expr) {
-    if (c === "<") depth++;
-    else if (c === ">") depth--;
-    if (c === "|" && depth === 0) {
-      parts.push(cur.trim());
-      cur = "";
-    } else cur += c;
-  }
-  parts.push(cur.trim());
-  return parts;
-}
 
 /**
  * Canonical form of a type `kind`: fold a top-level `none` member into `option<…>` and sort the
