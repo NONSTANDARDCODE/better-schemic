@@ -24,7 +24,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.13
+          bun-version: 1.4.2
 
       - uses: actions/cache@v4
         with:
@@ -63,7 +63,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.13
+          bun-version: 1.4.2
 
       # node runs the attest suites; the pinned typescript devDep (not node) fixes instantiation counts.
       - uses: actions/setup-node@v4
