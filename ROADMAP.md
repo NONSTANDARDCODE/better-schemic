@@ -1,58 +1,69 @@
 # Better-schemic — roadmap
 
-The **query-layer arc** + the foundations it rests on. Design source: `query-layer-spec.md` (§6, the
-Phase 0–6 arc) + `query-layer-phase0-plan.md` (the M0–M5 milestones), on the `explore/query-layer`
-branch. Packages release **in lockstep**; see `CHANGELOG.md` for what's shipped vs accumulating.
+The **typed-query/ORM arc**: replacing the old fluent builder with the repository-style `/orm` layer.
+The design + execution plan is **[`PLANO-QUERYS-TIPADAS.md`](./PLANO-QUERYS-TIPADAS.md)** (milestones
+M0–M7 with a point-by-point API checklist); the live-verified SurrealQL ground truth the compiler must
+emit against is `drivers/surrealdb/docs/orm-syntax-map.md`.
+
+Packages release **in lockstep**; see `CHANGELOG.md` for what's shipped vs accumulating.
 
 Legend: ✅ done · 🚧 in progress · 🟡 partial · ⏳ not started
 
 ---
 
-## Phase 0 — typed reads + foundations ✅ *(complete; shipped upstream as schemic alpha.18–.21, now part of better-schemic `0.1.0-alpha.1`)*
+## M0 — fundação + substituição do legado ✅ *(complete)*
 
-**Core (M0)**
-- ✅ **M0.1** `@better-schemic/core/query` toolkit — `Row`/`FieldRef` (`brandRef`), `Project<P>` projection
-  inference, `projectionSchema`/`decodeProjection`.
-- ✅ **M0.2** `callable` capability on the `Driver` contract + `callFunction` (invoke + decode).
-- ✅ **M0.3** package-split: side-effect-free authoring index + `/driver` + `/connection` subpaths; the
-  CLI loader now **requires** `/driver` (index fallback removed). **Closed.**
+- ✅ **M0.1** live syntax map (`docs/orm-syntax-map.md` + `test/live/orm-syntax.test.ts`, 51 probes) —
+  every statement the ORM emits, verified against server 3.2.0, with the prototype divergences recorded.
+- ✅ **M0.2** `defineSchema` + `SchemaIndex` (columns/families, record links, graph adjacency,
+  singletons, functions, schemaless entries; fail-fast `SchemaInvalid`).
+- ✅ **M0.3** result wrappers (`ThrowingResult`/`BatchResult`/`StatementResult`) + `BetterSchemicError`
+  catalog, SDK-error normalization and predicates.
+- ✅ **M0.4** executor: one `conn.query` round-trip for N statements, per-statement status via
+  `responses()`, atomic `BEGIN/COMMIT` batches, unique-binds guardrail.
+- ✅ **M0.5** `/orm` bootstrap (`betterSchemic`/`createBetterSchemic`, delegates, `repository`,
+  `tables`, `extends`, `forkSession`, BYO-managed lifecycle) + **the legacy surface removed** (fluent
+  builder, `/client`, `@better-schemic/core/query`; `/query` keeps `block()`).
 
-**Drivers (M1–M5)**
-- ✅ Typed single-table `select().where().orderBy().limit().return()` → SurrealQL → decode-by-default,
-  `.raw()` on `@better-schemic/surrealdb/query`.
+## M1 — leitura ⏳
 
-## Phase 1 — DB functions as code (`.call`) 🚧
+Compiler (object-based `where`/`select`/clauses) + `findMany`/`findFirst`/`findUnique`/`count`/
+`exists`/`aggregate`/`paginate`/`cursor` + `.throw()`/`.explain()` + read result typing.
 
-- ✅ core `callFunction` — invoke via `callable` + decode through `.returns(R)`.
-- ✅ driver `invoke` + `defineFunction(args).returns(R).call(db, args)` on surrealdb.
-- ⏳ raw-body ↔ `.returns()` **soundness shadow-check** (design: `query-layer-soundness.md`) — gated on
-  the driver exposing `callable` + a `shadowInvoke`.
+## M2 — escritas ⏳
 
-## Phase 2 — writes ⏳
-`CREATE` / `UPDATE` / `DELETE` / `UPSERT` + `RETURN`. Mostly driver-owned (reuse `TableDef.encode`).
+`create`/`insert` (+`onDuplicate`)/`update` modes (`merge|set|content|replace|patch`)/`patch`/`upsert`
+(+by unique)/`delete`/`updateEach`/`relate`/`unrelate` + `RETURN` semantics + batch envelopes.
 
-## Phase 3 — multi-table ⏳
-surrealdb graph (`->`/`<-`) + `FETCH`.
+## M3 — relações e grafos ⏳
 
-## Phase 4 — function library + operators ⏳
-The `fn.*` namespaces to parity + full operator coverage.
+`include` (`FETCH`/traversal/`edge`/`target`/`_count`), relational `where`
+(`is`/`isNot`/`some`/`every`/`none`), traversal/recursion sugar over `surql`.
 
-## Phase 5 — live queries ⏳
-`LIVE SELECT` (+ `DIFF`), typed subscriptions, `KILL`.
+## M4 — transações, live e changefeeds ⏳
 
-## Phase 6 — `DEFINE`/admin via the builder 🟡
-Partial — the schema engine already emits/migrates `DEFINE *`; exposing it through the builder is the
-remaining piece.
+`client.transaction` (sdk/sql, retries on write conflict, `afterCommit`/`afterRollback`), `live()` +
+subscriptions, `changes()` (`SHOW CHANGES`).
 
-## Deferred / future
-- The `"use database"` **directive compiler** (lift plain functions into `defineFunction`).
-- Durable **workflows** (`defineWorkflow`).
-- A **neutral cross-driver builder** — only if cross-driver queries ever become a real need (the neutral
-  query IR was retired; see the spec's decision banner).
+## M5 — escape hatches, admin e contexto ⏳
+
+`$raw`/`$query`/`$unsafe`, `fn.call`/`api`/`auth`, `info`/`version`/`ping`/`export`/`import`,
+`$withContext` (NS/DB/session), project helpers/state.
+
+## M6 — plugins e hooks ⏳
+
+Observation hooks + `definePlugin` (`operationArgs`, transforms, `extendClient`/`extendModel`) and the
+official plugins (`rules`, `zod`; then `timestamps`, `soft-delete`).
+
+## M7 — hardening, docs e release ⏳
+
+Exhaustive `docs/ORM-COVERAGE.md`, driver README/examples/cookbook, docs sweep, type-perf baselines,
+final e2e, release.
 
 ---
 
 ## Parallel track — driver schema coverage
+
 SurrealDB DDL completeness, tracked in `drivers/surrealdb/docs/COVERAGE.md`.
 - ✅ **surrealdb:** full `DEFINE ANALYZER` coverage + fluent `defineAnalyzer`.
 - ⏳ ongoing gaps.

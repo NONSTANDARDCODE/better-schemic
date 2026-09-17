@@ -1,5 +1,11 @@
 # Typed fragments — mixing the query builder and raw SurrealQL
 
+> [!NOTE]
+> **Superseded (M0.5).** The fluent builder described here was **removed** in favor of the
+> repository-style `/orm` layer — see [`PLANO-QUERYS-TIPADAS.md`](../../PLANO-QUERYS-TIPADAS.md)
+> (milestones) and `drivers/surrealdb/docs/orm-syntax-map.md` (live-verified syntax). Kept as a
+> design record.
+
 **Status:** design ratified by Manuel (2026-07-04); phased build below.
 **Goal:** the query builder and raw `surql` compose in BOTH directions — a builder is allowed
 anywhere a raw tagged query is (including authoring positions), and raw is a first-class escape

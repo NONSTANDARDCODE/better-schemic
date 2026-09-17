@@ -1,18 +1,18 @@
 /**
- * The predicate/expression layer of the SurrealDB query builder: field REFS (typed column
- * handles with operators + the per-kind stdlib families), the `Expr` node tree, and its
- * SurrealQL lowering. Split from `./index` so `block()` and the writes builder share it
- * without importing the SELECT machinery.
+ * The predicate/expression layer behind `block()`: field REFS (typed handles with comparison ops
+ * plus the per-kind stdlib families), the `Expr` node tree, and its SurrealQL lowering.
  *
- * Refs are DEFERRED (see `./render`): a ref renders at lowering time, in a context that knows
- * the current row scope — that's what makes `u.name.length()` compose (`string::len(name)`)
- * and an outer-row ref inside a subquery lower to `$parent.name` automatically.
+ * Refs are DEFERRED (see `./render`): a ref renders at lowering time, in a context that knows the
+ * current `$param` scope — that is what makes `s.n.plus(1)` compose and a nested array closure
+ * mint its own `$v2` name.
+ *
+ * (The fluent table builder that used to share this module was retired in M0.5; the new `/orm`
+ * compiler lowers its object-based `where` directly and does not use refs.)
  */
-
-import { brandRef, type FieldRefBase } from "@better-schemic/core/query";
 import { BoundQuery, escapeIdent, type RecordId } from "surrealdb";
 import { type RefMethodSpec, refMethods } from "../fn";
-import type { App, ParamDef, ParamRef, Range, TableDef } from "../pure";
+import type { ParamDef, ParamRef, Range } from "../pure";
+import { brandRef, type FieldRefBase } from "./ref";
 import {
   argRenderer,
   type Ctx,
@@ -26,7 +26,6 @@ import {
   refState,
   renderRef,
 } from "./render";
-import { SCHEMALESS } from "./schemaless";
 
 // --- the Expr node tree ---------------------------------------------------------------------------
 
@@ -85,7 +84,9 @@ export type Expr = ExprNode & ExprOps;
 export type Predicate = Expr | BoundQuery;
 
 /** The Expr brand (`Symbol.for` — readable across layers without importing this module). */
-const EXPR_BRAND: unique symbol = Symbol.for("better-schemic.surrealdb.expr") as never;
+const EXPR_BRAND: unique symbol = Symbol.for(
+  "better-schemic.surrealdb.expr",
+) as never;
 /** Is this a builder predicate Expr? (`block().return((s) => s.res.id.isNotNone())`). */
 export function isExpr(v: unknown): v is Expr {
   return (
@@ -556,97 +557,6 @@ export function mkRef(state: RefState): FieldRef<unknown> {
       return mkRef({ root, kind: "other" });
     },
   }) as unknown as FieldRef<unknown>;
-}
-
-// --- refs for a table row -------------------------------------------------------------------------
-
-/** The typed row handed to a callback: every column as a `FieldRef`. */
-// biome-ignore lint/suspicious/noExplicitAny: TableDef's Shape varies per call site.
-export type Row<TD extends TableDef<string, any>> = {
-  [K in keyof App<TD>]-?: FieldRef<App<TD>[K]>;
-};
-
-/** Resolve a column schema's runtime KIND (drives the stdlib family) by unwrapping Zod wrapper
- *  types to the base — codecs/pipes resolve to their APP (output) side. Unknown -> `other`. */
-function kindOf(schema: unknown): { kind: RefKind; elem?: RefKind } {
-  let cur = schema as
-    | { _zod?: { def?: Record<string, unknown> & { type?: string } } }
-    | undefined;
-  for (let i = 0; i < 24; i++) {
-    const def = cur?._zod?.def;
-    if (!def?.type) break;
-    if (
-      def.type === "optional" ||
-      def.type === "nullable" ||
-      def.type === "default" ||
-      def.type === "prefault" ||
-      def.type === "readonly" ||
-      def.type === "nonoptional" ||
-      def.type === "catch"
-    ) {
-      cur = def.innerType as typeof cur;
-    } else if (def.type === "pipe") {
-      cur = def.out as typeof cur;
-    } else if (def.type === "lazy") {
-      cur = (def.getter as () => typeof cur)();
-    } else {
-      break;
-    }
-  }
-  const t = cur?._zod?.def?.type;
-  if (t === "string" || t === "enum" || t === "template_literal")
-    return { kind: "string" };
-  if (t === "number" || t === "int" || t === "bigint")
-    return { kind: "number" };
-  if (t === "date") return { kind: "date" };
-  if (t === "array") {
-    const elem = kindOf(
-      (cur?._zod?.def as { element?: unknown } | undefined)?.element,
-    ).kind;
-    return { kind: "array", elem: elem === "other" ? undefined : elem };
-  }
-  return { kind: "other" };
-}
-
-/** INTERNAL (shared with `./write`): the typed callback row for a table, every column a ref.
- *  `row` is the builder's row-scope token — a ref carried into a DIFFERENT builder's lowering
- *  renders as `$parent.<col>` (correlated subquery). Omit it (writes projections) and refs
- *  always render bare. */
-// biome-ignore lint/suspicious/noExplicitAny: TableDef's Shape varies per call site.
-export function refsFor<TD extends TableDef<string, any>>(
-  table: TD,
-  row?: symbol,
-): Row<TD> {
-  // SCHEMALESS (untyped) table: any field name resolves to a generic ref via a proxy.
-  if ((table as Record<symbol, unknown>)[SCHEMALESS] === true) {
-    const { kind, elem } = kindOf(undefined); // -> { kind: "other" } (base ref ops)
-    return new Proxy(
-      {},
-      {
-        get: (_t, key) =>
-          typeof key === "string"
-            ? mkRef({ root: { col: key, row }, kind, elem })
-            : undefined,
-      },
-    ) as unknown as Row<TD>;
-  }
-  const refs: Record<string, FieldRef<unknown>> = {};
-  for (const key of Object.keys(table.object.shape)) {
-    const { kind, elem } = kindOf(table.object.shape[key]);
-    refs[key] = mkRef({ root: { col: key, row }, kind, elem });
-  }
-  return refs as unknown as Row<TD>;
-}
-
-/** INTERNAL (shared with `./write`): a PLAIN ref's column name. Derived expressions have no
- *  single column — positions that need one (ORDER BY, write projections) reject them. */
-export function refCol(ref: unknown): string {
-  const s = refState(ref);
-  if (!s || s.wrap || !("col" in s.root))
-    throw new Error(
-      "expected a plain column ref — a derived expression (e.g. `.length()`) has no column name here (ORDER BY and write projections take bare columns).",
-    );
-  return s.root.col;
 }
 
 // --- lowering -------------------------------------------------------------------------------------

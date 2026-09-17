@@ -55,11 +55,11 @@
         "default": "./lib/query.js"
       }
     },
-    "./client": {
-      "bun": "./src/client.ts",
+    "./orm": {
+      "bun": "./src/orm/index.ts",
       "import": {
-        "types": "./lib/client.d.ts",
-        "default": "./lib/client.js"
+        "types": "./lib/orm.d.ts",
+        "default": "./lib/orm.js"
       }
     },
     "./package.json": "./package.json"

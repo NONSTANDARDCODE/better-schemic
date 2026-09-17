@@ -16,6 +16,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 **Unreleased** and are stamped into a version section on release cut. Entries are tagged by package
 (**core** / **cli** / **surrealdb** / **setup**).
 
+## [Unreleased]
+
+### Added
+- **surrealdb:** `@better-schemic/surrealdb/orm` — the repository-style ORM surface (M0 skeleton):
+  `defineSchema({ users: User, likes: Likes, greet, audit: "audit_log" })` + `betterSchemic(conn, { schema })`
+  / `createBetterSchemic({ url, namespace, database, auth, schema })`; one delegate per schema key,
+  `repository(name)` (schema key OR physical name), `client.tables`, `client.$sdk`, `client.$index`,
+  `forkSession()`, `extends()` (fail-fast on collisions), `BetterSchemicError` + catalog +
+  normalization/predicates, result wrappers (`ThrowingResult`/`BatchResult`/`StatementResult`) and the
+  multi-statement executor (one round-trip via `responses()`, per-statement status, atomic
+  `BEGIN/COMMIT` batches, unique-binds guardrail). Reads/writes/relations/… land in the following
+  milestones — see [`PLANO-QUERYS-TIPADAS.md`](./PLANO-QUERYS-TIPADAS.md).
+- **surrealdb:** `docs/orm-syntax-map.md` + `test/live/orm-syntax.test.ts` — the live-verified SurrealQL
+  syntax map the ORM compiler must emit against (51 probes on server 3.2.0), with the prototype
+  divergences recorded.
+
+### Removed
+- **surrealdb:** the fluent query builder (`select`/`create`/`update`/`upsert`/`remove`/`relate`, graph
+  traversal, the schemaless adapter) and the `@better-schemic/surrealdb/client` subpath (`connect`) —
+  replaced by `/orm`. `/query` now ships only `block()` (fragments/procedural SurrealQL).
+- **core:** `@better-schemic/core/query` (the `Row`/`Project`/`decodeProjection`/`callFunction` toolkit) —
+  retired with the fluent builder; the neutral field-ref carrier moved into the driver (`src/surql/ref.ts`).
+
+### Changed
+- **surrealdb:** `block()` moved to `src/surql/` and its typed `LET`/`FOR` vars now support
+  fragments/refs (the fluent `select(...)` integration is gone); comparison operators + stdlib
+  families are unchanged.
+
 ## [0.1.0-alpha.1] - 2026-09-16
 
 ### Removed (fork)

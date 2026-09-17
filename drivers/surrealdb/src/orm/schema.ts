@@ -196,17 +196,13 @@ export function buildSchemaIndex<S extends SchemaInput>(
 
 // --- runtime def detection (duck-typed, so a dual-loaded package still works) --------------------
 
-interface FieldLike {
-  readonly schema: unknown;
-}
-
 const isZodLike = (v: unknown): v is z.ZodType =>
   isObject(v) && isObject((v as { _zod?: unknown })._zod);
 
 /** The Zod schema behind a field (an `SField` wrapper or a raw Zod type). */
 function schemaOf(v: unknown): z.ZodType {
-  if (isObject(v) && "schema" in v) {
-    const inner = (v as FieldLike).schema;
+  if (isObject(v)) {
+    const inner = (v as { schema?: unknown }).schema;
     if (isZodLike(inner)) return inner;
   }
   if (isZodLike(v)) return v;

@@ -89,7 +89,7 @@ describe("attachThrow", () => {
       Promise.resolve(7),
       info,
     );
-    expect(await result.then((v) => v * 2)).toBe(14);
+    expect(await result.then((v) => (v ?? 0) * 2)).toBe(14);
   });
 });
 

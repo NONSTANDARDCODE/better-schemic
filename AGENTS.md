@@ -14,13 +14,16 @@ that owns connection + authoring (`s.*`) + DDL.
 what it imports:
 - `@better-schemic/<driver>` — **authoring** (`s.*`, `define*`, raw-body tag) — must be **side-effect-free**.
 - `@better-schemic/<driver>/connection` — the connection factory.
-- `@better-schemic/<driver>/query` — the opt-in query builder (composes `@better-schemic/core/query`).
+- `@better-schemic/<driver>/query` — fragments & procedural SurrealQL (`block()`).
+- `@better-schemic/<driver>/orm` — the repository-style ORM client (`betterSchemic`/`createBetterSchemic`,
+  one delegate per schema entry, `repository`, `$sdk`).
 - `@better-schemic/<driver>/driver` — the `Driver` impl + `emit*`/`lower`/`introspect` + the **`registerDriver`
   side-effect** (CLI/engine-only; keep `emit*` etc. OUT of the authoring index).
 
 The CLI loader imports `/driver` to register (it **requires** the `/driver` entry — drivers >= alpha.21),
-so importing `s.*` never drags the diff/emit engine into an app bundle. Core mirrors this:
-`@better-schemic/core/query` is the neutral query toolkit (`Row`/`Project`/`decodeProjection`/`callFunction`).
+so importing `s.*` never drags the diff/emit engine into an app bundle. The neutral query toolkit
+(`@better-schemic/core/query`) was retired with the fluent builder — the `/orm` layer is driver-owned
+and consumes the core client foundation (`OrmClientBase`, `asyncDisposable`) instead.
 
 ## Developer experience IS the product — always analyze through a DevEx lens
 

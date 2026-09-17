@@ -79,9 +79,9 @@ describe("SchemaDef — def lookup", () => {
   });
   it("RelationAt / FunctionAt narrow to their defs", () => {
     attest<typeof Likes, RelationAt<S, "likes">>();
-    attest<never, RelationAt<S, "users">>();
+    attest<true, [RelationAt<S, "users">] extends [never] ? true : false>();
     attest<typeof greet, FunctionAt<S, "greet">>();
-    attest<never, FunctionAt<S, "users">>();
+    attest<true, [FunctionAt<S, "users">] extends [never] ? true : false>();
   });
   it("SchemaOf recovers the authored entries object", () => {
     attest<typeof schema.entries, SchemaOf<S>>();

@@ -24,15 +24,14 @@
 | M0.2 `defineSchema` + `SchemaIndex` | ✅ concluído | `src/orm/schema.ts`, `src/orm/types/schema.ts`, `src/orm/errors.ts` (classe + catálogo), `test/unit/orm-schema.test.ts`, `test/types/orm-schema.assert.ts` |
 | M0.3 Result wrappers + normalização/predicados | ✅ concluído | `src/orm/results.ts` (`ThrowingResult`/`BatchResult`/`StatementResult` + `attachThrow`), `errors.ts` estendido (`from`/`normalizeError` + 8 predicados), `test/unit/orm-errors.test.ts`, `test/unit/orm-results.test.ts`, `test/types/orm-results.assert.ts` |
 | M0.4 Executor | ✅ concluído | `src/orm/execute.ts` (1 round-trip via `responses()`, `BEGIN/COMMIT` atômico, falha raiz, binds únicos), `test/unit/orm-execute.test.ts`, `test/live/orm-execute.test.ts` |
-| M0.5 Bootstrap + delegates + substituição do legado | ⏳ próximo | `src/orm/index.ts`, `client.ts`, `delegate.ts`, `/orm`, §6 |
-| M0.5 Bootstrap + delegates + substituição do legado | ⏳ | `src/orm/index.ts`, `client.ts`, `delegate.ts`, `/orm`, §6 |
+| M0.5 Bootstrap + delegates + substituição do legado | ✅ concluído | `/orm` (`betterSchemic`/`createBetterSchemic`, delegates, `repository`, `extends`, `forkSession`), `/query` = fragments, legado removido (§6), `test/unit/orm-client.test.ts`, `test/live/orm-client.test.ts`, `test/types/orm-client.assert.ts` |
+| M1 Leitura | ⏳ próximo | compiler `where`/`select` + `findMany`/… |
 
-> Notas do M0.2: a classe `BetterSchemicError`/catálogo saiu antecipada (o aceite do M0.2 exige
-> `SchemaInvalid`); o M0.3 fica com normalização + predicados. `defineSchema`/`SchemaIndex` ainda não
-> são re-exportados pelo índice de authoring/`/orm` — isso entra no M0.5 junto da superfície pública.
-> Nota do M0.3: o executor (M0.4) usará `responses()` do SDK + `statementResult` para status por
-> statement; a normalização cobre `ServerError` por `kind`/details + heurística de mensagem, `ZodError`,
-> `Error` comum e throwables não-Error.
+> Nota do M0.2: a classe `BetterSchemicError`/catálogo saiu antecipada (o aceite do M0.2 exige
+> `SchemaInvalid`); o M0.3 ficou com a normalização + os predicados.
+> Nota do M0.3: a normalização cobre `ServerError` por `kind`/details + heurística de mensagem,
+> `ZodError`, `Error` comum e throwables não-Error.
+> Nota do M0.5: o corte do legado REMOVEU o builder fluente, `/client` e `@better-schemic/core/query`
 > Nota do M0.4 (verificado ao vivo): batch **sem** transação NÃO é atômico (cada statement é
 > independente); `BEGIN/COMMIT` é atômico em 1 round-trip e, ao falhar, remarca os statements
 > anteriores como `NotExecuted` — o executor escolhe a falha raiz, não o artefato. Detalhes no

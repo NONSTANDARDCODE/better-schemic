@@ -1,5 +1,11 @@
 # @better-schemic/core Query Builder — Design Exploration
 
+> [!NOTE]
+> **Histórico / superseded (M0.5).** O builder fluente descrito aqui foi **removido** em favor da
+> camada de repositórios `/orm` — ver [`PLANO-QUERYS-TIPADAS.md`](../../PLANO-QUERYS-TIPADAS.md)
+> (milestones) e `drivers/surrealdb/docs/orm-syntax-map.md` (sintaxe verificada ao vivo). Mantido
+> apenas como registro de design.
+
 > Status: **research + design + feasibility proof**. Nothing here is built into the
 > package. The companion POC under [`poc/`](./poc/query-builder-poc.ts) proves the
 > core type-inference mechanism compiles (`bunx tsc --noEmit -p tsconfig.json`).

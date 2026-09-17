@@ -46,18 +46,23 @@ live("ORM syntax map — live probes (server 3.x)", () => {
   let db: Surreal;
 
   /** Run a statement script and return the per-statement result array (SDK-faithful). */
-  const run = <T = unknown[]>(
+  const run = <T extends unknown[] = unknown[]>(
     sql: string,
     vars?: Record<string, unknown>,
-  ): Promise<T> => db.query<T>(sql, vars);
+  ) => db.query<T>(sql, vars);
 
-  /** Run and return the LAST statement's value (SDK values normalized to plain JSON). */
-  const last = async <T = unknown>(
+  /**
+   * Run and return the LAST statement's value (SDK values normalized to plain JSON).
+   * Returns `any` on purpose: these probes assert arbitrary shapes, and bun:test's `expect`
+   * resolves `unknown` to a `Matchers<undefined>`.
+   */
+  // biome-ignore lint/suspicious/noExplicitAny: arbitrary probe shapes vs. bun:test's expect typing.
+  const last = async (
     sql: string,
     vars?: Record<string, unknown>,
-  ): Promise<T> => {
+  ): Promise<any> => {
     const out = await run<unknown[]>(sql, vars);
-    return plain(out[out.length - 1]) as T;
+    return plain(out[out.length - 1]);
   };
 
   /** Await a query, capturing the thrown error instead of failing the test (SDK throws on
@@ -601,7 +606,8 @@ live("ORM syntax map — live probes (server 3.x)", () => {
       const out = (await last(
         "SELECT id, name, (SELECT id, title FROM ->(likes WHERE score > 4)->post ORDER BY title LIMIT 2) AS liked FROM user ORDER BY id;",
       )) as Record<string, unknown>[];
-      expect(out[0]).toEqual(
+      const alice = out.find((u) => u.id === "user:alice");
+      expect(alice).toEqual(
         expect.objectContaining({
           liked: expect.arrayContaining([
             expect.objectContaining({ id: "post:p1" }),

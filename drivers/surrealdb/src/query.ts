@@ -1,17 +1,11 @@
 /**
- * `@better-schemic/surrealdb/query` subpath entry — the SurrealDB-owned typed query builder (opt-in,
- * tree-shakeable; a schema-only project never pulls it). Reads in `./query/index`, writes
- * (`create`/`update`/`remove` split builders) in `./query/write`, typed statement blocks
- * (`block()`) in `./query/block`. The SCHEMALESS (untyped) adapter — `select("user")` etc. — is in
- * `./query/schemaless`.
+ * `@better-schemic/surrealdb/query` subpath entry — FRAGMENTS & procedural SurrealQL: `block()`,
+ * the typed statement-block builder used by event `THEN`s, function bodies and `surql`
+ * interpolation.
+ *
+ * The fluent table builder (`select`/`create`/`update`/`upsert`/`remove`/`relate`, the graph
+ * traversal and the schemaless adapter) was retired in M0.5 in favor of the repository-style ORM
+ * at `@better-schemic/surrealdb/orm` — `client.users.findMany({ where, select, include })` etc.
+ * See `PLANO-QUERYS-TIPADAS.md`.
  */
-export * from "./query/block";
-export * from "./query/index";
-export {
-  isSchemaless,
-  type SchemalessRelation,
-  type SchemalessTable,
-  schemaless,
-  type UntypedTable,
-} from "./query/schemaless";
-export * from "./query/write";
+export * from "./surql/block";

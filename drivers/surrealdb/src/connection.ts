@@ -8,8 +8,8 @@ import {
   connectionEntry,
   type ResolveContext,
 } from "@better-schemic/core/driver";
-import type { Client } from "./client";
 import type { SurrealZodCheck, SurrealZodConnection } from "./config";
+import type { Client } from "./orm/client";
 
 /** SurrealDB connection config types (the `surrealConnection` factory's shapes). */
 export type {
@@ -90,7 +90,7 @@ export function surrealConnection<Args = undefined>(
     {
       // Lazy `import()` so authoring a config never pulls the engine (bundle-splittable).
       client: (config) =>
-        import("./client").then((m) => m.connectFromConfig(config)),
+        import("./orm/client").then((m) => m.clientFromConfig(config)),
       // Dialect display identity for bulk reporting/errors — `ns/db @ url`.
       label: (config) => {
         const p = config.params as Partial<

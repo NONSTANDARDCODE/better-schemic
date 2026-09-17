@@ -16,6 +16,7 @@ import {
 import { z } from "zod";
 import {
   BetterSchemicError,
+  type BetterSchemicErrorCode,
   isAssertionFailed,
   isBetterSchemicError,
   isNotFound,
@@ -143,7 +144,7 @@ describe("normalizeError — SDK ServerError kinds", () => {
 });
 
 describe("normalizeError — message heuristics on plain errors", () => {
-  const cases: [string, string][] = [
+  const cases: [string, BetterSchemicErrorCode][] = [
     ["Database record `x:y` already exists", "RecordAlreadyExists"],
     ["Couldn't coerce value for field `age`", "AssertionFailed"],
     ["Expected `string` but found `NONE`", "AssertionFailed"],

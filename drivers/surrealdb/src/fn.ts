@@ -12,11 +12,11 @@
  * Side-effect-free; imports only the render primitives — safe from the authoring index.
  */
 
-import type { FieldRefBase } from "@better-schemic/core/query";
 import type { BoundQuery } from "surrealdb";
 import { Surql } from "./frag";
 import type { ParamDef, ParamRef } from "./pure";
-import { argRenderer, type Ctx, type RefKind } from "./query/render";
+import type { FieldRefBase } from "./surql/ref";
+import { argRenderer, type Ctx, type RefKind } from "./surql/render";
 
 /** A typed expression fragment — the `[T]` rule (`Frag<T>` = a one-statement query of `T`).
  *  Catalog results are `Surql`, so every call carries `.as<T2>()` — retype where the true shape

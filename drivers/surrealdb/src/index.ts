@@ -11,9 +11,8 @@
  */
 
 import { BoundQuery, escapeIdent, surql as sdkSurql, Table } from "surrealdb";
-import { Surql } from "./frag";
-import { hasRefDeep, renderData } from "./query/render";
 import { type FnArg, fn } from "./fn";
+import { Surql } from "./frag";
 import {
   FunctionDef,
   isParamRef,
@@ -23,6 +22,7 @@ import {
   RecordIdField,
   TableDef,
 } from "./pure";
+import { hasRefDeep, renderData } from "./surql/render";
 
 // --- the surql tag: EAGER marker resolution + fragment helpers ----------------------------------
 // (Design: docs/proposals/typed-fragments.md. Schema references resolve to TEXT at template
@@ -117,7 +117,10 @@ export const surql: typeof surqlTag & {
   /** `type::record(<table>, <id>)` — a record id from a typed table ref + the id VALUE: a typed
    *  ref (`e.after.id`), a fragment, or a literal (bound). A TUPLE-id table takes the array form —
    *  `surql.record(EmailVerification, [e.after.id])` (refs inside splice). */
-  record: (table: { name: string }, id: FnArg<unknown>) => BoundQuery<[unknown]>;
+  record: (
+    table: { name: string },
+    id: FnArg<unknown>,
+  ) => BoundQuery<[unknown]>;
   /** The escaped table name as a fragment. */
   table: (table: { name: string }) => BoundQuery<[unknown]>;
   /** The param-path proxy: `surql.$.after.email` splices `$after.email`. */
@@ -125,7 +128,10 @@ export const surql: typeof surqlTag & {
   /** The typed builtin-function catalog: `surql.fn.string.len(x)` -> `Frag<number>`. */
   fn: typeof fn;
 } = Object.assign(surqlTag, {
-  record: (table: { name: string }, id: FnArg<unknown>): BoundQuery<[unknown]> =>
+  record: (
+    table: { name: string },
+    id: FnArg<unknown>,
+  ): BoundQuery<[unknown]> =>
     surqlTag`type::record(${new Table(table.name)}, ${id})`,
   table: (table: { name: string }): BoundQuery<[unknown]> =>
     surqlTag`${new Table(table.name)}`,
@@ -184,10 +190,10 @@ export type {
   HnswOptions,
   JwtAlgorithm,
   JwtConfig,
+  ParamConfig,
   PresetColumnConflict,
   PresetEvent,
   PresetIndex,
-  ParamConfig,
   Shape,
   SingletonIdOf,
   SnowballLanguage,
@@ -228,12 +234,12 @@ export {
   ParamDef,
   ParamRef,
   Range,
-  range,
   type RangeBound,
   type RangeSpec,
   RecordAccessDef,
   RecordIdField,
   RelationDef,
+  range,
   SField,
   SystemView,
   s,

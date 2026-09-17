@@ -44,8 +44,13 @@ export type SchemaInput = Record<string, SchemaEntry>;
 
 declare const SCHEMA_BRAND: unique symbol;
 
-/** A branded schema artifact (the return of `defineSchema`) — carries its entries for inference. */
-export interface SchemaDef<S extends SchemaInput = SchemaInput> {
+/**
+ * A branded schema artifact (the return of `defineSchema`) — carries its entries for inference.
+ * `S` is UNCONSTRAINED on purpose: an inferred const-generic entries object has no string index
+ * signature, so `S extends SchemaInput` would make `SchemaDef<typeof entries>` unusable (the
+ * constraint is enforced at {@link SchemaInput} consumers instead, e.g. `defineSchema`).
+ */
+export interface SchemaDef<S = SchemaInput> {
   readonly [SCHEMA_BRAND]: S;
   readonly entries: S;
 }
@@ -53,52 +58,57 @@ export interface SchemaDef<S extends SchemaInput = SchemaInput> {
 /** The authored entries of a schema artifact (`typeof schema` -> the input object). */
 export type SchemaOf<D extends SchemaDef> = D["entries"];
 
+/**
+ * The entries of EITHER a branded schema artifact (`typeof schema`) or a plain input object — every
+ * key/lookup helper below is written over this, so `Client<typeof schema>` and `Client<literal>`
+ * both work.
+ */
+export type EntriesOf<S> = S extends SchemaDef<infer E> ? E : S;
+
 /** Keys whose entry is a typed table/edge (`client.<key>` typed; `RelationDef` included). */
-export type TableKeys<S extends SchemaInput> = {
-  [K in keyof S]: S[K] extends AnyTableDef ? K : never;
-}[keyof S] &
+export type TableKeys<S> = {
+  [K in keyof EntriesOf<S>]: EntriesOf<S>[K] extends AnyTableDef ? K : never;
+}[keyof EntriesOf<S>] &
   string;
 
 /** Keys whose entry is a relation (edge) def. */
-export type RelationKeys<S extends SchemaInput> = {
-  [K in keyof S]: S[K] extends AnyRelationDef ? K : never;
-}[keyof S] &
+export type RelationKeys<S> = {
+  [K in keyof EntriesOf<S>]: EntriesOf<S>[K] extends AnyRelationDef ? K : never;
+}[keyof EntriesOf<S>] &
   string;
 
 /** Keys whose entry declares a SCHEMALESS table by physical name. */
-export type SchemalessKeys<S extends SchemaInput> = {
-  [K in keyof S]: S[K] extends string ? K : never;
-}[keyof S] &
+export type SchemalessKeys<S> = {
+  [K in keyof EntriesOf<S>]: EntriesOf<S>[K] extends string ? K : never;
+}[keyof EntriesOf<S>] &
   string;
 
 /** Keys whose entry is a user-defined function. */
-export type FunctionKeys<S extends SchemaInput> = {
-  [K in keyof S]: S[K] extends AnyFunctionDef ? K : never;
-}[keyof S] &
+export type FunctionKeys<S> = {
+  [K in keyof EntriesOf<S>]: EntriesOf<S>[K] extends AnyFunctionDef ? K : never;
+}[keyof EntriesOf<S>] &
   string;
 
 /** Every key that becomes a client delegate (typed tables + schemaless names). */
-export type ModelKeys<S extends SchemaInput> = TableKeys<S> | SchemalessKeys<S>;
+export type ModelKeys<S> = TableKeys<S> | SchemalessKeys<S>;
 
 /** The table/edge def at `K` (`never` for non-table keys). */
-export type TableAt<S extends SchemaInput, K extends keyof S> = Extract<
-  S[K],
+export type TableAt<S, K extends PropertyKey> = Extract<
+  EntriesOf<S>[K & keyof EntriesOf<S>],
   AnyTableDef
 >;
 
 /** The DECODED row type of the table at `K` (`App<TD>`) — what reads resolve to. */
-export type AppAt<S extends SchemaInput, K extends keyof S> = App<
-  TableAt<S, K>
->;
+export type AppAt<S, K extends PropertyKey> = App<TableAt<S, K>>;
 
 /** The relation def at `K` (`never` for non-relation keys). */
-export type RelationAt<S extends SchemaInput, K extends keyof S> = Extract<
-  S[K],
+export type RelationAt<S, K extends PropertyKey> = Extract<
+  EntriesOf<S>[K & keyof EntriesOf<S>],
   AnyRelationDef
 >;
 
 /** The function def at `K` (`never` for non-function keys). */
-export type FunctionAt<S extends SchemaInput, K extends keyof S> = Extract<
-  S[K],
+export type FunctionAt<S, K extends PropertyKey> = Extract<
+  EntriesOf<S>[K & keyof EntriesOf<S>],
   AnyFunctionDef
 >;

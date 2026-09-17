@@ -1,7 +1,7 @@
-// Typed-fragments PHASE 1: builders interpolate as fragments (namespaced binds), raw surql
-// predicates inside `where` (with interpolatable FieldRefs), chainable Expr combinators
-// (.and/.or/.not — no standalone import), and Def.call(args) — the one-object call: a typed
-// BoundQuery<[R]> fragment that is also runnable (.run/.then) and client-bindable (db.call).
+// Typed-fragments PHASE 1: raw surql predicates inside combinators (with interpolatable
+// FieldRefs), chainable Expr combinators (.and/.or/.not — no standalone import), and
+// Def.call(args) — the one-object call: a typed BoundQuery<[R]> fragment that is also runnable
+// (.run). (M0.5: the fluent builder was retired; the Expr layer is exercised through refs.)
 import { setDefaultTimeout } from "bun:test";
 
 // The workspace gate runs every package's suite IN PARALLEL — parallel-suite CPU contention can slow live
@@ -18,7 +18,8 @@ import {
   s,
   surql,
 } from "../../src/index";
-import { create, select } from "../../src/query";
+import { type FieldRef, lowerExpr, mkRef } from "../../src/surql/predicate";
+import type { Ctx } from "../../src/surql/render";
 
 const SendMail = defineFunction("p1_send_mail", {
   email: s.string(),
@@ -55,86 +56,46 @@ const _argTyping = () => {
 };
 
 describe("Expr combinators — no standalone and/or import needed", () => {
+  const ref = <T>(col: string, kind: "string" | "number") =>
+    mkRef({ root: { col }, kind }) as FieldRef<T>;
+  const lower = (build: (ctx: Ctx) => unknown) => {
+    const ctx: Ctx = { vars: {} };
+    return { sql: lowerExpr(build(ctx) as never, ctx), vars: ctx.vars };
+  };
+
   test(".and/.or/.not chain and lower with correct grouping", () => {
-    const { sql } = select(User)
-      .where((u) =>
-        u.age.gte(18).and(u.email.includes("@corp.com")).or(u.name.eq("root")),
-      )
-      .toSQL();
-    expect(sql).toContain(
-      "WHERE (age >= $b0 AND email CONTAINS $b1) OR name = $b2",
+    const { sql, vars } = lower((ctx) =>
+      ref<number>("age", "number")
+        .gte(18)
+        .and(ref<string>("email", "string").includes("@corp.com"))
+        .or(ref<string>("name", "string").eq("root")),
     );
+    expect(sql).toMatch(
+      /^\(\(age >= \$b\d+ AND email CONTAINS \$b\d+\) OR name = \$b\d+\)$/,
+    );
+    expect(Object.values(vars)).toEqual(["@corp.com", 18, "root"].sort());
   });
 
   test(".not() negates", () => {
-    const { sql } = select(User)
-      .where((u) => u.age.gte(18).not())
-      .toSQL();
-    expect(sql).toContain("WHERE !(age >= $b0)");
+    const { sql } = lower(() => ref<number>("age", "number").gte(18).not());
+    expect(sql).toMatch(/^!\(age >= \$b\d+\)$/);
   });
 });
 
-describe("raw predicates in where — the escape hatch stays typed", () => {
-  test("a surql fragment is a predicate leaf; FieldRefs splice as columns", () => {
-    const { sql, vars } = select(User)
-      .where((u) => u.age.gte(18).and(surql`${u.email} CONTAINS ${"@corp"}`))
-      .toSQL();
-    expect(sql).toContain("age >= $b0 AND (email CONTAINS $bind__");
-    expect(Object.values(vars)).toContain("@corp");
-    expect(Object.values(vars)).toContain(18);
-  });
-
-  test("where() accepts a bare fragment; hand-built bind names get collision-renamed", () => {
+describe("raw predicates in combinators — the escape hatch stays typed", () => {
+  test("a surql fragment is a predicate leaf; hand-built bind names get collision-renamed", () => {
+    const ctx: Ctx = { vars: {} };
     const handmade = new BoundQuery("age > $b0", { b0: 99 });
-    const { sql, vars } = select(User)
-      .where((u) => u.name.eq("x").and(handmade))
-      .toSQL();
-    // The builder already used $b0 for "x" — the fragment's $b0 renames.
-    expect(sql).toContain("name = $b0 AND (age > $b0_2)");
-    expect(vars.b0).toBe("x");
-    expect(vars.b0_2).toBe(99);
-  });
-});
-
-describe("builders interpolate as fragments", () => {
-  test("a Select splices as (SELECT ...) with namespaced binds", () => {
-    const adults = select(User).where((u) => u.age.gte(18));
-    const q = surql`LET $adults = ${adults}; RETURN array::len($adults);`;
-    expect(q.query).toMatch(
-      /LET \$adults = \(SELECT \* FROM p1_user WHERE age >= \$sub__\d+_b0\)/,
+    const sql = lowerExpr(
+      mkRef({ root: { col: "name" }, kind: "string" })
+        .eq("x")
+        .and(handmade),
+      ctx,
     );
-    expect(Object.values(q.bindings ?? {})).toContain(18);
-  });
-
-  test("two builders in ONE template never collide", () => {
-    const a = select(User).where((u) => u.age.gte(18));
-    const b = select(User).where((u) => u.age.lt(13));
-    const q = surql`RETURN [array::len(${a}), array::len(${b})];`;
-    const names = Object.keys(q.bindings ?? {});
-    expect(names).toHaveLength(2);
-    expect(new Set(names).size).toBe(2);
-    expect(Object.values(q.bindings ?? {}).sort()).toEqual([13, 18]);
-  });
-
-  test("count() and one() splice as scalar/first-row expressions", () => {
-    const n = select(User)
-      .where((u) => u.age.gte(18))
-      .count();
-    expect(surql`RETURN ${n};`.query).toMatch(
-      /\(\(SELECT count\(\).*GROUP ALL\)\[0\]\.count OR 0\)/,
-    );
-    const first = select(User).one();
-    expect(surql`RETURN ${first};`.query).toMatch(
-      /\(SELECT \* FROM ONLY p1_user LIMIT 1\)/,
-    );
-  });
-
-  test("a write builder splices too", () => {
-    const mk = create(User).content({ name: "a", email: "e", age: 1 });
-    const q = surql`LET $u = ${mk};`;
-    expect(q.query).toMatch(
-      /LET \$u = \(CREATE p1_user CONTENT \$sub__\d+___content RETURN AFTER\)/,
-    );
+    // The comparison already used $b0 for "x" — the fragment's $b0 renames.
+    expect(sql).toMatch(/^\(name = \$b0 AND \(age > \$b0_2\)\)$/);
+    expect(ctx.vars.b0).toBe("x");
+    expect(ctx.vars.b0_2).toBe(99);
   });
 });
 
@@ -170,73 +131,3 @@ describe("Def.call(args) — fragment + runnable, one object", () => {
     ).rejects.toThrow(/not bound to a connection/);
   });
 });
-
-// --- live (SURREAL_URL-gated) ---------------------------------------------------------------------
-const URL = process.env.SURREAL_URL;
-
-describe.skipIf(!URL)("phase-1 live", () => {
-  test("db.call decodes; builder-in-raw and raw-in-builder run end to end", async () => {
-    const { Surreal } = await import("surrealdb");
-    const { emitDefStatement, emitTable } = await import("../../src/ddl");
-    const { connect } = await import("../../src/client");
-
-    const c = new Surreal();
-    await c.connect(URL as string);
-    await c.signin({ username: "root", password: "root" });
-    await c.use({ namespace: "frag_p1", database: "frag_p1" });
-    await c.query(
-      "REMOVE TABLE IF EXISTS p1_user; REMOVE FUNCTION IF EXISTS fn::p1_send_mail;",
-    );
-    await c.query(emitDefStatement(SendMail, { exists: "overwrite" }).ddl);
-    await c.query(emitTable(User, { exists: "overwrite" }));
-    await c.query(
-      "CREATE p1_user:1 SET name = 'ada', email = 'ada@corp.com', age = 36;" +
-        "CREATE p1_user:2 SET name = 'kid', email = 'kid@home.net', age = 9;",
-    );
-    const db = connect(c);
-
-    // BOUND call — decoded through .returns.
-    expect(await db.call(SendMail, { email: "a@b.c", code: "X" })).toBe(
-      "a@b.c:X",
-    );
-    // STANDALONE run.
-    expect(await SendMail.call({ email: "z", code: "9" }).run(c)).toBe("z:9");
-
-    // Builder inside raw: count adults via a spliced subquery.
-    const adults = select(User).where((u) => u.age.gte(18));
-    const [n] = await db.query(surql`RETURN array::len(${adults});`);
-    expect(n).toBe(1);
-    // The count() fragment as a scalar.
-    const [n2] = await db.query(surql`RETURN ${select(User).count()};`);
-    expect(n2).toBe(2);
-
-    // Raw inside builder: typed column ref + combinators, no and() import.
-    const corp = await db
-      .select(User)
-      .where((u) => u.age.gte(18).and(surql`${u.email} CONTAINS ${"@corp"}`))
-      .run(c);
-    expect(corp.map((r) => r.name)).toEqual(["ada"]);
-
-    await c.query(
-      "REMOVE TABLE IF EXISTS p1_user; REMOVE FUNCTION IF EXISTS fn::p1_send_mail;",
-    );
-    await c.close();
-  });
-});
-
-describe("surql``.as<T>() — typed fragment retype (replaces surql.expr)", () => {
-  test("type-only: same runtime object, still a BoundQuery (composable)", () => {
-    const frag = surql`age >= ${18}`;
-    const typed = frag.as<boolean>();
-    expect(typed as unknown).toBe(frag as unknown); // the SAME object — .as is a cast
-    expect(typed).toBeInstanceOf(BoundQuery);
-    const outer = surql`SELECT * FROM p1_user WHERE ${typed}`;
-    expect(outer.query).toContain("WHERE age >= $bind__");
-  });
-});
-
-// Type-level: .as<T> produces BoundQuery<[T]> (the [T] rule).
-const _asTyped = surql`age >= 18`.as<boolean>();
-type _asRule = Expect<
-  Equal<typeof _asTyped extends BoundQuery<[boolean]> ? true : false, true>
->;

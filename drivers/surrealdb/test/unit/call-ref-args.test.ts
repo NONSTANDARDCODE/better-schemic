@@ -4,7 +4,7 @@
 // and INFO's printer strips them, so emitting them would phantom-diff DDL round-trips).
 import { describe, expect, test } from "bun:test";
 import { defineFunction, defineTable, s, surql } from "../../src/index";
-import { block, select } from "../../src/query";
+import { block } from "../../src/query";
 
 const Audit = defineTable("cra_audit", {
   who: s.string(),
@@ -28,15 +28,13 @@ describe("call args — refs and builders", () => {
     expect(b.toQuery().query).toContain("fn::cra_stamp($after.email, $code)");
   });
 
-  test("a builder as an arg splices parenthesized with its binds", () => {
+  test("a fragment arg splices parenthesized with its binds", () => {
     const q = Stamp.call({
-      who: select(Audit)
-        .where((a) => a.code.eq("x"))
-        .one(),
+      who: surql`SELECT * FROM ONLY cra_audit WHERE code = ${"x"}`.as<string>(),
       code: "y",
     });
     expect(q.query).toMatch(
-      /^fn::cra_stamp\(\(\(SELECT \* FROM ONLY cra_audit WHERE code = \$sub__\d+_b0 LIMIT 1\)\), \$call__\d+_code\)$/,
+      /^fn::cra_stamp\(\(SELECT \* FROM ONLY cra_audit WHERE code = \$bind__\d+\), \$call__\d+_code\)$/,
     );
     expect(Object.values(q.bindings)).toEqual(
       expect.arrayContaining(["x", "y"]),
@@ -44,10 +42,9 @@ describe("call args — refs and builders", () => {
   });
 
   test("typed: a wrong-kinded ref is a compile error", () => {
-    const N = defineTable("cra_n", { n: s.number() });
     const _bad = () =>
       block()
-        .let({ n: select(N).count() })
+        .let({ n: 5 })
         // @ts-expect-error — `who` is a string arg; sv.n is a number ref
         .do((sv) => Stamp.call({ who: sv.n, code: "x" }));
     expect(typeof _bad).toBe("function");

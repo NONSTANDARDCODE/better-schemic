@@ -6,7 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { emitDefStatement } from "../../src/ddl";
 import { defineFunction, defineTable, s, surql } from "../../src/index";
-import { block, select } from "../../src/query";
+import { block } from "../../src/query";
 
 // THE dogfood function, no raw surql anywhere.
 const SendVerificationEmail = defineFunction("fts_send_email", {
@@ -77,20 +77,6 @@ describe("ref property paths", () => {
       .let({ res: surql.fn.http.get<{ id?: string }>("https://x.dev") })
       .return((sv) => sv.res.id.isNotNone());
     expect(b.toQuery().query).toMatch(/RETURN \$res\.id != NONE; \}$/);
-  });
-
-  test("column paths splice too, and stay $parent-aware", () => {
-    const Post = defineTable("fts_post", {
-      meta: s.object({ author: s.string() }),
-      title: s.string(),
-    });
-    const User = defineTable("fts_user", { name: s.string() });
-    const q = select(User).return((u) => ({
-      posts: select(Post).where((p) => p.meta.author.eq(u.name)),
-    }));
-    expect(q.toSQL().sql).toContain(
-      "WHERE meta.author = $parent.name",
-    );
   });
 
   test("typed: paths follow the object shape; missing keys reject", () => {

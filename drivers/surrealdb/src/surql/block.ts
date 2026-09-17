@@ -6,7 +6,7 @@
  *
  * ```ts
  * block()
- *   .let({ n: select(Post).where((p) => p.author.eq(e.after.id)).count() })
+ *   .let({ n: surql<number>`(SELECT count() FROM post)[0].count OR 0` })
  *   .if((s) => s.n.gt(100), NotifyPowerUser.call({ user: e.after.id }))
  * ```
  *
@@ -17,7 +17,6 @@
  * (`Frag<R>` — the `[T]` rule).
  */
 
-import type { FieldRefBase } from "@better-schemic/core/query";
 import { BoundQuery } from "surrealdb";
 import { isRange, type ParamDef, type ParamRef, type Range } from "../pure";
 import {
@@ -28,8 +27,8 @@ import {
   mkRef,
   type Predicate,
   toExpr,
-} from "./expr";
-import { CountQuery, Select } from "./index";
+} from "./predicate";
+import type { FieldRefBase } from "./ref";
 import {
   type Ctx,
   FRAGMENT,
@@ -72,49 +71,39 @@ interface ToQuery {
  *  itself. */
 export type ValueOf<X> = X extends Expr
   ? boolean
-  : X extends CountQuery
-    ? number
-    : // biome-ignore lint/suspicious/noExplicitAny: matching any table's builder + its output mode.
-      X extends Select<any, infer R, infer S extends boolean>
-      ? S extends true
-        ? R | undefined
-        : R[]
-      : // biome-ignore lint/suspicious/noExplicitAny: matching any block.
-        X extends Block<any, infer R>
-        ? R
-        : X extends BoundQuery<[infer T]>
+  : // biome-ignore lint/suspicious/noExplicitAny: matching any block.
+    X extends Block<any, infer R>
+    ? R
+    : X extends BoundQuery<[infer T]>
+      ? T
+      : X extends ParamRef<infer T>
+        ? T
+        : X extends ParamDef<infer T>
           ? T
-          : X extends ParamRef<infer T>
+          : X extends FieldRefBase<infer T>
             ? T
-            : X extends ParamDef<infer T>
-              ? T
-              : X extends FieldRefBase<infer T>
-                ? T
-                : X;
+            : X;
 
 /** The element type a `FOR` iterates. */
 type ElemOf<X> =
   // A RANGE iterates its bound type — `FOR $y IN 2020..=2022` binds `$y: number`.
   X extends Range<infer B>
     ? B
-    : // biome-ignore lint/suspicious/noExplicitAny: matching any table's builder.
-      X extends Select<any, infer R>
-      ? R
-      : X extends BoundQuery<[infer T]>
+    : X extends BoundQuery<[infer T]>
+      ? T extends readonly (infer E)[]
+        ? E
+        : unknown
+      : X extends ParamRef<infer T>
         ? T extends readonly (infer E)[]
           ? E
           : unknown
-        : X extends ParamRef<infer T>
+        : X extends FieldRefBase<infer T>
           ? T extends readonly (infer E)[]
             ? E
             : unknown
-          : X extends FieldRefBase<infer T>
-            ? T extends readonly (infer E)[]
-              ? E
-              : unknown
-            : X extends readonly (infer E)[]
-              ? E
-              : unknown;
+          : X extends readonly (infer E)[]
+            ? E
+            : unknown;
 
 /** The typed refs a block callback receives: every `LET` var (and `FOR` loop var) as a
  *  `FieldRef` splicing `$name`. */
@@ -140,8 +129,6 @@ function kindOfValue(v: unknown): { kind: RefKind; elem?: RefKind } {
       kind: "array",
       elem: kindOfValue((v.start ?? v.end)?.value).kind,
     };
-  if (v instanceof CountQuery) return { kind: "number" };
-  if (v instanceof Select) return { kind: "array" };
   if (v instanceof Block) return v.out ?? { kind: "other" };
   if (typeof v === "string") return { kind: "string" };
   if (typeof v === "number") return { kind: "number" };

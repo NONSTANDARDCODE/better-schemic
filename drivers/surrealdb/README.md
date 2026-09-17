@@ -88,8 +88,35 @@ sc pull        # introspect a live database back into TypeScript
 A table definition carries codecs that bridge your app values and the database
 wire format. `decode` turns a returned row into typed values (a `datetime`
 becomes a `Date`, a `uuid` a string, record links resolve); `encode` and
-`encodePartial` build the payloads you write back. You keep the `surrealdb` SDK
-for queries — Better-schemic owns the schema, DDL, migrations, and row types.
+`encodePartial` build the payloads you write back.
+
+## The `/orm` client (in progress)
+
+The repository-style ORM lives at `@better-schemic/surrealdb/orm`. Declare the
+schema once with `defineSchema` and wrap an existing (BYO) or managed connection:
+
+```ts
+import { defineTable, s } from "@better-schemic/surrealdb";
+import { betterSchemic, createBetterSchemic, defineSchema } from "@better-schemic/surrealdb/orm";
+
+const User = defineTable("user", { name: s.string(), email: s.email() });
+
+export const schema = defineSchema({ users: User, audit: "audit_log" });
+
+const client = betterSchemic(existingSurreal, { schema });     // BYO: close() is a no-op
+// or: const client = await createBetterSchemic({ url, namespace, database, auth, schema });
+
+client.users.$model;          // per-model delegate metadata
+client.repository("user");    // lookup by schema key OR physical name
+client.tables;                // delegate keys
+client.$sdk;                  // the raw `surrealdb` connection (escape hatch)
+```
+
+The typed query surface (`client.users.findMany({ where, select, include })`,
+writes, relations, transactions, live queries, plugins) is landing milestone by
+milestone — see [`PLANO-QUERYS-TIPADAS.md`](../../PLANO-QUERYS-TIPADAS.md) and the
+live-verified [`docs/orm-syntax-map.md`](docs/orm-syntax-map.md). Fragments &
+procedural SurrealQL (`block()`) stay at `@better-schemic/surrealdb/query`.
 
 ## Docs
 
