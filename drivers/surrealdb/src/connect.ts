@@ -1,10 +1,10 @@
-// SurrealDB connection runtime — split out of cli/config.ts so that module stays dialect-neutral
-// (config types + loadConfig only). This is the Surreal driver's `connect` implementation; it imports
-// the surrealdb SDK and belongs to @better-schemic/surrealdb at the physical split.
+// SurrealDB connection runtime — the DRIVER's `connect` implementation (connect + authenticate +
+// best-effort DEFINE/select NS/DB), shared by the engine (`driver/surreal.ts`) and the app-facing
+// `/orm` client (`orm/client.ts`). Deliberately free of CLI/engine imports so `/orm` stays lean.
 
 import type { ConnectionOverrides, ResolvedConfig } from "@better-schemic/core";
 import { escapeIdent, Surreal } from "surrealdb";
-import type { AuthLevel, SurrealParams } from "../config";
+import type { AuthLevel, SurrealParams } from "./config";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 

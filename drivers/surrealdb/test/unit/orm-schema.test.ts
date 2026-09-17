@@ -3,11 +3,11 @@
 // the fail-fast validation that turns a bad schema module into an import-time `SchemaInvalid`.
 import { describe, expect, test } from "bun:test";
 import { BetterSchemicError } from "../../src/orm/errors";
+import type { TableMeta } from "../../src/orm/meta";
 import {
   buildSchemaIndex,
   defineSchema,
   isSchemaDef,
-  type TableMeta,
 } from "../../src/orm/schema";
 import {
   defineFunction,

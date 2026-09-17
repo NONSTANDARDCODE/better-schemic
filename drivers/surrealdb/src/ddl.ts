@@ -1,7 +1,5 @@
 import { isSecretRef, type SecretRef } from "@better-schemic/core";
 import { BoundQuery, escapeIdent, toSurqlString } from "surrealdb";
-import type { z } from "zod";
-import { exactSizeOf } from "./checks";
 import {
   type AccessDef,
   type AnalyzerDef,
@@ -9,20 +7,20 @@ import {
   type Expr,
   type FieldPermissions,
   type FunctionDef,
-  objectFieldsRegistry,
   type PermOp,
   requireFunctionBody,
   type SField,
   type Shape,
   type StandaloneDef,
   type SurrealMeta,
-  surrealTypeRegistry,
   type TableDef,
   type TableEvent,
   type TablePermissions,
   unknownDefKind,
 } from "./pure";
-import { splitTopUnion } from "./surql-type-expr";
+import { type FieldInfo, inferField } from "./wire";
+
+export { type FieldInfo, inferField } from "./wire";
 
 /** Inline a BoundQuery's bindings into a literal SurrealQL string for DDL use. Exported so the
  *  Struct-IR lowering (`fromTableDef`) renders DEFAULT/VALUE/COMPUTED/permission exprs identically. */
@@ -114,256 +112,6 @@ export function forcesBareType(clauses: {
     clauses.computed !== undefined ||
     (clauses.default !== undefined && clauses.value === undefined)
   );
-}
-
-/** Read a Zod schema's internal def with a loose type for traversal. */
-function zdef(schema: z.ZodType): { type: string; [k: string]: unknown } {
-  return schema._zod.def as unknown as { type: string; [k: string]: unknown };
-}
-
-/** Format a literal value as a SurrealQL literal type (e.g. `'admin'`, `42`). */
-function surqlLiteral(value: unknown): string {
-  if (typeof value === "string") return JSON.stringify(value);
-  if (
-    typeof value === "number" ||
-    typeof value === "boolean" ||
-    typeof value === "bigint"
-  ) {
-    return String(value);
-  }
-  return toSurqlString(value).replace(/^s"/, '"');
-}
-
-/**
- * The SurrealQL type of a field plus any nested fields it expands into:
- * object subfields (`path.key`) and array/record element fields (`path.*`).
- * Exported (with {@link inferField}) so the Struct-IR lowering walks the SAME child tree the
- * emitter does — so the two can't disagree on type strings or dotted field paths.
- */
-export interface FieldInfo {
-  type: string;
-  flexible: boolean;
-  children: { suffix: string; info: FieldInfo; surreal?: SurrealMeta }[];
-}
-const leaf = (type: string): FieldInfo => ({
-  type,
-  flexible: false,
-  children: [],
-});
-
-/** Infer a field's SurrealQL type + nested structure from a Zod schema. Exported so the Struct-IR
- *  lowering (`fromTableDef`) and the emitter share one source of truth for type strings + paths. */
-export function inferField(
-  schema: z.ZodType,
-  seen: Set<z.ZodType> = new Set(),
-): FieldInfo {
-  // Surreal-native schemas (datetime, recordId) carry their type explicitly.
-  const explicit = surrealTypeRegistry.get(schema);
-  if (explicit) return leaf(explicit);
-
-  const def = zdef(schema);
-  switch (def.type) {
-    case "string":
-    case "template_literal": // z.templateLiteral — a string-typed literal pattern
-      return leaf("string");
-    case "number": {
-      // z.int/int32/uint32/float64 share def.type "number"; the format discriminates.
-      const fmt = def.format as string | undefined;
-      if (fmt?.includes("float")) return leaf("float");
-      if (fmt?.includes("int")) return leaf("int");
-      return leaf("number");
-    }
-    case "bigint":
-      return leaf("int");
-    case "boolean":
-      return leaf("bool");
-    case "date":
-      return leaf("datetime");
-    case "any":
-    case "unknown":
-      return leaf("any");
-    case "null":
-      return leaf("null");
-
-    // No SurrealQL mapping — these exist on `s.*` only for drop-in `z.*` parity, and are
-    // rejected when used as a table field. (Registered native types — datetime/uuid/record/…
-    // — are caught by the `surrealTypeRegistry` check at the top, so they never reach here.)
-    case "symbol":
-    case "undefined":
-    case "void":
-    case "never":
-    case "nan":
-    case "function":
-    case "promise":
-    case "custom":
-      throw new Error(
-        `s.${def.type}() has no SurrealQL type and can't be used as a table field. ` +
-          `Use a Surreal-native builder (e.g. s.string / s.int / s.datetime / s.uuid / ` +
-          `s.recordId) instead, or keep this schema out of your table definitions.`,
-      );
-
-    case "optional":
-    case "default":
-    case "prefault": {
-      const inner = inferField(def.innerType as z.ZodType, seen);
-      // `any` already admits NONE/NULL, so `option<any>` is invalid SurrealQL — leave it as `any`.
-      if (inner.type === "any") return inner;
-      return { ...inner, type: `option<${inner.type}>` };
-    }
-    case "nullable": {
-      const inner = inferField(def.innerType as z.ZodType, seen);
-      if (inner.type === "any") return inner; // `any` already includes null
-      // Fold null INTO an existing option<X> so .optional().nullable() matches
-      // .nullish()/.nullable().optional(): option<X> | null -> option<X | null>.
-      if (inner.type.startsWith("option<") && inner.type.endsWith(">")) {
-        const x = inner.type.slice("option<".length, -1);
-        return { ...inner, type: `option<${x} | null>` };
-      }
-      return { ...inner, type: `${inner.type} | null` };
-    }
-    case "readonly":
-    case "catch": // app-side error recovery — the stored type is the inner type
-      return inferField(def.innerType as z.ZodType, seen);
-    case "pipe": // a codec with no explicit type — use its encoded (wire) side
-      return inferField(def.in as z.ZodType, seen);
-
-    case "lazy": {
-      // Track the lazy schema itself: its getter returns a fresh instance each call,
-      // but the recursive reference reuses the same lazy node.
-      if (seen.has(schema)) return leaf("any");
-      seen.add(schema);
-      const info = inferField((def.getter as () => z.ZodType)(), seen);
-      seen.delete(schema);
-      return info;
-    }
-
-    case "object": {
-      const shape = def.shape as Record<string, z.ZodType>;
-      const fields = objectFieldsRegistry.get(schema); // SField shape if built via s.object
-      const catchall = def.catchall as z.ZodType | undefined;
-      const flexible = !!catchall && zdef(catchall).type === "unknown";
-      const children = Object.entries(shape).map(([key, value]) => ({
-        suffix: `.${escapeIdent(key)}`,
-        info: inferField(value, seen),
-        surreal: fields?.[key]?.surreal,
-      }));
-      return { type: "object", flexible, children };
-    }
-
-    case "intersection": {
-      const left = inferField(def.left as z.ZodType, seen);
-      const right = inferField(def.right as z.ZodType, seen);
-      if (left.type === "object" && right.type === "object") {
-        const merged = new Map(left.children.map((c) => [c.suffix, c]));
-        for (const c of right.children) merged.set(c.suffix, c); // right wins on overlap
-        return {
-          type: "object",
-          flexible: left.flexible || right.flexible,
-          children: [...merged.values()],
-        };
-      }
-      return leaf("any");
-    }
-
-    case "array":
-    case "set": {
-      const elem = inferField(
-        (def.element ?? def.valueType) as z.ZodType,
-        seen,
-      );
-      // A FLEXIBLE element bubbles to the ARRAY field — SurrealDB stores `array<object> FLEXIBLE`
-      // on the field, with the auto-created `.*` element a plain `object` (re-defining `.*` errors).
-      // So the child keeps the element's structure but drops its `flexible` (it lives on the parent).
-      const childElem = elem.flexible ? { ...elem, flexible: false } : elem;
-      // Element subfields live under `path.*`, but only when the element is structured.
-      const children =
-        childElem.children.length > 0 || childElem.type === "object"
-          ? [{ suffix: ".*", info: childElem }]
-          : [];
-      // `set<T>` is distinct from `array<T>` in SurrealDB (dedup) and round-trips — preserve it.
-      const kw = def.type === "set" ? "set" : "array";
-      // `array<T, N>` / `set<T, N>` — N is an EXACT size in SurrealQL (not a maximum), so it maps ONLY
-      // from Zod's exact-size check: `.length(N)` / `.$length(N)` (`length_equals`) on arrays,
-      // `.size(N)` / `.$size(N)` (`size_equals`) on sets. A `.max()` bound is a DB ASSERT
-      // (`array::len($value) <= N`), never a type size.
-      const size = exactSizeOf(def, kw);
-      const sizeSql = typeof size === "number" ? `, ${size}` : "";
-      return {
-        type: `${kw}<${elem.type}${sizeSql}>`,
-        flexible: elem.flexible,
-        children,
-      };
-    }
-
-    case "record":
-    case "map": {
-      const value = inferField(def.valueType as z.ZodType, seen);
-      return {
-        type: "object",
-        flexible: false,
-        children: [{ suffix: ".*", info: value }],
-      };
-    }
-
-    case "union": {
-      const opts = (def.options ?? []) as z.ZodType[];
-      // A `none`-ish member (z.undefined()/z.void()) makes the union optional: `T | none` -> `option<T>`.
-      const noneish = (o: z.ZodType) => {
-        const t = zdef(o).type;
-        return t === "undefined" || t === "void";
-      };
-      let hasNone = opts.some(noneish);
-      const members = opts
-        .filter((o) => !noneish(o))
-        .map((o) => inferField(o, seen));
-      // Flatten every member's type into top-level ATOMS, hoisting `option<…>` onto the union:
-      // SurrealDB canonicalizes `option<X> | Y` to `none | X | Y` (== `option<X | Y>`), and a
-      // member that is itself a union (`X | null`) contributes its members — e.g.
-      // `s.union([s.string().optional(), s.string().nullable()])` -> `option<string | null>`,
-      // exactly what `normalizeType`/`fromInfo` produce (duplicates would phantom-diff).
-      const atoms: string[] = [];
-      for (const m of members) {
-        const opt = /^option<([\s\S]+)>$/.exec(m.type);
-        let body = m.type;
-        if (opt) {
-          hasNone = true;
-          body = opt[1];
-        }
-        for (const atom of splitTopUnion(body)) if (atom) atoms.push(atom);
-      }
-      const types = [...new Set(atoms)];
-      // A union whose type contains an object carries FLEXIBLE on the field (e.g. `object | string
-      // FLEXIBLE`) when any object member was made flexible.
-      const flexible = members.some((m) => m.flexible);
-      // `any` absorbs every other member (including none) — `any | string` is invalid → `any`.
-      if (types.includes("any")) return leaf("any");
-      const joined = types.join(" | ") || "any";
-      const type = hasNone && joined !== "any" ? `option<${joined}>` : joined;
-      return { type, flexible, children: [] };
-    }
-    case "enum": {
-      const entries = (def.entries ?? {}) as Record<string, string | number>;
-      // Drop TS numeric-enum reverse mappings (name->number); keep the real values.
-      const values = Object.values(entries).filter(
-        (v) => typeof entries[v as string] !== "number",
-      );
-      const types = [...new Set(values.map(surqlLiteral))];
-      return leaf(types.join(" | ") || "any");
-    }
-    case "literal": {
-      const values = (def.values ?? []) as unknown[];
-      const types = [...new Set(values.map(surqlLiteral))];
-      return leaf(types.join(" | ") || "any");
-    }
-    case "tuple": {
-      if (def.rest) return leaf("array"); // variadic tuple -> generic array
-      const items = (def.items ?? []) as z.ZodType[];
-      return leaf(`[${items.map((i) => inferField(i, seen).type).join(", ")}]`);
-    }
-
-    default:
-      return leaf("any");
-  }
 }
 
 /** DDL generation options. `exists: "overwrite"` -> OVERWRITE; "ignore" -> IF NOT EXISTS. */

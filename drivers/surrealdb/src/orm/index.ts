@@ -19,16 +19,18 @@
  * lands milestone by milestone; see `PLANO-QUERYS-TIPADAS.md`.
  */
 export {
-  type BetterSchemicAuth,
   type BetterSchemicOptions,
   betterSchemic,
   type Client,
   ClientRuntime,
+  type SchemaArg,
+} from "./client";
+export {
+  type BetterSchemicAuth,
   type CreateBetterSchemicOptions,
   clientFromConfig,
   createBetterSchemic,
-  type SchemaArg,
-} from "./client";
+} from "./connect";
 export {
   createDelegate,
   type Delegate,
@@ -57,6 +59,19 @@ export {
   type Queryable,
   type Statement,
 } from "./execute";
+export type {
+  ColumnMeta,
+  EdgeRef,
+  FieldFamily,
+  FunctionMeta,
+  LinkMeta,
+  ModelMeta,
+  RecordLinkMeta,
+  RelationEndpoints,
+  SchemaIndex,
+  SchemalessMeta,
+  TableMeta,
+} from "./meta";
 export {
   attachThrow,
   type BatchResult,
@@ -65,22 +80,7 @@ export {
   statementResult,
   type ThrowingResult,
 } from "./results";
-export {
-  buildSchemaIndex,
-  type ColumnMeta,
-  classifyWireType,
-  defineSchema,
-  type EdgeRef,
-  type FieldFamily,
-  type FunctionMeta,
-  isSchemaDef,
-  type LinkMeta,
-  type RecordLinkMeta,
-  type RelationEndpoints,
-  type SchemaIndex,
-  type SchemalessMeta,
-  type TableMeta,
-} from "./schema";
+export { buildSchemaIndex, defineSchema, isSchemaDef } from "./schema";
 export type {
   AnyFunctionDef,
   AnyRelationDef,

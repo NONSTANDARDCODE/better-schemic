@@ -32,6 +32,15 @@
 > Nota do M0.3: a normalização cobre `ServerError` por `kind`/details + heurística de mensagem,
 > `ZodError`, `Error` comum e throwables não-Error.
 > Nota do M0.5: o corte do legado REMOVEU o builder fluente, `/client` e `@better-schemic/core/query`
+> Nota da review termonuclear (pós-M0, pré-M1): aplicados P0+P1 — (1) `/orm` deixou de importar o
+> engine (`connect` movido para `src/connect.ts` e o `registerDriver` para o barrel `/driver`);
+> (2) o walker de campos virou `src/wire.ts` com classificação estruturada (`family`/`optional`/
+> `record.targets`), deletando o parser de type-string do ORM; (3) `SchemaIndex` sem genérico/casts,
+> marca única, executor sem offsets, guarda de nome reservado única, exports mortos removidos.
+> Bundle do `/orm` verificado: 0 módulos do engine.
+> P2 (mesma review): camada `/orm` decomposta — `meta.ts` (tipos de metadados), `schema.ts`
+> (construção/validação), `client.ts` (runtime + BYO), `connect.ts` (boot gerenciado) e
+> `test/orm-fixtures.ts` (fixtures compartilhadas).
 > Nota do M0.4 (verificado ao vivo): batch **sem** transação NÃO é atômico (cada statement é
 > independente); `BEGIN/COMMIT` é atômico em 1 round-trip e, ao falhar, remarca os statements
 > anteriores como `NotExecuted` — o executor escolhe a falha raiz, não o artefato. Detalhes no

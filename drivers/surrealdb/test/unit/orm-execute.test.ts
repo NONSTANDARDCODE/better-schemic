@@ -2,45 +2,10 @@
 // implicit BEGIN/COMMIT for batches, first-failure attribution (statementIndex/surql/vars) and the
 // unique-binds guardrail. All offline — the "connection" is a recording fake.
 import { describe, expect, test } from "bun:test";
-import { AlreadyExistsError, type QueryResponse, ServerError } from "surrealdb";
+import { AlreadyExistsError, ServerError } from "surrealdb";
 import { isBetterSchemicError } from "../../src/orm/errors";
 import { execute, type Queryable } from "../../src/orm/execute";
-
-/** A successful response (`type` is required by the SDK union). */
-const ok = (result: unknown): QueryResponse<unknown> => ({
-  success: true,
-  result,
-  type: "other",
-});
-
-/** A failed response carrying a real SDK error. */
-const fail = (error: ServerError): QueryResponse<unknown> => ({
-  success: false,
-  error,
-});
-
-const lines = (sql: string): string[] => sql.split("\n");
-
-/** A fake connection that records every `query()` call and answers line-by-line. */
-function fakeConn(
-  handler: (
-    sql: string,
-    vars?: Record<string, unknown>,
-  ) => QueryResponse<unknown>[],
-) {
-  const calls: { sql: string; vars?: Record<string, unknown> }[] = [];
-  const conn = {
-    query(sql: string, vars?: Record<string, unknown>) {
-      calls.push({ sql, vars });
-      return { responses: async () => handler(sql, vars) };
-    },
-  };
-  return { conn: conn as unknown as Queryable, calls };
-}
-
-/** Answer every line with `ok(line)` (control statements included). */
-const echoLines = (sql: string): QueryResponse<unknown>[] =>
-  lines(sql).map((line) => ok(line));
+import { echoLines, fail, fakeConn, lines, ok } from "../orm-fixtures";
 
 describe("execute — one round-trip, order preserved", () => {
   test("N statements run in a single query call", async () => {

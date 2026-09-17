@@ -99,16 +99,12 @@ export async function execute<T = unknown>(
 
   const wrapping =
     options.transactional === true && options.inTransaction !== true;
-
-  // Assemble the script, remembering where each USER statement landed.
-  const parts: string[] = [];
-  if (wrapping) parts.push("BEGIN TRANSACTION;");
-  const offsets: number[] = [];
-  for (const statement of statements) {
-    offsets.push(parts.length);
-    parts.push(terminate(statement.sql));
-  }
-  if (wrapping) parts.push("COMMIT TRANSACTION;");
+  // The control statements flank the batch, so each user statement sits at `offset + i`.
+  const offset = wrapping ? 1 : 0;
+  const body = statements.map((statement) => terminate(statement.sql));
+  const parts = wrapping
+    ? ["BEGIN TRANSACTION;", ...body, "COMMIT TRANSACTION;"]
+    : body;
 
   const vars = mergeVars(statements);
   const script = parts.join("\n");
@@ -137,26 +133,15 @@ export async function execute<T = unknown>(
       { operation: options.operation, table: options.table, surql: script },
     );
 
-  const responses = statements.map((statement, i) => {
-    const response = raw[offsets[i]];
-    if (!response)
-      throw new BetterSchemicError(
-        "DatabaseError",
-        `missing response for statement ${i} (${raw.length} responses for ${parts.length} statements).`,
-        {
-          operation: options.operation,
-          table: options.table,
-          statementIndex: i,
-        },
-      );
-    return statementResult<T>(response as QueryResponse<T>, {
+  const responses = statements.map((statement, i) =>
+    statementResult<T>(raw[offset + i] as QueryResponse<T>, {
       operation: options.operation,
       table: options.table,
       statementIndex: i,
       surql: statement.sql,
       vars: options.debug ? statement.vars : undefined,
-    });
-  });
+    }),
+  );
 
   if (options.throwOnError !== false) {
     // In an aborted transaction the server marks the OTHER statements as "not executed due to a

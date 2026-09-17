@@ -42,7 +42,10 @@ export type SchemaEntry = AnyTableDef | AnyFunctionDef | string;
 /** The authored schema object shape. */
 export type SchemaInput = Record<string, SchemaEntry>;
 
-declare const SCHEMA_BRAND: unique symbol;
+/** Runtime brand distinguishing a `defineSchema` artifact from a plain `{ key: def }` literal. */
+export const SCHEMA_DEF: unique symbol = Symbol.for(
+  "@better-schemic/surrealdb.schema",
+);
 
 /**
  * A branded schema artifact (the return of `defineSchema`) — carries its entries for inference.
@@ -51,7 +54,7 @@ declare const SCHEMA_BRAND: unique symbol;
  * constraint is enforced at {@link SchemaInput} consumers instead, e.g. `defineSchema`).
  */
 export interface SchemaDef<S = SchemaInput> {
-  readonly [SCHEMA_BRAND]: S;
+  readonly [SCHEMA_DEF]: true;
   readonly entries: S;
 }
 
@@ -93,22 +96,22 @@ export type FunctionKeys<S> = {
 export type ModelKeys<S> = TableKeys<S> | SchemalessKeys<S>;
 
 /** The table/edge def at `K` (`never` for non-table keys). */
-export type TableAt<S, K extends PropertyKey> = Extract<
-  EntriesOf<S>[K & keyof EntriesOf<S>],
+export type TableAt<S, K extends keyof EntriesOf<S>> = Extract<
+  EntriesOf<S>[K],
   AnyTableDef
 >;
 
 /** The DECODED row type of the table at `K` (`App<TD>`) — what reads resolve to. */
-export type AppAt<S, K extends PropertyKey> = App<TableAt<S, K>>;
+export type AppAt<S, K extends keyof EntriesOf<S>> = App<TableAt<S, K>>;
 
 /** The relation def at `K` (`never` for non-relation keys). */
-export type RelationAt<S, K extends PropertyKey> = Extract<
-  EntriesOf<S>[K & keyof EntriesOf<S>],
+export type RelationAt<S, K extends keyof EntriesOf<S>> = Extract<
+  EntriesOf<S>[K],
   AnyRelationDef
 >;
 
 /** The function def at `K` (`never` for non-function keys). */
-export type FunctionAt<S, K extends PropertyKey> = Extract<
-  EntriesOf<S>[K & keyof EntriesOf<S>],
+export type FunctionAt<S, K extends keyof EntriesOf<S>> = Extract<
+  EntriesOf<S>[K],
   AnyFunctionDef
 >;

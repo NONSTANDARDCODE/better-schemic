@@ -10,19 +10,13 @@ import type {
   ApplyOptions,
   ConnectionOverrides as CfgOverrides,
   ConnectionOverrides,
-  Definable,
-  Diff,
   Driver,
-  Filter,
   MigrationRecord,
   MigrationStore,
-  PortableObject,
-  PullPlan,
   RenderedUnit,
   ResolvedConfig,
   ShadowCapability,
 } from "@better-schemic/core";
-import { registerDriver } from "@better-schemic/core";
 import { escapeIdent, type Surreal } from "surrealdb";
 import {
   connectEmbedded,
@@ -41,11 +35,11 @@ import { planPull, renderPerFile, renderSchemaToTS } from "../cli/pull";
 import { initScaffold, scaffoldEntity } from "../cli/scaffold";
 import { normalizeDb } from "../cli/struct";
 import type { DbStructured } from "../cli/structure";
-import { connect as surrealConnect } from "../cli/surreal-connect";
 import { fmtDiff, renderMigration } from "../cli/surreal-diff";
 import { filterStructured } from "../cli/surreal-filter";
 import { surrealCommands } from "../commands";
 import type { SurrealParams } from "../config";
+import { connect as surrealConnect } from "../connect";
 import {
   explodeSchema,
   fromStructured,
@@ -387,5 +381,3 @@ export const surrealDriver: Driver<
     }
   },
 };
-
-registerDriver(surrealDriver as Driver<unknown>);

@@ -12,7 +12,8 @@ import {
   surrealBinaryAvailable,
 } from "../../src/cli/engine";
 import { defineTable, s } from "../../src/index";
-import { betterSchemic, createBetterSchemic } from "../../src/orm/client";
+import { betterSchemic } from "../../src/orm/client";
+import { createBetterSchemic } from "../../src/orm/connect";
 import { defineSchema } from "../../src/orm/schema";
 
 const ENABLED = surrealBinaryAvailable();

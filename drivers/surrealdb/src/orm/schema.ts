@@ -4,12 +4,23 @@
  *
  * Built once per schema object (WeakMap-cached) and validated fail-fast, so a bad schema module
  * throws a teaching `SchemaInvalid` at import time instead of failing at the first query. The
- * column metadata is derived from `inferField` (the DDL emitter's own walker), so the ORM can never
- * disagree with the schema engine about a field's SurrealQL wire type.
+ * column metadata is PROJECTED from `inferField` (the shared field walker in `../wire`), so the ORM
+ * cannot disagree with the DDL emitter about a field's type, family, optionality or link targets.
  */
 import type { z } from "zod";
-import { inferField } from "../ddl";
+import { type FieldInfo, inferField } from "../wire";
 import { BetterSchemicError } from "./errors";
+import type {
+  ColumnMeta,
+  EdgeRef,
+  FunctionMeta,
+  LinkMeta,
+  ModelMeta,
+  RecordLinkMeta,
+  SchemaIndex,
+  SchemalessMeta,
+  TableMeta,
+} from "./meta";
 import type {
   AnyFunctionDef,
   AnyRelationDef,
@@ -17,128 +28,9 @@ import type {
   SchemaDef,
   SchemaInput,
 } from "./types/schema";
-
-// --- metadata types ------------------------------------------------------------------------------
-
-/** The operator family a column belongs to — drives `where` typing and identifier validation. */
-export type FieldFamily =
-  | "string"
-  | "number"
-  | "bool"
-  | "date"
-  | "duration"
-  | "bytes"
-  | "record"
-  | "geometry"
-  | "object"
-  | "array"
-  | "set"
-  | "any"
-  | "other";
-
-/** Record-link metadata of a column (itself, or its array/set element). */
-export interface RecordLinkMeta {
-  /** Target table names (`undefined` = a bare `record`, i.e. any table). */
-  readonly targets?: readonly string[];
-  /** True when the link lives inside an `array<…>`/`set<…>`. */
-  readonly list: boolean;
-  readonly optional: boolean;
-}
-
-/** One public column of a table/edge — wire type + family + link metadata, no Zod leaking out. */
-export interface ColumnMeta {
-  readonly name: string;
-  /** The SurrealQL wire type, exactly as `inferField` (the DDL emitter) reports it. */
-  readonly type: string;
-  readonly family: FieldFamily;
-  readonly optional: boolean;
-  /** Array/set element family (only for `array`/`set`). */
-  readonly element?: FieldFamily;
-  /** Present when the column is (or contains) a record link. */
-  readonly record?: RecordLinkMeta;
-}
-
-/** A record-link column, ready for `include`/`where` relational lowering. */
-export interface LinkMeta {
-  readonly field: string;
-  /** Target table names (`undefined` = any table). */
-  readonly targets?: readonly string[];
-  readonly cardinality: "one" | "many";
-  readonly optional: boolean;
-}
-
-/** A graph edge adjacent to a table, as seen from that table. */
-export interface EdgeRef {
-  readonly key: string;
-  readonly name: string;
-  readonly def: AnyRelationDef;
-}
-
-/** A relation's declared endpoints (physical names) + whether RELATE enforces them. */
-export interface RelationEndpoints {
-  readonly from: readonly string[];
-  readonly to: readonly string[];
-  readonly enforced: boolean;
-}
-
-/** Runtime metadata for one typed table/edge. */
-export interface TableMeta {
-  /** The schema key (`client.<key>`). */
-  readonly key: string;
-  /** The physical table name. */
-  readonly name: string;
-  readonly kind: "table" | "relation";
-  readonly def: AnyTableDef;
-  /** A singleton's fixed record-id key, when declared via `defineSingleton`. */
-  readonly singletonId?: string;
-  /** Public columns (internal `$internal()` fields are excluded). */
-  readonly columns: ReadonlyMap<string, ColumnMeta>;
-  /** The subset of `columns` that are record links (single or array). */
-  readonly links: ReadonlyMap<string, LinkMeta>;
-  /** Edges whose `FROM` includes this table. */
-  readonly outgoing: readonly EdgeRef[];
-  /** Edges whose `TO` includes this table. */
-  readonly incoming: readonly EdgeRef[];
-  /** Only for `kind: "relation"`. */
-  readonly endpoints?: RelationEndpoints;
-}
-
-/** Runtime metadata for a `string` schema entry (a schemaless table). */
-export interface SchemalessMeta {
-  readonly key: string;
-  readonly name: string;
-  readonly schemaless: true;
-}
-
-/** Runtime metadata for a `FunctionDef` schema entry. */
-export interface FunctionMeta {
-  readonly key: string;
-  /** The bare function name (`fn::<name>` when called). */
-  readonly name: string;
-  readonly def: AnyFunctionDef;
-  readonly args: ReadonlyMap<string, ColumnMeta>;
-  readonly returns?: ColumnMeta;
-}
-
-/** The complete, validated metadata pass over a schema. */
-export interface SchemaIndex<S extends SchemaInput = SchemaInput> {
-  readonly schema: SchemaDef<S>;
-  /** Typed tables/edges by schema key. */
-  readonly tables: ReadonlyMap<string, TableMeta>;
-  /** Schemaless entries by schema key. */
-  readonly schemaless: ReadonlyMap<string, SchemalessMeta>;
-  /** Typed + schemaless entries by PHYSICAL name (for `repository(name)` / endpoint checks). */
-  readonly byName: ReadonlyMap<string, TableMeta | SchemalessMeta>;
-  /** User-defined functions by schema key. */
-  readonly functions: ReadonlyMap<string, FunctionMeta>;
-}
+import { SCHEMA_DEF } from "./types/schema";
 
 // --- schema branding / construction --------------------------------------------------------------
-
-/** Runtime brand distinguishing a `defineSchema` artifact from a plain literal. */
-const SCHEMA_DEF: unique symbol = Symbol.for(
-  "@better-schemic/surrealdb.schema",
-);
 
 /** Built-index cache — a schema is walked once, no matter how many clients read it. */
 const INDEX_CACHE = new WeakMap<object, SchemaIndex>();
@@ -164,10 +56,7 @@ export function isSchemaDef(v: unknown): v is SchemaDef {
 export function defineSchema<const S extends SchemaInput>(
   entries: S,
 ): SchemaDef<S> {
-  const schema = {
-    [SCHEMA_DEF]: true,
-    entries,
-  } as unknown as SchemaDef<S>;
+  const schema: SchemaDef<S> = { [SCHEMA_DEF]: true, entries };
   buildSchemaIndex(schema);
   return schema;
 }
@@ -176,21 +65,12 @@ export function defineSchema<const S extends SchemaInput>(
  * Build (or return the cached) {@link SchemaIndex} for a schema — accepts a `defineSchema` artifact
  * OR a plain `{ key: def }` literal (both are supported; the brand just adds eager validation).
  */
-export function buildSchemaIndex<S extends SchemaInput>(
-  input: SchemaDef<S> | S,
-): SchemaIndex<S> {
-  const schema: SchemaDef<S> = isSchemaDef(input)
-    ? (input as SchemaDef<S>)
-    : ({
-        [SCHEMA_DEF]: true,
-        entries: input,
-      } as unknown as SchemaDef<S>);
+export function buildSchemaIndex(input: SchemaDef | SchemaInput): SchemaIndex {
+  const cached = INDEX_CACHE.get(input);
+  if (cached) return cached;
 
-  const cached = INDEX_CACHE.get(schema);
-  if (cached) return cached as unknown as SchemaIndex<S>;
-
-  const index = build(schema);
-  INDEX_CACHE.set(schema, index as SchemaIndex);
+  const index = build(isSchemaDef(input) ? input.entries : input);
+  INDEX_CACHE.set(input, index);
   return index;
 }
 
@@ -233,217 +113,7 @@ function isFunctionDefLike(v: unknown): v is AnyFunctionDef {
 }
 
 function isRelationLike(def: AnyTableDef): def is AnyRelationDef {
-  return isObject((def.config as { relation?: unknown }).relation);
-}
-
-// --- SurrealQL type-string classification --------------------------------------------------------
-
-/** Split on `sep` at top level only — respecting `<…>`/`[…]` depth and quoted literals. */
-function splitTopLevel(input: string, sep: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let quote: string | undefined;
-  let start = 0;
-  for (let i = 0; i < input.length; i++) {
-    const ch = input[i];
-    if (quote) {
-      if (ch === quote && input[i - 1] !== "\\") quote = undefined;
-      continue;
-    }
-    if (ch === "'" || ch === '"') quote = ch;
-    else if (ch === "<" || ch === "[") depth++;
-    else if (ch === ">" || ch === "]") depth--;
-    else if (ch === sep && depth === 0) {
-      parts.push(input.slice(start, i));
-      start = i + 1;
-    }
-  }
-  parts.push(input.slice(start));
-  return parts;
-}
-
-/** Is the inside of a wrapper balanced (no dangling `>` at this level)? */
-function isBalanced(inner: string): boolean {
-  let depth = 0;
-  let quote: string | undefined;
-  for (let i = 0; i < inner.length; i++) {
-    const ch = inner[i];
-    if (quote) {
-      if (ch === quote && inner[i - 1] !== "\\") quote = undefined;
-      continue;
-    }
-    if (ch === "'" || ch === '"') quote = ch;
-    else if (ch === "<" || ch === "[") depth++;
-    else if (ch === ">" || ch === "]") {
-      depth--;
-      if (depth < 0) return false;
-    }
-  }
-  return depth === 0;
-}
-
-/** The content of `kw<…>` when it wraps the WHOLE type, else `undefined`. */
-function unwrapType(type: string, kw: string): string | undefined {
-  const prefix = `${kw}<`;
-  if (!type.startsWith(prefix) || !type.endsWith(">")) return undefined;
-  const inner = type.slice(prefix.length, -1);
-  return isBalanced(inner) ? inner : undefined;
-}
-
-const GEOMETRY_TYPES = new Set([
-  "geometry",
-  "point",
-  "line",
-  "polygon",
-  "multipoint",
-  "multiline",
-  "multipolygon",
-  "collection",
-]);
-
-interface ClassifiedType {
-  readonly family: FieldFamily;
-  readonly optional: boolean;
-  readonly element?: FieldFamily;
-  readonly record?: RecordLinkMeta;
-}
-
-/** Classify one SurrealQL atom (no union/null/option wrappers at this level). */
-function classifyAtom(atom: string): ClassifiedType {
-  if (atom === "string" || atom === "uuid")
-    return { family: "string", optional: false };
-  if (
-    atom === "int" ||
-    atom === "float" ||
-    atom === "number" ||
-    atom === "decimal"
-  )
-    return { family: "number", optional: false };
-  if (atom === "bool") return { family: "bool", optional: false };
-  if (atom === "datetime") return { family: "date", optional: false };
-  if (atom === "duration") return { family: "duration", optional: false };
-  if (atom === "bytes") return { family: "bytes", optional: false };
-  if (atom === "object") return { family: "object", optional: false };
-  if (atom === "any") return { family: "any", optional: false };
-  if (GEOMETRY_TYPES.has(atom)) return { family: "geometry", optional: false };
-  if (atom === "record")
-    return {
-      family: "record",
-      optional: false,
-      record: { list: false, optional: false },
-    };
-  if (/^'[\s\S]*'$/.test(atom) || /^"[\s\S]*"$/.test(atom))
-    return { family: "string", optional: false };
-  if (/^-?\d+(?:\.\d+)?$/.test(atom))
-    return { family: "number", optional: false };
-  if (atom === "true" || atom === "false")
-    return { family: "bool", optional: false };
-  return { family: "other", optional: false };
-}
-
-/** Classify a full `inferField` type string (`option<array<record<user>>>`, `'a' | 'b'`, …). */
-export function classifyWireType(type: string): ClassifiedType {
-  let optional = false;
-  let cur = type.trim();
-
-  const optInner = unwrapType(cur, "option");
-  if (optInner !== undefined) {
-    optional = true;
-    cur = optInner.trim();
-  }
-
-  const atoms = splitTopLevel(cur, "|")
-    .map((a) => a.trim())
-    .filter(Boolean);
-
-  if (atoms.length > 1) {
-    const nonNull = atoms.filter((a) => a !== "null");
-    if (nonNull.length !== atoms.length) optional = true;
-    if (nonNull.length === 0) return { family: "other", optional };
-    if (nonNull.length === 1) cur = nonNull[0];
-    else {
-      const classified = nonNull.map(classifyAtomOrWrapper);
-      const families = new Set(classified.map((c) => c.family));
-      const atomOptional = classified.some((c) => c.optional);
-      const merged = optional || atomOptional;
-      if (families.size === 1) {
-        const family = classified[0].family;
-        if (family === "record") {
-          const targets = mergeTargets(classified.map((c) => c.record));
-          return {
-            family,
-            optional: merged,
-            record: {
-              ...(targets ? { targets } : {}),
-              list: false,
-              optional: merged,
-            },
-          };
-        }
-        return { family, optional: merged };
-      }
-      return { family: "other", optional: merged };
-    }
-  }
-
-  const leaf = classifyAtomOrWrapper(cur);
-  const merged = optional || leaf.optional;
-  return {
-    family: leaf.family,
-    optional: merged,
-    ...(leaf.element ? { element: leaf.element } : {}),
-    ...(leaf.record ? { record: { ...leaf.record, optional: merged } } : {}),
-  };
-}
-
-/** Classify an atom that may itself be a wrapper (`record<…>` / `array<…>` / `set<…>` / `geometry<…>`). */
-function classifyAtomOrWrapper(atom: string): ClassifiedType {
-  const recInner = unwrapType(atom, "record");
-  if (recInner !== undefined) {
-    const targets = splitTopLevel(recInner, "|")
-      .map((t) => t.trim())
-      .filter(Boolean);
-    return {
-      family: "record",
-      optional: false,
-      record: {
-        ...(targets.length ? { targets } : {}),
-        list: false,
-        optional: false,
-      },
-    };
-  }
-
-  for (const kw of ["array", "set"] as const) {
-    const inner = unwrapType(atom, kw);
-    if (inner === undefined) continue;
-    // `array<T, N>` — N is an exact size; classify the element only.
-    const elemType = splitTopLevel(inner, ",")[0].trim();
-    const elem = classifyWireType(elemType);
-    return {
-      family: kw,
-      optional: false,
-      element: elem.family,
-      ...(elem.record ? { record: { ...elem.record, list: true } } : {}),
-    };
-  }
-
-  const geoInner = unwrapType(atom, "geometry");
-  if (geoInner !== undefined) return { family: "geometry", optional: false };
-
-  if (atom.startsWith("[")) return { family: "other", optional: false };
-
-  return classifyAtom(atom);
-}
-
-function mergeTargets(
-  links: (RecordLinkMeta | undefined)[],
-): string[] | undefined {
-  const present = links.filter(
-    (l): l is RecordLinkMeta => l?.targets !== undefined,
-  );
-  if (present.length !== links.length) return undefined; // any bare `record` -> any table
-  return [...new Set(present.flatMap((l) => l.targets ?? []))];
+  return def.config.relation !== undefined;
 }
 
 // --- index construction --------------------------------------------------------------------------
@@ -460,23 +130,29 @@ function invalid(
 }
 
 function columnMeta(name: string, field: unknown, table: string): ColumnMeta {
-  let wireType: string;
+  let info: FieldInfo;
   try {
-    wireType = inferField(schemaOf(field)).type;
+    info = inferField(schemaOf(field));
   } catch (e) {
     throw invalid(
       `field "${name}" of "${table}" has no SurrealQL type — ${(e as Error).message}`,
       { table, field: name, cause: e },
     );
   }
-  const classified = classifyWireType(wireType);
+  const record: RecordLinkMeta | undefined = info.record
+    ? {
+        ...(info.record.targets ? { targets: info.record.targets } : {}),
+        list: info.family === "array" || info.family === "set",
+        optional: info.optional,
+      }
+    : undefined;
   return {
     name,
-    type: wireType,
-    family: classified.family,
-    optional: classified.optional,
-    ...(classified.element ? { element: classified.element } : {}),
-    ...(classified.record ? { record: classified.record } : {}),
+    type: info.type,
+    family: info.family,
+    optional: info.optional,
+    ...(info.element ? { element: info.element } : {}),
+    ...(record ? { record } : {}),
   };
 }
 
@@ -500,13 +176,7 @@ function tableMeta(
       });
   }
 
-  const relation = isRelationLike(def)
-    ? (
-        def.config as {
-          relation?: { from?: string[]; to?: string[]; enforced?: boolean };
-        }
-      ).relation
-    : undefined;
+  const relation = isRelationLike(def) ? def.config.relation : undefined;
 
   return {
     key,
@@ -546,12 +216,10 @@ function functionMeta(key: string, def: AnyFunctionDef): FunctionMeta {
   };
 }
 
-const isSchemalessMeta = (
-  meta: TableMeta | SchemalessMeta,
-): meta is SchemalessMeta => "schemaless" in meta && meta.schemaless === true;
+const isSchemalessMeta = (meta: ModelMeta): meta is SchemalessMeta =>
+  "schemaless" in meta && meta.schemaless === true;
 
-function build<S extends SchemaInput>(schema: SchemaDef<S>): SchemaIndex<S> {
-  const entries = schema.entries;
+function build(entries: SchemaInput): SchemaIndex {
   if (!isObject(entries))
     throw invalid("the schema must be an object of defs and schemaless names.");
 
@@ -632,11 +300,7 @@ function build<S extends SchemaInput>(schema: SchemaDef<S>): SchemaIndex<S> {
 
   for (const { key, def } of relationDefs) {
     const edge: EdgeRef = { key, name: def.name, def };
-    const relation = (
-      def.config as {
-        relation?: { from?: string[]; to?: string[]; enforced?: boolean };
-      }
-    ).relation;
+    const relation = def.config.relation;
     for (const [dir, endpoints] of [
       ["from", relation?.from ?? []],
       ["to", relation?.to ?? []],
@@ -675,11 +339,5 @@ function build<S extends SchemaInput>(schema: SchemaDef<S>): SchemaIndex<S> {
     byName.set(def.name, meta);
   }
 
-  return {
-    schema,
-    tables,
-    schemaless,
-    byName,
-    functions,
-  };
+  return { tables, schemaless, byName, functions };
 }

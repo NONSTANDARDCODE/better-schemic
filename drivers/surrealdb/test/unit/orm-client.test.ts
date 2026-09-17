@@ -5,7 +5,6 @@ import { describe, expect, test } from "bun:test";
 import { betterSchemic, type Client } from "../../src/orm/client";
 import type { Delegate } from "../../src/orm/delegate";
 import { BetterSchemicError, isBetterSchemicError } from "../../src/orm/errors";
-import type { Queryable } from "../../src/orm/execute";
 import { defineSchema } from "../../src/orm/schema";
 import {
   defineFunction,
@@ -14,6 +13,7 @@ import {
   defineTable,
   s,
 } from "../../src/pure";
+import { fakeConn } from "../orm-fixtures";
 
 const User = defineTable("user", { name: s.string(), age: s.int() });
 const Post = defineTable("post", {
@@ -33,24 +33,8 @@ const schema = defineSchema({
   audit: "audit_log",
 });
 
-type FakeConn = Queryable & { closeCalls: number; closed: boolean };
-
-function fakeConn(): FakeConn {
-  const conn = {
-    closeCalls: 0,
-    closed: false,
-    query: () => ({ responses: async () => [] }),
-    close() {
-      conn.closeCalls++;
-      conn.closed = true;
-      return Promise.resolve();
-    },
-  };
-  return conn as unknown as FakeConn;
-}
-
 describe("betterSchemic — delegates and lookup", () => {
-  const conn = fakeConn();
+  const { conn } = fakeConn();
   const client = betterSchemic(conn, { schema });
 
   test("every schema key with a table/relation/schemaless entry gets a delegate", () => {
@@ -119,7 +103,7 @@ describe("betterSchemic — delegates and lookup", () => {
   });
 
   test("a plain literal schema (unbranded) works too", () => {
-    const literal = betterSchemic(fakeConn(), { schema: { users: User } });
+    const literal = betterSchemic(fakeConn().conn, { schema: { users: User } });
     expect(literal.users.$model.name).toBe("user");
     expect(literal.tables).toEqual(["users"]);
   });
@@ -136,7 +120,7 @@ describe("betterSchemic — reserved keys fail fast", () => {
     const T = defineTable("t", { x: s.string() });
     const err = (() => {
       try {
-        betterSchemic(fakeConn(), { schema: { [key]: T } as never });
+        betterSchemic(fakeConn().conn, { schema: { [key]: T } as never });
         return undefined;
       } catch (e) {
         return e;
@@ -161,7 +145,7 @@ describe("betterSchemic — reserved keys fail fast", () => {
 
 describe("betterSchemic — extends", () => {
   test("attaches helpers and returns them typed", () => {
-    const client = betterSchemic(fakeConn(), { schema });
+    const client = betterSchemic(fakeConn().conn, { schema });
     const extended = client.extends({
       hello: () => "hi",
     });
@@ -170,7 +154,7 @@ describe("betterSchemic — extends", () => {
   });
 
   test("a factory receives the client", () => {
-    const client = betterSchemic(fakeConn(), { schema });
+    const client = betterSchemic(fakeConn().conn, { schema });
     const extended = client.extends((db) => ({
       countModels: () => db.tables.length,
     }));
@@ -178,7 +162,7 @@ describe("betterSchemic — extends", () => {
   });
 
   test("collisions (existing member, reserved name, or a prior helper) throw PluginError", () => {
-    const client = betterSchemic(fakeConn(), { schema });
+    const client = betterSchemic(fakeConn().conn, { schema });
     const err = (() => {
       try {
         client.extends({ close: () => {} });
@@ -197,7 +181,7 @@ describe("betterSchemic — extends", () => {
 
 describe("lifecycle", () => {
   test("BYO close() is a NO-OP (never close the user's connection)", async () => {
-    const conn = fakeConn();
+    const { conn } = fakeConn();
     const client = betterSchemic(conn, { schema });
     await client.close();
     expect(conn.closeCalls).toBe(0);
@@ -205,7 +189,7 @@ describe("lifecycle", () => {
   });
 
   test("forkSession() without an SDK connection is UnsupportedCapability", async () => {
-    const client = betterSchemic(fakeConn(), { schema });
+    const client = betterSchemic(fakeConn().conn, { schema });
     const err = (await client
       .forkSession()
       .catch((e: unknown) => e)) as BetterSchemicError;

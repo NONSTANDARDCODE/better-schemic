@@ -90,7 +90,7 @@ export function surrealConnection<Args = undefined>(
     {
       // Lazy `import()` so authoring a config never pulls the engine (bundle-splittable).
       client: (config) =>
-        import("./orm/client").then((m) => m.clientFromConfig(config)),
+        import("./orm/connect").then((m) => m.clientFromConfig(config)),
       // Dialect display identity for bulk reporting/errors — `ns/db @ url`.
       label: (config) => {
         const p = config.params as Partial<

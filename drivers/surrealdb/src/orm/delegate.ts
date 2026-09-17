@@ -4,7 +4,7 @@
  * state in M6). One delegate instance is created per schema key at bootstrap and shared by
  * `client.<key>` and `client.repository(name)`.
  */
-import type { SchemalessMeta, TableMeta } from "./schema";
+import type { ModelMeta } from "./meta";
 
 /** What kind of model a delegate wraps. */
 export type ModelKind = "table" | "relation" | "schemaless";
@@ -31,11 +31,11 @@ export interface Delegate {
 }
 
 /** Build a delegate (and its `$model`) for one indexed model. */
-export function createDelegate(meta: TableMeta | SchemalessMeta): Delegate {
+export function createDelegate(meta: ModelMeta): Delegate {
   return { $model: modelInfo(meta) };
 }
 
-function modelInfo(meta: TableMeta | SchemalessMeta): ModelInfo {
+function modelInfo(meta: ModelMeta): ModelInfo {
   if ("schemaless" in meta)
     return {
       key: meta.key,

@@ -116,21 +116,6 @@ export function toExpr(p: Predicate): Expr {
   return p instanceof BoundQuery ? mkExpr({ kind: "raw", q: p }) : p;
 }
 
-/** Build a fragment-LHS comparison — a graph traversal used as an array in WHERE
- *  (`(->owns->product) CONTAINS $x`). `op` is the containment spelling. */
-export function fragCmp(
-  lhs: unknown,
-  op: "CONTAINS" | "CONTAINSANY" | "CONTAINSALL",
-  value: unknown,
-): Expr {
-  return mkExpr({ kind: "fragcmp", lhs, op, value });
-}
-
-export const and = (...parts: Predicate[]): Expr =>
-  mkExpr({ kind: "and", parts: parts.map(toExpr) });
-export const or = (...parts: Predicate[]): Expr =>
-  mkExpr({ kind: "or", parts: parts.map(toExpr) });
-
 /** An operand: a literal (BOUND as a param), a typed `$param` ref from a contextual callback
  *  (`u.age.gte(a.adultThreshold)` splices `$adultThreshold`), another field ref (spliced —
  *  `$parent.<col>` when it belongs to an outer row), or a `surql` fragment / builder (spliced,

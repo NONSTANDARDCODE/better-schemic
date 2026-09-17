@@ -16,9 +16,6 @@ export interface FieldRefBase<T> {
   readonly [REF_VALUE]: T;
 }
 
-/** The app-value type carried by a field ref (`never` if it isn't one). */
-export type RefValue<R> = R extends FieldRefBase<infer T> ? T : never;
-
 /** Brand a ref implementation with the neutral {@link FieldRefBase} carrier. */
 export function brandRef<I extends object, T = unknown>(
   impl: I,
