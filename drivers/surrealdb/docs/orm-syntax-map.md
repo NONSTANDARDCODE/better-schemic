@@ -125,7 +125,20 @@ prototype (`prototipo-querys-tipadas/better-surreal/*`) disagrees, the server wi
 | `FOR $row IN $rows { UPDATE t MERGE $row.fields WHERE by = $row.by; }` | `updateEach` (1 statement) |
 | `LET $e = (SELECT VALUE id FROM t WHERE uniq = $v LIMIT 1); IF array::len($e) = 0 THEN CREATE … ELSE UPDATE $e[0] … END;` | upsert-por-campo-único sem id |
 | `BEGIN TRANSACTION; …; COMMIT TRANSACTION;` | aplica |
-| `BEGIN TRANSACTION; …; CANCEL TRANSACTION;` | descarta; o SDK **lança** na coleta das respostas (`Cancelled`) | o executor trata o cancel como erro esperado |
+| `BEGIN TRANSACTION; …; CANCEL TRANSACTION;` | descarta; o SDK **lança** na coleta das respostas (`Cancelled`) — o executor trata o cancel como erro esperado |
+
+**Atomicidade (verificado com o SDK via `responses()`, 3.2.0):**
+
+| Cenário | Resultado |
+| --- | --- |
+| Batch `stmts` **sem** transação, statement do meio falha | os demais **persistem** (`CREATE first`, `CREATE dup` falha, `CREATE third` persiste) — cada statement é independente |
+| Batch dentro de `BEGIN/COMMIT`, statement falha | **nada persiste**: o statement que falhou retorna o erro real; os statements ANTERIORES são remarcados retroativamente como `Query` + `NotExecuted` ("not executed due to a failed transaction"); o `COMMIT` retorna "Cannot COMMIT: the transaction was aborted due to a prior error" |
+| Todas as respostas (incluindo `BEGIN`/`COMMIT`) | 1 resposta por statement, na ordem — o offset dos statements do usuário é estável |
+
+Implicações: `transactional: true` (default de lotes) embrulha em `BEGIN/COMMIT` e é atômico em 1
+round-trip; o executor reporta a falha **raiz** (pula `NotExecuted`/`Cancelled`, que normalizam para
+`TransactionRollback`). `UPDATE`/`CREATE` sem transação NÃO são atômicos entre si.
+
 
 ---
 

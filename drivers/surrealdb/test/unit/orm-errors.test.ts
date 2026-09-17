@@ -83,6 +83,14 @@ describe("normalizeError — SDK ServerError kinds", () => {
     });
     expect(code(cancelled)).toBe("TransactionRollback");
 
+    // In an aborted transaction the server marks sibling statements as NotExecuted.
+    const notExecuted = new QueryError({
+      kind: "Query",
+      message: "The query was not executed due to a failed transaction",
+      details: { kind: "NotExecuted" },
+    });
+    expect(code(notExecuted)).toBe("TransactionRollback");
+
     const conflict = new QueryError({
       kind: "Query",
       message: "There was a write conflict on this transaction",

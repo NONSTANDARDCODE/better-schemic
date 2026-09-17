@@ -193,6 +193,10 @@ const MESSAGE_CODES: readonly (readonly [RegExp, BetterSchemicErrorCode])[] = [
   [/write conflict|transaction conflict/i, "WriteConflict"],
   [/cancelled transaction/i, "TransactionRollback"],
   [
+    /not executed due to a (?:failed|cancelled) transaction/i,
+    "TransactionRollback",
+  ],
+  [
     /does not support|not supported|unsupported|is not supported/i,
     "UnsupportedCapability",
   ],
@@ -243,6 +247,12 @@ function refineCode(
     return "NotAuthenticated";
   if (error.isCancelled === true || detail === "Cancelled")
     return "TransactionRollback";
+  if (error.isNotExecuted === true || detail === "NotExecuted") {
+    // A statement skipped because a sibling failed — but a write conflict can arrive under this
+    // shape too, and the message is the only discriminator.
+    const byMessage = codeFromMessage(error.message);
+    return byMessage === "DatabaseError" ? "TransactionRollback" : byMessage;
+  }
   if (error.isTimedOut === true || detail === "TimedOut")
     return "DatabaseError";
   return code;

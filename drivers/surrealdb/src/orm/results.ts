@@ -9,7 +9,11 @@
  * thenable is augmented in place, so there is zero cost when `.throw()` is never called.
  */
 import type { QueryResponse } from "surrealdb";
-import { BetterSchemicError, normalizeError } from "./errors";
+import {
+  BetterSchemicError,
+  type BetterSchemicErrorOptions,
+  normalizeError,
+} from "./errors";
 
 /** Context handed to `.throw()` factories so error messages can name the target. */
 export interface NotFoundInfo {
@@ -98,9 +102,14 @@ export interface StatementResult<T = unknown> {
   readonly error?: BetterSchemicError;
 }
 
-/** Map one SDK `QueryResponse` (from `responses()`) to a {@link StatementResult}. */
+/**
+ * Map one SDK `QueryResponse` (from `responses()`) to a {@link StatementResult}. The optional
+ * `context` (table/operation/statementIndex/surql/vars) is attached to a failed response's
+ * normalized error — that is how the executor attributes a failure to its statement.
+ */
 export function statementResult<T = unknown>(
   response: QueryResponse<T>,
+  context: BetterSchemicErrorOptions = {},
 ): StatementResult<T> {
   if (response.success) {
     const duration = response.stats?.duration;
@@ -113,7 +122,7 @@ export function statementResult<T = unknown>(
   return {
     result: undefined as T,
     status: "ERR",
-    error: normalizeError(response.error),
+    error: normalizeError(response.error, context),
     ...(response.stats?.duration !== undefined
       ? { time: String(response.stats.duration) }
       : {}),
