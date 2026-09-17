@@ -16,6 +16,20 @@
 > divergirem, vale o que for verificado ao vivo (M0.1) — o protótipo é intenção de design, não verdade
 > de sintaxe.
 
+## Status de implementação
+
+| Milestone | Status | Entregáveis |
+| --- | --- | --- |
+| M0.1 Syntax map ao vivo | ✅ concluído | `drivers/surrealdb/docs/orm-syntax-map.md`, `test/live/orm-syntax.test.ts` (51 probes verdes) |
+| M0.2 `defineSchema` + `SchemaIndex` | ✅ concluído | `src/orm/schema.ts`, `src/orm/types/schema.ts`, `src/orm/errors.ts` (classe + catálogo), `test/unit/orm-schema.test.ts`, `test/types/orm-schema.assert.ts` |
+| M0.3 Result wrappers + normalização/predicados | ⏳ próximo | `src/orm/results.ts`, extensão de `errors.ts` (`from()`/`is*`) |
+| M0.4 Executor | ⏳ | `src/orm/execute.ts` |
+| M0.5 Bootstrap + delegates + substituição do legado | ⏳ | `src/orm/index.ts`, `client.ts`, `delegate.ts`, `/orm`, §6 |
+
+> Notas do M0.2: a classe `BetterSchemicError`/catálogo saiu antecipada (o aceite do M0.2 exige
+> `SchemaInvalid`); o M0.3 fica com normalização + predicados. `defineSchema`/`SchemaIndex` ainda não
+> são re-exportados pelo índice de authoring/`/orm` — isso entra no M0.5 junto da superfície pública.
+
 ---
 
 ## Sumário

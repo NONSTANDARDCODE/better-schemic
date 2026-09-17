@@ -1,0 +1,89 @@
+// M0.2 — TYPE assertions for the schema artifact (`defineSchema` -> `SchemaIndex` derivations).
+// Run under node/tsx (NOT bun): `bun run --cwd drivers/surrealdb test:types`.
+//
+// `attest<Expected, Actual>()` fails to COMPILE if Actual isn't exactly Expected — so a key-extraction
+// regression (an edge leaking into SchemalessKeys, `AppAt` losing the codec type, …) turns red here.
+import { after, before, describe, it } from "node:test";
+import { attest, setup, teardown } from "@ark/attest";
+import {
+  defineFunction,
+  defineRelation,
+  defineTable,
+  s,
+} from "../../src/index";
+import { defineSchema } from "../../src/orm/schema";
+import type {
+  AppAt,
+  FunctionAt,
+  FunctionKeys,
+  RelationAt,
+  RelationKeys,
+  SchemalessKeys,
+  SchemaOf,
+  TableAt,
+  TableKeys,
+} from "../../src/orm/types/schema";
+import type { App } from "../../src/pure";
+
+// attest needs its checker set up once per run; bracket the suite. (Shared 6-line convention — copied
+// verbatim from packages/core/test/types; see docs/TYPE-PERF-TESTING.md.)
+let cleanup: (() => void) | undefined;
+before(() => {
+  cleanup = setup() as unknown as () => void;
+});
+after(() => {
+  cleanup?.();
+  teardown();
+});
+
+const User = defineTable("user", { name: s.string(), age: s.int() });
+const Post = defineTable("post", {
+  title: s.string(),
+  author: s.recordId(User),
+});
+const Likes = defineRelation("likes", { score: s.int() }).from(User).to(Post);
+const greet = defineFunction("greet", { name: s.string() }).returns(s.string());
+
+const schema = defineSchema({
+  users: User,
+  posts: Post,
+  likes: Likes,
+  greet,
+  audit: "audit_log",
+});
+type S = typeof schema;
+
+describe("SchemaDef — key extraction", () => {
+  it("TableKeys is tables AND relation keys", () => {
+    attest<"users" | "posts" | "likes", TableKeys<S>>();
+  });
+  it("RelationKeys is exactly the edge keys", () => {
+    attest<"likes", RelationKeys<S>>();
+  });
+  it("SchemalessKeys is exactly the string entries", () => {
+    attest<"audit", SchemalessKeys<S>>();
+  });
+  it("FunctionKeys is exactly the function entries", () => {
+    attest<"greet", FunctionKeys<S>>();
+  });
+});
+
+describe("SchemaDef — def lookup", () => {
+  it("TableAt preserves the authored def type", () => {
+    attest<typeof User, TableAt<S, "users">>();
+    attest<typeof Likes, TableAt<S, "likes">>();
+  });
+  it("AppAt resolves the DECODED row (codecs included)", () => {
+    attest<App<typeof User>, AppAt<S, "users">>();
+    attest<App<typeof Post>, AppAt<S, "posts">>();
+  });
+  it("RelationAt / FunctionAt narrow to their defs", () => {
+    attest<typeof Likes, RelationAt<S, "likes">>();
+    attest<never, RelationAt<S, "users">>();
+    attest<typeof greet, FunctionAt<S, "greet">>();
+    attest<never, FunctionAt<S, "users">>();
+  });
+  it("SchemaOf recovers the authored entries object", () => {
+    attest<typeof schema.entries, SchemaOf<S>>();
+  });
+});
