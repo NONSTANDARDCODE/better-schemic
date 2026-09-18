@@ -68,9 +68,12 @@ describe("betterSchemic — delegates and lookup", () => {
   });
 
   test("repository() resolves by schema key AND physical name to the SAME delegate", () => {
-    expect(client.repository("users")).toBe(client.users);
-    expect(client.repository("user")).toBe(client.users);
-    expect(client.repository("audit_log")).toBe(client.audit);
+    const users = client.users as unknown as Delegate;
+    expect(client.repository("users")).toBe(users);
+    expect(client.repository("user")).toBe(users);
+    expect(client.repository("audit_log")).toBe(
+      client.audit as unknown as Delegate,
+    );
   });
 
   test("repository() on an unknown name throws RepositoryNotFound", () => {
@@ -110,7 +113,7 @@ describe("betterSchemic — delegates and lookup", () => {
 
   test("the client is typed: Client<typeof schema> keys map to delegates", () => {
     const typed: Client<typeof schema> = client;
-    const delegate: Delegate = typed.users;
+    const delegate: Delegate<typeof User> = typed.users;
     expect(delegate.$model.key).toBe("users");
   });
 });

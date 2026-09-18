@@ -9,12 +9,22 @@
  */
 import { asyncDisposable, type OrmClientBase } from "@better-schemic/core";
 import type { SurrealSession } from "surrealdb";
-import { createDelegate, type Delegate } from "./delegate";
+import {
+  createDelegate,
+  type Delegate,
+  type DelegateContext,
+} from "./delegate";
 import { BetterSchemicError } from "./errors";
 import type { Queryable } from "./execute";
 import type { SchemaIndex } from "./meta";
 import { buildSchemaIndex } from "./schema";
-import type { ModelKeys, SchemaDef, SchemaInput } from "./types/schema";
+import type {
+  AnyTableDef,
+  EntriesOf,
+  ModelKeys,
+  SchemaDef,
+  SchemaInput,
+} from "./types/schema";
 
 /** Options accepted by `betterSchemic(...)` — grows per milestone (plugins/hooks/raw/...). */
 export interface BetterSchemicOptions {
@@ -40,14 +50,17 @@ const RESERVED = new Set([
 
 /**
  * The public client type: lifecycle members + one {@link Delegate} per schema key
- * (`client.users`, `client.likes`, …). `C` is the wrapped connection type (`Surreal` for a
- * root client, `SurrealSession` for a forked one).
+ * (`client.users`, `client.likes`, …). A schemaless entry maps to a loosely-typed delegate over
+ * `Record<string, unknown>` rows. `C` is the wrapped connection type (`Surreal` for a root client,
+ * `SurrealSession` for a forked one).
  */
 export type Client<S = SchemaInput, C extends Queryable = Queryable> = Omit<
   ClientRuntime<C>,
   "extends" | "forkSession"
 > & {
-  readonly [K in ModelKeys<S>]: Delegate;
+  readonly [K in ModelKeys<S>]: Delegate<
+    EntriesOf<S>[K] extends AnyTableDef ? EntriesOf<S>[K] : AnyTableDef
+  >;
 } & {
   /**
    * Attach project helpers to the client (object or factory receiving the client). A name
@@ -70,6 +83,9 @@ export class ClientRuntime<C extends Queryable = Queryable>
   /** Delegates by schema key (shared by `client.<key>` and `repository`). */
   private readonly delegates = new Map<string, Delegate>();
 
+  /** The runtime services every delegate operation receives. */
+  private readonly delegateContext: DelegateContext;
+
   constructor(
     /** The wrapped connection — the SDK `Surreal` (or a `SurrealSession` when forked). */
     readonly conn: C,
@@ -78,9 +94,10 @@ export class ClientRuntime<C extends Queryable = Queryable>
     private readonly managed: boolean,
     private readonly debug: boolean,
   ) {
+    this.delegateContext = { conn, index: $index, debug };
     for (const [key, meta] of [...$index.tables, ...$index.schemaless]) {
       this.assertMemberAvailable(key, "schema key");
-      const delegate = createDelegate(meta);
+      const delegate = createDelegate(meta, this.delegateContext);
       this.delegates.set(key, delegate);
       (this as Record<string, unknown>)[key] = delegate;
     }

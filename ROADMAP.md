@@ -13,8 +13,8 @@ Legend: ✅ done · 🚧 in progress · 🟡 partial · ⏳ not started
 
 ## M0 — fundação + substituição do legado ✅ *(complete)*
 
-- ✅ **M0.1** live syntax map (`docs/orm-syntax-map.md` + `test/live/orm-syntax.test.ts`, 51 probes) —
-  every statement the ORM emits, verified against server 3.2.0, with the prototype divergences recorded.
+- ✅ **M0.1** live syntax map (`docs/orm-syntax-map.md` + `test/live/orm-syntax.test.ts`, 59 probes) —
+  every statement the ORM emits, verified against server 3.2.x, with the prototype divergences recorded.
 - ✅ **M0.2** `defineSchema` + `SchemaIndex` (columns/families, record links, graph adjacency,
   singletons, functions, schemaless entries; fail-fast `SchemaInvalid`).
 - ✅ **M0.3** result wrappers (`ThrowingResult`/`BatchResult`/`StatementResult`) + `BetterSchemicError`
@@ -25,12 +25,30 @@ Legend: ✅ done · 🚧 in progress · 🟡 partial · ⏳ not started
   `tables`, `extends`, `forkSession`, BYO-managed lifecycle) + **the legacy surface removed** (fluent
   builder, `/client`, `@better-schemic/core/query`; `/query` keeps `block()`).
 
-## M1 — leitura ⏳
+## M1 — leitura ✅ *(complete)*
 
-Compiler (object-based `where`/`select`/clauses) + `findMany`/`findFirst`/`findUnique`/`count`/
-`exists`/`aggregate`/`paginate`/`cursor` + `.throw()`/`.explain()` + read result typing.
+The object-based compiler (`where`/`select`/`aggregate`/`pagination`) and the full read surface:
+`findMany`/`findFirst`/`findOne`/`findUnique`/`count`/`exists`/`aggregate`/`paginate`/`cursor` —
+lazy thenables with `.throw()`/`.explain()` (`explain: true` returns the plan), typed from the args
+literal, always one round-trip.
 
-## M2 — escritas ⏳
+- ✅ **M1.1** `compiler/shared.ts` + `compiler/where.ts` + `types/where.ts` (golden args→SQL,
+  injection-proof identifiers/binds, family-aware operators, paths/logical/fragments).
+- ✅ **M1.2** `compiler/projection.ts` (SQL text + decode spec in ONE pass) + `findMany` (all clause
+  forms) + `decode.ts` (full/omit/projection/value/split).
+- ✅ **M1.3** `findFirst`/`findOne`/`findUnique` (+ `compiler/unique.ts`) + `.throw()`/`NotFoundInfo`.
+- ✅ **M1.4/M1.5** `count`/`exists` + `aggregate` (`_count`, `math::*` — `avg`→`math::mean`,
+  `collect`/`distinct`, `HavingUnsupported`).
+- ✅ **M1.6** `paginate` (offset + count in one round-trip; `count:false` probes n+1) + `cursor`
+  (id/tuple keyset, tiebreaker guard, `before` reversal).
+- ✅ **M1.7** `.explain()`/`explain: true` (EXPLAIN per statement, never executes; `ExplainResult`).
+- ✅ **M1.8** `test/types/orm-reads.{assert,bench}.ts` (assertions + measured instantiation budgets).
+
+Structure after the pre-M2 thermo-nuclear pass: `delegate.ts` (public surface) / `reads.ts` (read
+runtime) / `compiler/{shared,projection,where,select,aggregate,pagination,unique}.ts`; no name-based
+dispatch, one canonical helper per rule, paginate's count composed from the read/count compilers.
+
+## M2 — escritas ⏳ *(next)*
 
 `create`/`insert` (+`onDuplicate`)/`update` modes (`merge|set|content|replace|patch`)/`patch`/`upsert`
 (+by unique)/`delete`/`updateEach`/`relate`/`unrelate` + `RETURN` semantics + batch envelopes.

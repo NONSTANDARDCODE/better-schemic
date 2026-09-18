@@ -90,7 +90,7 @@ wire format. `decode` turns a returned row into typed values (a `datetime`
 becomes a `Date`, a `uuid` a string, record links resolve); `encode` and
 `encodePartial` build the payloads you write back.
 
-## The `/orm` client (in progress)
+## The `/orm` client
 
 The repository-style ORM lives at `@better-schemic/surrealdb/orm`. Declare the
 schema once with `defineSchema` and wrap an existing (BYO) or managed connection:
@@ -99,24 +99,49 @@ schema once with `defineSchema` and wrap an existing (BYO) or managed connection
 import { defineTable, s } from "@better-schemic/surrealdb";
 import { betterSchemic, createBetterSchemic, defineSchema } from "@better-schemic/surrealdb/orm";
 
-const User = defineTable("user", { name: s.string(), email: s.email() });
+const User = defineTable("user", {
+  name: s.string(),
+  email: s.string(),
+  age: s.int(),
+  tags: s.array(s.string()),
+}).index("user_email", ["email"], { unique: true });
 
 export const schema = defineSchema({ users: User, audit: "audit_log" });
 
 const client = betterSchemic(existingSurreal, { schema });     // BYO: close() is a no-op
 // or: const client = await createBetterSchemic({ url, namespace, database, auth, schema });
 
-client.users.$model;          // per-model delegate metadata
-client.repository("user");    // lookup by schema key OR physical name
-client.tables;                // delegate keys
-client.$sdk;                  // the raw `surrealdb` connection (escape hatch)
+// Reads (M1) — one round-trip, decoded to app values (Date/RecordId/…):
+const adults = await client.users.findMany({
+  where: { age: { gte: 18 }, tags: { containsAny: ["db", "graph"] } },
+  select: { id: true, name: true },
+  orderBy: [{ age: "desc" }],
+  limit: 20,
+});
+
+const user = await client.users.findUnique({ where: { email } }).throw();
+const total = await client.users.count({ where: { age: { gte: 18 } } });
+const byTag = await client.users.aggregate({
+  select: { tags: "tags", _count: true, avgAge: { avg: "age" } },
+  groupBy: ["tags"],
+});
+const page = await client.users.paginate({ orderBy: [{ id: "asc" }], limit: 20, start: 0 });
+const next = await client.users.cursor({ limit: 20, after: "user:42" });
+
+// Diagnostics without executing:
+const plan = await client.users.findMany({ where: { age: 18 } }).explain();
 ```
 
-The typed query surface (`client.users.findMany({ where, select, include })`,
-writes, relations, transactions, live queries, plugins) is landing milestone by
-milestone — see [`PLANO-QUERYS-TIPADAS.md`](../../PLANO-QUERYS-TIPADAS.md) and the
-live-verified [`docs/orm-syntax-map.md`](docs/orm-syntax-map.md). Fragments &
-procedural SurrealQL (`block()`) stay at `@better-schemic/surrealdb/query`.
+`client.users.$model` is the delegate metadata; `client.repository("user")` looks
+up by schema key OR physical name; `client.tables` lists the keys; `client.$sdk`
+is the raw `surrealdb` connection (escape hatch).
+
+**Status:** reads are complete (M1 — `findMany`/`findFirst`/`findOne`/`findUnique`/
+`count`/`exists`/`aggregate`/`paginate`/`cursor`, `.throw()`, `.explain()`); writes,
+relations, transactions, live queries and plugins land milestone by milestone — see
+[`PLANO-QUERYS-TIPADAS.md`](../../PLANO-QUERYS-TIPADAS.md) and the live-verified
+[`docs/orm-syntax-map.md`](docs/orm-syntax-map.md). Fragments & procedural SurrealQL
+(`block()`) stay at `@better-schemic/surrealdb/query`.
 
 ## Docs
 

@@ -25,7 +25,7 @@
 | M0.3 Result wrappers + normalização/predicados | ✅ concluído | `src/orm/results.ts` (`ThrowingResult`/`BatchResult`/`StatementResult` + `attachThrow`), `errors.ts` estendido (`from`/`normalizeError` + 8 predicados), `test/unit/orm-errors.test.ts`, `test/unit/orm-results.test.ts`, `test/types/orm-results.assert.ts` |
 | M0.4 Executor | ✅ concluído | `src/orm/execute.ts` (1 round-trip via `responses()`, `BEGIN/COMMIT` atômico, falha raiz, binds únicos), `test/unit/orm-execute.test.ts`, `test/live/orm-execute.test.ts` |
 | M0.5 Bootstrap + delegates + substituição do legado | ✅ concluído | `/orm` (`betterSchemic`/`createBetterSchemic`, delegates, `repository`, `extends`, `forkSession`), `/query` = fragments, legado removido (§6), `test/unit/orm-client.test.ts`, `test/live/orm-client.test.ts`, `test/types/orm-client.assert.ts` |
-| M1 Leitura | ⏳ próximo | compiler `where`/`select` + `findMany`/… |
+| M1 Leitura | ✅ concluído | compiler `where`/`select`/`aggregate`/`pagination` + `findMany`/`findFirst`/`findOne`/`findUnique`/`count`/`exists`/`aggregate`/`paginate`/`cursor` + `.throw()`/`.explain()`; M1.1–M1.8 (ver nota) |
 
 > Nota do M0.2: a classe `BetterSchemicError`/catálogo saiu antecipada (o aceite do M0.2 exige
 > `SchemaInvalid`); o M0.3 ficou com a normalização + os predicados.
@@ -45,6 +45,27 @@
 > independente); `BEGIN/COMMIT` é atômico em 1 round-trip e, ao falhar, remarca os statements
 > anteriores como `NotExecuted` — o executor escolhe a falha raiz, não o artefato. Detalhes no
 > `orm-syntax-map.md` §2.7.
+> Nota do M1 (decisões confirmadas com o usuário): `parallel` saiu do tipo e é
+> `UnsupportedCapability` em runtime; `take`/`skip` foram renomeados para `limit`/`start` (guard
+> ensinante); `groupBy`/`groupAll` em `findMany` exigem `select`/`value` (aponta `aggregate()`);
+> `findUnique` aceita `id` ou índice single-field UNIQUE (`UniqueTargetRequired`); novo código
+> `ClauseNotSupported` no catálogo. Módulos: `compiler/{shared,where,select,aggregate,pagination}.ts`,
+> `decode.ts`, `types/{where,select}.ts`; reads são thenables **lazy** com `.throw()`/`.explain()`;
+> `explain: true` devolve o `ExplainResult` sem executar. Divergências novas registradas no
+> `orm-syntax-map.md` (§3, §9): ordem das cláusulas, `FROM ONLY t` exige 1 resultado, projeções por
+> caminho, `math::avg` → `math::mean`, `count()` sem `GROUP ALL` é por linha, `ORDER BY (expr)` é
+> parse error, `VERSION` antes de `TIMEOUT`.
+> Pós-review termonuclear (antes do M2): (1) `PreparedRead` carrega `resultMode`/`explain` — nada de
+> dispatch por nome de operação; (2) helpers canônicos únicos em `compiler/shared.ts`
+> (`rejectRemovedArgs`, `isTableMeta`, `uniqueFields`, `pathSegments`, `pathList`, `positiveInt`,
+> `rangeTarget`, `isPlainObject`, `describeValue`); (3) um único montador de range; (4) `paginate`
+> compõe o count via `compileCount`/`compileRead` (sem segundo assembler); (5) `compiler/projection.ts`
+> extraído do `select`; (6) `whereExtra` removido — o predicado do cursor é um `BoundQuery` composto
+> no `where`; (7) `delegate.ts` (superfície) separado de `reads.ts` (runtime) + `compiler/unique.ts`;
+> (8) tipos colapsados (`Explainable`, tabela `AggOpResult`); (9) mensagens de `UniqueTargetRequired`
+> consistentes; (10) `FieldFilterContext` no `where`; (11) `PreparedStatement { statement, key }`;
+> (12) thenable anotado como `Promise` (sem cast); (13) união redundante removida; (14) `stringList`
+> silencioso eliminado.
 
 ---
 
@@ -234,17 +255,22 @@ drivers/surrealdb/src/orm/
   index.ts          betterSchemic · createBetterSchemic · defineSchema · definePlugin · erros · tipos
   schema.ts         defineSchema + SchemaIndex + validação de bootstrap
   client.ts         bound client (delegates, repository, tables, close, $withContext, extends)
-  delegate.ts       createDelegate (tabela/aresta) + $model/$state/$withState/$withoutPlugins
+  delegate.ts       superfície pública do delegate (Delegate/ModelInfo/facade) — M1
+  reads.ts          runtime de leitura (PreparedRead, planos, throw/explain) — M1
+  decode.ts         decode de linha/projeção (ProjectionSpec → App) — M1
   compiler/
-    shared.ts       binds, identificadores, parens, fragments (sobre surql/render)
+    shared.ts       binds, identificadores, guards de args, targets, literais (sobre surql/render)
+    projection.ts   select/omit/value → SQL + ProjectionSpec (walker de codec) — M1
     where.ts        operadores universais/tipados/lógicos/paths/relacionais
-    select.ts       select/omit/orderBy/split/group|groupAll/with/timeout/parallel/version/range
+    select.ts       orderBy/split/group|groupAll/with/timeout/version/range + montagem do SELECT
+    unique.ts       alvo de findUnique (id/índice single-field UNIQUE) — M1
+    aggregate.ts    count/exists/aggregate (math::*, _count, collect/distinct) — M1
+    pagination.ts   paginate (offset+count) + cursor (id/tupla) — M1
     write.ts        create/createMany/insert/insertMany/update/updateMany/patch/upsert/upsertMany/delete/deleteMany/updateEach/relate/unrelate
     include.ts      FETCH + traversal + _count
-    pagination.ts   paginate (offset) + cursor (id/tupla)
     live.ts         LIVE SELECT [DIFF] [FETCH]
   execute.ts        executor multi-statement + status + tx implícita
-  results.ts        ThrowingResult/BatchResult/StatementResult/ExplainResult + paginação
+  results.ts        ThrowingResult/BatchResult/StatementResult/ExplainResult + lazy thenable
   errors.ts         BetterSchemicError + códigos + normalização + predicados
   hooks.ts          tipos + dispatch
   plugins.ts        definePlugin + pipeline + estado
@@ -256,8 +282,9 @@ drivers/surrealdb/src/orm/
   types/
     schema.ts       SchemaDef/SchemaOf/keys
     where.ts        Where<T> + operadores
-    select.ts       Select/Include/OrderBy/Omit + ResultOf
+    select.ts       Select/OrderBy/Omit + ResultOf + envelopes (paginate/cursor/aggregate)
     results.ts      wrappers públicos
+
     plugin.ts       Plugin/Operation/OperationArgs/Hook payloads
 
 drivers/surrealdb/src/surql/
@@ -929,5 +956,8 @@ Padrões do repo: live tests com timeout alto (carga paralela), `setDefaultTimeo
 
 ---
 
-**Próximo passo:** iniciar pelo **M0.1** — escrever `drivers/surrealdb/docs/orm-syntax-map.md` +
-`test/live/orm-syntax.test.ts` e verificar cada construto contra o servidor real antes de codar.
+**Próximo passo:** **M2 — escritas** (`create`/`insert`/`update`/`patch`/`upsert`/`delete`/
+`updateEach`/`relate`), com `compiler/write.ts` + `reads.ts` como precedente estrutural. Antes de
+codar: verificar ao vivo os construtos ainda não cobertos pelo `orm-syntax-map.md` §2 (o mapa já cobre
+CREATE/INSERT/UPSERT/UPDATE/DELETE/RELATE/RETURN/ON DUPLICATE) e manter `docs/`/`ROADMAP`/`CHANGELOG`
+no mesmo PR (regra do `AGENTS.md`).

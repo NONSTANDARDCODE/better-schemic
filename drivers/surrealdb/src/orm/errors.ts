@@ -41,6 +41,7 @@ export type BetterSchemicErrorCode =
   | "UniqueTargetRequired"
   | "ReturnNotSupported"
   | "HavingUnsupported"
+  | "ClauseNotSupported"
   | "RepositoryNotFound"
   | "PluginError"
   | "UnsafeMutation";
@@ -72,6 +73,7 @@ const DEFAULT_STATUS: Record<BetterSchemicErrorCode, number> = {
   UniqueTargetRequired: 400,
   ReturnNotSupported: 400,
   HavingUnsupported: 400,
+  ClauseNotSupported: 400,
   RepositoryNotFound: 404,
   PluginError: 500,
   UnsafeMutation: 403,

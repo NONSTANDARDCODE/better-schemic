@@ -149,29 +149,67 @@ round-trip; o executor reporta a falha **raiz** (pula `NotExecuted`/`Cancelled`,
 | `SELECT id, f, path.sub AS alias` | projeção | paths desconhecidos → `null` (validar no client com `strict`) |
 | `SELECT * OMIT f` | remove campos | funciona mesmo com `f` selecionado |
 | `SELECT * FROM ONLY t:id` | **objeto** | inexistente → `null`/`undefined` (falsy) |
+| `SELECT * FROM ONLY t` (2+ rows) | **erro** (`Expected a single result output`) | `LIMIT 1` resolve (`FROM ONLY t LIMIT 1` → objeto) |
 | `SELECT VALUE f` | array de valores | `value: true` |
 | `SELECT VALUE id … LIMIT 1` | probe de `exists` | |
 | `SELECT count() … GROUP ALL` | `[ { count: n } ]` | `count` |
+| `SELECT count() FROM t` (sem GROUP) | **uma linha por registro** | sempre emitir `GROUP ALL` |
 | `SELECT … GROUP BY f` | linhas por grupo | |
+| `SELECT * … GROUP BY f` / `GROUP ALL` | **erro** (`cannot be aggregated`) | exigir projeção explícita |
 | `SELECT count() FROM (SELECT f … GROUP BY f) GROUP ALL` | conta **grupos** | paginação com `groupBy` |
-| `SELECT math::sum/avg/min/max(…)` | agregadores | `math::median`/`stddev`/`variance` também |
+| `SELECT math::sum/avg/min/max(…)` | agregadores | `math::median`/`stddev`/`variance` também; **`math::avg` não existe em 3.x → `math::mean`** (DIVERGE) |
 | `SELECT array::group(f), array::distinct(f)` | arrays | `collect`/`distinct` do `aggregate` |
 | `SELECT … SPLIT f` | desdobra arrays (1 linha por elemento) | `count()` por linha split = 1 → agregar exige outra forma |
-| `SELECT … SPLIT f GROUP BY f` | **erro** (`mutually exclusive`) | DIVERGE |
+| `SELECT … SPLIT f GROUP BY f` / `GROUP ALL` | **erro** (`mutually exclusive`) | DIVERGE |
 | `SELECT id, (expr) AS alias … ORDER BY alias DESC` | ordena por alias/expressão | |
+| `SELECT … ORDER BY (expr)` | **parse error** | só identificador/alias; use `AS alias` |
 | `SELECT … ORDER BY a DESC, b ASC` | ok | |
-| `SELECT … LIMIT n START m` | ok | `limit`/`start` |
-| `SELECT … TIMEOUT 5s` | ok | |
-| `SELECT … WITH INDEX idx` / `WITH NOINDEX` | ok | |
+| `SELECT … LIMIT n START m` / `LIMIT $l START $s` | ok (binds aceitos) | `limit`/`start` |
+| `SELECT … WITH INDEX a, b` | ok (lista) | `WITH INDEX` **antes** do WHERE |
+| `SELECT … TIMEOUT 5s` | ok | `TIMEOUT` **depois** de `LIMIT/START`; `TIMEOUT … LIMIT` = parse error |
+| `SELECT … WITH INDEX idx` / `WITH NOINDEX` | ok | `WITH` antes de `WHERE`; depois = parse error |
 | `SELECT … PARALLEL` | **parse error** | DIVERGE |
 | `SELECT … FROM t:2..4` | `[t:2, t:3]` (fim exclusivo) | suffix, não `t:2..t:4` |
 | `SELECT … FROM t:2..=4` | `[t:2, t:3, t:4]` | inclusivo |
+| `SELECT … FROM t:abc..=xyz` | ok com ids string; `⟨a-b⟩` quando preciso | |
 | `SELECT … FROM t:2..t:4` | **parse error** | DIVERGE |
 | `SELECT * FROM ONLY t:id FETCH link` | FETCH depois de ONLY | |
 | `EXPLAIN SELECT …` | plano em string | só `SELECT`; `EXPLAIN UPDATE` é erro |
 | `SELECT … VERSION d'…'` | erro em backend memory ("does not support versioned queries") | emissão condicionada ao suporte |
+| `SELECT … VERSION d'…' TIMEOUT 5s` | ok (ordem) | `VERSION` **antes** de `TIMEOUT` |
 
-### 3.1 `FETCH` (links)
+**Ordem das cláusulas (3.2.4, verificada):**
+
+```surql
+SELECT [VALUE] <projeção> FROM <alvo>
+  [WITH INDEX … | WITH NOINDEX]
+  [WHERE …]
+  [SPLIT …]
+  [GROUP BY … | GROUP ALL]
+  [ORDER BY …]
+  [LIMIT …]
+  [START …]
+  [VERSION d'…']
+  [TIMEOUT …]
+  [FETCH …]            -- M3
+```
+
+`SELECT * OMIT f` funciona mesmo com `f` obrigatório e com `f` projetado
+(`SELECT name, age OMIT age` → `{ name }`).
+
+### 3.1 Projeções por caminho (formas verificadas)
+
+| Forma | Resultado |
+| --- | --- |
+| `SELECT address.city FROM t` | `{ address: { city } }` (aninha pelo caminho) |
+| `SELECT contacts[*].type FROM t` | `{ contacts: { type: [ … ] } }` (array) |
+| `SELECT contacts.type FROM t` | `{ contacts: { type: [ … ] } }` (array — o ancestral é array) |
+| `SELECT contacts[0].value FROM t` | `{ contacts: { value } }` (escalar — índice fixo) |
+| `SELECT contacts[*].type AS t FROM t` | `{ t: [ … ] }` (alias achata) |
+| `SELECT *, (expr) AS x FROM t` | linha completa + `x` (flat) |
+| `SELECT VALUE contacts[*].type FROM t` | `[ [ … ] ]` (valor direto) |
+
+### 3.2 `FETCH` (links)
 
 | Form | Result |
 | --- | --- |
@@ -183,7 +221,7 @@ round-trip; o executor reporta a falha **raiz** (pula `NotExecuted`/`Cancelled`,
 | `SELECT id, author.name AS an … FETCH author` | alias preservado; FETCH não sobrescreve |
 | `SELECT id, author.id AS author_id, author.name AS author_name` (sem FETCH) | projeção achatada — base da remontagem de `include: { author: { select } }` |
 
-### 3.2 Paginação / cursor
+### 3.3 Paginação / cursor
 
 | Form | Result |
 | --- | --- |
@@ -237,7 +275,7 @@ round-trip; o executor reporta a falha **raiz** (pula `NotExecuted`/`Cancelled`,
 | `outside` | `f OUTSIDE $set` | negação de `INSIDE` |
 | `intersects` | `f INTERSECTS $set` | `false` para arrays comuns — usar `ANYINSIDE`; usar só para geometria |
 | `anyEquals` | `f ?= $x` | algum elemento `= $x` |
-| `allEquals` | `f *= $x` | todos os elementos `= $x` |
+| `allEquals` | `f *= $x` | todos os elementos `= $x`; **array vazio → `true`** (vacuous truth) |
 | `length` | `array::len(f) = $p` | ✓ |
 
 ### 4.4 Paths / lógicos / records / geo / vetor
@@ -351,3 +389,12 @@ Nota: em scripts multi-statement, o SDK pode **lançar** (não só responder por
 13. **`FROM ONLY t:missing`** → falsy (não erro) — `findUnique` devolve `null`.
 14. **`INSERT RELATION INTO`** disponível para arestas em lote.
 15. **Catálogo `fn.ts`**: `search.highlight` está tipado com 3 args (`f3<string, string, number, string>`) mas o servidor exige 4 (`prefix, suffix, indexRef, field`) — corrigir no M5.2 (ou no próximo toque em `fn.ts`) e cobrir com o teste live (hoje `fn-catalog.test.ts` marca `search.highlight: null`).
+16. **`only` (findMany)**: `FROM ONLY <tabela>` só vale com **exatamente um** resultado (senão erro). O compiler emite `FROM ONLY`; use `limit`/`where` para garantir a unicidade (`findUnique`/`findFirst` cobrem os casos comuns).
+17. **Ordem de cláusulas**: `WITH` → `WHERE` → `SPLIT` → `GROUP` → `ORDER BY` → `LIMIT` → `START` → `VERSION` → `TIMEOUT` (o compiler emite nessa ordem; o servidor rejeita outras).
+18. **`count()`/agregadores sem `GROUP ALL`**: `count()` vira uma linha por registro; `math::*` exige array. `aggregate`/`count` sempre emitem `GROUP ALL`/`GROUP BY`.
+19. **`ORDER BY`**: só identificador/alias — expressão entre parênteses é parse error; use `SELECT (expr) AS alias … ORDER BY alias`.
+20. **Projeção por caminho**: o servidor aninha pelo caminho (`contacts[*].type` → `{ contacts: { type: [ … ] } }`); alias achata (`AS t` → `{ t: [ … ] }`). O decoder espelha essa forma.
+21. **`SELECT *` + `GROUP`**: inválido ("cannot be aggregated") — `groupBy`/`groupAll` exigem projeção explícita (o compiler falha com `ValidationError` apontando `aggregate()`).
+22. **Ranges de record**: `t:1..=2` / `t:abc..=xyz` (sufixo de id, nunca `t:1..t:2`); ids não-identificadores são escapados (`⟨a-b⟩`).
+23. **`math::avg` não existe em 3.x** (parse error; a sugestão do servidor é `math::log`) — o ORM mantém a API `{ avg: 'campo' }` e emite `math::mean(campo)`. `math::median/stddev/variance` existem.
+24. **`GROUP BY` exige a chave na projeção** (`Missing group idiom … in statement selection`): `aggregate` valida que cada `groupBy` aparece no `select` (quando a projeção é estaticamente analisável) e ensina a corrigir.

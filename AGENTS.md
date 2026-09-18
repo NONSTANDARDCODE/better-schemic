@@ -44,6 +44,24 @@ Land a branch with **`bun scripts/land.ts <branch>`**: rebase onto `main`, fast-
 up on `main` between releases; nothing publishes until a release is cut. (`land.ts --deploy` land+ships
 in one step — only for an immediate release.)
 
+## Docs are part of the change — update them in the SAME PR
+
+Docs are the product surface for a DX-first repo, so they go stale the moment code lands without
+them. Every milestone/PR must leave the docs it touches consistent **in the same change** — never
+"later", never a follow-up issue. Concretely:
+
+- `ROADMAP.md` — flip the milestone/sub-item status and list the deliverables.
+- `PLANO-QUERYS-TIPADAS.md` — the status table + the milestone note (decisions, modules, divergences).
+- `drivers/<driver>/docs/orm-syntax-map.md` — every live-verified SurrealQL fact the compiler emits
+  (add the probe to `test/live/orm-syntax.test.ts` at the same time).
+- `drivers/<driver>/README.md` — the user-facing example must compile against the CURRENT surface.
+- `CHANGELOG.md` — an **Unreleased** entry (Added/Changed/Removed) for anything user-visible.
+- `drivers/<driver>/docs/ORM-COVERAGE.md` / `COVERAGE.md` — the feature matrix (author→emit→…).
+- `packages/core/docs/*`, `MULTI-CONNECTION.md`, `AGENTS.md` — only when the surface they describe changes.
+
+A change that alters behavior/API without the matching doc update is **incomplete**; call it out in
+review the same way a missing test would be.
+
 ## Driver coverage docs
 
 Each driver package keeps a **`docs/COVERAGE.md`** tracking **all** of its database's schema/DDL syntax

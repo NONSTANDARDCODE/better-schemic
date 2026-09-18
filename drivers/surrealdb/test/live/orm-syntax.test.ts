@@ -53,14 +53,16 @@ live("ORM syntax map — live probes (server 3.x)", () => {
 
   /**
    * Run and return the LAST statement's value (SDK values normalized to plain JSON).
-   * Returns `any` on purpose: these probes assert arbitrary shapes, and bun:test's `expect`
+   * `any` on purpose: these probes assert arbitrary shapes, and bun:test's `expect`
    * resolves `unknown` to a `Matchers<undefined>`.
    */
   // biome-ignore lint/suspicious/noExplicitAny: arbitrary probe shapes vs. bun:test's expect typing.
+  type AnyResult = any;
+
   const last = async (
     sql: string,
     vars?: Record<string, unknown>,
-  ): Promise<any> => {
+  ): Promise<AnyResult> => {
     const out = await run<unknown[]>(sql, vars);
     return plain(out[out.length - 1]);
   };
@@ -515,6 +517,8 @@ live("ORM syntax map — live probes (server 3.x)", () => {
       expect(await last("RETURN ['db','graph'] ?= 'db';")).toBe(true);
       expect(await last("RETURN ['db','graph'] *= 'db';")).toBe(false);
       expect(await last("RETURN ['db'] *= 'db';")).toBe(true);
+      // `*=` is vacuously true on an empty array (documented in the map §4.3).
+      expect(await last("RETURN [] *= 'db';")).toBe(true);
     });
 
     test("fuzzy operators ~ / ?~ / *~ are NOT valid in 3.x", async () => {
@@ -791,6 +795,119 @@ live("ORM syntax map — live probes (server 3.x)", () => {
       expect(table[0]).toHaveProperty("changes");
       const database = await last("SHOW CHANGES FOR DATABASE SINCE 0 LIMIT 1;");
       expect(Array.isArray(database)).toBe(true);
+    });
+  });
+
+  describe("read clauses — M1 compiler order and shapes", () => {
+    test("FROM ONLY needs a single result: a table with 2 rows errors, LIMIT 1 unwraps", async () => {
+      await expect(last("SELECT * FROM ONLY user;")).rejects.toThrow(
+        /single result/,
+      );
+      expect(await last("SELECT * FROM ONLY user LIMIT 1;")).toEqual(
+        expect.objectContaining({ id: expect.any(String) }),
+      );
+      // `only` + `range` is a compile-time error in the ORM; the server also can't express it.
+      await expect(
+        last("SELECT * FROM ONLY user:alice..=user:bob;"),
+      ).rejects.toThrow(/Parse error/);
+    });
+
+    test("path projections nest by path; aliases flatten", async () => {
+      await run(
+        "UPDATE user:alice MERGE { contacts: [{ type: 'email', value: 'a@x' }] };",
+      );
+      expect(await last("SELECT contacts[*].type FROM user:alice;")).toEqual([
+        { contacts: { type: ["email"] } },
+      ]);
+      expect(await last("SELECT contacts.type FROM user:alice;")).toEqual([
+        { contacts: { type: ["email"] } },
+      ]);
+      expect(await last("SELECT contacts[0].value FROM user:alice;")).toEqual([
+        { contacts: { value: "a@x" } },
+      ]);
+      expect(
+        await last("SELECT contacts[*].type AS t FROM user:alice;"),
+      ).toEqual([{ t: ["email"] }]);
+    });
+
+    test("clause order: WITH before WHERE, SPLIT after, VERSION before TIMEOUT", async () => {
+      await run("DEFINE INDEX idx_user_age ON user FIELDS age;");
+      expect(
+        await last(
+          "SELECT * FROM user WITH INDEX idx_user_age WHERE age > 20 SPLIT tags ORDER BY tags LIMIT 2 START 0 TIMEOUT 5s;",
+        ),
+      ).toEqual(expect.any(Array));
+      await expect(
+        last("SELECT * FROM user WHERE age > 20 WITH NOINDEX;"),
+      ).rejects.toThrow(/Parse error/);
+      await expect(
+        last("SELECT * FROM user TIMEOUT 5s LIMIT 1;"),
+      ).rejects.toThrow(/Parse error/);
+      await expect(
+        last("SELECT * FROM user TIMEOUT 5s VERSION d'2025-01-01T00:00:00Z';"),
+      ).rejects.toThrow(/Parse error/);
+    });
+
+    test("SPLIT + GROUP ALL is mutually exclusive (not just GROUP BY)", async () => {
+      await expect(
+        last("SELECT tags, count() AS c FROM user SPLIT tags GROUP ALL;"),
+      ).rejects.toThrow(/mutually exclusive/);
+    });
+
+    test("LIMIT/START accept binds; ORDER BY needs an alias, not a parenthesized expr", async () => {
+      expect(
+        await last("SELECT name FROM user ORDER BY name LIMIT $l START $s;", {
+          l: 1,
+          s: 1,
+        }),
+      ).toEqual([expect.objectContaining({ name: expect.any(String) })]);
+      await expect(
+        last("SELECT * FROM user ORDER BY (age + 1) DESC;"),
+      ).rejects.toThrow(/Parse error/);
+      expect(
+        await last("SELECT (age + 1) AS bump FROM user ORDER BY bump DESC;"),
+      ).toEqual(expect.any(Array));
+    });
+
+    test("count() without GROUP ALL is per-row; SELECT * with GROUP is invalid", async () => {
+      const counted = (await last("SELECT count() FROM user;")) as {
+        count: number;
+      }[];
+      expect(Array.isArray(counted)).toBe(true);
+      expect(counted[0]).toEqual({ count: 1 });
+      await expect(last("SELECT * FROM user GROUP ALL;")).rejects.toThrow(
+        /cannot be aggregated/,
+      );
+      await expect(last("SELECT * FROM user GROUP BY active;")).rejects.toThrow(
+        /cannot be aggregated/,
+      );
+    });
+
+    test("record ranges use the id suffix (t:1..=2) and accept string ids", async () => {
+      await run(
+        "DEFINE TABLE rng SCHEMALESS; CREATE rng:1; CREATE rng:2; CREATE rng:3; CREATE rng:abc; CREATE rng:xyz;",
+      );
+      expect(await last("SELECT VALUE id FROM rng:1..=2;")).toEqual([
+        "rng:1",
+        "rng:2",
+      ]);
+      expect(await last("SELECT VALUE id FROM rng:abc..=xyz;")).toEqual([
+        "rng:abc",
+        "rng:xyz",
+      ]);
+      expect(await last("SELECT VALUE id FROM rng:1..3;")).toEqual([
+        "rng:1",
+        "rng:2",
+      ]);
+    });
+
+    test("OMIT drops a required field without failing the projection", async () => {
+      expect(await last("SELECT * OMIT age FROM user:alice;")).toEqual([
+        expect.not.objectContaining({ age: expect.anything() }),
+      ]);
+      expect(await last("SELECT name, age OMIT age FROM user:alice;")).toEqual([
+        { name: "Alice" },
+      ]);
     });
   });
 });

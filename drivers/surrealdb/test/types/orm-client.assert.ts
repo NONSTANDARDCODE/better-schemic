@@ -12,6 +12,7 @@ import {
 import type { Client } from "../../src/orm/client";
 import type { Delegate } from "../../src/orm/delegate";
 import { defineSchema } from "../../src/orm/schema";
+import type { AnyTableDef } from "../../src/orm/types/schema";
 
 let cleanup: (() => void) | undefined;
 before(() => {
@@ -40,11 +41,12 @@ const schema = defineSchema({
 type C = Client<typeof schema>;
 
 describe("Client<S> — schema keys -> delegates", () => {
-  it("every model key resolves to a Delegate", () => {
-    attest<Delegate, C["users"]>();
-    attest<Delegate, C["posts"]>();
-    attest<Delegate, C["likes"]>();
-    attest<Delegate, C["audit"]>();
+  it("every model key resolves to a Delegate (typed per model)", () => {
+    attest<Delegate<typeof User>, C["users"]>();
+    attest<Delegate<typeof Post>, C["posts"]>();
+    attest<Delegate<typeof Likes>, C["likes"]>();
+    // Schemaless entries map to the loosely-typed delegate over unknown rows.
+    attest<Delegate<AnyTableDef>, C["audit"]>();
   });
   it("model keys are part of the client type; function keys are not", () => {
     attest<true, "users" extends keyof C ? true : false>();

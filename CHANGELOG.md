@@ -29,8 +29,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `BEGIN/COMMIT` batches, unique-binds guardrail). Reads/writes/relations/… land in the following
   milestones — see [`PLANO-QUERYS-TIPADAS.md`](./PLANO-QUERYS-TIPADAS.md).
 - **surrealdb:** `docs/orm-syntax-map.md` + `test/live/orm-syntax.test.ts` — the live-verified SurrealQL
-  syntax map the ORM compiler must emit against (51 probes on server 3.2.0), with the prototype
+  syntax map the ORM compiler must emit against (59 probes on server 3.2.x), with the prototype
   divergences recorded.
+- **surrealdb:** the `/orm` **read surface (M1)** — object-based compiler + typed reads, one round-trip:
+  `findMany` (where/select/omit/orderBy/limit/start/range/split/groupBy/groupAll/only/value/with/timeout/
+  version), `findFirst`/`findOne`/`findUnique` (id or single-field UNIQUE index) with `.throw()`/
+  `NotFoundInfo`, `count`/`exists`, `aggregate` (`_count`, `math::*` — `avg` emits `math::mean` —
+  `collect`/`distinct`), `paginate` (offset + count in one round-trip; `count:false` probes n+1) and
+  `cursor` (id/tuple keyset with tiebreaker), plus lazy thenables with `.explain()` / `explain: true`
+  (`ExplainResult`, never executes the query). Read result types are inferred from the args literal
+  (`select`/`omit`/`value`/`only`/`split`/`explain`); failures are teaching `BetterSchemicError`s
+  (`UniqueTargetRequired`, `ClauseNotSupported`, `HavingUnsupported`, `CursorDirectionConflict`,
+  `CursorTiebreakerRequired`). New modules: `orm/compiler/{shared,projection,where,select,aggregate,
+  pagination,unique}.ts`, `orm/reads.ts`, `orm/decode.ts`, `orm/types/{where,select}.ts`.
 
 ### Removed
 - **surrealdb:** the fluent query builder (`select`/`create`/`update`/`upsert`/`remove`/`relate`, graph
