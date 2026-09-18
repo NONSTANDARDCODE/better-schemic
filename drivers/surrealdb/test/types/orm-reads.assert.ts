@@ -43,9 +43,7 @@ const schema = defineSchema({ users: User });
 type U = typeof User;
 type Row = App<U>;
 type C = Client<typeof schema>;
-declare const client: C;
 type Users = C["users"];
-void client;
 
 describe("where — family-aware filters and paths", () => {
   it("pure values, operators and paths typecheck", () => {

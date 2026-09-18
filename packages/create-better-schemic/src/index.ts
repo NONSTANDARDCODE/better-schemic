@@ -79,12 +79,12 @@ function detectPm(): Pm {
 }
 
 /** Abort cleanly on Ctrl-C / cancel from any prompt. */
-function abortIfCancel<T>(value: T | symbol): T {
+function abortIfCancel<T>(value: T): Exclude<T, symbol> {
   if (p.isCancel(value)) {
     p.cancel("Cancelled.");
     process.exit(1);
   }
-  return value as T;
+  return value as Exclude<T, symbol>;
 }
 
 // --- templates ---------------------------------------------------------------------------------
