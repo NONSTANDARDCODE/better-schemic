@@ -1,7 +1,7 @@
 {
   "name": "@better-schemic/core",
   "version": "0.1.0-alpha.1",
-  "description": "The dialect-neutral engine for Better-schemic \u2014 Driver contract, portable schema IR, and the migration/diff/snapshot engine.",
+  "description": "The dialect-neutral engine for Better-schemic — Driver contract, portable schema IR, and the migration/diff/snapshot engine.",
   "license": "MIT",
   "author": "Vertio Solutions",
   "homepage": "https://github.com/NONSTANDARDCODE/better-schemic",
@@ -68,10 +68,11 @@
     "test:live": "bun test test/live",
     "test:e2e": "bun test test/e2e",
     "test:types": "bun run ../../scripts/type-perf.ts packages/core",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "format": "biome format --write ."
+    "format": "biome format --write .",
+    "typecheck:legacy": "tsc --noEmit"
   },
   "dependencies": {
     "commander": "^14.0.2",
@@ -89,7 +90,8 @@
     "surrealdb": "^2.0.3",
     "tsup": "^8",
     "tsx": "^4.23.0",
-    "typescript": "^5",
+    "typescript": "^6.0.3",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
     "zod": "^4.3.5"
   }
 }

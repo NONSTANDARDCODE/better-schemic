@@ -120,9 +120,9 @@ function typeProbes(): void {
     data: [{ email: "a@x", age: 3 }],
     onEmpty: "throw",
   });
-  // @ts-expect-error — `by: "email"` items must carry email
   void client.users.updateEach({
     by: "email",
+    // @ts-expect-error — `by: "email"` items must carry email
     data: [{ id: "user:a", age: 3 }],
   });
 

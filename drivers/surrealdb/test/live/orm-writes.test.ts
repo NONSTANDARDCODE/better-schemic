@@ -559,7 +559,14 @@ live("orm writes — live", () => {
     });
     const created = await client.posts.create({
       data: { title: "RelNone", views: 0 },
-      relate: [{ from: "wr_user:relnone", edge: "wr_likes", to: "$self" }],
+      relate: [
+        {
+          from: "wr_user:relnone",
+          edge: "wr_likes",
+          to: "$self",
+          data: { score: 0 },
+        },
+      ],
       return: "none",
     });
     expect(created).toBeNull();

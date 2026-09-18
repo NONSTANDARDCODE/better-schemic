@@ -31,8 +31,9 @@
     "build": "tsup",
     "prepack": "bun run build",
     "test": "bun test",
-    "typecheck": "tsc --noEmit",
-    "lint": "biome check ."
+    "typecheck": "tsgo --noEmit",
+    "lint": "biome check .",
+    "typecheck:legacy": "tsc --noEmit"
   },
   "dependencies": {
     "@better-schemic/core": "workspace:*",
@@ -44,7 +45,8 @@
     "@types/bun": "latest",
     "surrealdb": "^2.0.3",
     "tsup": "^8",
-    "typescript": "^5",
+    "typescript": "^6.0.3",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
     "zod": "^4.3.5"
   }
 }

@@ -71,7 +71,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 - **core:** `@better-schemic/core/query` (the `Row`/`Project`/`decodeProjection`/`callFunction` toolkit) —
   retired with the fluent builder; the neutral field-ref carrier moved into the driver (`src/surql/ref.ts`).
 
+### Fixed
+- **repo:** `test/live/orm-writes.test.ts` — the `create + relate return:'none'` case omitted the
+  required `score` edge payload, so it failed against a real server (schemafull coercion); it now
+  passes `data: { score: 0 }` like its sibling case.
+
 ### Changed
+- **repo (tooling):** `typecheck` now runs on the **TypeScript 7 native (Go) compiler** (`tsgo`, via
+  `@typescript/native-preview`) — workspace-wide checks drop from ~4 min to ~1m20. The classic
+  `typescript` devDep stays pinned at `5.9.3` because `tsup`'s bundled dts plugin and `@ark/attest`
+  still consume the JS compiler API (a stable native API only lands in TS 7.1), so build/type-perf
+  behavior is unchanged; `typecheck:legacy` keeps a classic `tsc --noEmit` parity escape hatch.
 - **surrealdb:** `BatchResult.count` is now optional — `return: 'none'` makes the server return no
   rows, so the affected count is genuinely unknown (`undefined`) instead of a misleading `0`; with
   `return: 'diff'` the batch resolves the flat patch list instead of the envelope.
