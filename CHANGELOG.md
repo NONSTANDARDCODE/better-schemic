@@ -29,7 +29,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `BEGIN/COMMIT` batches, unique-binds guardrail). Reads/writes/relations/… land in the following
   milestones — see [`PLANO-QUERYS-TIPADAS.md`](./PLANO-QUERYS-TIPADAS.md).
 - **surrealdb:** `docs/orm-syntax-map.md` + `test/live/orm-syntax.test.ts` — the live-verified SurrealQL
-  syntax map the ORM compiler must emit against (59 probes on server 3.2.x), with the prototype
+  syntax map the ORM compiler must emit against (70 probes on server 3.2.x), with the prototype
   divergences recorded.
 - **surrealdb:** the `/orm` **read surface (M1)** — object-based compiler + typed reads, one round-trip:
   `findMany` (where/select/omit/orderBy/limit/start/range/split/groupBy/groupAll/only/value/with/timeout/
@@ -42,6 +42,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   (`UniqueTargetRequired`, `ClauseNotSupported`, `HavingUnsupported`, `CursorDirectionConflict`,
   `CursorTiebreakerRequired`). New modules: `orm/compiler/{shared,projection,where,select,aggregate,
   pagination,unique}.ts`, `orm/reads.ts`, `orm/decode.ts`, `orm/types/{where,select}.ts`.
+- **surrealdb:** the `/orm` **write surface (M2)** — every mutation compiles eagerly, runs in ONE
+  round-trip, and decodes its rows through the table codec: `create`/`createMany` (+ `only`, `relate`
+  sugar in the same batch, `skipDuplicates`), `insert`/`insertMany` (`onDuplicate: "ignore" |
+  "update" | map` with `$input` expressions), `update`/`updateMany` (modes `merge`/`set`/`content`/
+  `replace`/`patch`, `unset`, `surql` expressions, `only`/`timeout`; targets a record id or a
+  single-field UNIQUE index and NEVER creates — a miss resolves `null`/`.throw()`), `patch` (JSON
+  Patch ops validated), `upsert`/`upsertMany` (`UPSERT`/`INSERT … ON DUPLICATE`; falls back to
+  `LET`/`IF` when expressions must read the existing row; items without ids need `conflict`),
+  `delete`/`deleteMany` (`RETURN BEFORE|NONE`, `all: true` for whole-table) and `updateEach`
+  (one statement per item, `skipped`, `onEmpty: "throw"`, eager `select` projection). Relation
+  delegates (`defineRelation`) gain `relate`/`relateMany`/`unrelate`/`unrelateMany` with endpoints
+  validated against the declared `RelationDef` and `create.relate` edge `data` codec-validated
+  against the edge schema. Batches return the `BatchResult` envelope (`count`/`data`/`skipped`/
+  `statements`) or — with `return: 'diff'` — the flat JSON Patch ops combined across the batch's
+  statements; `insert`/`upsert` with `return: 'before'` resolve the previous row (or `null` when
+  created); `skipDuplicates` needs an explicit `id` per item and `upsertMany.conflict` must be a
+  single-field UNIQUE index (fail-fast `UniqueTargetRequired`). `data` accepts `surql` expressions
+  per field (literal fields stay codec-validated); `id` strings become `RecordId`s. New modules:
+  `orm/compiler/{write,write-shared,mutate,relate}.ts`, `orm/writes.ts`, `orm/types/write.ts`.
+- **surrealdb:** live-verified write semantics in `docs/orm-syntax-map.md` + `test/live/orm-syntax.test.ts`
+  (70 probes on server 3.2.x) and the end-to-end write suite `test/live/orm-writes.test.ts`.
 
 ### Removed
 - **surrealdb:** the fluent query builder (`select`/`create`/`update`/`upsert`/`remove`/`relate`, graph
@@ -51,6 +72,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   retired with the fluent builder; the neutral field-ref carrier moved into the driver (`src/surql/ref.ts`).
 
 ### Changed
+- **surrealdb:** `BatchResult.count` is now optional — `return: 'none'` makes the server return no
+  rows, so the affected count is genuinely unknown (`undefined`) instead of a misleading `0`; with
+  `return: 'diff'` the batch resolves the flat patch list instead of the envelope.
+- **surrealdb:** `where` coerces string record values (`"user:aeon"`) to `RecordId` on record
+  columns (including `id`) — previously they bound as strings and silently matched nothing.
 - **surrealdb:** `block()` moved to `src/surql/` and its typed `LET`/`FOR` vars now support
   fragments/refs (the fluent `select(...)` integration is gone); comparison operators + stdlib
   families are unchanged.

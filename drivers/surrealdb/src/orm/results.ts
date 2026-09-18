@@ -145,8 +145,11 @@ export function attachExplain<T>(
 
 /** The envelope of a batch operation. `count` = affected records; `data` only when RETURN yields rows. */
 export interface BatchResult<T = unknown> {
-  /** How many records the operation affected. */
-  readonly count: number;
+  /**
+   * How many records the operation affected (`data.length`). `undefined` when the operation ran
+   * with `return: 'none'` — the server returns no rows, so the affected count is genuinely unknown.
+   */
+  readonly count?: number;
   /** The returned rows (`return` handed them back, or the driver supports RETURNING). */
   readonly data?: readonly T[];
   /** Items intentionally skipped (e.g. `onEmpty: 'return'`, duplicates with `ignore`). */

@@ -382,28 +382,85 @@ export function recordIdSuffix(
   side: string,
   operation: string,
 ): string {
+  return escapeRecordIdPart(
+    recordIdParts(value, operation, {
+      table: tableName,
+      fallbackTable: tableName,
+      what: `range.${side} record id`,
+    }).id,
+  );
+}
+
+/** Quote an id part only when it isn't a bare identifier/number. */
+export function escapeRecordIdPart(id: string): string {
+  return /^[A-Za-z_][A-Za-z0-9_]*$|^\d+$/.test(id) ? id : escapeIdent(id);
+}
+
+// --- record ids — ONE parser per rule ------------------------------------------------------------
+
+/** A record-id value split into its table and id parts. */
+export interface RecordIdParts {
+  readonly table: string;
+  readonly id: string;
+}
+
+/**
+ * Non-throwing record-id split: `"user:aeon"` / `RecordId` -> `{ table, id }`; anything without a
+ * table prefix (bare ids, non-strings) resolves `undefined`. The ONE place `table:id` is parsed.
+ */
+export function splitRecordId(value: unknown): RecordIdParts | undefined {
+  const text = String(value ?? "");
+  const colon = text.indexOf(":");
+  if (colon === -1) return undefined;
+  return { table: text.slice(0, colon), id: text.slice(colon + 1) };
+}
+
+/**
+ * Parse a record-id VALUE with teaching errors: `fallbackTable` accepts a bare id for that table,
+ * `table` rejects a record id naming a different table, and `field`/`what` shape the message.
+ */
+export function recordIdParts(
+  value: unknown,
+  operation: string,
+  options: {
+    /** Accept a bare id by attributing it to this table. */
+    readonly fallbackTable?: string;
+    /** Require an explicit `table:` prefix to name this table. */
+    readonly table?: string;
+    readonly field?: string;
+    readonly what?: string;
+  } = {},
+): RecordIdParts {
+  const what = options.what ?? "record id";
+  const context = {
+    operation,
+    ...(options.table ? { table: options.table } : {}),
+    ...(options.field ? { field: options.field } : {}),
+  };
   const text = String(value ?? "");
   if (!text)
     throw compileError(
       "ValidationError",
-      `${operation}: range.${side} must be a record id (e.g. "${tableName}:1").`,
-      { operation },
+      `${operation}: a ${what} must be non-empty (e.g. "${options.fallbackTable ?? options.table ?? "table"}:1").`,
+      context,
     );
-  const colon = text.indexOf(":");
-  if (colon === -1) return escapeIdPart(text);
-  const table = text.slice(0, colon);
-  if (table !== tableName)
+  const parts = splitRecordId(text);
+  if (!parts) {
+    if (options.fallbackTable === undefined)
+      throw compileError(
+        "ValidationError",
+        `${operation}: a ${what} must be "table:id" (got ${describeValue(value)}).`,
+        context,
+      );
+    return { table: options.fallbackTable, id: text };
+  }
+  if (options.table !== undefined && parts.table !== options.table)
     throw compileError(
       "ValidationError",
-      `${operation}: range.${side} is a "${table}" record id, but this delegate targets "${tableName}".`,
-      { operation },
+      `${operation}: "${text}" is a "${parts.table}" record id, but this delegate targets "${options.table}".`,
+      context,
     );
-  return escapeIdPart(text.slice(colon + 1));
-}
-
-/** Quote an id part only when it isn't a bare identifier/number. */
-function escapeIdPart(id: string): string {
-  return /^[A-Za-z_][A-Za-z0-9_]*$|^\d+$/.test(id) ? id : escapeIdent(id);
+  return parts;
 }
 
 /** A plain data object (not a class instance). */

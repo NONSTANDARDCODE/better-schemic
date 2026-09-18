@@ -52,6 +52,11 @@ export interface ProjectionSpec {
   readonly starSchema?: z.ZodType;
 }
 
+/** The full-row decode spec (writes always return whole records). ONE canonical instance. */
+export function fullProjectionSpec(): ProjectionSpec {
+  return { star: true, fields: [], omit: [], value: false };
+}
+
 /** Compile `select`/`omit`/`value` into SQL text + the decode spec. */
 export function compileProjection(
   meta: ModelMeta,

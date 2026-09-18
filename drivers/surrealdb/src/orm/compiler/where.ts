@@ -9,6 +9,7 @@
  * Verified forms live in `docs/orm-syntax-map.md` §4; unverified spellings (`~`/`?~`/`*~`) are
  * rejected with a teaching `UnsupportedCapability` instead of being emitted.
  */
+import { RecordId } from "surrealdb";
 import type { FieldFamily, TableMeta } from "../meta";
 import {
   type Binds,
@@ -21,6 +22,7 @@ import {
   paren,
   renderPath,
   renderValue,
+  splitRecordId,
 } from "./shared";
 
 /** Options shared by every clause compiler. */
@@ -138,7 +140,8 @@ function compileOperator(
 ): string {
   const { path, field, family, arrayPath, binds } = context;
   const ctx = binds.ctx();
-  const value = (v: unknown = operand) => renderValue(v, binds, ctx);
+  const value = (v: unknown = operand) =>
+    renderValue(coerceRecord(context, v), binds, ctx);
   switch (op) {
     case "equals":
       return equality(context, operand);
@@ -304,7 +307,9 @@ function compileAnyAll(
         `"${label}" on "${field}" supports lt/lte/gt/gte/equals, got "${op}".`,
         { field },
       );
-    parts.push(`${path} ${prefix}${symbol} ${renderValue(bound, binds, ctx)}`);
+    parts.push(
+      `${path} ${prefix}${symbol} ${renderValue(coerceRecord(context, bound), binds, ctx)}`,
+    );
   }
   if (parts.length === 0)
     throw compileError(
@@ -429,8 +434,30 @@ function equality(context: FieldFilterContext, value: unknown): string {
   const { path, arrayPath, binds } = context;
   if (value === null) return `${path} = NULL`;
   return arrayPath
-    ? `${path} CONTAINS ${renderValue(value, binds, binds.ctx())}`
-    : `${path} = ${renderValue(value, binds, binds.ctx())}`;
+    ? `${path} CONTAINS ${renderValue(coerceRecord(context, value), binds, binds.ctx())}`
+    : `${path} = ${renderValue(coerceRecord(context, value), binds, binds.ctx())}`;
+}
+
+/**
+ * Coerce string record values (`user:aeon`) to `RecordId` when the filter targets a record column
+ * itself (not a path THROUGH a record). A bare `"a:b"` string on a record field would otherwise
+ * bind as a string and silently match nothing.
+ */
+function coerceRecord(context: FieldFilterContext, value: unknown): unknown {
+  if (context.field.includes(".")) return value;
+  const base = context.field.replace(/\[.*$/, "");
+  const column = context.options.meta?.columns.get(base);
+  if (!column?.record) return value;
+  return Array.isArray(value)
+    ? value.map((entry) => coerceRecordId(entry))
+    : coerceRecordId(value);
+}
+
+/** `"user:aeon"` -> `RecordId` (strings without a table stay untouched). */
+function coerceRecordId(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const parts = splitRecordId(value);
+  return parts ? new RecordId(parts.table, parts.id) : value;
 }
 
 /** The base column's family (from `wire.ts` classification), when the table is typed. */

@@ -1,7 +1,7 @@
 // M1.1 — the `where` compiler: args -> exact `{ sql, vars }` goldens, family-aware operators,
 // path/identifier escaping and injection-proof values. Offline (no server).
 import { describe, expect, test } from "bun:test";
-import { escapeIdent } from "surrealdb";
+import { escapeIdent, RecordId } from "surrealdb";
 import { surql } from "../../src/index";
 import { createBinds } from "../../src/orm/compiler/shared";
 import { compileWhere } from "../../src/orm/compiler/where";
@@ -23,6 +23,8 @@ const User = defineTable("user", {
   contacts: s.array(s.object({ type: s.string(), value: s.string() })),
   location: s.geometry(),
   embedding: s.array(s.float()),
+  mentor: s.recordId("user").optional(),
+  teammates: s.array(s.recordId("user")),
 });
 
 const index = buildSchemaIndex({ users: User });
@@ -447,5 +449,23 @@ describe("where — teaching errors", () => {
 
   test("schemaless models (no meta) still compile", () => {
     expect(compile({ anything: 1 }, undefined).sql).toBe("anything = $p0");
+  });
+
+  test("string record values coerce to RecordId on record columns", () => {
+    const one = compile({ mentor: "user:aeon" });
+    expect(one.sql).toBe("mentor = $p0");
+    expect(one.vars.p0).toBeInstanceOf(RecordId);
+    expect(String(one.vars.p0)).toBe("user:aeon");
+
+    const list = compile({ teammates: { contains: "user:bob" } });
+    expect(list.vars.p0).toBeInstanceOf(RecordId);
+
+    const set = compile({ teammates: { any: { equals: "user:carol" } } });
+    expect(set.vars.p0).toBeInstanceOf(RecordId);
+
+    const many = compile({ teammates: ["user:a", "user:b"] });
+    expect(many.vars.p0).toBeInstanceOf(Array);
+    expect((many.vars.p0 as unknown[])[0]).toBeInstanceOf(RecordId);
+    expect((many.vars.p0 as unknown[])[1]).toBeInstanceOf(RecordId);
   });
 });

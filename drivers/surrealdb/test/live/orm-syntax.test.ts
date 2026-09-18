@@ -910,4 +910,215 @@ live("ORM syntax map — live probes (server 3.x)", () => {
       ]);
     });
   });
+
+  describe("M2 — write forms the compiler emits", () => {
+    test("INSERT binds an array or a single object; a STRING id is NOT coerced to a record id", async () => {
+      expect(
+        await last("INSERT INTO user $p;", {
+          p: [
+            { id: new RecordId("user", "ins-a"), name: "A", age: 2 },
+            { id: new RecordId("user", "ins-b"), name: "B", age: 3 },
+          ],
+        }),
+      ).toHaveLength(2);
+      expect(
+        await last("INSERT INTO user $p;", {
+          p: { id: new RecordId("user", "ins-single"), name: "S", age: 1 },
+        }),
+      ).toEqual([expect.objectContaining({ name: "S", age: 1 })]);
+      // DIVERGE: a "user:x" STRING id inserts a record whose id VALUE is the string (user:⟨user:x⟩).
+      const coerced = (await last("INSERT INTO user $p;", {
+        p: { id: "user:raw", name: "R", age: 9 },
+      })) as { id: string }[];
+      expect(String(coerced[0]?.id)).toBe("user:⟨user:raw⟩");
+    });
+
+    test("INSERT … ON DUPLICATE KEY UPDATE needs an insertable row and accepts $p.f / $input.f", async () => {
+      await run("CREATE user:dup CONTENT { name: 'Old', age: 10 };");
+      const partial = await caught(
+        last("INSERT INTO user $p ON DUPLICATE KEY UPDATE name = $p.name;", {
+          p: { id: new RecordId("user", "dup"), name: "New" },
+        }),
+      );
+      expect(String(partial)).toMatch(/coerce value for field .age./);
+      expect(
+        await last(
+          "INSERT INTO user $p ON DUPLICATE KEY UPDATE name = $p.name;",
+          {
+            p: { id: new RecordId("user", "dup"), name: "New", age: 10 },
+          },
+        ),
+      ).toEqual([expect.objectContaining({ id: "user:dup", name: "New" })]);
+      expect(
+        await last(
+          "INSERT INTO user $p ON DUPLICATE KEY UPDATE age = $input.age;",
+          {
+            p: { id: new RecordId("user", "dup"), name: "New2", age: 42 },
+          },
+        ),
+      ).toEqual([expect.objectContaining({ id: "user:dup", age: 42 })]);
+    });
+
+    test("INSERT ON DUPLICATE RETURN BEFORE returns the PREVIOUS state; DIFF is a paged diff", async () => {
+      const before = await last(
+        "INSERT INTO user $p ON DUPLICATE KEY UPDATE name = $input.name RETURN BEFORE;",
+        {
+          p: { id: new RecordId("user", "dup"), name: "BeforeProbe", age: 42 },
+        },
+      );
+      expect(before).toEqual([expect.objectContaining({ name: "New" })]);
+      expect(await last("SELECT VALUE name FROM user:dup;")).toEqual([
+        "BeforeProbe",
+      ]);
+      const diff = await last(
+        "INSERT INTO user $p ON DUPLICATE KEY UPDATE name = $input.name RETURN DIFF;",
+        { p: { id: new RecordId("user", "dup"), name: "DiffProbe", age: 42 } },
+      );
+      expect(diff).toEqual([
+        [
+          expect.objectContaining({
+            op: "change",
+            path: "/name",
+            value: expect.any(String),
+          }),
+        ],
+      ]);
+    });
+
+    test("UPSERT: per-field SET preserves missing fields; MERGE … WHERE creates", async () => {
+      await run("CREATE user:ups CONTENT { name: 'U', age: 20, tags: ['x'] };");
+      expect(await last("UPSERT user:ups SET age = $p;", { p: 21 })).toEqual([
+        expect.objectContaining({ age: 21, name: "U" }),
+      ]);
+      // DIVERGE: "SET $obj" (whole-object bind) is a parse error — the compiler emits per-field.
+      expect(
+        await caught(last("UPSERT user:ups SET $p;", { p: { age: 22 } })),
+      ).not.toBeNull();
+      expect(
+        await last("UPSERT user MERGE $p WHERE name = $v;", {
+          p: { name: "UpsertCreated", age: 1 },
+          v: "UpsertCreated",
+        }),
+      ).toEqual([
+        expect.objectContaining({
+          name: "UpsertCreated",
+          id: expect.any(String),
+        }),
+      ]);
+    });
+
+    test("UPDATE … UNSET with RETURN and TIMEOUT order", async () => {
+      await run(
+        "CREATE ONLY user:unset2 CONTENT { name: 'U2', age: 5, tags: ['a'] };",
+      );
+      expect(
+        await last("UPDATE user:unset2 UNSET tags RETURN BEFORE TIMEOUT 5s;"),
+      ).toEqual([expect.objectContaining({ tags: ["a"] })]);
+      expect(await last("SELECT * FROM user:unset2;")).toEqual([
+        expect.not.objectContaining({ tags: expect.anything() }),
+      ]);
+    });
+
+    test("UPDATE ONLY t:id works with and without WHERE", async () => {
+      await run("CREATE user:onlyw CONTENT { name: 'OW', age: 1 };");
+      expect(await last("UPDATE ONLY user:onlyw SET age = 2;")).toEqual(
+        expect.objectContaining({ age: 2 }),
+      );
+      expect(
+        await last("UPDATE ONLY user SET age = 3 WHERE name = 'OW';"),
+      ).toEqual(expect.objectContaining({ age: 3 }));
+    });
+
+    test("UPDATE RETURN DIFF is a nested JSON Patch array", async () => {
+      await run("CREATE user:diff1 CONTENT { name: 'D', age: 1 };");
+      const diff = await last("UPDATE user:diff1 SET age = 2 RETURN DIFF;");
+      expect(diff).toEqual([
+        [expect.objectContaining({ op: "replace", path: "/age", value: 2 })],
+      ]);
+    });
+
+    test("DELETE shapes: t:id, FROM t WHERE, whole table, RETURN BEFORE/NONE", async () => {
+      await run(`
+        DEFINE TABLE del SCHEMALESS;
+        CREATE del:a CONTENT { v: 1 };
+        CREATE del:b CONTENT { v: 2 };
+      `);
+      expect(await last("DELETE del:a RETURN BEFORE;")).toEqual([
+        expect.objectContaining({ v: 1 }),
+      ]);
+      expect(await last("DELETE del:missing RETURN BEFORE;")).toEqual([]);
+      expect(await last("DELETE FROM del WHERE v = 2 RETURN BEFORE;")).toEqual([
+        expect.objectContaining({ v: 2 }),
+      ]);
+      await run("CREATE del:c CONTENT { v: 3 };");
+      expect(await last("DELETE del RETURN NONE;")).toEqual([]);
+      expect(await last("SELECT * FROM del;")).toEqual([]);
+    });
+
+    test("DIVERGE: FOR returns NONE — per-item statements carry updateEach results", async () => {
+      await run(`
+        DEFINE TABLE fe SCHEMALESS;
+        CREATE fe:1 CONTENT { age: 1 };
+        CREATE fe:2 CONTENT { age: 2 };
+      `);
+      const loop = await last(
+        "FOR $__row IN $rows { UPDATE fe MERGE $__row.fields WHERE id = $__row.by; };",
+        {
+          rows: [
+            { by: new RecordId("fe", 1), fields: { age: 11 } },
+            { by: new RecordId("fe", 2), fields: { age: 22 } },
+          ],
+        },
+      );
+      expect(loop).toBeUndefined();
+      const perItem = plain(
+        await run(
+          "UPDATE fe MERGE $f0 WHERE id = $b0 RETURN AFTER; UPDATE fe MERGE $f1 WHERE id = $b1 RETURN AFTER;",
+          {
+            f0: { age: 111 },
+            b0: new RecordId("fe", 1),
+            f1: { age: 1 },
+            b1: new RecordId("fe", 999),
+          },
+        ),
+      );
+      expect(perItem).toEqual([[expect.objectContaining({ age: 111 })], []]);
+    });
+
+    test("INSERT IGNORE per row returns only the inserted rows (skipDuplicates)", async () => {
+      await run(`
+        DEFINE TABLE skip SCHEMALESS;
+        CREATE skip:x CONTENT { v: 1 };
+      `);
+      const out = await last(
+        "INSERT IGNORE INTO skip $p0; INSERT IGNORE INTO skip $p1;",
+        {
+          p0: { id: new RecordId("skip", "x"), v: 2 },
+          p1: { id: new RecordId("skip", "y"), v: 3 },
+        },
+      );
+      // Only the LAST statement's rows are read here; both ran (see the SELECTs below).
+      expect(out).toEqual([expect.objectContaining({ v: 3 })]);
+      expect(await last("SELECT v FROM skip:y;")).toEqual([{ v: 3 }]);
+      expect(await last("SELECT v FROM skip:x;")).toEqual([{ v: 1 }]);
+    });
+
+    test("RELATE with SET data, a named edge id, and via LET $created", async () => {
+      const edge = await last(
+        "RELATE user:alice->likes->post:p2 SET score = $p;",
+        { p: 7 },
+      );
+      expect(edge).toEqual([
+        expect.objectContaining({ score: 7, in: "user:alice", out: "post:p2" }),
+      ]);
+      const named = await last(
+        "RELATE user:alice->likes:named1->post:p2 SET score = 1;",
+      );
+      expect(named).toEqual([expect.objectContaining({ id: "likes:named1" })]);
+      const created = await last(
+        "LET $c = (CREATE ONLY post CONTENT { title: 'Rel', author: user:alice }); RELATE user:alice->likes->$c SET score = 2; RETURN $c;",
+      );
+      expect(created).toEqual(expect.objectContaining({ title: "Rel" }));
+    });
+  });
 });

@@ -31,10 +31,10 @@ describe("ThrowingResult<T>", () => {
 });
 
 describe("BatchResult<T>", () => {
-  it("carries count/data/skipped/statements (data readonly)", () => {
+  it("carries count/data/skipped/statements (count optional with return:'none')", () => {
     attest<
       {
-        readonly count: number;
+        readonly count?: number;
         readonly data?: readonly string[];
         readonly skipped?: number;
         readonly statements: number;

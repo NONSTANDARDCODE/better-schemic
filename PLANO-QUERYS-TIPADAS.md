@@ -26,6 +26,7 @@
 | M0.4 Executor | ✅ concluído | `src/orm/execute.ts` (1 round-trip via `responses()`, `BEGIN/COMMIT` atômico, falha raiz, binds únicos), `test/unit/orm-execute.test.ts`, `test/live/orm-execute.test.ts` |
 | M0.5 Bootstrap + delegates + substituição do legado | ✅ concluído | `/orm` (`betterSchemic`/`createBetterSchemic`, delegates, `repository`, `extends`, `forkSession`), `/query` = fragments, legado removido (§6), `test/unit/orm-client.test.ts`, `test/live/orm-client.test.ts`, `test/types/orm-client.assert.ts` |
 | M1 Leitura | ✅ concluído | compiler `where`/`select`/`aggregate`/`pagination` + `findMany`/`findFirst`/`findOne`/`findUnique`/`count`/`exists`/`aggregate`/`paginate`/`cursor` + `.throw()`/`.explain()`; M1.1–M1.8 (ver nota) |
+| M2 Escritas | ✅ concluído | `compiler/write.ts` + `writes.ts` + `types/write.ts`: `create`/`createMany` (+`relate` sugar, `skipDuplicates`), `insert`/`insertMany` (+`onDuplicate`), `update`/`updateMany` (5 modos, `unset`, expressões), `patch`, `upsert`/`upsertMany` (id/único/`conflict`), `delete`/`deleteMany`, `updateEach` (per-item), `relate`/`relateMany`/`unrelate`/`unrelateMany`; M2.1–M2.8 (ver nota) |
 
 > Nota do M0.2: a classe `BetterSchemicError`/catálogo saiu antecipada (o aceite do M0.2 exige
 > `SchemaInvalid`); o M0.3 ficou com a normalização + os predicados.
@@ -66,6 +67,34 @@
 > consistentes; (10) `FieldFilterContext` no `where`; (11) `PreparedStatement { statement, key }`;
 > (12) thenable anotado como `Promise` (sem cast); (13) união redundante removida; (14) `stringList`
 > silencioso eliminado.
+> Nota do M2 (decisões confirmadas com o usuário): `relate`/`unrelate` vivem no **delegate da
+> aresta** com object-args (`client.likes.relate({ from, to, data?, id? })`); `update`/`patch`/
+> `delete` singulares exigem **id ou índice UNIQUE** (`UniqueTargetRequired` aponta `updateMany`/
+> `deleteMany`); `BatchResult.count` virou **opcional** (`undefined` com `return:'none'`, onde o
+> servidor não devolve linhas). Divergências live (3.2.4) que mudaram o lowering: `FOR` devolve
+> `NONE` → `updateEach`/`skipDuplicates` compilam **1 statement por item** (mesmo round-trip);
+> `SET $obj` é parse error → `set` sempre per-field; `id` string vira `RecordId` no payload;
+> `ON DUPLICATE` valida a linha de INSERT e avalia expressões também na criação → `upsert` com
+> expressão cai no `LET`/`IF`; `RETURN BEFORE` do INSERT ON DUPLICATE devolve o estado anterior
+> (existe); `RETURN DIFF` chega aninhado (`[[ops]]`) e é achatado no decode. Extra fora do M2
+> estrito: valores string `"tabela:id"` em colunas record (inclusive `id`) agora são coagidos para
+> `RecordId` no `where` (antes casavam nada em silêncio). Revisão pós-M2 (termonuclear): o decode é
+> **um só** por plano (`resultIndexes`/`payloadRows`/`payloadDiff`; `perStatement` deletado e o
+> dispatch por nome de operação substituído por `mayMiss` no plano); `return:'diff'` devolve os ops
+> achatados **somando todos os statements** (`update` data+unset incluso) e é rejeitado
+> (`ReturnNotSupported`) onde o lowering não consegue (LET/IF e `create`+`relate`); `before` tipado
+> como `App | null` em insert/upsert (o `CREATE` do IF devolve `RETURN NONE`); `updateEach.select` é
+> compilado **antes** do write (spec no plano) e `onEmpty:'throw'` com `return:'none'` é rejeitado;
+> `skipDuplicates` exige `id` em todo item; `upsertMany.conflict` exige índice UNIQUE; o `timeout`
+> de `unrelate`/`unrelateMany` passou a ser emitido; `create.relate` resolve a aresta no
+> `SchemaIndex` (data codec-validada + endpoints conferidos). Módulos:
+> `compiler/{write,write-shared,mutate,relate}.ts` (create/insert em `write.ts`, mutações em
+> `mutate.ts`, arestas em `relate.ts`, primitivas/args em `write-shared.ts`), `writes.ts`,
+> `types/write.ts`; `compiler/unique.ts` ganhou a operação nas mensagens + `requireUniqueField`;
+> `compiler/shared.ts` o parser único de record id (`splitRecordId`/`recordIdParts`); `results.ts` o
+> `count?`. Live: `test/live/orm-writes.test.ts` (19 e2e) + 19 probes novos em
+> `orm-syntax.test.ts` (70 no total). Tipos: `test/types/orm-writes.{assert,bench}.ts`; unit:
+> `test/unit/orm-writes{,-returns}.test.ts` + `orm-writes-fixtures.ts`.
 
 ---
 
@@ -956,8 +985,7 @@ Padrões do repo: live tests com timeout alto (carga paralela), `setDefaultTimeo
 
 ---
 
-**Próximo passo:** **M2 — escritas** (`create`/`insert`/`update`/`patch`/`upsert`/`delete`/
-`updateEach`/`relate`), com `compiler/write.ts` + `reads.ts` como precedente estrutural. Antes de
-codar: verificar ao vivo os construtos ainda não cobertos pelo `orm-syntax-map.md` §2 (o mapa já cobre
-CREATE/INSERT/UPSERT/UPDATE/DELETE/RELATE/RETURN/ON DUPLICATE) e manter `docs/`/`ROADMAP`/`CHANGELOG`
-no mesmo PR (regra do `AGENTS.md`).
+**Próximo passo:** **M3 — relações e grafos** (`include` link/grafo/`_count`, `where` relacional
+`is`/`isNot`/`some`/`every`/`none`, traversal/recursão), sobre o delegate de aresta já entregue no
+M2.8. Antes de codar: verificar ao vivo os construtos de `include` no `orm-syntax-map.md` §3.2/§5
+e manter `docs/`/`ROADMAP`/`CHANGELOG` no mesmo PR (regra do `AGENTS.md`).

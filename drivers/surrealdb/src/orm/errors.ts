@@ -172,8 +172,11 @@ interface ServerErrorLike {
 const isServerErrorLike = (e: unknown): e is Error & ServerErrorLike =>
   e instanceof Error && typeof (e as { kind?: unknown }).kind === "string";
 
-const hasIssues = (e: unknown): e is Error & { issues: unknown[] } =>
-  e instanceof Error && Array.isArray((e as { issues?: unknown }).issues);
+const hasIssues = (e: unknown): e is { issues: unknown[]; message: string } =>
+  typeof e === "object" &&
+  e !== null &&
+  typeof (e as { message?: unknown }).message === "string" &&
+  Array.isArray((e as { issues?: unknown }).issues);
 
 /** SDK error `kind` -> our code (refined by the structured details below). */
 const KIND_CODES: Record<string, BetterSchemicErrorCode> = {

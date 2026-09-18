@@ -128,6 +128,31 @@ const byTag = await client.users.aggregate({
 const page = await client.users.paginate({ orderBy: [{ id: "asc" }], limit: 20, start: 0 });
 const next = await client.users.cursor({ limit: 20, after: "user:42" });
 
+// Writes (M2) — validated by the codec, one round-trip, decoded rows back:
+const created = await client.users.create({
+  data: { name: "Aeon", email: "aeon@x.dev", age: 30, tags: ["db"] },
+});
+const inserted = await client.users.insertMany({
+  data: externalUsers,                          // ids in the payload
+  onDuplicate: "update",                        // INSERT … ON DUPLICATE KEY UPDATE
+});
+const updated = await client.users
+  .update({ where: { id: created.id }, data: { age: 31 } })   // never creates
+  .throw();
+const patched = await client.users.patch({
+  where: { id: created.id },
+  patches: [{ op: "replace", path: "/age", value: 32 }],
+});
+const upserted = await client.users.upsert({
+  where: { email: "aeon@x.dev" },               // id or a single-field UNIQUE index
+  data: { email: "aeon@x.dev", age: 33 },
+});
+const removed = await client.users.delete({ where: { id: created.id } });
+
+// Edges live on the relation delegate (`defineRelation`):
+// const like = await client.likes.relate({ from: "user:1", to: "post:1", data: { score: 5 } });
+// await client.likes.unrelate({ from: "user:1", to: "post:1" });
+
 // Diagnostics without executing:
 const plan = await client.users.findMany({ where: { age: 18 } }).explain();
 ```
@@ -136,10 +161,10 @@ const plan = await client.users.findMany({ where: { age: 18 } }).explain();
 up by schema key OR physical name; `client.tables` lists the keys; `client.$sdk`
 is the raw `surrealdb` connection (escape hatch).
 
-**Status:** reads are complete (M1 — `findMany`/`findFirst`/`findOne`/`findUnique`/
-`count`/`exists`/`aggregate`/`paginate`/`cursor`, `.throw()`, `.explain()`); writes,
-relations, transactions, live queries and plugins land milestone by milestone — see
-[`PLANO-QUERYS-TIPADAS.md`](../../PLANO-QUERYS-TIPADAS.md) and the live-verified
+**Status:** reads (M1) and writes (M2 — `create`/`insert`/`update`/`patch`/`upsert`/
+`delete`/`updateEach` plus `relate`/`unrelate` on edge delegates) are complete;
+relations/graphs, transactions, live queries and plugins land milestone by milestone —
+see [`PLANO-QUERYS-TIPADAS.md`](../../PLANO-QUERYS-TIPADAS.md) and the live-verified
 [`docs/orm-syntax-map.md`](docs/orm-syntax-map.md). Fragments & procedural SurrealQL
 (`block()`) stay at `@better-schemic/surrealdb/query`.
 

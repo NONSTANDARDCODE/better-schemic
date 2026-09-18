@@ -13,6 +13,7 @@ import {
   createDelegate,
   type Delegate,
   type DelegateContext,
+  type ModelDelegate,
 } from "./delegate";
 import { BetterSchemicError } from "./errors";
 import type { Queryable } from "./execute";
@@ -58,7 +59,7 @@ export type Client<S = SchemaInput, C extends Queryable = Queryable> = Omit<
   ClientRuntime<C>,
   "extends" | "forkSession"
 > & {
-  readonly [K in ModelKeys<S>]: Delegate<
+  readonly [K in ModelKeys<S>]: ModelDelegate<
     EntriesOf<S>[K] extends AnyTableDef ? EntriesOf<S>[K] : AnyTableDef
   >;
 } & {

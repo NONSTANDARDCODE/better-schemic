@@ -4,7 +4,7 @@ Every row below was **live-probed** against SurrealDB **3.2.0** (local `surreal`
 in-memory server), never inferred. This is the ground truth the `/orm` compiler must emit: where the
 prototype (`prototipo-querys-tipadas/better-surreal/*`) disagrees, the server wins.
 
-- Executable half: `test/live/orm-syntax.test.ts` (51 probes, skips without the `surreal` binary).
+- Executable half: `test/live/orm-syntax.test.ts` (70 probes, skips without the `surreal` binary).
   A server upgrade that changes any behaviour here fails that suite first.
 - Related: [`graph-syntax-map.md`](./graph-syntax-map.md) (graph traversal detail, probed on 3.1.4).
 - How to re-run: `cd drivers/surrealdb && bun test test/live/orm-syntax.test.ts`.
@@ -26,7 +26,11 @@ prototype (`prototipo-querys-tipadas/better-surreal/*`) disagrees, the server wi
 | Range `FROM users:1..users:100` | **parse error**; a forma válida é `FROM t:1..100` (fim exclusivo) e `FROM t:1..=100` (inclusivo) | `range: { start, end, inclusive? }` → `t:<start>..<end>` / `..=<end>` |
 | `where: { 'contacts[*].type': 'email' }` compara igualdade | `contacts[*].type` devolve **array**; `= 'email'` é `false` | igualdade em path-array → `CONTAINS`; scalar membership → `INSIDE` |
 | `aggregate({ split, groupBy })` | **`SPLIT` e `GROUP` são mutuamente exclusivos** | `aggregate` rejeita a combinação (`ClauseNotSupported`) |
-| `logins = logins + 1` no `ON DUPLICATE KEY UPDATE` | campos nus, `$before`/`$after` são `NONE`; só `$input.*` funciona | incremento contra o estado anterior = subquery correlacionada por id (`(SELECT VALUE f FROM ONLY t:id) + 1`) |
+| `logins = logins + 1` no `ON DUPLICATE KEY UPDATE` | campos nus, `$before`/`$after` são `NONE`; só `$input.*` funciona | incremento contra o estado anterior = subquery correlacionada por id (`(SELECT VALUE f FROM ONLY t:id) + 1`) — e o branch de criação a avalia também, então upsert com expressão usa `LET`/`IF` |
+| `SET $obj` (objeto bindado) em `UPDATE`/`UPSERT` | **parse error** (`Unexpected token 'a parameter'`) | emitir `SET f = $p` por campo |
+| `FOR $row IN $rows { … }` devolve o resultado de cada iteração | devolve **`NONE`** (live 3.2.4) | `updateEach`/`skipDuplicates` compilam 1 statement por item (mesmo round-trip) |
+| `INSERT` de um `id` string `"user:x"` aponta para `user:x` | o id vira o **valor string** (`user:⟨user:x⟩`) | o ORM converte `id` string → `RecordId` antes de bindar |
+| `ON DUPLICATE KEY UPDATE` aceita payload parcial | valida a linha do INSERT: payload parcial em SCHEMAFULL **falha** antes do conflito | documentar que `onDuplicate` recebe linhas inseríveis |
 | `LIVE SELECT * FROM users WHERE … DIFF` | `DIFF` vai **logo após `SELECT`** e não aceita projeção: `LIVE SELECT DIFF FROM t …` | lowering próprio; `diff: true` + `select` → `ClauseNotSupportedInLive` |
 | `KILL "uuid"` (string) | parse error; aceita `KILL $param` / `KILL u"…"` | `kill()` liga o uuid como parâmetro |
 | `.explain()` em writes | `EXPLAIN` só existe para `SELECT` ("only supported with the new execution model") | `.explain()` só em reads |
@@ -57,10 +61,12 @@ prototype (`prototipo-querys-tipadas/better-surreal/*`) disagrees, the server wi
 | `INSERT INTO t $rows` id duplicado | **erro** `already exists` | |
 | `INSERT IGNORE INTO t $rows` | devolve **só as linhas inseridas** | `count` = inseridos |
 | `INSERT … ON DUPLICATE KEY UPDATE f = $input.f` | linhas afetadas | `$input` = registro do INSERT (paths aninhados ok) |
-| `INSERT … ON DUPLICATE KEY UPDATE f = (SELECT VALUE f FROM ONLY t:id) + 1` | incremento contra o estado anterior | únicos campos acessíveis antes: a subquery |
+| `INSERT … ON DUPLICATE KEY UPDATE f = (SELECT VALUE f FROM ONLY t:id) + 1` | incremento contra o estado anterior | únicos campos acessíveis antes: a subquery — e ela é avaliada **também no branch de criação** (live 3.2.4: `NONE + int` = erro), então upserts com expressão usam `LET`/`IF` |
 | `INSERT … ON DUPLICATE … RETURN AFTER/NONE` | ok | ver `RETURN` abaixo |
-| `INSERT … ON DUPLICATE … RETURN BEFORE` | devolve o estado **novo** (não o anterior) | não expor `before` para insert-on-duplicate |
-| `INSERT … ON DUPLICATE … RETURN DIFF` | `[{ op: "change", path, value: "@@ … @@" }]` | formato **paged diff**, ≠ do UPDATE |
+| `INSERT … ON DUPLICATE … RETURN BEFORE` | devolve o estado **anterior** (live 3.2.4) | exposto pelo ORM |
+| `INSERT … ON DUPLICATE … RETURN DIFF` | `[[ { op: "change", path, value: "@@ … @@" } ]]` | formato **paged diff** (aninhado), ≠ do UPDATE |
+| `INSERT INTO t $p` com `id` string (`"user:x"`) | id vira a **string** (`user:⟨user:x⟩`), não um record id | o ORM converte para `RecordId` antes de bindar |
+| `INSERT … ON DUPLICATE` com payload parcial + tabela SCHEMAFULL | **erro** de coerce no campo ausente | o INSERT precisa ser uma linha inserível (o `ON DUPLICATE` não relaxa a validação) |
 | `INSERT RELATION INTO edge {…}` | linhas da aresta | caminho nativo para `relateMany`/seed |
 
 ### 2.3 `UPSERT`
@@ -69,7 +75,7 @@ prototype (`prototipo-querys-tipadas/better-surreal/*`) disagrees, the server wi
 | --- | --- | --- |
 | `UPSERT t:id MERGE $p` | `[ {…} ]`; cria se faltar | `upsert` por id |
 | `UPSERT t MERGE $p WHERE cond` | linhas afetadas; **cria quando nada casa** | `upsert` por campo único (validar unicidade no schema) |
-| `UPSERT t:id SET $p` | parcial em registro existente (campos ausentes preservados); cria quando falta (exige campos obrigatórios) | `mode: 'set'` seguro |
+| `UPSERT t:id SET $p` (objeto inteiro) | **parse error** (`Unexpected token 'a parameter'`) — usar `SET f = $p` por campo | o ORM emite per-field |
 | `UPSERT ONLY t:id MERGE/SET` | ok (objeto? → array, verificado: array) | |
 | `UPSERT t:id CONTENT $p` | substitui o conteúdo | |
 
@@ -122,8 +128,11 @@ prototype (`prototipo-querys-tipadas/better-surreal/*`) disagrees, the server wi
 
 | Form | Result |
 | --- | --- |
-| `FOR $row IN $rows { UPDATE t MERGE $row.fields WHERE by = $row.by; }` | `updateEach` (1 statement) |
-| `LET $e = (SELECT VALUE id FROM t WHERE uniq = $v LIMIT 1); IF array::len($e) = 0 THEN CREATE … ELSE UPDATE $e[0] … END;` | upsert-por-campo-único sem id |
+| `FOR $row IN $rows { UPDATE t MERGE $row.fields WHERE by = $row.by; }` | **devolve `NONE`** (nada por iteração) — o ORM NÃO usa `FOR` para `updateEach` |
+| `UPDATE t MERGE $f0 WHERE id = $b0; UPDATE t MERGE $f1 WHERE id = $b1;` | 1 resultado por statement, na ordem (`updateEach` per-item: casa → `[row]`, miss → `[]`) |
+| `INSERT IGNORE INTO t $p0; INSERT IGNORE INTO t $p1;` | `skipDuplicates` per-item (só as linhas inseridas voltam) |
+| `LET $e = (SELECT VALUE id FROM t WHERE uniq = $v LIMIT 1); IF array::len($e) = 0 THEN CREATE … ELSE UPDATE $e[0] … END;` | upsert-por-campo-único sem id (e fallback por id quando o `update` tem expressões) |
+| `LET $c = (CREATE ONLY t CONTENT $p); RELATE a->edge->$c SET …; RETURN $c;` | create + relate; `RETURN $c` devolve o **objeto** (não array) |
 | `BEGIN TRANSACTION; …; COMMIT TRANSACTION;` | aplica |
 | `BEGIN TRANSACTION; …; CANCEL TRANSACTION;` | descarta; o SDK **lança** na coleta das respostas (`Cancelled`) — o executor trata o cancel como erro esperado |
 
@@ -383,7 +392,7 @@ Nota: em scripts multi-statement, o SDK pode **lançar** (não só responder por
 7. **Path-array igualdade** vira `CONTAINS` (ou `INSIDE` para scalar membership) — não `=`.
 8. **`range`** → `t:<start>..<end>` / `t:<start>..=<end>`.
 9. **Cursor** por tupla confirmado; `before` reordena no client.
-10. **`ON DUPLICATE`**: `$input` apenas; incremento via subquery; `RETURN BEFORE` não confiável e `RETURN DIFF` tem shape próprio.
+10. **`ON DUPLICATE`**: `$input` apenas para valores do payload; incremento via subquery (avaliada também no branch de criação → upsert com expressão usa `LET`/`IF`); `RETURN BEFORE` devolve o estado anterior (3.2.4) e `RETURN DIFF` tem shape aninhado próprio.
 11. **Live**: `LIVE SELECT DIFF FROM …` sem projeção; `kill(uuid)` com bind; uuid é string/Uuid do SDK.
 12. **`.explain()`** só em leitura; `VERSION` e `PARALLEL` sujeitos a capability/backend.
 13. **`FROM ONLY t:missing`** → falsy (não erro) — `findUnique` devolve `null`.
@@ -398,3 +407,5 @@ Nota: em scripts multi-statement, o SDK pode **lançar** (não só responder por
 22. **Ranges de record**: `t:1..=2` / `t:abc..=xyz` (sufixo de id, nunca `t:1..t:2`); ids não-identificadores são escapados (`⟨a-b⟩`).
 23. **`math::avg` não existe em 3.x** (parse error; a sugestão do servidor é `math::log`) — o ORM mantém a API `{ avg: 'campo' }` e emite `math::mean(campo)`. `math::median/stddev/variance` existem.
 24. **`GROUP BY` exige a chave na projeção** (`Missing group idiom … in statement selection`): `aggregate` valida que cada `groupBy` aparece no `select` (quando a projeção é estaticamente analisável) e ensina a corrigir.
+25. **Writes (M2)**: alvos singulares = `id` ou índice UNIQUE (`UniqueTargetRequired`); `update` nunca cria (`[]` → `null`); `delete` só `before`/`none`; `deleteMany` exige `all: true` sem `where`; `updateEach`/`skipDuplicates` = 1 statement por item (e `skipDuplicates` exige `id` explícito); `upsertMany.conflict` exige índice UNIQUE; `RETURN DIFF` é achatado no decode (`[[ops]]` → `ops`) e **somado entre os statements** do batch (`update` data+unset, `createMany`, …); `INSERT/upsert RETURN BEFORE` devolve o estado anterior — o tipo é `App | null`; `id` string vira `RecordId` no payload.
+26. **Records no `where`**: string `"tabela:id"` em coluna de record (inclusive `id`) é convertida para `RecordId` pelo compiler — sem isso o valor viraria string e não casaria nada (silent no-match).

@@ -48,12 +48,37 @@ Structure after the pre-M2 thermo-nuclear pass: `delegate.ts` (public surface) /
 runtime) / `compiler/{shared,projection,where,select,aggregate,pagination,unique}.ts`; no name-based
 dispatch, one canonical helper per rule, paginate's count composed from the read/count compilers.
 
-## M2 — escritas ⏳ *(next)*
+## M2 — escritas ✅ *(complete)*
 
-`create`/`insert` (+`onDuplicate`)/`update` modes (`merge|set|content|replace|patch`)/`patch`/`upsert`
-(+by unique)/`delete`/`updateEach`/`relate`/`unrelate` + `RETURN` semantics + batch envelopes.
+The full write surface, one round-trip per operation, typed from the args literal:
+`create`/`createMany` (+ `relate` sugar, `skipDuplicates`), `insert`/`insertMany` (`onDuplicate`),
+`update`/`updateMany` (modes `merge|set|content|replace|patch`, `unset`, `surql` expressions),
+`patch`, `upsert`/`upsertMany` (id / single-field UNIQUE / `conflict`), `delete`/`deleteMany`
+(`RETURN BEFORE|NONE`, `all: true` guard), `updateEach` (per-item, `skipped`/`onEmpty`) and the
+edge operations `relate`/`relateMany`/`unrelate`/`unrelateMany` on the relation delegate.
 
-## M3 — relações e grafos ⏳
+- ✅ **M2.1** `create`/`createMany` — codec fail-fast, `only`, `relate` sugar in one batch,
+  `skipDuplicates` (per-row `INSERT IGNORE`), implicit transactions, `RecordAlreadyExists`.
+- ✅ **M2.2** `insert`/`insertMany` — `onDuplicate: 'ignore' | 'update' | map`, `$input`
+  expressions, `RETURN` (incl. the live-verified `before`).
+- ✅ **M2.3** `update`/`updateMany` — five modes, `unset` (+ second statement with `data`),
+  expression fields, `only`/`timeout`, "never creates" (`[]` → `null`/`.throw()`).
+- ✅ **M2.4** `patch` — JSON Patch with op validation.
+- ✅ **M2.5** `upsert`/`upsertMany` — `UPSERT` by id/unique, `INSERT … ON DUPLICATE` for literal
+  branches and `LET`/`IF` when expressions must read the existing row.
+- ✅ **M2.6** `delete`/`deleteMany` — `RETURN BEFORE|NONE` (`after`/`diff` rejected), `all: true`
+  for whole-table, server-side cascades documented.
+- ✅ **M2.7** `updateEach` — per-item statements, distinct `by` guard, `skipped`, `onEmpty: 'throw'`.
+- ✅ **M2.8** `relate`/`relateMany`/`unrelate`/`unrelateMany` — edge-delegate object args, typed
+  endpoints validated against the `RelationDef`, named edge ids, edge data; `RelationDelegate`.
+
+Also in this arc: record-string coercion in `where` (`"user:aeon"` → `RecordId`), `BatchResult.count`
+optional on `return: 'none'`, `return: 'diff'` as the flat combined patch list, `insert`/`upsert`
+`before` typed `App | null`, fail-fast `skipDuplicates` ids and `upsertMany.conflict` UNIQUE,
+`updateEach.select` compiled before the write, `unrelate` timeout, and the new live map entries
+(`FOR` returns `NONE`, `SET $obj` parse error, ON DUPLICATE branch evaluation).
+
+## M3 — relações e grafos ⏳ *(next)*
 
 `include` (`FETCH`/traversal/`edge`/`target`/`_count`), relational `where`
 (`is`/`isNot`/`some`/`every`/`none`), traversal/recursion sugar over `surql`.
