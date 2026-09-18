@@ -66,6 +66,12 @@ attest's own TS program is slower and needs node/tsx.
 2. Add the `test:types` script above.
 3. Create `test/types/` and copy the two file shapes below.
 
+> **Toolchain note.** attest drives the classic JS compiler API, so every package pins
+> `typescript@5.9.3` — do NOT bump it without re-baselining the budgets (`ATTEST_updateSnapshots=1`).
+> The native TypeScript 7 (Go) compiler is only used for `typecheck` (`tsgo --noEmit`, via
+> `@typescript/native-preview`) and never feeds attest; `typecheck:legacy` keeps the classic `tsc`
+> pass available for parity debugging.
+
 ### `*.assert.ts` — type assertions
 
 ```ts

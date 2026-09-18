@@ -88,8 +88,85 @@ sc pull        # introspect a live database back into TypeScript
 A table definition carries codecs that bridge your app values and the database
 wire format. `decode` turns a returned row into typed values (a `datetime`
 becomes a `Date`, a `uuid` a string, record links resolve); `encode` and
-`encodePartial` build the payloads you write back. You keep the `surrealdb` SDK
-for queries — Better-schemic owns the schema, DDL, migrations, and row types.
+`encodePartial` build the payloads you write back.
+
+## The `/orm` client
+
+The repository-style ORM lives at `@better-schemic/surrealdb/orm`. Declare the
+schema once with `defineSchema` and wrap an existing (BYO) or managed connection:
+
+```ts
+import { defineTable, s } from "@better-schemic/surrealdb";
+import { betterSchemic, createBetterSchemic, defineSchema } from "@better-schemic/surrealdb/orm";
+
+const User = defineTable("user", {
+  name: s.string(),
+  email: s.string(),
+  age: s.int(),
+  tags: s.array(s.string()),
+}).index("user_email", ["email"], { unique: true });
+
+export const schema = defineSchema({ users: User, audit: "audit_log" });
+
+const client = betterSchemic(existingSurreal, { schema });     // BYO: close() is a no-op
+// or: const client = await createBetterSchemic({ url, namespace, database, auth, schema });
+
+// Reads (M1) — one round-trip, decoded to app values (Date/RecordId/…):
+const adults = await client.users.findMany({
+  where: { age: { gte: 18 }, tags: { containsAny: ["db", "graph"] } },
+  select: { id: true, name: true },
+  orderBy: [{ age: "desc" }],
+  limit: 20,
+});
+
+const user = await client.users.findUnique({ where: { email } }).throw();
+const total = await client.users.count({ where: { age: { gte: 18 } } });
+const byTag = await client.users.aggregate({
+  select: { tags: "tags", _count: true, avgAge: { avg: "age" } },
+  groupBy: ["tags"],
+});
+const page = await client.users.paginate({ orderBy: [{ id: "asc" }], limit: 20, start: 0 });
+const next = await client.users.cursor({ limit: 20, after: "user:42" });
+
+// Writes (M2) — validated by the codec, one round-trip, decoded rows back:
+const created = await client.users.create({
+  data: { name: "Aeon", email: "aeon@x.dev", age: 30, tags: ["db"] },
+});
+const inserted = await client.users.insertMany({
+  data: externalUsers,                          // ids in the payload
+  onDuplicate: "update",                        // INSERT … ON DUPLICATE KEY UPDATE
+});
+const updated = await client.users
+  .update({ where: { id: created.id }, data: { age: 31 } })   // never creates
+  .throw();
+const patched = await client.users.patch({
+  where: { id: created.id },
+  patches: [{ op: "replace", path: "/age", value: 32 }],
+});
+const upserted = await client.users.upsert({
+  where: { email: "aeon@x.dev" },               // id or a single-field UNIQUE index
+  data: { email: "aeon@x.dev", age: 33 },
+});
+const removed = await client.users.delete({ where: { id: created.id } });
+
+// Edges live on the relation delegate (`defineRelation`):
+// const like = await client.likes.relate({ from: "user:1", to: "post:1", data: { score: 5 } });
+// await client.likes.unrelate({ from: "user:1", to: "post:1" });
+
+// Diagnostics without executing:
+const plan = await client.users.findMany({ where: { age: 18 } }).explain();
+```
+
+`client.users.$model` is the delegate metadata; `client.repository("user")` looks
+up by schema key OR physical name; `client.tables` lists the keys; `client.$sdk`
+is the raw `surrealdb` connection (escape hatch).
+
+**Status:** reads (M1) and writes (M2 — `create`/`insert`/`update`/`patch`/`upsert`/
+`delete`/`updateEach` plus `relate`/`unrelate` on edge delegates) are complete;
+relations/graphs, transactions, live queries and plugins land milestone by milestone —
+see [`PLANO-QUERYS-TIPADAS.md`](../../PLANO-QUERYS-TIPADAS.md) and the live-verified
+[`docs/orm-syntax-map.md`](docs/orm-syntax-map.md). Fragments & procedural SurrealQL
+(`block()`) stay at `@better-schemic/surrealdb/query`.
 
 ## Docs
 

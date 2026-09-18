@@ -156,7 +156,7 @@ export interface ShadowCapability<Conn> {
  * `invoke` calls a defined function by name with already-encoded args and returns the function's RAW
  * result (the driver extracts it from its own response shape — surreal `RETURN fn::name($a)` yields the
  * value; a row-returning call yields a row set). The caller decodes that raw value through the
- * function's `.returns(R)` schema via `callFunction` in `@better-schemic/core/query`. A defined function still
+ * function's `.returns(R)` schema (the driver-side call surface decodes it). A defined function still
  * emits/migrates via the schema engine regardless; this capability only adds INVOCATION.
  */
 export interface CallableFunctions<Conn = unknown> {

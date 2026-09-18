@@ -10,9 +10,9 @@ setDefaultTimeout(120_000);
 
 import { describe, expect, test } from "bun:test";
 import { defineConfig } from "@better-schemic/core/config";
-import type { Client } from "../../src/client";
 import { surrealConnection } from "../../src/connection";
 import { defineTable, s } from "../../src/index";
+import type { Client } from "../../src/orm/client";
 
 const URL = process.env.SURREAL_URL;
 
@@ -38,9 +38,11 @@ const betterSchemic = defineConfig()
     async (ctx, args: { org?: string }) => {
       if (args?.org)
         return { ...base, namespace: `chain_t_${args.org}`, database: "app" };
-      // The typed path: the prior connection is thenable to its FULL ORM client.
-      const main = await ctx.connections.main;
-      const orgs = await main.select(Org);
+      // The typed path: the prior connection handle exposes `query()` (and is thenable to its
+      // full ORM client).
+      const orgs = await ctx.connections.main.query<{ slug: string }>(
+        "SELECT slug FROM chain_org",
+      );
       return orgs.map((o) => ({
         ...base,
         namespace: `chain_t_${o.slug}`,
@@ -107,7 +109,7 @@ describe.skipIf(!URL)("chained cross-connection resolution (live)", () => {
   test("the tenant resolver enumerates the fleet via the TYPED main client", async () => {
     {
       await using main = await betterSchemic.connect("main");
-      await main.query(
+      await main.$sdk.query(
         "REMOVE TABLE IF EXISTS chain_org; CREATE chain_org:a SET slug = 'acme'; CREATE chain_org:b SET slug = 'beta';",
       );
     }
@@ -119,12 +121,12 @@ describe.skipIf(!URL)("chained cross-connection resolution (live)", () => {
     {
       await using db = await betterSchemic.connect("tenant", { org: "acme" });
       // SDK-faithful: the per-statement result array (typed via the surql tag when used).
-      const result = await db.query("RETURN 1");
+      const result = await db.$sdk.query("RETURN 1");
       expect(result).toEqual([1]);
     }
     {
       await using main = await betterSchemic.connect("main");
-      await main.query("REMOVE TABLE IF EXISTS chain_org;");
+      await main.$sdk.query("REMOVE TABLE IF EXISTS chain_org;");
     }
   });
 });

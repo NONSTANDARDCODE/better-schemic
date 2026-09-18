@@ -2,7 +2,6 @@
 // may be an env()/secret() reference instead of an inline literal.
 import type { SecretRef } from "@better-schemic/core";
 import { isSecretRef } from "@better-schemic/core/authoring";
-import type { FieldRefBase } from "@better-schemic/core/query";
 import {
   type Bound,
   BoundExcluded,
@@ -32,6 +31,7 @@ import {
   isUnionSchema,
   peelNullish,
 } from "./checks";
+import type { FieldRefBase } from "./surql/ref";
 
 // Re-exported here (the authoring surface): `pull` reverses a baked format ASSERT to `s.<format>()`.
 export { formatForAssert };
@@ -2672,7 +2672,7 @@ export class TableDef<Name extends string, S extends Shape> {
 
   /**
    * A SurrealDB `Table` instance for this table — for direct SDK calls that take a table reference,
-   * e.g. `db.select(User.table)`. (For a record id, chain `User.record().for(id)`.)
+   * e.g. `client.$sdk.select(User.table)`. (For a record id, chain `User.record().for(id)`.)
    */
   get table(): Table<Name> {
     return new Table(this.name);

@@ -28,6 +28,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .eslintcache
 .cache
 *.tsbuildinfo
+.attest/
 
 # IntelliJ based IDEs
 .idea
@@ -42,6 +43,7 @@ dist/
 # local npm auth / scratch
 .npmrc
 history.txt
+tmp/
 # private client example — never committed
 packages/example-credilisto/
 .vscode/

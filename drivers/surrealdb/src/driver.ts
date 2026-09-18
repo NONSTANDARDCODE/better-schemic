@@ -6,8 +6,13 @@
  * emit/diff engine into an app bundle. The CLI loader imports this subpath to register the driver.
  */
 
-// Side-effect: register `surrealDriver` with the core registry on import.
-import "./driver/surreal";
+// Side-effect: register `surrealDriver` with the core registry on import. Kept in the BARREL (not
+// `driver/surreal.ts`) so importing the driver runtime for `connect` never registers the driver —
+// the ORM's `clientFromConfig` imports the runtime, not this CLI/engine entry.
+import { type Driver, registerDriver } from "@better-schemic/core";
+import { surrealDriver } from "./driver/surreal";
+
+registerDriver(surrealDriver as Driver<unknown>);
 
 // Pretty-print SurrealQL for display/codegen (whitespace-only; normalize makes it drift-free).
 export { formatSurql } from "./cli/format";

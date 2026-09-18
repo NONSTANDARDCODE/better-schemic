@@ -3,6 +3,8 @@
 // params are OUT-OF-BAND (`sc param push/check`) — SurrealDB stores param values READABLY, so a
 // secret value must never reach a snapshot or migration. `.$` is the typed `$name` reference.
 import { describe, expect, test } from "bun:test";
+import { schemaStruct } from "../../src/cli/lower";
+import { normalizeParam } from "../../src/cli/struct";
 import { emitDefStatement } from "../../src/ddl";
 import {
   defineFunction,
@@ -12,9 +14,9 @@ import {
   s,
   surql,
 } from "../../src/index";
-import { schemaStruct } from "../../src/cli/lower";
-import { normalizeParam } from "../../src/cli/struct";
-import { block, select } from "../../src/query";
+import { block } from "../../src/query";
+import { lowerExpr, mkRef } from "../../src/surql/predicate";
+import type { Ctx } from "../../src/surql/render";
 
 describe("authoring modes", () => {
   test("inline literal -> managed; SecretRef -> secret; s schema / bare -> declared", () => {
@@ -38,9 +40,7 @@ describe("authoring modes", () => {
     const Cfg = defineParam("app_cfg", { retries: 3 });
     expect(
       (Cfg.$ as unknown as { retries: { toText(): string } }).retries.toText(),
-    ).toBe(
-      "$app_cfg.retries",
-    );
+    ).toBe("$app_cfg.retries");
     // typed: usable where a string operand is expected
     const q = surql.fn.string.concat("Bearer ", Key.$);
     expect(q.query).toMatch(/^string::concat\(\$r\d+, \$resend_api_key\)$/);
@@ -131,7 +131,10 @@ describe.skipIf(!URL)("defineParam live", () => {
     const live = await introspectAll(c);
     for (const name of ["dp_page_size", "dp_api_base"])
       expect(
-        deepEqual(scrub(pick(authored, name).native), scrub(pick(live, name).native)),
+        deepEqual(
+          scrub(pick(authored, name).native),
+          scrub(pick(live, name).native),
+        ),
       ).toBe(true);
 
     // Secret: the DDL carries a placeholder; the value goes as a BINDING.
@@ -153,7 +156,9 @@ describe.skipIf(!URL)("defineParam live", () => {
 
     // Pull regenerates managed params (and only those — the secret's VALUE would leak otherwise;
     // it appears as a plain live param unless filtered, so assert the managed renders).
-    const rendered = renderSchemaToTS(normalizeDb(await introspectStructured(c)));
+    const rendered = renderSchemaToTS(
+      normalizeDb(await introspectStructured(c)),
+    );
     expect(rendered).toContain('defineParam("dp_page_size", 25)');
     expect(rendered).toContain(
       'defineParam("dp_api_base", "https://x.dev").comment("base")',
@@ -180,12 +185,10 @@ describe("the def IS the reference (no .$ needed)", () => {
   });
 
   test("operands, fn args, call args, and object-arg values all take the def", () => {
-    const T = defineTable("pd_t", { k: s.string() });
+    const ctx: Ctx = { vars: {} };
     expect(
-      select(T)
-        .where((r) => r.k.eq(Key))
-        .toSQL().sql,
-    ).toBe("SELECT * FROM pd_t WHERE k = $pd_key");
+      lowerExpr(mkRef({ root: { col: "k" }, kind: "string" }).eq(Key), ctx),
+    ).toBe("k = $pd_key");
     expect(surql.fn.string.concat("Bearer ", Key).query).toMatch(
       /^string::concat\(\$r\d+, \$pd_key\)$/,
     );
@@ -193,9 +196,9 @@ describe("the def IS the reference (no .$ needed)", () => {
       .returns(s.boolean())
       .body(surql`RETURN $key != NONE`);
     expect(F.call({ key: Key }).query).toBe("fn::pd_send($pd_key)");
-    expect(
-      surql.fn.object.keys({ auth: Key }).query,
-    ).toMatch(/^object::keys\(\{ auth: \$pd_key \}\)$/);
+    expect(surql.fn.object.keys({ auth: Key }).query).toMatch(
+      /^object::keys\(\{ auth: \$pd_key \}\)$/,
+    );
   });
 
   test("OTHER defs in value positions throw guidance instead of [object Object]", () => {

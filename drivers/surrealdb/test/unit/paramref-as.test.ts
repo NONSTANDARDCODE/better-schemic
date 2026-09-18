@@ -2,10 +2,10 @@
 // (`DEFINE PARAM $resend_api_key`) drops into typed positions: operands, Def.call args, and
 // surql.fn args. Type-only cast; `as` joins path/toText/then as reserved proxy names.
 import { describe, expect, test } from "bun:test";
-import { defineFunction, defineTable, ParamRef, s, surql } from "../../src/index";
-import { select } from "../../src/query";
-
-const User = defineTable("pa_user", { name: s.string(), age: s.number() });
+import { defineFunction, ParamRef, s, surql } from "../../src/index";
+import { block } from "../../src/query";
+import { lowerExpr, mkRef } from "../../src/surql/predicate";
+import type { Ctx } from "../../src/surql/render";
 
 describe("surql.$ leaf typing", () => {
   test("types a param chain and still splices as text", () => {
@@ -18,17 +18,25 @@ describe("surql.$ leaf typing", () => {
   test("nested paths type too: $.after.email.as<string>()", () => {
     const email = surql.$.after.email.as<string>();
     expect(email.toText()).toBe("$after.email");
-    const { sql } = select(User)
-      .where((u) => u.name.eq(email))
-      .toSQL();
-    expect(sql).toBe("SELECT * FROM pa_user WHERE name = $after.email");
+    const ctx: Ctx = { vars: {} };
+    expect(
+      lowerExpr(
+        mkRef({ root: { col: "name" }, kind: "string" }).eq(email),
+        ctx,
+      ),
+    ).toBe("name = $after.email");
   });
 
   test("typed: a mistyped leaf is rejected where the type matters", () => {
     const wrong = surql.$.resend_api_key.as<number>();
     const _bad = () =>
-      // @ts-expect-error — name is a string column; a ParamRef<number> operand doesn't fit
-      select(User).where((u) => u.name.eq(wrong));
+      block()
+        .let({ name: "x" })
+        .if(
+          // @ts-expect-error — name is a string var; a ParamRef<number> operand doesn't fit
+          (sv) => sv.name.eq(wrong),
+          surql`RETURN 1`,
+        );
     expect(typeof _bad).toBe("function");
   });
 

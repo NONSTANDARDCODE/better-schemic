@@ -55,11 +55,11 @@
         "default": "./lib/query.js"
       }
     },
-    "./client": {
-      "bun": "./src/client.ts",
+    "./orm": {
+      "bun": "./src/orm/index.ts",
       "import": {
-        "types": "./lib/client.d.ts",
-        "default": "./lib/client.js"
+        "types": "./lib/orm.d.ts",
+        "default": "./lib/orm.js"
       }
     },
     "./package.json": "./package.json"
@@ -69,8 +69,9 @@
     "prepack": "bun run build",
     "test": "bun test",
     "test:types": "bun run ../../scripts/type-perf.ts drivers/surrealdb",
-    "typecheck": "tsc --noEmit",
-    "lint": "biome check ."
+    "typecheck": "tsgo --noEmit",
+    "lint": "biome check .",
+    "typecheck:legacy": "tsc --noEmit"
   },
   "dependencies": {
     "@better-schemic/core": "workspace:*"
@@ -93,7 +94,8 @@
     "surrealdb": "^2.0.3",
     "tsup": "^8",
     "tsx": "^4.23.0",
-    "typescript": "^5",
+    "typescript": "^6.0.3",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
     "zod": "^4.3.5"
   }
 }

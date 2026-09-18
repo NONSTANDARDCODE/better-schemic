@@ -100,8 +100,8 @@ Purpose-based subpaths, so app code only bundles what it imports (`package.json#
 |---|---|---|
 | `@better-schemic/<driver>` | authoring: `s.*`, `define*`, the raw-body tag; SDK value re-exports | **NONE** (pure) |
 | `@better-schemic/<driver>/connection` | the `<driver>Connection(...)` factory | none |
-| `@better-schemic/<driver>/query` | the opt-in query builder (composes `@better-schemic/core/query`) | none |
-| `@better-schemic/<driver>/client` | the bound ORM client (`connect`) | none |
+| `@better-schemic/<driver>/query` | fragments & procedural SurrealQL (`block()`) | none |
+| `@better-schemic/<driver>/orm` | the repository-style ORM client (`betterSchemic`/`createBetterSchemic`, delegates, `repository`) | none |
 | `@better-schemic/<driver>/driver` | the `Driver` impl + `lower`/`emit*`/`introspect` + `registerDriver` | registers |
 
 The CLI loader REQUIRES the `/driver` entry (every `@better-schemic` driver ships it since
@@ -117,12 +117,12 @@ drags the engine into an app bundle. The SurrealDB source layout is the clean te
   (`packages/core/docs/MULTI-CONNECTION.md`.)
 - **Config-as-factory**: `defineConfig` returns the typed `connect(name, args?)`; accept default OR
   named `betterSchemic` export (legacy: `schemic`); `better-schemic.ts` discovered (`schemic.ts` legacy).
-- **ORM client** at `/client`: `connect(name?)` managed / `connect(sdkClient)` BYO (BYO `close` is a
-  NO-OP, hard rule), AsyncDisposable, pre-bound thenable builders; split writes
-  (`create(T).content(...)`, `update(T,id).merge/.content/.set`, delete/`remove`); rows carry their
-  typed id; `db.query` is SDK-FAITHFUL (no silent decode) with `.as(...)` opt-in decode.
-- **Query builder** at `/query`: the shared cross-driver op contract (eq/neq/gt/gte/lt/lte, in/notIn,
-  isNone/isNull, startsWith/endsWith, contains*), pagination, `.one()/.get()/.count()`.
+- **ORM client** at `/orm` (M0 landing progressively — see the repo's `PLANO-QUERYS-TIPADAS.md`):
+  `betterSchemic(conn, { schema })` BYO / `createBetterSchemic({ url, … })` managed (BYO `close` is a
+  NO-OP, hard rule), AsyncDisposable, one delegate per schema entry, `repository(name)` by schema key or
+  physical name, `defineSchema` as the single metadata source, `$sdk` as the raw escape hatch.
+- **Fragments** at `/query`: `block()` (typed statement blocks) + the `surql` tag from authoring;
+  the fluent builder and `@better-schemic/core/query` were retired (M0.5).
 - **Table composition + presets**: `s.object().fields`, `TableDef.extend`, derived `.create`/`.update`
   input schemas; `defineTable.preset(...)` applied via chained single-arg `TableDef.use(a).use(b)` —
   presets MUST preserve the declared id value type (don't re-derive it and drop tuple/literal ids).

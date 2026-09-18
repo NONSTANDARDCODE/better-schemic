@@ -11,7 +11,6 @@ export default defineConfig({
     driver: "src/driver/sdk.ts",
     authoring: "src/authoring.ts",
     testing: "src/testing.ts",
-    query: "src/query.ts",
   },
   outDir: "lib",
   format: ["esm"],

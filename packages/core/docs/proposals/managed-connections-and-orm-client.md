@@ -1,5 +1,11 @@
 # Proposal: managed connections + the bound ORM client
 
+> [!NOTE]
+> **Histórico / superseded (M0.5).** O builder fluente descrito aqui foi **removido** em favor da
+> camada de repositórios `/orm` — ver [`PLANO-QUERYS-TIPADAS.md`](../../PLANO-QUERYS-TIPADAS.md)
+> (milestones) e `drivers/surrealdb/docs/orm-syntax-map.md` (sintaxe verificada ao vivo). Mantido
+> apenas como registro de design.
+
 **Status:** design proposal for alignment (core-dev). **Date:** 2026-07-02.
 **Owner:** core-dev leads the neutral contract; each driver implements its bound client.
 **Motivates:** turn the opt-in query layer into a cohesive ORM by giving it a *connection* — the one
