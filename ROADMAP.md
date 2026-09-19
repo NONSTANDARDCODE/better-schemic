@@ -13,7 +13,7 @@ Legend: ✅ done · 🚧 in progress · 🟡 partial · ⏳ not started
 
 ## M0 — fundação + substituição do legado ✅ *(complete)*
 
-- ✅ **M0.1** live syntax map (`docs/orm-syntax-map.md` + `test/live/orm-syntax.test.ts`, 77 probes) —
+- ✅ **M0.1** live syntax map (`docs/orm-syntax-map.md` + `test/live/orm-syntax.test.ts`, 78 probes) —
   every statement the ORM emits, verified against server 3.2.x, with the prototype divergences recorded.
 - ✅ **M0.2** `defineSchema` + `SchemaIndex` (columns/families, record links, graph adjacency,
   singletons, functions, schemaless entries; fail-fast `SchemaInvalid`).
@@ -86,7 +86,9 @@ SAME single round-trip, with client-side hydration.
 
 - ✅ **M3.0** live probes + `orm-syntax-map.md` §5.1–5.3: target records need a subquery, `out.*`
   stops at the edge, incoming flips both arrows, `every` is count-equality, `count(field)` is
-  NONE-safe, FETCH needs the link selected, subquery `ORDER BY` needs the order idiom.
+  NONE-safe, FETCH needs the link selected, subquery `ORDER BY` needs the order idiom, `direction
+  "both"` (`<->edge<->target`, `<->edge`) works but `?.*` is a parse error, wildcard edge filters
+  use `->(? WHERE …)`.
 - ✅ **M3.1** link `include` — `true`/`{ "*": true }` → `FETCH` (last clause, link added to the
   selection); `{ select }` flattens (`author.id AS author_id`) and remounts with the target codec;
   `{ include }` nests (`FETCH author.profile`); array links hydrate element-wise.
@@ -100,10 +102,19 @@ SAME single round-trip, with client-side hydration.
 - ✅ **M3.5** traversal/recursion documented as `surql` recipes (`@.{1..10}->edge->node`,
   `->edge->target.field`, `count(->edge)`) — no new surface, live-verified.
 
-Typed end to end: `S` flows through `Delegate`/`ReadArgs`/`Where`/`ResultOf`, with
-`types/{include,relations}.ts` deriving links, edges, targets and `_count` from the authored schema.
-New modules: `orm/compiler/{include,relations}.ts`, `orm/types/{include,relations}.ts`; hydration in
-`orm/decode.ts`. Live: `test/live/orm-relations.test.ts` (9 e2e) + 7 new syntax probes (77 total).
+Typed end to end: `S` flows through `Delegate`/`ReadArgs`/`Where`/`ResultOf` (including the write
+batches), with `types/{include,relations}.ts` deriving links, edges, targets and `_count` from the
+authored schema. New modules: `orm/compiler/include/*` + `orm/compiler/relations.ts`,
+`orm/types/{include,relations}.ts`; hydration in `orm/decode.ts`. Live:
+`test/live/orm-relations.test.ts` (13 e2e) + the new syntax probes (78 total).
+
+Hardening in the same milestone: relational `where` also lowers on `updateMany`/`deleteMany`/
+`unrelateMany` (the schema index flows into the write compilers); a projected link without `id`
+projects a hidden presence leaf so an absent link decodes to `null`; nested `select` objects remount
+at the right path; `direction "both"` + `edge`+`target`, empty nested `include`, target filters on
+edge-only includes and `_count` option typos all fail fast. The relational lowering lives in ONE
+place (`relations.ts` arrow/traversal/refs + `where.ts` `compileRelationFilter`), shared by
+`include`, `_count` and `where`.
 
 ## M4 — transações, live e changefeeds ⏳ *(next)*
 

@@ -5,7 +5,7 @@
  */
 import { escapeIdent, RecordId } from "surrealdb";
 import { hasRefDeep } from "../../pure";
-import type { ModelMeta } from "../meta";
+import type { ModelMeta, SchemaIndex } from "../meta";
 import { compileProjection } from "./projection";
 import {
   type Binds,
@@ -56,8 +56,15 @@ export function compileUpdate(
   args: UpdateRuntimeArgs,
   binds: Binds,
   operation = "update",
+  options: { readonly index?: SchemaIndex } = {},
 ): WritePlan {
-  const { target, where } = singleTarget(meta, args, binds, operation);
+  const { target, where } = singleTarget(
+    meta,
+    args,
+    binds,
+    operation,
+    options.index,
+  );
   return compileMutation(meta, target, where, args, binds, operation, "row");
 }
 
@@ -67,8 +74,9 @@ export function compileUpdateMany(
   args: UpdateManyRuntimeArgs,
   binds: Binds,
   operation = "updateMany",
+  options: { readonly index?: SchemaIndex } = {},
 ): WritePlan {
-  const where = whereSql(args.where, binds, meta);
+  const where = whereSql(args.where, binds, meta, options.index);
   return compileMutation(
     meta,
     escapeIdent(meta.name),
@@ -86,8 +94,15 @@ export function compilePatch(
   args: UpdateRuntimeArgs,
   binds: Binds,
   operation = "patch",
+  options: { readonly index?: SchemaIndex } = {},
 ): WritePlan {
-  const { target, where } = singleTarget(meta, args, binds, operation);
+  const { target, where } = singleTarget(
+    meta,
+    args,
+    binds,
+    operation,
+    options.index,
+  );
   return compileMutation(
     meta,
     target,
@@ -514,13 +529,14 @@ export function compileDelete(
   args: DeleteRuntimeArgs,
   binds: Binds,
   operation = "delete",
+  options: { readonly index?: SchemaIndex } = {},
 ): WritePlan {
   const ret = readReturn(args.return, operation, ["before", "none"], "before");
   const target = uniqueTarget(meta, args.where, operation);
   const sql =
     target.kind === "id"
       ? `DELETE ${recordTarget(meta, target.id, operation)}`
-      : `DELETE FROM ${escapeIdent(meta.name)}${whereSql(args.where, binds, meta)}`;
+      : `DELETE FROM ${escapeIdent(meta.name)}${whereSql(args.where, binds, meta, options.index)}`;
   return {
     statements: [`${sql}${mutationTail(ret, args.timeout, operation)}`],
     transactional: false,
@@ -536,9 +552,10 @@ export function compileDeleteMany(
   args: DeleteManyRuntimeArgs,
   binds: Binds,
   operation = "deleteMany",
+  options: { readonly index?: SchemaIndex } = {},
 ): WritePlan {
   const ret = readReturn(args.return, operation, ["before", "none"], "before");
-  const where = whereSql(args.where, binds, meta);
+  const where = whereSql(args.where, binds, meta, options.index);
   if (!where && args.all !== true)
     throw compileError(
       "UnsafeMutation",

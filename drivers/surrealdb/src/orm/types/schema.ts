@@ -116,6 +116,9 @@ export type FunctionAt<S, K extends keyof EntriesOf<S>> = Extract<
   AnyFunctionDef
 >;
 
+/** The element type of an array/set/`readonly` array (`never` for anything else). */
+export type ElementOf<A> = A extends readonly (infer E)[] ? E : never;
+
 /** The PHYSICAL name a table/edge def declares (`never` for entries without one). */
 export type DefName<T> = T extends { readonly name: infer N extends string }
   ? N

@@ -7,7 +7,7 @@
 import { escapeIdent, RecordId } from "surrealdb";
 import { hasRefDeep } from "../../pure";
 import { normalizeError } from "../errors";
-import type { ModelMeta } from "../meta";
+import type { ModelMeta, SchemaIndex } from "../meta";
 import type { ProjectionSpec } from "./projection";
 import {
   type Binds,
@@ -240,6 +240,7 @@ export function singleTarget(
   args: UpdateRuntimeArgs,
   binds: Binds,
   operation: string,
+  index?: SchemaIndex,
 ): { target: string; where: string } {
   const target = uniqueTarget(meta, args.where, operation);
   if (target.kind === "id")
@@ -249,7 +250,7 @@ export function singleTarget(
     };
   return {
     target: `${args.only === true ? "ONLY " : ""}${escapeIdent(meta.name)}`,
-    where: whereSql(args.where, binds, meta),
+    where: whereSql(args.where, binds, meta, index),
   };
 }
 
@@ -258,9 +259,11 @@ export function whereSql(
   where: unknown,
   binds: Binds,
   meta: ModelMeta,
+  index?: SchemaIndex,
 ): string {
   const predicate = compileWhere(where, binds, {
     ...(isTableMeta(meta) ? { meta } : {}),
+    ...(index ? { index } : {}),
   });
   return predicate ? ` WHERE ${predicate}` : "";
 }

@@ -35,7 +35,7 @@ import type {
   ManyLinkKeys,
   SingleLinkKeys,
 } from "./relations";
-import type { AnyTableDef, SchemaInput } from "./schema";
+import type { AnyTableDef, ElementOf, SchemaInput } from "./schema";
 
 /** The traversal direction of an edge relation filter/include. */
 export type EdgeDirection = "out" | "in" | "both";
@@ -221,9 +221,6 @@ type FamilyFilter<T> =
                 : FamilyOf<T> extends "object"
                   ? unknown
                   : AnyFilter<T>;
-
-/** The element type of an array/set/`readonly` array. */
-export type ElementOf<A> = A extends readonly (infer E)[] ? E : never;
 
 type NonNullish<T> = T extends null | undefined ? never : T;
 

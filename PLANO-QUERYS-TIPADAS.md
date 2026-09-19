@@ -20,14 +20,14 @@
 
 | Milestone | Status | Entregáveis |
 | --- | --- | --- |
-| M0.1 Syntax map ao vivo | ✅ concluído | `drivers/surrealdb/docs/orm-syntax-map.md`, `test/live/orm-syntax.test.ts` (77 probes verdes) |
+| M0.1 Syntax map ao vivo | ✅ concluído | `drivers/surrealdb/docs/orm-syntax-map.md`, `test/live/orm-syntax.test.ts` (78 probes verdes) |
 | M0.2 `defineSchema` + `SchemaIndex` | ✅ concluído | `src/orm/schema.ts`, `src/orm/types/schema.ts`, `src/orm/errors.ts` (classe + catálogo), `test/unit/orm-schema.test.ts`, `test/types/orm-schema.assert.ts` |
 | M0.3 Result wrappers + normalização/predicados | ✅ concluído | `src/orm/results.ts` (`ThrowingResult`/`BatchResult`/`StatementResult` + `attachThrow`), `errors.ts` estendido (`from`/`normalizeError` + 8 predicados), `test/unit/orm-errors.test.ts`, `test/unit/orm-results.test.ts`, `test/types/orm-results.assert.ts` |
 | M0.4 Executor | ✅ concluído | `src/orm/execute.ts` (1 round-trip via `responses()`, `BEGIN/COMMIT` atômico, falha raiz, binds únicos), `test/unit/orm-execute.test.ts`, `test/live/orm-execute.test.ts` |
 | M0.5 Bootstrap + delegates + substituição do legado | ✅ concluído | `/orm` (`betterSchemic`/`createBetterSchemic`, delegates, `repository`, `extends`, `forkSession`), `/query` = fragments, legado removido (§6), `test/unit/orm-client.test.ts`, `test/live/orm-client.test.ts`, `test/types/orm-client.assert.ts` |
 | M1 Leitura | ✅ concluído | compiler `where`/`select`/`aggregate`/`pagination` + `findMany`/`findFirst`/`findOne`/`findUnique`/`count`/`exists`/`aggregate`/`paginate`/`cursor` + `.throw()`/`.explain()`; M1.1–M1.8 (ver nota) |
 | M2 Escritas | ✅ concluído | `compiler/write.ts` + `writes.ts` + `types/write.ts`: `create`/`createMany` (+`relate` sugar, `skipDuplicates`), `insert`/`insertMany` (+`onDuplicate`), `update`/`updateMany` (5 modos, `unset`, expressões), `patch`, `upsert`/`upsertMany` (id/único/`conflict`), `delete`/`deleteMany`, `updateEach` (per-item), `relate`/`relateMany`/`unrelate`/`unrelateMany`; M2.1–M2.8 (ver nota) |
-| M3 Relações e grafos | ✅ concluído | `compiler/include.ts` (`IncludeSpec`/`TargetProjection`/`EdgeProjection`) + `compiler/relations.ts` (resolução link×aresta, direção, split edge/target) + `types/include.ts` + `types/relations.ts`: `include` link (`FETCH`/projetado/remontagem/aninhado), grafo (target/edge/`edge+target`/wildcard/`direction`), `_count` (aresta e array), `where` relacional (`is`/`isNot`/`some`/`every`/`none`) e remontagem no `decode.ts`; M3.1–M3.5 (ver nota) |
+| M3 Relações e grafos | ✅ concluído | `compiler/include/*` (`specs`/`projection`/`links`/`edges`/`count`/`index`) + `compiler/relations.ts` (resolução link×aresta, direção, traversal canônico, split edge/target) + `types/include.ts` + `types/relations.ts`: `include` link (`FETCH`/projetado/remontagem/aninhado), grafo (target/edge/`edge+target`/wildcard/`direction`), `_count` (aresta e array), `where` relacional (`is`/`isNot`/`some`/`every`/`none`, inclusive em writes) e remontagem no `decode.ts`; M3.1–M3.5 (ver nota) |
 
 > Nota do M0.2: a classe `BetterSchemicError`/catálogo saiu antecipada (o aceite do M0.2 exige
 > `SchemaInvalid`); o M0.3 ficou com a normalização + os predicados.
@@ -110,8 +110,18 @@
 > `ORDER BY` na subquery exige o order idiom na projeção. `include` aceita a CHAVE do schema além
 > do nome físico da aresta. Tipos: `S` (schema) flui por `Delegate`/`ReadArgs`/`Where`/`ResultOf`;
 > `types/{include,relations}.ts` novos; wildcard por alias exige cast (dívida de DX registrada).
-> Live: `test/live/orm-relations.test.ts` (9 e2e) + 7 probes novos em `orm-syntax.test.ts`
-> (77 no total). Unit: `test/unit/orm-include.test.ts`; tipos: `test/types/orm-relations.{assert,bench}.ts`.
+> `repository(name)` devolve `Delegate` sem o `S`, então o escape hatch não tipa `include`/`where`
+> relacional (dívida de DX registrada). Revisão estrutural pós-M3: `include` foi decomposto em
+> `compiler/include/{specs,projection,links,edges,count,index}.ts`; o lowering relacional ficou
+> canônico em `relations.ts` (`arrowOf`/`edgeRef`/`targetRef`/`edgeTraversal`) + `where.ts`
+> (`compileRelationFilter`), compartilhado por `include`/`_count`/`where`; o walker de projeção é um
+> só (link × target wildcard). Correções: `where` relacional em writes (o `SchemaIndex` flui para o
+> compiler de escrita — antes os tipos aceitavam e o runtime recusava); link projetado sem `id`
+> ganha leaf de presença (ausente → `null`, aninhado remonta no path certo); `direction: "both"` +
+> `edge`+`target` (`?.*` é parse error), `include` aninhado vazio, filtro de alvo em edge-only e
+> opções desconhecidas de `_count` falham rápido. Live: `test/live/orm-relations.test.ts` (13 e2e) +
+> probes novos em `orm-syntax.test.ts` (78 no total). Unit: `test/unit/orm-include.test.ts`; tipos:
+> `test/types/orm-relations.{assert,bench}.ts`.
 
 ---
 
@@ -313,7 +323,8 @@ drivers/surrealdb/src/orm/
     aggregate.ts    count/exists/aggregate (math::*, _count, collect/distinct) — M1
     pagination.ts   paginate (offset+count) + cursor (id/tupla) — M1
     write.ts        create/createMany/insert/insertMany/update/updateMany/patch/upsert/upsertMany/delete/deleteMany/updateEach/relate/unrelate
-    include.ts      FETCH + traversal + _count
+    include/        FETCH + traversal + _count (specs/projection/links/edges/count)
+    relations.ts    resolução link×aresta + traversal canônico + split edge/target
     live.ts         LIVE SELECT [DIFF] [FETCH]
   execute.ts        executor multi-statement + status + tx implícita
   results.ts        ThrowingResult/BatchResult/StatementResult/ExplainResult + lazy thenable

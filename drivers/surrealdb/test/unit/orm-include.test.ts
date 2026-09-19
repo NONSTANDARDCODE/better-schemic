@@ -15,6 +15,7 @@ const UserBase = defineTable("user", {
   name: s.string(),
   age: s.int(),
   at: s.datetime(),
+  home: s.object({ city: s.string(), line: s.string() }).optional(),
 });
 const User = UserBase.extend({
   mentor: s.recordId(() => UserBase).optional(),
@@ -130,6 +131,37 @@ describe("include — links", () => {
     expect(codeOf(() => compile({ include: { id: true } }))).toBe(
       "ValidationError",
     );
+    // An empty nested include used to emit no FETCH and silently return the raw record id.
+    expect(
+      codeOf(() => compile({ include: { mentor: { include: {} } } })),
+    ).toBe("ValidationError");
+  });
+
+  test("nested select objects/aliases flatten and remount at the right path", async () => {
+    expect(
+      compile({ include: { mentor: { select: { home: { city: true } } } } })
+        .sql,
+    ).toBe(
+      "SELECT *, mentor.home.city AS mentor_home_city, mentor.id AS mentor_id FROM user",
+    );
+    expect(
+      compile({ include: { mentor: { select: { home: { label: "line" } } } } })
+        .sql,
+    ).toBe(
+      "SELECT *, mentor.home.line AS mentor_home_label, mentor.id AS mentor_id FROM user",
+    );
+    const { conn } = fakeConn(() => [
+      ok([
+        fullUser("b1", {
+          mentor_id: new RecordId("user", "a1"),
+          mentor_home_city: "BR",
+        }),
+      ]),
+    ]);
+    const rows = await betterSchemic(conn, { schema }).users.findMany({
+      include: { mentor: { select: { home: { city: true } } } },
+    });
+    expect(rows[0]?.mentor).toEqual({ home: { city: "BR" } });
   });
 });
 
@@ -236,6 +268,50 @@ describe("include — graph edges", () => {
     ).toBe("SELECT *, (SELECT score, in.* FROM <-likes) AS likes FROM post");
   });
 
+  test("direction both: edge records and target records are allowed; edge+target is rejected", () => {
+    expect(
+      compile({ include: { likes: { direction: "both", edge: true } } }).sql,
+    ).toBe("SELECT *, (SELECT * FROM <->likes) AS likes FROM user");
+    expect(
+      compile({
+        include: { likes: { direction: "both", select: { id: true } } },
+      }).sql,
+    ).toBe("SELECT *, (SELECT id FROM <->likes<->post) AS likes FROM user");
+    const err = codeOf(() =>
+      compile({
+        include: { likes: { direction: "both", edge: true, target: true } },
+      }),
+    );
+    expect(err).toBe("ClauseNotSupported");
+  });
+
+  test("an edge-only include rejects a target-owned filter (it used to drop it silently)", () => {
+    expect(
+      codeOf(() =>
+        compile({
+          include: { likes: { edge: true, where: { published: true } } },
+        }),
+      ),
+    ).toBe("ValidationError");
+    expect(
+      compile({
+        include: { likes: { edge: true, where: { score: { gt: 4 } } } },
+      }).sql,
+    ).toBe(
+      "SELECT *, (SELECT * FROM ->(likes WHERE score > $p0)) AS likes FROM user",
+    );
+    // The wildcard edge row IS the edge — the filter applies to it (never silently dropped).
+    expect(
+      compile({
+        include: {
+          rel: { wildcard: true, edge: true, where: { score: { gt: 4 } } },
+        },
+      }).sql,
+    ).toBe(
+      "SELECT *, (SELECT * FROM ->(? WHERE score > $p0)) AS rel FROM user",
+    );
+  });
+
   test("wildcards traverse any edge (`->?` for outgoing, target via `out.*`)", () => {
     expect(
       compile({ include: { rel: { wildcard: true, edge: true } } }).sql,
@@ -291,6 +367,19 @@ describe("include — _count", () => {
         compile({ include: { _count: { select: { nope: true } } } }),
       ),
     ).toBe("UnknownField");
+    // `direction` is edge-only; unknown options never pass silently.
+    expect(
+      codeOf(() =>
+        compile({
+          include: { _count: { select: { friends: { direction: "in" } } } },
+        }),
+      ),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() =>
+        compile({ include: { _count: { select: { likes: { nope: true } } } } }),
+      ),
+    ).toBe("ValidationError");
   });
 });
 
@@ -377,6 +466,27 @@ describe("relational where — lowering", () => {
     })();
     expect(mixed?.code).toBe("ValidationError");
     expect(mixed?.message).toContain("mixes edge and target");
+  });
+});
+
+describe("relational where — write batches", () => {
+  test("updateMany/deleteMany lower the same relational filters as reads", async () => {
+    const update = fakeConn(() => [ok([])]);
+    await betterSchemic(update.conn, { schema }).users.updateMany({
+      where: { likes: { some: { published: true } } },
+      data: { name: "Renamed" },
+    });
+    expect(update.calls[0]?.sql).toContain(
+      "UPDATE user MERGE $p1 WHERE count(->likes->(post WHERE published = $p0)) > 0",
+    );
+
+    const remove = fakeConn(() => [ok([])]);
+    await betterSchemic(remove.conn, { schema }).users.deleteMany({
+      where: { mentor: { is: { name: "Alice" } } },
+    });
+    expect(remove.calls[0]?.sql).toBe(
+      "DELETE FROM user WHERE mentor.name = $p0 RETURN BEFORE;",
+    );
   });
 });
 
@@ -481,6 +591,34 @@ describe("include — hydration", () => {
       name: "Ann",
       who: "Ann",
     });
+  });
+
+  test("a projected link without `id` still detects absence and decodes to null", async () => {
+    expect(
+      compile({ include: { mentor: { select: { name: true } } } }).sql,
+    ).toBe(
+      "SELECT *, mentor.name AS mentor_name, mentor.id AS mentor_id FROM user",
+    );
+    const { conn } = fakeConn(() => [
+      ok([fullUser("x1", { mentor_name: undefined, mentor_id: undefined })]),
+    ]);
+    const rows = await betterSchemic(conn, { schema }).users.findMany({
+      include: { mentor: { select: { name: true } } },
+    });
+    expect(rows[0]?.mentor).toBeNull();
+
+    const present = fakeConn(() => [
+      ok([
+        fullUser("x1", {
+          mentor_name: "Ann",
+          mentor_id: new RecordId("user", "a1"),
+        }),
+      ]),
+    ]);
+    const found = await betterSchemic(present.conn, { schema }).users.findMany({
+      include: { mentor: { select: { name: true } } },
+    });
+    expect(found[0]?.mentor).toEqual({ name: "Ann" });
   });
 
   test("graph targets decode with the target codec; edge+target remounts `{ edge, target }`", async () => {

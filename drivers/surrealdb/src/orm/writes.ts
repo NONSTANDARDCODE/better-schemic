@@ -150,7 +150,8 @@ export function createWriteOperations(
           meta,
           "update",
           args,
-          (binds) => compileUpdate(meta, args, binds, "update"),
+          (binds) =>
+            compileUpdate(meta, args, binds, "update", { index: ctx.index }),
           (plan, rows) => decodeResult(plan, rows, meta),
         ),
       ),
@@ -161,7 +162,10 @@ export function createWriteOperations(
           meta,
           "updateMany",
           args,
-          (binds) => compileUpdateMany(meta, args, binds, "updateMany"),
+          (binds) =>
+            compileUpdateMany(meta, args, binds, "updateMany", {
+              index: ctx.index,
+            }),
           (plan, rows) => decodeBatch(plan, rows, meta),
         ),
       ),
@@ -172,7 +176,8 @@ export function createWriteOperations(
           meta,
           "patch",
           args,
-          (binds) => compilePatch(meta, args, binds, "patch"),
+          (binds) =>
+            compilePatch(meta, args, binds, "patch", { index: ctx.index }),
           (plan, rows) => decodeResult(plan, rows, meta),
         ),
       ),
@@ -205,7 +210,8 @@ export function createWriteOperations(
           meta,
           "delete",
           args,
-          (binds) => compileDelete(meta, args, binds, "delete"),
+          (binds) =>
+            compileDelete(meta, args, binds, "delete", { index: ctx.index }),
           (plan, rows) => decodeResult(plan, rows, meta),
         ),
       ),
@@ -216,7 +222,10 @@ export function createWriteOperations(
           meta,
           "deleteMany",
           args,
-          (binds) => compileDeleteMany(meta, args, binds, "deleteMany"),
+          (binds) =>
+            compileDeleteMany(meta, args, binds, "deleteMany", {
+              index: ctx.index,
+            }),
           (plan, rows) => decodeBatch(plan, rows, meta, { countOnly: true }),
         ),
       ),
@@ -271,7 +280,10 @@ export function createWriteOperations(
           meta,
           "unrelateMany",
           args,
-          (binds) => compileUnrelateMany(meta, args, binds, "unrelateMany"),
+          (binds) =>
+            compileUnrelateMany(meta, args, binds, "unrelateMany", {
+              index: ctx.index,
+            }),
           (plan, rows) => decodeBatch(plan, rows, meta, { countOnly: true }),
         ),
       ),

@@ -4,7 +4,7 @@ Every row below was **live-probed** against SurrealDB **3.2.0** (local `surreal`
 in-memory server), never inferred. This is the ground truth the `/orm` compiler must emit: where the
 prototype (`prototipo-querys-tipadas/better-surreal/*`) disagrees, the server wins.
 
-- Executable half: `test/live/orm-syntax.test.ts` (77 probes, skips without the `surreal` binary).
+- Executable half: `test/live/orm-syntax.test.ts` (78 probes, skips without the `surreal` binary).
   A server upgrade that changes any behaviour here fails that suite first.
 - Related: [`graph-syntax-map.md`](./graph-syntax-map.md) (graph traversal detail, probed on 3.1.4).
 - How to re-run: `cd drivers/surrealdb && bun test test/live/orm-syntax.test.ts`.
@@ -344,7 +344,9 @@ Formas que o compiler emite (direção `out`; `in` espelha as setas para `<-edge
 | aresta `{ edge, target }` | `(SELECT <edge…>, out.* FROM ->likes)` → remonta `{ edge, target }` no client |
 | aresta `edge`+`target`+`where` | `(SELECT <edge…>, out.* FROM ->(likes WHERE <edge>) WHERE <out.target…>)` |
 | direção `in` | `(SELECT … FROM <-likes<-user)`; `edge`+`target` materializa `in.*` e filtra `WHERE in.<campo>` |
-| aresta wildcard | `(SELECT * FROM ->?)` / `<-?` / `<->?` |
+| direção `both` (target) | `(SELECT id, title FROM <->likes<->post)` — o alvo segue a mesma direção |
+| direção `both` (edge) | `(SELECT * FROM <->likes)`; `edge`+`target` em `both` é **recusado** (não há alias único de alvo) |
+| aresta wildcard | `(SELECT * FROM ->?)` / `<-?` / `<->?`; filtro do edge `->(? WHERE score > 4)` |
 | `_count` (aresta) | `count(->likes) AS _count_likes` / `count(->likes[WHERE score > 4])` / `count(->likes->(post WHERE …))` |
 | `_count` (link array) | `count(friends) AS _count_friends` / `count(friends[WHERE name = 'Alice'])` |
 
@@ -357,7 +359,10 @@ Fatos de lowering que a tabela acima depende (todos live-probed em 3.2.x):
   para o alvo (`->target`) faz `out` ser `NONE` e a linha virar `{}` — o filtro do alvo vai em
   `WHERE out.<campo>`.
 - `ORDER BY` dentro da subquery exige o campo na seleção; projeção `*` cobre qualquer campo.
-- `count(<->likes)` e `count(<->?)` funcionam para direção `both`.
+- `count(<->likes)`, `count(<->?)` e `<->edge<->target` funcionam para direção `both`; já `?.*` é
+  **parse error** (por isso `edge`+`target` + `both` não tem lowering).
+- Filtro de edge wildcard: `->(? WHERE score > 4)` filtra a linha da aresta; `->?[WHERE …]` também
+  filtra o array (o compiler emite a forma com parênteses).
 
 ### 5.2 `where` relacional — lowering verificado (M3)
 
@@ -483,7 +488,10 @@ Nota: em scripts multi-statement, o SDK pode **lançar** (não só responder por
 25. **Writes (M2)**: alvos singulares = `id` ou índice UNIQUE (`UniqueTargetRequired`); `update` nunca cria (`[]` → `null`); `delete` só `before`/`none`; `deleteMany` exige `all: true` sem `where`; `updateEach`/`skipDuplicates` = 1 statement por item (e `skipDuplicates` exige `id` explícito); `upsertMany.conflict` exige índice UNIQUE; `RETURN DIFF` é achatado no decode (`[[ops]]` → `ops`) e **somado entre os statements** do batch (`update` data+unset, `createMany`, …); `INSERT/upsert RETURN BEFORE` devolve o estado anterior — o tipo é `App | null`; `id` string vira `RecordId` no payload.
 26. **Records no `where`**: string `"tabela:id"` em coluna de record (inclusive `id`) é convertida para `RecordId` pelo compiler — sem isso o valor viraria string e não casaria nada (silent no-match).
 27. **`include` de link**: `FETCH` é a última cláusula, o link precisa estar na seleção (o compiler o adiciona quando necessário), alias projetado sobrevive ao FETCH, e o filtro do include é o split edge/target (`->(edge WHERE …)->(target WHERE …)`).
-28. **`include` de aresta**: registros do alvo só via subquery; direção `in` inverte as duas setas (`<-edge<-target`) e materializa `in.*`; `edge`+`target` usa `out.*`+`WHERE out.<campo>` e é remontado como `{ edge, target }` no client.
+28. **`include` de aresta**: registros do alvo só via subquery; direção `in` inverte as duas setas (`<-edge<-target`) e materializa `in.*`; `edge`+`target` usa `out.*`+`WHERE out.<campo>` e é remontado como `{ edge, target }` no client. Direção `both`: `<->edge<->target` funciona para o alvo e `<->edge` para as arestas, mas `edge`+`target` é recusado (não existe um alias único de alvo; `?.*` é parse error).
 29. **`include._count`**: `count(->edge)`/`count(<-edge)`/`count(->edge[WHERE …])` para arestas e `count(campo)`/`count(campo[WHERE …])` para links array (`array::len` erra em `NONE`); remontado como `_count: { <chave>: n }`.
 30. **`where` relacional**: `is`/`isNot` para link `one` (negação verdadeira em `NONE`), `some`/`none`/`every` para arestas e links array; `every` por igualdade de contagens; `NOT` em filtro de traversal exige parênteses.
 31. **`include` de grafo recusa** `value`/`groupBy`/`groupAll`/`split` e `orderBy` fora da projeção do alvo (o servidor exige o order idiom).
+32. **Link projetado sem `id`**: o compiler sempre projeta o `id` do link (leaf de presença, escondido do resultado) — sem ele um link ausente seria indistinguível de um objeto de campos nulos. Link ausente decodifica `null`; array ausente, `[]`.
+33. **Filtro de edge wildcard**: `->(? WHERE score > 4)` (forma emitida) e `->?[WHERE score > 4]` filtram; a forma chaveada `->?` sem filtro devolve as arestas.
+34. **`where` relacional em writes**: `updateMany`/`deleteMany`/`unrelateMany` compilam o MESMO lowering dos reads (o `SchemaIndex` flui para o compiler de escrita). `update`/`delete`/`patch`/`upsert` singulares continuam exigindo `id` ou índice UNIQUE.

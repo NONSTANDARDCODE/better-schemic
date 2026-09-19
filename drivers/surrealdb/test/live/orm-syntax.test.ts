@@ -853,6 +853,56 @@ live("ORM syntax map — live probes (server 3.x)", () => {
           ]),
         }),
       ]);
+      // A wildcard edge accepts a filter on the edge row (`->(? WHERE …)`)…
+      expect(
+        await last(
+          "SELECT (SELECT * FROM ->(? WHERE score > 4)) AS rel FROM user:alice;",
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          rel: expect.arrayContaining([expect.objectContaining({ score: 5 })]),
+        }),
+      ]);
+      // …and a bracket filter on `?` filters the edge array too (the compiler emits the paren form).
+      expect(
+        await last(
+          "SELECT (SELECT * FROM ->?[WHERE score > 4]) AS rel FROM user:alice;",
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          rel: expect.arrayContaining([expect.objectContaining({ score: 5 })]),
+        }),
+      ]);
+    });
+
+    test("direction both: the target follows the SAME direction; `?.*` is a parse error", async () => {
+      expect(
+        await last(
+          "SELECT (SELECT id, title FROM <->likes<->post ORDER BY id) AS rel FROM user:alice;",
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          rel: [
+            { id: "post:p1", title: "Hello" },
+            { id: "post:p2", title: "World" },
+          ],
+        }),
+      ]);
+      expect(
+        await last("SELECT (SELECT * FROM <->likes) AS rel FROM user:alice;"),
+      ).toEqual([
+        expect.objectContaining({
+          rel: expect.arrayContaining([
+            expect.objectContaining({ score: expect.any(Number) }),
+          ]),
+        }),
+      ]);
+      // There is no single target alias with direction `both` — `?.*` is NOT a thing.
+      await expect(
+        last(
+          "SELECT (SELECT score, ?.* FROM <->likes) AS rel FROM user:alice;",
+        ),
+      ).rejects.toThrow(/Parse error/);
     });
 
     test("_count lowering: edges (bracket/target), both directions, record arrays, NONE arrays", async () => {

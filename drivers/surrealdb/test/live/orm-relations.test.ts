@@ -21,7 +21,11 @@ const live = describe.skipIf(!ENABLED);
 if (!ENABLED)
   console.warn("[orm-relations] `surreal` binary unavailable — skipping");
 
-const UserBase = defineTable("rl_user", { name: s.string(), age: s.int() });
+const UserBase = defineTable("rl_user", {
+  name: s.string(),
+  age: s.int(),
+  home: s.object({ city: s.string(), line: s.string() }).optional(),
+});
 const User = UserBase.extend({
   mentor: s.recordId(() => UserBase).optional(),
   friends: s
@@ -56,6 +60,7 @@ live("orm relations — live", () => {
       DEFINE FIELD age ON rl_user TYPE int;
       DEFINE FIELD mentor ON rl_user TYPE option<record<rl_user>>;
       DEFINE FIELD friends ON rl_user TYPE option<array<record<rl_user>>>;
+      DEFINE FIELD home ON rl_user TYPE option<object> FLEXIBLE;
       DEFINE TABLE rl_post SCHEMAFULL;
       DEFINE FIELD title ON rl_post TYPE string;
       DEFINE FIELD published ON rl_post TYPE bool;
@@ -63,7 +68,7 @@ live("orm relations — live", () => {
       DEFINE TABLE rl_likes TYPE RELATION IN rl_user OUT rl_post;
       DEFINE FIELD score ON rl_likes TYPE int;
 
-      CREATE rl_user:alice CONTENT { name: "Alice", age: 30 };
+      CREATE rl_user:alice CONTENT { name: "Alice", age: 30, home: { city: "São Paulo", line: "Rua A" } };
       CREATE rl_user:bob CONTENT { name: "Bob", age: 25, mentor: rl_user:alice, friends: [rl_user:alice] };
       CREATE rl_user:carol CONTENT { name: "Carol", age: 35 };
       CREATE rl_post:p1 CONTENT { title: "Hello", published: true, author: rl_user:alice };
@@ -175,6 +180,71 @@ live("orm relations — live", () => {
     } as never)) as { relations: { title: string }[] }[];
     expect(wildcard[0]?.relations).toHaveLength(2);
     expect(wildcard[0]?.relations[0]?.title).toBeString();
+  });
+
+  test("projected links: absent decodes to null; nested object selects remount", async () => {
+    const missing = await client.users.findMany({
+      include: { mentor: { select: { name: true } } },
+      where: { name: "Alice" },
+    });
+    expect(missing[0]?.mentor).toBeNull();
+
+    const nested = await client.users.findMany({
+      include: { mentor: { select: { home: { city: true } } } },
+      where: { name: "Bob" },
+    });
+    expect(nested[0]?.mentor).toEqual({ home: { city: "São Paulo" } });
+  });
+
+  test("direction both: edge records and target records (edge+target is rejected)", async () => {
+    const edges = await client.users.findMany({
+      include: { likes: { direction: "both", edge: true } },
+      where: { name: "Alice" },
+    });
+    expect(edges[0]?.likes).toHaveLength(2);
+
+    const targets = await client.users.findMany({
+      include: {
+        likes: { direction: "both", select: { id: true, title: true } },
+      },
+      where: { name: "Alice" },
+    });
+    expect(targets[0]?.likes.map((row) => row.title).sort()).toEqual([
+      "Hello",
+      "World",
+    ]);
+  });
+
+  test("wildcard edge records accept a where filter", async () => {
+    const filtered = (await client.users.findMany({
+      include: {
+        relations: { wildcard: true, edge: true, where: { score: { gte: 4 } } },
+      },
+      where: { name: "Alice" },
+    } as never)) as { relations: { score: number }[] }[];
+    expect(filtered[0]?.relations.map((edge) => edge.score).sort()).toEqual([
+      4, 5,
+    ]);
+  });
+
+  test("relational where rides write batches (one round-trip)", async () => {
+    await db.query(`
+      CREATE rl_user:wendy CONTENT { name: "Wendy", age: 41 };
+      CREATE rl_post:p9 CONTENT { title: "Temp", published: false, author: rl_user:wendy };
+      RELATE rl_user:wendy->rl_likes->rl_post:p9 SET score = 9;
+    `);
+    const updated = await client.users.updateMany({
+      where: { likes: { some: { score: 9 } } },
+      data: { age: 42 },
+    });
+    expect(updated.count).toBe(1);
+    const removed = await client.posts.deleteMany({
+      where: { likes: { some: { score: 9 } }, title: "Temp" },
+    });
+    expect(removed.count).toBe(1);
+    await db.query(
+      "DELETE rl_likes WHERE in = rl_user:wendy; DELETE rl_user:wendy;",
+    );
   });
 
   test("incoming edges: direction auto and explicit, filters on the other endpoint", async () => {

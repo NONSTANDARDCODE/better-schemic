@@ -8,6 +8,7 @@
  * Direction is AUTO (outgoing `->` when the table is in `from`; incoming `<-` when only in `to`)
  * with an explicit `direction: "out" | "in" | "both"` override on the edge surfaces.
  */
+import { escapeIdent } from "surrealdb";
 import { BetterSchemicError } from "../errors";
 import type { EdgeRef, SchemaIndex, TableMeta } from "../meta";
 import { describeValue, isLowerableValue, isPlainObject } from "./shared";
@@ -139,14 +140,45 @@ function targetsOf(edge: EdgeRef, direction: "out" | "in"): readonly string[] {
     : [...(relation?.from ?? [])];
 }
 
-/** The arrow pair of a direction (`->edge->target` / `<-edge<-target` / `<->edge<->target`). */
-export function arrows(direction: EdgeDirection): {
-  readonly open: string;
-  readonly close: string;
-} {
-  if (direction === "in") return { open: "<-", close: "<-" };
-  if (direction === "both") return { open: "<->", close: "<->" };
-  return { open: "->", close: "->" };
+/** The arrow token of a direction (`->` / `<-` / `<->`). */
+function arrowOf(direction: EdgeDirection): "->" | "<-" | "<->" {
+  if (direction === "in") return "<-";
+  if (direction === "both") return "<->";
+  return "->";
+}
+
+/** A rendered edge ref: `likes` / `(likes WHERE score > $p)` / `?` (wildcard edge). */
+function edgeRef(name: string, filter?: string): string {
+  const ident = name === "?" ? "?" : escapeIdent(name);
+  return filter ? `(${ident} WHERE ${filter})` : ident;
+}
+
+/** `post` / `(post, user)` / `?` — the target ref of a traversal. */
+function targetRef(names: readonly string[]): string {
+  if (names.length === 0) return "?";
+  if (names.length === 1) return escapeIdent(names[0] as string);
+  return `(${names.map(escapeIdent).join(", ")})`;
+}
+
+/**
+ * `->(edge WHERE …)->(target WHERE …)` (`<-`/`<->` mirror both arrows). Omitting `targets` stops
+ * at the edge (`->(edge WHERE …)`), which is what the `edge`+`target` projection needs.
+ */
+export function edgeTraversal(args: {
+  readonly edge: string;
+  readonly direction: EdgeDirection;
+  readonly edgeFilter?: string;
+  readonly targets?: readonly string[];
+  readonly targetFilter?: string;
+}): string {
+  const arrow = arrowOf(args.direction);
+  const head = `${arrow}${edgeRef(args.edge, args.edgeFilter)}`;
+  if (args.targets === undefined) return head;
+  const base = targetRef(args.targets);
+  const target = args.targetFilter
+    ? `(${base} WHERE ${args.targetFilter})`
+    : base;
+  return `${head}${arrow}${target}`;
 }
 
 /** Resolve the target `TableMeta` of a link field (undefined = a bare `record` / unknown target). */

@@ -18,6 +18,7 @@ import { RecordId } from "surrealdb";
 import { z } from "zod";
 import type {
   EdgeIncludeSpec,
+  EdgeProjection,
   IncludeSpec,
   LinkFetchSpec,
   LinkLeafSpec,
@@ -173,6 +174,7 @@ function decodeLinkProjection(
     findProjectedId(rawRow, spec.leaves),
   );
   if (spec.list) return decodeListProjection(rawRow, spec, meta);
+  if (!linkPresent(rawRow, spec.leaves)) return null;
   const out: Record<string, unknown> = {};
   for (const leaf of spec.leaves) {
     const raw = getAt(rawRow, [leaf.source]);
@@ -206,6 +208,20 @@ function decodeListProjection(
     out.push(entry);
   }
   return out;
+}
+
+/**
+ * Does the projected single link EXIST? The compiler adds a presence-only leaf (`<link>.id`) to
+ * every projected non-list link, so an absent link decodes to `null` (the declared contract)
+ * instead of an object of undefineds.
+ */
+function linkPresent(
+  rawRow: unknown,
+  leaves: readonly LinkLeafSpec[],
+): boolean {
+  const presence = leaves.find((leaf) => leaf.out.length === 0);
+  if (presence) return getAt(rawRow, [presence.source]) != null;
+  return leaves.some((leaf) => getAt(rawRow, [leaf.source]) != null);
 }
 
 /** The projected `id` leaf's raw value (used to pick a union target's codec). */
@@ -247,31 +263,40 @@ function decodeEdge(
   index: SchemaIndex,
 ): unknown[] {
   const rows = Array.isArray(value) ? value : value == null ? [] : [value];
-  return rows.map((row) => {
-    if (spec.shape === "edge-target" && isObject(row)) {
-      const alias = spec.alias === "?" ? undefined : spec.alias;
-      const targetRaw = alias ? row[alias] : undefined;
-      const edgeFields: Record<string, unknown> = {};
-      for (const [key, entry] of Object.entries(row))
-        if (key !== alias) edgeFields[key] = entry;
+  return rows.map((row) => decodeEdgeRow(row, spec, index));
+}
+
+/** Decode one row of an edge subquery by its shape. */
+function decodeEdgeRow(
+  row: unknown,
+  spec: EdgeIncludeSpec,
+  index: SchemaIndex,
+): unknown {
+  if (spec.shape === "edge-target") {
+    if (!isObject(row))
       return {
-        edge: decodeEdgeProjection(edgeFields, spec, index),
-        target: decodeTargetProjection(targetRaw, spec.target, index),
+        edge: decodeEdgeProjection(row, spec.edge, index),
+        target: undefined,
       };
-    }
-    if (spec.shape === "edge") return decodeEdgeProjection(row, spec, index);
-    return decodeTargetProjection(row, spec.target, index);
-  });
+    const edgeFields: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(row))
+      if (key !== spec.alias) edgeFields[key] = entry;
+    return {
+      edge: decodeEdgeProjection(edgeFields, spec.edge, index),
+      target: decodeTargetProjection(row[spec.alias], spec.target, index),
+    };
+  }
+  if (spec.shape === "edge") return decodeEdgeProjection(row, spec.edge, index);
+  return decodeTargetProjection(row, spec.target, index);
 }
 
 /** Decode an edge record with the edge table's codec (wildcards pass through). */
 function decodeEdgeProjection(
   raw: unknown,
-  spec: EdgeIncludeSpec,
+  projection: EdgeProjection,
   index: SchemaIndex,
 ): unknown {
-  const projection = spec.edge;
-  if (!projection || projection.wildcard || !projection.meta) return raw;
+  if (projection.wildcard || !projection.meta) return raw;
   return decodeRow(raw, projection.meta, projection.spec, index);
 }
 

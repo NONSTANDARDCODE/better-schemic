@@ -9,11 +9,12 @@
  * Verified forms live in `docs/orm-syntax-map.md` §4; unverified spellings (`~`/`?~`/`*~`) are
  * rejected with a teaching `UnsupportedCapability` instead of being emitted.
  */
-import { escapeIdent, RecordId } from "surrealdb";
+import { RecordId } from "surrealdb";
 import type { EdgeRef, FieldFamily, SchemaIndex, TableMeta } from "../meta";
 import {
   classifyWhereByOwner,
   type EdgeDirection,
+  edgeTraversal,
   findEdge,
   resolveEdge,
   edgeMeta as resolveEdgeMeta,
@@ -158,17 +159,36 @@ function compileFieldValue(
 
 /** What kind of relation a where key resolves to (`undefined` = a plain column). */
 type RelationKind =
-  | { readonly kind: "link"; readonly cardinality: "one" | "many" }
-  | { readonly kind: "edge"; readonly edge: EdgeRef };
+  | {
+      readonly kind: "link";
+      readonly cardinality: "one" | "many";
+      /** Resolved target metas (empty for a bare/union link — operators stay loose). */
+      readonly targets: readonly TableMeta[];
+      readonly meta: TableMeta;
+      readonly index: SchemaIndex;
+    }
+  | {
+      readonly kind: "edge";
+      readonly edge: EdgeRef;
+      readonly meta: TableMeta;
+      readonly index: SchemaIndex;
+    };
 
 /** Resolve a key to a relation of the CURRENT scope's table (links win over same-named edges). */
 function relationOf(context: FieldFilterContext): RelationKind | undefined {
   const { meta, index } = context.options;
   if (!meta || !index) return undefined;
   const link = meta.links.get(context.field);
-  if (link) return { kind: "link", cardinality: link.cardinality };
+  if (link)
+    return {
+      kind: "link",
+      cardinality: link.cardinality,
+      targets: targetMetas(index, link.targets),
+      meta,
+      index,
+    };
   const edge = findEdge(meta, context.field);
-  return edge ? { kind: "edge", edge } : undefined;
+  return edge ? { kind: "edge", edge, meta, index } : undefined;
 }
 
 /** Compile `is`/`isNot` (links) and `some`/`every`/`none` (edges and array links). */
@@ -189,10 +209,8 @@ function compileRelation(
   const direction = relationFilterDirection(value, operation, field);
 
   if (relation.kind === "link" && relation.cardinality === "one")
-    return compileSingleLink(context, operators, direction);
-  if (relation.kind === "link")
-    return compileCollection(context, operators, undefined, direction);
-  return compileCollection(context, operators, relation.edge, direction);
+    return compileSingleLink(context, relation, operators, direction);
+  return compileCollection(context, relation, operators, direction);
 }
 
 /** Parse the optional `direction` alongside the relational operator. */
@@ -215,6 +233,7 @@ function relationFilterDirection(
 /** `is`/`isNot` on a single record link — the target filter compiles behind the link path. */
 function compileSingleLink(
   context: FieldFilterContext,
+  relation: Extract<RelationKind, { kind: "link" }>,
   operators: readonly (readonly [string, unknown])[],
   direction: EdgeDirection | undefined,
 ): string {
@@ -233,7 +252,8 @@ function compileSingleLink(
       `${operation}: "${invalid[0]}" does not apply to the single link "${field}" — use "is"/"isNot" (or make it an array link).`,
       { field },
     );
-  const target = singleLinkTarget(context);
+  const target =
+    relation.targets.length === 1 ? relation.targets[0] : undefined;
   const parts: string[] = [];
   for (const [op, operand] of operators) {
     if (!isFilterObject(operand))
@@ -257,16 +277,6 @@ function compileSingleLink(
     parts.push(op === "isNot" ? `NOT (${predicate})` : predicate);
   }
   return joinAnd(parts);
-}
-
-/** The single target meta of a link (`undefined` for a union/bare link — operators stay loose). */
-function singleLinkTarget(context: FieldFilterContext): TableMeta | undefined {
-  const { meta, index } = context.options;
-  if (!meta || !index) return undefined;
-  const link = meta.links.get(context.field);
-  if (!link) return undefined;
-  const targets = targetMetas(index, link.targets);
-  return targets.length === 1 ? targets[0] : undefined;
 }
 
 /** AND-join a field filter object's operators. */
@@ -568,37 +578,32 @@ function compileNear(context: FieldFilterContext, operand: unknown): string {
 /** `some`/`every`/`none` over a link array or a graph edge (counts, NONE-safe). */
 function compileCollection(
   context: FieldFilterContext,
+  relation: Extract<RelationKind, { kind: "link" } | { kind: "edge" }>,
   operators: readonly (readonly [string, unknown])[],
-  edge: EdgeRef | undefined,
   direction: EdgeDirection | undefined,
 ): string {
   const { field, path } = context;
   const operation = context.options.operation ?? "where";
-  const index = context.options.index;
   const invalid = operators.find(
     ([op]) => op !== "some" && op !== "every" && op !== "none",
   );
   if (invalid)
     throw compileError(
       "ValidationError",
-      `${operation}: "${invalid[0]}" does not apply to the ${edge ? `edge "${field}"` : `array link "${field}"`} — use some/every/none.`,
+      `${operation}: "${invalid[0]}" does not apply to the ${relation.kind === "edge" ? `edge "${field}"` : `array link "${field}"`} — use some/every/none.`,
       { field },
     );
 
-  const meta = context.options.meta as TableMeta;
   const resolved =
-    edge !== undefined
-      ? resolveEdge(meta, field, direction, operation)
+    relation.kind === "edge"
+      ? resolveEdge(relation.meta, field, direction, operation)
       : undefined;
   const edgeMeta =
-    resolved && index ? resolveEdgeMeta(index, resolved.edge.name) : undefined;
-  const targets = resolved && index ? targetMetas(index, resolved.targets) : [];
-  const arrows =
-    resolved?.direction === "in"
-      ? { open: "<-", close: "<-" }
-      : resolved?.direction === "both"
-        ? { open: "<->", close: "<->" }
-        : { open: "->", close: "->" };
+    resolved !== undefined
+      ? resolveEdgeMeta(relation.index, resolved.edge.name)
+      : undefined;
+  const targets =
+    resolved !== undefined ? targetMetas(relation.index, resolved.targets) : [];
 
   const parts: string[] = [];
   for (const [op, operand] of operators) {
@@ -612,15 +617,24 @@ function compileCollection(
           `${operation}: "${field}.${op}" is an empty filter — nothing to constrain.`,
           { field },
         );
-      base = edgeTraversal(resolved, arrows, undefined, undefined);
-      filtered = edgeTraversal(
-        resolved,
-        arrows,
-        compiled.edge,
-        compiled.target,
-      );
+      base = edgeTraversal({
+        edge: resolved.edge.name,
+        direction: resolved.direction,
+        targets: resolved.targets,
+      });
+      filtered = edgeTraversal({
+        edge: resolved.edge.name,
+        direction: resolved.direction,
+        ...(compiled.edge ? { edgeFilter: compiled.edge } : {}),
+        targets: resolved.targets,
+        ...(compiled.target ? { targetFilter: compiled.target } : {}),
+      });
     } else {
-      const predicate = compileLinkOperand(context, operand);
+      const predicate = compileLinkOperand(
+        context,
+        operand,
+        relation.kind === "link" ? relation.targets : [],
+      );
       if (predicate === undefined)
         throw compileError(
           "ValidationError",
@@ -634,6 +648,67 @@ function compileCollection(
     else parts.push(`count(${base}) = count(${filtered})`);
   }
   return joinAnd(parts);
+}
+
+/** A relation filter compiled per column owner (edge predicate / target predicate / fragment). */
+export interface CompiledRelationFilter {
+  readonly edge?: string;
+  readonly target?: string;
+  /** A whole-clause fragment, already parenthesized (`surql` / param ref). */
+  readonly fragment?: string;
+}
+
+/**
+ * Compile a relation filter split by column OWNER — the ONE lowering shared by `where` relational
+ * operators, `include.where` and `_count.where`: a field declared on the edge compiles into the
+ * edge predicate, one on the target into the target predicate (prefixed when the row IS the edge),
+ * and a whole-clause fragment is rendered raw. `../relations.classifyWhereByOwner` owns the split.
+ */
+export function compileRelationFilter(args: {
+  readonly where: unknown;
+  readonly edge?: TableMeta;
+  readonly targets: readonly TableMeta[];
+  /** Which owner wins for `id` (both always declare it). */
+  readonly idOwner: "edge" | "target";
+  /** Path prefix for the target predicate (`out`/`in` when the row is the edge). */
+  readonly prefix?: string;
+  readonly index?: SchemaIndex;
+  readonly binds: Binds;
+  readonly operation: string;
+  /** Extra label for teaching messages (`include.likes`, `where.likes`). */
+  readonly context: string;
+}): CompiledRelationFilter {
+  const owned = classifyWhereByOwner({
+    where: args.where,
+    ...(args.edge ? { edge: args.edge } : {}),
+    targets: args.targets,
+    idOwner: args.idOwner,
+    operation: args.operation,
+    context: args.context,
+  });
+  const edge = owned.edge
+    ? compileWhere(owned.edge, args.binds, {
+        ...(args.edge ? { meta: args.edge } : {}),
+        ...(args.index ? { index: args.index } : {}),
+        operation: args.operation,
+      })
+    : undefined;
+  const target = owned.target
+    ? compileWhere(owned.target, args.binds, {
+        ...(args.targets.length === 1 ? { meta: args.targets[0] } : {}),
+        ...(args.index ? { index: args.index } : {}),
+        ...(args.prefix ? { prefix: args.prefix } : {}),
+        operation: args.operation,
+      })
+    : undefined;
+  const fragment = owned.fragment
+    ? paren(renderValue(owned.fragment, args.binds, args.binds.ctx()))
+    : undefined;
+  return {
+    ...(edge ? { edge } : {}),
+    ...(target ? { target } : {}),
+    ...(fragment ? { fragment } : {}),
+  };
 }
 
 /** Split + compile one edge operand into its edge-side and target-side predicates. */
@@ -662,30 +737,21 @@ function compileEdgeOperand(
         operation,
       }),
     };
-  const owned = classifyWhereByOwner({
+  const compiled = compileRelationFilter({
     where: operand,
     edge: edgeMeta,
     targets,
     idOwner: "target",
+    ...(index ? { index } : {}),
+    binds,
     operation,
     context: `where.${context.field}`,
   });
-  const edgePredicate = owned.edge
-    ? compileWhere(owned.edge, binds, { meta: edgeMeta, index, operation })
-    : undefined;
-  const targetPredicate = owned.target
-    ? compileWhere(owned.target, binds, {
-        ...(targets.length === 1 ? { meta: targets[0] } : {}),
-        ...(index ? { index } : {}),
-        operation,
-      })
-    : undefined;
-  const fragment = owned.fragment
-    ? paren(renderValue(owned.fragment, binds, binds.ctx()))
-    : undefined;
-  const target = [targetPredicate, fragment].filter(Boolean).join(" AND ");
+  const target = [compiled.target, compiled.fragment]
+    .filter(Boolean)
+    .join(" AND ");
   return {
-    ...(edgePredicate ? { edge: edgePredicate } : {}),
+    ...(compiled.edge ? { edge: compiled.edge } : {}),
     ...(target ? { target } : {}),
   };
 }
@@ -694,6 +760,7 @@ function compileEdgeOperand(
 function compileLinkOperand(
   context: FieldFilterContext,
   operand: unknown,
+  targets: readonly TableMeta[],
 ): string | undefined {
   const { binds } = context;
   const operation = context.options.operation ?? "where";
@@ -706,35 +773,12 @@ function compileLinkOperand(
       `${operation}: "${context.field}" expects a filter object or a fragment (got ${describeValue(operand)}).`,
       { field: context.field },
     );
-  const target = singleLinkTarget(context);
+  const target = targets.length === 1 ? targets[0] : undefined;
   return compileWhere(operand, binds, {
     ...(target ? { meta: target } : {}),
     ...(index ? { index } : {}),
     operation,
   });
-}
-
-/** `->edge->target` / `<-edge<-target` / `<->edge<->target`, with optional edge/target filters. */
-function edgeTraversal(
-  resolved: { readonly edge: EdgeRef; readonly targets: readonly string[] },
-  arrows: { readonly open: string; readonly close: string },
-  edgePredicate: string | undefined,
-  targetPredicate: string | undefined,
-): string {
-  const name = escapeIdent(resolved.edge.name);
-  const edgeRef = edgePredicate ? `(${name} WHERE ${edgePredicate})` : name;
-  const target = traversalTarget(resolved.targets);
-  const targetRef = targetPredicate
-    ? `(${target} WHERE ${targetPredicate})`
-    : target;
-  return `${arrows.open}${edgeRef}${arrows.close}${targetRef}`;
-}
-
-/** `post` / `(post, user)` / `?` — the target ref of an edge traversal. */
-function traversalTarget(targets: readonly string[]): string {
-  if (targets.length === 0) return "?";
-  if (targets.length === 1) return escapeIdent(targets[0] as string);
-  return `(${targets.map(escapeIdent).join(", ")})`;
 }
 
 /** A KNN metric: an identifier-safe name, canonicalized to SurrealQL's uppercase spelling. */

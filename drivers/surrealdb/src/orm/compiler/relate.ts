@@ -6,7 +6,7 @@
  */
 import { escapeIdent } from "surrealdb";
 import { hasRefDeep } from "../../pure";
-import type { ModelMeta } from "../meta";
+import type { ModelMeta, SchemaIndex } from "../meta";
 import {
   type Binds,
   compileError,
@@ -187,9 +187,10 @@ export function compileUnrelateMany(
   args: DeleteManyRuntimeArgs,
   binds: Binds,
   operation = "unrelateMany",
+  options: { readonly index?: SchemaIndex } = {},
 ): WritePlan {
   requireRelation(meta, operation);
-  const where = whereSql(args.where, binds, meta);
+  const where = whereSql(args.where, binds, meta, options.index);
   if (!where && args.all !== true)
     throw compileError(
       "UnsafeMutation",

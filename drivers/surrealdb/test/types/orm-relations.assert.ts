@@ -229,4 +229,27 @@ describe("relational where", () => {
         : false
     >();
   });
+
+  it("write batches carry the same relational where (they lower it too)", () => {
+    type C = Client<S>;
+    type UpdateArgs = Parameters<C["users"]["updateMany"]>[0];
+    type DeleteArgs = Parameters<C["users"]["deleteMany"]>[0];
+    type RelateArgs = Parameters<C["likes"]["unrelateMany"]>[0];
+    attest<
+      true,
+      { where: { likes: { some: { score: { gt: 4 } } } } } extends UpdateArgs
+        ? true
+        : false
+    >();
+    attest<
+      true,
+      { where: { mentor: { is: { name: "Alice" } } } } extends DeleteArgs
+        ? true
+        : false
+    >();
+    attest<
+      true,
+      { where: { score: { gt: 4 } } } extends RelateArgs ? true : false
+    >();
+  });
 });

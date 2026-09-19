@@ -18,7 +18,7 @@ import type { Surql } from "../../frag";
 import type { App } from "../../pure";
 import type { ExplainResult, ThrowingResult } from "../results";
 import type { IncludeArg, WithIncludes } from "./include";
-import type { AnyTableDef, SchemaInput } from "./schema";
+import type { AnyTableDef, ElementOf, SchemaInput } from "./schema";
 import type { WhereInput } from "./where";
 
 /** Any fragment usable as a projection expression. */
@@ -29,9 +29,6 @@ export type FragmentResult<F> =
   F extends Surql<infer R> ? (R extends [infer T] ? T : unknown) : unknown;
 
 type NonNullish<T> = T extends null | undefined ? never : T;
-
-/** The element type of an array/set/`readonly` array. */
-export type ElementOf<A> = A extends readonly (infer E)[] ? E : never;
 
 /** Flatten intersections for readable hovers. */
 export type Simplify<T> = { [K in keyof T]: T[K] } & unknown;

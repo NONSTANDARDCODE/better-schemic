@@ -29,7 +29,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `BEGIN/COMMIT` batches, unique-binds guardrail). Reads/writes/relations/… land in the following
   milestones — see [`PLANO-QUERYS-TIPADAS.md`](./PLANO-QUERYS-TIPADAS.md).
 - **surrealdb:** `docs/orm-syntax-map.md` + `test/live/orm-syntax.test.ts` — the live-verified SurrealQL
-  syntax map the ORM compiler must emit against (77 probes on server 3.2.x), with the prototype
+  syntax map the ORM compiler must emit against (78 probes on server 3.2.x), with the prototype
   divergences recorded.
 - **surrealdb:** the `/orm` **read surface (M1)** — object-based compiler + typed reads, one round-trip:
   `findMany` (where/select/omit/orderBy/limit/start/range/split/groupBy/groupAll/only/value/with/timeout/
@@ -75,15 +75,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   single links (target filter behind the link path; `isNot` true on `NONE`), `some`/`every`/`none`
   for edges and array links (`every` as a NONE-safe count-equality), with `direction` override.
   Relation typing derives from the authored schema — `S` now flows through `Delegate`/`ReadArgs`/
-  `Where`/`ResultOf`, and `include`/`where` results are inferred from the args literal (links →
-  target rows, edges → target rows, `{ edge, target }` → the remount, `_count` → numbers). New
-  modules: `orm/compiler/{include,relations}.ts`, `orm/types/{include,relations}.ts`; hydration in
-  `orm/decode.ts`. Live: `test/live/orm-relations.test.ts` (9 e2e).
+  `Where`/`ResultOf` (including the write batches), and `include`/`where` results are inferred from
+  the args literal (links → target rows, edges → target rows, `{ edge, target }` → the remount,
+  `_count` → numbers). New modules: `orm/compiler/include/*`, `orm/types/{include,relations}.ts`;
+  hydration in `orm/decode.ts`. Live: `test/live/orm-relations.test.ts` (13 e2e).
+- **surrealdb:** relation/graph hardening (same unreleased M3):
+  - **`where` relacional em writes** — `updateMany`/`deleteMany`/`unrelateMany` compile the same
+    relational lowering as reads (the schema index now flows into the write compilers); before, the
+    type accepted it and the runtime rejected with `ValidationError`.
+  - **link projetado sem `id`** — the compiler always projects a hidden presence leaf (`<link>.id`),
+    so an absent link decodes to `null` (the declared contract) instead of `{ id: undefined, … }`;
+    nested `select` objects/aliases now remount at the correct path (they were duplicated).
+  - **fail-fast guards** — `direction: "both"` + `edge`+`target` (`?.*` is a parse error) and an
+    empty nested `include` (used to silently emit no `FETCH`) are rejected; an edge-only include
+    rejects a target-owned filter (used to drop it silently); `_count` rejects unknown options and
+    `direction` on array links.
+  - The relational lowering now lives in ONE place: `orm/compiler/relations.ts` (arrow/traversal/
+    refs) + `where.ts` (`compileRelationFilter`), shared by `include`, `_count` and `where`.
 - **surrealdb:** live-verified relation/graph semantics in `docs/orm-syntax-map.md` §5.1–5.3 +
-  `test/live/orm-syntax.test.ts` (77 probes on server 3.2.x) — target records only via subquery,
+  `test/live/orm-syntax.test.ts` (78 probes on server 3.2.x) — target records only via subquery,
   `out.*` stops at the edge (silent `{}` past `->target`), incoming flips both arrows, `NOT` inside
   a traversal filter needs parentheses, `array::len` errors on `NONE` (`count(field)` is NONE-safe),
-  `FETCH` needs the link selected, subquery `ORDER BY` needs the order idiom projected.
+  `FETCH` needs the link selected, subquery `ORDER BY` needs the order idiom projected, direction
+  `both` (`<->edge<->target`, `<->edge`) works but `?.*` is a parse error, wildcard edge filters use
+  `->(? WHERE …)`.
 
 ### Removed
 - **surrealdb:** the fluent query builder (`select`/`create`/`update`/`upsert`/`remove`/`relate`, graph

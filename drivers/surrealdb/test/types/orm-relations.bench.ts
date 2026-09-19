@@ -34,11 +34,11 @@ type U = typeof User;
 
 bench("IncludeArg<TD, S> — links + edges + _count", () => {
   return {} as IncludeArg<U, S>;
-}).types([108976, "instantiations"]);
+}).types([109262, "instantiations"]);
 
 bench("Where<TD, S> — relational operators", () => {
   return {} as Where<U, S>;
-}).types([108944, "instantiations"]);
+}).types([109009, "instantiations"]);
 
 bench("ResultOf<TD, A, S> — include with select/_count", () => {
   return {} as ResultOf<
@@ -52,4 +52,4 @@ bench("ResultOf<TD, A, S> — include with select/_count", () => {
     },
     S
   >;
-}).types([21744, "instantiations"]);
+}).types([1161, "instantiations"]);

@@ -10,17 +10,13 @@ import type { App } from "../../pure";
 import type {
   AnyRelationDef,
   AnyTableDef,
-  DefAtName,
   DefName,
-  DefsByName,
+  DefsAtNames,
+  ElementOf,
   EntriesOf,
-  SchemaInput,
 } from "./schema";
 
 type NonNullish<T> = T extends null | undefined ? never : T;
-
-/** The element type of an array/set/`readonly` array. */
-export type ElementOf<A> = A extends readonly (infer E)[] ? E : never;
 
 /** The table-name type a record value carries (`RecordId<"user">` -> `"user"`). */
 type RecordIdName<T> = T extends RecordId<infer N, infer _V> ? N : never;
@@ -65,7 +61,7 @@ export type LinkTargetDefs<
   TD extends AnyTableDef,
   S,
   K extends keyof App<TD>,
-> = NamesToDefs<S, LinkTargetNames<TD, K>>;
+> = DefsAtNames<S, LinkTargetNames<TD, K>>;
 
 // --- edges ---------------------------------------------------------------------------------------
 
@@ -128,19 +124,7 @@ export type EdgeTargetNames<E, TDName extends string> =
     : InNames<E>;
 
 /** The defs an edge reaches from `TD`'s side. */
-export type EdgeTargetDefs<S, E, TDName extends string> = NamesToDefs<
+export type EdgeTargetDefs<S, E, TDName extends string> = DefsAtNames<
   S,
   EdgeTargetNames<E, TDName>
 >;
-
-// --- shared --------------------------------------------------------------------------------------
-
-/** Resolve a union of physical names to a union of defs (distributes over the union). */
-export type NamesToDefs<S, N extends string> = N extends string
-  ? DefAtName<S, N>
-  : never;
-
-/** The defs a link/edge union resolves to (`undefined` targets stay `never`). */
-export type DefsOrNever<D> = [D] extends [never] ? never : D;
-
-export type { DefsByName, SchemaInput };
