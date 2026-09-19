@@ -44,10 +44,24 @@ function typeFiles(pkgDir: string, suffix: string): string[] {
 }
 
 function run(cwd: string, args: string[]): boolean {
-  const r = spawnSync("node", ["--import", "tsx", ...args], {
-    cwd: join(ROOT, cwd),
-    stdio: "inherit",
-  });
+  // `--test-concurrency=1`: every `.assert.ts` drives a FULL TypeScript program through attest;
+  // node's default parallel test files multiply that by the CPU count and OOM the run (the suite
+  // grew with every milestone). Sequential files + an explicit heap make it deterministic.
+  // `--max-old-space-size`: one attest program needs well over node's default ~2 GB heap.
+  const r = spawnSync(
+    "node",
+    [
+      "--max-old-space-size=6144",
+      "--import",
+      "tsx",
+      "--test-concurrency=1",
+      ...args,
+    ],
+    {
+      cwd: join(ROOT, cwd),
+      stdio: "inherit",
+    },
+  );
   return r.status === 0;
 }
 

@@ -115,3 +115,25 @@ export type FunctionAt<S, K extends keyof EntriesOf<S>> = Extract<
   EntriesOf<S>[K],
   AnyFunctionDef
 >;
+
+/** The PHYSICAL name a table/edge def declares (`never` for entries without one). */
+export type DefName<T> = T extends { readonly name: infer N extends string }
+  ? N
+  : never;
+
+/** Map every table/edge of a schema by its PHYSICAL name (what SQL/relations use). */
+export type DefsByName<S> = {
+  [K in keyof EntriesOf<S> as EntriesOf<S>[K] extends AnyTableDef
+    ? DefName<EntriesOf<S>[K]>
+    : never]: EntriesOf<S>[K] extends AnyTableDef ? EntriesOf<S>[K] : never;
+};
+
+/** The table/edge def declared at a physical name (`never` when the schema doesn't declare it). */
+export type DefAtName<S, N extends string> = N extends keyof DefsByName<S>
+  ? DefsByName<S>[N]
+  : never;
+
+/** The union of defs at a union of physical names (distributes; preserves the union). */
+export type DefsAtNames<S, N extends string> = N extends string
+  ? DefAtName<S, N>
+  : never;

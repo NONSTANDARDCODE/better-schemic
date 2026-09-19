@@ -86,10 +86,37 @@ export {
 } from "./results";
 export { buildSchemaIndex, defineSchema, isSchemaDef } from "./schema";
 export type {
+  CountIncludeOptions,
+  EdgeIncludeArg,
+  EdgeIncludeOptions,
+  IncludeArg,
+  LinkIncludeArg,
+  LinkIncludeOptions,
+  WithIncludes,
+} from "./types/include";
+export type {
+  AdjacentEdgeAliases,
+  EdgeAliases,
+  EdgeAliasKeys,
+  EdgeDefAt,
+  EdgeTargetDefs,
+  EdgeTargetNames,
+  EndpointNames,
+  LinkKeys,
+  LinkTargetDefs,
+  LinkTargetNames,
+  ManyLinkKeys,
+  SingleLinkKeys,
+} from "./types/relations";
+export type {
   AnyFunctionDef,
   AnyRelationDef,
   AnyTableDef,
   AppAt,
+  DefAtName,
+  DefName,
+  DefsAtNames,
+  DefsByName,
   FunctionAt,
   FunctionKeys,
   ModelKeys,
@@ -136,6 +163,7 @@ export type {
   AnyFilter,
   ArrayFilter,
   ComparisonFilter,
+  EdgeDirection,
   ElementOf,
   FamilyOf,
   FieldFilter,

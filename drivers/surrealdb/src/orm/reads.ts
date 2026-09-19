@@ -43,22 +43,23 @@ export function createReadOperations(
 ): Record<string, unknown> {
   return {
     findMany: (args: ReadArgs = {}) =>
-      finishRead(ctx, prepare(meta, args, "findMany")),
+      finishRead(ctx, prepare(meta, ctx, args, "findMany")),
     findFirst: (args: ReadArgs = {}) =>
-      finishRead(ctx, prepare(meta, args, "findFirst", { one: true })),
+      finishRead(ctx, prepare(meta, ctx, args, "findFirst", { one: true })),
     findOne: (args: ReadArgs = {}) =>
-      finishRead(ctx, prepare(meta, args, "findOne", { one: true })),
-    findUnique: (args: ReadArgs) => finishRead(ctx, prepareUnique(meta, args)),
+      finishRead(ctx, prepare(meta, ctx, args, "findOne", { one: true })),
+    findUnique: (args: ReadArgs) =>
+      finishRead(ctx, prepareUnique(meta, ctx, args)),
     count: (args: CountRuntimeArgs = {}) =>
-      finishRead(ctx, countPlan(meta, args)),
+      finishRead(ctx, countPlan(meta, ctx, args)),
     exists: (args: CountRuntimeArgs = {}) =>
-      finishRead(ctx, existsPlan(meta, args)),
+      finishRead(ctx, existsPlan(meta, ctx, args)),
     aggregate: (args: AggregateRuntimeArgs) =>
-      finishRead(ctx, aggregatePlan(meta, args)),
+      finishRead(ctx, aggregatePlan(meta, ctx, args)),
     paginate: (args: PaginateRuntimeArgs) =>
-      finishRead(ctx, paginatePlan(meta, args)),
+      finishRead(ctx, paginatePlan(meta, ctx, args)),
     cursor: (args: CursorRuntimeArgs) =>
-      finishRead(ctx, cursorPlan(meta, args)),
+      finishRead(ctx, cursorPlan(meta, ctx, args)),
   };
 }
 
@@ -102,6 +103,7 @@ const stmt = (
 /** Compile a read into its statement + decode spec (eager — a bad arg throws here). */
 function prepare(
   meta: ModelMeta,
+  ctx: DelegateContext,
   args: ReadArgs,
   operation: string,
   options: {
@@ -113,22 +115,20 @@ function prepare(
 ): PreparedRead {
   const binds = createBinds();
   const effective = options.one ? { ...args, limit: args.limit ?? 1 } : args;
-  const compiled = compileRead(
-    meta,
-    effective,
-    binds,
-    operation,
-    options.compile ?? {},
-  );
+  const compiled = compileRead(meta, effective, binds, operation, {
+    ...(options.compile ?? {}),
+    index: ctx.index,
+  });
   const decode = (rows: readonly unknown[]): unknown => {
     const raw = rows[0];
-    if (compiled.only) return decodeRow(raw, meta, compiled.projection) ?? null;
+    if (compiled.only)
+      return decodeRow(raw, meta, compiled.projection, ctx.index) ?? null;
     const page = Array.isArray(raw) ? raw : [];
     if (options.one === true)
       return page.length === 0
         ? null
-        : decodeRow(page[0], meta, compiled.projection);
-    return decodeRows(page, meta, compiled.projection);
+        : decodeRow(page[0], meta, compiled.projection, ctx.index);
+    return decodeRows(page, meta, compiled.projection, ctx.index);
   };
   return prepared(meta, operation, [stmt(compiled.sql, binds, "data")], args, {
     resultMode: options.resultMode ?? (options.one ? "one" : "many"),
@@ -168,9 +168,13 @@ const rowsAt = (
 };
 
 /** `count` plan: `[{ count: n }]` -> `n` (0 when the server returns nothing). */
-function countPlan(meta: ModelMeta, args: CountRuntimeArgs): PreparedRead {
+function countPlan(
+  meta: ModelMeta,
+  ctx: DelegateContext,
+  args: CountRuntimeArgs,
+): PreparedRead {
   const binds = createBinds();
-  const sql = compileCount(meta, args, binds, "count");
+  const sql = compileCount(meta, args, binds, "count", { index: ctx.index });
   const decode = (rows: readonly unknown[]): unknown => {
     const first = rowsAt(rows, 0)[0] as { count?: unknown } | undefined;
     return typeof first?.count === "number" ? first.count : 0;
@@ -182,9 +186,13 @@ function countPlan(meta: ModelMeta, args: CountRuntimeArgs): PreparedRead {
 }
 
 /** `exists` plan: `SELECT VALUE id … LIMIT 1` -> whether any row came back. */
-function existsPlan(meta: ModelMeta, args: CountRuntimeArgs): PreparedRead {
+function existsPlan(
+  meta: ModelMeta,
+  ctx: DelegateContext,
+  args: CountRuntimeArgs,
+): PreparedRead {
   const binds = createBinds();
-  const sql = compileExists(meta, args, binds, "exists");
+  const sql = compileExists(meta, args, binds, "exists", { index: ctx.index });
   const decode = (rows: readonly unknown[]): unknown =>
     rowsAt(rows, 0).length > 0;
   return prepared(meta, "exists", [stmt(sql, binds, "exists")], args, {
@@ -196,12 +204,15 @@ function existsPlan(meta: ModelMeta, args: CountRuntimeArgs): PreparedRead {
 /** `aggregate` plan: decode the grouped rows through the per-entry projection. */
 function aggregatePlan(
   meta: ModelMeta,
+  ctx: DelegateContext,
   args: AggregateRuntimeArgs,
 ): PreparedRead {
   const binds = createBinds();
-  const compiled = compileAggregate(meta, args, binds, "aggregate");
+  const compiled = compileAggregate(meta, args, binds, "aggregate", {
+    index: ctx.index,
+  });
   const decode = (rows: readonly unknown[]): unknown =>
-    decodeRows(rowsAt(rows, 0), meta, compiled.projection);
+    decodeRows(rowsAt(rows, 0), meta, compiled.projection, ctx.index);
   return prepared(
     meta,
     "aggregate",
@@ -214,10 +225,13 @@ function aggregatePlan(
 /** `paginate` plan: data + count in ONE round-trip; `count:false` probes `n+1` for `hasNext`. */
 function paginatePlan(
   meta: ModelMeta,
+  ctx: DelegateContext,
   args: PaginateRuntimeArgs,
 ): PreparedRead {
   const binds = createBinds();
-  const plan = compilePaginate(meta, args, binds, "paginate");
+  const plan = compilePaginate(meta, args, binds, "paginate", {
+    index: ctx.index,
+  });
   const statements: PreparedStatement[] = [
     stmt(plan.dataSql, binds, "data"),
     ...(plan.countSql ? [stmt(plan.countSql, binds, "total")] : []),
@@ -228,6 +242,7 @@ function paginatePlan(
       plan.probe ? pageRows.slice(0, plan.limit) : pageRows,
       meta,
       plan.projection,
+      ctx.index,
     );
     let total: number | undefined;
     if (plan.count) {
@@ -258,9 +273,13 @@ function paginatePlan(
 }
 
 /** `cursor` plan: one probe statement; `before` flips the order and the rows back. */
-function cursorPlan(meta: ModelMeta, args: CursorRuntimeArgs): PreparedRead {
+function cursorPlan(
+  meta: ModelMeta,
+  ctx: DelegateContext,
+  args: CursorRuntimeArgs,
+): PreparedRead {
   const binds = createBinds();
-  const plan = compileCursor(meta, args, binds, "cursor");
+  const plan = compileCursor(meta, args, binds, "cursor", { index: ctx.index });
   const decode = (rows: readonly unknown[]): unknown => {
     const pageRows = rowsAt(rows, 0);
     const hasMore = pageRows.length > plan.limit;
@@ -268,6 +287,7 @@ function cursorPlan(meta: ModelMeta, args: CursorRuntimeArgs): PreparedRead {
       pageRows.slice(0, plan.limit),
       meta,
       plan.projection,
+      ctx.index,
     );
     const data = plan.backward ? [...decoded].reverse() : decoded;
     const hasPrevious = plan.backward
@@ -324,11 +344,16 @@ function cursorOf(
 }
 
 /** `findUnique`: target the record (id) or filter by the unique field, then take the one row. */
-function prepareUnique(meta: ModelMeta, args: ReadArgs): PreparedRead {
+function prepareUnique(
+  meta: ModelMeta,
+  ctx: DelegateContext,
+  args: ReadArgs,
+): PreparedRead {
   const target = uniqueTarget(meta, args.where);
   if (target.kind === "id")
     return prepare(
       meta,
+      ctx,
       { ...args, where: undefined, only: true },
       "findUnique",
       {
@@ -338,6 +363,7 @@ function prepareUnique(meta: ModelMeta, args: ReadArgs): PreparedRead {
     );
   return prepare(
     meta,
+    ctx,
     { ...args, where: { [target.field]: target.value } },
     "findUnique",
     { one: true },

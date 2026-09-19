@@ -26,7 +26,19 @@ import type {
   RecordId,
 } from "surrealdb";
 import type { App, ParamRef, Range } from "../../pure";
-import type { AnyTableDef } from "./schema";
+import type {
+  AdjacentEdgeAliases,
+  EdgeDefAt,
+  EdgeTargetDefs,
+  LinkKeys,
+  LinkTargetDefs,
+  ManyLinkKeys,
+  SingleLinkKeys,
+} from "./relations";
+import type { AnyTableDef, SchemaInput } from "./schema";
+
+/** The traversal direction of an edge relation filter/include. */
+export type EdgeDirection = "out" | "in" | "both";
 
 /** Any fragment (`surql` tag / catalog call) usable in a value position. */
 export type Fragment = BoundQuery<unknown[]>;
@@ -248,28 +260,105 @@ export type WherePaths = {
 };
 
 /** The logical combinators, depth-guarded so recursive `Where` can't blow up instantiation. */
-type LogicalWhere<TD extends AnyTableDef, D extends number> = D extends 0
+type LogicalWhere<TD extends AnyTableDef, S, D extends number> = D extends 0
   ? unknown
   : {
-      AND?: readonly Where<TD, Step<D>>[];
-      OR?: readonly Where<TD, Step<D>>[];
-      NOT?: Where<TD, Step<D>> | readonly Where<TD, Step<D>>[];
+      AND?: readonly Where<TD, S, Step<D>>[];
+      OR?: readonly Where<TD, S, Step<D>>[];
+      NOT?: Where<TD, S, Step<D>> | readonly Where<TD, S, Step<D>>[];
     };
 
 type DepthStep = { 3: 2; 2: 1; 1: 0; 0: 0 };
-type Step<D extends number> = D extends keyof DepthStep ? DepthStep[D] : 0;
+export type Step<D extends number> = D extends keyof DepthStep
+  ? DepthStep[D]
+  : 0;
+
+/** A `where` for an unresolved target (bare `record`, union not in the schema) stays loose. */
+export type TargetWhere<Targets, S, D extends number> = [Targets] extends [
+  never,
+]
+  ? unknown
+  : Where<Targets extends AnyTableDef ? Targets : never, S, D>;
+
+/** `is`/`isNot` on a single record link — a filter over the TARGET table. */
+export interface SingleRelationFilter<Targets, S, D extends number> {
+  is?: TargetWhere<Targets, S, Step<D>>;
+  isNot?: TargetWhere<Targets, S, Step<D>>;
+}
+
+/** `some`/`every`/`none` on an array link — the elements are the target records. */
+export interface CollectionRelationFilter<Targets, S, D extends number> {
+  some?: TargetWhere<Targets, S, Step<D>>;
+  every?: TargetWhere<Targets, S, Step<D>>;
+  none?: TargetWhere<Targets, S, Step<D>>;
+}
+
+/** The operand of a graph edge relation filter: edge fields AND target fields (split at runtime). */
+export type EdgeOperand<E, Targets, S, D extends number> = [E] extends [never]
+  ? TargetWhere<Targets, S, Step<D>>
+  : Where<E extends AnyTableDef ? E : never, S, Step<D>> &
+      TargetWhere<Targets, S, Step<D>>;
+
+/** `some`/`every`/`none` on a graph edge, with an optional direction override. */
+export interface EdgeRelationFilter<E, Targets, S, D extends number> {
+  some?: EdgeOperand<E, Targets, S, D>;
+  every?: EdgeOperand<E, Targets, S, D>;
+  none?: EdgeOperand<E, Targets, S, D>;
+  direction?: EdgeDirection;
+}
+
+/** The relation filter a decoded FIELD key accepts (links only — edges have their own map). */
+type RelationFilterFor<
+  TD extends AnyTableDef,
+  S,
+  K extends keyof App<TD>,
+  D extends number,
+> =
+  K extends LinkKeys<TD>
+    ? K extends ManyLinkKeys<TD>
+      ? CollectionRelationFilter<LinkTargetDefs<TD, S, K>, S, D>
+      : K extends SingleLinkKeys<TD>
+        ? SingleRelationFilter<LinkTargetDefs<TD, S, K>, S, D>
+        : never
+    : never;
+
+/** The relation filters an adjacent EDGE alias accepts. */
+type EdgeRelationFilters<TD extends AnyTableDef, S, D extends number> = {
+  [K in AdjacentEdgeAliases<S, TD>]?:
+    | EdgeRelationFilter<
+        EdgeDefAt<S, K>,
+        EdgeTargetDefs<
+          S,
+          EdgeDefAt<S, K>,
+          App<TD>["id"] extends RecordId<infer N, infer _V> ? N : never
+        >,
+        S,
+        D
+      >
+    | undefined;
+};
 
 /**
- * A typed filter for `TD`: one optional entry per decoded field, plus dotted/bracketed paths and
- * the `AND`/`OR`/`NOT` combinators (recursed up to `D` levels).
+ * A typed filter for `TD`: one optional entry per decoded field (with its family operators and,
+ * for links, the relational `is`/`isNot`/`some`/`every`/`none`), one entry per adjacent edge (the
+ * same relational operators + `direction`), dotted/bracketed paths and the `AND`/`OR`/`NOT`
+ * combinators (recursed up to `D` levels).
  */
-export type Where<TD extends AnyTableDef, D extends number = 3> = {
-  [K in keyof App<TD>]?: FieldFilter<App<TD>[K]> | undefined;
-} & WherePaths &
-  LogicalWhere<TD, D>;
+export type Where<
+  TD extends AnyTableDef,
+  S = SchemaInput,
+  D extends number = 3,
+> = {
+  [K in keyof App<TD>]?:
+    | FieldFilter<App<TD>[K]>
+    | RelationFilterFor<TD, S, K, D>
+    | undefined;
+} & EdgeRelationFilters<TD, S, D> &
+  WherePaths &
+  LogicalWhere<TD, S, D>;
 
 /** What a read operation accepts as `where`: the filter object or a whole-clause fragment. */
-export type WhereInput<TD extends AnyTableDef> =
-  | Where<TD>
+export type WhereInput<TD extends AnyTableDef, S = SchemaInput> =
+  | Where<TD, S>
   | Fragment
   | ParamRef<boolean>;

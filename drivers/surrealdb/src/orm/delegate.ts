@@ -17,7 +17,7 @@ import type { Queryable } from "./execute";
 import type { ModelMeta, SchemaIndex } from "./meta";
 import { createReadOperations } from "./reads";
 import type { BatchResult } from "./results";
-import type { AnyRelationDef, AnyTableDef } from "./types/schema";
+import type { AnyRelationDef, AnyTableDef, SchemaInput } from "./types/schema";
 import type {
   AggregateArgs,
   AggregateShape,
@@ -86,8 +86,11 @@ export interface DelegateContext {
   readonly debug: boolean;
 }
 
-/** A typed model delegate. */
-export interface Delegate<TD extends AnyTableDef = AnyTableDef> {
+/** A typed model delegate (`S` is the authored schema — relation typing needs it). */
+export interface Delegate<
+  TD extends AnyTableDef = AnyTableDef,
+  S = SchemaInput,
+> {
   readonly $model: ModelInfo;
   /**
    * Every matching row (empty array when nothing matches — never throws for a miss).
@@ -101,23 +104,29 @@ export interface Delegate<TD extends AnyTableDef = AnyTableDef> {
    * });
    * ```
    */
-  findMany<const A extends FindManyArgs<TD>>(args?: A): FindManyResult<TD, A>;
+  findMany<const A extends FindManyArgs<TD, S>>(
+    args?: A,
+  ): FindManyResult<TD, A, S>;
   /** The first matching row — a thenable that may miss (`.throw()` for a guaranteed row). */
-  findFirst<const A extends FindOneArgs<TD>>(args?: A): FindOneResult<TD, A>;
+  findFirst<const A extends FindOneArgs<TD, S>>(
+    args?: A,
+  ): FindOneResult<TD, A, S>;
   /** Alias of {@link Delegate.findFirst}. */
-  findOne<const A extends FindOneArgs<TD>>(args?: A): FindOneResult<TD, A>;
+  findOne<const A extends FindOneArgs<TD, S>>(
+    args?: A,
+  ): FindOneResult<TD, A, S>;
   /**
    * The row targeted by `where.id` or a single-field UNIQUE index — `FROM ONLY <record>` for an
    * id, `WHERE <unique> = $p LIMIT 1` otherwise. Anything else fails with `UniqueTargetRequired`
    * (which fields are unique is runtime schema metadata, so the check is runtime-side).
    */
-  findUnique<const A extends FindUniqueArgs<TD>>(
+  findUnique<const A extends FindUniqueArgs<TD, S>>(
     args: A,
-  ): FindUniqueResult<TD, A>;
+  ): FindUniqueResult<TD, A, S>;
   /** How many rows match — `SELECT count() … GROUP ALL`. */
-  count<const A extends CountArgs<TD>>(args?: A): ReadResult<number, A>;
+  count<const A extends CountArgs<TD, S>>(args?: A): ReadResult<number, A>;
   /** Does any row match — `SELECT VALUE id … LIMIT 1`. */
-  exists<const A extends CountArgs<TD>>(args?: A): ReadResult<boolean, A>;
+  exists<const A extends CountArgs<TD, S>>(args?: A): ReadResult<boolean, A>;
   /**
    * Grouped aggregates — `count()`, `math::*` and `array::*` with `GROUP BY`/`GROUP ALL`.
    *
@@ -129,23 +138,23 @@ export interface Delegate<TD extends AnyTableDef = AnyTableDef> {
    * });
    * ```
    */
-  aggregate<const A extends AggregateArgs<TD>>(
+  aggregate<const A extends AggregateArgs<TD, S>>(
     args: A,
   ): ReadResult<AggregateShape<TD, A["select"]>[], A>;
   /**
    * An offset page plus its count (`limit`/`start`, `count: false` probes `n+1` instead of
    * counting). Both statements ride ONE round-trip.
    */
-  paginate<const A extends PaginateArgs<TD>>(
+  paginate<const A extends PaginateArgs<TD, S>>(
     args: A,
-  ): ReadResult<PaginationResult<ResultOf<TD, A>>, A>;
+  ): ReadResult<PaginationResult<ResultOf<TD, A, S>>, A>;
   /**
    * A keyset page (`after`/`before`) ordered by unique fields (the last one is the tiebreaker,
    * `id` by default). One probe statement (`LIMIT n+1`) per page.
    */
-  cursor<const A extends CursorArgs<TD>>(
+  cursor<const A extends CursorArgs<TD, S>>(
     args: A,
-  ): ReadResult<CursorResult<ResultOf<TD, A>>, A>;
+  ): ReadResult<CursorResult<ResultOf<TD, A, S>>, A>;
   /**
    * Create one record — `CREATE [ONLY] t[:id] CONTENT $p`. `data` is codec-validated (an
    * expression in a field is spliced and server-enforced); `relate` adds edges in the same batch.
@@ -158,41 +167,41 @@ export interface Delegate<TD extends AnyTableDef = AnyTableDef> {
   /** Create many in ONE round-trip (implicit transaction); `skipDuplicates` needs explicit ids. */
   createMany<const A extends CreateManyArgs<TD>>(
     args: A,
-  ): BatchWriteResult<TD, A>;
+  ): BatchWriteResult<TD, A, S>;
   /** Insert one row keeping its id (`INSERT [IGNORE] … [ON DUPLICATE KEY UPDATE]`). */
   insert<const A extends InsertArgs<TD>>(args: A): WrittenResult<TD, A>;
   /** Insert an array in a SINGLE statement; `onDuplicate` decides the conflict policy. */
   insertMany<const A extends InsertManyArgs<TD>>(
     args: A,
-  ): BatchWriteResult<TD, A>;
+  ): BatchWriteResult<TD, A, S>;
   /**
    * Update the record targeted by `where.id` or a single-field UNIQUE index — a miss resolves
    * `null` (`.throw()` for a guaranteed row), never creates. Modes: `merge` (default), `set`,
    * `content`, `replace`, `patch`; `unset` removes fields (a second statement when combined with
    * `data`).
    */
-  update<const A extends UpdateArgs<TD>>(args: A): UpdatedResult<TD, A>;
+  update<const A extends UpdateArgs<TD, S>>(args: A): UpdatedResult<TD, A>;
   /** Update every matching row (`where` optional — the whole table; `rules` guards land in M6). */
-  updateMany<const A extends UpdateManyArgs<TD>>(
+  updateMany<const A extends UpdateManyArgs<TD, S>>(
     args: A,
-  ): BatchWriteResult<TD, A>;
+  ): BatchWriteResult<TD, A, S>;
   /** JSON Patch by unique target (`UPDATE … PATCH $ops`). */
-  patch<const A extends PatchArgs<TD>>(args: A): UpdatedResult<TD, A>;
+  patch<const A extends PatchArgs<TD, S>>(args: A): UpdatedResult<TD, A>;
   /**
    * Create-or-update by id or a single-field UNIQUE index — `data` for one payload, or
    * `create` + `update` for distinct branches (never conflicts).
    */
-  upsert<const A extends UpsertArgs<TD>>(args: A): WrittenResult<TD, A>;
+  upsert<const A extends UpsertArgs<TD, S>>(args: A): WrittenResult<TD, A>;
   /** Upsert many: with ids one `INSERT … ON DUPLICATE`; without, `conflict` resolves each row. */
   upsertMany<const A extends UpsertManyArgs<TD>>(
     args: A,
-  ): BatchWriteResult<TD, A>;
+  ): BatchWriteResult<TD, A, S>;
   /** Delete the uniquely-targeted record (`RETURN BEFORE` default / `NONE`). */
-  delete<const A extends DeleteArgs<TD>>(args: A): DeletedResult<TD, A>;
+  delete<const A extends DeleteArgs<TD, S>>(args: A): DeletedResult<TD, A>;
   /** Delete every matching row; without `where`, `all: true` is required. */
-  deleteMany<const A extends DeleteManyArgs<TD>>(
+  deleteMany<const A extends DeleteManyArgs<TD, S>>(
     args: A,
-  ): BatchWriteResult<TD, A>;
+  ): BatchWriteResult<TD, A, S>;
   /**
    * Per-row update — one `UPDATE … WHERE by = $item.by` statement per item (ONE round-trip).
    * Misses land in `skipped` (default) or raise `ResultNotFound` with `onEmpty: 'throw'`.
@@ -200,12 +209,14 @@ export interface Delegate<TD extends AnyTableDef = AnyTableDef> {
   updateEach<
     const By extends keyof App<TD> & string = "id",
     const A extends UpdateEachArgs<TD, By> = UpdateEachArgs<TD, By>,
-  >(args: A & { readonly by?: By }): BatchWriteResult<TD, A>;
+  >(args: A & { readonly by?: By }): BatchWriteResult<TD, A, S>;
 }
 
 /** The extra surface a RELATION delegate (`defineRelation`) exposes. */
-export interface RelationDelegate<TD extends AnyTableDef = AnyTableDef>
-  extends Delegate<TD> {
+export interface RelationDelegate<
+  TD extends AnyTableDef = AnyTableDef,
+  S = SchemaInput,
+> extends Delegate<TD, S> {
   /** Create an edge — `RELATE from->edge[:id]->to [SET …]`. */
   relate<const A extends RelateArgs<TD>>(args: A): CreatedResult<TD, A>;
   /** Create many edges in ONE transactional round-trip. */
@@ -217,14 +228,16 @@ export interface RelationDelegate<TD extends AnyTableDef = AnyTableDef>
     args: A,
   ): Promise<BatchResult<never>>;
   /** Delete edges by filter (without `where`, `all: true` is required). */
-  unrelateMany<const A extends UnrelateManyArgs<TD>>(
+  unrelateMany<const A extends UnrelateManyArgs<TD, S>>(
     args: A,
   ): Promise<BatchResult<never>>;
 }
 
 /** The delegate a schema key maps to: a relation carries the RELATE surface, a table does not. */
-export type ModelDelegate<TD extends AnyTableDef = AnyTableDef> =
-  TD extends AnyRelationDef ? RelationDelegate<TD> : Delegate<TD>;
+export type ModelDelegate<
+  TD extends AnyTableDef = AnyTableDef,
+  S = SchemaInput,
+> = TD extends AnyRelationDef ? RelationDelegate<TD, S> : Delegate<TD, S>;
 
 /** Build a delegate (and its `$model`) for one indexed model. */
 export function createDelegate<TD extends AnyTableDef = AnyTableDef>(

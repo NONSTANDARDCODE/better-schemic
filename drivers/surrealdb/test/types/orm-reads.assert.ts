@@ -143,7 +143,8 @@ describe("select — result shapes", () => {
   it("omit removes keys; value unwraps; only unwraps the page", () => {
     attest<Omit<Row, "age">, ResultOf<U, { omit: ["age"] }>>();
     attest<string, ResultOf<U, { select: { name: true }; value: true }>>();
-    attest<Row | null, ResultOf<U, { only: true }>>();
+    // `only` unwraps the PAGE (see FindManyResult) — ResultOf stays the row shape.
+    attest<Row, ResultOf<U, { only: true }>>();
   });
 
   it("split changes the field to its element type", () => {

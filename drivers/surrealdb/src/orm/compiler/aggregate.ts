@@ -10,7 +10,7 @@
  * - `math::avg` does not exist in 3.x — the API's `avg` emits `math::mean`.
  */
 import { escapeIdent } from "surrealdb";
-import type { ModelMeta } from "../meta";
+import type { ModelMeta, SchemaIndex } from "../meta";
 import {
   type ProjectedField,
   type ProjectionSpec,
@@ -70,6 +70,7 @@ export function compileCount(
   args: CountArgs,
   binds: Binds,
   operation = "count",
+  options: { readonly index?: SchemaIndex } = {},
 ): string {
   rejectRemovedArgs(args, operation);
   const parts: string[] = [
@@ -80,6 +81,8 @@ export function compileCount(
     parts.push(compileWithClause(args.with, operation));
   const where = compileWhere(args.where, binds, {
     ...(isTableMeta(meta) ? { meta } : {}),
+    index: options.index,
+    operation,
   });
   if (where) parts.push(`WHERE ${where}`);
   parts.push("GROUP ALL");
@@ -96,6 +99,7 @@ export function compileExists(
   args: CountArgs,
   binds: Binds,
   operation = "exists",
+  options: { readonly index?: SchemaIndex } = {},
 ): string {
   rejectRemovedArgs(args, operation);
   const parts: string[] = [
@@ -106,6 +110,8 @@ export function compileExists(
     parts.push(compileWithClause(args.with, operation));
   const where = compileWhere(args.where, binds, {
     ...(isTableMeta(meta) ? { meta } : {}),
+    index: options.index,
+    operation,
   });
   if (where) parts.push(`WHERE ${where}`);
   parts.push(`LIMIT ${binds.add(1)}`);
@@ -173,6 +179,7 @@ export function compileAggregate(
   args: AggregateArgs,
   binds: Binds,
   operation = "aggregate",
+  options: { readonly index?: SchemaIndex } = {},
 ): CompiledAggregate {
   rejectRemovedArgs(args, operation);
   if (args.having !== undefined)
@@ -224,6 +231,8 @@ export function compileAggregate(
     statement.push(compileWithClause(args.with, operation));
   const where = compileWhere(args.where, binds, {
     ...(isTableMeta(meta) ? { meta } : {}),
+    index: options.index,
+    operation,
   });
   if (where) statement.push(`WHERE ${where}`);
   statement.push(
@@ -248,7 +257,7 @@ export function compileAggregate(
 
   return {
     sql: statement.join(" "),
-    projection: { star: false, fields, omit: [], value: false },
+    projection: { star: false, fields, omit: [], value: false, includes: [] },
   };
 }
 

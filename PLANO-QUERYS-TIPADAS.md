@@ -20,13 +20,14 @@
 
 | Milestone | Status | Entregáveis |
 | --- | --- | --- |
-| M0.1 Syntax map ao vivo | ✅ concluído | `drivers/surrealdb/docs/orm-syntax-map.md`, `test/live/orm-syntax.test.ts` (51 probes verdes) |
+| M0.1 Syntax map ao vivo | ✅ concluído | `drivers/surrealdb/docs/orm-syntax-map.md`, `test/live/orm-syntax.test.ts` (77 probes verdes) |
 | M0.2 `defineSchema` + `SchemaIndex` | ✅ concluído | `src/orm/schema.ts`, `src/orm/types/schema.ts`, `src/orm/errors.ts` (classe + catálogo), `test/unit/orm-schema.test.ts`, `test/types/orm-schema.assert.ts` |
 | M0.3 Result wrappers + normalização/predicados | ✅ concluído | `src/orm/results.ts` (`ThrowingResult`/`BatchResult`/`StatementResult` + `attachThrow`), `errors.ts` estendido (`from`/`normalizeError` + 8 predicados), `test/unit/orm-errors.test.ts`, `test/unit/orm-results.test.ts`, `test/types/orm-results.assert.ts` |
 | M0.4 Executor | ✅ concluído | `src/orm/execute.ts` (1 round-trip via `responses()`, `BEGIN/COMMIT` atômico, falha raiz, binds únicos), `test/unit/orm-execute.test.ts`, `test/live/orm-execute.test.ts` |
 | M0.5 Bootstrap + delegates + substituição do legado | ✅ concluído | `/orm` (`betterSchemic`/`createBetterSchemic`, delegates, `repository`, `extends`, `forkSession`), `/query` = fragments, legado removido (§6), `test/unit/orm-client.test.ts`, `test/live/orm-client.test.ts`, `test/types/orm-client.assert.ts` |
 | M1 Leitura | ✅ concluído | compiler `where`/`select`/`aggregate`/`pagination` + `findMany`/`findFirst`/`findOne`/`findUnique`/`count`/`exists`/`aggregate`/`paginate`/`cursor` + `.throw()`/`.explain()`; M1.1–M1.8 (ver nota) |
 | M2 Escritas | ✅ concluído | `compiler/write.ts` + `writes.ts` + `types/write.ts`: `create`/`createMany` (+`relate` sugar, `skipDuplicates`), `insert`/`insertMany` (+`onDuplicate`), `update`/`updateMany` (5 modos, `unset`, expressões), `patch`, `upsert`/`upsertMany` (id/único/`conflict`), `delete`/`deleteMany`, `updateEach` (per-item), `relate`/`relateMany`/`unrelate`/`unrelateMany`; M2.1–M2.8 (ver nota) |
+| M3 Relações e grafos | ✅ concluído | `compiler/include.ts` (`IncludeSpec`/`TargetProjection`/`EdgeProjection`) + `compiler/relations.ts` (resolução link×aresta, direção, split edge/target) + `types/include.ts` + `types/relations.ts`: `include` link (`FETCH`/projetado/remontagem/aninhado), grafo (target/edge/`edge+target`/wildcard/`direction`), `_count` (aresta e array), `where` relacional (`is`/`isNot`/`some`/`every`/`none`) e remontagem no `decode.ts`; M3.1–M3.5 (ver nota) |
 
 > Nota do M0.2: a classe `BetterSchemicError`/catálogo saiu antecipada (o aceite do M0.2 exige
 > `SchemaInvalid`); o M0.3 ficou com a normalização + os predicados.
@@ -95,6 +96,22 @@
 > `count?`. Live: `test/live/orm-writes.test.ts` (19 e2e) + 19 probes novos em
 > `orm-syntax.test.ts` (70 no total). Tipos: `test/types/orm-writes.{assert,bench}.ts`; unit:
 > `test/unit/orm-writes{,-returns}.test.ts` + `orm-writes-fixtures.ts`.
+> Nota do M3 (decisões confirmadas com o usuário + achados live): `edge`+`target` remonta
+> `{ edge, target }` no client; direção AUTO (`->`/`<-`, default `->` quando a tabela é os dois
+> lados) com override `direction: "out"|"in"|"both"`; `where` de include/`_count` faz split
+> automático edge×target pelo dono da coluna (colisão → erro); M3.5 sem superfície nova (receitas
+> `surql`). Achados live que mudaram o lowering: registros do alvo só via subquery (traversal cru
+> devolve record ids); `out.*` só existe na linha da ARESTA (com `->target` a linha é o alvo e
+> `out.*` vira `{}` silencioso) — `edge`+`target` para no edge e filtra `WHERE out.<campo>`;
+> `<-edge->target` devolve `[]` (a direção `in` inverte as DUAS setas: `<-edge<-target`); `NOT` sem
+> parênteses no filtro de traversal é parse error, então `every` compila por igualdade de contagens
+> (`count(t) = count(t[WHERE …])`, NONE-safe e vacuous-truth em 0); `array::len` erra em `NONE` →
+> `_count` de array usa `count(campo)`; `FETCH` não devolve link fora da seleção;
+> `ORDER BY` na subquery exige o order idiom na projeção. `include` aceita a CHAVE do schema além
+> do nome físico da aresta. Tipos: `S` (schema) flui por `Delegate`/`ReadArgs`/`Where`/`ResultOf`;
+> `types/{include,relations}.ts` novos; wildcard por alias exige cast (dívida de DX registrada).
+> Live: `test/live/orm-relations.test.ts` (9 e2e) + 7 probes novos em `orm-syntax.test.ts`
+> (77 no total). Unit: `test/unit/orm-include.test.ts`; tipos: `test/types/orm-relations.{assert,bench}.ts`.
 
 ---
 
@@ -985,7 +1002,7 @@ Padrões do repo: live tests com timeout alto (carga paralela), `setDefaultTimeo
 
 ---
 
-**Próximo passo:** **M3 — relações e grafos** (`include` link/grafo/`_count`, `where` relacional
-`is`/`isNot`/`some`/`every`/`none`, traversal/recursão), sobre o delegate de aresta já entregue no
-M2.8. Antes de codar: verificar ao vivo os construtos de `include` no `orm-syntax-map.md` §3.2/§5
-e manter `docs/`/`ROADMAP`/`CHANGELOG` no mesmo PR (regra do `AGENTS.md`).
+**Próximo passo:** **M4 — transações, live e changefeeds** (`client.transaction` sdk/sql, retries,
+`afterCommit`/`afterRollback`; `live()` + `LiveSubscription`; `changes()`/`SHOW CHANGES`), sobre a
+infraestrutura de executor/hidratação já entregue. Manter `docs/`/`ROADMAP`/`CHANGELOG` no mesmo PR
+(regra do `AGENTS.md`).

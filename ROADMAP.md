@@ -13,7 +13,7 @@ Legend: ✅ done · 🚧 in progress · 🟡 partial · ⏳ not started
 
 ## M0 — fundação + substituição do legado ✅ *(complete)*
 
-- ✅ **M0.1** live syntax map (`docs/orm-syntax-map.md` + `test/live/orm-syntax.test.ts`, 59 probes) —
+- ✅ **M0.1** live syntax map (`docs/orm-syntax-map.md` + `test/live/orm-syntax.test.ts`, 77 probes) —
   every statement the ORM emits, verified against server 3.2.x, with the prototype divergences recorded.
 - ✅ **M0.2** `defineSchema` + `SchemaIndex` (columns/families, record links, graph adjacency,
   singletons, functions, schemaless entries; fail-fast `SchemaInvalid`).
@@ -78,12 +78,34 @@ optional on `return: 'none'`, `return: 'diff'` as the flat combined patch list, 
 `updateEach.select` compiled before the write, `unrelate` timeout, and the new live map entries
 (`FOR` returns `NONE`, `SET $obj` parse error, ON DUPLICATE branch evaluation).
 
-## M3 — relações e grafos ⏳ *(next)*
+## M3 — relações e grafos ✅ *(complete)*
 
 `include` (`FETCH`/traversal/`edge`/`target`/`_count`), relational `where`
-(`is`/`isNot`/`some`/`every`/`none`), traversal/recursion sugar over `surql`.
+(`is`/`isNot`/`some`/`every`/`none`) and traversal/recursion through `surql` fragments — all in the
+SAME single round-trip, with client-side hydration.
 
-## M4 — transações, live e changefeeds ⏳
+- ✅ **M3.0** live probes + `orm-syntax-map.md` §5.1–5.3: target records need a subquery, `out.*`
+  stops at the edge, incoming flips both arrows, `every` is count-equality, `count(field)` is
+  NONE-safe, FETCH needs the link selected, subquery `ORDER BY` needs the order idiom.
+- ✅ **M3.1** link `include` — `true`/`{ "*": true }` → `FETCH` (last clause, link added to the
+  selection); `{ select }` flattens (`author.id AS author_id`) and remounts with the target codec;
+  `{ include }` nests (`FETCH author.profile`); array links hydrate element-wise.
+- ✅ **M3.2** graph `include` — `(SELECT … FROM ->edge->target)`, `edge: true` records,
+  `{ edge, target }` remount (edge fields + `out.*`/`in.*`), per-parent `where` split edge/target,
+  `orderBy`/`limit`/`start`, `direction: "out"|"in"|"both"` (auto by endpoints) and `wildcard`.
+- ✅ **M3.3** `_count` — correlated `count(->edge)`, `count(<-edge)`, `count(->(edge WHERE)->(target
+  WHERE))` and `count(field[WHERE …])` for record arrays; remounted as one `_count` object.
+- ✅ **M3.4** relational `where` — `is`/`isNot` (target filter behind the link path; `isNot` true on
+  `NONE`), `some`/`none`/`every` over edges and array links (counts, NONE-safe).
+- ✅ **M3.5** traversal/recursion documented as `surql` recipes (`@.{1..10}->edge->node`,
+  `->edge->target.field`, `count(->edge)`) — no new surface, live-verified.
+
+Typed end to end: `S` flows through `Delegate`/`ReadArgs`/`Where`/`ResultOf`, with
+`types/{include,relations}.ts` deriving links, edges, targets and `_count` from the authored schema.
+New modules: `orm/compiler/{include,relations}.ts`, `orm/types/{include,relations}.ts`; hydration in
+`orm/decode.ts`. Live: `test/live/orm-relations.test.ts` (9 e2e) + 7 new syntax probes (77 total).
+
+## M4 — transações, live e changefeeds ⏳ *(next)*
 
 `client.transaction` (sdk/sql, retries on write conflict, `afterCommit`/`afterRollback`), `live()` +
 subscriptions, `changes()` (`SHOW CHANGES`).

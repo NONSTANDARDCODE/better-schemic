@@ -64,7 +64,7 @@ describe("read compiler — projection forms", () => {
     expect(compile({})).toEqual({
       sql: "SELECT * FROM user",
       vars: {},
-      spec: { star: true, fields: [], omit: [], value: false },
+      spec: { star: true, fields: [], omit: [], value: false, includes: [] },
     });
   });
 
@@ -122,7 +122,7 @@ describe("read compiler — clause order (live-verified)", () => {
     ).toEqual({
       sql: "SELECT * FROM user WHERE age >= $p0 LIMIT $p1 START $p2",
       vars: { p0: 18, p1: 10, p2: 5 },
-      spec: { star: true, fields: [], omit: [], value: false },
+      spec: { star: true, fields: [], omit: [], value: false, includes: [] },
     });
   });
 
@@ -228,6 +228,7 @@ describe("read compiler — clause order (live-verified)", () => {
         ],
         omit: [],
         value: false,
+        includes: [],
       },
     });
   });

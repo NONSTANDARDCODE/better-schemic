@@ -29,7 +29,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `BEGIN/COMMIT` batches, unique-binds guardrail). Reads/writes/relations/… land in the following
   milestones — see [`PLANO-QUERYS-TIPADAS.md`](./PLANO-QUERYS-TIPADAS.md).
 - **surrealdb:** `docs/orm-syntax-map.md` + `test/live/orm-syntax.test.ts` — the live-verified SurrealQL
-  syntax map the ORM compiler must emit against (70 probes on server 3.2.x), with the prototype
+  syntax map the ORM compiler must emit against (77 probes on server 3.2.x), with the prototype
   divergences recorded.
 - **surrealdb:** the `/orm` **read surface (M1)** — object-based compiler + typed reads, one round-trip:
   `findMany` (where/select/omit/orderBy/limit/start/range/split/groupBy/groupAll/only/value/with/timeout/
@@ -63,6 +63,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `orm/compiler/{write,write-shared,mutate,relate}.ts`, `orm/writes.ts`, `orm/types/write.ts`.
 - **surrealdb:** live-verified write semantics in `docs/orm-syntax-map.md` + `test/live/orm-syntax.test.ts`
   (70 probes on server 3.2.x) and the end-to-end write suite `test/live/orm-writes.test.ts`.
+- **surrealdb:** the `/orm` **relations & graph surface (M3)** — `include` hydrates relations in the
+  SAME round-trip as the read: links (`true` → `FETCH` as the last clause, `{ select }` flattens to
+  `<link>_<field>` aliases and remounts client-side, `{ include }` nests `FETCH a.b`), graph edges
+  (`true`/`select` → per-parent `(SELECT … FROM ->edge->target)`, `edge: true` edge records,
+  `{ edge, target }` remounting `{ edge, target }` per row, `direction: "out" | "in" | "both"` with
+  endpoint inference, `wildcard: true` for `->?`, `where` split automatically into edge
+  (`->(edge WHERE …)`) and target predicates, `orderBy`/`limit`/`start` inside the subquery) and
+  `_count` (correlated `count(->edge[WHERE …])` / `count(field[WHERE …])`, NONE-safe, remounted as
+  one `_count` object). The relational `where` vocabulary is typed and compiled: `is`/`isNot` for
+  single links (target filter behind the link path; `isNot` true on `NONE`), `some`/`every`/`none`
+  for edges and array links (`every` as a NONE-safe count-equality), with `direction` override.
+  Relation typing derives from the authored schema — `S` now flows through `Delegate`/`ReadArgs`/
+  `Where`/`ResultOf`, and `include`/`where` results are inferred from the args literal (links →
+  target rows, edges → target rows, `{ edge, target }` → the remount, `_count` → numbers). New
+  modules: `orm/compiler/{include,relations}.ts`, `orm/types/{include,relations}.ts`; hydration in
+  `orm/decode.ts`. Live: `test/live/orm-relations.test.ts` (9 e2e).
+- **surrealdb:** live-verified relation/graph semantics in `docs/orm-syntax-map.md` §5.1–5.3 +
+  `test/live/orm-syntax.test.ts` (77 probes on server 3.2.x) — target records only via subquery,
+  `out.*` stops at the edge (silent `{}` past `->target`), incoming flips both arrows, `NOT` inside
+  a traversal filter needs parentheses, `array::len` errors on `NONE` (`count(field)` is NONE-safe),
+  `FETCH` needs the link selected, subquery `ORDER BY` needs the order idiom projected.
 
 ### Removed
 - **surrealdb:** the fluent query builder (`select`/`create`/`update`/`upsert`/`remove`/`relate`, graph

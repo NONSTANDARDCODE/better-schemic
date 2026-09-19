@@ -92,6 +92,7 @@ live("ORM syntax map — live probes (server 3.x)", () => {
       DEFINE FIELD active ON user TYPE bool DEFAULT true;
       DEFINE FIELD tags ON user TYPE option<array<string>>;
       DEFINE FIELD mentor ON user TYPE option<record<user>>;
+      DEFINE FIELD friends ON user TYPE option<array<record<user>>>;
       DEFINE TABLE post SCHEMAFULL;
       DEFINE FIELD title ON post TYPE string;
       DEFINE FIELD author ON post TYPE record<user>;
@@ -101,7 +102,8 @@ live("ORM syntax map — live probes (server 3.x)", () => {
       DEFINE FIELD score ON likes TYPE int;
 
       CREATE user:alice CONTENT { name: "Alice", age: 30 };
-      CREATE user:bob CONTENT { name: "Bob", age: 25, mentor: user:alice };
+      CREATE user:bob CONTENT { name: "Bob", age: 25, mentor: user:alice, friends: [user:alice] };
+      CREATE user:carol CONTENT { name: "Carol", age: 35 };
       CREATE post:p1 CONTENT { title: "Hello", author: user:alice, tags: ["db", "graph"], published: true };
       CREATE post:p2 CONTENT { title: "World", author: user:bob, tags: ["db"], published: false };
       RELATE user:alice->likes->post:p1 SET score = 5;
@@ -654,6 +656,309 @@ live("ORM syntax map — live probes (server 3.x)", () => {
       ).rejects.toThrow(
         /Expected a record ID during recursive graph traversal/,
       );
+    });
+  });
+
+  describe("relations & graph lowering (M3)", () => {
+    test("FETCH: multiple/nested links, alias preserved; an unselected link is NOT returned", async () => {
+      expect(
+        await last("SELECT * FROM user:bob FETCH mentor, friends;"),
+      ).toEqual([
+        expect.objectContaining({
+          mentor: expect.objectContaining({ name: "Alice" }),
+          friends: [expect.objectContaining({ name: "Alice" })],
+        }),
+      ]);
+      expect(await last("SELECT * FROM user:bob FETCH mentor.mentor;")).toEqual(
+        [
+          expect.objectContaining({
+            mentor: expect.objectContaining({ name: "Alice" }),
+          }),
+        ],
+      );
+      // A projected alias wins over FETCH (FETCH is applied last but doesn't overwrite).
+      expect(
+        await last(
+          "SELECT id, author.id AS author_id FROM post ORDER BY id FETCH author;",
+        ),
+      ).toEqual([
+        { author_id: "user:alice", id: "post:p1" },
+        { author_id: "user:bob", id: "post:p2" },
+      ]);
+      // FETCH materializes a link only when it is part of the selection.
+      expect(
+        await last("SELECT id FROM post ORDER BY id FETCH author;"),
+      ).toEqual([{ id: "post:p1" }, { id: "post:p2" }]);
+      expect(
+        await last("SELECT id, author FROM post ORDER BY id FETCH author;"),
+      ).toEqual([
+        expect.objectContaining({
+          author: expect.objectContaining({ name: "Alice" }),
+        }),
+        expect.objectContaining({
+          author: expect.objectContaining({ name: "Bob" }),
+        }),
+      ]);
+    });
+
+    test("incoming edges: the target follows the SAME direction (<-edge<-target); <-edge->target is empty", async () => {
+      expect(await last("SELECT <-likes<-user AS users FROM post:p1;")).toEqual(
+        [
+          expect.objectContaining({
+            users: expect.arrayContaining(["user:alice", "user:bob"]),
+          }),
+        ],
+      );
+      // Mixing directions mid-chain is NOT relative to the edge — it means out-of-edge.
+      expect(await last("SELECT <-likes->user AS users FROM post:p1;")).toEqual(
+        [{ users: [] }],
+      );
+      expect(
+        await last(
+          "SELECT (SELECT id, name FROM <-(likes WHERE score > 4)<-user) AS likers FROM post:p1;",
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          likers: [expect.objectContaining({ name: "Alice" })],
+        }),
+      ]);
+    });
+
+    test("per-parent target subquery: projection, edge/target filters, order/limit/start", async () => {
+      expect(
+        await last(
+          "SELECT (SELECT * FROM ->likes->post) AS liked FROM user:alice;",
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          liked: expect.arrayContaining([
+            expect.objectContaining({ id: "post:p1" }),
+            expect.objectContaining({ id: "post:p2" }),
+          ]),
+        }),
+      ]);
+      expect(
+        await last(
+          "SELECT (SELECT id, title FROM ->(likes WHERE score > 4)->(post WHERE published = true) ORDER BY title DESC LIMIT 1 START 0) AS liked FROM user:alice;",
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          liked: [{ id: "post:p1", title: "Hello" }],
+        }),
+      ]);
+      // ORDER BY needs the idiom in the selection unless the projection is `*`.
+      await expect(
+        last(
+          "SELECT (SELECT id FROM ->likes->post ORDER BY title DESC) AS liked FROM user:alice;",
+        ),
+      ).rejects.toThrow(/Missing order idiom/);
+      expect(
+        await last(
+          "SELECT (SELECT * FROM ->likes->post ORDER BY title DESC) AS liked FROM user:alice;",
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          liked: expect.arrayContaining([
+            expect.objectContaining({ title: "Hello" }),
+          ]),
+        }),
+      ]);
+    });
+
+    test("edge records and edge+target: `out`/`in` materialize the target nested", async () => {
+      expect(
+        await last("SELECT (SELECT * FROM ->likes) AS likes FROM user:alice;"),
+      ).toEqual([
+        expect.objectContaining({
+          likes: expect.arrayContaining([
+            expect.objectContaining({ score: 5, out: "post:p1" }),
+          ]),
+        }),
+      ]);
+      expect(
+        await last(
+          "SELECT (SELECT score, out.* FROM ->likes) AS likes FROM user:alice;",
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          likes: expect.arrayContaining([
+            expect.objectContaining({
+              score: expect.any(Number),
+              out: expect.objectContaining({ title: expect.any(String) }),
+            }),
+          ]),
+        }),
+      ]);
+      // Incoming edges materialize the other endpoint under `in`.
+      expect(
+        await last(
+          "SELECT (SELECT score, in.* FROM <-likes) AS likes FROM post:p1;",
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          likes: expect.arrayContaining([
+            expect.objectContaining({
+              in: expect.objectContaining({ name: expect.any(String) }),
+            }),
+          ]),
+        }),
+      ]);
+      // DIVERGE: `out.*` next to a target-parenthesized traversal returns EMPTY objects — filters
+      // on the target must go through `WHERE out.<field>` instead.
+      expect(
+        await last(
+          "SELECT (SELECT score, out.* FROM ->likes->(post WHERE published = true)) AS likes FROM user:alice;",
+        ),
+      ).toEqual([{ likes: [{}] }]);
+      expect(
+        await last(
+          "SELECT (SELECT score, out.* FROM ->(likes WHERE score > 4) WHERE out.published = true) AS likes FROM user:alice;",
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          likes: [
+            expect.objectContaining({
+              out: expect.objectContaining({ id: "post:p1" }),
+            }),
+          ],
+        }),
+      ]);
+    });
+
+    test("wildcards: ->? / <-? / <->? return edge records", async () => {
+      expect(
+        await last("SELECT (SELECT * FROM ->?) AS rel FROM user:alice;"),
+      ).toEqual([
+        expect.objectContaining({
+          rel: expect.arrayContaining([
+            expect.objectContaining({ score: expect.any(Number) }),
+          ]),
+        }),
+      ]);
+      expect(
+        await last("SELECT (SELECT * FROM <-?) AS rel FROM post:p1;"),
+      ).toEqual([
+        expect.objectContaining({
+          rel: expect.arrayContaining([
+            expect.objectContaining({ out: "post:p1" }),
+          ]),
+        }),
+      ]);
+      expect(
+        await last("SELECT (SELECT * FROM <->?) AS rel FROM user:alice;"),
+      ).toEqual([
+        expect.objectContaining({
+          rel: expect.arrayContaining([
+            expect.objectContaining({ score: expect.any(Number) }),
+          ]),
+        }),
+      ]);
+    });
+
+    test("_count lowering: edges (bracket/target), both directions, record arrays, NONE arrays", async () => {
+      expect(
+        await last(
+          "SELECT id, count(->likes) AS n FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] ORDER BY id;",
+        ),
+      ).toEqual([
+        expect.objectContaining({ id: "user:alice", n: 2 }),
+        expect.objectContaining({ id: "user:bob", n: 1 }),
+        expect.objectContaining({ id: "user:carol", n: 0 }),
+      ]);
+      expect(
+        await last(
+          "SELECT id, count(->likes[WHERE score = 5]) AS n FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] ORDER BY id;",
+        ),
+      ).toEqual([
+        expect.objectContaining({ id: "user:alice", n: 1 }),
+        expect.objectContaining({ id: "user:bob", n: 0 }),
+        expect.objectContaining({ id: "user:carol", n: 0 }),
+      ]);
+      expect(
+        await last(
+          "SELECT id, count(->likes->(post WHERE published = false)) AS n FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] ORDER BY id;",
+        ),
+      ).toEqual([
+        expect.objectContaining({ id: "user:alice", n: 1 }),
+        expect.objectContaining({ id: "user:bob", n: 0 }),
+        expect.objectContaining({ id: "user:carol", n: 0 }),
+      ]);
+      // Record arrays count with `count(field)` — NONE-safe (unlike `array::len`).
+      expect(
+        await last(
+          "SELECT id, count(friends) AS n FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] ORDER BY id;",
+        ),
+      ).toEqual([
+        expect.objectContaining({ id: "user:alice", n: 0 }),
+        expect.objectContaining({ id: "user:bob", n: 1 }),
+        expect.objectContaining({ id: "user:carol", n: 0 }),
+      ]);
+      await expect(
+        last(
+          "SELECT id, array::len(friends) AS n FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] ORDER BY id;",
+        ),
+      ).rejects.toThrow(/Expected `array` but found `NONE`/);
+      expect(
+        await last(
+          "SELECT id, count(friends[WHERE name = 'Alice']) AS n FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] ORDER BY id;",
+        ),
+      ).toEqual([
+        expect.objectContaining({ id: "user:alice", n: 0 }),
+        expect.objectContaining({ id: "user:bob", n: 1 }),
+        expect.objectContaining({ id: "user:carol", n: 0 }),
+      ]);
+      expect(
+        await last("SELECT id, count(<-likes) AS n FROM post ORDER BY id;"),
+      ).toEqual([
+        expect.objectContaining({ id: "post:p1", n: 2 }),
+        expect.objectContaining({ id: "post:p2", n: 1 }),
+      ]);
+    });
+
+    test("relational WHERE: is/isNot (NONE in negation), some/none, every via count-equality", async () => {
+      expect(
+        await last(
+          "SELECT name FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] AND mentor.name = 'Alice';",
+        ),
+      ).toEqual([{ name: "Bob" }]);
+      // Negation is true for a missing link (NONE) and for a different value.
+      expect(
+        await last(
+          "SELECT name FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] AND mentor.name != 'Alice' ORDER BY name;",
+        ),
+      ).toEqual([{ name: "Alice" }, { name: "Carol" }]);
+      expect(
+        await last(
+          "SELECT name FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] AND count(->likes->(post WHERE published = true)) > 0 ORDER BY name;",
+        ),
+      ).toEqual([{ name: "Alice" }, { name: "Bob" }]);
+      expect(
+        await last(
+          "SELECT name FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] AND count(->likes->(post WHERE published = true)) = 0 ORDER BY name;",
+        ),
+      ).toEqual([{ name: "Carol" }]);
+      // `every` as an equality of counts — vacuously true for zero relations, NONE-safe.
+      expect(
+        await last(
+          "SELECT name FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] AND count(->likes) = count(->likes->(post WHERE published = true)) ORDER BY name;",
+        ),
+      ).toEqual([{ name: "Bob" }, { name: "Carol" }]);
+      expect(
+        await last(
+          "SELECT name FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] AND count(friends[WHERE name = 'Alice']) > 0;",
+        ),
+      ).toEqual([{ name: "Bob" }]);
+      // `NOT` inside a traversal filter needs parentheses.
+      await expect(
+        last(
+          "SELECT name FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] AND count(->likes->(post WHERE NOT published = true)) = 0;",
+        ),
+      ).rejects.toThrow(/Parse error/);
+      expect(
+        await last(
+          "SELECT name FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] AND count(->likes->(post WHERE NOT (published = true))) = 0 ORDER BY name;",
+        ),
+      ).toEqual([{ name: "Bob" }, { name: "Carol" }]);
     });
   });
 

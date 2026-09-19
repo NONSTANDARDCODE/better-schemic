@@ -13,7 +13,7 @@ import type { RecordId } from "surrealdb";
 import type { Surql } from "../../frag";
 import type { App, Create, Update } from "../../pure";
 import type { BatchResult, ThrowingResult } from "../results";
-import type { AnyRelationDef, AnyTableDef } from "./schema";
+import type { AnyRelationDef, AnyTableDef, SchemaInput } from "./schema";
 import type { ResultOf, SelectArg } from "./select";
 import type { WhereInput } from "./where";
 
@@ -100,15 +100,21 @@ export type DeletedResult<TD extends AnyTableDef, A> =
   ReturnOf<A> extends "none" ? Promise<null> : ThrowingResult<App<TD>>;
 
 /** The row type a batch resolves to (honoring `updateEach`'s `select` projection). */
-type BatchRow<TD extends AnyTableDef, A> = A extends { select: infer Sel }
-  ? ResultOf<TD, { select: Sel }>
+type BatchRow<TD extends AnyTableDef, A, S = SchemaInput> = A extends {
+  select: infer Sel;
+}
+  ? ResultOf<TD, { select: Sel }, S>
   : App<TD>;
 
 /** What a batch write resolves to — a patch list for `diff`, the envelope otherwise. */
-export type BatchWriteResult<TD extends AnyTableDef, A = unknown> =
+export type BatchWriteResult<
+  TD extends AnyTableDef,
+  A = unknown,
+  S = SchemaInput,
+> =
   ReturnOf<A> extends "diff"
     ? Promise<unknown[]>
-    : Promise<BatchResult<BatchRow<TD, A>>>;
+    : Promise<BatchResult<BatchRow<TD, A, S>>>;
 
 // --- create --------------------------------------------------------------------------------------
 
@@ -197,22 +203,25 @@ export interface UpdateClauses extends WriteMeta {
 }
 
 /** `update` — targets the id or a single-field UNIQUE index (a miss resolves `null`). */
-export interface UpdateArgs<TD extends AnyTableDef> extends UpdateClauses {
-  where: WhereInput<TD>;
+export interface UpdateArgs<TD extends AnyTableDef, S = SchemaInput>
+  extends UpdateClauses {
+  where: WhereInput<TD, S>;
   data?: UpdateData<TD>;
   /** `UPDATE ONLY t:id …` — one object back (id targets only). */
   readonly only?: boolean;
 }
 
 /** `updateMany` — every matching row (no `where` = the whole table; `rules` guards land in M6). */
-export interface UpdateManyArgs<TD extends AnyTableDef> extends UpdateClauses {
-  where?: WhereInput<TD>;
+export interface UpdateManyArgs<TD extends AnyTableDef, S = SchemaInput>
+  extends UpdateClauses {
+  where?: WhereInput<TD, S>;
   data?: UpdateData<TD>;
 }
 
 /** `patch` — JSON Patch by unique target. */
-export interface PatchArgs<TD extends AnyTableDef> extends WriteMeta {
-  where: WhereInput<TD>;
+export interface PatchArgs<TD extends AnyTableDef, S = SchemaInput>
+  extends WriteMeta {
+  where: WhereInput<TD, S>;
   patches: readonly PatchOp[];
   readonly return?: WriteReturn;
   readonly only?: boolean;
@@ -222,8 +231,9 @@ export interface PatchArgs<TD extends AnyTableDef> extends WriteMeta {
 // --- upsert --------------------------------------------------------------------------------------
 
 /** `upsert` — create-or-update by id or a single-field UNIQUE index. */
-export interface UpsertArgs<TD extends AnyTableDef> extends WriteMeta {
-  where: WhereInput<TD>;
+export interface UpsertArgs<TD extends AnyTableDef, S = SchemaInput>
+  extends WriteMeta {
+  where: WhereInput<TD, S>;
   /**
    * One payload for both branches (`UPSERT t:id MERGE $p` / `UPSERT t MERGE $p WHERE uniq = $v`).
    * Partial patches are allowed (the merge path); the server enforces required fields when the
@@ -258,15 +268,17 @@ export interface UpsertManyArgs<TD extends AnyTableDef> extends WriteMeta {
 // --- delete --------------------------------------------------------------------------------------
 
 /** `delete` — id or single-field UNIQUE target; `before` (default) or `none`. */
-export interface DeleteArgs<TD extends AnyTableDef> extends WriteMeta {
-  where: WhereInput<TD>;
+export interface DeleteArgs<TD extends AnyTableDef, S = SchemaInput>
+  extends WriteMeta {
+  where: WhereInput<TD, S>;
   readonly return?: "before" | "none";
   readonly timeout?: number | string;
 }
 
 /** `deleteMany` — every matching row; without `where`, `all: true` is required. */
-export interface DeleteManyArgs<TD extends AnyTableDef> extends WriteMeta {
-  where?: WhereInput<TD>;
+export interface DeleteManyArgs<TD extends AnyTableDef, S = SchemaInput>
+  extends WriteMeta {
+  where?: WhereInput<TD, S>;
   /** Confirm a whole-table delete (no `where`). */
   readonly all?: boolean;
   readonly return?: "before" | "none";
@@ -338,8 +350,9 @@ export interface UnrelateArgs<_TD extends AnyTableDef = AnyTableDef>
 }
 
 /** `unrelateMany` — delete edges by filter (no `where` requires `all: true`). */
-export interface UnrelateManyArgs<TD extends AnyTableDef> extends WriteMeta {
-  where?: WhereInput<TD>;
+export interface UnrelateManyArgs<TD extends AnyTableDef, S = SchemaInput>
+  extends WriteMeta {
+  where?: WhereInput<TD, S>;
   readonly all?: boolean;
   readonly timeout?: number | string;
 }

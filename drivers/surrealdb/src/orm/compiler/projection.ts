@@ -7,6 +7,7 @@
 import { escapeIdent } from "surrealdb";
 import { z } from "zod";
 import type { ModelMeta, TableMeta } from "../meta";
+import type { IncludeSpec } from "./include";
 import {
   type Binds,
   compileError,
@@ -46,15 +47,25 @@ export interface ProjectionSpec {
   /** For `value: true`: the single leaf's codec/array-ness. */
   readonly valueField?: ProjectedField;
   /**
-   * The adjusted schema for a `*` decode when `omit`/`split` change the row's shape
+   * The adjusted schema for a `*` decode when `omit`/`split`/`include` change the row's shape
    * (`undefined` = use the table's own codec untouched).
    */
   readonly starSchema?: z.ZodType;
+  /** Relation hydration specs (`include`/`_count`) applied AFTER the base decode. */
+  readonly includes: readonly IncludeSpec[];
+}
+
+/** Extra projection sources the read assembler merges in (`include`). */
+export interface ProjectionExtras {
+  /** SQL expressions appended to the projection (`author.id AS author_id`, subqueries, counts). */
+  readonly parts?: readonly string[];
+  /** Link fields materialized by `FETCH` — the base `*` decode must pass them through. */
+  readonly passthrough?: readonly string[];
 }
 
 /** The full-row decode spec (writes always return whole records). ONE canonical instance. */
 export function fullProjectionSpec(): ProjectionSpec {
-  return { star: true, fields: [], omit: [], value: false };
+  return { star: true, fields: [], omit: [], value: false, includes: [] };
 }
 
 /** Compile `select`/`omit`/`value` into SQL text + the decode spec. */
@@ -66,8 +77,11 @@ export function compileProjection(
   binds: Binds,
   operation: string,
   split?: readonly string[],
+  extras: ProjectionExtras = {},
 ): { text: string; spec: ProjectionSpec } {
   const omitList = omitListOf(omit, operation);
+  const extraParts = extras.parts ?? [];
+  const passthrough = extras.passthrough ?? [];
   if (select === undefined || select === null) {
     if (value)
       throw compileError(
@@ -75,14 +89,24 @@ export function compileProjection(
         `${operation}: "value" needs a "select" with exactly one expression.`,
         { operation },
       );
-    const starSchema = buildStarSchema(meta, omitList, split, operation);
+    const starSchema = buildStarSchema(
+      meta,
+      omitList,
+      split,
+      passthrough,
+      operation,
+    );
     return {
-      text: starText("*", omitList),
+      text: starText(
+        extraParts.length ? `*, ${extraParts.join(", ")}` : "*",
+        omitList,
+      ),
       spec: {
         star: true,
         fields: [],
         omit: omitList,
         value: false,
+        includes: [],
         ...(starSchema ? { starSchema } : {}),
       },
     };
@@ -107,8 +131,8 @@ export function compileProjection(
       );
     if (value) return valueProjection(fields, operation);
     return {
-      text: fields.map((f) => f.expr).join(", "),
-      spec: { star: false, fields, omit: [], value: false },
+      text: [...fields.map((f) => f.expr), ...extraParts].join(", "),
+      spec: { star: false, fields, omit: [], value: false, includes: [] },
     };
   }
 
@@ -153,11 +177,12 @@ export function compileProjection(
       `${operation}: select is empty — project at least one field.`,
       { operation },
     );
+  const allParts = [...parts, ...extraParts];
   const text = star
-    ? starText(parts.length ? `*, ${parts.join(", ")}` : "*", omitList)
-    : parts.join(", ");
+    ? starText(allParts.length ? `*, ${allParts.join(", ")}` : "*", omitList)
+    : allParts.join(", ");
   const starSchema = star
-    ? buildStarSchema(meta, omitList, split, operation)
+    ? buildStarSchema(meta, omitList, split, passthrough, operation)
     : undefined;
   return {
     text,
@@ -166,23 +191,27 @@ export function compileProjection(
       fields,
       omit: star ? omitList : [],
       value: false,
+      includes: [],
       ...(starSchema ? { starSchema } : {}),
     },
   };
 }
 
 /**
- * The adjusted `*` decode schema when `omit`/`split` change the row's shape. `split` unfolds the
- * field into scalars, so its codec becomes the ELEMENT codec — decoding with the array codec would
- * fail on every row.
+ * The adjusted `*` decode schema when `omit`/`split`/`include` change the row's shape. `split`
+ * unfolds the field into scalars, so its codec becomes the ELEMENT codec — decoding with the array
+ * codec would fail on every row. `passthrough` fields (links materialized by `FETCH`) accept the
+ * server's object instead of the record-link codec; `decode.ts` hydrates them afterwards.
  */
 function buildStarSchema(
   meta: ModelMeta,
   omit: readonly string[],
   split: readonly string[] | undefined,
+  passthrough: readonly string[],
   operation: string,
 ): z.ZodType | undefined {
-  if (!isTableMeta(meta) || (!omit.length && !split)) return undefined;
+  if (!isTableMeta(meta) || (!omit.length && !split && !passthrough.length))
+    return undefined;
   if (split && split.length > 1)
     throw compileError(
       "ValidationError",
@@ -204,6 +233,7 @@ function buildStarSchema(
       );
     shape[field] = element;
   }
+  for (const field of passthrough) shape[field] = z.unknown().optional();
   let schema: z.ZodType = zObject(shape);
   if (omit.length)
     schema = (schema as unknown as { partial(): z.ZodType }).partial();
@@ -305,7 +335,14 @@ function valueProjection(
   const field = fields[0] as ProjectedField;
   return {
     text: field.expr,
-    spec: { star: false, fields: [], omit: [], value: true, valueField: field },
+    spec: {
+      star: false,
+      fields: [],
+      omit: [],
+      value: true,
+      valueField: field,
+      includes: [],
+    },
   };
 }
 
@@ -328,7 +365,7 @@ export function projectedFieldFor(
 ): ProjectedField {
   const expr = renderPath(schemaPath.join("."));
   if (!isTableMeta(meta)) return { out, source, expr, each: false };
-  const found = leafSchema(meta, parsePath(schemaPath));
+  const found = resolveLeafCodec(meta, schemaPath);
   const stripped = pathSegments(schemaPath.join("."));
   const isSplit =
     split !== undefined &&
@@ -344,6 +381,18 @@ export function projectedFieldFor(
     each: isSplit ? false : found.each,
     ...(schema ? { schema } : {}),
   };
+}
+
+/**
+ * Resolve the codec + array-ness of a path through a table's Zod shape. Exported so `include`
+ * remounting decodes a projected link leaf with the TARGET's codec without duplicating the walker
+ * (the projection compiler and the include decoder can never disagree about a field's codec).
+ */
+export function resolveLeafCodec(
+  meta: TableMeta,
+  schemaPath: readonly string[],
+): { schema?: z.ZodType; each: boolean } {
+  return leafSchema(meta, parsePath(schemaPath));
 }
 
 // --- codec resolution (walks the Zod shape; never re-parses type strings) -------------------------

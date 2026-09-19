@@ -8,7 +8,7 @@
  */
 
 import { BoundQuery } from "surrealdb";
-import type { ModelMeta } from "../meta";
+import type { ModelMeta, SchemaIndex } from "../meta";
 import { compileCount } from "./aggregate";
 import type { ProjectionSpec } from "./projection";
 import { compileRead } from "./select";
@@ -79,6 +79,7 @@ export function compilePaginate(
   args: PaginateArgs,
   binds: Binds,
   operation = "paginate",
+  options: { readonly index?: SchemaIndex } = {},
 ): PaginatePlan {
   const limit = positiveInt(args.limit, "limit", operation);
   const start = nonNegativeInt(args.start ?? 0, "start", operation);
@@ -93,6 +94,7 @@ export function compilePaginate(
     },
     binds,
     operation,
+    { index: options.index },
   );
   const dataSql = compiled.sql;
 
@@ -125,10 +127,13 @@ export function compilePaginate(
       { where: args.where, with: args.with, range: args.range, ...core },
       binds,
       operation,
+      { index: options.index },
     );
     countSql = `SELECT count() FROM (${inner.sql}) GROUP ALL`;
   } else {
-    countSql = compileCount(meta, args, binds, operation);
+    countSql = compileCount(meta, args, binds, operation, {
+      index: options.index,
+    });
   }
   return {
     dataSql,
@@ -155,6 +160,8 @@ export interface CursorArgs {
   meta?: unknown;
   /** Return the `EXPLAIN` plan instead of executing. */
   explain?: unknown;
+  /** Relation hydration (M3). */
+  include?: unknown;
   after?: unknown;
   before?: unknown;
   parallel?: unknown;
@@ -186,6 +193,7 @@ export function compileCursor(
   args: CursorArgs,
   binds: Binds,
   operation = "cursor",
+  options: { readonly index?: SchemaIndex } = {},
 ): CursorPlan {
   rejectPaginationArgs(args, operation);
   const limit = positiveInt(args.limit, "limit", operation);
@@ -233,6 +241,7 @@ export function compileCursor(
     },
     binds,
     operation,
+    { index: options.index },
   );
   return {
     sql: compiled.sql,

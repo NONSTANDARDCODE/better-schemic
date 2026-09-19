@@ -4,7 +4,7 @@ Every row below was **live-probed** against SurrealDB **3.2.0** (local `surreal`
 in-memory server), never inferred. This is the ground truth the `/orm` compiler must emit: where the
 prototype (`prototipo-querys-tipadas/better-surreal/*`) disagrees, the server wins.
 
-- Executable half: `test/live/orm-syntax.test.ts` (70 probes, skips without the `surreal` binary).
+- Executable half: `test/live/orm-syntax.test.ts` (77 probes, skips without the `surreal` binary).
   A server upgrade that changes any behaviour here fails that suite first.
 - Related: [`graph-syntax-map.md`](./graph-syntax-map.md) (graph traversal detail, probed on 3.1.4).
 - How to re-run: `cd drivers/surrealdb && bun test test/live/orm-syntax.test.ts`.
@@ -37,6 +37,14 @@ prototype (`prototipo-querys-tipadas/better-surreal/*`) disagrees, the server wi
 | `VERSION d'…'` sempre disponível | exige backend versionado; memory server: "does not support versioned queries" | emitir; erro estruturado quando o backend não suporta |
 | `FETCH` posicionado livremente | FETCH é a **última** cláusula (depois de WHERE/ORDER/LIMIT) | lowering na ordem correta |
 | `[NONE]` e `NULL` idênticos | continuam distintos (`isNone` ≠ `isNull`) | manter ambos |
+| `include: { likes: true }` → `->likes->post AS likes` devolve registros | traversal cru devolve **record ids**; registros exigem subquery `(SELECT * FROM ->likes->post)` | `include` de grafo sempre por subquery |
+| `include: { likes: { where: { score: 4 } } }` → `(SELECT … FROM ->likes->post WHERE score = $p)` | a linha da subquery é o **alvo** (`score` não existe lá); filtro do edge vai em `->(likes WHERE score = $p)` e o do alvo em `->post->(post WHERE …)` | split edge/target pelo dono da coluna |
+| `edge` + `target` → `(SELECT …, out.* FROM ->likes->post …)` | `out.*` só existe enquanto a linha é a ARESTA: depois de `->target` a linha é o alvo e `out` é `NONE` → **`[{}]`** (silencioso, com ou sem `WHERE`/`ORDER BY`) | `edge`+`target` para no edge (`FROM ->likes`), projeta `out.*` e filtra o alvo por `WHERE out.<campo>` |
+| `<-edge->target` alcança o outro endpoint | o alvo segue a **mesma direção** (`<-edge<-target`); `<-edge->target` devolve `[]` | lowering da direção `in` usa `<-edge<-target` |
+| `every` → `count(traversal[WHERE NOT …]) = 0` | `NOT` sem parênteses no filtro de traversal é **parse error**; `count(t) = count(t[WHERE …])` é NONE-safe e equivalente | `every` por igualdade de contagens |
+| `_count` de link array usa `count(campo)` | `array::len(campo)` **erra em `NONE`**; `count(campo)` devolve `0` | usar `count(campo)` |
+| `FETCH` materializa o link mesmo fora do `select` | `SELECT id FROM post FETCH author` **não devolve** `author`; o link precisa estar na seleção | o compiler adiciona o link à projeção quando `include` é FETCH |
+| `orderBy` no include ordena qualquer campo | dentro da subquery o servidor exige o **order idiom** na seleção (projeção `*` cobre) | validar `orderBy` ⊆ projeção do alvo (ou `select: '*'`) |
 
 ---
 
@@ -320,6 +328,71 @@ SELECT [VALUE] <projeção> FROM <alvo>
 | `@.{1..2}->edge->target` / `rec.{1..2}(->edge->target)` | recursão devolve **record ids**; projetar dentro do body → erro |
 | `$parent.id` | correlação com o registro externo |
 
+### 5.1 `include` — lowering verificado (M3)
+
+Formas que o compiler emite (direção `out`; `in` espelha as setas para `<-edge<-target` e usa `in.*`):
+
+| Forma do `include` | Statement |
+| --- | --- |
+| link `true` | `SELECT * … FETCH author` (link entra na seleção se explícita) |
+| link `{ select }` | `author.id AS author_id, author.name AS author_name` + remontagem no client (sem FETCH) |
+| link `{ include }` aninhado | `FETCH author.profile` |
+| aresta `true` | `(SELECT * FROM ->likes->post) AS likes` |
+| aresta `{ select }` | `(SELECT id, title FROM ->likes->post) AS likes` |
+| aresta `{ where }` | `FROM ->(likes WHERE <edge>) ->(post WHERE <target>)`; `orderBy`/`limit`/`start` na subquery |
+| aresta `{ edge: true }` | `(SELECT * FROM ->likes) AS likes` |
+| aresta `{ edge, target }` | `(SELECT <edge…>, out.* FROM ->likes)` → remonta `{ edge, target }` no client |
+| aresta `edge`+`target`+`where` | `(SELECT <edge…>, out.* FROM ->(likes WHERE <edge>) WHERE <out.target…>)` |
+| direção `in` | `(SELECT … FROM <-likes<-user)`; `edge`+`target` materializa `in.*` e filtra `WHERE in.<campo>` |
+| aresta wildcard | `(SELECT * FROM ->?)` / `<-?` / `<->?` |
+| `_count` (aresta) | `count(->likes) AS _count_likes` / `count(->likes[WHERE score > 4])` / `count(->likes->(post WHERE …))` |
+| `_count` (link array) | `count(friends) AS _count_friends` / `count(friends[WHERE name = 'Alice'])` |
+
+Fatos de lowering que a tabela acima depende (todos live-probed em 3.2.x):
+
+- A subquery de alvo devolve **registros completos**; o traversal cru devolveria record ids.
+- `FETCH` **não sobrescreve** alias projetado (`author.id AS author_id` sobrevive) e não devolve
+  link fora da seleção.
+- `out.*` (**edge**+**target**) exige que a subquery pare no edge (`FROM ->(edge WHERE …)`); seguir
+  para o alvo (`->target`) faz `out` ser `NONE` e a linha virar `{}` — o filtro do alvo vai em
+  `WHERE out.<campo>`.
+- `ORDER BY` dentro da subquery exige o campo na seleção; projeção `*` cobre qualquer campo.
+- `count(<->likes)` e `count(<->?)` funcionam para direção `both`.
+
+### 5.2 `where` relacional — lowering verificado (M3)
+
+| Operador | Forma emitida |
+| --- | --- |
+| link `one` `is` | `<link>.<campo> = $p` (filtro aninhado compilado com prefixo do link) |
+| link `one` `isNot` | `NOT (<link>.<campo> = $p …)` — verdadeiro quando o link é `NONE` |
+| aresta `some` | `count(<traversal>[WHERE …]) > 0` |
+| aresta `none` | `count(<traversal>[WHERE …]) = 0` |
+| aresta `every` | `count(<traversal>) = count(<traversal>[WHERE …])` (vacuamente verdadeiro em 0) |
+| link array `some`/`none` | `count(<campo>[WHERE …]) > 0` / `= 0` |
+| link array `every` | `count(<campo>) = count(<campo>[WHERE …])` |
+
+### 5.3 Traversal/recursão via `select` + `surql` (M3.5)
+
+Sem superfície nova: `select` já aceita fragments, então o açúcar é uma receita documentada (o
+compiler não tenta parsear `@.{…}` — quem escreve o fragment sabe a profundidade/edge):
+
+```ts
+client.users.findMany({
+  select: {
+    name: true,
+    descendants: surql`@.{1..10}->parent_of->person`.as<RecordId[]>(),
+    liked: surql`->likes->posts.title`.as<string[]>(),
+    likedCount: surql`count(->likes)`.as<number>(),
+  },
+});
+```
+
+- `@.{n}` / `@{n,m}` / `@.{n+collect}` só existem na posição de projeção (`SELECT`); o fragment
+  `user:alice.{1..2}(->likes->post)` ancora em um record explícito.
+- O body devolve **record ids** — projetar campos dentro do body é erro de runtime
+  (`Expected a record ID during recursive graph traversal`); projete fora.
+- Em `/query` a alternativa procedural é `block()`.
+
 ---
 
 ## 6. Full-text e vetorial
@@ -409,3 +482,8 @@ Nota: em scripts multi-statement, o SDK pode **lançar** (não só responder por
 24. **`GROUP BY` exige a chave na projeção** (`Missing group idiom … in statement selection`): `aggregate` valida que cada `groupBy` aparece no `select` (quando a projeção é estaticamente analisável) e ensina a corrigir.
 25. **Writes (M2)**: alvos singulares = `id` ou índice UNIQUE (`UniqueTargetRequired`); `update` nunca cria (`[]` → `null`); `delete` só `before`/`none`; `deleteMany` exige `all: true` sem `where`; `updateEach`/`skipDuplicates` = 1 statement por item (e `skipDuplicates` exige `id` explícito); `upsertMany.conflict` exige índice UNIQUE; `RETURN DIFF` é achatado no decode (`[[ops]]` → `ops`) e **somado entre os statements** do batch (`update` data+unset, `createMany`, …); `INSERT/upsert RETURN BEFORE` devolve o estado anterior — o tipo é `App | null`; `id` string vira `RecordId` no payload.
 26. **Records no `where`**: string `"tabela:id"` em coluna de record (inclusive `id`) é convertida para `RecordId` pelo compiler — sem isso o valor viraria string e não casaria nada (silent no-match).
+27. **`include` de link**: `FETCH` é a última cláusula, o link precisa estar na seleção (o compiler o adiciona quando necessário), alias projetado sobrevive ao FETCH, e o filtro do include é o split edge/target (`->(edge WHERE …)->(target WHERE …)`).
+28. **`include` de aresta**: registros do alvo só via subquery; direção `in` inverte as duas setas (`<-edge<-target`) e materializa `in.*`; `edge`+`target` usa `out.*`+`WHERE out.<campo>` e é remontado como `{ edge, target }` no client.
+29. **`include._count`**: `count(->edge)`/`count(<-edge)`/`count(->edge[WHERE …])` para arestas e `count(campo)`/`count(campo[WHERE …])` para links array (`array::len` erra em `NONE`); remontado como `_count: { <chave>: n }`.
+30. **`where` relacional**: `is`/`isNot` para link `one` (negação verdadeira em `NONE`), `some`/`none`/`every` para arestas e links array; `every` por igualdade de contagens; `NOT` em filtro de traversal exige parênteses.
+31. **`include` de grafo recusa** `value`/`groupBy`/`groupAll`/`split` e `orderBy` fora da projeção do alvo (o servidor exige o order idiom).

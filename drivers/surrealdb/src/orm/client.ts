@@ -60,7 +60,8 @@ export type Client<S = SchemaInput, C extends Queryable = Queryable> = Omit<
   "extends" | "forkSession"
 > & {
   readonly [K in ModelKeys<S>]: ModelDelegate<
-    EntriesOf<S>[K] extends AnyTableDef ? EntriesOf<S>[K] : AnyTableDef
+    EntriesOf<S>[K] extends AnyTableDef ? EntriesOf<S>[K] : AnyTableDef,
+    S
   >;
 } & {
   /**

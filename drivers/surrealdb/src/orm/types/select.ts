@@ -17,7 +17,8 @@
 import type { Surql } from "../../frag";
 import type { App } from "../../pure";
 import type { ExplainResult, ThrowingResult } from "../results";
-import type { AnyTableDef } from "./schema";
+import type { IncludeArg, WithIncludes } from "./include";
+import type { AnyTableDef, SchemaInput } from "./schema";
 import type { WhereInput } from "./where";
 
 /** Any fragment usable as a projection expression. */
@@ -145,8 +146,8 @@ export type GroupByKey<TD extends AnyTableDef> =
   | (string & {});
 
 /** Every read clause (what `findMany`/`findFirst`/`findOne` accept). */
-export interface ReadArgs<TD extends AnyTableDef> {
-  where?: WhereInput<TD>;
+export interface ReadArgs<TD extends AnyTableDef, S = SchemaInput> {
+  where?: WhereInput<TD, S>;
   select?: SelectArg<TD>;
   omit?: readonly (keyof App<TD> & string)[];
   orderBy?: OrderByArg<TD>;
@@ -162,21 +163,29 @@ export interface ReadArgs<TD extends AnyTableDef> {
   /** Number = milliseconds; string = a SurrealQL duration (`'10s'`, `'500ms'`). */
   timeout?: number | string;
   version?: Date | string;
+  /** Relation hydration (`FETCH`/traversal/`_count`) — M3. */
+  include?: IncludeArg<TD, S>;
   /** Hook/plugin metadata (consumed in M6). */
   meta?: Record<string, unknown>;
   /** Return the `EXPLAIN` plan instead of executing. */
   explain?: boolean;
 }
 
-/** `findMany` args (today identical to {@link ReadArgs}; `include` joins later). */
-export type FindManyArgs<TD extends AnyTableDef> = ReadArgs<TD>;
+/** `findMany` args. */
+export type FindManyArgs<TD extends AnyTableDef, S = SchemaInput> = ReadArgs<
+  TD,
+  S
+>;
 
 /** `findFirst`/`findOne` args. */
-export type FindOneArgs<TD extends AnyTableDef> = ReadArgs<TD>;
+export type FindOneArgs<TD extends AnyTableDef, S = SchemaInput> = ReadArgs<
+  TD,
+  S
+>;
 
 /** The clauses `count`/`exists` accept (no projection/order — they don't apply). */
-export interface CountArgs<TD extends AnyTableDef> {
-  where?: WhereInput<TD>;
+export interface CountArgs<TD extends AnyTableDef, S = SchemaInput> {
+  where?: WhereInput<TD, S>;
   range?: RangeArg;
   with?: WithArg;
   /** Number = milliseconds; string = a SurrealQL duration (`'10s'`, `'500ms'`). */
@@ -204,9 +213,9 @@ type Explainable<Base, A> = A extends { explain: true }
  * index. Which fields are unique is runtime schema metadata (`TableDef.config.indexes`), so the
  * type can only require the `where`; the runtime rejects other fields with `UniqueTargetRequired`.
  */
-export interface FindUniqueArgs<TD extends AnyTableDef>
+export interface FindUniqueArgs<TD extends AnyTableDef, S = SchemaInput>
   extends Omit<
-    ReadArgs<TD>,
+    ReadArgs<TD, S>,
     | "orderBy"
     | "limit"
     | "start"
@@ -216,7 +225,7 @@ export interface FindUniqueArgs<TD extends AnyTableDef>
     | "groupAll"
     | "only"
   > {
-  where: WhereInput<TD>;
+  where: WhereInput<TD, S>;
 }
 
 /** The shape of a nested select over a value type. */
@@ -291,7 +300,9 @@ export type SelectedShape<TD extends AnyTableDef, Sel> = Simplify<
     ? { [P in K]: P extends keyof App<TD> ? App<TD>[P] : unknown }
     : UnionToIntersection<
         {
-          [K in keyof Sel]-?: EntryShape<TD, K, Exclude<Sel[K], undefined>>;
+          [K in keyof Sel]-?: K extends "*"
+            ? never
+            : EntryShape<TD, K, Exclude<Sel[K], undefined>>;
         }[keyof Sel]
       > &
         (Sel extends { "*": true } ? App<TD> : unknown)
@@ -308,40 +319,51 @@ type ApplySplit<TD extends AnyTableDef, A, R> = A extends { split: infer S }
       : R
   : R;
 
-/** The row type a read resolves to, dispatched by the args literal. */
-export type ResultOf<TD extends AnyTableDef, A> = ApplySplit<
+/** The row type a read resolves to, dispatched by the args literal (`include` overlays keys). */
+export type ResultOf<TD extends AnyTableDef, A, S = SchemaInput> = ApplySplit<
   TD,
   A,
-  A extends { value: true }
-    ? A extends { select: infer Sel }
-      ? SingleValue<SelectedShape<TD, Sel>>
-      : unknown
-    : A extends { select: infer Sel }
-      ? SelectedShape<TD, Sel>
-      : A extends { omit: infer O }
-        ? Simplify<
-            Omit<
-              App<TD>,
-              O extends readonly (infer K extends PropertyKey)[] ? K : never
+  WithIncludes<
+    TD,
+    A extends { value: true }
+      ? A extends { select: infer Sel }
+        ? SingleValue<SelectedShape<TD, Sel>>
+        : unknown
+      : A extends { select: infer Sel }
+        ? SelectedShape<TD, Sel>
+        : A extends { omit: infer O }
+          ? Simplify<
+              Omit<
+                App<TD>,
+                O extends readonly (infer K extends PropertyKey)[] ? K : never
+              >
             >
-          >
-        : App<TD>
+          : App<TD>,
+    S,
+    A extends { include: infer I } ? I : undefined,
+    3
+  >
 >;
 
 /** The value of a single-entry projection (`value: true`). */
 type SingleValue<S> = S extends Record<string, infer V> ? V : unknown;
 
 /** What `findMany` resolves to (`only` unwraps the single object). */
-export type FindManyResult<TD extends AnyTableDef, A> = ReadResult<
-  A extends { only: true } ? ResultOf<TD, A> | null : ResultOf<TD, A>[],
+export type FindManyResult<
+  TD extends AnyTableDef,
+  A,
+  S = SchemaInput,
+> = ReadResult<
+  A extends { only: true } ? ResultOf<TD, A, S> | null : ResultOf<TD, A, S>[],
   A
 >;
 
 /** What `findFirst`/`findOne` resolve to (a thenable that may miss). */
-export type FindOneResult<TD extends AnyTableDef, A> = ThrowingReadResult<
-  ResultOf<TD, A>,
-  A
->;
+export type FindOneResult<
+  TD extends AnyTableDef,
+  A,
+  S = SchemaInput,
+> = ThrowingReadResult<ResultOf<TD, A, S>, A>;
 
 /** The envelope of an offset page (`paginate`). */
 export interface PaginationInfo {
@@ -385,8 +407,8 @@ export interface CursorResult<T> {
 }
 
 /** `paginate` args: a read with a required `limit` (the page size). */
-export interface PaginateArgs<TD extends AnyTableDef>
-  extends Omit<ReadArgs<TD>, "limit"> {
+export interface PaginateArgs<TD extends AnyTableDef, S = SchemaInput>
+  extends Omit<ReadArgs<TD, S>, "limit"> {
   limit: number;
   start?: number;
   /** `false` skips the count statement and probes `LIMIT n+1`. Default `true`. */
@@ -394,8 +416,8 @@ export interface PaginateArgs<TD extends AnyTableDef>
 }
 
 /** `cursor` args: a read with a required `limit` and the keyset cursors. */
-export interface CursorArgs<TD extends AnyTableDef>
-  extends Omit<ReadArgs<TD>, "limit" | "groupBy" | "groupAll" | "split"> {
+export interface CursorArgs<TD extends AnyTableDef, S = SchemaInput>
+  extends Omit<ReadArgs<TD, S>, "limit" | "groupBy" | "groupAll" | "split"> {
   limit: number;
   /** Rows after this cursor. */
   after?: CursorInput;
@@ -404,10 +426,11 @@ export interface CursorArgs<TD extends AnyTableDef>
 }
 
 /** What `findUnique` resolves to (a thenable that may miss). */
-export type FindUniqueResult<TD extends AnyTableDef, A> = ThrowingReadResult<
-  ResultOf<TD, A>,
-  A
->;
+export type FindUniqueResult<
+  TD extends AnyTableDef,
+  A,
+  S = SchemaInput,
+> = ThrowingReadResult<ResultOf<TD, A, S>, A>;
 
 /** A field usable by an aggregator: a known column or a dotted/bracketed path. */
 export type AggField<TD extends AnyTableDef> =
@@ -448,8 +471,8 @@ export type AggregateSelect<TD extends AnyTableDef> = {
 };
 
 /** The clauses `aggregate` accepts (`having` does not exist in SurrealQL — runtime rejects it). */
-export interface AggregateArgs<TD extends AnyTableDef> {
-  where?: WhereInput<TD>;
+export interface AggregateArgs<TD extends AnyTableDef, S = SchemaInput> {
+  where?: WhereInput<TD, S>;
   select: AggregateSelect<TD>;
   groupBy?: readonly GroupByKey<TD>[];
   groupAll?: boolean;

@@ -153,6 +153,17 @@ const removed = await client.users.delete({ where: { id: created.id } });
 // const like = await client.likes.relate({ from: "user:1", to: "post:1", data: { score: 5 } });
 // await client.likes.unrelate({ from: "user:1", to: "post:1" });
 
+// Relations & graphs (M3) — links (FETCH), edge traversal and `_count`, still ONE round-trip.
+// Both examples need a `Post`/`Likes` pair in the schema; uncomment when you have one:
+// const posts = await client.posts.findMany({
+//   include: {
+//     author: { select: { id: true, name: true } },          // FETCH or flat remount
+//     likes: { where: { score: { gte: 4 } }, select: { title: true } }, // per-parent subquery
+//     _count: { select: { likes: true } },                    // correlated count -> _count.likes
+//   },
+//   where: { likes: { some: { score: { gte: 4 } } } },        // relational filter
+// });
+
 // Diagnostics without executing:
 const plan = await client.users.findMany({ where: { age: 18 } }).explain();
 ```
@@ -161,9 +172,10 @@ const plan = await client.users.findMany({ where: { age: 18 } }).explain();
 up by schema key OR physical name; `client.tables` lists the keys; `client.$sdk`
 is the raw `surrealdb` connection (escape hatch).
 
-**Status:** reads (M1) and writes (M2 — `create`/`insert`/`update`/`patch`/`upsert`/
-`delete`/`updateEach` plus `relate`/`unrelate` on edge delegates) are complete;
-relations/graphs, transactions, live queries and plugins land milestone by milestone —
+**Status:** reads (M1), writes (M2 — `create`/`insert`/`update`/`patch`/`upsert`/
+`delete`/`updateEach` plus `relate`/`unrelate` on edge delegates) and relations/graphs
+(M3 — `include` links/edges/`_count`, relational `where` `is`/`isNot`/`some`/`every`/`none`)
+are complete; transactions, live queries and plugins land milestone by milestone —
 see [`PLANO-QUERYS-TIPADAS.md`](../../PLANO-QUERYS-TIPADAS.md) and the live-verified
 [`docs/orm-syntax-map.md`](docs/orm-syntax-map.md). Fragments & procedural SurrealQL
 (`block()`) stay at `@better-schemic/surrealdb/query`.

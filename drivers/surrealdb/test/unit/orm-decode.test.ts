@@ -174,6 +174,7 @@ describe("decode — failures are teaching errors", () => {
         fields: [],
         omit: [],
         value: false,
+        includes: [],
       }),
     ).toMatchObject({ name: "Alice" });
   });

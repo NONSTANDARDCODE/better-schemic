@@ -9,8 +9,16 @@
  * Verified forms live in `docs/orm-syntax-map.md` §4; unverified spellings (`~`/`?~`/`*~`) are
  * rejected with a teaching `UnsupportedCapability` instead of being emitted.
  */
-import { RecordId } from "surrealdb";
-import type { FieldFamily, TableMeta } from "../meta";
+import { escapeIdent, RecordId } from "surrealdb";
+import type { EdgeRef, FieldFamily, SchemaIndex, TableMeta } from "../meta";
+import {
+  classifyWhereByOwner,
+  type EdgeDirection,
+  findEdge,
+  resolveEdge,
+  edgeMeta as resolveEdgeMeta,
+  targetMetas,
+} from "./relations";
 import {
   type Binds,
   compileError,
@@ -29,6 +37,12 @@ import {
 export interface WhereOptions {
   /** Table metadata, for family-aware operators (`length`, `outside`, `near`). */
   readonly meta?: TableMeta;
+  /** The schema index — required for RELATIONAL operators (`some`/`every`/`none`/`is`/`isNot`). */
+  readonly index?: SchemaIndex;
+  /** A path prefix applied to every field (`out`/`in` in edge includes, the link in `is`). */
+  readonly prefix?: string;
+  /** The operation label for teaching messages (defaults to `where`). */
+  readonly operation?: string;
 }
 
 /** Compile a `where` input to its predicate text (no `WHERE` keyword); `undefined` = no filter. */
@@ -101,6 +115,9 @@ interface FieldFilterContext {
   readonly options: WhereOptions;
 }
 
+/** Relation-only operators (`is`/`isNot` on a single link; `some`/`every`/`none` on a collection). */
+const RELATION_OPS = new Set(["is", "isNot", "some", "every", "none"]);
+
 /** Compile one field entry (`{ age: {...} }` / `{ 'address.city': 'BR' }`). */
 function compileFieldValue(
   field: string,
@@ -109,17 +126,147 @@ function compileFieldValue(
   options: WhereOptions,
 ): string | undefined {
   const context: FieldFilterContext = {
-    path: renderPath(field),
+    path: renderPath(options.prefix ? `${options.prefix}.${field}` : field),
     field,
     family: familyOf(field, options.meta),
     arrayPath: isArrayPath(field),
     binds,
     options,
   };
-  if (!isFilterObject(value)) return equality(context, value);
+  if (!isFilterObject(value)) {
+    // A fragment on a relation key is a whole correlated PREDICATE, not a value
+    // (`{ likes: surql`count(->likes) > ${2}` }`).
+    if (relationOf(context) && isLowerableValue(value))
+      return paren(renderValue(value, binds, binds.ctx()));
+    return equality(context, value);
+  }
   const operators = Object.entries(value).filter(([, v]) => v !== undefined);
   if (operators.length === 0) return undefined;
-  return compileOperators(context, operators);
+  const relationOps = operators.filter(([op]) => RELATION_OPS.has(op));
+  if (relationOps.length === 0) return compileOperators(context, operators);
+  const foreign = operators.filter(
+    ([op]) => !RELATION_OPS.has(op) && op !== "direction",
+  );
+  if (foreign.length > 0)
+    throw compileError(
+      "ValidationError",
+      `"${field}" mixes relational operators (${relationOps.map(([op]) => op).join("/")}) with "${foreign[0]?.[0]}" — use either form.`,
+      { field },
+    );
+  return compileRelation(context, relationOps, value);
+}
+
+/** What kind of relation a where key resolves to (`undefined` = a plain column). */
+type RelationKind =
+  | { readonly kind: "link"; readonly cardinality: "one" | "many" }
+  | { readonly kind: "edge"; readonly edge: EdgeRef };
+
+/** Resolve a key to a relation of the CURRENT scope's table (links win over same-named edges). */
+function relationOf(context: FieldFilterContext): RelationKind | undefined {
+  const { meta, index } = context.options;
+  if (!meta || !index) return undefined;
+  const link = meta.links.get(context.field);
+  if (link) return { kind: "link", cardinality: link.cardinality };
+  const edge = findEdge(meta, context.field);
+  return edge ? { kind: "edge", edge } : undefined;
+}
+
+/** Compile `is`/`isNot` (links) and `some`/`every`/`none` (edges and array links). */
+function compileRelation(
+  context: FieldFilterContext,
+  operators: readonly (readonly [string, unknown])[],
+  value: Record<string, unknown>,
+): string {
+  const { field } = context;
+  const operation = context.options.operation ?? "where";
+  const relation = relationOf(context);
+  if (!relation)
+    throw compileError(
+      "ValidationError",
+      `"${operators[0]?.[0]}" is a relational operator, but "${field}" is not a link or edge of this table. Use the relation key (schema links/edges).`,
+      { field },
+    );
+  const direction = relationFilterDirection(value, operation, field);
+
+  if (relation.kind === "link" && relation.cardinality === "one")
+    return compileSingleLink(context, operators, direction);
+  if (relation.kind === "link")
+    return compileCollection(context, operators, undefined, direction);
+  return compileCollection(context, operators, relation.edge, direction);
+}
+
+/** Parse the optional `direction` alongside the relational operator. */
+function relationFilterDirection(
+  value: Record<string, unknown>,
+  operation: string,
+  field: string,
+): EdgeDirection | undefined {
+  const raw = value.direction;
+  if (raw === undefined) return undefined;
+  if (raw !== "out" && raw !== "in" && raw !== "both")
+    throw compileError(
+      "ValidationError",
+      `${operation}: "${field}.direction" must be "out", "in" or "both" (got ${describeValue(raw)}).`,
+      { field },
+    );
+  return raw;
+}
+
+/** `is`/`isNot` on a single record link — the target filter compiles behind the link path. */
+function compileSingleLink(
+  context: FieldFilterContext,
+  operators: readonly (readonly [string, unknown])[],
+  direction: EdgeDirection | undefined,
+): string {
+  const { field, path, binds } = context;
+  const operation = context.options.operation ?? "where";
+  if (direction !== undefined)
+    throw compileError(
+      "ValidationError",
+      `${operation}: "direction" is only valid on edges, not on the link "${field}".`,
+      { field },
+    );
+  const invalid = operators.find(([op]) => op !== "is" && op !== "isNot");
+  if (invalid)
+    throw compileError(
+      "ValidationError",
+      `${operation}: "${invalid[0]}" does not apply to the single link "${field}" — use "is"/"isNot" (or make it an array link).`,
+      { field },
+    );
+  const target = singleLinkTarget(context);
+  const parts: string[] = [];
+  for (const [op, operand] of operators) {
+    if (!isFilterObject(operand))
+      throw compileError(
+        "ValidationError",
+        `${operation}: "${field}.${op}" expects a filter object (got ${describeValue(operand)}).`,
+        { field },
+      );
+    const predicate = compileWhere(operand, binds, {
+      ...(target ? { meta: target } : {}),
+      ...(context.options.index ? { index: context.options.index } : {}),
+      prefix: path,
+      operation,
+    });
+    if (predicate === undefined)
+      throw compileError(
+        "ValidationError",
+        `${operation}: "${field}.${op}" is an empty filter — nothing to constrain.`,
+        { field },
+      );
+    parts.push(op === "isNot" ? `NOT (${predicate})` : predicate);
+  }
+  return joinAnd(parts);
+}
+
+/** The single target meta of a link (`undefined` for a union/bare link — operators stay loose). */
+function singleLinkTarget(context: FieldFilterContext): TableMeta | undefined {
+  const { meta, index } = context.options;
+  if (!meta || !index) return undefined;
+  const link = meta.links.get(context.field);
+  if (!link) return undefined;
+  const targets = targetMetas(index, link.targets);
+  return targets.length === 1 ? targets[0] : undefined;
 }
 
 /** AND-join a field filter object's operators. */
@@ -416,6 +563,178 @@ function compileNear(context: FieldFilterContext, operand: unknown): string {
     `"near" on "${field}" needs "vector" (KNN) or "point" (geo distance).`,
     { field },
   );
+}
+
+/** `some`/`every`/`none` over a link array or a graph edge (counts, NONE-safe). */
+function compileCollection(
+  context: FieldFilterContext,
+  operators: readonly (readonly [string, unknown])[],
+  edge: EdgeRef | undefined,
+  direction: EdgeDirection | undefined,
+): string {
+  const { field, path } = context;
+  const operation = context.options.operation ?? "where";
+  const index = context.options.index;
+  const invalid = operators.find(
+    ([op]) => op !== "some" && op !== "every" && op !== "none",
+  );
+  if (invalid)
+    throw compileError(
+      "ValidationError",
+      `${operation}: "${invalid[0]}" does not apply to the ${edge ? `edge "${field}"` : `array link "${field}"`} — use some/every/none.`,
+      { field },
+    );
+
+  const meta = context.options.meta as TableMeta;
+  const resolved =
+    edge !== undefined
+      ? resolveEdge(meta, field, direction, operation)
+      : undefined;
+  const edgeMeta =
+    resolved && index ? resolveEdgeMeta(index, resolved.edge.name) : undefined;
+  const targets = resolved && index ? targetMetas(index, resolved.targets) : [];
+  const arrows =
+    resolved?.direction === "in"
+      ? { open: "<-", close: "<-" }
+      : resolved?.direction === "both"
+        ? { open: "<->", close: "<->" }
+        : { open: "->", close: "->" };
+
+  const parts: string[] = [];
+  for (const [op, operand] of operators) {
+    let base = path;
+    let filtered: string;
+    if (resolved) {
+      const compiled = compileEdgeOperand(context, operand, edgeMeta, targets);
+      if (!compiled.edge && !compiled.target)
+        throw compileError(
+          "ValidationError",
+          `${operation}: "${field}.${op}" is an empty filter — nothing to constrain.`,
+          { field },
+        );
+      base = edgeTraversal(resolved, arrows, undefined, undefined);
+      filtered = edgeTraversal(
+        resolved,
+        arrows,
+        compiled.edge,
+        compiled.target,
+      );
+    } else {
+      const predicate = compileLinkOperand(context, operand);
+      if (predicate === undefined)
+        throw compileError(
+          "ValidationError",
+          `${operation}: "${field}.${op}" is an empty filter — nothing to constrain.`,
+          { field },
+        );
+      filtered = `${path}[WHERE ${predicate}]`;
+    }
+    if (op === "some") parts.push(`count(${filtered}) > 0`);
+    else if (op === "none") parts.push(`count(${filtered}) = 0`);
+    else parts.push(`count(${base}) = count(${filtered})`);
+  }
+  return joinAnd(parts);
+}
+
+/** Split + compile one edge operand into its edge-side and target-side predicates. */
+function compileEdgeOperand(
+  context: FieldFilterContext,
+  operand: unknown,
+  edgeMeta: TableMeta | undefined,
+  targets: readonly TableMeta[],
+): { readonly edge?: string; readonly target?: string } {
+  const { binds } = context;
+  const operation = context.options.operation ?? "where";
+  const index = context.options.index;
+  if (isLowerableValue(operand))
+    return { target: paren(renderValue(operand, binds, binds.ctx())) };
+  if (!isFilterObject(operand))
+    throw compileError(
+      "ValidationError",
+      `${operation}: "${context.field}" expects a filter object or a fragment (got ${describeValue(operand)}).`,
+      { field: context.field },
+    );
+  if (!edgeMeta)
+    return {
+      target: compileWhere(operand, binds, {
+        ...(targets.length === 1 ? { meta: targets[0] } : {}),
+        ...(index ? { index } : {}),
+        operation,
+      }),
+    };
+  const owned = classifyWhereByOwner({
+    where: operand,
+    edge: edgeMeta,
+    targets,
+    idOwner: "target",
+    operation,
+    context: `where.${context.field}`,
+  });
+  const edgePredicate = owned.edge
+    ? compileWhere(owned.edge, binds, { meta: edgeMeta, index, operation })
+    : undefined;
+  const targetPredicate = owned.target
+    ? compileWhere(owned.target, binds, {
+        ...(targets.length === 1 ? { meta: targets[0] } : {}),
+        ...(index ? { index } : {}),
+        operation,
+      })
+    : undefined;
+  const fragment = owned.fragment
+    ? paren(renderValue(owned.fragment, binds, binds.ctx()))
+    : undefined;
+  const target = [targetPredicate, fragment].filter(Boolean).join(" AND ");
+  return {
+    ...(edgePredicate ? { edge: edgePredicate } : {}),
+    ...(target ? { target } : {}),
+  };
+}
+
+/** Compile one array-link operand (the element rows are the link targets). */
+function compileLinkOperand(
+  context: FieldFilterContext,
+  operand: unknown,
+): string | undefined {
+  const { binds } = context;
+  const operation = context.options.operation ?? "where";
+  const index = context.options.index;
+  if (isLowerableValue(operand))
+    return paren(renderValue(operand, binds, binds.ctx()));
+  if (!isFilterObject(operand))
+    throw compileError(
+      "ValidationError",
+      `${operation}: "${context.field}" expects a filter object or a fragment (got ${describeValue(operand)}).`,
+      { field: context.field },
+    );
+  const target = singleLinkTarget(context);
+  return compileWhere(operand, binds, {
+    ...(target ? { meta: target } : {}),
+    ...(index ? { index } : {}),
+    operation,
+  });
+}
+
+/** `->edge->target` / `<-edge<-target` / `<->edge<->target`, with optional edge/target filters. */
+function edgeTraversal(
+  resolved: { readonly edge: EdgeRef; readonly targets: readonly string[] },
+  arrows: { readonly open: string; readonly close: string },
+  edgePredicate: string | undefined,
+  targetPredicate: string | undefined,
+): string {
+  const name = escapeIdent(resolved.edge.name);
+  const edgeRef = edgePredicate ? `(${name} WHERE ${edgePredicate})` : name;
+  const target = traversalTarget(resolved.targets);
+  const targetRef = targetPredicate
+    ? `(${target} WHERE ${targetPredicate})`
+    : target;
+  return `${arrows.open}${edgeRef}${arrows.close}${targetRef}`;
+}
+
+/** `post` / `(post, user)` / `?` — the target ref of an edge traversal. */
+function traversalTarget(targets: readonly string[]): string {
+  if (targets.length === 0) return "?";
+  if (targets.length === 1) return escapeIdent(targets[0] as string);
+  return `(${targets.map(escapeIdent).join(", ")})`;
 }
 
 /** A KNN metric: an identifier-safe name, canonicalized to SurrealQL's uppercase spelling. */
