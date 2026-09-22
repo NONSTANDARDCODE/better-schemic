@@ -99,6 +99,80 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `FETCH` needs the link selected, subquery `ORDER BY` needs the order idiom projected, direction
   `both` (`<->edge<->target`, `<->edge`) works but `?.*` is a parse error, wildcard edge filters use
   `->(? WHERE …)`.
+- **surrealdb:** the `/orm` **transactions surface (M4.1)** — `client.transaction(fn, options?)` over
+  the SDK's **managed** transaction: `tx` is a full client bound to it (batches inside the tx skip
+  their implicit `BEGIN`), success commits, any exception cancels and propagates; `tx.rollback(reason)`
+  surfaces `TransactionRollback` (with `details.reason`; the state is the safety net even if user code
+  swallows the signal); nested `tx.transaction(...)` runs in the SAME transaction and re-entry from the
+  root client fails with `TransactionAlreadyActive`; `afterCommit`/`afterRollback` (the root client
+  reaches the current scope; outside a transaction → `ValidationError`). Opt-in `retries`
+  (`writeConflict`/`serializationFailure`/`connectionError`, backoff + jitter), a client-side `timeout`
+  deadline (cancels the transaction and fails with `DatabaseError`/`details.timedOut`), `context` and
+  the `isolation` policy (`onUnsupported: "warn" | "throw" | "ignore"`). `mode: "sql"` is intentionally
+  NOT part of the surface (on 3.2.x `BEGIN`/`COMMIT` does not hold across separate RPC calls — see the
+  syntax map) and fails fast. `errors.isSerializationFailure` joins the predicates; `BetterSchemicOptions`
+  gains `transaction` defaults.
+- **surrealdb:** the `/orm` **live surface (M4.2)** — `client.users.live(args?, handler?)`,
+  `client.live(table, …)`, `client.liveOf(uuid, …)` and `client.kill(uuid)`: the statement is compiled
+  by the ORM (`LIVE SELECT [DIFF] <projeção> FROM t [WHERE …] [FETCH …]` — binds preserved, `fetch`
+  reuses the link-fetch lowering so fetched links decode through the target codec) and notifications
+  come from the SDK's `liveOf(uuid)` stream, decoded with a discriminated `action` union
+  (`CREATE`/`UPDATE`/`DELETE`/`KILLED` + the client-side `RECONNECTED`), fanned out to the handler and
+  every async iterator with `sub.onError`, idempotent `kill()`, and automatic re-run + re-subscribe on
+  the SDK's `connected` event (`live: { reconnect: false }` opts out). Live-invalid clauses
+  (`only`/`value`/`orderBy`/`limit`/`group`/`split`/`include`, and `diff` + `select`) fail with
+  `ClauseNotSupportedInLive`; live inside a transaction with `LiveInTransaction`; HTTP connections with
+  `LiveQueryUnsupported`. `BetterSchemicOptions` gains `live` defaults.
+- **surrealdb:** the `/orm` **changefeeds surface (M4.3)** — `client.changes({ table?, since?, limit? })`:
+  `SHOW CHANGES FOR TABLE|DATABASE SINCE <literal>` (`since` as versionstamp/`Date`/ISO), normalized
+  `ChangeSet`/`ChangeEntry` (`UPDATE` with `value`/`diff`, `DELETE` with `before`, `DEFINE`; CREATE and
+  UPDATE both arrive as `UPDATE` without `INCLUDE ORIGINAL`), rows decoded through their own table
+  codec (database-level reads included) and versionstamp pagination documented (`SINCE` is inclusive →
+  advance `versionstamp + 1`).
+- **surrealdb:** live-verified M4 semantics in `docs/orm-syntax-map.md` §7/§1 +
+  `test/live/orm-syntax.test.ts` (**84 probes** on server 3.2.x, up from 78): `DIFF` placement and its
+  projection ban, unsupported live clauses/`FROM ONLY`/record targets, `VALUE` emits nothing, records
+  leaving the `WHERE` filter emit nothing, `KILL` forms, changefeed shapes + inclusive `SINCE` (literal
+  only), managed-transaction-only behavior and the HTTP feature gaps (`Transactions`/`LiveQueries`).
+  New live suites: `test/live/orm-transactions.test.ts` (7 e2e, including a REAL write conflict + retry),
+  `orm-live.test.ts` (7 e2e) and `orm-changes.test.ts` (5 e2e); unit suites
+  `orm-{transaction,live,changes}.test.ts`; type suites `orm-{transactions,live,changes}.assert.ts`
+  plus the `TransactionClient` instantiation budget.
+- **surrealdb:** the `/orm` **raw escape hatches (M5.1)** — `client.$raw<T>` (tagged template: every
+  `${…}` lowers through the shared compiler primitives, so a `surql` fragment composes and a plain
+  value binds as `$p<n>`; also accepts a SurrealQL string or a `BoundQuery`, with `{ timeout, meta }`),
+  `client.$query` (several statements in one round-trip; `{ throwOnError: false }` returns every
+  `StatementResult`) and `client.$unsafe(sql, params?, options?)` (gated by `raw: { unsafe: true }`,
+  else `UnsafeDisabled`). `raw.requireComment` demands `meta.comment` on a write script and
+  `raw.timeoutMs` applies `TIMEOUT` only to a single statement whose verb supports it.
+- **surrealdb:** the `/orm` **database functions, APIs, auth and admin (M5.2)** —
+  `client.fn.call<R>(name, args?)` compiles `RETURN fn::name($p…)` (the name is validated, never
+  spliced; a bare name resolves under `fn::`) plus one TYPED shortcut per `defineFunction` entry
+  (`client.fn.customerTier({ total })` — named args, lowered to the positional call). `client.api`
+  (`get`/`post`/`put`/`patch`/`delete` with `query`/`headers`/`body`) unwraps the response `body` and
+  throws `DatabaseError` with the HTTP `status` and the body in `details` on `>= 400`. `client.auth`
+  (`signin`/`signup`/`authenticate`/`invalidate`/`record`) passes through the SDK session
+  (`record()` without a record session → `NotAuthenticated`). `client.info(level, table?)` compiles
+  `INFO FOR ROOT|NS|DB|TABLE`, `version()`, `ping()` (`RETURN true`), `export()` and
+  `import(dump)` (replayed through `query()` — the SDK's `import()` breaks over WebSocket).
+- **surrealdb:** the `/orm` **context scoping (M5.3)** — `client.$withContext({ namespace, database,
+  meta? })` returns a clone that prefixes `USE NS … DB …;` on EVERY compiled operation in the same
+  round-trip, so multi-tenant routing needs no global `db.use()` and never leaks the session; a
+  per-call `context: { namespace?, database?, meta? }` (on every read/write arg) overrides the clone
+  and the missing side is inherited from the session. Operations bound to the connection session
+  (`api`/`auth`/`export`/`live`) fail fast with a teaching `UnsupportedCapability` on a prefix clone;
+  `client.$withContext({ …, auth })` (Promise overload) forks a session, selects the scope and
+  authenticates it. `extends` helpers are now re-applied on every clone (`$withContext`/`forkSession`)
+  and on the transaction client. New `BetterSchemicOptions.raw` defaults.
+- **surrealdb:** live-verified M5 semantics in `docs/orm-syntax-map.md` §1/§10 +
+  `test/live/orm-syntax.test.ts` (**89 probes** on server 3.2.x, up from 84): `USE NS … DB …` scoping
+  without a session leak (`USE NS` alone keeps the database; escaped identifiers accepted), `INFO FOR`
+  shapes, `TIMEOUT` per verb, `RETURN fn::x($p…)`, the `ApiResponse` envelope and `health()`
+  unsupported over WebSocket. New live suite `test/live/orm-raw.test.ts` (10 e2e: multi-tenant NS/DB,
+  parameterized raw, `fn.call`, `DEFINE API`, admin dump/restore, forked session); unit suites
+  `orm-{raw,context,fn,admin}.test.ts`; type suite `orm-m5.assert.ts` plus the `Client<S>`
+  instantiation budget. New modules: `orm/{raw,context,fn,api,auth,admin}.ts` +
+  `orm/types/{raw,context,fn,api,auth,admin}.ts`.
 
 ### Removed
 - **surrealdb:** the fluent query builder (`select`/`create`/`update`/`upsert`/`remove`/`relate`, graph
@@ -108,11 +182,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   retired with the fluent builder; the neutral field-ref carrier moved into the driver (`src/surql/ref.ts`).
 
 ### Fixed
+- **surrealdb:** `client.import(dump)` now surfaces the FIRST failing statement of the dump instead
+  of resolving successfully — the dump replays through the shared executor, so a bad statement
+  rejects with its normalized `BetterSchemicError` (it previously called `query().responses()` and
+  ignored every per-statement `ERR`).
 - **repo:** `test/live/orm-writes.test.ts` — the `create + relate return:'none'` case omitted the
   required `score` edge payload, so it failed against a real server (schemafull coercion); it now
   passes `data: { score: 0 }` like its sibling case.
 
 ### Changed
+- **surrealdb:** `$raw`/`$query` gain a **curried options form** so the tagged-template path can
+  carry `meta`/`timeout`: `client.$raw({ meta: { comment: "seed" } })\`CREATE …\`` (and
+  `client.$query({ throwOnError: false })\`…\``). Previously `raw.requireComment` was unsatisfiable
+  through the recommended template form.
+- **surrealdb:** `transaction({ …, context })` is renamed to **`meta`** — `context` now means the
+  namespace/database scope everywhere (`$withContext`, per-call `context`), so the hook metadata
+  option no longer collides.
+- **surrealdb (internal):** the executor's core is now the shared `runScript` primitive (prefix,
+  transport-error normalization, response offset) reused by `execute`, the raw escape hatches and
+  `import`; `client.ts` was decomposed (the typed `Client` facade + options moved to
+  `orm/types/client.ts`, the reserved-name list dropped in favor of the surface-first constructor)
+  and duplicated helpers were consolidated (`contextOption`, `contextPrefix`, `terminate`,
+  `parseDurationMs`, `killedChange`). `TransactionClient` now omits the session-bound
+  `export`/`import`/`version`/`$withContext` surfaces it cannot support. No behavior change beyond
+  the items above.
 - **repo (tooling):** `typecheck` now runs on the **TypeScript 7 native (Go) compiler** (`tsgo`, via
   `@typescript/native-preview`) — workspace-wide checks drop from ~4 min to ~1m20. The classic
   `typescript` devDep stays pinned at `5.9.3` because `tsup`'s bundled dts plugin and `@ark/attest`

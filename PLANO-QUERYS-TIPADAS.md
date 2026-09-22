@@ -20,7 +20,7 @@
 
 | Milestone | Status | Entregáveis |
 | --- | --- | --- |
-| M0.1 Syntax map ao vivo | ✅ concluído | `drivers/surrealdb/docs/orm-syntax-map.md`, `test/live/orm-syntax.test.ts` (78 probes verdes) |
+| M0.1 Syntax map ao vivo | ✅ concluído | `drivers/surrealdb/docs/orm-syntax-map.md`, `test/live/orm-syntax.test.ts` (89 probes verdes) |
 | M0.2 `defineSchema` + `SchemaIndex` | ✅ concluído | `src/orm/schema.ts`, `src/orm/types/schema.ts`, `src/orm/errors.ts` (classe + catálogo), `test/unit/orm-schema.test.ts`, `test/types/orm-schema.assert.ts` |
 | M0.3 Result wrappers + normalização/predicados | ✅ concluído | `src/orm/results.ts` (`ThrowingResult`/`BatchResult`/`StatementResult` + `attachThrow`), `errors.ts` estendido (`from`/`normalizeError` + 8 predicados), `test/unit/orm-errors.test.ts`, `test/unit/orm-results.test.ts`, `test/types/orm-results.assert.ts` |
 | M0.4 Executor | ✅ concluído | `src/orm/execute.ts` (1 round-trip via `responses()`, `BEGIN/COMMIT` atômico, falha raiz, binds únicos), `test/unit/orm-execute.test.ts`, `test/live/orm-execute.test.ts` |
@@ -28,6 +28,8 @@
 | M1 Leitura | ✅ concluído | compiler `where`/`select`/`aggregate`/`pagination` + `findMany`/`findFirst`/`findOne`/`findUnique`/`count`/`exists`/`aggregate`/`paginate`/`cursor` + `.throw()`/`.explain()`; M1.1–M1.8 (ver nota) |
 | M2 Escritas | ✅ concluído | `compiler/write.ts` + `writes.ts` + `types/write.ts`: `create`/`createMany` (+`relate` sugar, `skipDuplicates`), `insert`/`insertMany` (+`onDuplicate`), `update`/`updateMany` (5 modos, `unset`, expressões), `patch`, `upsert`/`upsertMany` (id/único/`conflict`), `delete`/`deleteMany`, `updateEach` (per-item), `relate`/`relateMany`/`unrelate`/`unrelateMany`; M2.1–M2.8 (ver nota) |
 | M3 Relações e grafos | ✅ concluído | `compiler/include/*` (`specs`/`projection`/`links`/`edges`/`count`/`index`) + `compiler/relations.ts` (resolução link×aresta, direção, traversal canônico, split edge/target) + `types/include.ts` + `types/relations.ts`: `include` link (`FETCH`/projetado/remontagem/aninhado), grafo (target/edge/`edge+target`/wildcard/`direction`), `_count` (aresta e array), `where` relacional (`is`/`isNot`/`some`/`every`/`none`, inclusive em writes) e remontagem no `decode.ts`; M3.1–M3.5 (ver nota) |
+| M4 Transações, live e changefeeds | ✅ concluído | `transaction.ts` (+`types/transaction.ts`: `TransactionClient`, retries, deadline, afterCommit/Rollback) · `live.ts` (+`types/live.ts`: `LiveSubscription`/`LiveNotification`, reconnect/RECONNECTED) · `changes.ts` (+`types/changes.ts`: `ChangeSet`/`ChangeEntry`); `execute` threading de `inTransaction`; `errors.ts` + `isSerializationFailure`; M4.1–M4.3 (ver nota) |
+| M5 Escape hatches, admin e contexto | ✅ concluído | `raw.ts` (+`types/raw.ts`: `$raw`/`$query`/`$unsafe` + `RawDefaults`) · `context.ts` (+`types/context.ts`: `USE NS…DB…` por operação, override por chamada, fail-fast em ops de sessão) · `fn.ts`/`api.ts`/`auth.ts`/`admin.ts` (+types): `fn.call`/atalho tipado, `DEFINE API`, auth, `info`/`version`/`ping`/`export`/`import`; `extends` reaplicado em clones/tx; M5.1–M5.3 (ver nota) |
 
 > Nota do M0.2: a classe `BetterSchemicError`/catálogo saiu antecipada (o aceite do M0.2 exige
 > `SchemaInvalid`); o M0.3 ficou com a normalização + os predicados.
@@ -122,6 +124,29 @@
 > opções desconhecidas de `_count` falham rápido. Live: `test/live/orm-relations.test.ts` (13 e2e) +
 > probes novos em `orm-syntax.test.ts` (78 no total). Unit: `test/unit/orm-include.test.ts`; tipos:
 > `test/types/orm-relations.{assert,bench}.ts`.
+> Nota do M4 (decisões confirmadas com o usuário + achados live): (1) `timeout` da transação é
+> deadline **client-side** (o servidor não tem TIMEOUT de tx): estoura → `cancel()` + `DatabaseError`
+> (`details.timedOut`); (2) `afterCommit`/`afterRollback` fora de tx falham rápido
+> (`ValidationError`) — dentro, o client raiz alcança o escopo corrente; (3) `mode:'sql'` saiu do
+> tipo público e falha rápido (`UnsupportedCapability`): ao vivo, `BEGIN`/`COMMIT` em RPCs separados
+> não seguram a transação (cada `query()` é a própria tx), então só o `beginTransaction` gerenciado
+> do SDK é correto; (4) retries são opt-in (`attempts` default 1; `on` default `writeConflict`),
+> re-executam o callback inteiro; conflito real coberto no e2e (2 conexões) e o payload do servidor
+> (`Internal` + "retry the transaction") normaliza para `WriteConflict`; (5) live usa o caminho
+> **não-gerenciado** (`LIVE SELECT` compilado por nós + `liveOf`) para preservar binds e projeção
+> tipada; a reconexão é nossa (`connected` → re-executa + reassina + `RECONNECTED`) e é unit-testada
+> (o e2e não derruba socket); sem event source (sessão forkada) a opção é inerte; (6) `only`/`value`
+> são recusados em live (`FROM ONLY` é parse error; `VALUE` não emite notificação na 3.2.0), `diff`
+> é exclusivo de `select`, e `fetch` reusa o lowering de link-fetch do `include` (decode pelo codec do
+> alvo); (7) changefeeds: CREATE e UPDATE chegam AMBOS como `update` sem INCLUDE ORIGINAL (o
+> `ChangeSet` usa `"UPDATE"` para os dois, documentado); `SINCE` é **inclusivo** (paginar com
+> `versionstamp + 1`) e aceita literal apenas (nunca bind); `since: Date` pode devolver `[]` no
+> backend memory (preferir versionstamp). Módulos: `transaction.ts`, `live.ts`, `changes.ts`,
+> `types/{transaction,live,changes}.ts`; `BetterSchemicOptions` ganhou `transaction`/`live`;
+> `error.isSerializationFailure` novo. Live: `orm-transactions.test.ts` (7 e2e), `orm-live.test.ts`
+> (7 e2e, HTTP → `LiveQueryUnsupported`, tx → `LiveInTransaction`), `orm-changes.test.ts` (5 e2e) + 6
+> probes novos (84 no total). Unit: `orm-{transaction,live,changes}.test.ts`; tipos:
+> `orm-{transactions,live,changes}.assert.ts` + bench do `TransactionClient`.
 
 ---
 
@@ -325,17 +350,17 @@ drivers/surrealdb/src/orm/
     write.ts        create/createMany/insert/insertMany/update/updateMany/patch/upsert/upsertMany/delete/deleteMany/updateEach/relate/unrelate
     include/        FETCH + traversal + _count (specs/projection/links/edges/count)
     relations.ts    resolução link×aresta + traversal canônico + split edge/target
-    live.ts         LIVE SELECT [DIFF] [FETCH]
-  execute.ts        executor multi-statement + status + tx implícita
+  execute.ts        executor multi-statement + status + tx implícita (inTransaction dos lotes)
   results.ts        ThrowingResult/BatchResult/StatementResult/ExplainResult + lazy thenable
   errors.ts         BetterSchemicError + códigos + normalização + predicados
   hooks.ts          tipos + dispatch
   plugins.ts        definePlugin + pipeline + estado
-  transaction.ts    client.transaction (sdk/sql, retries, afterCommit/Rollback)
+  transaction.ts    client.transaction (SDK gerenciado, retries, deadline, afterCommit/Rollback)
+  live.ts           live delegate/dinâmica + LiveSubscription + reconnect/RECONNECTED
+  changes.ts        SHOW CHANGES + ChangeSet + paginação por versionstamp
   raw.ts            $raw/$query/$unsafe (+ opções)
   admin.ts          fn.call · api · auth · info/version/ping/export/import
   context.ts        $withContext (USE NS/DB; sessão/isolamento) + fork
-  live.ts           live delegate/dinâmica + LiveSubscription + changes
   types/
     schema.ts       SchemaDef/SchemaOf/keys
     where.ts        Where<T> + operadores
@@ -536,33 +561,39 @@ por **alvo + `WHERE`** (`UPDATE t MERGE $p WHERE id = t:id`) para devolver vazio
 
 ```ts
 await client.transaction(async (tx) => { … }, {
-  mode: 'sdk' | 'sql', retries: { attempts, on: ['writeConflict', …], delayMs, jitter },
+  mode: 'sdk', retries: { attempts, on: ['writeConflict', …], delayMs, jitter },
   timeout, context, isolation?, onUnsupported: 'warn' | 'throw' | 'ignore',
 });
 ```
 
-- `tx` = client completo bound (delegates, `$raw`, `fn`, plugins/hooks).
+- `tx` = client completo bound (delegates, batches, plugins/hooks — `close`/`forkSession`/live fora).
 - Sucesso → commit; exceção → cancel + propagação; `tx.rollback(reason)` → `TransactionRollback`.
-- `tx.afterCommit(cb)` / `tx.afterRollback(cb)`; `client.afterCommit` no escopo corrente.
-- Aninhada = mesma transação (sem savepoint); abrir `client.transaction` dentro de tx → `TransactionAlreadyActive`.
-- `mode:'sdk'` usa `Surreal.beginTransaction()`/`SurrealTransaction.commit|cancel`; `mode:'sql'` emite
-  `BEGIN/COMMIT/CANCEL TRANSACTION`.
+- `tx.afterCommit(cb)` / `tx.afterRollback(cb)`; `client.afterCommit` no escopo corrente (fora de tx
+  → `ValidationError`).
+- Aninhada = mesma transação (sem savepoint); abrir `client.transaction` dentro de tx →
+  `TransactionAlreadyActive`.
+- `mode:'sdk'` usa `Surreal.beginTransaction()`/`SurrealTransaction.commit|cancel`; `mode:'sql'`
+  **não existe** (o tipo só aceita `'sdk'` e o runtime falha rápido) — ao vivo, `BEGIN/COMMIT` em
+  RPCs separados não segura a transação.
+- `timeout` é deadline client-side (cancela + `DatabaseError` com `details.timedOut`); `retries` é
+  opt-in (default 1 tentativa) e re-executa o callback; lotes dentro da tx pulam o `BEGIN` implícito.
 
 ### 2.7 Live queries e changefeeds (M4)
 
 | Recurso | API | Lowering/observação |
 | --- | --- | --- |
-| live por delegate | `client.users.live({ where, select, diff, fetch, only, meta }, cb?)` | `LIVE SELECT … WHERE … DIFF FETCH …` |
-| live dinâmica | `client.live('users', args, cb)` | idem |
+| live por delegate | `client.users.live({ where, select, diff, fetch, meta }, cb?)` | `LIVE SELECT [DIFF] projeção FROM t [WHERE …] [FETCH …]` |
+| live dinâmica | `client.live('users', args, cb)` | idem (chave do schema) |
 | iterar | `for await (const c of sub)` | `LiveSubscription implements AsyncIterable` |
+| erros | `sub.onError(cb)`; handler pode ser async | sem observador → console |
 | encerrar | `sub.kill()` / `client.kill(uuid)` | idempotente |
-| reatar | `client.liveOf(uuid, handler)` | `UnmanagedLivePromise` (SDK) |
-| notificação | `LiveNotification<Row> { action, value, recordId, diff?, uuid, result? }` | normalizar `LiveMessage` do SDK |
-| cláusulas inválidas | `orderBy/limit/group` → `ClauseNotSupportedInLive`; `live` em tx → `LiveInTransaction` |
-| feature/transporte | WebSocket; `live.checkFeature` (SDK `Features`) 🔶 | HTTP → `LiveQueryUnsupported` |
+| reatar | `client.liveOf(uuid, handler)` | SDK `liveOf` — values CRUS (sem meta p/ decodificar) |
+| notificação | `LiveNotification<Row>` = `LiveChange` (action CREATE/UPDATE/DELETE/KILLED, `value`, `recordId`, `diff?`, `uuid`, `result?`) \| `LiveReconnected` | normalizar `LiveMessage` do SDK |
+| cláusulas inválidas | `only`/`value`/`orderBy`/`limit`/`group`/`split`/`include` → `ClauseNotSupportedInLive`; `diff`+`select` idem; live em tx → `LiveInTransaction` |
+| feature/transporte | WebSocket apenas | HTTP → `LiveQueryUnsupported` |
 | reconexão | `live.reconnect` (default true) re-assina + evento `RECONNECTED` (extensão nossa) | observar eventos do `Surreal` |
-| changefeed | `client.changes({ table?, since, limit })` | `SHOW CHANGES FOR TABLE/DATABASE SINCE … LIMIT …` |
-| `ChangeSet` | `{ versionstamp, changes: [{ action, recordId, value?, before?, diff? }] }` | normalização |
+| changefeed | `client.changes({ table?, since, limit })` | `SHOW CHANGES FOR TABLE/DATABASE SINCE <literal> [LIMIT …]` |
+| `ChangeSet` | `{ versionstamp: bigint, changes: [ChangeWritten \| ChangeDeleted \| ChangeDefined] }` | CREATE e UPDATE chegam como `"UPDATE"`; `SINCE` é inclusivo (paginar `stamp + 1`) |
 
 ### 2.8 Raw, funções e admin (M5)
 
@@ -572,11 +603,11 @@ await client.transaction(async (tx) => { … }, {
 | X1 | `$query<T[]>` | vários statements; `{ throwOnError:false }` → `StatementResult[]` | usa `responses()` |
 | X1 | `$unsafe` | string crua; exige `raw: { unsafe: true }`; senão `UnsafeDisabled` | `$unsafe(sql, params?)` |
 | X1 | opções raw | `raw: { unsafe, requireComment, timeoutMs }` | hooks `beforeRaw/afterRaw/onRawError` |
-| X2 | `fn.call` | `client.fn.call\<R\>('fn::x', args)` / `client.fn.x(args)` (schema) | via `db.run`/`invoke` |
+| X2 | `fn.call` | `client.fn.call\<R\>('fn::x', args)` / `client.fn.x(args)` (schema) | compila `RETURN fn::x($p…)` (context-aware) — `db.run` é preso à sessão |
 | X2 | `api` | `client.api.get/post/put/patch/delete(path, { query, headers, body })` | SDK `api()`; erro com `status` + `details` |
 | X2 | `auth` | `signin/signup/authenticate/invalidate/record` | SDK; `$withContext({auth})` isola sessão |
 | X2 | admin | `info(level, table?)`, `version()`, `ping()`, `export()`, `import()` | passthrough SDK/`INFO` |
-| X3 | `$withContext` | clone com NS/DB (`USE NS … DB …;` prefixado na operação), `auth` (via `forkSession`), `meta` | 1 round-trip |
+| X3 | `$withContext` | clone com NS/DB (`USE NS … DB …;` prefixado na operação), `auth` (via `forkSession`), `meta` | 1 round-trip; ops de sessão (`api`/`auth`/`export`/`live`) falham rápido num clone por prefixo; `auth` → overload assíncrono |
 | X3 | `extends` / delegate helpers | `$model` / `$state` / `$withState` / `$withoutPlugins` | conflito = fail-fast |
 | X3 | `$sdk` | `Surreal` original | escape final |
 
@@ -895,28 +926,42 @@ drivers/surrealdb/src/frag.ts          (permanece)
   M0.1 confirmar.
 - **Aceite:** cada forma com live test no grafo de exemplo + tipos de `include`/`_count` + budgets.
 
-### M4 — Transações, live e changefeeds
+### M4 — Transações, live e changefeeds ✅
 
-- **M4.1 `client.transaction`** — `sdk`/`sql`, commit/cancel, `rollback`, aninhada mesma tx,
-  `afterCommit`/`afterRollback`, retries (`writeConflict`/`serializationFailure`/`connectionError`),
-  `timeout`/`context`, `onUnsupported`; `TransactionAlreadyActive`.
-- **M4.2 `live`** — delegate + dinâmica, `where/select/diff/fetch/only`; `LiveSubscription`
-  (asyncIterator, `kill`), `liveOf`, normalização `LiveNotification`, feature check, reconexão +
-  `RECONNECTED`; erros `LiveQueryUnsupported`/`ClauseNotSupportedInLive`/`LiveInTransaction`.
+- **M4.1 `client.transaction`** — SDK gerenciado (`'sql'` recusado), commit/cancel, `rollback`,
+  aninhada mesma tx, `afterCommit`/`afterRollback`, retries
+  (`writeConflict`/`serializationFailure`/`connectionError`, opt-in), deadline client-side,
+  `context`, `onUnsupported` (isolation); `TransactionAlreadyActive`. ✅
+- **M4.2 `live`** — delegate + dinâmica, `where/select/diff/fetch`; `LiveSubscription`
+  (asyncIterator, `kill`, `onError`), `liveOf`, normalização `LiveNotification`, reconexão +
+  `RECONNECTED`; erros `LiveQueryUnsupported`/`ClauseNotSupportedInLive`/`LiveInTransaction`. ✅
+  (`only`/`value` recusados — achado live.)
 - **M4.3 `changes`** — `SHOW CHANGES` table/database, `since` (versionstamp/Date/ISO), normalização
-  `ChangeSet`, paginação por versionstamp.
-- **Aceite:** live e2e (WebSocket/ephemeral), rollback em erro, retry forçado, tipos dos envelopes.
+  `ChangeSet`/`ChangeEntry`, decode por tabela, paginação `stamp + 1` (SINCE inclusivo). ✅
+- **Aceite:** live e2e (WebSocket/ephemeral), rollback em erro, retry forçado (conflito real), tipos
+  dos envelopes. ✅
 
 ### M5 — Escape hatches, admin e contexto
 
-- **M5.1 `$raw`/`$query`/`$unsafe`** — tagged template parametrizado, `BoundQuery`, opções raw,
-  `throwOnError:false`, hooks raw; `UnsafeDisabled`.
-- **M5.2 `fn`/`api`/`auth`/admin** — `fn.call` + atalho tipado por `defineSchema`; `api.*` (status +
-  `details`); `auth.*`; `info/version/ping/export/import`.
-- **M5.3 `$withContext`/`extends`/estado** — clone com NS/DB (`USE NS … DB …;` prefixado na operação),
-  `auth` (via `forkSession`), `meta`; helpers reaplicados; `$model/$state/$withState/$withoutPlugins`.
+- **M5.1 `$raw`/`$query`/`$unsafe`** — tagged template parametrizado (`${…}` → `$p<n>` via
+  `renderValue`, fragmento compõe), `string`/`BoundQuery`, `raw.{unsafe,requireComment,timeoutMs}`,
+  `throwOnError:false` → `StatementResult[]`; `UnsafeDisabled`. Hooks raw adiados ao M6. ✅
+- **M5.2 `fn`/`api`/`auth`/admin** — `fn.call` + atalho tipado por `defineFunction` (args nomeados →
+  posicionais); `api.*` desembrulha `body` + `DatabaseError` com `status`/`details`; `auth.*`;
+  `info/version/ping/export/import`. ✅
+- **M5.3 `$withContext`/`extends`/estado** — clone com NS/DB (`USE NS … DB …;` prefixado na operação,
+  1 round-trip, sem vazar a sessão), `auth` via overload assíncrono que forka a sessão, `meta`
+  (mesclado; consumido no M6); override por chamada (`context`); helpers reaplicados; ops de sessão
+  falham rápido (`UnsupportedCapability`). `$state`/`$withState`/`$withoutPlugins` adiados ao M6. ✅
 - **Aceite:** multi-tenant e2e (NS/DB por contexto sem vazar estado global), raw parametrizado,
-  helpers em tx/clone.
+  helpers em tx/clone. ✅ (`test/live/orm-raw.test.ts`, 10 e2e)
+- **Passe de qualidade (pós-M5)** — `runScript` como primitiva única do executor (prefixo +
+  normalização + offset) reusada por `execute`/`$raw`/`import`; `import` passa a **propagar** a
+  primeira statement com erro; `$raw`/`$query` ganham a forma **curry** (`$raw({ meta })\`…\``) para
+  o `raw.requireComment` valer no template; `transaction({ context })` → **`meta`** (colisão com o
+  `context` de NS/DB); `TransactionClient` omite `export`/`import`/`version`/`$withContext`
+  (impossíveis na tx); `client.ts` decomposto (fachada tipada em `orm/types/client.ts`, lista de
+  reservados removida) e helpers duplicados consolidados. ✅
 
 ### M6 — Plugins e hooks
 
@@ -1013,7 +1058,7 @@ Padrões do repo: live tests com timeout alto (carga paralela), `setDefaultTimeo
 
 ---
 
-**Próximo passo:** **M4 — transações, live e changefeeds** (`client.transaction` sdk/sql, retries,
-`afterCommit`/`afterRollback`; `live()` + `LiveSubscription`; `changes()`/`SHOW CHANGES`), sobre a
-infraestrutura de executor/hidratação já entregue. Manter `docs/`/`ROADMAP`/`CHANGELOG` no mesmo PR
-(regra do `AGENTS.md`).
+**Próximo passo:** **M6 — plugins e hooks** (hooks de observação + `definePlugin` e os plugins
+oficiais `rules`/`zod`), sobre a superfície já entregue (raw/contexto fornecem os pontos de
+`beforeRaw`/`afterRaw`/`onRawError` e o `meta` de contexto). Manter `docs/`/`ROADMAP`/`CHANGELOG` no
+mesmo PR (regra do `AGENTS.md`).

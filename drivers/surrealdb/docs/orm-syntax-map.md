@@ -4,7 +4,7 @@ Every row below was **live-probed** against SurrealDB **3.2.0** (local `surreal`
 in-memory server), never inferred. This is the ground truth the `/orm` compiler must emit: where the
 prototype (`prototipo-querys-tipadas/better-surreal/*`) disagrees, the server wins.
 
-- Executable half: `test/live/orm-syntax.test.ts` (78 probes, skips without the `surreal` binary).
+- Executable half: `test/live/orm-syntax.test.ts` (89 probes, skips without the `surreal` binary).
   A server upgrade that changes any behaviour here fails that suite first.
 - Related: [`graph-syntax-map.md`](./graph-syntax-map.md) (graph traversal detail, probed on 3.1.4).
 - How to re-run: `cd drivers/surrealdb && bun test test/live/orm-syntax.test.ts`.
@@ -45,6 +45,24 @@ prototype (`prototipo-querys-tipadas/better-surreal/*`) disagrees, the server wi
 | `_count` de link array usa `count(campo)` | `array::len(campo)` **erra em `NONE`**; `count(campo)` devolve `0` | usar `count(campo)` |
 | `FETCH` materializa o link mesmo fora do `select` | `SELECT id FROM post FETCH author` **não devolve** `author`; o link precisa estar na seleção | o compiler adiciona o link à projeção quando `include` é FETCH |
 | `orderBy` no include ordena qualquer campo | dentro da subquery o servidor exige o **order idiom** na seleção (projeção `*` cobre) | validar `orderBy` ⊆ projeção do alvo (ou `select: '*'`) |
+| `live({ only: true })` → `FROM ONLY` | `LIVE SELECT * FROM ONLY t` é **parse error**; `FROM t:id` dá erro de execução ("Cannot execute LIVE statement using value") | `only`/`value` recusados em live (`ClauseNotSupportedInLive`); live aceita `where`/`select`/`diff`/`fetch` |
+| `live({ select })` + `DIFF` no mesmo args | projeção + `DIFF` é parse error; `DIFF` só logo após `SELECT` e sem projeção | `diff: true` é exclusivo de `select` (`ClauseNotSupportedInLive`) |
+| `client.kill('uuid')` (string) | `KILL "uuid"` é parse error; `KILL $p` com **string** funciona; `KILL u"…"` funciona enquanto a live existe | `kill()` valida o uuid e binda a string |
+| `SHOW CHANGES … SINCE <versionstamp>` pagina a partir do último stamp | `SINCE` é **inclusivo** (repete a entrada do stamp) | paginação avança `último + 1`; documentar |
+| `SINCE` aceita param | parse error ("expected a version stamp or a date-time") | inline do literal (`0`, número/bigint ou `d'…'`) |
+| `SINCE d'…'` filtra por data | `d'1970-01-01'` devolve tudo; `d'2020-…'`/`d'ontem'` devolvem **`[]`** no backend memory (o stamp interno não alinha com wall-clock) | aceitar `Date`/ISO mas documentar: prefira versionstamp; teste live usa `0`/stamp |
+| changefeed rotula CREATE separado | `CREATE` chega como `update: { … }` (não existe chave `create`); com `INCLUDE ORIGINAL`, UPDATE = `{ current, update: [patch] }`, DELETE = `{ delete: { id, original? } }`; `define_table` também aparece; `versionstamp` é **bigint** | normalizar em `ChangeSet` |
+| `BEGIN/COMMIT` em chamadas `query()` separadas segura a transação | cada `query()` RPC é a própria transação: o `CREATE` persiste e o `COMMIT` seguinte dá "Cannot COMMIT without starting a transaction" | só `mode: 'sdk'` (`beginTransaction()` do SDK); `mode: 'sql'` falha rápido (`UnsupportedCapability`) |
+| Transação sobre HTTP | engine HTTP não tem a feature `Transactions` (SDK lança `UnsupportedFeatureError`) e `LIVE` responde `LiveQueryNotSupported` | normalizar para `UnsupportedCapability`/`LiveQueryUnsupported`; documentar que live/tx exigem WebSocket |
+| `beginTransaction` aninhado é erro | o SDK/servidor **permite** (sem savepoint) | o client dobra chamada aninhada na MESMA tx; reentrada pelo client raiz → `TransactionAlreadyActive` |
+| Write conflict tem erro dedicado | `kind: "Internal"`, mensagem `Transaction conflict: Write conflict, retry the transaction. This transaction can be retried` | heurística de mensagem já normaliza para `WriteConflict`; retry re-executa o callback |
+| `afterCommit` fora de tx | sem escopo transacional | `ValidationError` fail-fast (dívida registrada) |
+| `$withContext` com NS/DB "sem estado global" via `USE` | `USE NS … DB …;` no MESMO script escopa as statements seguintes e **não muda a sessão** (a conexão continua no NS/DB anterior) | prefixar `USE NS … DB …;` em toda operação do clone (1 round-trip, zero estado global); `auth` não cabe no prefixo → overload assíncrono que forka a sessão |
+| `client.fn.call` via `db.run` | `run`/`api`/`export`/`import`/`auth` usam o NS/DB da **sessão** — um clone por prefixo miraria o DB errado | `fn.call` compila `RETURN fn::x($p…)` (context-aware); `api`/`auth`/`export`/`live` falham rápido (`UnsupportedCapability`) em clone por prefixo |
+| `client.import(dump)` via SDK | o `import()` do SDK **quebra sobre WebSocket** (`JSON Parse error: Unexpected identifier "undefined"`) | `import` reexecuta o dump por `query()` (funciona em WS e respeita o contexto) |
+| `client.ping()` via `health()` | sobre WebSocket o servidor não tem o método (`NotFoundError: Method not found`) | `ping()` faz um round-trip `RETURN true` (uniforme em WS/HTTP) |
+| `client.api.*` lança em erro HTTP | o SDK resolve o envelope `{ status, body, headers, request_id }` **sem rejeitar** em 4xx/5xx | o ORM inspeciona `status >= 400` e lança `DatabaseError` com `status` + `details.body` |
+| `raw.timeoutMs` aplica `TIMEOUT` a qualquer raw | `TIMEOUT` só é aceito por SELECT/UPDATE/CREATE/DELETE/INSERT/UPSERT/RELATE (RETURN/LET/SLEEP/INFO/SHOW CHANGES/DEFINE dão parse error) | aplicar só a statement única com verbo compatível; caso contrário deixar intacto (documentado) |
 
 ---
 
@@ -428,18 +446,87 @@ SELECT vector::similarity::cosine(embedding, $q) AS sim FROM vec;
 
 ---
 
-## 7. Live queries e changefeeds
+## 7. Live queries e changefeeds (M4)
+
+**LIVE SELECT — formas (server 3.2.0):**
 
 | Forma | Resultado |
 | --- | --- |
-| `LIVE SELECT * FROM t [WHERE …] [FETCH …]` | devolve **uuid** da live query |
-| `LIVE SELECT DIFF FROM t [WHERE …] [FETCH …]` | ✓ — `DIFF` após `SELECT`, **sem projeção** |
-| `LIVE SELECT * FROM t … DIFF` | parse error (DIFF fora de posição) |
-| `LIVE SELECT DIFF * FROM t` / `LIVE SELECT DIFF f FROM t` | parse error (projeção com DIFF) |
-| `LIVE SELECT` dentro de transação | não suportado (verificar no client) |
-| `KILL $q` (param) ou `KILL u"…"` | encerra; `KILL "uuid"` é parse error |
-| `SHOW CHANGES FOR TABLE t SINCE 0 LIMIT n` | `[ { versionstamp, changes: [ { update/delete/create/define_table: … } ] } ]` |
-| `SHOW CHANGES FOR DATABASE SINCE d'…' LIMIT n` | idem no nível do database |
+| `LIVE SELECT * FROM t [WHERE …] [FETCH …]` | devolve o **uuid** (`Uuid` do SDK, `type: "live"`) |
+| `LIVE SELECT id, name FROM t [WHERE …]` | ✓ — projeção normal; uuid |
+| `LIVE SELECT DIFF FROM t [WHERE …] [FETCH …]` | ✓ — `DIFF` logo após `SELECT`, **sem projeção** |
+| `LIVE SELECT * FROM t … DIFF` / `LIVE SELECT f FROM t … DIFF` | parse error (DIFF fora de posição / com projeção) |
+| `LIVE SELECT VALUE f FROM t` | parse ok, uuid — mas **nenhuma notificação é emitida** (3.2.0) |
+| `LIVE SELECT * FROM ONLY t` | parse error |
+| `LIVE SELECT * FROM t:id` | erro de execução: `Cannot execute LIVE statement using value: t:id` |
+| `ORDER BY` / `LIMIT` / `GROUP ALL` em live | parse error |
+| `LIVE SELECT` dentro de `BEGIN … COMMIT` | o servidor aceita; o ORM recusa no client (`LiveInTransaction`) |
+| `KILL "uuid"` | parse error |
+| `KILL $p` com string **ou** `KILL u"…"` | encerra (enquanto a live existe); o uuid é validado e bindado pelo ORM |
+| HTTP (`http://`) | `LIVE` responde `Configuration`/`LiveQueryNotSupported` → `LiveQueryUnsupported` |
+
+**Notificações** (via `db.liveOf(uuid)`, `LiveMessage` do SDK):
+
+```ts
+{ queryId: Uuid, action: "CREATE" | "UPDATE" | "DELETE" | "KILLED", recordId: RecordId, value }
+```
+
+- Sem `DIFF`, `value` é o registro (ou o último estado em DELETE). Com `DIFF`, `value` é o array
+  de patch ops (`{ op: "replace" | "change", path, value }`) — DELETE vira `[{ op: "replace", path: "", value: undefined }]`.
+- `FETCH` materializa o link no `value` (mesma semântica do `SELECT … FETCH`).
+- Um registro que **deixa de casar** com o `WHERE` **não** emite notificação (sem "DELETE de saída
+  do filtro") — apenas mutações que continuam casando.
+
+**Changefeeds (`SHOW CHANGES`):**
+
+| Forma | Resultado |
+| --- | --- |
+| `SHOW CHANGES FOR TABLE t SINCE 0 LIMIT n` | `[ { versionstamp: bigint, changes: [...] } ]` |
+| `SHOW CHANGES FOR DATABASE SINCE 0 LIMIT n` | idem, agregando todos os changefeeds do database |
+| Entradas observadas | `define_table`; `update` (CREATE **e** UPDATE sem original, com o registro inteiro); `{ current, update: [patch] }` (UPDATE com `INCLUDE ORIGINAL`); `delete: { id, original? }` |
+| `SINCE` é inclusivo | `SINCE <stamp>` reentrega a entrada daquele stamp — paginar com `stamp + 1` |
+| `SINCE $p` | parse error ("expected a version stamp or a date-time") — literal apenas |
+| `SINCE d'…'` | `d'1970-01-01'` devolve tudo; datas "recentes" devolvem `[]` no backend memory (stamp interno ≠ wall-clock) — prefira versionstamp |
+
+**Transações (M4.1):**
+
+| Forma | Resultado |
+| --- | --- |
+| `db.beginTransaction()` + `tx.query` + `tx.commit()`/`tx.cancel()` | ✓ no engine WebSocket (única forma de transação multi-call) |
+| `BEGIN`/`COMMIT` em chamadas `query()` separadas | não segura: cada RPC é a própria transação (`Cannot COMMIT without starting a transaction`) |
+| `beginTransaction` aninhado | permitido pelo SDK/servidor (sem savepoint) — o client dobra na mesma tx |
+| `commit()` após `cancel()` | lança `Transaction not found` |
+| `cancel()` após statement falho | ok (não lança) |
+| Write conflict (2 tx, mesmo registro) | `kind: "Internal"` + `Transaction conflict: Write conflict, retry the transaction…` → `WriteConflict` |
+| HTTP (`http://`) | engine sem a feature `Transactions` (`UnsupportedFeatureError`) → não suportado |
+
+---
+
+## 10. Contexto, raw e admin (M5)
+
+**Contexto por `USE` (server 3.2.0):**
+
+| Forma | Resultado |
+| --- | --- |
+| `USE NS tenant_a DB app; SELECT * FROM t;` (mesmo script) | a statement seguinte roda no NS/DB do `USE`; `USE` devolve uma linha `{ namespace, database }` |
+| sessão após o script | **inalterada** (`db.namespace`/`db.database` continuam os anteriores) — sem vazamento de estado global |
+| `USE NS tenant_a;` (sem DB) | **mantém** o DB corrente (a resposta traz `{ namespace, database }`); com nenhum DB selecionado, a próxima statement falha (`DatabaseEmpty`) |
+| `USE NS ⟨tenant b⟩ DB ⟨my db⟩;` | ✓ — identificadores escapados com `⟨…⟩` são aceitos (o ORM usa `escapeIdent`) |
+| `USE` dentro de `BEGIN … COMMIT` | aceito pelo servidor (o ORM não emite `USE` dentro de transação sem contexto) |
+
+**Raw / funções / admin:**
+
+| Forma | Resultado |
+| --- | --- |
+| `TIMEOUT` por verbo | aceito por `SELECT`/`UPDATE`/`CREATE`/`DELETE`/`INSERT`/`UPSERT`/`RELATE`; **parse error** em `RETURN`/`LET`/`SLEEP`/`INFO`/`SHOW CHANGES`/`DEFINE` |
+| `RETURN fn::x($p0, $p1)` | ✓ — função via query (context-aware); `db.run("fn::x", […])` é preso à sessão |
+| `INFO FOR ROOT` / `NS` / `DB` / `TABLE t` | objetos com `namespaces`/`databases`/`tables`/`fields`/`indexes`/`events`/`lives`/`functions`/`apis`/… |
+| `DEFINE API '/x' FOR get THEN {…} FOR post THEN {…};` | multi-método em **um** `DEFINE API`; cada `THEN` devolve `{ status, body, headers? }` |
+| `db.api().get('/x')` | resolve `{ status, body, headers, request_id }` (não rejeita em 4xx/5xx) |
+| `db.version()` | `{ version: "surrealdb-3.2.0" }` |
+| `db.health()` | sobre WebSocket: `NotFoundError: Method not found` |
+| `db.import(dump)` (SDK) | sobre WebSocket: quebra (`JSON Parse error`); `db.query(dump)` funciona |
+| `db.run`/`export`/`import`/`api`/`auth` | presos à SESSÃO (NS/DB da conexão), não ao contexto do clone |
 
 ---
 
@@ -495,3 +582,13 @@ Nota: em scripts multi-statement, o SDK pode **lançar** (não só responder por
 32. **Link projetado sem `id`**: o compiler sempre projeta o `id` do link (leaf de presença, escondido do resultado) — sem ele um link ausente seria indistinguível de um objeto de campos nulos. Link ausente decodifica `null`; array ausente, `[]`.
 33. **Filtro de edge wildcard**: `->(? WHERE score > 4)` (forma emitida) e `->?[WHERE score > 4]` filtram; a forma chaveada `->?` sem filtro devolve as arestas.
 34. **`where` relacional em writes**: `updateMany`/`deleteMany`/`unrelateMany` compilam o MESMO lowering dos reads (o `SchemaIndex` flui para o compiler de escrita). `update`/`delete`/`patch`/`upsert` singulares continuam exigindo `id` ou índice UNIQUE.
+35. **Live args**: `where`/`select`/`fetch`/`diff` compilam para `LIVE SELECT`; `diff` é exclusivo de `select`; `only`/`value`/`orderBy`/`limit`/`group`/`split`/`include` respondem `ClauseNotSupportedInLive`; live em tx responde `LiveInTransaction`; HTTP responde `LiveQueryUnsupported`.
+36. **Live lifecycle**: a live é compilada por NÓS (binds preservados) e as notificações vêm de `liveOf(uuid)`; `kill()` é idempotente; `RECONNECTED` é extensão do ORM no evento `connected` (re-executa a LIVE e reassina); KILL pelo ORM usa `KILL $p` com a string validada.
+37. **Notificações**: `recordId` preserva `RecordId` (consistente com as rows decodificadas); `diff: true` entrega os patch ops em `diff`; um registro que sai do filtro não emite nada (documentado).
+38. **Changefeeds**: `changes()` emite `SHOW CHANGES FOR TABLE|DATABASE SINCE <literal> LIMIT n` com o `since` inline (versionstamp/número/bigint ou `d'…'`) e normaliza `update` (CREATE/UPDATE), `{current, update}`, `delete` e `define_table`; paginação por `versionstamp + 1` (SINCE é inclusivo); prefira versionstamp a datas.
+39. **Transações**: só `mode: 'sdk'` (`beginTransaction`/`commit`/`cancel` do SDK) — `mode: 'sql'` falha rápido com `UnsupportedCapability` (BEGIN não sobrevive entre RPCs); batch wrappers pulam o `BEGIN` implícito dentro da tx; aninhada = mesma tx; reentrada pelo client raiz → `TransactionAlreadyActive`; write conflict é retryável (`WriteConflict`); `timeout` é deadline client-side com `cancel`.
+40. **HTTP vs WebSocket**: live e transação exigem o engine WebSocket; sobre HTTP os erros normalizam para `LiveQueryUnsupported`/`UnsupportedCapability`.
+41. **Contexto (`$withContext`)**: `USE NS … DB …;` prefixado na MESMA operação escopa sem tocar a sessão; o lado faltante (NS ou DB) herda da sessão (`conn.namespace`/`database`) e a ausência de ambos é `ValidationError`; o override por chamada (`context: { database }`) vence o clone. Operações presas à sessão (`api`/`auth`/`export`/`live`) falham rápido com `UnsupportedCapability` num clone por prefixo; `$withContext({ auth })` forka uma sessão (Promise) para escopar essas operações.
+42. **Raw**: `$raw` (1 statement) e `$query` (N) parametrizam `${…}` via `renderValue` (fragmento compõe, valor binda); `$query({ throwOnError: false })` devolve `StatementResult[]`; `$unsafe` exige `raw.unsafe: true` (`UnsafeDisabled`); `raw.requireComment` exige `meta.comment` em script de escrita; `raw.timeoutMs` só aplica a statement única com verbo compatível.
+43. **`fn`/`api`/`auth`/admin**: `fn.call` compila `RETURN fn::x($p…)` (nome validado, nunca spliced) + atalho tipado por `defineFunction` (args NOMEADOS → posicionais); `api.*` desembrulha `body` e lança `DatabaseError` com `status`/`details` em `>= 400`; `auth.*` é passthrough da sessão (`record()` sem record access → `NotAuthenticated`); `info` compila `INFO FOR …`, `ping` faz `RETURN true`, `import` reexecuta o dump por `query()`.
+44. **`extends`**: helpers são reaplicados em clones (`$withContext`/`forkSession`) e no client de transação; colisão de nome com a superfície do client = `PluginError` fail-fast.

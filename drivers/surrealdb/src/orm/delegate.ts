@@ -14,9 +14,18 @@
 
 import type { App } from "../pure";
 import type { Queryable } from "./execute";
+import { createLiveOperation } from "./live";
 import type { ModelMeta, SchemaIndex } from "./meta";
 import { createReadOperations } from "./reads";
 import type { BatchResult } from "./results";
+import type { OperationContext } from "./types/context";
+import type {
+  LiveArgs,
+  LiveDefaults,
+  LiveHandler,
+  LiveResult,
+  LiveRow,
+} from "./types/live";
 import type { AnyRelationDef, AnyTableDef, SchemaInput } from "./types/schema";
 import type {
   AggregateArgs,
@@ -78,12 +87,24 @@ export interface ModelInfo {
 
 /** The runtime services every delegate operation needs. Built once per client. */
 export interface DelegateContext {
-  /** The wrapped connection (or session). */
+  /** The wrapped connection (or session/transaction). */
   readonly conn: Queryable;
   /** The validated schema metadata pass. */
   readonly index: SchemaIndex;
   /** Attach statement `vars` to thrown errors. */
   readonly debug: boolean;
+  /**
+   * The client is bound to a transaction — batch wrappers skip their implicit
+   * `BEGIN/COMMIT` (the surrounding transaction already owns atomicity).
+   */
+  readonly inTransaction?: boolean;
+  /** Client-level live defaults (`betterSchemic(conn, { schema, live: { … } })`). */
+  readonly live?: LiveDefaults;
+  /**
+   * The clone's default namespace/database scope (present only on a `$withContext` clone) — every
+   * compiled operation is prefixed with `USE NS … DB …;` in the same round-trip.
+   */
+  readonly context?: OperationContext;
 }
 
 /** A typed model delegate (`S` is the authored schema — relation typing needs it). */
@@ -210,6 +231,21 @@ export interface Delegate<
     const By extends keyof App<TD> & string = "id",
     const A extends UpdateEachArgs<TD, By> = UpdateEachArgs<TD, By>,
   >(args: A & { readonly by?: By }): BatchWriteResult<TD, A, S>;
+  /**
+   * Subscribe to server-pushed changes for this model — `LIVE SELECT [DIFF] <projeção> FROM t
+   * [WHERE …] [FETCH …]`. Resolves to a {@link LiveSubscription} (iterate it or pass a handler);
+   * `kill()` ends it. Live needs a WebSocket connection (`LiveQueryUnsupported` otherwise).
+   *
+   * ```ts
+   * const sub = await client.users.live({ where: { active: true }, diff: true }, (change) => {
+   *   if (change.action === "UPDATE") cache.set(change.recordId, change.diff);
+   * });
+   * ```
+   */
+  live<const A extends LiveArgs<TD, S>>(
+    args?: A,
+    handler?: LiveHandler<LiveRow<TD, A>>,
+  ): LiveResult<TD, A>;
 }
 
 /** The extra surface a RELATION delegate (`defineRelation`) exposes. */
@@ -248,6 +284,7 @@ export function createDelegate<TD extends AnyTableDef = AnyTableDef>(
     $model: modelInfo(meta),
     ...createReadOperations(meta, ctx),
     ...createWriteOperations(meta, ctx),
+    live: createLiveOperation(meta, ctx),
   };
   return delegate as unknown as Delegate<TD>;
 }

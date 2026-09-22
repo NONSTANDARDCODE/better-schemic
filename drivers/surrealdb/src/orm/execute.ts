@@ -14,8 +14,10 @@
  * values is a compiler bug, caught here as a `ParseError` instead of silently binding the wrong data.
  */
 import type { QueryResponse, Surreal } from "surrealdb";
+import { contextPrefix } from "./context";
 import { BetterSchemicError, normalizeError } from "./errors";
 import { type StatementResult, statementResult } from "./results";
+import type { ResolvedContext } from "./types/context";
 
 /** Anything the executor can run statements on — the SDK `Surreal` or a `SurrealSession`. */
 export type Queryable = Pick<Surreal, "query">;
@@ -44,6 +46,11 @@ export interface ExecuteOptions {
   readonly throwOnError?: boolean;
   /** Include the failing statement's `vars` in the error (client `debug: true`). */
   readonly debug?: boolean;
+  /**
+   * Scope this batch with `USE NS … DB …;` (context clones / per-call `context`). The prefix is a
+   * control statement: it runs in the SAME round-trip and is never exposed as a result.
+   */
+  readonly context?: ResolvedContext;
 }
 
 /** The outcome of one {@link execute} call. */
@@ -57,10 +64,55 @@ export interface ExecuteResult<T = unknown> {
 }
 
 /** Ensure a statement ends with `;` (SurrealDB requires the separator in a batch). */
-const terminate = (sql: string): string => {
+export const terminate = (sql: string): string => {
   const trimmed = sql.trim();
   return trimmed.endsWith(";") ? trimmed : `${trimmed};`;
 };
+
+/** Options for {@link runScript}. */
+export interface RunScriptOptions {
+  /** Binds for the script. */
+  readonly vars?: Record<string, unknown>;
+  /** Scope the script with `USE NS … DB …;` (a control statement, never a result). */
+  readonly context?: ResolvedContext;
+  /** Operation name attached to failures. */
+  readonly operation?: string;
+  /** Table/edge name attached to failures. */
+  readonly table?: string;
+  /** Include the script's `vars` in the error (client `debug: true`). */
+  readonly debug?: boolean;
+}
+
+/**
+ * Run ONE script string and return the server's per-statement responses (the `USE` control
+ * statement is sliced off). This is the low-level primitive {@link execute} and the raw/admin
+ * escape hatches share, so prefixing, transport-error normalization and offset handling live in
+ * exactly one place. Unlike {@link execute}, the response count is NOT checked — a script may hold
+ * any number of statements.
+ */
+export async function runScript(
+  conn: Queryable,
+  script: string,
+  options: RunScriptOptions = {},
+): Promise<readonly QueryResponse<unknown>[]> {
+  const prefix = contextPrefix(options.context);
+  const full = prefix ? `${prefix}\n${script}` : script;
+  let raw: QueryResponse<unknown>[];
+  try {
+    raw = (await conn
+      .query(full, options.vars)
+      .responses()) as QueryResponse<unknown>[];
+  } catch (e) {
+    // A transport/connection rejection (not a per-statement failure) — normalize with context.
+    throw normalizeError(e, {
+      operation: options.operation,
+      table: options.table,
+      surql: full,
+      vars: options.debug ? options.vars : undefined,
+    });
+  }
+  return prefix ? raw.slice(1) : raw;
+}
 
 /** Merge every statement's binds, rejecting a name reused with a DIFFERENT value. */
 function mergeVars(statements: readonly Statement[]): Record<string, unknown> {
@@ -99,7 +151,7 @@ export async function execute<T = unknown>(
 
   const wrapping =
     options.transactional === true && options.inTransaction !== true;
-  // The control statements flank the batch, so each user statement sits at `offset + i`.
+  // The wrapper flanks the batch, so each user statement sits at `offset + i`.
   const offset = wrapping ? 1 : 0;
   const body = statements.map((statement) => terminate(statement.sql));
   const parts = wrapping
@@ -109,20 +161,13 @@ export async function execute<T = unknown>(
   const vars = mergeVars(statements);
   const script = parts.join("\n");
 
-  let raw: QueryResponse<unknown>[];
-  try {
-    raw = (await conn
-      .query(script, vars)
-      .responses()) as QueryResponse<unknown>[];
-  } catch (e) {
-    // A transport/connection rejection (not a per-statement failure) — normalize with context.
-    throw normalizeError(e, {
-      operation: options.operation,
-      table: options.table,
-      surql: script,
-      vars: options.debug ? vars : undefined,
-    });
-  }
+  const raw = await runScript(conn, script, {
+    vars,
+    ...(options.context ? { context: options.context } : {}),
+    ...(options.operation ? { operation: options.operation } : {}),
+    ...(options.table ? { table: options.table } : {}),
+    debug: options.debug === true,
+  });
 
   // The server answers every statement (control statements included); a mismatch is a protocol
   // surprise, surfaced with the script rather than silently mis-indexed.

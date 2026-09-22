@@ -164,6 +164,56 @@ const removed = await client.users.delete({ where: { id: created.id } });
 //   where: { likes: { some: { score: { gte: 4 } } } },        // relational filter
 // });
 
+// Transactions (M4) — `tx` is a full client bound to the managed transaction:
+const from = await client.transaction(async (tx) => {
+  const user = await tx.users
+    .update({ where: { id: "user:1" }, mode: "set", data: { age: surql`age + 1` }, return: "after" })
+    .throw();
+  tx.afterCommit(() => mailer.send(user.email));   // outside effects only after the commit
+  return user;
+});
+
+// Live queries (M4) — the ORM compiles the LIVE SELECT (typed where/select/fetch):
+const sub = await client.users.live(
+  { where: { active: true }, diff: true },
+  (change) => {
+    if (change.action === "UPDATE") cache.set(change.recordId, change.diff);
+  },
+);
+// for await (const change of sub) { … }
+await sub.kill();                                  // or: await client.kill(sub.uuid)
+
+// Changefeeds (M4) — DEFINE TABLE t CHANGEFEED 1d (INCLUDE ORIGINAL for before/diff):
+const sets = await client.changes({ table: "users", since: 0, limit: 100 });
+for (const { versionstamp, changes } of sets) {
+  for (const change of changes) {
+    if (change.action === "DELETE") cache.delete(change.recordId);
+  }
+  void versionstamp;                               // paginate with `versionstamp + 1`
+}
+
+// Escape hatches & admin (M5) — parameterized by default:
+const rows = await client.$raw<User[]>`SELECT * FROM users WHERE email = ${email}`;
+const [users, posts] = await client.$query<[User[], Post[]]>`
+  SELECT * FROM users LIMIT 10; SELECT * FROM posts LIMIT 10;
+`;
+// A curried tag carries options into the template form (e.g. under `raw.requireComment`):
+// const seeded = await client.$raw({ meta: { comment: "seed" } })`CREATE …`;
+const tier = await client.fn.call<string>("fn::customer_tier", [15000]);
+// Typed shortcut per `defineFunction` (named args -> positional):
+// const tier = await client.fn.customerTier({ total: 15000 });
+const articles = await client.api.get<Article[]>("/articles", { query: { limit: 10 } });
+const info = await client.info("db");              // INFO FOR DB
+const dump = await client.export();
+await client.import(dump);
+
+// Multi-tenant scope (M5.3) — `USE NS … DB …;` per operation, no global state:
+const tenantA = client.$withContext({ namespace: "tenant_a", database: "app" });
+await tenantA.invoices.findMany({ where: { status: "open" } });
+await tenantA.invoices.findMany({ context: { database: "analytics" } }); // per-call override
+// `api`/`auth`/`export`/`live` are session-bound; fork a scoped session when you need them:
+const scoped = await client.$withContext({ namespace: "tenant_a", database: "app", auth: token });
+
 // Diagnostics without executing:
 const plan = await client.users.findMany({ where: { age: 18 } }).explain();
 ```
@@ -173,10 +223,14 @@ up by schema key OR physical name; `client.tables` lists the keys; `client.$sdk`
 is the raw `surrealdb` connection (escape hatch).
 
 **Status:** reads (M1), writes (M2 — `create`/`insert`/`update`/`patch`/`upsert`/
-`delete`/`updateEach` plus `relate`/`unrelate` on edge delegates) and relations/graphs
-(M3 — `include` links/edges/`_count`, relational `where` `is`/`isNot`/`some`/`every`/`none`)
-are complete; transactions, live queries and plugins land milestone by milestone —
-see [`PLANO-QUERYS-TIPADAS.md`](../../PLANO-QUERYS-TIPADAS.md) and the live-verified
+`delete`/`updateEach` plus `relate`/`unrelate` on edge delegates), relations/graphs
+(M3 — `include` links/edges/`_count`, relational `where` `is`/`isNot`/`some`/`every`/`none`),
+transactions/live/changefeeds (M4 — `client.transaction` with retries and
+`afterCommit`/`afterRollback`, `live()` + `LiveSubscription` with reconnect, `changes()`) and
+escape hatches/admin/context (M5 — `$raw`/`$query`/`$unsafe`, `fn`/`api`/`auth`/`info`/`version`/
+`ping`/`export`/`import`, `$withContext` multi-tenant scoping with per-call `context`) are
+complete; plugins/hooks and the remaining milestones land one at a time — see
+[`PLANO-QUERYS-TIPADAS.md`](../../PLANO-QUERYS-TIPADAS.md) and the live-verified
 [`docs/orm-syntax-map.md`](docs/orm-syntax-map.md). Fragments & procedural SurrealQL
 (`block()`) stay at `@better-schemic/surrealdb/query`.
 

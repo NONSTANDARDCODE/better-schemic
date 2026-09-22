@@ -23,6 +23,7 @@ import type { CompileReadOptions, ReadArgs } from "./compiler/select";
 import { compileRead } from "./compiler/select";
 import { type Binds, compileError, createBinds } from "./compiler/shared";
 import { uniqueTarget } from "./compiler/unique";
+import { contextOption } from "./context";
 import { decodeRow, decodeRows } from "./decode";
 import type { DelegateContext } from "./delegate";
 import { execute, type Statement } from "./execute";
@@ -35,6 +36,7 @@ import {
   lazyResult,
   type ThrowingResult,
 } from "./results";
+import type { OperationContext } from "./types/context";
 
 /** The read methods a delegate exposes (the runtime side of the typed `Delegate` interface). */
 export function createReadOperations(
@@ -67,6 +69,8 @@ export function createReadOperations(
 interface ReadRuntimeArgs {
   readonly where?: unknown;
   readonly explain?: unknown;
+  /** Per-call namespace/database override (`findMany({ context: { database } })`). */
+  readonly context?: OperationContext;
 }
 
 /** One statement of a prepared read with its `ExplainResult` role. */
@@ -88,6 +92,8 @@ interface PreparedRead {
   readonly explain: boolean;
   /** Interpret the raw rows of the prepared statements. */
   readonly decode: (rows: readonly unknown[]) => unknown;
+  /** Per-call scope override, resolved against the client's context at run time. */
+  readonly context?: OperationContext;
 }
 
 /** Wrap compiled SQL + the shared binds into a keyed prepared statement. */
@@ -155,6 +161,7 @@ function prepared(
     resultMode: extras.resultMode,
     explain: args.explain === true,
     decode: extras.decode,
+    ...(args.context ? { context: args.context } : {}),
   };
 }
 
@@ -380,6 +387,7 @@ async function runPrepared(
     operation: prepared.operation,
     table: prepared.meta.name,
     debug: ctx.debug,
+    ...contextOption(ctx, prepared.context),
   });
   return prepared.decode(out.rows);
 }
@@ -397,6 +405,7 @@ async function explainPrepared(
     operation: prepared.operation,
     table: prepared.meta.name,
     debug: ctx.debug,
+    ...contextOption(ctx, prepared.context),
   });
   return {
     driver: "surrealdb",

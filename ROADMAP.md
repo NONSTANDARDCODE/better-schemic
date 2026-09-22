@@ -13,7 +13,7 @@ Legend: ✅ done · 🚧 in progress · 🟡 partial · ⏳ not started
 
 ## M0 — fundação + substituição do legado ✅ *(complete)*
 
-- ✅ **M0.1** live syntax map (`docs/orm-syntax-map.md` + `test/live/orm-syntax.test.ts`, 78 probes) —
+- ✅ **M0.1** live syntax map (`docs/orm-syntax-map.md` + `test/live/orm-syntax.test.ts`, 89 probes) —
   every statement the ORM emits, verified against server 3.2.x, with the prototype divergences recorded.
 - ✅ **M0.2** `defineSchema` + `SchemaIndex` (columns/families, record links, graph adjacency,
   singletons, functions, schemaless entries; fail-fast `SchemaInvalid`).
@@ -116,17 +116,88 @@ edge-only includes and `_count` option typos all fail fast. The relational lower
 place (`relations.ts` arrow/traversal/refs + `where.ts` `compileRelationFilter`), shared by
 `include`, `_count` and `where`.
 
-## M4 — transações, live e changefeeds ⏳ *(next)*
+## M4 — transações, live e changefeeds ✅ *(complete)*
 
-`client.transaction` (sdk/sql, retries on write conflict, `afterCommit`/`afterRollback`), `live()` +
-subscriptions, `changes()` (`SHOW CHANGES`).
+- ✅ **M4.0** live probes + `orm-syntax-map.md` §7/§1 (84 probes total): `DIFF` right after `SELECT`
+  and without a projection, `FROM ONLY`/record targets unsupported, `VALUE` emits nothing, a record
+  leaving the `WHERE` filter emits nothing, `KILL $param` (string) works, `SINCE` takes literals only
+  and is INCLUSIVE, changefeed shapes (`update`, `{current, update}`, `delete{original}`, `bigint`
+  versionstamp), managed `beginTransaction` is the only multi-call transaction (SQL `BEGIN/COMMIT`
+  does not hold across RPCs), HTTP lacks Transactions/LiveQueries.
+- ✅ **M4.1** `client.transaction(fn, options?)` — SDK managed transaction, `tx` = full client,
+  `tx.rollback(reason)` → `TransactionRollback` (`details.reason`), nested = SAME tx, root re-entry →
+  `TransactionAlreadyActive`; retries (`writeConflict`/`serializationFailure`/`connectionError`,
+  backoff + jitter, opt-in), client-side `timeout` (cancels the tx), `context`, `isolation` policy;
+  `afterCommit`/`afterRollback` (root client reaches the current scope; outside a tx →
+  `ValidationError`); batches inside the tx skip the implicit `BEGIN`.
+- ✅ **M4.2** `live(args?, handler?)` on every delegate + `client.live(table)` / `client.liveOf(uuid)`
+  / `client.kill(uuid)` — `LIVE SELECT [DIFF] <projeção> FROM t [WHERE] [FETCH]` compiled by the ORM
+  (binds preserved), notifications decoded through the codec, `diff` ops, handler + async iterator,
+  idempotent `kill`, reconnect re-run + `RECONNECTED`, HTTP → `LiveQueryUnsupported`, tx →
+  `LiveInTransaction`; `only`/`value`/`orderBy`/`limit`/`group`/`split`/`include` → `ClauseNotSupportedInLive`.
+- ✅ **M4.3** `client.changes({ table?, since?, limit? })` — `SHOW CHANGES FOR TABLE|DATABASE SINCE
+  <literal>`, `since` versionstamp/`Date`/ISO, normalized `ChangeSet` (UPDATE/DELETE/DEFINE, `value`/
+  `diff`/`before`), rows decoded by their own table at the database level, pagination via
+  `versionstamp + 1` (inclusive `SINCE`).
 
-## M5 — escape hatches, admin e contexto ⏳
+Typed end to end: `TransactionClient<S>` (delegates, lifecycle stripped, `rollback` typed `never`),
+`LiveArgs`/`LiveRow`/`LiveNotification` (`action` discriminated union), `ChangeSet`/`ChangeEntry`.
+New modules: `orm/transaction.ts` (+ `errors.isSerializationFailure`), `orm/live.ts`, `orm/changes.ts`,
+`orm/types/{transaction,live,changes}.ts`. Live: `test/live/orm-transactions.test.ts` (7 e2e, real
+write conflict + retry), `orm-live.test.ts` (7 e2e), `orm-changes.test.ts` (5 e2e). Types:
+`orm-{transactions,live,changes}.assert.ts` + the `TransactionClient` budget.
 
-`$raw`/`$query`/`$unsafe`, `fn.call`/`api`/`auth`, `info`/`version`/`ping`/`export`/`import`,
-`$withContext` (NS/DB/session), project helpers/state.
+Known DX debt carried: per-operation `retry` on write args (prototype §10), deferred; `live`
+real-transport reconnection is unit-tested (the live suite does not force a socket drop).
 
-## M6 — plugins e hooks ⏳
+## M5 — escape hatches, admin e contexto ✅ *(complete)*
+
+- ✅ **M5.1** `$raw`/`$query`/`$unsafe` — `$raw<T>` tagged template (cada `${…}` vira `$p<n>` via
+  `renderValue`, então um fragmento `surql` compõe), `$raw(string|BoundQuery, options)`, e a forma
+  **curry** `$raw({ meta })\`…\`` (leva as options ao template — sem ela `raw.requireComment` era
+  insatisfazível no caminho recomendado); `$query` N statements com `throwOnError: false` →
+  `StatementResult[]`; `$unsafe` exige `raw.unsafe: true` (`UnsafeDisabled`); `raw.requireComment`
+  exige `meta.comment` em script de escrita; `raw.timeoutMs` aplica `TIMEOUT` só a statement única com
+  verbo compatível (SELECT/UPDATE/CREATE/DELETE/INSERT/UPSERT/RELATE).
+- ✅ **M5.2** `fn`/`api`/`auth`/admin — `client.fn.call<R>(name, args)` compila `RETURN fn::x($p…)`
+  (nome validado, nunca spliced) + atalho tipado por `defineFunction` (args NOMEADOS → posicionais);
+  `client.api.get/post/put/patch/delete` desembrulha `body` e lança `DatabaseError` com `status` +
+  `details` em `>= 400`; `client.auth.signin/signup/authenticate/invalidate/record`;
+  `info(level, table?)`/`version()`/`ping()`/`export()`/`import(dump)`.
+- ✅ **M5.3** `$withContext` — clone síncrono com NS/DB prefixado (`USE NS … DB …;`) na MESMA
+  operação, sem tocar a sessão (multi-tenant sem estado global); override por chamada
+  (`findMany({ context: { database } })`); `$withContext({ auth })` (overload assíncrono) forka a
+  sessão e autentica; operações presas à sessão (`api`/`auth`/`export`/`live`) falham rápido com
+  `UnsupportedCapability` num clone por prefixo; `extends` reaplicado em clones/transação.
+
+Typed end to end: `RawOptions`/`RawSource`/`RawStatements`/`RawTag`, `OperationContext`/`ContextScope`/
+`ResolvedContext`/`CallContext`, `FnSurface`/`FnArgs`/`FnReturn`, `ApiOperations`, `AuthOperations`,
+`AdminOperations` (+ `RootInfo`/`NsInfo`/`DbInfo`/`TableInfo`). New modules: `orm/raw.ts`,
+`orm/context.ts`, `orm/fn.ts`, `orm/api.ts`, `orm/auth.ts`, `orm/admin.ts`,
+`orm/types/{raw,context,fn,api,auth,admin,client}.ts` (a fachada tipada `Client`/`BetterSchemicOptions`
+saiu do runtime). Live: `test/live/orm-raw.test.ts` (10 e2e: multi-tenant NS/DB, raw parametrizado,
+`fn.call`, `DEFINE API`, admin dump/restore, sessão forkada). Types: `orm-m5.assert.ts` + o budget
+`Client<S>` (75.476 instanciações).
+
+**Passe de qualidade (pós-M5):** o executor ganhou a primitiva `runScript` (prefixo `USE`, normalização
+de erro de transporte, offset de controle) reusada por `execute`, `$raw`/`$query` e `import` — este
+último agora **propaga** a primeira statement com erro (antes ignorava `ERR` e "importava" em silêncio);
+`transaction({ context })` virou `transaction({ meta })` (o `context` de NS/DB não colide mais);
+`TransactionClient` omite `export`/`import`/`version`/`$withContext` (impossíveis numa `SurrealTransaction`);
+`client.ts` caiu de 744 → 515 linhas com a fachada movida para `orm/types/client.ts` e a lista de
+nomes reservados removida (a ordem do construtor agora cobre as superfícies); helpers duplicados
+consolidados (`contextOption`, `contextPrefix`, `terminate`, `parseDurationMs`, `killedChange`);
+`caught`/harness de live centralizados nos testes.
+
+Divergências registradas no mapa (`docs/orm-syntax-map.md` §1/§10): `USE` escopa sem vazar a sessão;
+`fn.call` por query em vez de `db.run` (session-bound); `import` por `query(dump)` (o `import()` do
+SDK quebra em WS); `ping()` por `RETURN true` (`health()` não existe em WS); `api.*` inspeciona o
+`status` (o SDK não rejeita em 4xx/5xx).
+
+Adiado para o M6 (dono de hooks/plugins): `beforeRaw`/`afterRaw`/`onRawError` e
+`$state`/`$withState`/`$withoutPlugins`; `meta` de contexto já é aceito e mesclado (sem consumidor).
+
+## M6 — plugins e hooks ⏳ *(next)*
 
 Observation hooks + `definePlugin` (`operationArgs`, transforms, `extendClient`/`extendModel`) and the
 official plugins (`rules`, `zod`; then `timestamps`, `soft-delete`).

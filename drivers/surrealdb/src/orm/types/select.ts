@@ -17,6 +17,7 @@
 import type { Surql } from "../../frag";
 import type { App } from "../../pure";
 import type { ExplainResult, ThrowingResult } from "../results";
+import type { CallContext } from "./context";
 import type { IncludeArg, WithIncludes } from "./include";
 import type { AnyTableDef, ElementOf, SchemaInput } from "./schema";
 import type { WhereInput } from "./where";
@@ -164,6 +165,8 @@ export interface ReadArgs<TD extends AnyTableDef, S = SchemaInput> {
   include?: IncludeArg<TD, S>;
   /** Hook/plugin metadata (consumed in M6). */
   meta?: Record<string, unknown>;
+  /** Per-call namespace/database override (`context: { database: "analytics" }`). */
+  context?: CallContext;
   /** Return the `EXPLAIN` plan instead of executing. */
   explain?: boolean;
 }
@@ -190,6 +193,8 @@ export interface CountArgs<TD extends AnyTableDef, S = SchemaInput> {
   version?: Date | string;
   /** Hook/plugin metadata (consumed in M6). */
   meta?: Record<string, unknown>;
+  /** Per-call namespace/database override. */
+  context?: CallContext;
   /** Return the `EXPLAIN` plan instead of executing. */
   explain?: boolean;
 }
@@ -482,6 +487,8 @@ export interface AggregateArgs<TD extends AnyTableDef, S = SchemaInput> {
   version?: Date | string;
   /** Hook/plugin metadata (consumed in M6). */
   meta?: Record<string, unknown>;
+  /** Per-call namespace/database override. */
+  context?: CallContext;
   /** Return the `EXPLAIN` plan instead of executing. */
   explain?: boolean;
 }

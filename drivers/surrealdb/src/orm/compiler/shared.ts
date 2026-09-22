@@ -352,6 +352,46 @@ export function datetimeLiteral(value: unknown, operation: string): string {
   return `d'${iso}'`;
 }
 
+/** SurrealDB duration units → milliseconds (the ONE unit table). */
+const DURATION_MS: Record<string, number> = {
+  ns: 1e-6,
+  us: 1e-3,
+  µs: 1e-3,
+  ms: 1,
+  s: 1e3,
+  m: 6e4,
+  h: 3.6e6,
+  d: 8.64e7,
+  w: 6.048e8,
+  y: 3.1536e10,
+};
+
+/**
+ * Parse a duration to milliseconds: a finite, non-negative number is ms; a string needs a unit
+ * (`"30s"`). Anything else is a teaching `ValidationError`.
+ */
+export function parseDurationMs(value: unknown, operation: string): number {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value < 0)
+      throw compileError(
+        "ValidationError",
+        `${operation}: timeout (ms) must be a finite, non-negative number (got ${value}).`,
+        { operation },
+      );
+    return value;
+  }
+  if (typeof value === "string") {
+    const match = /^(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h|d|w|y)$/.exec(value);
+    if (match)
+      return Number(match[1]) * (DURATION_MS[match[2] as string] as number);
+  }
+  throw compileError(
+    "ValidationError",
+    `${operation}: timeout must be milliseconds (number) or a duration string like "30s" (got ${describeValue(value)}).`,
+    { operation },
+  );
+}
+
 /** `TIMEOUT 10s` — a duration literal; a number is milliseconds. */
 export function durationLiteral(value: unknown, operation: string): string {
   if (typeof value === "number") {

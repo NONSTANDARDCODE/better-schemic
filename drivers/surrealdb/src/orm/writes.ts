@@ -49,6 +49,7 @@ import type {
   UpsertRuntimeArgs,
   WritePlan,
 } from "./compiler/write-shared";
+import { contextOption } from "./context";
 import { decodeRows } from "./decode";
 import type { DelegateContext } from "./delegate";
 import { BetterSchemicError } from "./errors";
@@ -60,6 +61,7 @@ import {
   type NotFoundInfo,
   type ThrowingResult,
 } from "./results";
+import type { OperationContext } from "./types/context";
 
 /** The full-row decode every write returns (writes have no projections — except `updateEach.select`). */
 const FULL: ProjectionSpec = fullProjectionSpec();
@@ -74,6 +76,8 @@ interface PreparedWrite {
   /** The compiled plan says the singular row may be absent (`.throw()` attaches). */
   readonly mayMiss: boolean;
   readonly decode: (rows: readonly (unknown | undefined)[]) => unknown;
+  /** Per-call scope override, resolved against the client's context at run time. */
+  readonly context?: OperationContext;
 }
 
 /** The write methods a delegate exposes (the runtime side of the typed `Delegate` interface). */
@@ -303,6 +307,7 @@ function prepare(
   const binds = createBinds();
   const plan = compile(binds);
   const where = (args as { where?: unknown }).where;
+  const context = (args as { context?: OperationContext }).context;
   return {
     meta,
     operation,
@@ -311,6 +316,7 @@ function prepare(
     ...(where !== undefined ? { where } : {}),
     mayMiss: plan.mayMiss === true,
     decode: (rows) => decode(plan, rows),
+    ...(context ? { context } : {}),
   };
 }
 
@@ -322,9 +328,11 @@ async function runPrepared(
   const out = await execute(ctx.conn, {
     statements: prepared.statements,
     transactional: prepared.transactional,
+    inTransaction: ctx.inTransaction === true,
     operation: prepared.operation,
     table: prepared.meta.name,
     debug: ctx.debug,
+    ...contextOption(ctx, prepared.context),
   });
   return prepared.decode(out.rows);
 }

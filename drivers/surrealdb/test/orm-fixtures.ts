@@ -19,6 +19,19 @@ export const fail = (error: ServerError): QueryResponse<unknown> => ({
   error,
 });
 
+/**
+ * Await a thunk and return whatever it threw (`null` when it resolved) — for asserting teaching
+ * errors, including the compile errors that throw EAGERLY (wrap the call in `() => …`).
+ */
+export const caught = async (fn: () => unknown): Promise<unknown> => {
+  try {
+    await fn();
+    return null;
+  } catch (e) {
+    return e;
+  }
+};
+
 /** The statement lines of a script (the executor separates them with `\n`). */
 export const lines = (sql: string): string[] => sql.split("\n");
 

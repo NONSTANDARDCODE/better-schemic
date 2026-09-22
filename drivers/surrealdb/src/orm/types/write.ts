@@ -13,6 +13,7 @@ import type { RecordId } from "surrealdb";
 import type { Surql } from "../../frag";
 import type { App, Create, Update } from "../../pure";
 import type { BatchResult, ThrowingResult } from "../results";
+import type { CallContext } from "./context";
 import type { AnyRelationDef, AnyTableDef, SchemaInput } from "./schema";
 import type { ResultOf, SelectArg } from "./select";
 import type { WhereInput } from "./where";
@@ -59,6 +60,8 @@ export interface PatchOp {
 export interface WriteMeta {
   /** Hook/plugin metadata (consumed in M6). */
   readonly meta?: Record<string, unknown>;
+  /** Per-call namespace/database override (`context: { database: "analytics" }`). */
+  readonly context?: CallContext;
 }
 
 // --- results -------------------------------------------------------------------------------------

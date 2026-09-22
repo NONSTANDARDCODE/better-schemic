@@ -348,6 +348,10 @@ export const isPermissionDenied = (e: unknown): boolean =>
 export const isWriteConflict = (e: unknown): boolean =>
   codeOf(e) === "WriteConflict";
 
+/** A serialization failure — retryable inside a transaction. */
+export const isSerializationFailure = (e: unknown): boolean =>
+  codeOf(e) === "SerializationFailure";
+
 /** An explicit `tx.rollback(...)` (or a cancelled transaction). */
 export const isTransactionRollback = (e: unknown): boolean =>
   codeOf(e) === "TransactionRollback";

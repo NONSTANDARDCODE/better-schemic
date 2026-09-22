@@ -1476,4 +1476,337 @@ live("ORM syntax map — live probes (server 3.x)", () => {
       expect(created).toEqual(expect.objectContaining({ title: "Rel" }));
     });
   });
+
+  describe("M4 — live queries, changefeeds and transactions", () => {
+    const sleep = (ms: number): Promise<void> =>
+      new Promise((resolve) => setTimeout(resolve, ms));
+    /** Poll until `done` (live messages/events are asynchronous). */
+    const waitFor = async (
+      done: () => boolean,
+      ms = 5_000,
+    ): Promise<boolean> => {
+      const until = Date.now() + ms;
+      while (!done() && Date.now() < until) await sleep(25);
+      return done();
+    };
+    /** Run a script and return the LAST statement's value (SDK values are NOT normalized). */
+    const rawLast = async (
+      sql: string,
+      vars?: Record<string, unknown>,
+    ): Promise<unknown> => {
+      const out = await run<unknown[]>(sql, vars);
+      return out[out.length - 1];
+    };
+
+    test("LIVE SELECT returns the query uuid; DIFF placement and unsupported clauses", async () => {
+      expect(
+        await rawLast("LIVE SELECT id, name FROM user WHERE active = $p;", {
+          p: true,
+        }),
+      ).toBeInstanceOf(Uuid);
+      expect(await rawLast("LIVE SELECT DIFF FROM user;")).toBeInstanceOf(Uuid);
+      expect(await rawLast("LIVE SELECT VALUE name FROM user;")).toBeInstanceOf(
+        Uuid,
+      );
+      expect(
+        await rawLast("LIVE SELECT * FROM user FETCH mentor;"),
+      ).toBeInstanceOf(Uuid);
+      // DIFF must sit right after SELECT, and cannot combine with a projection.
+      expect(await caught(run("LIVE SELECT * FROM user DIFF;"))).not.toBeNull();
+      expect(
+        await caught(run("LIVE SELECT id, name FROM user DIFF;")),
+      ).not.toBeNull();
+      // ORDER BY / LIMIT / GROUP ALL / FROM ONLY are parse errors in a LIVE SELECT.
+      expect(
+        await caught(run("LIVE SELECT * FROM user ORDER BY name;")),
+      ).not.toBeNull();
+      expect(
+        await caught(run("LIVE SELECT * FROM user LIMIT 1;")),
+      ).not.toBeNull();
+      expect(
+        await caught(run("LIVE SELECT count() FROM user GROUP ALL;")),
+      ).not.toBeNull();
+      expect(await caught(run("LIVE SELECT * FROM ONLY user;"))).not.toBeNull();
+      // A record target parses but fails at execution ("Cannot execute LIVE statement using value").
+      expect(
+        await caught(run("LIVE SELECT * FROM user:alice;")),
+      ).not.toBeNull();
+    });
+
+    test("LIVE SELECT inside BEGIN/COMMIT is accepted by the server (client forbids it)", async () => {
+      const out = await run<unknown[]>(
+        "BEGIN TRANSACTION; LIVE SELECT * FROM user; COMMIT TRANSACTION;",
+      );
+      expect(out[1]).toBeInstanceOf(Uuid);
+    });
+
+    test("live notifications: CREATE/UPDATE/DELETE, DIFF patches, FETCH, kill", async () => {
+      await run(`
+        DEFINE TABLE livep SCHEMAFULL;
+        DEFINE FIELD name ON livep TYPE string;
+        DEFINE FIELD active ON livep TYPE bool;
+        DEFINE FIELD friend ON livep TYPE option<record<livep>>;
+        CREATE livep:a CONTENT { name: "A", active: true };
+        CREATE livep:b CONTENT { name: "B", active: true };
+      `);
+      const uuid = (await rawLast(
+        "LIVE SELECT id, name FROM livep WHERE active = $p;",
+        { p: true },
+      )) as Uuid;
+      const messages: AnyResult[] = [];
+      const sub = await db.liveOf(uuid);
+      const stop = sub.subscribe((m) => messages.push(plain(m)));
+      await run(`CREATE livep:c CONTENT { name: "C", active: true };`);
+      await run(`UPDATE livep:c SET name = "C2";`);
+      await run(`DELETE livep:c;`);
+      await waitFor(() => messages.length >= 3);
+      stop();
+      expect(messages.map((m) => m.action)).toEqual([
+        "CREATE",
+        "UPDATE",
+        "DELETE",
+      ]);
+      expect(messages[0]).toEqual(
+        expect.objectContaining({
+          queryId: String(uuid),
+          recordId: "livep:c",
+          value: { id: "livep:c", name: "C" },
+        }),
+      );
+      expect(messages[1]).toEqual(
+        expect.objectContaining({
+          recordId: "livep:c",
+          value: { id: "livep:c", name: "C2" },
+        }),
+      );
+      await sub.kill();
+
+      const diffUuid = (await rawLast("LIVE SELECT DIFF FROM livep;")) as Uuid;
+      const diffs: AnyResult[] = [];
+      const diffSub = await db.liveOf(diffUuid);
+      const stopDiff = diffSub.subscribe((m) => diffs.push(plain(m)));
+      await run(`CREATE livep:d CONTENT { name: "D", active: true };`);
+      await run(`UPDATE livep:d SET name = "D2";`);
+      await waitFor(() => diffs.length >= 2);
+      stopDiff();
+      expect(diffs[0]?.value).toEqual([
+        expect.objectContaining({ op: "replace", path: "" }),
+      ]);
+      expect(diffs[1]?.value).toEqual([
+        expect.objectContaining({ op: "change", path: "/name" }),
+      ]);
+      await diffSub.kill();
+
+      const fetchUuid = (await rawLast(
+        "LIVE SELECT * FROM livep FETCH friend;",
+      )) as Uuid;
+      const fetched: AnyResult[] = [];
+      const fetchSub = await db.liveOf(fetchUuid);
+      const stopFetch = fetchSub.subscribe((m) => fetched.push(plain(m)));
+      await run(`UPDATE livep:a SET friend = livep:b;`);
+      await waitFor(() => fetched.length >= 1);
+      stopFetch();
+      expect(fetched[0]).toEqual(
+        expect.objectContaining({
+          action: "UPDATE",
+          recordId: "livep:a",
+          value: expect.objectContaining({
+            friend: expect.objectContaining({ id: "livep:b", name: "B" }),
+          }),
+        }),
+      );
+      await fetchSub.kill();
+    });
+
+    test("KILL accepts a bound uuid string; a quoted string is a parse error", async () => {
+      const uuid = (await rawLast("LIVE SELECT * FROM user;")) as Uuid;
+      const killed = await run<unknown[]>("KILL $p;", { p: uuid.toString() });
+      expect(killed[0]).toBeUndefined();
+      expect(await caught(run(`KILL "${uuid.toString()}";`))).not.toBeNull();
+    });
+
+    test("SHOW CHANGES: shapes, bigint versionstamp and inclusive SINCE pagination", async () => {
+      await run(`
+        DEFINE TABLE chg SCHEMAFULL CHANGEFEED 1d INCLUDE ORIGINAL;
+        DEFINE FIELD name ON chg TYPE string;
+        CREATE chg:c1 CONTENT { name: "one" };
+        UPDATE chg:c1 SET name = "two";
+        DELETE chg:c1;
+      `);
+      const changes = (await last(
+        "SHOW CHANGES FOR TABLE chg SINCE 0 LIMIT 20;",
+      )) as AnyResult[];
+      const body = changes.filter((c) => !("define_table" in c.changes[0]));
+      expect(typeof changes[0]?.versionstamp).toBe("bigint");
+      expect(
+        body.map((c) =>
+          "delete" in c.changes[0]
+            ? "delete"
+            : "current" in c.changes[0]
+              ? "update-original"
+              : "update",
+        ),
+      ).toEqual(["update", "update-original", "delete"]);
+      expect(body[0]?.changes[0]?.update).toEqual(
+        expect.objectContaining({ id: "chg:c1", name: "one" }),
+      );
+      expect(body[1]?.changes[0]).toEqual(
+        expect.objectContaining({
+          current: expect.objectContaining({ name: "two" }),
+          update: [expect.objectContaining({ op: "change", path: "/name" })],
+        }),
+      );
+      expect(body[2]?.changes[0]?.delete).toEqual(
+        expect.objectContaining({
+          id: "chg:c1",
+          original: expect.objectContaining({ name: "two" }),
+        }),
+      );
+      // `SINCE <stamp>` is INCLUSIVE — pagination advances by taking the last stamp + 1.
+      const lastStamp = (changes[changes.length - 1] as AnyResult)
+        ?.versionstamp;
+      const page = (await last(
+        `SHOW CHANGES FOR TABLE chg SINCE ${lastStamp} LIMIT 5;`,
+      )) as AnyResult[];
+      expect(page[0]?.versionstamp).toBe(lastStamp);
+      // Values are NOT bindable in SINCE (literal versionstamp or datetime only).
+      expect(
+        await caught(
+          run("SHOW CHANGES FOR TABLE chg SINCE $p LIMIT 1;", { p: 0 }),
+        ),
+      ).not.toBeNull();
+      // Database level aggregates every changefeed.
+      const atDb = (await last(
+        "SHOW CHANGES FOR DATABASE SINCE 0 LIMIT 100;",
+      )) as AnyResult[];
+      expect(atDb.some((c) => "changes" in c && c.changes.length > 0)).toBe(
+        true,
+      );
+    });
+
+    test("transactions: commit persists, cancel discards, conflict is normalizable", async () => {
+      await run(`DEFINE TABLE tx SCHEMALESS; CREATE tx:base CONTENT { v: 1 };`);
+      const committed = await db.beginTransaction();
+      await committed.query(`CREATE tx:keep CONTENT { v: 2 };`);
+      await committed.commit();
+      expect(await last("SELECT v FROM tx:keep;")).toEqual([{ v: 2 }]);
+
+      const cancelled = await db.beginTransaction();
+      await cancelled.query(`CREATE tx:drop CONTENT { v: 3 };`);
+      await cancelled.cancel();
+      expect(await last("SELECT v FROM tx:drop;")).toEqual([]);
+
+      // commit after cancel throws; cancel after a failed statement is safe.
+      const dead = await db.beginTransaction();
+      await dead.cancel();
+      expect(await caught(dead.commit())).not.toBeNull();
+
+      const failed = await db.beginTransaction();
+      expect(
+        await caught(failed.query(`CREATE tx:base CONTENT { v: 9 };`)),
+      ).not.toBeNull();
+      await failed.cancel();
+
+      // Nested beginTransaction is ALLOWED at the server/SDK level (the ORM turns it into the
+      // same transaction instead — see the client rule).
+      const outer = await db.beginTransaction();
+      const inner = await db.beginTransaction();
+      await inner.cancel();
+      await outer.cancel();
+
+      // Optimistic concurrency: the second commit is a WriteConflict, payload included.
+      const left = await db.beginTransaction();
+      const right = await db.beginTransaction();
+      await left.query(`UPDATE tx:base SET v = 10;`);
+      await right.query(`UPDATE tx:base SET v = 20;`);
+      await left.commit();
+      const conflict = await caught(right.commit());
+      expect(conflict).toBeInstanceOf(Error);
+      expect(
+        (conflict as { kind?: string; message?: string }).kind === "Internal" ||
+          (conflict as Error).message.includes("Write conflict"),
+      ).toBe(true);
+    });
+  });
+  describe("M5 — raw escape hatches, context and admin", () => {
+    test("USE NS … DB …; scopes the rest of the script and never leaks the session", async () => {
+      await run(
+        `DEFINE NAMESPACE ctx_probe; USE NS ctx_probe DB main; DEFINE TABLE t SCHEMAFULL; DEFINE FIELD n ON t TYPE int; CREATE t:1 CONTENT { n: 1 };`,
+      );
+      const [use, rows] = await run<unknown[]>(
+        "USE NS ctx_probe DB main; SELECT * FROM t;",
+      );
+      expect(plain(use)).toEqual({ namespace: "ctx_probe", database: "main" });
+      expect(plain(rows)).toEqual([{ id: "t:1", n: 1 }]);
+      // The connection's session never moved.
+      expect(db.namespace).toBe(NS);
+      expect(db.database).toBe(DB);
+      // `USE NS` alone KEEPS the current database (it does not unset it).
+      const [onlyNs] = await run<unknown[]>("USE NS ctx_probe;");
+      expect(plain(onlyNs)).toEqual({
+        namespace: "ctx_probe",
+        database: "map",
+      });
+    });
+
+    test("INFO FOR ROOT/NS/DB/TABLE shapes", async () => {
+      const root = await last("INFO FOR ROOT;");
+      expect(Object.keys(root.namespaces ?? {})).toContain("ctx_probe");
+      const ns = await last("INFO FOR NS;");
+      expect(Object.keys(ns.databases ?? {})).toContain("map");
+      const dbInfo = await last("INFO FOR DB;");
+      expect(Object.keys(dbInfo.tables ?? {})).toContain("user");
+      const table = await last("INFO FOR TABLE user;");
+      expect(Object.keys(table.fields ?? {})).toContain("name");
+    });
+
+    test("functions run as RETURN fn::x($p…) and resolve in the prefixed namespace", async () => {
+      await run(
+        "DEFINE FUNCTION fn::probe_add($a: int, $b: int) { RETURN $a + $b; };",
+      );
+      expect(await last("RETURN fn::probe_add($a, $b);", { a: 2, b: 3 })).toBe(
+        5,
+      );
+      await run(
+        "USE NS ctx_probe DB main; DEFINE FUNCTION fn::probe_here() { RETURN 'here'; };",
+      );
+      expect(
+        await last("USE NS ctx_probe DB main; RETURN fn::probe_here();"),
+      ).toBe("here");
+    });
+
+    test("TIMEOUT is accepted only by the statement verbs that support it", async () => {
+      for (const sql of [
+        "SELECT * FROM user TIMEOUT 1s;",
+        "UPDATE user:alice SET age = 30 TIMEOUT 1s;",
+        'CREATE user:tmp CONTENT { name: "tmp", age: 1 } TIMEOUT 1s;',
+        "DELETE user:tmp TIMEOUT 1s;",
+      ])
+        expect(await caught(run(sql))).toBeNull();
+      for (const sql of [
+        "RETURN 1 TIMEOUT 1s;",
+        "LET $x = 1 TIMEOUT 1s;",
+        "SLEEP 1ms TIMEOUT 1s;",
+        "INFO FOR DB TIMEOUT 1s;",
+        "SHOW CHANGES FOR TABLE user SINCE 0 TIMEOUT 1s;",
+      ])
+        expect(await caught(run(sql))).not.toBeNull();
+    });
+
+    test("DEFINE API returns an ApiResponse envelope; db.health() is WS-unsupported", async () => {
+      await run(
+        "DEFINE API '/probe' FOR get THEN { RETURN { status: 200, body: { ok: true } }; };",
+      );
+      const api = db.api() as unknown as {
+        get(path: string): Promise<unknown>;
+      };
+      const response = await api.get("/probe");
+      expect(plain(response)).toMatchObject({
+        status: 200,
+        body: { ok: true },
+      });
+      // `health()` is an HTTP-endpoint concept — over WebSocket the server has no such method.
+      expect(await caught(db.health())).not.toBeNull();
+    });
+  });
 });

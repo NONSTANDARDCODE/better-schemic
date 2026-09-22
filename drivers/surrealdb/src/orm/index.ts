@@ -48,6 +48,7 @@ export {
   isBetterSchemicError,
   isNotFound,
   isPermissionDenied,
+  isSerializationFailure,
   isTransactionRollback,
   isUniqueViolation,
   isUnsupportedCapability,
@@ -75,6 +76,7 @@ export type {
   SchemalessMeta,
   TableMeta,
 } from "./meta";
+export type { RawOperations, RawQueryTag, RawTag } from "./raw";
 export {
   attachThrow,
   type BatchResult,
@@ -86,6 +88,46 @@ export {
 } from "./results";
 export { buildSchemaIndex, defineSchema, isSchemaDef } from "./schema";
 export type {
+  AdminOperations,
+  DbInfo,
+  ExportOptions,
+  NsInfo,
+  RootInfo,
+  ServerVersion,
+  TableInfo,
+} from "./types/admin";
+export type {
+  ApiBodyOptions,
+  ApiOperations,
+  ApiRequestOptions,
+} from "./types/api";
+export type { AuthOperations } from "./types/auth";
+export type {
+  ChangeAction,
+  ChangeDefined,
+  ChangeDeleted,
+  ChangeEntry,
+  ChangeRow,
+  ChangeSet,
+  ChangesArgs,
+  ChangesSince,
+  ChangeWritten,
+} from "./types/changes";
+export type {
+  CallContext,
+  ContextAuth,
+  ContextScope,
+  OperationContext,
+  ResolvedContext,
+} from "./types/context";
+export type {
+  FnArgs,
+  FnCall,
+  FnMethod,
+  FnReturn,
+  FnSurface,
+} from "./types/fn";
+export type {
   CountIncludeOptions,
   EdgeIncludeArg,
   EdgeIncludeOptions,
@@ -94,6 +136,26 @@ export type {
   LinkIncludeOptions,
   WithIncludes,
 } from "./types/include";
+export type {
+  LiveArgs,
+  LiveChange,
+  LiveDefaults,
+  LiveFetchKeys,
+  LiveHandler,
+  LiveId,
+  LiveNotification,
+  LiveReconnected,
+  LiveResult,
+  LiveRow,
+  LiveSubscription,
+} from "./types/live";
+export type {
+  RawDefaults,
+  RawMeta,
+  RawOptions,
+  RawSource,
+  RawStatements,
+} from "./types/raw";
 export type {
   AdjacentEdgeAliases,
   EdgeAliases,
@@ -160,6 +222,14 @@ export type {
   Simplify,
   WithArg,
 } from "./types/select";
+export type {
+  RetryOptions,
+  RetryReason,
+  TransactionClient,
+  TransactionDefaults,
+  TransactionOptions,
+  UnsupportedPolicy,
+} from "./types/transaction";
 export type {
   AnyFilter,
   ArrayFilter,
