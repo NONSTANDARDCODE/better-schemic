@@ -31,6 +31,7 @@
 | M4 Transações, live e changefeeds | ✅ concluído | `transaction.ts` (+`types/transaction.ts`: `TransactionClient`, retries, deadline, afterCommit/Rollback) · `live.ts` (+`types/live.ts`: `LiveSubscription`/`LiveNotification`, reconnect/RECONNECTED) · `changes.ts` (+`types/changes.ts`: `ChangeSet`/`ChangeEntry`); `execute` threading de `inTransaction`; `errors.ts` + `isSerializationFailure`; M4.1–M4.3 (ver nota) |
 | M5 Escape hatches, admin e contexto | ✅ concluído | `raw.ts` (+`types/raw.ts`: `$raw`/`$query`/`$unsafe` + `RawDefaults`) · `context.ts` (+`types/context.ts`: `USE NS…DB…` por operação, override por chamada, fail-fast em ops de sessão) · `fn.ts`/`api.ts`/`auth.ts`/`admin.ts` (+types): `fn.call`/atalho tipado, `DEFINE API`, auth, `info`/`version`/`ping`/`export`/`import`; `extends` reaplicado em clones/tx; M5.1–M5.3 (ver nota) |
 | M6 Plugins e hooks | ✅ concluído | `hooks.ts` (+`types/hooks.ts`: `Hooks` tipados por família + `HookDispatcher`, merge cliente∪plugins, fast path, `.explain()` sem hooks) · `plugins.ts` (+`types/plugins.ts`: `definePlugin`/`transform`/`operationArgs`/`setup`/`extendClient`/`extendModel`/`$state`/`$withState`/`$withoutPlugins`) · `plugins/{rules,zod}` (F1) + `plugins/{timestamps,soft-delete}` (F2), todos subpaths oficiais; M6.1–M6.4 (ver nota) |
+| M7 Hardening, docs e release | ✅ concluído | `docs/ORM-COVERAGE.md` (matriz de runtime, separada do `COVERAGE.md`) · cookbook ORM `examples/orm/*` + `test/examples/orm-reference.test.ts` + `examples-manifest-orm.json` (`bun run gen:examples:orm`) · README do driver + banners superseded · type-perf re-baselinado · e2e/live final · CHANGELOG; M7.1–M7.3 (ver nota) |
 
 > Nota do M0.2: a classe `BetterSchemicError`/catálogo saiu antecipada (o aceite do M0.2 exige
 > `SchemaInvalid`); o M0.3 ficou com a normalização + os predicados.
@@ -1003,14 +1004,24 @@ drivers/surrealdb/src/frag.ts          (permanece)
   `deletedBy`). ✅
 - **Aceite:** soft-delete/rules e2e; plugin com `operationArgs` estendendo a tipagem do delegate. ✅
 
-### M7 — Hardening, docs e release
+### M7 — Hardening, docs e release ✅
 
-- **M7.1** `drivers/surrealdb/docs/ORM-COVERAGE.md` **exaustivo** (autor→emit→introspect→diff→execute).
-- **M7.2** Docs: driver `README.md`, `ROADMAP.md` (novo arco), `AGENTS.md`, `query-builder-design.md`
-  (superseded), `EXAMPLES`/cookbook (`examples/orm/*` + manifest), `MULTI-CONNECTION.md`.
-- **M7.3** Verificação final: `bun scripts/land.ts` (gate verde), type-perf baseline, e2e/live,
-  CHANGELOG (breaking + added) numa entrada de release.
-- **Aceite:** nenhuma referência à API antiga; ORM coverage sem lacunas não-documentadas.
+- **M7.1** `drivers/surrealdb/docs/ORM-COVERAGE.md` **exaustivo** — matriz da superfície de **runtime**
+  do ORM (reads/writes/relações/live/raw/contexto/hooks-plugins/tipos-erros), separada do `COVERAGE.md`
+  (schema/DDL) e do `orm-syntax-map.md` (sintaxe). Cada `[x]` cita os testes que o provam. ✅
+- **M7.2** Cookbook ORM `examples/orm/*` (reads/writes/relations/raw-admin/live-changes) com golden
+  `{ sql, vars }` recompilado por `test/examples/orm-reference.test.ts`; manifest **separado**
+  `examples-manifest-orm.json` via `bun run gen:examples:orm` (`scripts/gen-examples-manifest-orm.ts`).
+  README do driver + sweep de docs (`ROADMAP`, `query-builder-design.md` e proposals superseded). ✅
+- **M7.3** type-perf re-baselinado (node/tsx), e2e/live final, gate (typecheck + build + testes),
+  CHANGELOG consolidado. Land via `bun scripts/land.ts` — **sem publicar** (release é decisão à parte). ✅
+- **Aceite:** nenhuma referência à API antiga; ORM coverage sem lacunas não-documentadas. ✅
+
+Nota do M7 (decisões): o cookbook de ORM é um **catálogo separado** do schema cookbook — the ORM não
+emite DDL, então o golden é `{ sql, vars }` de runtime (o `references.test.ts` do schema fica intocado).
+`emit(defs)===ddl` do schema e `capture(def)==={sql,vars}` do ORM são o mesmo invariante de honestidade,
+aplicado a superfícies diferentes. O manifest ORM reusa o header `source.{commit,hash}` para consumidores
+que vendorizam. Docs de plugins: `transform` síncrono e o `findUnique` do soft-delete continuam registrados.
 
 ---
 
@@ -1023,8 +1034,9 @@ drivers/surrealdb/src/frag.ts          (permanece)
 | Live | cada construto SurrealQL (M0.1) + operações ponta a ponta | `test/live/orm-*.test.ts` (skip sem `surreal`) |
 | E2e | fluxos (tenant, transação, live, seed) | `test/e2e/` com harness existente |
 | Tipos | completude (attest) + budgets de instanciação | `test/types/orm-*.assert.ts` / `.bench.ts` |
-| Exemplos | cookbook (`examples/orm/*`) | `_kit.ts` + `bun run gen:examples` |
-| Coverage | matriz exaustiva da superfície ORM | `drivers/surrealdb/docs/ORM-COVERAGE.md` |
+| Exemplos (schema) | cookbook authoring→DDL (`examples/*`) | `_kit.ts` + `bun run gen:examples` |
+| Exemplos (ORM) | cookbook call→runtime SurrealQL (`examples/orm/*`) | `_kit.ts` + `test/examples/orm-reference.test.ts` + `bun run gen:examples:orm` |
+| Coverage | matriz exaustiva da superfície (ORM de runtime + schema/DDL) | `drivers/surrealdb/docs/ORM-COVERAGE.md` + `COVERAGE.md` |
 
 Padrões do repo: live tests com timeout alto (carga paralela), `setDefaultTimeout` no harness e2e,
 `surrealBinaryAvailable()` para skip, nomes de teste que o reconcile de coverage espera.
@@ -1088,6 +1100,8 @@ Padrões do repo: live tests com timeout alto (carga paralela), `setDefaultTimeo
 
 ---
 
-**Próximo passo:** **M7 — hardening, docs e release** (`docs/ORM-COVERAGE.md` exaustivo, README/
-cookbook, sweep de docs, type-perf baseline, e2e/live final e a entrada de release no `CHANGELOG`).
-Manter `docs/`/`ROADMAP`/`CHANGELOG` no mesmo PR (regra do `AGENTS.md`).
+**Estado final:** o arco **M0–M7 está completo** — a superfície tipada do `/orm` está implementada,
+documentada e verificada (`docs/ORM-COVERAGE.md` exaustivo, cookbooks schema + ORM, type-perf
+re-baselinado, e2e/live verdes, CHANGELOG). Landings acumulam no `main`; o corte de release é uma
+decisão explícita à parte (`bun scripts/release.ts next`). Manter `docs/`/`ROADMAP`/`CHANGELOG` no
+mesmo PR (regra do `AGENTS.md`).

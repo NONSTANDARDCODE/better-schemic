@@ -283,20 +283,23 @@ await client.users.restoreById(id);                            // clear deletedA
 up by schema key OR physical name; `client.tables` lists the keys; `client.$sdk`
 is the raw `surrealdb` connection (escape hatch).
 
-**Status:** reads (M1), writes (M2 — `create`/`insert`/`update`/`patch`/`upsert`/
-`delete`/`updateEach` plus `relate`/`unrelate` on edge delegates), relations/graphs
-(M3 — `include` links/edges/`_count`, relational `where` `is`/`isNot`/`some`/`every`/`none`),
-transactions/live/changefeeds (M4 — `client.transaction` with retries and
-`afterCommit`/`afterRollback`, `live()` + `LiveSubscription` with reconnect, `changes()`),
+**Status:** the typed-query arc (M0–M7) is **complete** — reads (M1), writes (M2 —
+`create`/`insert`/`update`/`patch`/`upsert`/`delete`/`updateEach` plus `relate`/`unrelate` on edge
+delegates), relations/graphs (M3 — `include` links/edges/`_count`, relational `where`
+`is`/`isNot`/`some`/`every`/`none`), transactions/live/changefeeds (M4 — `client.transaction` with
+retries and `afterCommit`/`afterRollback`, `live()` + `LiveSubscription` with reconnect, `changes()`),
 escape hatches/admin/context (M5 — `$raw`/`$query`/`$unsafe`, `fn`/`api`/`auth`/`info`/`version`/
 `ping`/`export`/`import`, `$withContext` multi-tenant scoping with per-call `context`) and
 plugins/hooks (M6 — observation `hooks`, `definePlugin` with transforms/typed `operationArgs`/
 `extendClient`/`extendModel`, plus the official plugins `plugins/rules`, `plugins/zod`,
-`plugins/timestamps` and `plugins/soft-delete`) are
-complete; the remaining milestone (hardening/docs) lands next — see
-[`PLANO-QUERYS-TIPADAS.md`](../../PLANO-QUERYS-TIPADAS.md) and the live-verified
-[`docs/orm-syntax-map.md`](docs/orm-syntax-map.md). Fragments & procedural SurrealQL
-(`block()`) stay at `@better-schemic/surrealdb/query`.
+`plugins/timestamps` and `plugins/soft-delete`).
+
+The runtime surface is mapped exhaustively in [`docs/ORM-COVERAGE.md`](docs/ORM-COVERAGE.md), the
+live-verified SurrealQL facts live in [`docs/orm-syntax-map.md`](docs/orm-syntax-map.md), and the
+verified examples are in [`examples/`](examples) (authoring → DDL) and
+[`examples/orm/`](examples/orm) (delegate call → runtime SurrealQL). See
+[`PLANO-QUERYS-TIPADAS.md`](../../PLANO-QUERYS-TIPADAS.md) for the milestone detail. Fragments &
+procedural SurrealQL (`block()`) stay at `@better-schemic/surrealdb/query`.
 
 ## Docs
 

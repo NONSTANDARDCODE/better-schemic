@@ -95,3 +95,18 @@ emits one flat catalog:
 ## Reference implementations
 
 - **SurrealDB** — `drivers/surrealdb/examples/*.ts` (`allGroups`), on `main`.
+
+## ORM cookbook (a separate catalog for a driver's runtime surface)
+
+A driver whose ORM emits **runtime SurrealQL** (not DDL) keeps a **second** catalog alongside the
+schema cookbook, for the same reason: a drift-proof source of truth for the ORM's authoring → emitted
+statement. SurrealDB's lives at `drivers/surrealdb/examples/orm/*`:
+
+- **Each entry** pairs a real delegate call (`def`) with the exact `{ sql, vars }` it produces.
+- **Assertion**: `capture(def) === { sql, vars }` — pure, deterministic, **no live DB** (a recording
+  fake connection). The same honesty invariant as `emit(defs) === ddl`, applied to a runtime statement.
+- **Generated manifest**: `scripts/gen-examples-manifest-orm.ts` (`bun run gen:examples:orm`) writes
+  `examples-manifest-orm.json` — same `source.{commit,hash}` header, one flat entry per example with
+  `code`/`sql`/`vars`. Consumers that vendor `examples-manifest.json` gain a second file for the ORM.
+- **Scope**: the ORM catalog is separate because the two golden shapes differ (`ddl` vs `{sql, vars}`)
+  and the schema `reference.test.ts` stays untouched.

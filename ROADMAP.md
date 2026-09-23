@@ -237,10 +237,12 @@ o M6 não emite SurrealQL novo.
 Known DX debt carried: `soft-delete` não filtra `findUnique` (o `where` é o alvo — documentado);
 `transform` é síncrono (async pertence a um hook) — registrado no PLANO.
 
-## M7 — hardening, docs e release ⏳
+## M7 — hardening, docs e release ✅ *(complete)*
 
-Exhaustive `docs/ORM-COVERAGE.md`, driver README/examples/cookbook, docs sweep, type-perf baselines,
-final e2e, release.
+Exhaustive `docs/ORM-COVERAGE.md` (runtime surface, separate from the schema `COVERAGE.md`), an ORM
+reference cookbook (`examples/orm/*` + `examples-manifest-orm.json` + `test/examples/orm-reference.test.ts`),
+driver README/examples, docs sweep (superseded banners), type-perf baselines, final e2e, and the
+release entry. Landing accumulates — publishing is a separate explicit decision.
 
 ---
 

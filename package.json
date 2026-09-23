@@ -6,6 +6,7 @@
   "version": "0.0.1-0",
   "scripts": {
     "gen:examples": "bun run scripts/gen-examples-manifest.ts",
+    "gen:examples:orm": "bun run scripts/gen-examples-manifest-orm.ts",
     "skills-install": "bunx skills experimental_install"
   },
   "overrides": {

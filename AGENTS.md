@@ -57,6 +57,9 @@ them. Every milestone/PR must leave the docs it touches consistent **in the same
 - `drivers/<driver>/README.md` — the user-facing example must compile against the CURRENT surface.
 - `CHANGELOG.md` — an **Unreleased** entry (Added/Changed/Removed) for anything user-visible.
 - `drivers/<driver>/docs/ORM-COVERAGE.md` / `COVERAGE.md` — the feature matrix (author→emit→…).
+- `drivers/<driver>/examples/*` (authoring → DDL) and `examples/orm/*` (delegate call → runtime
+  SurrealQL) — the verified catalogs; regenerate `examples-manifest.json` (`bun run gen:examples`)
+  and `examples-manifest-orm.json` (`bun run gen:examples:orm`) whenever a cookbook changes.
 - `packages/core/docs/*`, `MULTI-CONNECTION.md`, `AGENTS.md` — only when the surface they describe changes.
 
 A change that alters behavior/API without the matching doc update is **incomplete**; call it out in

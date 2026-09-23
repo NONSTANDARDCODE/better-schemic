@@ -211,6 +211,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `extendModel`). The factories preserve their concrete type, so `deleted` and `restore`/
   `restoreById` are typed on the client. New unit suites `orm-plugins-{timestamps,soft-delete}.test.ts`,
   the F2 live e2e (soft-delete round-trip + restore, timestamps) and the `orm-m6.assert.ts` F2 block.
+- **surrealdb:** `docs/ORM-COVERAGE.md` — an exhaustive map of the **runtime ORM surface** (reads,
+  writes, relations/graph, live/changefeeds, raw/admin/auth/api/fn, context/multi-connection,
+  hooks/plugins, types/errors), separate from the schema/DDL `docs/COVERAGE.md` and the
+  `docs/orm-syntax-map.md`. Every `[x]` cites the unit/live/type tests that prove it; deliberate gaps
+  (`parallel`, fuzzy, `having`, per-op `return` caps) are listed so they stay visible.
+- **surrealdb:** the **ORM reference cookbook** `examples/orm/*` — a drift-proof catalog pairing a real
+  delegate call with the exact runtime `{ sql, vars }` it emits (reads/writes/relations/raw-admin/
+  live-changes), asserted offline by `test/examples/orm-reference.test.ts` (`capture(def) === { sql, vars }`)
+  against a recording fake connection. This is a **separate** catalog from the schema cookbook
+  (`examples/*`, authoring → DDL). New generated `examples-manifest-orm.json` via
+  `bun run gen:examples:orm` (`scripts/gen-examples-manifest-orm.ts`), same
+  `source.{commit,hash}` header for vendoring consumers.
+
+### Changed
+- **surrealdb:** the plugin brand (`PLUGIN_BRAND`) is now a literal key (`"__betterSchemicPlugin"`)
+  instead of a `unique symbol`, so the emitted `.d.ts` for the `plugins/*` subpaths is nameable and the
+  DTS build no longer fails with `TS4058`.
 
 ### Removed
 - **surrealdb:** the fluent query builder (`select`/`create`/`update`/`upsert`/`remove`/`relate`, graph
