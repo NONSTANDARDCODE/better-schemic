@@ -54,7 +54,7 @@ jobs:
 
   # Type-completeness + instantiation-budget suites (@ark/attest). SEPARATE job because attest runs
   # under node/tsx (not bun — see packages/core/docs/TYPE-PERF-TESTING.md) and its own TS program is
-  # slower; kept out of the hot land gate. Runs off src/ via tsx, so no build step.
+  # slower; kept out of the hot land gate. Runs off src/ via tsx (`--conditions=bun`), so no build step.
   type-perf:
     name: type-perf (attest)
     runs-on: ubuntu-latest
@@ -66,9 +66,10 @@ jobs:
           bun-version: 1.4.2
 
       # node runs the attest suites; the pinned typescript devDep (not node) fixes instantiation counts.
+      # node 24 is required for `--experimental-test-isolation=none` (one attest TS program per package).
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - uses: actions/cache@v4
         with:
@@ -81,13 +82,6 @@ jobs:
 
       - name: Install
         run: bun install --frozen-lockfile
-
-      # DRIVER suites import @better-schemic/core/* as a package — node/tsx resolves those via the node
-      # condition (lib/), not the bun/src one — so core (and any cross-imported package) must be BUILT
-      # first, or the suite throws ERR_MODULE_NOT_FOUND. (A package's OWN suite imports its src/ by
-      # relative path and needs no build; the cross-package imports are what require it.)
-      - name: Build
-        run: bun run --filter '*' build
 
       - name: Type-perf suites
         run: bun run scripts/type-perf.ts

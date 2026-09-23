@@ -2,7 +2,7 @@
 // the delegate and `extendClient` on the client. Run under node/tsx (NOT bun):
 // `bun run --cwd drivers/surrealdb test:types`.
 import { after, before, describe, it } from "node:test";
-import { attest, setup, teardown } from "@ark/attest";
+import { attest } from "@ark/attest";
 import type { Surreal } from "surrealdb";
 import { defineTable, s } from "../../src/index";
 import type { Client } from "../../src/orm/client";
@@ -15,15 +15,10 @@ import type {
 } from "../../src/orm/types/plugins";
 import { softDelete as softDeletePlugin } from "../../src/plugins/soft-delete";
 import { timestamps as timestampsPlugin } from "../../src/plugins/timestamps";
+import { setupTypes, teardownTypes } from "./_setup";
 
-let cleanup: (() => void) | undefined;
-before(() => {
-  cleanup = setup() as unknown as () => void;
-});
-after(() => {
-  cleanup?.();
-  teardown();
-});
+before(setupTypes);
+after(teardownTypes);
 
 const User = defineTable("user", { name: s.string() });
 const schema = defineSchema({ users: User });

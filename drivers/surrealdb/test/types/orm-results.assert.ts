@@ -1,7 +1,7 @@
 // M0.3 — TYPE assertions for the result wrappers (`ThrowingResult` / `BatchResult` / `StatementResult`).
 // Run under node/tsx (NOT bun): `bun run --cwd drivers/surrealdb test:types`.
 import { after, before, describe, it } from "node:test";
-import { attest, setup, teardown } from "@ark/attest";
+import { attest } from "@ark/attest";
 import type { BetterSchemicError } from "../../src/orm/errors";
 import type {
   BatchResult,
@@ -9,15 +9,10 @@ import type {
   StatementResult,
   ThrowingResult,
 } from "../../src/orm/results";
+import { setupTypes, teardownTypes } from "./_setup";
 
-let cleanup: (() => void) | undefined;
-before(() => {
-  cleanup = setup() as unknown as () => void;
-});
-after(() => {
-  cleanup?.();
-  teardown();
-});
+before(setupTypes);
+after(teardownTypes);
 
 describe("ThrowingResult<T>", () => {
   it("is a Promise<T | null> augmented with `.throw()` yielding T", () => {

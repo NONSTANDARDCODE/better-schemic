@@ -2,7 +2,7 @@
 // (they land with client.fn in M5.2), and the lifecycle surface is intact.
 // Run under node/tsx (NOT bun): `bun run --cwd drivers/surrealdb test:types`.
 import { after, before, describe, it } from "node:test";
-import { attest, setup, teardown } from "@ark/attest";
+import { attest } from "@ark/attest";
 import {
   defineFunction,
   defineRelation,
@@ -13,15 +13,10 @@ import type { Client } from "../../src/orm/client";
 import type { Delegate, RelationDelegate } from "../../src/orm/delegate";
 import { defineSchema } from "../../src/orm/schema";
 import type { AnyTableDef } from "../../src/orm/types/schema";
+import { setupTypes, teardownTypes } from "./_setup";
 
-let cleanup: (() => void) | undefined;
-before(() => {
-  cleanup = setup() as unknown as () => void;
-});
-after(() => {
-  cleanup?.();
-  teardown();
-});
+before(setupTypes);
+after(teardownTypes);
 
 const User = defineTable("user", { name: s.string() });
 const Post = defineTable("post", {

@@ -2,7 +2,7 @@
 // `_count`) and the relational `where` vocabulary, all derived from the authored schema.
 // Run under node/tsx (NOT bun): `bun run --cwd drivers/surrealdb test:types`.
 import { after, before, describe, it } from "node:test";
-import { attest, setup, teardown } from "@ark/attest";
+import { attest } from "@ark/attest";
 import type { RecordId } from "surrealdb";
 import { defineRelation, defineTable, s } from "../../src/index";
 import type { Client } from "../../src/orm/client";
@@ -11,15 +11,10 @@ import type { IncludeArg } from "../../src/orm/types/include";
 import type { ResultOf, Simplify } from "../../src/orm/types/select";
 import type { Where } from "../../src/orm/types/where";
 import type { App } from "../../src/pure";
+import { setupTypes, teardownTypes } from "./_setup";
 
-let cleanup: (() => void) | undefined;
-before(() => {
-  cleanup = setup() as unknown as () => void;
-});
-after(() => {
-  cleanup?.();
-  teardown();
-});
+before(setupTypes);
+after(teardownTypes);
 
 const UserBase = defineTable("user", { name: s.string(), age: s.int() });
 const User = UserBase.extend({

@@ -2,7 +2,7 @@
 // result shapes, the throwing reads, the aggregate/count/paginate/cursor envelopes, and `explain`.
 // Run under node/tsx (NOT bun): `bun run --cwd drivers/surrealdb test:types`.
 import { after, before, describe, it } from "node:test";
-import { attest, setup, teardown } from "@ark/attest";
+import { attest } from "@ark/attest";
 import type { Surql } from "../../src/frag";
 import { defineTable, s } from "../../src/index";
 import type { Client } from "../../src/orm/client";
@@ -21,15 +21,10 @@ import type {
 } from "../../src/orm/types/select";
 import type { Where } from "../../src/orm/types/where";
 import type { App } from "../../src/pure";
+import { setupTypes, teardownTypes } from "./_setup";
 
-let cleanup: (() => void) | undefined;
-before(() => {
-  cleanup = setup() as unknown as () => void;
-});
-after(() => {
-  cleanup?.();
-  teardown();
-});
+before(setupTypes);
+after(teardownTypes);
 
 const User = defineTable("user", {
   name: s.string(),

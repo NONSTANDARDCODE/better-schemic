@@ -4,7 +4,7 @@
 // `attest<Expected, Actual>()` fails to COMPILE if Actual isn't exactly Expected — so a key-extraction
 // regression (an edge leaking into SchemalessKeys, `AppAt` losing the codec type, …) turns red here.
 import { after, before, describe, it } from "node:test";
-import { attest, setup, teardown } from "@ark/attest";
+import { attest } from "@ark/attest";
 import {
   defineFunction,
   defineRelation,
@@ -24,17 +24,12 @@ import type {
   TableKeys,
 } from "../../src/orm/types/schema";
 import type { App } from "../../src/pure";
+import { setupTypes, teardownTypes } from "./_setup";
 
-// attest needs its checker set up once per run; bracket the suite. (Shared 6-line convention — copied
-// verbatim from packages/core/test/types; see docs/TYPE-PERF-TESTING.md.)
-let cleanup: (() => void) | undefined;
-before(() => {
-  cleanup = setup() as unknown as () => void;
-});
-after(() => {
-  cleanup?.();
-  teardown();
-});
+// attest needs its checker set up once per run; `_setup.ts` memoizes it so every assert file in the
+// package's single node process shares ONE TypeScript program. See docs/TYPE-PERF-TESTING.md.
+before(setupTypes);
+after(teardownTypes);
 
 const User = defineTable("user", { name: s.string(), age: s.int() });
 const Post = defineTable("post", {

@@ -11,7 +11,7 @@ Two guarantees, both enforced in CI:
    the budget and fails, guarding the `tsc` instantiation-depth / autocomplete-latency ceiling that
    heavy generic machinery (Flags, `CreateShape`, `Row`/`FieldRef`, the connection typing) runs into.
 
-Worked reference: **`packages/core/test/types/`** (`authoring-types.test.ts` + `authoring-types.bench.ts`).
+Worked reference: **`packages/core/test/types/`** (`authoring-types.assert.ts` + `authoring-types.bench.ts`).
 
 ## The one rule that matters: run under node, NOT bun
 
@@ -32,8 +32,10 @@ runner `scripts/type-perf.ts` does this for you — do not run these files with 
 
 ```
 <package>/test/types/
-  *.assert.ts  # attest type assertions, run via node's test runner
-  *.bench.ts   # instantiation budgets, each run directly (exits non-zero if over budget)
+  _setup.ts             # shared, memoized attest setup — imported by every *.assert.ts
+  tsconfig.attest.json  # narrows attest's program to test/types/ + src/
+  *.assert.ts           # attest type assertions, run via node's test runner
+  *.bench.ts            # instantiation budgets, batched into one process (exits non-zero if over budget)
 ```
 
 The `.assert.ts` suffix (not `.test.ts`) is deliberate: it keeps these files OUT of `bun test` — which
@@ -51,20 +53,35 @@ Each package wires one script (mirrors `packages/core`):
 CI runs it as a **separate `type-perf` job** — deliberately OUT of the hot `land.ts` gate, because
 attest's own TS program is slower and needs node/tsx.
 
-> **Driver suites need a built core.** A driver suite imports `@better-schemic/core/*` as a *package*, which
-> node/tsx resolves via the node condition (`lib/`), not the bun/`src` one — so `@better-schemic/core` (and
-> any cross-imported package) must be **built** first (`bun run --filter '*' build`) or the suite
-> throws `ERR_MODULE_NOT_FOUND` at runtime. A package's OWN suite imports its `src/` by relative path
-> and needs no build. The CI job builds before running; build locally too when you run a driver suite.
-> (attest's *type* pass still reads `src` via `customConditions: ["bun"]`, so instantiation counts stay
-> src-based regardless.)
+### One TypeScript program per package
+
+Building attest's program and type-checking the project costs ~50s, and the cost is **per process**.
+Running one process per file made CI take ~10 minutes for 11 files, so the runner consolidates:
+
+- **Asserts:** one `node --test` per package with **`--experimental-test-isolation=none`** (node ≥ 22.8;
+  CI pins node 24). Every `.assert.ts` shares one process, one `TsServer`, one assertion cache.
+  `test/types/_setup.ts` memoizes `setup()` so the shared program is built exactly once even though
+  each file registers its own `before`/`after` hooks.
+- **Benches:** `scripts/type-perf-bench.mts` imports every `.bench.ts` sequentially in one process,
+  reusing the same program and isolated counting env.
+- **Narrow program:** `test/types/tsconfig.attest.json` includes only `test/types/` + `src/`, so the
+  project-wide type-check attest runs during `setup()` skips the package's other suites (live/e2e/
+  unit). The driver's setup drops from ~100s to ~33s locally; instantiation counts are unaffected
+  (they only use the config's `compilerOptions`).
+
+The runner also passes **`--conditions=bun`**, so `@better-schemic/core/*` (and any workspace package)
+resolves from **`src/`** at runtime — exactly like the local bun run and attest's tsconfig
+(`customConditions: ["bun"]`). **No `lib/` build is needed before running the suites**, locally or in
+CI, and a stale `lib/` can't skew a run. (attest's *type* pass reads `src` either way, so instantiation
+counts stay src-based.)
 
 ## Adding a suite to a driver
 
 1. `bun add -d @ark/attest tsx` in your package (pin the same attest version core uses — instantiation
    counts are tied to it and to the `typescript` version).
 2. Add the `test:types` script above.
-3. Create `test/types/` and copy the two file shapes below.
+3. Create `test/types/`, copy `tsconfig.attest.json` + `_setup.ts` (below), then copy the two suite
+   file shapes.
 
 > **Toolchain note.** attest drives the classic JS compiler API, so every package pins
 > `typescript@5.9.3` — do NOT bump it without re-baselining the budgets (`ATTEST_updateSnapshots=1`).
@@ -74,16 +91,42 @@ attest's own TS program is slower and needs node/tsx.
 
 ### `*.assert.ts` — type assertions
 
+```jsonc
+// test/types/tsconfig.attest.json — copy once per package
+{
+  "extends": "../../tsconfig.json",
+  "include": ["./**/*.ts", "../../src/**/*.ts"]
+}
+```
+
 ```ts
+// test/types/_setup.ts — copy once per package (memoized: one TS program per process)
+import { fileURLToPath } from "node:url";
+import { setup, teardown } from "@ark/attest";
+
+const TSCONFIG = fileURLToPath(new URL("./tsconfig.attest.json", import.meta.url));
+
+let initialized = false;
+export function setupTypes(): void {
+  if (initialized) return;
+  initialized = true;
+  setup({ tsconfig: TSCONFIG });
+}
+export function teardownTypes(): void {
+  teardown();
+}
+```
+
+```ts
+// test/types/*.assert.ts
 import { after, before, describe, it } from "node:test";
-import { attest, setup, teardown } from "@ark/attest";
+import { attest } from "@ark/attest";
 import type { InnerOf } from "../../src/authoring";
 import type * as z from "zod";
+import { setupTypes, teardownTypes } from "./_setup";
 
-// attest needs its checker set up once per run — this 6-line block is the shared convention, copy it.
-let cleanup: (() => void) | undefined;
-before(() => { cleanup = setup() as unknown as () => void; });
-after(() => { cleanup?.(); teardown(); });
+before(setupTypes);
+after(teardownTypes);
 
 describe("InnerOf", () => {
   it("unwraps ZodOptional", () => {

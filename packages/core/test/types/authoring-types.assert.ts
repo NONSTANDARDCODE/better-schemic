@@ -5,20 +5,15 @@
 // checks it at runtime — so a type utility that silently drifts (a wrapper it stops unwrapping, a flag
 // it drops) turns red here instead of surfacing as a mystery inference bug downstream.
 import { after, before, describe, it } from "node:test";
-import { attest, setup, teardown } from "@ark/attest";
+import { attest } from "@ark/attest";
 import type * as z from "zod";
 import type { InnerOf, SchemaOf } from "../../src/authoring";
+import { setupTypes, teardownTypes } from "./_setup";
 
-// attest needs its type-checker set up once per run; bracket the suite. (This 6-line block is the
-// shared convention — a driver's type-suite copies it verbatim; see docs/TYPE-PERF-TESTING.md.)
-let cleanup: (() => void) | undefined;
-before(() => {
-  cleanup = setup() as unknown as () => void;
-});
-after(() => {
-  cleanup?.();
-  teardown();
-});
+// attest needs its type-checker set up once per run; `_setup.ts` memoizes it so every assert file in
+// the package's single node process shares ONE TypeScript program. See docs/TYPE-PERF-TESTING.md.
+before(setupTypes);
+after(teardownTypes);
 
 describe("InnerOf — the schema one wrapper down", () => {
   it("unwraps ZodOptional", () => {

@@ -3,7 +3,7 @@
 // and the `$withContext` overloads (sync scope vs Promise session). Run under node/tsx (NOT bun):
 // `bun run --cwd drivers/surrealdb test:types`.
 import { after, before, describe, it } from "node:test";
-import { attest, setup, teardown } from "@ark/attest";
+import { attest } from "@ark/attest";
 import type { Tokens } from "surrealdb";
 import { defineFunction, defineTable, s } from "../../src/index";
 import type { Client } from "../../src/orm/client";
@@ -21,15 +21,10 @@ import type {
 import type { FnArgs, FnReturn, FnSurface } from "../../src/orm/types/fn";
 import type { RawOptions, RawStatements } from "../../src/orm/types/raw";
 import type { FindManyArgs, FindUniqueArgs } from "../../src/orm/types/select";
+import { setupTypes, teardownTypes } from "./_setup";
 
-let cleanup: (() => void) | undefined;
-before(() => {
-  cleanup = setup() as unknown as () => void;
-});
-after(() => {
-  cleanup?.();
-  teardown();
-});
+before(setupTypes);
+after(teardownTypes);
 
 const User = defineTable("user", { name: s.string() });
 const Add = defineFunction("add", { a: s.number(), b: s.number() }).returns(

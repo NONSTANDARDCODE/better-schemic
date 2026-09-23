@@ -225,6 +225,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `source.{commit,hash}` header for vendoring consumers.
 
 ### Changed
+- **repo (tooling):** the `type-perf` CI job no longer pays attest's TypeScript program cost once per
+  file — it now runs **one program per package** (~11min → ~2-3min; both suites locally 1m51s).
+  `scripts/type-perf.ts` passes `--experimental-test-isolation=none` to `node --test` (node ≥ 22.8;
+  CI moves 20 → 24), the new `scripts/type-perf-bench.mts` imports every `.bench.ts` in one process,
+  each package's `test/types/_setup.ts` memoizes attest's `setup()`, and
+  `test/types/tsconfig.attest.json` narrows attest's project type-check to `test/types/` + `src/`
+  (the driver's setup drops from ~100s to ~33s locally). The runner also passes `--conditions=bun`,
+  so driver suites resolve `@better-schemic/core` from `src/` like the local bun run and the job no
+  longer builds the workspace first. Assertions, budgets and baselines are unchanged — only the
+  harness.
 - **surrealdb:** plugin `setup`/`transform` are now typed **synchronous** (`transform` returns
   `void | false`, `setup` returns `void`), matching the runtime (compilation is eager, bootstrap is
   synchronous) — an `async transform` can no longer silently fail to skip an operation, nor an
