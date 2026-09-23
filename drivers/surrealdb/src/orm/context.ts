@@ -31,24 +31,18 @@ export function resolveContext(
   call?: CallContext,
 ): ResolvedContext | undefined {
   const scope = ctx.context;
-  if (!scope && !call) return undefined;
+  const namespace = call?.namespace ?? scope?.namespace;
+  const database = call?.database ?? scope?.database;
+  // A meta-only context carries no namespace/database override — it threads hook metadata without
+  // prefixing `USE` (or requiring the session to have a scope selected).
+  if (namespace === undefined && database === undefined) return undefined;
   const session = ctx.conn as SessionScope;
-  const namespace = pick(
-    "namespace",
-    call?.namespace,
-    scope?.namespace,
-    session.namespace,
-  );
-  const database = pick(
-    "database",
-    call?.database,
-    scope?.database,
-    session.database,
-  );
+  const resolvedNamespace = pick("namespace", namespace, session.namespace);
+  const resolvedDatabase = pick("database", database, session.database);
   const meta = mergeMeta(scope?.meta, call?.meta);
   return {
-    namespace,
-    database,
+    namespace: resolvedNamespace,
+    database: resolvedDatabase,
     ...(meta ? { meta } : {}),
   };
 }
@@ -110,6 +104,18 @@ function mergeMeta(
 ): Record<string, unknown> | undefined {
   if (!scope && !call) return undefined;
   return { ...scope, ...call };
+}
+
+/**
+ * The effective hook metadata of one operation: the clone's `$withContext({ meta })` scope, then the
+ * per-call `context.meta`, then the per-call `meta` (each level overrides the previous).
+ */
+export function resolveMeta(
+  ctx: DelegateContext,
+  call?: CallContext,
+  callMeta?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  return mergeMeta(mergeMeta(ctx.context?.meta, call?.meta), callMeta);
 }
 
 /** Reject a session-bound operation on a prefix-scoped clone (it would target the wrong DB). */

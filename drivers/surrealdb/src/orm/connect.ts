@@ -17,6 +17,7 @@ import {
   type SchemaArg,
 } from "./client";
 import { normalizeError } from "./errors";
+import type { Plugin } from "./types/plugins";
 import type { SchemaInput } from "./types/schema";
 
 /** Authentication for {@link createBetterSchemic}: a system user, or a record-access signin. */
@@ -70,9 +71,12 @@ function withTimeout<T>(
  * });
  * ```
  */
-export async function createBetterSchemic<S extends SchemaInput>(
-  options: CreateBetterSchemicOptions<S>,
-): Promise<Client<S, Surreal>> {
+export async function createBetterSchemic<
+  S extends SchemaInput,
+  const P extends readonly Plugin[] = readonly [],
+>(
+  options: CreateBetterSchemicOptions<S> & { readonly plugins?: P },
+): Promise<Client<S, Surreal, P>> {
   const conn = new Surreal();
   try {
     const connecting = conn.connect(options.url, { reconnect: false });
@@ -118,7 +122,11 @@ export async function createBetterSchemic<S extends SchemaInput>(
     await conn.close().catch(() => {});
     throw normalizeError(e, { operation: "connect" });
   }
-  return buildClient(conn, options.schema, true, options);
+  return buildClient(conn, options.schema, true, options) as unknown as Client<
+    S,
+    Surreal,
+    P
+  >;
 }
 
 /**

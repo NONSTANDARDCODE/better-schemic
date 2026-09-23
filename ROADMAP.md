@@ -194,13 +194,48 @@ Divergências registradas no mapa (`docs/orm-syntax-map.md` §1/§10): `USE` esc
 SDK quebra em WS); `ping()` por `RETURN true` (`health()` não existe em WS); `api.*` inspeciona o
 `status` (o SDK não rejeita em 4xx/5xx).
 
-Adiado para o M6 (dono de hooks/plugins): `beforeRaw`/`afterRaw`/`onRawError` e
-`$state`/`$withState`/`$withoutPlugins`; `meta` de contexto já é aceito e mesclado (sem consumidor).
+Adiado ao M6 (dono de hooks/plugins): `beforeRaw`/`afterRaw`/`onRawError` e
+`$state`/`$withState`/`$withoutPlugins` — ENTREGUES no M6 (ver acima); `meta` de contexto é
+consumido pelos hooks.
 
-## M6 — plugins e hooks ⏳ *(next)*
+## M6 — plugins e hooks ✅ *(complete)*
 
-Observation hooks + `definePlugin` (`operationArgs`, transforms, `extendClient`/`extendModel`) and the
-official plugins (`rules`, `zod`; then `timestamps`, `soft-delete`).
+Hooks de observação (log/tracing/métricas) + `definePlugin` (transform, `operationArgs`, hooks,
+`extendClient`/`extendModel`, estado por delegate) e os plugins oficiais F1 (`rules`, `zod`) e
+F2 (`timestamps`, `soft-delete`).
+
+- ✅ **M6.1 hooks** — `hooks` no bootstrap (`betterSchemic(conn, { schema, hooks })`); famílias
+  `before/afterQuery|Create|Update|Delete|Relate`, `before/afterRaw`+`onRawError`,
+  `beforeTransaction`/`afterTransactionCommit`/`afterTransactionRollback`+`onTransactionError`,
+  `onError`. Payload com `table`/`operation`/`surql`/`vars`/`data`/`where`/`result`/`durationMs`/
+  `count`/`meta` (o `meta` da chamada vence o do `$withContext`); `before*` pode abortar, `after*`
+  roteia a falha para `onError`; `.explain()` NÃO dispara hooks; pipeline ausente = fast path.
+- ✅ **M6.2 `definePlugin`** — `definePlugin({ id, name?, config?, operationArgs?, setup?,
+  transform?, hooks?, extendClient?, extendModel? })`; `transform` muta `where`/`data`/`kind`
+  (re-despacho; `false` pula a op) e é SÍNCRONO (a compilação continua eager); `operationArgs`
+  tipados por operação (opcionais) fluem para `Delegate`/`Client<S,C,P>`; `setup` 1x no bootstrap
+  (fail-fast `PluginError`); `$model` ganhou `dbName`/`relations`; `$state`/`$withState`/
+  `$withoutPlugins` por delegate.
+- ✅ **M6.3 F1** — `plugins/rules` (`noRawUnsafe`, `destructiveWriteWithoutWhere`, `requireLimit`,
+  `requireOrderByForCursor`, `maxLimit`, `strict` → `UnknownField`; presets `safe`/`recommended`/
+  `strict`) e `plugins/zod` (valida `data` de create/insert/update/upsert por tabela → `ValidationError`
+  com o path). Subpaths `@better-schemic/surrealdb/plugins/{rules,zod}`.
+- ✅ **M6.4 F2** — `plugins/timestamps` (modo `app` carimba `time::now()` em create/update/upsert;
+  modo `database` só remove as colunas gerenciadas) e `plugins/soft-delete` (`delete`→`update`/
+  `updateMany` com a coluna carimbada, filtro de leitura `deleted: "with" | "without" | "only"`
+  (exceto `findUnique`, cujo `where` é o alvo), `deletedBy` de `meta.actor`, `restore`/
+  `restoreById` via `extendModel`). Subpaths `@better-schemic/surrealdb/plugins/{timestamps,soft-delete}`.
+
+Tipado ponta a ponta: `HookPayload`/`AfterHookPayload`/`ErrorHookPayload` (raw/transaction próprios),
+`Plugin`/`PluginSpec`/`PluginContext`/`PluginState`/`Operation`, `PluginArgs`/`PluginClientExtras`/
+`PluginModelExtras`. Novos módulos: `orm/hooks.ts`, `orm/plugins.ts`, `orm/types/{hooks,plugins}.ts`,
+`plugins/{rules,zod,timestamps,soft-delete}.ts`. Testes: `test/unit/orm-{hooks,plugins,plugins-rules,
+plugins-zod,plugins-timestamps,plugins-soft-delete}.test.ts`, `test/types/orm-m6.assert.ts` + budgets,
+`test/live/orm-plugins.test.ts` (soft-delete + timestamps e2e). `orm-syntax-map.md` **inalterado**:
+o M6 não emite SurrealQL novo.
+
+Known DX debt carried: `soft-delete` não filtra `findUnique` (o `where` é o alvo — documentado);
+`transform` é síncrono (async pertence a um hook) — registrado no PLANO.
 
 ## M7 — hardening, docs e release ⏳
 

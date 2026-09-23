@@ -44,7 +44,7 @@ export interface CountArgs {
   with?: unknown;
   timeout?: unknown;
   version?: unknown;
-  meta?: unknown;
+  meta?: Record<string, unknown>;
   /** Return the `EXPLAIN` plan instead of executing. */
   explain?: unknown;
   /** Removed/renamed args — rejected with a teaching error. */
@@ -136,7 +136,7 @@ export interface AggregateArgs {
   with?: unknown;
   timeout?: unknown;
   version?: unknown;
-  meta?: unknown;
+  meta?: Record<string, unknown>;
   /** Return the `EXPLAIN` plan instead of executing. */
   explain?: unknown;
   /** Not expressible in SurrealQL — always rejected with `HavingUnsupported`. */

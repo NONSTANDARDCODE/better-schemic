@@ -216,7 +216,68 @@ const scoped = await client.$withContext({ namespace: "tenant_a", database: "app
 
 // Diagnostics without executing:
 const plan = await client.users.findMany({ where: { age: 18 } }).explain();
+
+// Observation hooks (M6) — logging/tracing around every operation, never mutating it:
+const logged = betterSchemic(db, {
+  schema,
+  hooks: {
+    beforeQuery: ({ table, operation, surql }) => logger.debug({ table, operation, surql }),
+    afterQuery: ({ durationMs }) => metrics.timing("db.query", durationMs),
+    onError: ({ error }) => logger.error({ err: error }),
+  },
+});
+
+// Plugins (M6) — mutate operations, add typed args, extend the client/delegates:
+import { definePlugin, surql } from "@better-schemic/surrealdb/orm";
+const softDelete = definePlugin({
+  id: "soft-delete",
+  config: { column: "deletedAt" },
+  operationArgs: { findMany: { deleted: "without" as "with" | "without" | "only" } },
+  transform(op) {
+    if (op.kind === "delete") { op.kind = "update"; op.data[this.config.column] = surql`time::now()`; }
+    else if (op.kind.startsWith("find") && op.args.deleted !== "with") op.where[this.config.column] = { isNone: true };
+  },
+  extendModel({ model }) {
+    return { restore: (args) => model.update({ where: args.where, mode: "set", data: { [this.config.column]: null } }) };
+  },
+});
+// await client.users.findMany({ deleted: "with" });
+// await client.users.delete({ where: { id } });   // soft delete
+// await client.users.restore({ where: { id } });
 ```
+
+Official F1 guardrail/validation plugins (M6.3) ship as subpaths:
+
+```ts
+import { recommended } from "@better-schemic/surrealdb/plugins/rules";
+import { zod } from "@better-schemic/surrealdb/plugins/zod";
+const client = betterSchemic(db, {
+  schema,
+  plugins: [
+    recommended({ maxLimit: 100 }),            // noRawUnsafe + no unfiltered writes + required/max limit
+    zod({ schemas: { user: z.object({ email: z.email() }) } }),
+  ],
+});
+```
+
+Official F2 plugins (M6.4) — timestamps + a reversible soft delete:
+
+```ts
+import { timestamps } from "@better-schemic/surrealdb/plugins/timestamps";
+import { softDelete } from "@better-schemic/surrealdb/plugins/soft-delete";
+
+const client = betterSchemic(db, {
+  schema,
+  plugins: [timestamps(), softDelete({ deletedBy: "deletedBy" })],
+});
+// create/update get `time::now()` stamped automatically (mode "app");
+// delete becomes a soft delete and reads hide deleted rows unless `deleted: "with" | "only"`:
+await client.users.delete({ where: { id }, meta: { actor: currentUserId } });
+const live = await client.users.findMany({});                 // deleted rows hidden
+const all  = await client.users.findMany({ deleted: "with" }); // include them
+await client.users.restoreById(id);                            // clear deletedAt
+```
+
 
 `client.users.$model` is the delegate metadata; `client.repository("user")` looks
 up by schema key OR physical name; `client.tables` lists the keys; `client.$sdk`
@@ -226,10 +287,13 @@ is the raw `surrealdb` connection (escape hatch).
 `delete`/`updateEach` plus `relate`/`unrelate` on edge delegates), relations/graphs
 (M3 — `include` links/edges/`_count`, relational `where` `is`/`isNot`/`some`/`every`/`none`),
 transactions/live/changefeeds (M4 — `client.transaction` with retries and
-`afterCommit`/`afterRollback`, `live()` + `LiveSubscription` with reconnect, `changes()`) and
+`afterCommit`/`afterRollback`, `live()` + `LiveSubscription` with reconnect, `changes()`),
 escape hatches/admin/context (M5 — `$raw`/`$query`/`$unsafe`, `fn`/`api`/`auth`/`info`/`version`/
-`ping`/`export`/`import`, `$withContext` multi-tenant scoping with per-call `context`) are
-complete; plugins/hooks and the remaining milestones land one at a time — see
+`ping`/`export`/`import`, `$withContext` multi-tenant scoping with per-call `context`) and
+plugins/hooks (M6 — observation `hooks`, `definePlugin` with transforms/typed `operationArgs`/
+`extendClient`/`extendModel`, plus the official plugins `plugins/rules`, `plugins/zod`,
+`plugins/timestamps` and `plugins/soft-delete`) are
+complete; the remaining milestone (hardening/docs) lands next — see
 [`PLANO-QUERYS-TIPADAS.md`](../../PLANO-QUERYS-TIPADAS.md) and the live-verified
 [`docs/orm-syntax-map.md`](docs/orm-syntax-map.md). Fragments & procedural SurrealQL
 (`block()`) stay at `@better-schemic/surrealdb/query`.

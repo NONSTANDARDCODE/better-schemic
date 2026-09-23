@@ -30,6 +30,7 @@
 | M3 Relações e grafos | ✅ concluído | `compiler/include/*` (`specs`/`projection`/`links`/`edges`/`count`/`index`) + `compiler/relations.ts` (resolução link×aresta, direção, traversal canônico, split edge/target) + `types/include.ts` + `types/relations.ts`: `include` link (`FETCH`/projetado/remontagem/aninhado), grafo (target/edge/`edge+target`/wildcard/`direction`), `_count` (aresta e array), `where` relacional (`is`/`isNot`/`some`/`every`/`none`, inclusive em writes) e remontagem no `decode.ts`; M3.1–M3.5 (ver nota) |
 | M4 Transações, live e changefeeds | ✅ concluído | `transaction.ts` (+`types/transaction.ts`: `TransactionClient`, retries, deadline, afterCommit/Rollback) · `live.ts` (+`types/live.ts`: `LiveSubscription`/`LiveNotification`, reconnect/RECONNECTED) · `changes.ts` (+`types/changes.ts`: `ChangeSet`/`ChangeEntry`); `execute` threading de `inTransaction`; `errors.ts` + `isSerializationFailure`; M4.1–M4.3 (ver nota) |
 | M5 Escape hatches, admin e contexto | ✅ concluído | `raw.ts` (+`types/raw.ts`: `$raw`/`$query`/`$unsafe` + `RawDefaults`) · `context.ts` (+`types/context.ts`: `USE NS…DB…` por operação, override por chamada, fail-fast em ops de sessão) · `fn.ts`/`api.ts`/`auth.ts`/`admin.ts` (+types): `fn.call`/atalho tipado, `DEFINE API`, auth, `info`/`version`/`ping`/`export`/`import`; `extends` reaplicado em clones/tx; M5.1–M5.3 (ver nota) |
+| M6 Plugins e hooks | ✅ concluído | `hooks.ts` (+`types/hooks.ts`: `Hooks` tipados por família + `HookDispatcher`, merge cliente∪plugins, fast path, `.explain()` sem hooks) · `plugins.ts` (+`types/plugins.ts`: `definePlugin`/`transform`/`operationArgs`/`setup`/`extendClient`/`extendModel`/`$state`/`$withState`/`$withoutPlugins`) · `plugins/{rules,zod}` (F1) + `plugins/{timestamps,soft-delete}` (F2), todos subpaths oficiais; M6.1–M6.4 (ver nota) |
 
 > Nota do M0.2: a classe `BetterSchemicError`/catálogo saiu antecipada (o aceite do M0.2 exige
 > `SchemaInvalid`); o M0.3 ficou com a normalização + os predicados.
@@ -147,6 +148,34 @@
 > (7 e2e, HTTP → `LiveQueryUnsupported`, tx → `LiveInTransaction`), `orm-changes.test.ts` (5 e2e) + 6
 > probes novos (84 no total). Unit: `orm-{transaction,live,changes}.test.ts`; tipos:
 > `orm-{transactions,live,changes}.assert.ts` + bench do `TransactionClient`.
+> Nota do M6 (decisões confirmadas com o usuário + escopo F1): (1) funil de operação POR `kind` —
+> `createDelegate` compila o ops-table e o embrulha com o `transform` dos plugins; `transform` pode
+> mudar `op.kind` (re-despacho com guarda anti-loop) ou devolver `false` (a op resolve `undefined`
+> sem tocar o banco); sem `hasTransforms` o embrulho é a identidade (custo zero); (2) `transform` é
+> **síncrono** de propósito (a compilação continua EAGER: um arg ruim ainda explode no call site);
+> trabalho assíncrono pertence a um hook; (3) hooks rodam ONE-shot por OPERAÇÃO, não por attempt — em
+> transação `beforeTransaction`/`afterTransactionCommit`/`afterTransactionRollback`/
+> `onTransactionError` disparam uma vez no call (não por retry); (4) `.explain()` continua sem hooks;
+> (5) `meta` efetivo = `$withContext.meta` ∪ `context.meta` ∪ `args.meta` (o da chamada vence) via
+> `resolveMeta`; um contexto SÓ-meta NÃO emite `USE NS/DB` (não exige sessão escopada); (6)
+> `operationArgs` são OPCIONAIS no tipo (o plugin aplica o default em runtime); (7) plugins oficiais
+> são subpaths (`plugins/rules`, `plugins/zod`), não packages; `rules` traz o `strict`→`UnknownField`.
+> Módulos: `orm/hooks.ts`, `orm/plugins.ts`, `orm/types/{hooks,plugins}.ts`, `plugins/{rules,zod}.ts`;
+> `BetterSchemicOptions` ganhou `hooks`/`plugins`; `ModelInfo` ganhou `dbName`/`relations`. Live:
+> `orm-plugins.test.ts` (soft-delete e2e). Unit: `orm-{hooks,plugins,plugins-rules,plugins-zod}.test.ts`;
+> tipos: `orm-m6.assert.ts` + budgets (`Client`/`TransactionClient` re-baselinados).
+> Nota do M6.4 (F2): `plugins/timestamps` — `app` (default) carimba `time::now()` em
+> create/createMany/insert/insertMany (createdAt+updatedAt) e update/upsert (só updatedAt); `database`
+> apenas remove as colunas gerenciadas (o schema tem `VALUE time::now()`). `plugins/soft-delete`:
+> `delete`→`update` e `deleteMany`→`updateMany` com a coluna carimbada; filtro de leitura
+> `deleted: "with" | "without" | "only"` (default `without`) em findMany/findFirst/findOne/count/
+> exists/aggregate/paginate/cursor; **`findUnique` é EXCETO** (o `where` é o alvo `id`/único — filtrar
+> quebraria o `uniqueTarget`; documentado, checar `deletedAt` na mão); `deletedBy` opcional lido de
+> `meta.actor`; `restore`/`restoreById` (`extendModel`) limpam a coluna via `UNSET` (não `SET null`,
+> que o codec `date().optional()` rejeita). As factories `timestamps()`/`softDelete()` PRESERVAM o
+> tipo concreto (sem anotação `: Plugin`), então `restore`/`restoreById`/`deleted` são tipados no
+> client. Testes: `orm-plugins-{timestamps,soft-delete}.test.ts`, live `orm-plugins.test.ts`
+> (soft-delete round-trip + restore, timestamps app), `orm-m6.assert.ts` (bloco F2).
 
 ---
 
@@ -963,15 +992,16 @@ drivers/surrealdb/src/frag.ts          (permanece)
   (impossíveis na tx); `client.ts` decomposto (fachada tipada em `orm/types/client.ts`, lista de
   reservados removida) e helpers duplicados consolidados. ✅
 
-### M6 — Plugins e hooks
+### M6 — Plugins e hooks (F1) ✅
 
-- **M6.1 Hooks** — tipos + dispatch em todos os pipelines (fast path preservado).
+- **M6.1 Hooks** — tipos + dispatch em todos os pipelines (fast path preservado). ✅
 - **M6.2 `definePlugin`** — pipeline, `operationArgs` tipados, `extendClient`/`extendModel`, `setup`,
-  estado por delegate, `transform` mutando `where/data/kind`, `setup` fail-fast.
+  estado por delegate, `transform` mutando `where/data/kind`, `setup` fail-fast. ✅
 - **M6.3 F1** — `plugins/rules` (presets + guardrails; `UnsafeMutation`/`UnknownField`) e
-  `plugins/zod` (validação de resultado/overrides).
-- **M6.4 F2 (opcional)** — `plugins/timestamps`, `plugins/soft-delete` (+ `restore`).
-- **Aceite:** soft-delete/rules e2e; plugin com `operationArgs` estendendo a tipagem do delegate.
+  `plugins/zod` (validação de `data` com path). ✅
+- **M6.4 F2** — `plugins/timestamps` (app/database), `plugins/soft-delete` (`restore`/`restoreById`,
+  `deletedBy`). ✅
+- **Aceite:** soft-delete/rules e2e; plugin com `operationArgs` estendendo a tipagem do delegate. ✅
 
 ### M7 — Hardening, docs e release
 
@@ -1058,7 +1088,6 @@ Padrões do repo: live tests com timeout alto (carga paralela), `setDefaultTimeo
 
 ---
 
-**Próximo passo:** **M6 — plugins e hooks** (hooks de observação + `definePlugin` e os plugins
-oficiais `rules`/`zod`), sobre a superfície já entregue (raw/contexto fornecem os pontos de
-`beforeRaw`/`afterRaw`/`onRawError` e o `meta` de contexto). Manter `docs/`/`ROADMAP`/`CHANGELOG` no
-mesmo PR (regra do `AGENTS.md`).
+**Próximo passo:** **M7 — hardening, docs e release** (`docs/ORM-COVERAGE.md` exaustivo, README/
+cookbook, sweep de docs, type-perf baseline, e2e/live final e a entrada de release no `CHANGELOG`).
+Manter `docs/`/`ROADMAP`/`CHANGELOG` no mesmo PR (regra do `AGENTS.md`).

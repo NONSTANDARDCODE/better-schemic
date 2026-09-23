@@ -26,4 +26,4 @@ type S = typeof schema;
 
 bench("TransactionClient<S> — the tx-bound client surface", () => {
   return {} as TransactionClient<S>;
-}).types([19582, "instantiations"]);
+}).types([19799, "instantiations"]);

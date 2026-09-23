@@ -76,6 +76,11 @@ export type {
   SchemalessMeta,
   TableMeta,
 } from "./meta";
+export {
+  definePlugin,
+  isPlugin,
+  type PluginPipeline,
+} from "./plugins";
 export type { RawOperations, RawQueryTag, RawTag } from "./raw";
 export {
   attachThrow,
@@ -128,6 +133,25 @@ export type {
   FnSurface,
 } from "./types/fn";
 export type {
+  AfterHookPayload,
+  CreateOperation,
+  DeleteOperation,
+  ErrorHookPayload,
+  HookPayload,
+  Hooks,
+  OperationKind,
+  RawAfterHookPayload,
+  RawErrorHookPayload,
+  RawHookPayload,
+  RawOperation,
+  ReadOperation,
+  RelateOperation,
+  TransactionAfterHookPayload,
+  TransactionHookPayload,
+  TransactionRollbackHookPayload,
+  UpdateOperation,
+} from "./types/hooks";
+export type {
   CountIncludeOptions,
   EdgeIncludeArg,
   EdgeIncludeOptions,
@@ -149,6 +173,20 @@ export type {
   LiveRow,
   LiveSubscription,
 } from "./types/live";
+export type {
+  Operation,
+  OperationArgsMap,
+  Plugin,
+  PluginArgs,
+  PluginClientContext,
+  PluginClientExtras,
+  PluginContext,
+  PluginModelContext,
+  PluginModelExtras,
+  PluginSetupContext,
+  PluginSpec,
+  PluginState,
+} from "./types/plugins";
 export type {
   RawDefaults,
   RawMeta,

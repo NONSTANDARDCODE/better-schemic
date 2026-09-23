@@ -57,7 +57,7 @@ export interface ReadArgs {
   with?: unknown;
   timeout?: unknown;
   version?: unknown;
-  meta?: unknown;
+  meta?: Record<string, unknown>;
   /** Relation hydration (links/edges/`_count`) — M3. */
   include?: unknown;
   /** Return the `EXPLAIN` plan instead of executing. */

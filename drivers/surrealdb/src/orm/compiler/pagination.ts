@@ -50,7 +50,7 @@ export interface PaginateArgs {
   with?: unknown;
   timeout?: unknown;
   version?: unknown;
-  meta?: unknown;
+  meta?: Record<string, unknown>;
   /** Return the `EXPLAIN` plan instead of executing. */
   explain?: unknown;
   /** `false` skips the count statement and probes `LIMIT n+1` for `hasNext`. Default `true`. */
@@ -157,7 +157,7 @@ export interface CursorArgs {
   with?: unknown;
   timeout?: unknown;
   version?: unknown;
-  meta?: unknown;
+  meta?: Record<string, unknown>;
   /** Return the `EXPLAIN` plan instead of executing. */
   explain?: unknown;
   /** Relation hydration (M3). */

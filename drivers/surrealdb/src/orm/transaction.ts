@@ -23,6 +23,7 @@ import {
   normalizeError,
 } from "./errors";
 import type { Queryable } from "./execute";
+import type { HookDispatcher } from "./hooks";
 import type { SchemaInput } from "./types/schema";
 import type {
   RetryReason,
@@ -116,6 +117,8 @@ export interface TransactionHost {
   $transactionDefaults(): TransactionDefaults | undefined;
   /** Present iff this client is BOUND to a transaction (the `tx` handle). */
   $txState(): TransactionState | undefined;
+  /** The observation-hook dispatcher (absent = no hooks). */
+  $hooks(): HookDispatcher | undefined;
   /** Root clients only: the scope of the transaction currently running on this client. */
   $rootScope(): TransactionState | undefined;
   /** Root clients only: set/clear the running scope (used while the callback executes). */
@@ -290,6 +293,9 @@ const sleep = (ms: number): Promise<void> =>
     ? new Promise((resolve) => setTimeout(resolve, ms))
     : Promise.resolve();
 
+/** A process-wide monotonic id, so hook payloads can tell transactions apart. */
+let transactionSeq = 0;
+
 /** Convert the attempt failure into the error the caller sees. */
 function attemptError(
   e: unknown,
@@ -392,6 +398,16 @@ export async function runTransaction<T, S extends SchemaInput = SchemaInput>(
       },
     );
 
+  // Hooks fire once per CALL (not per retry attempt): before → commit | (error + rollback).
+  const hooks = host.$hooks();
+  const txId = hooks ? ++transactionSeq : 0;
+  const txStarted = hooks ? performance.now() : 0;
+  const txPayload = {
+    id: txId,
+    ...(resolved.meta ? { meta: resolved.meta } : {}),
+  };
+  if (hooks) await hooks.beforeTransaction(txPayload);
+
   let timedOut = false;
   let current: TransactionConnection | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -425,6 +441,11 @@ export async function runTransaction<T, S extends SchemaInput = SchemaInput>(
         state.active = false;
         current = undefined;
         await runAfterCommit(state);
+        if (hooks)
+          await hooks.afterTransactionCommit({
+            ...txPayload,
+            durationMs: performance.now() - txStarted,
+          });
         return value;
       } catch (e) {
         state.active = false;
@@ -453,6 +474,17 @@ export async function runTransaction<T, S extends SchemaInput = SchemaInput>(
     return await (deadline
       ? Promise.race([attemptLoop, deadline])
       : attemptLoop);
+  } catch (e) {
+    if (hooks) {
+      const payload = {
+        ...txPayload,
+        durationMs: performance.now() - txStarted,
+        error: e,
+      };
+      await hooks.transactionError(payload);
+      await hooks.afterTransactionRollback(payload);
+    }
+    throw e;
   } finally {
     if (timer) clearTimeout(timer);
     host.$setRootScope(undefined);

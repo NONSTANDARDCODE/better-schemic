@@ -55,21 +55,21 @@ export interface CreateRuntimeArgs {
   only?: unknown;
   return?: unknown;
   relate?: unknown;
-  meta?: unknown;
+  meta?: Record<string, unknown>;
 }
 
 export interface CreateManyRuntimeArgs {
   data?: unknown;
   skipDuplicates?: unknown;
   return?: unknown;
-  meta?: unknown;
+  meta?: Record<string, unknown>;
 }
 
 export interface InsertRuntimeArgs {
   data?: unknown;
   onDuplicate?: unknown;
   return?: unknown;
-  meta?: unknown;
+  meta?: Record<string, unknown>;
 }
 
 export interface UpdateRuntimeArgs {
@@ -81,7 +81,7 @@ export interface UpdateRuntimeArgs {
   only?: unknown;
   return?: unknown;
   timeout?: unknown;
-  meta?: unknown;
+  meta?: Record<string, unknown>;
 }
 
 export interface UpdateManyRuntimeArgs {
@@ -92,7 +92,7 @@ export interface UpdateManyRuntimeArgs {
   unset?: unknown;
   return?: unknown;
   timeout?: unknown;
-  meta?: unknown;
+  meta?: Record<string, unknown>;
 }
 
 export interface UpsertRuntimeArgs {
@@ -104,7 +104,7 @@ export interface UpsertRuntimeArgs {
   only?: unknown;
   return?: unknown;
   timeout?: unknown;
-  meta?: unknown;
+  meta?: Record<string, unknown>;
 }
 
 export interface UpsertManyRuntimeArgs {
@@ -112,14 +112,14 @@ export interface UpsertManyRuntimeArgs {
   update?: unknown;
   conflict?: unknown;
   return?: unknown;
-  meta?: unknown;
+  meta?: Record<string, unknown>;
 }
 
 export interface DeleteRuntimeArgs {
   where?: unknown;
   return?: unknown;
   timeout?: unknown;
-  meta?: unknown;
+  meta?: Record<string, unknown>;
 }
 
 export interface DeleteManyRuntimeArgs {
@@ -127,7 +127,7 @@ export interface DeleteManyRuntimeArgs {
   all?: unknown;
   return?: unknown;
   timeout?: unknown;
-  meta?: unknown;
+  meta?: Record<string, unknown>;
 }
 
 export interface UpdateEachRuntimeArgs {
@@ -139,7 +139,7 @@ export interface UpdateEachRuntimeArgs {
   return?: unknown;
   select?: unknown;
   timeout?: unknown;
-  meta?: unknown;
+  meta?: Record<string, unknown>;
 }
 // --- shared helpers ------------------------------------------------------------------------------
 

@@ -9,6 +9,7 @@
  */
 import type { SurrealTransaction } from "surrealdb";
 import type { Client } from "../client";
+import type { PluginList } from "./plugins";
 import type { SchemaInput } from "./schema";
 
 /** Why a failed transaction attempt may be retried. */
@@ -65,8 +66,11 @@ export type TransactionDefaults = Omit<TransactionOptions, "meta">;
  * session-bound admin (`export`/`import`/`version`). `api`/`auth`/`info`/`ping`/`$raw`/`$query`/`fn`
  * do work in-transaction.
  */
-export type TransactionClient<S = SchemaInput> = Omit<
-  Client<S, SurrealTransaction>,
+export type TransactionClient<
+  S = SchemaInput,
+  P extends PluginList = readonly [],
+> = Omit<
+  Client<S, SurrealTransaction, P>,
   | "close"
   | "forkSession"
   | "$withContext"

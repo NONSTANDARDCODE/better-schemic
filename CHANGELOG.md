@@ -173,6 +173,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `orm-{raw,context,fn,admin}.test.ts`; type suite `orm-m5.assert.ts` plus the `Client<S>`
   instantiation budget. New modules: `orm/{raw,context,fn,api,auth,admin}.ts` +
   `orm/types/{raw,context,fn,api,auth,admin}.ts`.
+- **surrealdb:** the `/orm` **observation hooks (M6.1)** — `betterSchemic(conn, { schema, hooks })`
+  registers `before/afterQuery`, `before/afterCreate`, `before/afterUpdate`, `before/afterDelete`,
+  `before/afterRelate`, `before/afterRaw` + `onRawError`, `beforeTransaction` +
+  `afterTransactionCommit`/`afterTransactionRollback` + `onTransactionError`, and `onError`. Hooks may
+  be async; a throw in a `before*` aborts the operation, while a throw in an `after*` is routed to
+  `onError` without undoing the work. Payloads carry `table`/`operation`/`surql`/`vars`/`data`/
+  `where`/`result`/`durationMs`/`count`/`meta` (the per-call `meta` wins over `$withContext.meta`);
+  `.explain()` never fires hooks; registering no hook keeps the zero-overhead fast path.
+- **surrealdb:** the `/orm` **plugin system (M6.2)** — `definePlugin({ id, name?, version?, config?,
+  operationArgs?, setup?, transform?, hooks?, extendClient?, extendModel? })`. `transform` runs before
+  compilation and may mutate `where`/`data`/`args`, change `op.kind` (re-dispatching, e.g.
+  delete → update) or return `false` to skip the operation (it resolves `undefined`); it is
+  synchronous on purpose (a bad arg still throws at the call site). `operationArgs` adds TYPED,
+  OPTIONAL args per operation to every delegate (`client.users.findMany({ deleted: "with" })`),
+  `extendClient`/`extendModel` graft methods onto the client/each delegate (a name collision fails
+  fast with `PluginError`), `setup` runs once at bootstrap. Delegates gain `$state`/`$withState`/
+  `$withoutPlugins`; `$model` gains `dbName` and `relations`. `BetterSchemicOptions` gains `hooks`
+  and `plugins`, and `Client<S, C, P>`/`TransactionClient<S, P>` fold the plugin tuple.
+- **surrealdb:** the official **F1 plugins (M6.3)** — `@better-schemic/surrealdb/plugins/rules`
+  (`rules`/`safe`/`recommended`/`strict`: `noRawUnsafe`, `destructiveWriteWithoutWhere`,
+  `requireLimit`, `requireOrderByForCursor`, `maxLimit`, and `strict` → `UnknownField`; guardrails
+  fail fast BEFORE sending, with `UnsafeMutation`) and `@better-schemic/surrealdb/plugins/zod`
+  (`zod({ schemas })` validates every write `data` (batch items included) against a per-table Zod
+  schema and raises a `ValidationError` carrying the issue path). New unit suites
+  `orm-{hooks,plugins,plugins-rules,plugins-zod}.test.ts`, type suite `orm-m6.assert.ts` and the live
+  soft-delete e2e (`test/live/orm-plugins.test.ts`). `docs/orm-syntax-map.md` is unchanged: M6 emits
+  no new SurrealQL.
+- **surrealdb:** the official **F2 plugins (M6.4)** — `@better-schemic/surrealdb/plugins/timestamps`
+  (`timestamps({ createdAt, updatedAt, mode })`: `"app"` (default) stamps `time::now()` on
+  create/insert (both columns) and update/upsert (updated-at only); `"database"` strips the
+  schema-managed columns from writes) and `@better-schemic/surrealdb/plugins/soft-delete`
+  (`softDelete({ column, deletedBy, actorMeta })`: `delete`/`deleteMany` compile as
+  `UPDATE`/`UPDATE … WHERE` stamping the column, reads hide soft-deleted rows unless
+  `deleted: "with" | "only"` is passed (`findUnique` is exempt — its `where` is the target), an
+  optional `deletedBy` actor comes from `meta.actor`, and `restore`/`restoreById` clear the column via
+  `extendModel`). The factories preserve their concrete type, so `deleted` and `restore`/
+  `restoreById` are typed on the client. New unit suites `orm-plugins-{timestamps,soft-delete}.test.ts`,
+  the F2 live e2e (soft-delete round-trip + restore, timestamps) and the `orm-m6.assert.ts` F2 block.
 
 ### Removed
 - **surrealdb:** the fluent query builder (`select`/`create`/`update`/`upsert`/`remove`/`relate`, graph

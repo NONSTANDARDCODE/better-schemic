@@ -22,8 +22,10 @@ import {
 import { BetterSchemicError } from "./errors";
 import type { Queryable } from "./execute";
 import { createFnOperations } from "./fn";
+import { createHookDispatcher, type HookDispatcher } from "./hooks";
 import { killLive, reattachLive } from "./live";
 import type { SchemaIndex } from "./meta";
+import { createPluginPipeline, type PluginPipeline } from "./plugins";
 import { createRawOperations, type RawOperations } from "./raw";
 import { buildSchemaIndex } from "./schema";
 import {
@@ -54,6 +56,7 @@ import type {
   LiveId,
   LiveSubscription,
 } from "./types/live";
+import type { Plugin } from "./types/plugins";
 import type { RawDefaults } from "./types/raw";
 import type { SchemaInput } from "./types/schema";
 import type {
@@ -92,6 +95,12 @@ export class ClientRuntime<C extends Queryable = Queryable>
   /** Client-level raw defaults (`betterSchemic(conn, { schema, raw: … })`). */
   private readonly rawDefaults?: RawDefaults;
 
+  /** The observation-hook dispatcher (`betterSchemic(conn, { schema, hooks })`); absent = fast path. */
+  private readonly hooks?: HookDispatcher;
+
+  /** The plugin pipeline (`betterSchemic(conn, { schema, plugins })`); absent = no plugins. */
+  private readonly pipeline?: PluginPipeline;
+
   /** The clone's default namespace/database scope (`$withContext`); absent on a plain client. */
   private readonly context?: OperationContext;
 
@@ -128,12 +137,16 @@ export class ClientRuntime<C extends Queryable = Queryable>
       readonly raw?: RawDefaults;
       readonly context?: OperationContext;
       readonly extensions?: readonly Extension[];
+      readonly hooks?: HookDispatcher;
+      readonly pipeline?: PluginPipeline;
     } = {},
   ) {
     this.transactionDefaults = scope.transaction;
     this.txState = scope.txState;
     this.liveDefaults = scope.live;
     this.rawDefaults = scope.raw;
+    this.hooks = scope.hooks;
+    this.pipeline = scope.pipeline;
     this.context = scope.context;
     this.delegateContext = {
       conn,
@@ -142,6 +155,8 @@ export class ClientRuntime<C extends Queryable = Queryable>
       ...(scope.txState ? { inTransaction: true } : {}),
       ...(scope.live ? { live: scope.live } : {}),
       ...(scope.context ? { context: scope.context } : {}),
+      ...(scope.hooks ? { hooks: scope.hooks } : {}),
+      ...(scope.pipeline ? { pipeline: scope.pipeline } : {}),
     };
     // Assign the fixed surfaces BEFORE the schema delegates so `assertMemberAvailable`'s
     // `name in this` check covers them — no hand-maintained reserved-name list to keep in sync.
@@ -155,6 +170,18 @@ export class ClientRuntime<C extends Queryable = Queryable>
       const delegate = createDelegate(meta, this.delegateContext);
       this.delegates.set(key, delegate);
       (this as Record<string, unknown>)[key] = delegate;
+    }
+    // Plugins: run `setup` once (fail-fast) and graft `extendClient` methods (collision = error).
+    if (scope.pipeline) {
+      scope.pipeline.setup($index, this);
+      const methods = scope.pipeline.extendClient({
+        index: $index,
+        client: this,
+      });
+      for (const [name, value] of Object.entries(methods)) {
+        this.assertMemberAvailable(name, "extends");
+        (this as Record<string, unknown>)[name] = value;
+      }
     }
     for (const extension of scope.extensions ?? [])
       this.applyExtension(extension);
@@ -215,6 +242,11 @@ export class ClientRuntime<C extends Queryable = Queryable>
   /** INTERNAL (TransactionHost): client-level transaction defaults. */
   $transactionDefaults(): TransactionDefaults | undefined {
     return this.transactionDefaults;
+  }
+
+  /** INTERNAL (TransactionHost): the observation-hook dispatcher (absent = no hooks). */
+  $hooks(): HookDispatcher | undefined {
+    return this.hooks;
   }
 
   /** INTERNAL (TransactionHost): the transaction state when bound to one. */
@@ -324,6 +356,8 @@ export class ClientRuntime<C extends Queryable = Queryable>
     raw?: RawDefaults;
     context?: OperationContext;
     extensions: readonly Extension[];
+    hooks?: HookDispatcher;
+    pipeline?: PluginPipeline;
   } {
     return {
       ...(this.transactionDefaults !== undefined
@@ -335,6 +369,8 @@ export class ClientRuntime<C extends Queryable = Queryable>
         ? { context: this.context }
         : {}),
       extensions: this.extensions,
+      ...(this.hooks !== undefined ? { hooks: this.hooks } : {}),
+      ...(this.pipeline !== undefined ? { pipeline: this.pipeline } : {}),
     };
   }
 
@@ -480,6 +516,11 @@ export function buildClient<S extends SchemaInput, C extends Queryable>(
   managed: boolean,
   options: BetterSchemicOptions,
 ): Client<S, C> {
+  const pipeline = createPluginPipeline(options.plugins);
+  const hooks = createHookDispatcher([
+    options.hooks,
+    ...(pipeline?.hooks ?? []),
+  ]);
   return new ClientRuntime(
     conn,
     buildSchemaIndex(schema),
@@ -491,6 +532,8 @@ export function buildClient<S extends SchemaInput, C extends Queryable>(
         : {}),
       ...(options.live !== undefined ? { live: options.live } : {}),
       ...(options.raw !== undefined ? { raw: options.raw } : {}),
+      ...(hooks !== undefined ? { hooks } : {}),
+      ...(pipeline !== undefined ? { pipeline } : {}),
     },
   ) as unknown as Client<S, C>;
 }
@@ -507,9 +550,20 @@ export function buildClient<S extends SchemaInput, C extends Queryable>(
  * // M1: await client.users.findMany({ where: { active: true } });
  * ```
  */
-export function betterSchemic<S extends SchemaInput, C extends Queryable>(
+export function betterSchemic<
+  S extends SchemaInput,
+  C extends Queryable,
+  const P extends readonly Plugin[] = readonly [],
+>(
   conn: C,
-  options: { readonly schema: SchemaArg<S> } & BetterSchemicOptions,
-): Client<S, C> {
-  return buildClient(conn, options.schema, false, options);
+  options: {
+    readonly schema: SchemaArg<S>;
+    readonly plugins?: P;
+  } & Omit<BetterSchemicOptions, "plugins">,
+): Client<S, C, P> {
+  return buildClient(conn, options.schema, false, options) as unknown as Client<
+    S,
+    C,
+    P
+  >;
 }

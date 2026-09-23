@@ -49,7 +49,7 @@ import type {
   UpsertRuntimeArgs,
   WritePlan,
 } from "./compiler/write-shared";
-import { contextOption } from "./context";
+import { contextOption, resolveMeta } from "./context";
 import { decodeRows } from "./decode";
 import type { DelegateContext } from "./delegate";
 import { BetterSchemicError } from "./errors";
@@ -62,6 +62,7 @@ import {
   type ThrowingResult,
 } from "./results";
 import type { OperationContext } from "./types/context";
+import type { OperationKind } from "./types/hooks";
 
 /** The full-row decode every write returns (writes have no projections — except `updateEach.select`). */
 const FULL: ProjectionSpec = fullProjectionSpec();
@@ -78,6 +79,10 @@ interface PreparedWrite {
   readonly decode: (rows: readonly (unknown | undefined)[]) => unknown;
   /** Per-call scope override, resolved against the client's context at run time. */
   readonly context?: OperationContext;
+  /** The write payload, for `beforeCreate`/`beforeUpdate` hooks. */
+  readonly data?: unknown;
+  /** Per-call hook metadata (merged over the scope's at run time). */
+  readonly hookMeta?: Record<string, unknown>;
 }
 
 /** The write methods a delegate exposes (the runtime side of the typed `Delegate` interface). */
@@ -307,16 +312,20 @@ function prepare(
   const binds = createBinds();
   const plan = compile(binds);
   const where = (args as { where?: unknown }).where;
+  const data = (args as { data?: unknown }).data;
   const context = (args as { context?: OperationContext }).context;
+  const hookMeta = (args as { meta?: Record<string, unknown> }).meta;
   return {
     meta,
     operation,
     statements: plan.statements.map((sql) => ({ sql, vars: binds.vars })),
     transactional: plan.transactional,
     ...(where !== undefined ? { where } : {}),
+    ...(data !== undefined ? { data } : {}),
     mayMiss: plan.mayMiss === true,
     decode: (rows) => decode(plan, rows),
     ...(context ? { context } : {}),
+    ...(hookMeta !== undefined ? { hookMeta } : {}),
   };
 }
 
@@ -325,16 +334,58 @@ async function runPrepared(
   ctx: DelegateContext,
   prepared: PreparedWrite,
 ): Promise<unknown> {
-  const out = await execute(ctx.conn, {
-    statements: prepared.statements,
-    transactional: prepared.transactional,
-    inTransaction: ctx.inTransaction === true,
-    operation: prepared.operation,
+  const hooks = ctx.hooks;
+  const operation = prepared.operation as OperationKind;
+  const first = prepared.statements[0];
+  const meta = hooks
+    ? resolveMeta(ctx, prepared.context, prepared.hookMeta)
+    : undefined;
+  const payload = {
     table: prepared.meta.name,
-    debug: ctx.debug,
-    ...contextOption(ctx, prepared.context),
-  });
-  return prepared.decode(out.rows);
+    operation,
+    ...(first ? { surql: first.sql, vars: first.vars ?? {} } : {}),
+    ...(prepared.data !== undefined ? { data: prepared.data } : {}),
+    ...(prepared.where !== undefined ? { where: prepared.where } : {}),
+    ...(meta ? { meta } : {}),
+  };
+  if (hooks) await hooks.before(operation, payload);
+  const started = hooks ? performance.now() : 0;
+  try {
+    const out = await execute(ctx.conn, {
+      statements: prepared.statements,
+      transactional: prepared.transactional,
+      inTransaction: ctx.inTransaction === true,
+      operation: prepared.operation,
+      table: prepared.meta.name,
+      debug: ctx.debug,
+      ...contextOption(ctx, prepared.context),
+    });
+    const result = prepared.decode(out.rows);
+    if (hooks)
+      await hooks.after(operation, {
+        ...payload,
+        result,
+        durationMs: performance.now() - started,
+        count: writeCount(result),
+      });
+    return result;
+  } catch (error) {
+    if (hooks) await hooks.error({ ...payload, error });
+    throw error;
+  }
+}
+
+/** How many records a decoded write affected (for the `after*` `count`). */
+function writeCount(result: unknown): number {
+  if (typeof result === "number") return result;
+  if (Array.isArray(result)) return result.length;
+  if (
+    result !== null &&
+    typeof result === "object" &&
+    typeof (result as { count?: unknown }).count === "number"
+  )
+    return (result as { count: number }).count;
+  return result === null || result === undefined ? 0 : 1;
 }
 
 /** Await a prepared write, attaching `.throw()` when the compiled plan says the row may be absent. */

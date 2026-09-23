@@ -14,4 +14,4 @@ type S = typeof schema;
 
 bench("Client<S> — the M5 surface (raw/context/fn)", () => {
   return {} as Client<S>;
-}).types([75476, "instantiations"]);
+}).types([75574, "instantiations"]);

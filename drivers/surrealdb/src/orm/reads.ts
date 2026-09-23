@@ -23,7 +23,7 @@ import type { CompileReadOptions, ReadArgs } from "./compiler/select";
 import { compileRead } from "./compiler/select";
 import { type Binds, compileError, createBinds } from "./compiler/shared";
 import { uniqueTarget } from "./compiler/unique";
-import { contextOption } from "./context";
+import { contextOption, resolveMeta } from "./context";
 import { decodeRow, decodeRows } from "./decode";
 import type { DelegateContext } from "./delegate";
 import { execute, type Statement } from "./execute";
@@ -37,6 +37,7 @@ import {
   type ThrowingResult,
 } from "./results";
 import type { OperationContext } from "./types/context";
+import type { OperationKind } from "./types/hooks";
 
 /** The read methods a delegate exposes (the runtime side of the typed `Delegate` interface). */
 export function createReadOperations(
@@ -71,6 +72,8 @@ interface ReadRuntimeArgs {
   readonly explain?: unknown;
   /** Per-call namespace/database override (`findMany({ context: { database } })`). */
   readonly context?: OperationContext;
+  /** Per-call hook metadata (`findMany({ meta })`). */
+  readonly meta?: Record<string, unknown>;
 }
 
 /** One statement of a prepared read with its `ExplainResult` role. */
@@ -94,6 +97,8 @@ interface PreparedRead {
   readonly decode: (rows: readonly unknown[]) => unknown;
   /** Per-call scope override, resolved against the client's context at run time. */
   readonly context?: OperationContext;
+  /** Per-call hook metadata (merged over the scope's at run time). */
+  readonly hookMeta?: Record<string, unknown>;
 }
 
 /** Wrap compiled SQL + the shared binds into a keyed prepared statement. */
@@ -162,6 +167,7 @@ function prepared(
     explain: args.explain === true,
     decode: extras.decode,
     ...(args.context ? { context: args.context } : {}),
+    ...(args.meta !== undefined ? { hookMeta: args.meta } : {}),
   };
 }
 
@@ -382,14 +388,55 @@ async function runPrepared(
   ctx: DelegateContext,
   prepared: PreparedRead,
 ): Promise<unknown> {
-  const out = await execute(ctx.conn, {
-    statements: prepared.statements.map((entry) => entry.statement),
-    operation: prepared.operation,
+  const hooks = ctx.hooks;
+  const operation = prepared.operation as OperationKind;
+  const first = prepared.statements[0]?.statement;
+  const meta = hooks
+    ? resolveMeta(ctx, prepared.context, prepared.hookMeta)
+    : undefined;
+  const payload = {
     table: prepared.meta.name,
-    debug: ctx.debug,
-    ...contextOption(ctx, prepared.context),
-  });
-  return prepared.decode(out.rows);
+    operation,
+    ...(first ? { surql: first.sql, vars: first.vars ?? {} } : {}),
+    ...(meta ? { meta } : {}),
+  };
+  if (hooks) await hooks.before(operation, payload);
+  const started = hooks ? performance.now() : 0;
+  try {
+    const out = await execute(ctx.conn, {
+      statements: prepared.statements.map((entry) => entry.statement),
+      operation: prepared.operation,
+      table: prepared.meta.name,
+      debug: ctx.debug,
+      ...contextOption(ctx, prepared.context),
+    });
+    const result = prepared.decode(out.rows);
+    if (hooks)
+      await hooks.after(operation, {
+        ...payload,
+        result,
+        durationMs: performance.now() - started,
+        count: readCount(result),
+      });
+    return result;
+  } catch (error) {
+    if (hooks) await hooks.error({ ...payload, error });
+    throw error;
+  }
+}
+
+/** How many rows a decoded read produced (for the `afterQuery` `count`). */
+function readCount(result: unknown): number {
+  if (typeof result === "number") return result;
+  if (typeof result === "boolean") return result ? 1 : 0;
+  if (Array.isArray(result)) return result.length;
+  if (
+    result !== null &&
+    typeof result === "object" &&
+    Array.isArray((result as { data?: unknown }).data)
+  )
+    return (result as { data: unknown[] }).data.length;
+  return result === null || result === undefined ? 0 : 1;
 }
 
 /** Run `EXPLAIN` for every prepared statement (ONE round-trip) — never the real query. */

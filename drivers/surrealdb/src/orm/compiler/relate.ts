@@ -39,7 +39,7 @@ export interface RelateRuntimeArgs {
   data?: unknown;
   return?: unknown;
   timeout?: unknown;
-  meta?: unknown;
+  meta?: Record<string, unknown>;
 }
 
 /** One compiled RELATE clause (shared by `relate` and `create.relate` sugar). */
@@ -92,7 +92,7 @@ export function compileRelate(
 /** Compile `relateMany` — one `RELATE` per item in ONE transactional round-trip. */
 export function compileRelateMany(
   meta: ModelMeta,
-  args: { data?: unknown; meta?: unknown },
+  args: { data?: unknown; meta?: Record<string, unknown> },
   binds: Binds,
   operation = "relateMany",
 ): WritePlan {

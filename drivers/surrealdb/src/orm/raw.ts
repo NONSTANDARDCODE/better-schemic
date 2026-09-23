@@ -24,10 +24,11 @@ import {
   isPlainObject,
   renderValue,
 } from "./compiler/shared";
-import { contextOption } from "./context";
+import { contextOption, resolveMeta } from "./context";
 import type { DelegateContext } from "./delegate";
 import { runScript, terminate } from "./execute";
 import { type StatementResult, statementResult } from "./results";
+import type { RawOperation } from "./types/hooks";
 import type {
   RawDefaults,
   RawMeta,
@@ -140,28 +141,49 @@ export function createRawOperations(
       applyTimeout(script, options?.timeout ?? defaults?.timeoutMs),
     );
     assertComment(sql, options?.meta, defaults, operation);
-    const raw = await runScript(ctx.conn, sql, {
+    const hooks = ctx.hooks;
+    const meta = hooks ? resolveMeta(ctx, undefined, options?.meta) : undefined;
+    const payload = {
+      operation: operation as RawOperation,
+      surql: sql,
       vars,
-      ...contextOption(ctx),
-      operation,
-      debug: ctx.debug,
-    });
-    const responses = raw.map((response, index) =>
-      statementResult<unknown>(response, {
-        operation,
-        statementIndex: index,
-        surql: sql,
-        vars: ctx.debug ? vars : undefined,
-      }),
-    );
-    if (throwOnError) {
-      const failure = responses.find((r) => r.status === "ERR");
-      if (failure?.error) throw failure.error;
-    }
-    return {
-      responses,
-      results: responses.map((r) => (r.status === "OK" ? r.result : undefined)),
+      ...(meta ? { meta } : {}),
     };
+    if (hooks) await hooks.beforeRaw(payload);
+    const started = hooks ? performance.now() : 0;
+    try {
+      const raw = await runScript(ctx.conn, sql, {
+        vars,
+        ...contextOption(ctx),
+        operation,
+        debug: ctx.debug,
+      });
+      const responses = raw.map((response, index) =>
+        statementResult<unknown>(response, {
+          operation,
+          statementIndex: index,
+          surql: sql,
+          vars: ctx.debug ? vars : undefined,
+        }),
+      );
+      if (throwOnError) {
+        const failure = responses.find((r) => r.status === "ERR");
+        if (failure?.error) throw failure.error;
+      }
+      const results = responses.map((r) =>
+        r.status === "OK" ? r.result : undefined,
+      );
+      if (hooks)
+        await hooks.afterRaw({
+          ...payload,
+          result: results,
+          durationMs: performance.now() - started,
+        });
+      return { responses, results };
+    } catch (error) {
+      if (hooks) await hooks.rawError({ ...payload, error });
+      throw error;
+    }
   };
 
   /** Build the tag for the curried form (`$raw({ meta })\`…\``), running with `options` bound. */
