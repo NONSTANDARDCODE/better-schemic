@@ -95,6 +95,7 @@ export type Client<
   | "$txState"
   | "$rootScope"
   | "$setRootScope"
+  | "$hooks"
   | "live"
   | "liveOf"
   | "kill"

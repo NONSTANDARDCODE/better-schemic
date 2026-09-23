@@ -295,18 +295,21 @@ plugins/hooks (M6 — observation `hooks`, `definePlugin` with transforms/typed 
 `plugins/timestamps` and `plugins/soft-delete`).
 
 The runtime surface is mapped exhaustively in [`docs/ORM-COVERAGE.md`](docs/ORM-COVERAGE.md), the
-live-verified SurrealQL facts live in [`docs/orm-syntax-map.md`](docs/orm-syntax-map.md), and the
-verified examples are in [`examples/`](examples) (authoring → DDL) and
-[`examples/orm/`](examples/orm) (delegate call → runtime SurrealQL). See
-[`PLANO-QUERYS-TIPADAS.md`](../../PLANO-QUERYS-TIPADAS.md) for the milestone detail. Fragments &
-procedural SurrealQL (`block()`) stay at `@better-schemic/surrealdb/query`.
+live-verified SurrealQL facts live in [`docs/orm-syntax-map.md`](docs/orm-syntax-map.md), the
+milestone plan is in [`ROADMAP.md`](../../ROADMAP.md), and the verified examples are in
+[`examples/`](examples) (authoring → DDL) and [`examples/orm/`](examples/orm) (delegate call →
+runtime SurrealQL). Fragments & procedural SurrealQL (`block()`) stay at
+`@better-schemic/surrealdb/query`.
 
 ## Docs
 
 Full guides, concepts, and reference live at
-[docs](https://github.com/NONSTANDARDCODE/better-schemic). For a
-feature-by-feature map, see [docs/COVERAGE.md](docs/COVERAGE.md). This package is
-part of the [Better-schemic](https://github.com/NONSTANDARDCODE/better-schemic) toolkit.
+[docs](https://github.com/NONSTANDARDCODE/better-schemic). Feature maps:
+[docs/COVERAGE.md](docs/COVERAGE.md) (schema/DDL) and
+[docs/ORM-COVERAGE.md](docs/ORM-COVERAGE.md) (runtime ORM surface); the live-verified SurrealQL the
+ORM emits is [docs/orm-syntax-map.md](docs/orm-syntax-map.md), and the milestone plan is
+[ROADMAP.md](../../ROADMAP.md). This package is part of the
+[Better-schemic](https://github.com/NONSTANDARDCODE/better-schemic) toolkit.
 
 ## License
 

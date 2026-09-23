@@ -2,7 +2,7 @@
 
 Every row below was **live-probed** against SurrealDB **3.2.0** (local `surreal` binary, ephemeral
 in-memory server), never inferred. This is the ground truth the `/orm` compiler must emit: where the
-prototype (`prototipo-querys-tipadas/better-surreal/*`) disagrees, the server wins.
+original design prototype disagreed, the server wins.
 
 - Executable half: `test/live/orm-syntax.test.ts` (89 probes, skips without the `surreal` binary).
   A server upgrade that changes any behaviour here fails that suite first.
@@ -546,7 +546,7 @@ Nota: em scripts multi-statement, o SDK pode **lançar** (não só responder por
 
 ---
 
-## 9. Implicações diretas no plano (`PLANO-QUERYS-TIPADAS.md`)
+## 9. Decisões de lowering que o ORM implementa
 
 1. **`update` simplificado**: alvo direto (`UPDATE t:id …`), sem workaround de `WHERE`; `updateMany` sem match → `[]` (nunca cria).
 2. **`upsert` por campo único**: `UPSERT t MERGE $p WHERE uniq = $v` (cria quando nada casa) é o lowering preferencial; `LET`+`IF/ELSE` fica como fallback.

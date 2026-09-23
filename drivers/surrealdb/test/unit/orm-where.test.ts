@@ -409,7 +409,7 @@ describe("where — teaching errors", () => {
     })();
     expect(err?.code).toBe("ValidationError");
     expect(err?.message).toContain("nope");
-    expect(err?.message).toContain("§2.2.2");
+    expect(err?.message).toContain("orm-syntax-map.md");
   });
 
   test("removed fuzzy operators are UnsupportedCapability (not emitted)", () => {

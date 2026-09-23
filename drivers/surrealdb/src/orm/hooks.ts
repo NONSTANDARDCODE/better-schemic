@@ -21,10 +21,15 @@ import type {
   TransactionRollbackHookPayload,
 } from "./types/hooks";
 
-/** The delegate-op families a hook is registered under. */
-type Family = "query" | "create" | "update" | "delete" | "relate";
+/** The delegate-op families a hook (or plugin) classifies an operation by. */
+export type OperationFamily =
+  | "query"
+  | "create"
+  | "update"
+  | "delete"
+  | "relate";
 
-const FAMILY_BY_OPERATION: Record<OperationKind, Family> = {
+const FAMILY_BY_OPERATION: Record<OperationKind, OperationFamily> = {
   findMany: "query",
   findFirst: "query",
   findOne: "query",
@@ -51,6 +56,23 @@ const FAMILY_BY_OPERATION: Record<OperationKind, Family> = {
   unrelate: "relate",
   unrelateMany: "relate",
 };
+
+/** The family of one operation — the ONE classification hooks and plugins share. */
+export function operationFamily(operation: OperationKind): OperationFamily {
+  return FAMILY_BY_OPERATION[operation];
+}
+
+/** Reads — `SELECT`-family ops. */
+export const isReadOperation = (operation: OperationKind): boolean =>
+  FAMILY_BY_OPERATION[operation] === "query";
+
+/** Creation — `CREATE`/`INSERT`. */
+export const isCreateOperation = (operation: OperationKind): boolean =>
+  FAMILY_BY_OPERATION[operation] === "create";
+
+/** Mutation — `UPDATE`/`UPSERT`/`PATCH`. */
+export const isUpdateOperation = (operation: OperationKind): boolean =>
+  FAMILY_BY_OPERATION[operation] === "update";
 
 /** The observer the operation runtimes drive (built once per client). */
 export interface HookDispatcher {
@@ -84,6 +106,72 @@ function collect<K extends keyof Hooks>(
     if (typeof handler === "function") out.push(handler as unknown as Handler);
   }
   return out;
+}
+
+/** How many records a decoded result represents (the `after*` `count`). */
+export function resultCount(result: unknown): number {
+  if (typeof result === "number") return result;
+  if (typeof result === "boolean") return result ? 1 : 0;
+  if (Array.isArray(result)) return result.length;
+  if (result !== null && typeof result === "object") {
+    const shaped = result as { count?: unknown; data?: unknown };
+    // `.data` first: a page's `count` is the total, but the hook reports the rows RETURNED.
+    if (Array.isArray(shaped.data)) return shaped.data.length;
+    if (typeof shaped.count === "number") return shaped.count;
+  }
+  return result === null || result === undefined ? 0 : 1;
+}
+
+/**
+ * Run a delegate operation through the hook pipeline: `before` fires (a throw aborts the op), then
+ * `execute`, then `after` with the decoded result/duration/count; a failure is routed to `onError`
+ * without undoing the work. With no dispatcher this is a bare `execute()` (the fast path). This is
+ * the ONE place the delegate hook contract lives — reads, writes and any future op share it.
+ */
+export async function runWithHooks<T>(
+  hooks: HookDispatcher | undefined,
+  payload: HookPayload,
+  execute: () => Promise<T>,
+): Promise<T> {
+  if (!hooks) return execute();
+  await hooks.before(payload.operation, payload);
+  const started = performance.now();
+  try {
+    const result = await execute();
+    await hooks.after(payload.operation, {
+      ...payload,
+      result,
+      durationMs: performance.now() - started,
+      count: resultCount(result),
+    });
+    return result;
+  } catch (error) {
+    await hooks.error({ ...payload, error });
+    throw error;
+  }
+}
+
+/** The raw counterpart of {@link runWithHooks} (its own `beforeRaw`/`afterRaw`/`onRawError` family). */
+export async function runWithRawHooks<T>(
+  hooks: HookDispatcher | undefined,
+  payload: RawHookPayload,
+  execute: () => Promise<T>,
+): Promise<T> {
+  if (!hooks) return execute();
+  await hooks.beforeRaw(payload);
+  const started = performance.now();
+  try {
+    const result = await execute();
+    await hooks.afterRaw({
+      ...payload,
+      result,
+      durationMs: performance.now() - started,
+    });
+    return result;
+  } catch (error) {
+    await hooks.rawError({ ...payload, error });
+    throw error;
+  }
 }
 
 /**
@@ -128,8 +216,17 @@ export function createHookDispatcher(
   const afterRollback = collect(present, "afterTransactionRollback");
   const onTransactionError = collect(present, "onTransactionError");
 
-  const family = (operation: OperationKind): Family =>
-    FAMILY_BY_OPERATION[operation];
+  /** The `before`/`after` handlers per family — the ONE routing table `before`/`after` read. */
+  const families: Record<
+    OperationFamily,
+    { readonly before: readonly Handler[]; readonly after: readonly Handler[] }
+  > = {
+    query,
+    create,
+    update,
+    delete: remove,
+    relate,
+  };
 
   /** Run `before*` handlers in order; a throw propagates (aborting the operation). */
   const runBefore = async (
@@ -191,22 +288,10 @@ export function createHookDispatcher(
   ): Promise<void> => runObserved(handlers, payload, payload.operation);
 
   return {
-    async before(operation, payload) {
-      const f = family(operation);
-      if (f === "query") return runBefore(query.before, payload);
-      if (f === "create") return runBefore(create.before, payload);
-      if (f === "update") return runBefore(update.before, payload);
-      if (f === "delete") return runBefore(remove.before, payload);
-      return runBefore(relate.before, payload);
-    },
-    async after(operation, payload) {
-      const f = family(operation);
-      if (f === "query") return runAfter(query.after, payload);
-      if (f === "create") return runAfter(create.after, payload);
-      if (f === "update") return runAfter(update.after, payload);
-      if (f === "delete") return runAfter(remove.after, payload);
-      return runAfter(relate.after, payload);
-    },
+    before: (operation, payload) =>
+      runBefore(families[operationFamily(operation)].before, payload),
+    after: (operation, payload) =>
+      runAfter(families[operationFamily(operation)].after, payload),
     error: (payload) => runObserved(onError, payload, payload.operation),
     beforeRaw: (payload) => runBefore(beforeRaw, payload),
     afterRaw: (payload) => runObserved(afterRaw, payload, payload.operation),

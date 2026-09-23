@@ -12,7 +12,7 @@ import type { SurrealSession } from "surrealdb";
 import { createAdminOperations } from "./admin";
 import { createApiOperations } from "./api";
 import { createAuthOperations } from "./auth";
-import { type ChangesRuntimeArgs, fetchChanges, resolveModel } from "./changes";
+import { type ChangesRuntimeArgs, fetchChanges } from "./changes";
 import { assertContextKeys, assertSessionBound } from "./context";
 import {
   createDelegate,
@@ -24,7 +24,7 @@ import type { Queryable } from "./execute";
 import { createFnOperations } from "./fn";
 import { createHookDispatcher, type HookDispatcher } from "./hooks";
 import { killLive, reattachLive } from "./live";
-import type { SchemaIndex } from "./meta";
+import { resolveModel, type SchemaIndex } from "./meta";
 import { createPluginPipeline, type PluginPipeline } from "./plugins";
 import { createRawOperations, type RawOperations } from "./raw";
 import { buildSchemaIndex } from "./schema";
@@ -173,7 +173,7 @@ export class ClientRuntime<C extends Queryable = Queryable>
     }
     // Plugins: run `setup` once (fail-fast) and graft `extendClient` methods (collision = error).
     if (scope.pipeline) {
-      scope.pipeline.setup($index, this);
+      scope.pipeline.setup($index);
       const methods = scope.pipeline.extendClient({
         index: $index,
         client: this,
@@ -217,7 +217,7 @@ export class ClientRuntime<C extends Queryable = Queryable>
   repository(name: string): Delegate {
     const byKey = this.delegates.get(name);
     if (byKey) return byKey;
-    const meta = this.$index.byName.get(name);
+    const meta = resolveModel(this.$index, name);
     const byName = meta ? this.delegates.get(meta.key) : undefined;
     if (byName) return byName;
     throw new BetterSchemicError(

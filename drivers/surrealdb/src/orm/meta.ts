@@ -111,3 +111,18 @@ export interface SchemaIndex {
   /** User-defined functions by schema key. */
   readonly functions: ReadonlyMap<string, FunctionMeta>;
 }
+
+/**
+ * Resolve a schema key OR physical table name to its model metadata (`undefined` = unknown). The ONE
+ * resolver shared by `repository`, the changefeed and `live` — a pure lookup, no walker/builder.
+ */
+export function resolveModel(
+  index: SchemaIndex,
+  name: string,
+): ModelMeta | undefined {
+  return (
+    index.tables.get(name) ??
+    index.schemaless.get(name) ??
+    index.byName.get(name)
+  );
+}

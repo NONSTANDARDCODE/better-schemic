@@ -15,8 +15,8 @@
  * ```
  *
  * Authoring (`s.*`, `defineTable`, `defineRelation`, `defineFunction`, `surql`) stays in the root
- * entry — this subpath only consumes it. The typed query surface (reads/writes/relations/…)
- * lands milestone by milestone; see `PLANO-QUERYS-TIPADAS.md`.
+ * entry — this subpath only consumes it. The typed query surface is documented in
+ * `docs/ORM-COVERAGE.md` (surface) and `docs/orm-syntax-map.md` (live-verified SurrealQL).
  */
 export {
   type BetterSchemicOptions,

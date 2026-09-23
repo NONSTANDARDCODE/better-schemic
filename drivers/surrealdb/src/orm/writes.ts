@@ -54,6 +54,7 @@ import { decodeRows } from "./decode";
 import type { DelegateContext } from "./delegate";
 import { BetterSchemicError } from "./errors";
 import { execute, type Statement } from "./execute";
+import { runWithHooks } from "./hooks";
 import type { ModelMeta } from "./meta";
 import {
   attachThrow,
@@ -335,57 +336,33 @@ async function runPrepared(
   prepared: PreparedWrite,
 ): Promise<unknown> {
   const hooks = ctx.hooks;
-  const operation = prepared.operation as OperationKind;
   const first = prepared.statements[0];
   const meta = hooks
     ? resolveMeta(ctx, prepared.context, prepared.hookMeta)
     : undefined;
-  const payload = {
-    table: prepared.meta.name,
-    operation,
-    ...(first ? { surql: first.sql, vars: first.vars ?? {} } : {}),
-    ...(prepared.data !== undefined ? { data: prepared.data } : {}),
-    ...(prepared.where !== undefined ? { where: prepared.where } : {}),
-    ...(meta ? { meta } : {}),
-  };
-  if (hooks) await hooks.before(operation, payload);
-  const started = hooks ? performance.now() : 0;
-  try {
-    const out = await execute(ctx.conn, {
-      statements: prepared.statements,
-      transactional: prepared.transactional,
-      inTransaction: ctx.inTransaction === true,
-      operation: prepared.operation,
+  return runWithHooks(
+    hooks,
+    {
       table: prepared.meta.name,
-      debug: ctx.debug,
-      ...contextOption(ctx, prepared.context),
-    });
-    const result = prepared.decode(out.rows);
-    if (hooks)
-      await hooks.after(operation, {
-        ...payload,
-        result,
-        durationMs: performance.now() - started,
-        count: writeCount(result),
+      operation: prepared.operation as OperationKind,
+      ...(first ? { surql: first.sql, vars: first.vars ?? {} } : {}),
+      ...(prepared.data !== undefined ? { data: prepared.data } : {}),
+      ...(prepared.where !== undefined ? { where: prepared.where } : {}),
+      ...(meta ? { meta } : {}),
+    },
+    async () => {
+      const out = await execute(ctx.conn, {
+        statements: prepared.statements,
+        transactional: prepared.transactional,
+        inTransaction: ctx.inTransaction === true,
+        operation: prepared.operation,
+        table: prepared.meta.name,
+        debug: ctx.debug,
+        ...contextOption(ctx, prepared.context),
       });
-    return result;
-  } catch (error) {
-    if (hooks) await hooks.error({ ...payload, error });
-    throw error;
-  }
-}
-
-/** How many records a decoded write affected (for the `after*` `count`). */
-function writeCount(result: unknown): number {
-  if (typeof result === "number") return result;
-  if (Array.isArray(result)) return result.length;
-  if (
-    result !== null &&
-    typeof result === "object" &&
-    typeof (result as { count?: unknown }).count === "number"
-  )
-    return (result as { count: number }).count;
-  return result === null || result === undefined ? 0 : 1;
+      return prepared.decode(out.rows);
+    },
+  );
 }
 
 /** Await a prepared write, attaching `.throw()` when the compiled plan says the row may be absent. */

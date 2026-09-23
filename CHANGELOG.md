@@ -27,7 +27,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   normalization/predicates, result wrappers (`ThrowingResult`/`BatchResult`/`StatementResult`) and the
   multi-statement executor (one round-trip via `responses()`, per-statement status, atomic
   `BEGIN/COMMIT` batches, unique-binds guardrail). Reads/writes/relations/… land in the following
-  milestones — see [`PLANO-QUERYS-TIPADAS.md`](./PLANO-QUERYS-TIPADAS.md).
+  milestones — see [`ROADMAP.md`](./ROADMAP.md).
 - **surrealdb:** `docs/orm-syntax-map.md` + `test/live/orm-syntax.test.ts` — the live-verified SurrealQL
   syntax map the ORM compiler must emit against (78 probes on server 3.2.x), with the prototype
   divergences recorded.
@@ -225,11 +225,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `source.{commit,hash}` header for vendoring consumers.
 
 ### Changed
+- **surrealdb:** plugin `setup`/`transform` are now typed **synchronous** (`transform` returns
+  `void | false`, `setup` returns `void`), matching the runtime (compilation is eager, bootstrap is
+  synchronous) — an `async transform` can no longer silently fail to skip an operation, nor an
+  `async setup` escape the fail-fast `PluginError`. `Operation` now carries the schema `index`
+  (plugins introspect fields via `op.index` instead of stashing it in a closure), and the delegate
+  hook orchestration (`before`/`after`/`onError` + `count`) lives in ONE shared `runWithHooks` /
+  `runWithRawHooks` helper.
+- **surrealdb:** the unknown-`where`-operator teaching error now points to `docs/orm-syntax-map.md`
+  (the live-verified vocabulary) instead of the internal planning document.
 - **surrealdb:** the plugin brand (`PLUGIN_BRAND`) is now a literal key (`"__betterSchemicPlugin"`)
   instead of a `unique symbol`, so the emitted `.d.ts` for the `plugins/*` subpaths is nameable and the
   DTS build no longer fails with `TS4058`.
 
 ### Removed
+- **repo (docs):** the design/execution plan `PLANO-QUERYS-TIPADAS.md` and the `prototipo-querys-tipadas/`
+  design prototype were retired now that M0–M7 shipped — the milestone plan lives in `ROADMAP.md`, the
+  runtime surface in `drivers/surrealdb/docs/ORM-COVERAGE.md`, and the live-verified syntax in
+  `drivers/surrealdb/docs/orm-syntax-map.md`.
 - **surrealdb:** the fluent query builder (`select`/`create`/`update`/`upsert`/`remove`/`relate`, graph
   traversal, the schemaless adapter) and the `@better-schemic/surrealdb/client` subpath (`connect`) —
   replaced by `/orm`. `/query` now ships only `block()` (fragments/procedural SurrealQL).

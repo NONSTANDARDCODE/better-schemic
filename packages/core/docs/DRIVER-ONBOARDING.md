@@ -117,7 +117,8 @@ drags the engine into an app bundle. The SurrealDB source layout is the clean te
   (`packages/core/docs/MULTI-CONNECTION.md`.)
 - **Config-as-factory**: `defineConfig` returns the typed `connect(name, args?)`; accept default OR
   named `betterSchemic` export (legacy: `schemic`); `better-schemic.ts` discovered (`schemic.ts` legacy).
-- **ORM client** at `/orm` (M0 landing progressively — see the repo's `PLANO-QUERYS-TIPADAS.md`):
+- **ORM client** at `/orm` (see the repo's [`ROADMAP.md`](../../../ROADMAP.md) for the milestone plan and
+  the driver's [`docs/ORM-COVERAGE.md`](../../../drivers/surrealdb/docs/ORM-COVERAGE.md) for the surface):
   `betterSchemic(conn, { schema })` BYO / `createBetterSchemic({ url, … })` managed (BYO `close` is a
   NO-OP, hard rule), AsyncDisposable, one delegate per schema entry, `repository(name)` by schema key or
   physical name, `defineSchema` as the single metadata source, `$sdk` as the raw escape hatch.

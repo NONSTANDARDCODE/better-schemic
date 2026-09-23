@@ -13,6 +13,7 @@
  * ```
  */
 import { surql } from "../index";
+import { isCreateOperation, isUpdateOperation } from "../orm/hooks";
 import { definePlugin } from "../orm/plugins";
 import type { Plugin } from "../orm/types/plugins";
 
@@ -29,15 +30,6 @@ export interface TimestampsOptions {
   readonly mode?: "app" | "database";
 }
 
-const CREATE = new Set(["create", "createMany", "insert", "insertMany"]);
-const UPDATE = new Set([
-  "update",
-  "updateMany",
-  "updateEach",
-  "upsert",
-  "upsertMany",
-]);
-
 /** The `timestamps` plugin. */
 export function timestamps(options: TimestampsOptions = {}): Plugin {
   const createdAt = options.createdAt ?? "createdAt";
@@ -49,8 +41,8 @@ export function timestamps(options: TimestampsOptions = {}): Plugin {
     description: "Fill createdAt/updatedAt on writes.",
     config: { createdAt, updatedAt, mode },
     transform(op) {
-      const isCreate = CREATE.has(op.kind);
-      const isUpdate = UPDATE.has(op.kind);
+      const isCreate = isCreateOperation(op.kind);
+      const isUpdate = isUpdateOperation(op.kind);
       if (!isCreate && !isUpdate) return;
       if (mode === "app") {
         if (isCreate) {
@@ -61,9 +53,13 @@ export function timestamps(options: TimestampsOptions = {}): Plugin {
         }
         return;
       }
-      // mode === "database": the schema owns the values — never send them.
-      delete op.data[createdAt];
-      delete op.data[updatedAt];
+      // mode === "database": the schema owns the values — strip them from the payload if present
+      // (never materialize `data`: a transform that only reads must not inject an empty object).
+      const data = op.args.data;
+      if (data !== undefined && !Array.isArray(data)) {
+        delete (data as Record<string, unknown>)[createdAt];
+        delete (data as Record<string, unknown>)[updatedAt];
+      }
     },
   });
 }

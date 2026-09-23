@@ -13,7 +13,7 @@ import { contextOption } from "./context";
 import { decodeRow } from "./decode";
 import type { DelegateContext } from "./delegate";
 import { execute } from "./execute";
-import type { ModelMeta, SchemaIndex } from "./meta";
+import { type ModelMeta, resolveModel, type SchemaIndex } from "./meta";
 import type { ChangeEntry, ChangeSet, ChangesSince } from "./types/changes";
 import type { CallContext } from "./types/context";
 import type { PatchOp } from "./types/write";
@@ -26,18 +26,6 @@ export interface ChangesRuntimeArgs {
   readonly since?: ChangesSince;
   readonly limit?: number;
   readonly context?: CallContext;
-}
-
-/** Resolve a schema key OR physical table name to its model metadata (undefined = unknown). */
-export function resolveModel(
-  index: SchemaIndex,
-  name: string,
-): ModelMeta | undefined {
-  return (
-    index.tables.get(name) ??
-    index.schemaless.get(name) ??
-    index.byName.get(name)
-  );
 }
 
 /** `0` / `123` / `123n` / `d'2025-…'` — the only forms the server accepts after SINCE. */

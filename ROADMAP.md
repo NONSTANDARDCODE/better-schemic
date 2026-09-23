@@ -1,9 +1,9 @@
 # Better-schemic — roadmap
 
 The **typed-query/ORM arc**: replacing the old fluent builder with the repository-style `/orm` layer.
-The design + execution plan is **[`PLANO-QUERYS-TIPADAS.md`](./PLANO-QUERYS-TIPADAS.md)** (milestones
-M0–M7 with a point-by-point API checklist); the live-verified SurrealQL ground truth the compiler must
-emit against is `drivers/surrealdb/docs/orm-syntax-map.md`.
+This file carries the milestone plan (M0–M7) and their status; the live-verified SurrealQL ground
+truth the compiler emits against is `drivers/surrealdb/docs/orm-syntax-map.md`, and the exhaustive
+runtime surface is `drivers/surrealdb/docs/ORM-COVERAGE.md`.
 
 Packages release **in lockstep**; see `CHANGELOG.md` for what's shipped vs accumulating.
 
@@ -118,7 +118,7 @@ place (`relations.ts` arrow/traversal/refs + `where.ts` `compileRelationFilter`)
 
 ## M4 — transações, live e changefeeds ✅ *(complete)*
 
-- ✅ **M4.0** live probes + `orm-syntax-map.md` §7/§1 (84 probes total): `DIFF` right after `SELECT`
+- ✅ **M4.0** live probes + `orm-syntax-map.md` §7/§1 (89 probes total): `DIFF` right after `SELECT`
   and without a projection, `FROM ONLY`/record targets unsupported, `VALUE` emits nothing, a record
   leaving the `WHERE` filter emits nothing, `KILL $param` (string) works, `SINCE` takes literals only
   and is INCLUSIVE, changefeed shapes (`update`, `{current, update}`, `delete{original}`, `bigint`

@@ -80,9 +80,9 @@ export interface PluginPipeline {
   /** True when at least one plugin mutates operations (skips the dispatch wrapper otherwise). */
   readonly hasTransforms: boolean;
   /** Run every plugin's `setup` once (throws `PluginError` on failure). */
-  setup(index: SchemaIndex, client: unknown): void;
+  setup(index: SchemaIndex): void;
   /** Run transforms for one operation; returns true when a plugin asked to skip it. */
-  transform(operation: Operation): boolean;
+  transform(operation: RuntimeOperation): boolean;
   /** The methods every plugin's `extendClient` contributes. */
   extendClient(ctx: PluginClientContext): Record<string, unknown>;
   /** The methods every plugin's `extendModel` contributes (for one delegate's state). */
@@ -127,7 +127,7 @@ export function createPluginPipeline(
     plugins,
     hooks,
     hasTransforms,
-    setup(index, client) {
+    setup(index) {
       for (const plugin of plugins) {
         if (typeof plugin.setup !== "function") continue;
         try {
@@ -135,7 +135,6 @@ export function createPluginPipeline(
         } catch (e) {
           throw pluginFailure(plugin, "setup", e);
         }
-        void client;
       }
     },
     transform(operation) {
@@ -148,6 +147,9 @@ export function createPluginPipeline(
         );
         if (result === false) skipped = true;
       }
+      // A `where`/`data` bag created by a transform is flushed into `args` only now, so a plugin
+      // that merely READS `op.where` never injects an empty object into the compiled operation.
+      operation.commit();
       return skipped;
     },
     extendClient(ctx) {
@@ -189,38 +191,55 @@ export class RuntimeOperation implements Operation {
   readonly table: string;
   readonly args: Record<string, unknown>;
   readonly state: PluginState;
+  readonly index: SchemaIndex;
   meta?: Record<string, unknown>;
+  #where?: Record<string, unknown>;
+  #data?: Record<string, unknown>;
 
   constructor(
     kind: OperationKind,
     table: string,
     args: Record<string, unknown>,
     state: PluginState,
+    index: SchemaIndex,
     meta?: Record<string, unknown>,
   ) {
     this.kind = kind;
     this.table = table;
     this.args = args;
     this.state = state;
+    this.index = index;
     if (meta !== undefined) this.meta = meta;
   }
 
   get where(): Record<string, unknown> {
-    if (this.args.where === undefined) this.args.where = {};
-    return this.args.where as Record<string, unknown>;
+    if (this.#where) return this.#where;
+    const existing = this.args.where;
+    if (existing !== undefined) return existing as Record<string, unknown>;
+    this.#where = {};
+    return this.#where;
   }
 
   set where(value: Record<string, unknown>) {
-    this.args.where = value;
+    this.#where = value;
   }
 
   get data(): Record<string, unknown> {
-    if (this.args.data === undefined) this.args.data = {};
-    return this.args.data as Record<string, unknown>;
+    if (this.#data) return this.#data;
+    const existing = this.args.data;
+    if (existing !== undefined) return existing as Record<string, unknown>;
+    this.#data = {};
+    return this.#data;
   }
 
   set data(value: Record<string, unknown>) {
-    this.args.data = value;
+    this.#data = value;
+  }
+
+  /** Flush a `where`/`data` bag created by a transform back into `args` (no-op if untouched). */
+  commit(): void {
+    if (this.#where !== undefined) this.args.where = this.#where;
+    if (this.#data !== undefined) this.args.data = this.#data;
   }
 }
 

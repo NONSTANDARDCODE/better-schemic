@@ -40,11 +40,8 @@ const fail = (message: string, operation: string, table?: string): never => {
 };
 
 /** Known keys of a model: columns, links, adjacent edge names and the id. */
-function knownFields(
-  index: SchemaIndex | undefined,
-  table: string,
-): Set<string> {
-  const meta = index?.byName.get(table);
+function knownFields(index: SchemaIndex, table: string): Set<string> {
+  const meta = index.byName.get(table);
   const out = new Set<string>(["id"]);
   if (!meta || "schemaless" in meta) return out;
   for (const key of meta.columns.keys()) out.add(key);
@@ -84,15 +81,11 @@ function assertFields(
  * The `rules` guardrail plugin. Presets (`safe`/`recommended`/`strict`) are thin wrappers around it.
  */
 export function rules(options: RulesOptions = {}): Plugin {
-  let index: SchemaIndex | undefined;
   return definePlugin({
     id: "@better-schemic/surrealdb/rules",
     name: "Rules",
     description: "Guardrails for raw/writes/limits/fields.",
     config: options,
-    setup(ctx) {
-      index = ctx.index;
-    },
     hooks: {
       beforeRaw: ({ operation, surql }) => {
         if (options.noRawUnsafe && operation === "$unsafe")
@@ -144,7 +137,7 @@ export function rules(options: RulesOptions = {}): Plugin {
       )
         fail('rules: cursor requires an explicit "orderBy".', kind, op.table);
       if (options.strict) {
-        const known = knownFields(index, op.table);
+        const known = knownFields(op.index, op.table);
         assertFields(op.args.data, known, kind, op.table, "data");
         assertFields(op.args.where, known, kind, op.table, "where");
         assertFields(op.args.select, known, kind, op.table, "select");

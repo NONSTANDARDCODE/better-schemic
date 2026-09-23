@@ -426,7 +426,7 @@ function compileOperator(
     default:
       throw compileError(
         "ValidationError",
-        `unknown where operator "${op}" on "${field}". See PLANO-QUERYS-TIPADAS.md §2.2.2 for the vocabulary.`,
+        `unknown where operator "${op}" on "${field}". See docs/orm-syntax-map.md §4 for the vocabulary.`,
         { field, details: { operator: op } },
       );
   }

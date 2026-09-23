@@ -422,6 +422,7 @@ function wrapOperations(
       meta.name,
       args,
       state,
+      ctx.index,
       args.meta as Record<string, unknown> | undefined,
     );
     if (pipeline.transform(op)) return Promise.resolve(undefined);

@@ -17,6 +17,7 @@
  */
 
 import { surql } from "../index";
+import { isReadOperation } from "../orm/hooks";
 import { definePlugin } from "../orm/plugins";
 
 /** The soft-delete plugin options. */
@@ -31,17 +32,6 @@ export interface SoftDeleteOptions {
 
 /** The `deleted:` read arg values. */
 export type DeletedFilter = "with" | "without" | "only";
-
-const READS = new Set([
-  "findMany",
-  "findFirst",
-  "findOne",
-  "count",
-  "exists",
-  "aggregate",
-  "paginate",
-  "cursor",
-]);
 
 /** A delegate method grafted by the plugin. */
 type Model = {
@@ -78,7 +68,8 @@ export function softDelete(options: SoftDeleteOptions = {}) {
           op.data[actorColumn] = actor;
         return;
       }
-      if (!READS.has(op.kind)) return;
+      // `findUnique` is EXEMPT: its `where` is the record TARGET (id/unique), never rewritten.
+      if (!isReadOperation(op.kind) || op.kind === "findUnique") return;
       const deleted = (op.args as { deleted?: DeletedFilter }).deleted;
       if (deleted === "with") return;
       if (deleted === "only") {

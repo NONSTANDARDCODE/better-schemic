@@ -51,7 +51,6 @@ them. Every milestone/PR must leave the docs it touches consistent **in the same
 "later", never a follow-up issue. Concretely:
 
 - `ROADMAP.md` — flip the milestone/sub-item status and list the deliverables.
-- `PLANO-QUERYS-TIPADAS.md` — the status table + the milestone note (decisions, modules, divergences).
 - `drivers/<driver>/docs/orm-syntax-map.md` — every live-verified SurrealQL fact the compiler emits
   (add the probe to `test/live/orm-syntax.test.ts` at the same time).
 - `drivers/<driver>/README.md` — the user-facing example must compile against the CURRENT surface.

@@ -31,6 +31,8 @@ export interface Operation {
   data: Record<string, unknown>;
   meta?: Record<string, unknown>;
   readonly state: PluginState;
+  /** The validated schema index — the canonical source for field/relation introspection. */
+  readonly index: SchemaIndex;
 }
 
 /** The `this` a plugin's methods run with: its resolved config and the delegate's state. */
@@ -67,19 +69,17 @@ export interface PluginSpec<Cfg = unknown> {
   readonly config?: Cfg;
   /** Extra args per operation (typed onto the delegate). */
   readonly operationArgs?: OperationArgsMap;
-  /** Runs once at bootstrap (validate config here; a throw fails fast with `PluginError`). */
-  setup?(
-    this: PluginContext<Cfg>,
-    ctx: PluginSetupContext,
-  ): void | Promise<void>;
+  /**
+   * Runs once at bootstrap (validate config here; a throw fails fast with `PluginError`).
+   * SYNCHRONOUS: the client is built synchronously, so an async `setup` cannot be awaited.
+   */
+  setup?(this: PluginContext<Cfg>, ctx: PluginSetupContext): void;
   /**
    * Mutates an operation before it compiles (runs in plugin order). Return `false` to SKIP the
    * operation entirely (it resolves `undefined` without touching the database).
+   * SYNCHRONOUS: compilation is eager, so async work belongs in a hook.
    */
-  transform?(
-    this: PluginContext<Cfg>,
-    operation: Operation,
-  ): void | false | Promise<void | false>;
+  transform?(this: PluginContext<Cfg>, operation: Operation): void | false;
   /** Observation hooks contributed by the plugin. */
   readonly hooks?: Hooks;
   /** Methods grafted onto the client. */

@@ -27,6 +27,7 @@ import { contextOption, resolveMeta } from "./context";
 import { decodeRow, decodeRows } from "./decode";
 import type { DelegateContext } from "./delegate";
 import { execute, type Statement } from "./execute";
+import { runWithHooks } from "./hooks";
 import type { ModelMeta } from "./meta";
 import {
   attachExplain,
@@ -389,54 +390,29 @@ async function runPrepared(
   prepared: PreparedRead,
 ): Promise<unknown> {
   const hooks = ctx.hooks;
-  const operation = prepared.operation as OperationKind;
   const first = prepared.statements[0]?.statement;
   const meta = hooks
     ? resolveMeta(ctx, prepared.context, prepared.hookMeta)
     : undefined;
-  const payload = {
-    table: prepared.meta.name,
-    operation,
-    ...(first ? { surql: first.sql, vars: first.vars ?? {} } : {}),
-    ...(meta ? { meta } : {}),
-  };
-  if (hooks) await hooks.before(operation, payload);
-  const started = hooks ? performance.now() : 0;
-  try {
-    const out = await execute(ctx.conn, {
-      statements: prepared.statements.map((entry) => entry.statement),
-      operation: prepared.operation,
+  return runWithHooks(
+    hooks,
+    {
       table: prepared.meta.name,
-      debug: ctx.debug,
-      ...contextOption(ctx, prepared.context),
-    });
-    const result = prepared.decode(out.rows);
-    if (hooks)
-      await hooks.after(operation, {
-        ...payload,
-        result,
-        durationMs: performance.now() - started,
-        count: readCount(result),
+      operation: prepared.operation as OperationKind,
+      ...(first ? { surql: first.sql, vars: first.vars ?? {} } : {}),
+      ...(meta ? { meta } : {}),
+    },
+    async () => {
+      const out = await execute(ctx.conn, {
+        statements: prepared.statements.map((entry) => entry.statement),
+        operation: prepared.operation,
+        table: prepared.meta.name,
+        debug: ctx.debug,
+        ...contextOption(ctx, prepared.context),
       });
-    return result;
-  } catch (error) {
-    if (hooks) await hooks.error({ ...payload, error });
-    throw error;
-  }
-}
-
-/** How many rows a decoded read produced (for the `afterQuery` `count`). */
-function readCount(result: unknown): number {
-  if (typeof result === "number") return result;
-  if (typeof result === "boolean") return result ? 1 : 0;
-  if (Array.isArray(result)) return result.length;
-  if (
-    result !== null &&
-    typeof result === "object" &&
-    Array.isArray((result as { data?: unknown }).data)
-  )
-    return (result as { data: unknown[] }).data.length;
-  return result === null || result === undefined ? 0 : 1;
+      return prepared.decode(out.rows);
+    },
+  );
 }
 
 /** Run `EXPLAIN` for every prepared statement (ONE round-trip) — never the real query. */

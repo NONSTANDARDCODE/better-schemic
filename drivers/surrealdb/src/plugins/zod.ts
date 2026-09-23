@@ -13,6 +13,7 @@
  */
 import type { z } from "zod";
 import { BetterSchemicError } from "../orm/errors";
+import { isCreateOperation, isUpdateOperation } from "../orm/hooks";
 import { definePlugin } from "../orm/plugins";
 import type { Plugin } from "../orm/types/plugins";
 
@@ -26,15 +27,6 @@ export interface ZodPluginOptions {
     readonly update?: boolean;
   };
 }
-
-const CREATE = new Set(["create", "createMany", "insert", "insertMany"]);
-const UPDATE = new Set([
-  "update",
-  "updateMany",
-  "updateEach",
-  "upsert",
-  "upsertMany",
-]);
 
 /** Validate one payload (or every item of a batch) with `schema`. */
 function validateData(
@@ -71,8 +63,8 @@ export function zod(options: ZodPluginOptions): Plugin {
     description: "Validate write data with Zod schemas.",
     config: options,
     transform(op) {
-      const isCreate = CREATE.has(op.kind);
-      const isUpdate = UPDATE.has(op.kind);
+      const isCreate = isCreateOperation(op.kind);
+      const isUpdate = isUpdateOperation(op.kind);
       if (!isCreate && !isUpdate) return;
       if (isCreate && !validate.create) return;
       if (isUpdate && !validate.update) return;

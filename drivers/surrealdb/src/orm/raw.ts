@@ -27,8 +27,9 @@ import {
 import { contextOption, resolveMeta } from "./context";
 import type { DelegateContext } from "./delegate";
 import { runScript, terminate } from "./execute";
+import { runWithRawHooks } from "./hooks";
 import { type StatementResult, statementResult } from "./results";
-import type { RawOperation } from "./types/hooks";
+import type { RawHookPayload, RawOperation } from "./types/hooks";
 import type {
   RawDefaults,
   RawMeta,
@@ -141,17 +142,16 @@ export function createRawOperations(
       applyTimeout(script, options?.timeout ?? defaults?.timeoutMs),
     );
     assertComment(sql, options?.meta, defaults, operation);
-    const hooks = ctx.hooks;
-    const meta = hooks ? resolveMeta(ctx, undefined, options?.meta) : undefined;
-    const payload = {
+    const meta = ctx.hooks
+      ? resolveMeta(ctx, undefined, options?.meta)
+      : undefined;
+    const payload: RawHookPayload = {
       operation: operation as RawOperation,
       surql: sql,
       vars,
       ...(meta ? { meta } : {}),
     };
-    if (hooks) await hooks.beforeRaw(payload);
-    const started = hooks ? performance.now() : 0;
-    try {
+    return runWithRawHooks(ctx.hooks, payload, async () => {
       const raw = await runScript(ctx.conn, sql, {
         vars,
         ...contextOption(ctx),
@@ -173,17 +173,8 @@ export function createRawOperations(
       const results = responses.map((r) =>
         r.status === "OK" ? r.result : undefined,
       );
-      if (hooks)
-        await hooks.afterRaw({
-          ...payload,
-          result: results,
-          durationMs: performance.now() - started,
-        });
       return { responses, results };
-    } catch (error) {
-      if (hooks) await hooks.rawError({ ...payload, error });
-      throw error;
-    }
+    });
   };
 
   /** Build the tag for the curried form (`$raw({ meta })\`…\``), running with `options` bound. */
