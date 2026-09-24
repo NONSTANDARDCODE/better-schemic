@@ -250,9 +250,12 @@ release entry. Landing accumulates — publishing is a separate explicit decisio
 
 SurrealDB DDL completeness, tracked in `drivers/surrealdb/docs/COVERAGE.md`.
 - ✅ **surrealdb:** full `DEFINE ANALYZER` coverage + fluent `defineAnalyzer`.
-- ⏳ ongoing gaps.
+- ✅ **surrealdb:** `s.range()` (`TYPE range`), `ASYNC [RETRY] [MAXDEPTH]` events, and
+  `DEFINE SEQUENCE` (`defineSequence`) now round-trip.
+- ⏳ ongoing gaps: `DEFINE USER`/`CONFIG`/`API`/`BUCKET`/`MODEL`; `regex` (no encodable JS value),
+  `future`/`range<T>` (the grammar doesn't parse on 3.x).
 
-## M8 — MC/DC reliability hardening 🚧 *(core complete; M8.1 drive-to-100% backlog ongoing)*
+## M8 — MC/DC reliability hardening ✅ *(complete; two-tier floors: critical 100% / rest 95%)*
 
 The SQLite-grade reliability pass: measure and drive **branch + logical-condition (MC/DC-equivalent)
 coverage** and **mutation strength** for `drivers/surrealdb/src` + `packages/core/src`, with real-DB
@@ -267,18 +270,17 @@ integration and subprocess e2e coverage. Method + tooling: `drivers/surrealdb/do
   boots ONE server per run and exports `SURREAL_URL`, so the `tryConnect()`-based live/parity suites
   run instead of skipping (105 previously-skipped tests now execute). This exposed + fixed a real bug
   (`ClientRuntime.query()` — the neutral `ctx.connections.<name>.query` handle — was missing).
-- 🚧 **M8.1 — drive to 100%.** Branch/condition/statement/function/line coverage is ratcheted
-  per file; files are being closed to 100% in batches. Closed to 100% across all five metrics:
-  `orm/compiler/aggregate.ts`, `orm/compiler/pagination.ts`, `orm/compiler/write.ts`,
-  `orm/compiler/unique.ts`, `orm/compiler/include/specs.ts`, `cli/scaffold.ts`, `orm/auth.ts`,
-  `plugins/zod.ts`, core `driver/portable.ts`, core `cli-kit/{meta,style,pager}.ts`, core
-  `connection.ts`. Compiler files driven to statement/function/line 100% with branch/condition
-  near-complete: `orm/compiler/mutate.ts` (100/99/100/100/94), `select.ts` (100/98/100/100/95),
-  `write-shared.ts` (98/95/100/99/94), `relate.ts` (100/99/100/100/83), `include/links.ts`
-  (100/98/100/100/90), `include/count.ts` (100/96/100/100/82), `include/projection.ts`
-  (98/98/100/98/92), `include/edges.ts` (97/97/100/97/82), `include/index.ts` (100/97/100/100/83),
-  `where.ts` (99/93/100/99/76), `relations.ts` (99/97/100/100/75), `shared.ts` (99/94/100/100/74),
-  `projection.ts` (98/98/100/98/71), `live.ts` (100/98/100/100/83).
+- ✅ **M8.1 — tiered floors (critical 100% / rest 95%).** The old drive-to-100% everywhere was
+  retired: `coverage.config.json` now has a **`critical`** tier (the core algorithms) pinned at
+  **100%** on all five metrics, and a global `thresholds` floor of **95%** statements/branches/
+  functions/lines and **90%** conditions for everything else, ratcheted per file (a green run can
+  never regress). `check.ts` resolves the floor per file (`requiredFor`) and `--update` caps
+  non-critical waivers at the global floor so a near-100% file settles at 95% instead of ratcheting
+  toward 100. The `critical` tier: `orm/compiler/{aggregate,pagination,unique}.ts`,
+  `orm/compiler/include/specs.ts`, `driver/surql-type.ts`, `surql-type-expr.ts`, core
+  `driver/portable.ts` — the type bridge and the pure compilers where a missed branch is a wrong
+  migration. Files already at 100 across the board (`orm/auth.ts`, `cli/scaffold.ts`, `plugins/zod.ts`,
+  core `cli-kit/{meta,style}`/`connection.ts`, `driver.ts`, …) stay at 100 by the ratchet.
 - ✅ **M8.3 — Tier-2 MC/DC.** `analyzeMcdc`/`describeMcdc` in `@better-schemic/core/testing`:
   a driver-agnostic, pure unique-cause MC/DC engine (enumerates the truth table or the explicit
   `cases` a suite exercises, finds the independence pair for every condition, fails a NAMED test on

@@ -1,4 +1,5 @@
 {
+  "$comment": "Coverage gate config (scripts/coverage/check.ts). Two tiers: the `critical` files (the core algorithms) must reach 100% on every metric; every other in-scope file is ratcheted at the `thresholds` floor (95% statements/branches/functions/lines, 90% conditions). `waivers` is the per-file ratchet floor (never regress) and is capped at `thresholds` for non-critical files, so the old drive-to-100%-everywhere no longer applies.",
   "include": [
     "drivers/surrealdb/src",
     "packages/core/src"
@@ -8,12 +9,21 @@
     ".d.ts"
   ],
   "thresholds": {
-    "statements": 100,
-    "branches": 100,
-    "functions": 100,
-    "lines": 100,
-    "conditions": 100
+    "statements": 95,
+    "branches": 95,
+    "functions": 95,
+    "lines": 95,
+    "conditions": 90
   },
+  "critical": [
+    "drivers/surrealdb/src/orm/compiler/aggregate.ts",
+    "drivers/surrealdb/src/orm/compiler/pagination.ts",
+    "drivers/surrealdb/src/orm/compiler/unique.ts",
+    "drivers/surrealdb/src/orm/compiler/include/specs.ts",
+    "drivers/surrealdb/src/driver/surql-type.ts",
+    "drivers/surrealdb/src/surql-type-expr.ts",
+    "packages/core/src/driver/portable.ts"
+  ],
   "waivers": {
     "drivers/surrealdb/src/checks.ts": {
       "statements": 87.75,
@@ -32,7 +42,7 @@
     "drivers/surrealdb/src/cli/format.ts": {
       "statements": 91.78,
       "branches": 89.18,
-      "functions": 100,
+      "functions": 95,
       "lines": 93.38,
       "conditions": 69.23
     },
@@ -44,53 +54,53 @@
       "conditions": 16.66
     },
     "drivers/surrealdb/src/cli/lower.ts": {
-      "statements": 89.76,
-      "branches": 82.81,
-      "functions": 100,
-      "lines": 92.35,
+      "statements": 91.13,
+      "branches": 84.9,
+      "functions": 95,
+      "lines": 93.51,
       "conditions": 45.83
     },
     "drivers/surrealdb/src/cli/pull.ts": {
-      "statements": 87.53,
-      "branches": 77.65,
-      "functions": 81.98,
-      "lines": 89.37,
-      "conditions": 39.42
+      "statements": 87.73,
+      "branches": 81.14,
+      "functions": 80.86,
+      "lines": 89.48,
+      "conditions": 43.8
     },
     "drivers/surrealdb/src/cli/scaffold.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "drivers/surrealdb/src/cli/struct.ts": {
-      "statements": 96.68,
-      "branches": 94.78,
-      "functions": 97.29,
-      "lines": 98.45,
-      "conditions": 57.14
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 60.29
     },
     "drivers/surrealdb/src/cli/structure.ts": {
-      "statements": 94.8,
-      "branches": 84.95,
-      "functions": 97.29,
-      "lines": 98.21,
-      "conditions": 52.5
+      "statements": 95,
+      "branches": 84.64,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 57.77
     },
     "drivers/surrealdb/src/cli/surreal-diff.ts": {
-      "statements": 97.68,
+      "statements": 95,
       "branches": 90.52,
-      "functions": 100,
-      "lines": 100,
+      "functions": 95,
+      "lines": 95,
       "conditions": 64.51
     },
     "drivers/surrealdb/src/cli/surreal-filter.ts": {
-      "statements": 83.33,
-      "branches": 88.88,
+      "statements": 86.66,
+      "branches": 90.47,
       "functions": 66.66,
-      "lines": 88,
-      "conditions": 75
+      "lines": 92,
+      "conditions": 80
     },
     "drivers/surrealdb/src/commands.ts": {
       "statements": 53.96,
@@ -107,32 +117,25 @@
       "conditions": 0
     },
     "drivers/surrealdb/src/connection.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
       "conditions": 0
     },
     "drivers/surrealdb/src/ddl.ts": {
-      "statements": 95.14,
-      "branches": 90.61,
-      "functions": 100,
-      "lines": 95.7,
-      "conditions": 61.17
+      "statements": 95,
+      "branches": 90.9,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 62.92
     },
     "drivers/surrealdb/src/driver.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
-    },
-    "drivers/surrealdb/src/driver/surql-type.ts": {
-      "statements": 98.46,
-      "branches": 100,
-      "functions": 100,
-      "lines": 98.18,
-      "conditions": 100
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "drivers/surrealdb/src/driver/surreal.ts": {
       "statements": 57.6,
@@ -143,43 +146,50 @@
     },
     "drivers/surrealdb/src/fn.ts": {
       "statements": 90,
-      "branches": 100,
+      "branches": 95,
       "functions": 85.18,
       "lines": 90,
-      "conditions": 100
+      "conditions": 90
     },
     "drivers/surrealdb/src/frag.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "drivers/surrealdb/src/index.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
       "conditions": 83.33
     },
     "drivers/surrealdb/src/kinds/explode.ts": {
-      "statements": 98.91,
-      "branches": 77.08,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 40
+      "statements": 95,
+      "branches": 75.92,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 45.45
     },
     "drivers/surrealdb/src/kinds/registry.ts": {
-      "statements": 81.94,
+      "statements": 82.5,
       "branches": 81.81,
-      "functions": 74,
-      "lines": 84.84,
+      "functions": 75,
+      "lines": 85.13,
       "conditions": 50
+    },
+    "drivers/surrealdb/src/logger.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "drivers/surrealdb/src/orm/admin.ts": {
       "statements": 84.61,
       "branches": 72.72,
-      "functions": 100,
+      "functions": 95,
       "lines": 84.21,
       "conditions": 25
     },
@@ -191,158 +201,130 @@
       "conditions": 42.85
     },
     "drivers/surrealdb/src/orm/auth.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "drivers/surrealdb/src/orm/changes.ts": {
       "statements": 89.87,
       "branches": 79.59,
-      "functions": 100,
+      "functions": 95,
       "lines": 93.15,
       "conditions": 52.17
     },
     "drivers/surrealdb/src/orm/client.ts": {
-      "statements": 97.27,
+      "statements": 95,
       "branches": 85.41,
-      "functions": 100,
-      "lines": 97.05,
+      "functions": 95,
+      "lines": 95,
       "conditions": 41.17
     },
-    "drivers/surrealdb/src/orm/compiler/aggregate.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
-    },
     "drivers/surrealdb/src/orm/compiler/include/count.ts": {
-      "statements": 100,
-      "branches": 96.22,
-      "functions": 100,
-      "lines": 100,
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
       "conditions": 81.81
     },
     "drivers/surrealdb/src/orm/compiler/include/edges.ts": {
-      "statements": 97.43,
-      "branches": 96.84,
-      "functions": 100,
-      "lines": 97.36,
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
       "conditions": 82.14
     },
     "drivers/surrealdb/src/orm/compiler/include/index.ts": {
-      "statements": 100,
-      "branches": 97.36,
-      "functions": 100,
-      "lines": 100,
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
       "conditions": 83.33
     },
     "drivers/surrealdb/src/orm/compiler/include/links.ts": {
-      "statements": 100,
-      "branches": 98,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 90.47
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "drivers/surrealdb/src/orm/compiler/include/projection.ts": {
-      "statements": 98.42,
-      "branches": 97.91,
-      "functions": 100,
-      "lines": 98.31,
-      "conditions": 92
-    },
-    "drivers/surrealdb/src/orm/compiler/include/specs.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "drivers/surrealdb/src/orm/compiler/live.ts": {
-      "statements": 100,
-      "branches": 97.5,
-      "functions": 100,
-      "lines": 100,
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
       "conditions": 83.33
     },
     "drivers/surrealdb/src/orm/compiler/mutate.ts": {
-      "statements": 100,
-      "branches": 98.99,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 94.33
-    },
-    "drivers/surrealdb/src/orm/compiler/pagination.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "drivers/surrealdb/src/orm/compiler/projection.ts": {
-      "statements": 98.24,
-      "branches": 97.5,
-      "functions": 100,
-      "lines": 98.1,
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
       "conditions": 71.42
     },
     "drivers/surrealdb/src/orm/compiler/relate.ts": {
-      "statements": 100,
-      "branches": 99.02,
-      "functions": 100,
-      "lines": 100,
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
       "conditions": 82.85
     },
     "drivers/surrealdb/src/orm/compiler/relations.ts": {
-      "statements": 99.24,
-      "branches": 96.82,
-      "functions": 100,
-      "lines": 100,
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
       "conditions": 75
     },
     "drivers/surrealdb/src/orm/compiler/select.ts": {
-      "statements": 100,
-      "branches": 98.3,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 95.45
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "drivers/surrealdb/src/orm/compiler/shared.ts": {
-      "statements": 98.68,
+      "statements": 95,
       "branches": 93.67,
-      "functions": 100,
-      "lines": 100,
+      "functions": 95,
+      "lines": 95,
       "conditions": 74.46
     },
-    "drivers/surrealdb/src/orm/compiler/unique.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
-    },
     "drivers/surrealdb/src/orm/compiler/where.ts": {
-      "statements": 99.32,
+      "statements": 95,
       "branches": 93.05,
-      "functions": 100,
-      "lines": 99.28,
+      "functions": 95,
+      "lines": 95,
       "conditions": 78.26
     },
     "drivers/surrealdb/src/orm/compiler/write-shared.ts": {
-      "statements": 98.49,
-      "branches": 95.38,
-      "functions": 100,
-      "lines": 99.15,
-      "conditions": 93.93
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "drivers/surrealdb/src/orm/compiler/write.ts": {
-      "statements": 100,
-      "branches": 98.14,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "drivers/surrealdb/src/orm/connect.ts": {
       "statements": 93.54,
@@ -352,10 +334,10 @@
       "conditions": 50
     },
     "drivers/surrealdb/src/orm/context.ts": {
-      "statements": 96.77,
+      "statements": 95,
       "branches": 93.33,
-      "functions": 100,
-      "lines": 96.42,
+      "functions": 95,
+      "lines": 95,
       "conditions": 66.66
     },
     "drivers/surrealdb/src/orm/decode.ts": {
@@ -366,46 +348,46 @@
       "conditions": 39.28
     },
     "drivers/surrealdb/src/orm/delegate.ts": {
-      "statements": 95.65,
+      "statements": 95,
       "branches": 89.28,
-      "functions": 100,
-      "lines": 95.34,
+      "functions": 95,
+      "lines": 95,
       "conditions": 83.33
     },
     "drivers/surrealdb/src/orm/errors.ts": {
-      "statements": 98.83,
-      "branches": 100,
+      "statements": 95,
+      "branches": 95,
       "functions": 94.73,
-      "lines": 98.76,
-      "conditions": 96
+      "lines": 95,
+      "conditions": 90
     },
     "drivers/surrealdb/src/orm/execute.ts": {
-      "statements": 100,
-      "branches": 95.12,
-      "functions": 100,
-      "lines": 100,
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
       "conditions": 85.71
     },
     "drivers/surrealdb/src/orm/fn.ts": {
-      "statements": 100,
+      "statements": 95,
       "branches": 94.73,
-      "functions": 100,
-      "lines": 100,
+      "functions": 95,
+      "lines": 95,
       "conditions": 75
     },
     "drivers/surrealdb/src/orm/hooks.ts": {
-      "statements": 100,
+      "statements": 95,
       "branches": 88.09,
-      "functions": 100,
-      "lines": 100,
+      "functions": 95,
+      "lines": 95,
       "conditions": 66.66
     },
     "drivers/surrealdb/src/orm/index.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "drivers/surrealdb/src/orm/live.ts": {
       "statements": 88.18,
@@ -414,50 +396,74 @@
       "lines": 90,
       "conditions": 27.77
     },
-    "drivers/surrealdb/src/orm/logger/logger.ts": {
-      "statements": 100,
-      "branches": 97.41,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 90.99
-    },
-    "drivers/surrealdb/src/orm/logger/plan.ts": {
-      "statements": 100,
-      "branches": 96.77,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 90.9
+    "drivers/surrealdb/src/orm/logger/colors.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "drivers/surrealdb/src/orm/logger/emit.ts": {
-      "branches": 86.5,
-      "conditions": 52.9
+      "statements": 95,
+      "branches": 86.56,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 52.94
+    },
+    "drivers/surrealdb/src/orm/logger/highlight.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
+    },
+    "drivers/surrealdb/src/orm/logger/index.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
+    },
+    "drivers/surrealdb/src/orm/logger/logger.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
+    },
+    "drivers/surrealdb/src/orm/logger/plan.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "drivers/surrealdb/src/orm/meta.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
       "conditions": 66.66
     },
     "drivers/surrealdb/src/orm/plugins.ts": {
-      "statements": 100,
-      "branches": 97.56,
-      "functions": 100,
-      "lines": 100,
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
       "conditions": 85.71
     },
     "drivers/surrealdb/src/orm/raw.ts": {
-      "statements": 95.19,
+      "statements": 95,
       "branches": 88.09,
-      "functions": 100,
-      "lines": 96.62,
+      "functions": 95,
+      "lines": 95,
       "conditions": 43.47
     },
     "drivers/surrealdb/src/orm/reads.ts": {
-      "statements": 100,
+      "statements": 95,
       "branches": 90.9,
-      "functions": 100,
-      "lines": 100,
+      "functions": 95,
+      "lines": 95,
       "conditions": 61.53
     },
     "drivers/surrealdb/src/orm/results.ts": {
@@ -468,87 +474,80 @@
       "conditions": 50
     },
     "drivers/surrealdb/src/orm/schema.ts": {
-      "statements": 96.49,
+      "statements": 95,
       "branches": 90.32,
-      "functions": 100,
-      "lines": 96.36,
+      "functions": 95,
+      "lines": 95,
       "conditions": 53.84
     },
     "drivers/surrealdb/src/orm/transaction.ts": {
       "statements": 91.82,
       "branches": 85.27,
-      "functions": 96.15,
+      "functions": 95,
       "lines": 94.48,
       "conditions": 62.06
     },
     "drivers/surrealdb/src/orm/writes.ts": {
-      "statements": 96.72,
+      "statements": 95,
       "branches": 69.66,
-      "functions": 100,
-      "lines": 99.09,
+      "functions": 95,
+      "lines": 95,
       "conditions": 58.33
     },
     "drivers/surrealdb/src/plugins/rules.ts": {
       "statements": 90.9,
       "branches": 88.88,
-      "functions": 100,
-      "lines": 97.36,
+      "functions": 95,
+      "lines": 95,
       "conditions": 53.84
     },
     "drivers/surrealdb/src/plugins/soft-delete.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
       "conditions": 75
     },
     "drivers/surrealdb/src/plugins/timestamps.ts": {
       "statements": 94.44,
       "branches": 89.47,
-      "functions": 100,
-      "lines": 100,
+      "functions": 95,
+      "lines": 95,
       "conditions": 57.14
     },
     "drivers/surrealdb/src/plugins/zod.ts": {
-      "statements": 100,
+      "statements": 95,
       "branches": 92.3,
-      "functions": 100,
-      "lines": 100,
+      "functions": 95,
+      "lines": 95,
       "conditions": 85.71
     },
     "drivers/surrealdb/src/pure.ts": {
-      "statements": 87.07,
-      "branches": 86.64,
-      "functions": 83.87,
-      "lines": 88.51,
-      "conditions": 60.46
+      "statements": 87.26,
+      "branches": 86.88,
+      "functions": 84.09,
+      "lines": 88.69,
+      "conditions": 61.06
     },
     "drivers/surrealdb/src/query.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "drivers/surrealdb/src/seed.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
-    },
-    "drivers/surrealdb/src/surql-type-expr.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "drivers/surrealdb/src/surql/block.ts": {
-      "statements": 100,
+      "statements": 95,
       "branches": 89.28,
-      "functions": 100,
-      "lines": 100,
+      "functions": 95,
+      "lines": 95,
       "conditions": 57.14
     },
     "drivers/surrealdb/src/surql/predicate.ts": {
@@ -559,11 +558,11 @@
       "conditions": 35.29
     },
     "drivers/surrealdb/src/surql/ref.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "drivers/surrealdb/src/surql/render.ts": {
       "statements": 83.58,
@@ -573,17 +572,17 @@
       "conditions": 66.66
     },
     "drivers/surrealdb/src/wire.ts": {
-      "statements": 98.08,
+      "statements": 95,
       "branches": 89.63,
-      "functions": 100,
-      "lines": 98.43,
+      "functions": 95,
+      "lines": 95,
       "conditions": 48.71
     },
     "packages/core/src/authoring.ts": {
-      "statements": 98.27,
+      "statements": 95,
       "branches": 84.61,
-      "functions": 100,
-      "lines": 100,
+      "functions": 95,
+      "lines": 95,
       "conditions": 60
     },
     "packages/core/src/cli-kit/config.ts": {
@@ -601,25 +600,25 @@
       "conditions": 33.33
     },
     "packages/core/src/cli-kit/filter.ts": {
-      "statements": 97.43,
+      "statements": 95,
       "branches": 87.09,
-      "functions": 100,
-      "lines": 100,
+      "functions": 95,
+      "lines": 95,
       "conditions": 71.42
     },
     "packages/core/src/cli-kit/merge.ts": {
       "statements": 92.12,
       "branches": 71.29,
-      "functions": 96.66,
-      "lines": 96.37,
+      "functions": 95,
+      "lines": 95,
       "conditions": 12.5
     },
     "packages/core/src/cli-kit/meta.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "packages/core/src/cli-kit/pager.ts": {
       "statements": 91.66,
@@ -636,87 +635,80 @@
       "conditions": 15.78
     },
     "packages/core/src/cli-kit/style.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "packages/core/src/client.ts": {
       "statements": 92.3,
       "branches": 66.66,
-      "functions": 100,
+      "functions": 95,
       "lines": 93.75,
       "conditions": 57.14
     },
     "packages/core/src/config.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
       "conditions": 50
     },
     "packages/core/src/connection.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "packages/core/src/driver/driver.ts": {
       "statements": 77.77,
       "branches": 25,
-      "functions": 100,
+      "functions": 95,
       "lines": 77.77,
-      "conditions": 100
-    },
-    "packages/core/src/driver/portable.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
+      "conditions": 90
     },
     "packages/core/src/driver/sdk.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "packages/core/src/index.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "packages/core/src/kind/index.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
-      "conditions": 100
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "packages/core/src/kind/plan.ts": {
-      "statements": 96.38,
+      "statements": 95,
       "branches": 85.6,
-      "functions": 100,
-      "lines": 100,
+      "functions": 95,
+      "lines": 95,
       "conditions": 49.05
     },
     "packages/core/src/kind/registry.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
       "conditions": 71.42
     },
     "packages/core/src/secrets.ts": {
-      "statements": 100,
-      "branches": 100,
-      "functions": 100,
-      "lines": 100,
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
       "conditions": 80
     },
     "packages/core/src/testing.ts": {

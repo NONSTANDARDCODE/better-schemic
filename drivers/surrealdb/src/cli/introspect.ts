@@ -27,6 +27,7 @@ const SHADOW_MIG_DB = "__surreal_zod_shadow_mig";
 const RANK: Record<DefineStatement["kind"], number> = {
   analyzer: 0, // db-level; defined first (a FULLTEXT index references its analyzer)
   param: 0, // db-level; defined first (functions/events may reference $param)
+  sequence: 0, // db-level; standalone
   function: 0, // db-level; defined first (tables/events may reference fn::…)
   table: 1,
   field: 2,

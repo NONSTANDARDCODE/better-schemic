@@ -1,5 +1,10 @@
 import { escapeIdent, type Surreal } from "surrealdb";
-import { type DefineStatement, renderAsync } from "../ddl";
+import {
+  type DefineStatement,
+  renderAsync,
+  SEQ_DEFAULT_BATCH,
+  SEQ_DEFAULT_START,
+} from "../ddl";
 import { splitTopUnion } from "../surql-type-expr";
 
 /** A snapshot statement: the emitted DDL plus the source file it came from (for `diff` annotations). */
@@ -146,6 +151,19 @@ export interface StructParam {
   comment?: string;
 }
 
+/** A `DEFINE SEQUENCE` — `INFO … STRUCTURE` returns `batch`/`start` as strings (e.g. `"1000"`) and
+ *  `timeout` as a duration string. SurrealDB materializes the defaults (BATCH 1000, START 0), which
+ *  the canonical form strips so an authored minimal sequence compares equal to the read-back one. */
+export interface StructSequence {
+  name: string;
+  /** `BATCH <n>` — how many values a fetch reserves (SurrealDB default 1000). */
+  batch?: number;
+  /** `START <n>` — the first value (SurrealDB default 0). */
+  start?: number;
+  /** `TIMEOUT <duration>` — how long a reserved batch is held before it can be reclaimed. */
+  timeout?: string;
+}
+
 export interface StructTableKind {
   kind: "NORMAL" | "ANY" | "RELATION";
   in?: string[];
@@ -183,15 +201,23 @@ interface DbStructure {
   accesses?: StructAccess[];
   analyzers?: StructAnalyzer[];
   params?: StructParam[];
+  sequences?: {
+    name: string;
+    batch?: string | number;
+    start?: string | number;
+    timeout?: string;
+  }[];
 }
 
-/** The structured database: tables (with their fields/indexes/events) and db-level functions/access/analyzers/params. */
+/** The structured database: tables (with their fields/indexes/events) and db-level objects. */
 export interface DbStructured {
   tables: StructTable[];
   functions: StructFunction[];
   accesses: StructAccess[];
   analyzers: StructAnalyzer[];
   params: StructParam[];
+  /** Optional so hand-built/legacy `DbStructured` fixtures stay valid; readers default to `[]`. */
+  sequences?: StructSequence[];
 }
 interface TableStructure {
   fields?: StructField[];
@@ -553,6 +579,18 @@ function canonicalParam(p: StructParam): string {
   return `${s};`;
 }
 
+/** Canonical `DEFINE SEQUENCE <name> [BATCH <n>] [START <n>] [TIMEOUT <dur>]` (defaults omitted;
+ *  the default constants live in `../ddl` so the emitter and this builder can't drift). */
+function canonicalSequence(s: StructSequence): string {
+  let out = `DEFINE SEQUENCE ${s.name}`;
+  if (s.batch !== undefined && s.batch !== SEQ_DEFAULT_BATCH)
+    out += ` BATCH ${s.batch}`;
+  if (s.start !== undefined && s.start !== SEQ_DEFAULT_START)
+    out += ` START ${s.start}`;
+  if (s.timeout !== undefined) out += ` TIMEOUT ${s.timeout}`;
+  return `${out};`;
+}
+
 function canonicalAnalyzer(a: StructAnalyzer): string {
   let s = `DEFINE ANALYZER ${a.name}`;
   // Grammar order: FUNCTION, TOKENIZERS, FILTERS, COMMENT. `function` is stored bare; re-prefix `fn::`.
@@ -616,6 +654,7 @@ export function structuredSnapshot({
   accesses,
   analyzers,
   params,
+  sequences = [],
 }: DbStructured): Snapshot {
   const statements: Record<string, DefineStatement> = {};
   for (const t of tables) {
@@ -712,6 +751,14 @@ export function structuredSnapshot({
     };
     statements[keyOf(s)] = s;
   }
+  for (const sq of sequences) {
+    const s: DefineStatement = {
+      kind: "sequence",
+      name: sq.name,
+      ddl: canonicalSequence(sq),
+    };
+    statements[keyOf(s)] = s;
+  }
   return { version: 1, statements };
 }
 
@@ -755,11 +802,19 @@ export async function introspectStructured(
       events: tinfo.events ?? [],
     });
   }
+  const num = (v: string | number | undefined): number | undefined =>
+    v === undefined ? undefined : Number(v);
   return {
     tables,
     functions: dbInfo.functions ?? [],
     accesses: dbInfo.accesses ?? [],
     analyzers: dbInfo.analyzers ?? [],
     params: dbInfo.params ?? [],
+    sequences: (dbInfo.sequences ?? []).map((s) => ({
+      name: s.name,
+      ...(s.batch !== undefined ? { batch: num(s.batch) } : {}),
+      ...(s.start !== undefined ? { start: num(s.start) } : {}),
+      ...(s.timeout !== undefined ? { timeout: s.timeout } : {}),
+    })),
   };
 }

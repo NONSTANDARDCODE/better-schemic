@@ -19,6 +19,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 ## [Unreleased]
 
 ### Added
+- **surrealdb:** `defineSequence(name).batch(n).start(n).timeout("5s")` — database-level `DEFINE
+  SEQUENCE` (a monotonic counter read via `sequence::nextval('name')`). New registered kind
+  (`sequence`) wired end to end: authoring (eager validation), emit, `lower`/`normalize`/`introspect`,
+  diff, and `pull` (regenerates the fluent call). SurrealDB's materialized defaults (BATCH 1000 /
+  START 0) are stripped, so a bare `defineSequence("x")` round-trips drift-free. New reference group
+  `examples/sequences/`, `test/unit/define-sequence.test.ts` (incl. a live round-trip), and an
+  `introspect-kinds` parity case.
+- **surrealdb:** `s.range()` — the SurrealDB `range` value type (an interval like `1..=10`). Author with
+  `s.range()`, build values with the SDK's `new Range(new BoundIncluded(1), new BoundExcluded(10))`;
+  it emits `TYPE range`, introspects, and round-trips (live parity). SurrealDB's `range<T>` element
+  grammar does not parse on 3.x, so the builder takes no argument. New reference example
+  (`examples/field-types/range-interval-values.ts`) + a live-parity case; `pull` reverses it to
+  `s.range()`.
 - **surrealdb:** built-in query logger (M9) — enable it with one flag
   (`betterSchemic(conn, { schema, logger: true })` / `"pretty" | "compact" | "json" | "silent"` /
   a `LoggerOptions` object, or the `BETTER_SCHEMIC_LOG` env var). It observes the executor (every
@@ -287,6 +300,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `source.{commit,hash}` header for vendoring consumers.
 
 ### Changed
+- **repo (tooling):** the coverage gate is now **two-tier** (`coverage.config.json`): a `critical` list
+  of core algorithms must reach **100%** on every metric, while every other in-scope file only has to
+  clear a global floor of **95%** statements/branches/functions/lines and **90%** conditions
+  (ratcheted — a green run can never regress). The old drive-to-100%-everywhere was retired:
+  `check.ts` resolves the floor per file and `--update` caps non-critical waivers at the global floor,
+  so a near-100% file settles at 95% instead of ratcheting upward. See `ROADMAP.md` §M8 and
+  `drivers/surrealdb/docs/TESTING.md`.
 - **repo (tooling):** the mutation gate now runs **one** Stryker process whose worker pool schedules
   mutants dynamically across `concurrency` test-runner workers, replacing the static file sharding.
   The size-round-robin shards were imbalanced (heaviest ~1.9x the lightest, so the job waited on it)
@@ -328,6 +348,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   retired with the fluent builder; the neutral field-ref carrier moved into the driver (`src/surql/ref.ts`).
 
 ### Fixed
+- **surrealdb:** `ASYNC` events now **round-trip**. `spec.async` already emitted `ASYNC [RETRY n]
+  [MAXDEPTH n]`, but the Struct-IR lowering/normalization dropped it, so an async event was invisible
+  to `diff`/migrations (emit-only). Both paths now carry `async`/`retry`/`maxdepth` (and event
+  `comment`), and the canonical form strips SurrealDB's materialized `RETRY 1`/`MAXDEPTH 3` defaults —
+  so an authored bare `ASYNC` diffs to zero against the read-back schema. New reference example
+  (`examples/events/async-event-retry-maxdepth.ts`) + a live-parity round-trip case.
 - **repo (tooling):** the CI `mutation` job's report artifact is uploaded again — the report lives in
   the dot-directory `.mutation/`, which `actions/upload-artifact` silently skips without
   `include-hidden-files: true`.

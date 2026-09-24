@@ -10,6 +10,7 @@ import {
   type PermOp,
   requireFunctionBody,
   type SField,
+  type SequenceDef,
   type Shape,
   type StandaloneDef,
   type SurrealMeta,
@@ -217,7 +218,8 @@ export interface DefineStatement {
     | "function"
     | "access"
     | "analyzer"
-    | "param";
+    | "param"
+    | "sequence";
   name: string;
   table?: string;
   ddl: string;
@@ -301,6 +303,23 @@ export function blockThen(e: Expr): string {
     out = out.slice(0, -1).trimEnd();
   }
   return topSemis.length > 0 ? `{ ${out}; }` : out;
+}
+
+/** SurrealDB's materialized `DEFINE SEQUENCE` defaults — omitted from the DDL so an authored minimal
+ *  sequence matches the introspected (BATCH 1000 START 0) form. Shared by the emitter and the
+ *  canonical builder so the two can't drift. */
+export const SEQ_DEFAULT_BATCH = 1000;
+export const SEQ_DEFAULT_START = 0;
+
+/** `DEFINE SEQUENCE <name> [BATCH <n>] [START <n>] [TIMEOUT <dur>]` (defaults omitted). */
+function emitSequence(seq: SequenceDef, opts?: DefineOptions): string {
+  let s = `DEFINE SEQUENCE ${existsPrefix(opts)}${escapeIdent(seq.name)}`;
+  if (seq.config.batch !== undefined && seq.config.batch !== SEQ_DEFAULT_BATCH)
+    s += ` BATCH ${seq.config.batch}`;
+  if (seq.config.start !== undefined && seq.config.start !== SEQ_DEFAULT_START)
+    s += ` START ${seq.config.start}`;
+  if (seq.config.timeout !== undefined) s += ` TIMEOUT ${seq.config.timeout}`;
+  return `${s};`;
 }
 
 /** `DEFINE EVENT <name> ON TABLE <table> [WHEN <when>] THEN <then>`. Multiple `then`s run in order. */
@@ -569,6 +588,9 @@ export function emitDefStatement(
   }
   if (def.kind === "function") {
     return { kind: "function", name: def.name, ddl: emitFunction(def, opts) };
+  }
+  if (def.kind === "sequence") {
+    return { kind: "sequence", name: def.name, ddl: emitSequence(def, opts) };
   }
   // EXHAUSTIVE: never fall through to a sibling's emitter — a def of an unknown kind used to land in
   // `emitFunction` and die on `fn.config.body`.
@@ -1018,13 +1040,16 @@ export function removeStatement(
   if (s.kind === "param") {
     return `REMOVE PARAM IF EXISTS $${s.name};`;
   }
+  if (s.kind === "sequence") {
+    return `REMOVE SEQUENCE IF EXISTS ${escapeIdent(s.name)};`;
+  }
   return `REMOVE FIELD IF EXISTS ${s.name} ON TABLE ${escapeIdent(s.table ?? "")};`;
 }
 
 /** Inject `OVERWRITE` into a plain `DEFINE <kind> …` statement (idempotent re-definition). */
 export function overwriteStatement(ddl: string): string {
   return ddl.replace(
-    /^DEFINE (TABLE|FIELD|INDEX|EVENT|ANALYZER|ACCESS|PARAM|FUNCTION) (?!OVERWRITE\b)/,
+    /^DEFINE (TABLE|FIELD|INDEX|EVENT|ANALYZER|ACCESS|PARAM|SEQUENCE|FUNCTION) (?!OVERWRITE\b)/,
     "DEFINE $1 OVERWRITE ",
   );
 }

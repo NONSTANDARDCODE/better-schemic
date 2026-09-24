@@ -1,8 +1,10 @@
 # Testing & MC/DC coverage — `@better-schemic/surrealdb` (+ `@better-schemic/core`)
 
-better-schemic aims for **SQLite-grade test rigor**: 100% decision/condition coverage and a strong
-mutation score, exercised against a **real** SurrealDB, with as few mocks as possible. This doc is the
-how-to and the honest statement of what the metrics mean.
+better-schemic aims for **SQLite-grade test rigor** where it matters: **100% decision/condition
+coverage on the core algorithms** (the type bridge and the pure compilers, where a missed branch is a
+wrong migration), a **95% floor** (90% conditions) on everything else, and a strong mutation score —
+all exercised against a **real** SurrealDB, with as few mocks as possible. This doc is the how-to and
+the honest statement of what the metrics mean.
 
 ## The commands
 
@@ -32,7 +34,9 @@ exactly the point SQLite makes about C ("MC/DC and branch coverage are very near
   is covered only when it was evaluated **both truthy and falsy**. Constant operands (`x || {}`,
   `a ?? "d"`, `flag && true`) are excluded from the denominator: MC/DC covers every **non-constant**
   condition. The gate enforces all five metrics per file via `coverage.config.json` (a ratchet — a
-  green run can never regress).
+  green run can never regress), with **two tiers**: the `critical` list (core algorithms) must reach
+  **100%**, every other file the global `thresholds` floor (**95%**, conditions **90%**). `--update`
+  caps non-critical waivers at that floor, so files settle at 95% rather than being driven to 100%.
 - **Tier 2 — independence pairs (implemented).** `analyzeMcdc`/`describeMcdc` in
   `@better-schemic/core/testing` compute **real** MC/DC: for a decision, every condition must have a
   **unique-cause independence pair** — two assignments that differ *only* in that condition and flip
@@ -52,10 +56,6 @@ exactly the point SQLite makes about C ("MC/DC and branch coverage are very near
       isNotFound(errOf(/* map the assignment to a real input */)),
   });
   ```
-
-  > **Deferred:** the AST **decision inventory** (enumerate every `src` decision and require each be
-  > Tier-1 `auto` or Tier-2 `table`) needs a TS/oxc parser dependency the repo doesn't ship; until
-  > then, `describeMcdc` is applied per decision, by name.
 
 Because Tier 1 runs the real suites, the conditions are exercised through the public API, not by
 calling private predicates — which is the point.
@@ -200,7 +200,7 @@ time-bounded corpus asserts each call finishes well under budget. Budget is `FUZ
 | `mcdc-manifest.json` | decisions proven by a `describeMcdc` table test |
 | `mcdc.config.json` | per-file unknown-decision floor (ratchet) |
 | `drivers/surrealdb/test/preload-server.ts` | shared ephemeral SurrealDB for live/parity |
-| `coverage.config.json` | include roots, excludes, thresholds, per-file waivers (the floor) |
+| `coverage.config.json` | include roots, excludes, `critical` (100%), thresholds (95/90), per-file waivers |
 
 ## Workflow
 
@@ -209,8 +209,9 @@ time-bounded corpus asserts each call finishes well under budget. Budget is `FUZ
 3. `bun run test:coverage` → green.
 4. `bun run test:coverage:update` to lock the new floor, then commit.
 
-> The `coverage.config.json` waivers are a **temporary** floor, not a target: every waiver is a TODO
-> to delete once the file is at 100%.
+> Waivers are the **no-regression floor**, capped at the global threshold for non-critical files: a
+> file at 96% locks at 95%, not 96%. The only files that must reach 100% are the `critical` ones —
+> add a file there (and drive it to 100%) when a missed branch would be a correctness bug.
 
 ## CI
 

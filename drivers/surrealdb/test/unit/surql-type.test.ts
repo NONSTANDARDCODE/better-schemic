@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { PortableType } from "@better-schemic/core";
 import { normalizeType } from "../../src/cli/struct";
 import { emitSurqlType, parseSurqlType } from "../../src/driver/surql-type";
 
@@ -34,6 +35,7 @@ const CANONICAL = [
   "record<account | user>",
   "geometry<point>",
   "geometry<polygon>",
+  "range",
   "'admin'",
   "'a' | 'b'",
   "null | string",
@@ -102,5 +104,13 @@ describe("surql-type bridge (Milestone 2 losslessness)", () => {
     expect(emitSurqlType(parseSurqlType("geometry<bogus>"))).toBe(
       "geometry<bogus>",
     );
+  });
+
+  test("a tag outside the PortableType union is a hard error (exhaustive switch)", () => {
+    // The switch is exhaustive; this guards against a value smuggled in via `any`/a stale cast, so
+    // a dialect mismatch fails loudly instead of emitting a silently-wrong type.
+    expect(() =>
+      emitSurqlType({ t: "bogus" } as unknown as PortableType),
+    ).toThrow("unhandled portable type: bogus");
   });
 });

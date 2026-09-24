@@ -12,6 +12,7 @@ import { fieldClauses } from "./field-clauses";
 import { fieldTypes } from "./field-types";
 import { functions } from "./functions";
 import { indexes } from "./indexes";
+import { sequences } from "./sequences";
 import { tables } from "./tables";
 
 export type { Definable, Example, ExampleGroup } from "./_kit";
@@ -25,6 +26,7 @@ export const allGroups: ExampleGroup[] = [
   indexes,
   events,
   functions,
+  sequences,
   access,
   analyzers,
   escapeHatch,

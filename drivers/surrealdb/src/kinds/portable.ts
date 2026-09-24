@@ -17,6 +17,7 @@ import type {
   StructFunction,
   StructTable,
   StructParam,
+  StructSequence,
 } from "../cli/structure";
 import type { DefineStatement } from "../ddl";
 
@@ -110,6 +111,17 @@ export interface PParam extends PortableObject {
   readonly native: StructParam;
 }
 
+/** A db-level `DEFINE SEQUENCE` portable object — OPAQUE (a neutral identity + its canonical
+ *  `DEFINE SEQUENCE` statement, round-tripped verbatim). */
+export interface PSequence extends PortableObject {
+  readonly kind: "sequence";
+  readonly name: string;
+  readonly stmt: DefineStatement;
+  readonly deps: Ref[];
+  /** The structured sequence (the opaque kind's `native` payload) — for `renderSchema` TS codegen. */
+  readonly native: StructSequence;
+}
+
 /** Every portable object a SurrealDB schema lowers to. */
 export type SurrealPortable =
   | PTable
@@ -118,7 +130,8 @@ export type SurrealPortable =
   | PFunction
   | PAccess
   | PAnalyzer
-  | PParam;
+  | PParam
+  | PSequence;
 
 /**
  * The authoring-side definables the explode produces. They ALREADY carry the normalized, canonical

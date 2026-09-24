@@ -28,6 +28,7 @@ import type {
   StructFunction,
   StructTable,
   StructParam,
+  StructSequence,
 } from "../cli/structure";
 import { introspectStructured, structuredSnapshot } from "../cli/structure";
 import type { DefineStatement } from "../ddl";
@@ -156,6 +157,12 @@ export function fromStructured(db: DbStructured): SurrealPortable[] {
     if (native)
       out.push({ kind: "param", name: s.name, stmt: s, deps: [], native });
   }
+  const sqByName = new Map((db.sequences ?? []).map((s) => [s.name, s]));
+  for (const s of of("sequence")) {
+    const native = sqByName.get(s.name);
+    if (native)
+      out.push({ kind: "sequence", name: s.name, stmt: s, deps: [], native });
+  }
 
   return out;
 }
@@ -169,14 +176,16 @@ export function toStructured(objects: SurrealPortable[]): DbStructured {
   const accesses: StructAccess[] = [];
   const analyzers: StructAnalyzer[] = [];
   const params: StructParam[] = [];
+  const sequences: StructSequence[] = [];
   for (const o of objects) {
     if (o.kind === "table") tables.push(o.struct);
     else if (o.kind === "function") functions.push(o.native);
     else if (o.kind === "access") accesses.push(o.native);
     else if (o.kind === "analyzer") analyzers.push(o.native);
     else if (o.kind === "param") params.push(o.native);
+    else if (o.kind === "sequence") sequences.push(o.native);
   }
-  return { tables, functions, accesses, analyzers, params };
+  return { tables, functions, accesses, analyzers, params, sequences };
 }
 
 /**
