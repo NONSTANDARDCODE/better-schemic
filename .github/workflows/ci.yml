@@ -81,7 +81,7 @@ jobs:
       # The local `surreal` binary (pinned) so `spawnEphemeralServer` + the shared live preload run.
       - name: Install SurrealDB
         run: |
-          curl -sSf https://install.surrealdb.com | sh -s -- --version 3.2.0
+          curl -sSf https://install.surrealdb.com | sh -s -- --version v3.2.0
           echo "$HOME/.surrealdb" >> "$GITHUB_PATH"
 
       - name: Coverage gate
