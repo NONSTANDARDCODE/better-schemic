@@ -86,10 +86,16 @@ live parity suites (`test/parity/{struct,live,canonical}-parity.test.ts`) and th
 - [x] `geometry` (bare) and `geometry<point|line|polygon|multipoint|multiline|multipolygon|collection>`
   — `s.geometry(kind?)` (all 7 kinds + bare round-trip)
 
+### Range
+- [x] `range` (bare; the `range<T>` element grammar does not parse on SurrealDB 3.x) — `s.range()`,
+  a `Range` value (`new Range(new BoundIncluded(1), new BoundExcluded(10))`); emits `TYPE range`,
+  introspects and round-trips
+
 ### Not-yet-typed
-- [ ] `range<T>` — DB supports `TYPE range`; no `s.range()` builder, not introspected
-- [ ] `regex` — DB supports `TYPE regex`; no `s.regex()` builder, not introspected
-- [ ] `future` fields
+- [ ] `regex` — DB supports `TYPE regex` and it introspects, but the SDK can't encode a JS value into
+  a `regex` field (`'ab+c'` / `RegExp` are both rejected), so there's no honest codec to expose; a
+  builder would be a silent-failure API
+- [ ] `future` fields — the `FUTURE` keyword does not parse on SurrealDB 3.x (use `COMPUTED`)
 
 ## Field clauses
 
@@ -135,7 +141,9 @@ live parity suites (`test/parity/{struct,live,canonical}-parity.test.ts`) and th
 
 - [x] `DEFINE EVENT … [WHEN …] THEN …` — `table.event(name, spec)` / `defineEvent(table, name, spec)`
   (omitted `WHEN` round-trips; `THEN` accepts a single expr or ordered array)
-- [ ] `ASYNC` events
+- [x] `ASYNC [RETRY @n] [MAXDEPTH @n]` — `spec.async` (`true` bare, or `{ retry, maxDepth }`).
+  SurrealDB materializes RETRY 1 / MAXDEPTH 3 on read; the canonical form strips those defaults so an
+  omitted value round-trips (retry 1 / maxdepth 3). Events also round-trip `COMMENT`.
 
 ## Functions
 
@@ -179,7 +187,9 @@ via `sc access push/diff/rotate/check`.
       the def itself splices in `surql` templates. `PERMISSIONS NONE` + `COMMENT` covered;
       expression VALUES intentionally unsupported (the DB stores them EVALUATED — they can't
       round-trip).
-- [ ] `DEFINE SEQUENCE`
+- [x] `DEFINE SEQUENCE` — `defineSequence(name).batch(n).start(n).timeout("5s")` (own kind, fully
+      round-tripped; read via `sequence::nextval('name')`). The builder validates eagerly; SurrealDB's
+      materialized defaults (BATCH 1000 / START 0) are stripped, so a bare sequence round-trips drift-free.
 - [x] `DEFINE ANALYZER TOKENIZERS … [FILTERS …]` — `defineAnalyzer(name, { tokenizers, filters? })` (its own kind; a FULLTEXT index `deps` on it)
 - [ ] `DEFINE USER`
 - [ ] `DEFINE CONFIG` / `DEFINE API` / `DEFINE BUCKET` / `DEFINE MODEL`
@@ -218,15 +228,15 @@ This is where the honesty lives — projections, redactions, and emit-but-don't-
 | Area | Status |
 |---|---|
 | Tables (schema mode, type, perms, changefeed, comment, drop, relations, views) | `[x]` — full `DEFINE TABLE` head |
-| Field types (scalars, geometry, containers, records, literals, unions, tuples, optionality) | `[x]` — range/regex `[ ]`, object-unions/open-maps `[~]` |
+| Field types (scalars, geometry, range, containers, records, literals, unions, tuples, optionality) | `[x]` — regex `[ ]` (no encodable value), object-unions/open-maps `[~]` |
 | Field clauses (default/value/computed/assert/readonly/comment/flexible/permissions/reference) | `[x]` |
 | Indexes (plain, unique, composite, count, COMMENT, vector HNSW/DISKANN, full-text) | `[x]` — full `DEFINE INDEX` (modifiers CONCURRENTLY/DEFER n/a) |
 | Analyzers (`DEFINE ANALYZER`) | `[x]` |
-| Events | `[x]` — `ASYNC` `[ ]` |
+| Events | `[x]` — incl. `ASYNC RETRY`/`MAXDEPTH` |
 | Functions | `[x]` (body-format caveat) |
 | Access/Auth (RECORD) | `[x]` |
 | Access/Auth (JWT, BEARER) | `[~]` — secrets redacted |
-| DB-level (param/sequence/user/config/api/bucket/model) | `[ ]` |
+| DB-level (param/sequence/user/config/api/bucket/model) | `[~]` — `param` + `sequence` `[x]`; `user`/`config`/`api`/`bucket`/`model` `[ ]` |
 
 ---
 
@@ -244,7 +254,8 @@ A kind is `[x]` in a column only when that capability round-trips through the **
 `registry`/`explode`/`introspectAll` + the command capabilities. Core orchestrates schema ops
 (`lowerSchema`/`buildKindDiff`/`emitKinds`/`orderObjects`) generically over the registry; the Struct-IR
 (`DbStructured`) + `diffSnapshots` remain the driver's INTERNAL clause-level engine the kinds delegate
-to. Every kind SurrealDB emits — `table`, `index`, `event`, `function`, `access`, `analyzer` — round-trips:
+to. Every registered kind — `table`, `index`, `event`, `function`, `access`, `analyzer`, `param`,
+`sequence` — round-trips:
 - the kind engines stay byte-exact with the internal `diffSnapshots` engine (`test/unit/kind-parity.test.ts`);
 - `introspectAll` live round-trips on SurrealDB 3.1.3 (zero phantom diff, `test/parity/introspect-kinds.test.ts`);
 - per-field diff display via the table kind's `displayItems` (Manuel's call — field-level items grouped under their table);
@@ -268,9 +279,10 @@ introspect path (the fixed-slot `Driver.introspect` is gone), live-validated to 
 | `function` (`fn::`) | `[x]` | `[x]` | `[x]` | `[x]` | opaque kind; `deps` = other `fn::` it calls; change = `DEFINE FUNCTION OVERWRITE` |
 | `access` (RECORD/JWT/BEARER) | `[x]` | `[x]` | `[x]` | `[~]` | opaque kind; managed PER OBJECT (`excludeFromMigrations` predicate): key-free access rides migrations (gated by `--access`), key-bearing `TYPE JWT` stays out-of-band; `deps` = `fn::` in SIGNUP/SIGNIN/AUTHENTICATE; change = `DEFINE ACCESS OVERWRITE`; introspect partial (JWT/BEARER secrets redacted, as on the legacy path) |
 | `analyzer` (`DEFINE ANALYZER`) | `[x]` | `[x]` | `[x]` | `[x]` | own kind; a FULLTEXT `index` `deps` on it (analyzer emits first); tokenizers/filters uppercased; default BM25 stripped → round-trips |
-| `param` (`DEFINE PARAM`) | `[ ]` | `[ ]` | `[ ]` | `[ ]` | not yet in the driver at all |
+| `param` (`DEFINE PARAM`) | `[x]` | `[x]` | `[x]` | `[x]` | opaque kind; managed (inline-literal) params ride migrations, secret/declared are out-of-band via `sc param push/check` |
+| `sequence` (`DEFINE SEQUENCE`) | `[x]` | `[x]` | `[x]` | `[x]` | opaque kind; BATCH/START/TIMEOUT; materialized defaults stripped → round-trips |
 | `user` (`DEFINE USER`) | `[ ]` | `[ ]` | `[ ]` | `[ ]` | not yet in the driver |
-| `model` (`DEFINE MODEL`) | `[ ]` | `[ ]` | `[ ]` | `[ ]` | not yet in the driver |
+| `model` (`DEFINE MODEL`) | `[ ]` | `[ ]` | `[ ]` | `[ ]` | grammar not supported on SurrealDB 3.2 |
 | `config` (`DEFINE CONFIG GRAPHQL/API`) | `[ ]` | `[ ]` | `[ ]` | `[ ]` | 3.x; not yet in the driver |
 | `api` / `bucket` (3.x) | `[ ]` | `[ ]` | `[ ]` | `[ ]` | not yet in the driver |
 

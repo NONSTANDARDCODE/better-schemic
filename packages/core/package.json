@@ -58,13 +58,6 @@
         "default": "./lib/testing.js"
       }
     },
-    "./query": {
-      "bun": "./src/query.ts",
-      "import": {
-        "types": "./lib/query.d.ts",
-        "default": "./lib/query.js"
-      }
-    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -75,10 +68,11 @@
     "test:live": "bun test test/live",
     "test:e2e": "bun test test/e2e",
     "test:types": "bun run ../../scripts/type-perf.ts packages/core",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "format": "biome format --write ."
+    "format": "biome format --write .",
+    "typecheck:legacy": "tsc --noEmit"
   },
   "dependencies": {
     "commander": "^14.0.2",
@@ -96,7 +90,8 @@
     "surrealdb": "^2.0.3",
     "tsup": "^8",
     "tsx": "^4.23.0",
-    "typescript": "^5",
+    "typescript": "^6.0.3",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
     "zod": "^4.3.5"
   }
 }

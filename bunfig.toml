@@ -1,0 +1,7 @@
+[test]
+# Coverage instrumenter (no-op unless COVERAGE=1) + the shared ephemeral SurrealDB for live/parity.
+# Used by `scripts/coverage/run.ts` from the repo root; see scripts/coverage/preload.ts.
+preload = [
+  "./scripts/coverage/preload.ts",
+  "./drivers/surrealdb/test/preload-server.ts",
+]

@@ -6,9 +6,19 @@
 // Running the suite in a separate node process (TS via tsx) sidesteps it entirely. See
 // packages/core/docs/TYPE-PERF-TESTING.md.
 //
+// One TypeScript program per PACKAGE, not per file: `--experimental-test-isolation=none` runs every
+// `.assert.ts` in a single process (attest's TsServer + assertion cache are per-process), and the
+// bench files are imported sequentially by scripts/type-perf-bench.ts in another. Building attest's
+// program costs ~50s, so per-file processes used to dominate CI (11 assert files = ~10min).
+// `--experimental-test-isolation=none` needs node >= 22.8 (CI pins node 24).
+//
+// `--conditions=bun` resolves workspace packages (`@better-schemic/core`) from `src/`, exactly like
+// the local bun run and attest's own tsconfig (`customConditions: ["bun"]`) — so no `lib/` build is
+// needed before the suites run.
+//
 // Usage: bun run scripts/type-perf.ts [packageDir...]   (default: every workspace with a test/types/)
-//   - test/types/*.assert.ts → attest type assertions, via node's test runner
-//   - test/types/*.bench.ts  → instantiation budgets, each run directly (exits non-zero if over budget)
+//   - test/types/*.assert.ts → attest type assertions, via node's test runner (one process/package)
+//   - test/types/*.bench.ts  → instantiation budgets, batched into one process/package
 //
 // NOTE the `.assert.ts` (not `.test.ts`) suffix: it keeps these files OUT of `bun test` (which would
 // run them under bun and hit the `native` error), while `node --test` runs them fine when passed
@@ -19,6 +29,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
+const BENCH_RUNNER = join(ROOT, "scripts", "type-perf-bench.mts");
 
 /** Workspace package dirs that actually have a type-suite. */
 function packagesWithTypeSuites(): string[] {
@@ -44,10 +55,23 @@ function typeFiles(pkgDir: string, suffix: string): string[] {
 }
 
 function run(cwd: string, args: string[]): boolean {
-  const r = spawnSync("node", ["--import", "tsx", ...args], {
-    cwd: join(ROOT, cwd),
-    stdio: "inherit",
-  });
+  // `--max-old-space-size`: one attest program needs well over node's default ~2 GB heap.
+  // `--conditions=bun`: workspace packages resolve to `src/` (no build step — see header).
+  const r = spawnSync(
+    "node",
+    [
+      "--max-old-space-size=6144",
+      "--import",
+      "tsx",
+      "--conditions",
+      "bun",
+      ...args,
+    ],
+    {
+      cwd: join(ROOT, cwd),
+      stdio: "inherit",
+    },
+  );
   return r.status === 0;
 }
 
@@ -73,8 +97,20 @@ for (const pkg of targets) {
   console.log(
     `\n=== type-perf: ${pkg} (${asserts.length} assertion file(s), ${benches.length} bench file(s)) ===`,
   );
-  if (asserts.length && !run(pkg, ["--test", ...asserts])) failed = true;
-  for (const bench of benches) if (!run(pkg, [bench])) failed = true;
+  const startedAt = Date.now();
+  // ONE process for every `.assert.ts`: attest's setup() builds a full TypeScript program (~50s),
+  // and per-file processes would pay that per file. `test/types/_setup.ts` memoizes setup() so the
+  // files share the program even though each registers its own before/after hooks.
+  if (
+    asserts.length &&
+    !run(pkg, ["--test", "--experimental-test-isolation=none", ...asserts])
+  )
+    failed = true;
+  // ONE process for every `.bench.ts` (see scripts/type-perf-bench.ts), same program-reuse reason.
+  if (benches.length && !run(pkg, [BENCH_RUNNER, ...benches])) failed = true;
+  console.log(
+    `type-perf: ${pkg} done in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`,
+  );
 }
 
 if (failed) {

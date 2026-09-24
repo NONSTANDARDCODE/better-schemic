@@ -1,0 +1,47 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "bun",
+  "plugins": ["./scripts/mutation/bun-runner.ts"],
+  "mutate": [
+    "drivers/surrealdb/src/orm/compiler/shared.ts",
+    "drivers/surrealdb/src/orm/compiler/where.ts",
+    "drivers/surrealdb/src/orm/compiler/select.ts",
+    "drivers/surrealdb/src/orm/compiler/projection.ts",
+    "drivers/surrealdb/src/orm/compiler/aggregate.ts",
+    "drivers/surrealdb/src/orm/compiler/pagination.ts",
+    "drivers/surrealdb/src/orm/compiler/unique.ts",
+    "drivers/surrealdb/src/orm/compiler/relations.ts",
+    "drivers/surrealdb/src/orm/compiler/include/*.ts",
+    "drivers/surrealdb/src/surql-type-expr.ts",
+    "drivers/surrealdb/src/driver/surql-type.ts",
+    "packages/core/src/cli-kit/filter.ts"
+  ],
+  "coverageAnalysis": "off",
+  "disableTypeChecks": false,
+  "reporters": ["clear-text", "json", "progress"],
+  "jsonReporter": {
+    "fileName": ".mutation/mutation.json"
+  },
+  "thresholds": {
+    "high": 90,
+    "low": 80,
+    "break": 0
+  },
+  "concurrency": 4,
+  "timeoutMS": 10000,
+  "timeoutFactor": 1.5,
+  "maxTestRunnerReuse": 0,
+  "tempDirName": ".stryker-tmp",
+  "cleanTempDir": true,
+  "ignorePatterns": [
+    "node_modules",
+    ".git",
+    ".coverage",
+    "coverage",
+    ".mutation",
+    ".stryker-tmp",
+    "lib",
+    "dist",
+    "*.tgz"
+  ]
+}

@@ -37,6 +37,7 @@ import type {
   PFunction,
   PIndex,
   PParam,
+  PSequence,
   PTable,
 } from "./portable";
 
@@ -169,6 +170,17 @@ const analyzerEngine: KindEngine<PAnalyzer, PAnalyzer> = {
   deps: (a) => a.deps,
 };
 
+// --- sequence: db-level OPAQUE kind (read via `sequence::nextval`) -------------------------------
+
+const sequenceEngine: KindEngine<PSequence, PSequence> = {
+  lower: (s) => s,
+  emit: (s) => [formatSurql(s.stmt.ddl)],
+  remove: (s) => [removeStatement(s.stmt)],
+  // DEFINE SEQUENCE OVERWRITE in place (changing BATCH/START/TIMEOUT re-declares it).
+  overwrite: (_prev, next) => [formatSurql(overwriteStatement(next.stmt.ddl))],
+  deps: (s) => s.deps,
+};
+
 /**
  * The SurrealDB driver's kind registry. Registration order == kind ordinal (the tie-break among
  * objects with no dependency relation): table < index < event < function < access. Correctness is the
@@ -205,6 +217,11 @@ surrealKinds.define({
   name: "param",
   build: (p: PParam) => p,
   ...paramEngine,
+});
+surrealKinds.define({
+  name: "sequence",
+  build: (s: PSequence) => s,
+  ...sequenceEngine,
 });
 
 /** Author -> portable via the registry: explode tables/defs into per-kind objects, then lower each. */

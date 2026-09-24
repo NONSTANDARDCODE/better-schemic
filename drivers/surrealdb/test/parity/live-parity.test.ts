@@ -129,6 +129,7 @@ const Big = defineTable("pl_big", {
   geo: s.geometry(),
   geop: s.geometry("point"),
   geocol: s.geometry("collection"),
+  span: s.range(),
   em: s.email(),
   url: s.url(),
   ip: s.ipv4(),
@@ -183,6 +184,7 @@ live("DB accepts @better-schemic/core's generated DDL", () => {
     expect(kind("fil")).toBe("file");
     expect(kind("rec")).toBe("record<pl_big>");
     expect(kind("geop")).toBe("geometry<point>");
+    expect(kind("span")).toBe("range");
     // The DB canonicalizes `option<string>` to its desugared `none | string` form (equivalent).
     expect(kind("opt")).toBe("none | string");
     expect(kind("lit")).toBe("'admin'");
@@ -285,6 +287,34 @@ live("DB accepts @better-schemic/core's generated DDL", () => {
 });
 
 live("batch 1 + 2 features round-trip on the DB", () => {
+  test("ASYNC event round-trips (retry/maxDepth defaults stripped)", async () => {
+    const author = (
+      name: string,
+      async: true | { retry: number; maxDepth: number },
+      comment?: string,
+    ) =>
+      defineTable(name, { id: z.string(), status: s.string() }).event("recompute", {
+        async,
+        comment,
+        // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable
+        then: surql`UPDATE $after.id SET status = 'queued'`,
+      });
+    const tuned = author("pl_async_ev", { retry: 3, maxDepth: 5 }, "requeue");
+    const bare = author("pl_async_ev2", true);
+    for (const t of [tuned, bare])
+      expect(await applyEach(db!, emitTable(t, { exists: "overwrite" }))).toEqual(
+        [],
+      );
+    // A live async event materializes RETRY 1 / MAXDEPTH 3; the canonical form strips them, so an
+    // authored bare `ASYNC` (and a tuned one) diff to zero against the read-back schema.
+    const plan = planKinds(
+      surrealKinds,
+      await introspectAll(db!),
+      lowerAll([tuned, bare]),
+    );
+    expect(plan.up.filter((d) => /pl_async_ev/.test(d))).toEqual([]);
+  });
+
   test("s.set() -> set<T>; .length/.size -> exact sizes; { max } -> bounded base type", async () => {
     const T = defineTable("pl_b2_coll", {
       id: z.string(),

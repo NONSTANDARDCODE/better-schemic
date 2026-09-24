@@ -12,6 +12,7 @@ export function included(f: Filter, s: DefineStatement): boolean {
   const table = s.table ?? s.name;
   switch (s.kind) {
     case "param":
+    case "sequence":
       return true; // db-level; no filter category (yet)
     case "table":
     case "field":
@@ -71,5 +72,6 @@ export function filterStructured(db: DbStructured, f: Filter): DbStructured {
     accesses,
     analyzers: db.analyzers,
     params: db.params,
+    sequences: db.sequences ?? [],
   };
 }

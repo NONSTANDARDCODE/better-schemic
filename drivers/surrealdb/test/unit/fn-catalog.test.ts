@@ -13,7 +13,6 @@ import {
   s,
   surql,
 } from "../../src/index";
-import { select } from "../../src/query";
 
 // --- walk the catalog -------------------------------------------------------------------------
 
@@ -347,11 +346,10 @@ describe("catalog shape", () => {
     expect(q.query).toMatch(/^string::len\(\$r\d+\)$/);
     expect(Object.values(q.bindings ?? {})).toEqual(["abc"]);
 
-    const T = defineTable("fnc_t", { name: s.string() });
-    const sub = select(T).where((u) => u.name.length().gt(1));
+    const sub = surql`SELECT * FROM fnc_t WHERE string::len(name) > 1`;
     const composed = fn.array.len(sub);
     expect(composed.query).toMatch(
-      /^array::len\(\(SELECT \* FROM fnc_t WHERE string::len\(name\) > \$sub__\d+_b0\)\)$/,
+      /^array::len\(\(SELECT \* FROM fnc_t WHERE string::len\(name\) > 1\)\)$/,
     );
   });
 

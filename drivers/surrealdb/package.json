@@ -55,11 +55,46 @@
         "default": "./lib/query.js"
       }
     },
-    "./client": {
-      "bun": "./src/client.ts",
+    "./logger": {
+      "bun": "./src/logger.ts",
       "import": {
-        "types": "./lib/client.d.ts",
-        "default": "./lib/client.js"
+        "types": "./lib/logger.d.ts",
+        "default": "./lib/logger.js"
+      }
+    },
+    "./orm": {
+      "bun": "./src/orm/index.ts",
+      "import": {
+        "types": "./lib/orm.d.ts",
+        "default": "./lib/orm.js"
+      }
+    },
+    "./plugins/rules": {
+      "bun": "./src/plugins/rules.ts",
+      "import": {
+        "types": "./lib/plugins/rules.d.ts",
+        "default": "./lib/plugins/rules.js"
+      }
+    },
+    "./plugins/zod": {
+      "bun": "./src/plugins/zod.ts",
+      "import": {
+        "types": "./lib/plugins/zod.d.ts",
+        "default": "./lib/plugins/zod.js"
+      }
+    },
+    "./plugins/timestamps": {
+      "bun": "./src/plugins/timestamps.ts",
+      "import": {
+        "types": "./lib/plugins/timestamps.d.ts",
+        "default": "./lib/plugins/timestamps.js"
+      }
+    },
+    "./plugins/soft-delete": {
+      "bun": "./src/plugins/soft-delete.ts",
+      "import": {
+        "types": "./lib/plugins/soft-delete.d.ts",
+        "default": "./lib/plugins/soft-delete.js"
       }
     },
     "./package.json": "./package.json"
@@ -69,8 +104,9 @@
     "prepack": "bun run build",
     "test": "bun test",
     "test:types": "bun run ../../scripts/type-perf.ts drivers/surrealdb",
-    "typecheck": "tsc --noEmit",
-    "lint": "biome check ."
+    "typecheck": "tsgo --noEmit",
+    "lint": "biome check .",
+    "typecheck:legacy": "tsc --noEmit"
   },
   "dependencies": {
     "@better-schemic/core": "workspace:*"
@@ -93,7 +129,8 @@
     "surrealdb": "^2.0.3",
     "tsup": "^8",
     "tsx": "^4.23.0",
-    "typescript": "^5",
+    "typescript": "^6.0.3",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
     "zod": "^4.3.5"
   }
 }

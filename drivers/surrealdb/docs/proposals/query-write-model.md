@@ -1,5 +1,11 @@
 # Proposal: faithful single/array model + writes + upsert + relate
 
+> [!NOTE]
+> **Superseded (M0.5).** The fluent builder described here was **removed** in favor of the
+> repository-style `/orm` layer — see [`ROADMAP.md`](../../../../ROADMAP.md) (milestones),
+> [`docs/ORM-COVERAGE.md`](../ORM-COVERAGE.md) (surface) and
+> [`docs/orm-syntax-map.md`](../orm-syntax-map.md) (live-verified syntax). Kept as a design record.
+
 Status: **RATIFIED** (Manuel). Branch: `feat/surrealdb-graph-traversal`. Grounded in live 3.1.4 probes.
 
 ## The model — array by default, `ONLY` unwraps to single (SurrealDB-faithful)

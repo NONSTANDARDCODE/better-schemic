@@ -2,7 +2,6 @@
 // may be an env()/secret() reference instead of an inline literal.
 import type { SecretRef } from "@better-schemic/core";
 import { isSecretRef } from "@better-schemic/core/authoring";
-import type { FieldRefBase } from "@better-schemic/core/query";
 import {
   type Bound,
   BoundExcluded,
@@ -14,6 +13,7 @@ import {
   escapeIdent,
   FileRef,
   Geometry,
+  Range as SurrealRange,
   RecordId,
   RecordIdRange,
   type RecordIdValue,
@@ -32,6 +32,7 @@ import {
   isUnionSchema,
   peelNullish,
 } from "./checks";
+import type { FieldRefBase } from "./surql/ref";
 
 // Re-exported here (the authoring surface): `pull` reverses a baked format ASSERT to `s.<format>()`.
 export { formatForAssert };
@@ -1659,6 +1660,12 @@ export const s = {
       native(z.instanceof(Geometry), kind ? `geometry<${kind}>` : "geometry"),
     ),
   /**
+   * Surreal `range` (a `Range`) — an interval value like `1..=10`. Build one with the SDK's
+   * `new Range(new BoundIncluded(1), new BoundExcluded(10))`. SurrealDB's `range` carries no element
+   * type (the grammar's `range<T>` does not parse on 3.x), so this takes no argument.
+   */
+  range: () => new SField(native(z.instanceof(SurrealRange), "range")),
+  /**
    * A `record<…>` link. Pass a table name, the imported `TableDef`/`RelationDef`, a LAZY ref
    * (`() => User` — resolved post-module-eval, so mutually-linked tables in separate modules never
    * import-cycle), or an array mixing any of those for a multi-table union — `s.recordId(User)`,
@@ -2672,7 +2679,7 @@ export class TableDef<Name extends string, S extends Shape> {
 
   /**
    * A SurrealDB `Table` instance for this table — for direct SDK calls that take a table reference,
-   * e.g. `db.select(User.table)`. (For a record id, chain `User.record().for(id)`.)
+   * e.g. `client.$sdk.select(User.table)`. (For a record id, chain `User.record().for(id)`.)
    */
   get table(): Table<Name> {
     return new Table(this.name);
@@ -4681,13 +4688,81 @@ export function defineParam(name: string, value?: unknown): ParamDef<unknown> {
     return new ParamDef(name, { mode: "declared", valueType: value });
   return new ParamDef(name, { mode: "value", value });
 }
+/** The tunables of a `DEFINE SEQUENCE` (all optional; SurrealDB defaults BATCH 1000 / START 0). */
+export interface SequenceConfig {
+  /** `BATCH <n>` — how many values a fetch reserves (default 1000). */
+  batch?: number;
+  /** `START <n>` — the first value handed out (default 0). */
+  start?: number;
+  /** `TIMEOUT <duration>` — how long a reserved batch is held before it can be reclaimed, e.g. `"5s"`. */
+  timeout?: string;
+}
+
+/**
+ * A `DEFINE SEQUENCE <name>` — a database-level monotonic counter, read with
+ * `sequence::nextval('name')`. Author fluently:
+ *
+ * ```ts
+ * export const invoiceNo = defineSequence("invoice").batch(50).start(1000);
+ * ```
+ *
+ * The builder validates eagerly (positive batch, integer start, a duration-shaped timeout), so a
+ * malformed sequence fails at module load rather than at apply. SurrealDB's materialized defaults
+ * (BATCH 1000 / START 0) are stripped on diff, so omitting them round-trips.
+ */
+export class SequenceDef {
+  readonly kind = "sequence" as const;
+  constructor(
+    readonly name: string,
+    readonly config: SequenceConfig = {},
+  ) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+      throw new Error(
+        `defineSequence("${name}"): the name must be a plain identifier (letters, digits, _).`,
+      );
+  }
+  private withConfig(c: Partial<SequenceConfig>): SequenceDef {
+    return new SequenceDef(this.name, { ...this.config, ...c });
+  }
+  /** `BATCH <n>` — a positive integer (values reserved per fetch). */
+  batch(n: number): SequenceDef {
+    if (!Number.isInteger(n) || n <= 0)
+      throw new Error(
+        `defineSequence("${this.name}").batch(${n}): batch must be a positive integer.`,
+      );
+    return this.withConfig({ batch: n });
+  }
+  /** `START <n>` — the first value to hand out. */
+  start(n: number): SequenceDef {
+    if (!Number.isInteger(n))
+      throw new Error(
+        `defineSequence("${this.name}").start(${n}): start must be an integer.`,
+      );
+    return this.withConfig({ start: n });
+  }
+  /** `TIMEOUT <duration>` — e.g. `"5s"`, `"1h"`; how long a reserved batch is held. */
+  timeout(d: string): SequenceDef {
+    if (!/^(?:\d+(?:ns|us|µs|ms|s|m|h|d|w|y))+$/.test(d.trim()))
+      throw new Error(
+        `defineSequence("${this.name}").timeout(${JSON.stringify(d)}): expected a SurrealQL duration like "5s" / "1h30m".`,
+      );
+    return this.withConfig({ timeout: d.trim() });
+  }
+}
+
+/** Declare a database-level sequence: `defineSequence("invoice").batch(50).start(1000)`. */
+export function defineSequence(name: string): SequenceDef {
+  return new SequenceDef(name);
+}
+
 /** A schema object declared apart from a table (collected by the CLI loader and emitted on its own). */
 export type StandaloneDef =
   | EventDef
   | FunctionDef
   | AccessDef
   | AnalyzerDef
-  | ParamDef;
+  | ParamDef
+  | SequenceDef;
 
 /** The teaching message if `v` is an unfinished builder stage, else `undefined`. */
 export function incompleteDefMessage(v: unknown): string | undefined {
@@ -4709,7 +4784,7 @@ export function assertCompleteDef(def: unknown): void {
 export function unknownDefKind(def: never): Error {
   const d = def as { kind?: unknown; name?: unknown };
   return new Error(
-    `definition "${String(d.name)}" has an unknown kind "${String(d.kind)}" — expected one of: event, access, analyzer, param, function.`,
+    `definition "${String(d.name)}" has an unknown kind "${String(d.kind)}" — expected one of: event, access, analyzer, param, function, sequence.`,
   );
 }
 

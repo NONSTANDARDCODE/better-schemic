@@ -17,6 +17,7 @@ import type {
   StructIndex,
   StructParam,
   StructPermissions,
+  StructSequence,
   StructTable,
 } from "./structure";
 
@@ -41,10 +42,9 @@ export function normalizeType(kind: string): string {
   // double → single so both lowerings converge. Idempotent (single-quoted tokens are left alone).
   const t = canonicalizeLiterals(kind.trim());
 
-  // option<X> wrapper — normalize the inner type, stay `option<…>`.
-  const opt = /^option<([\s\S]+)>$/.exec(t);
-  if (opt) return `option<${normalizeType(opt[1])}>`;
-
+  // Top-level union FIRST: `option<A> | B` starts with `option<` and can end with `>`, so testing the
+  // option wrapper before splitting would swallow the whole union (the regex is greedy). splitTopUnion
+  // ignores `|` inside `<…>`, so `option<A | B>` still resolves to a single option below.
   const parts = splitTopUnion(t);
   if (parts.length > 1) {
     const hasNone = parts.includes("none");
@@ -55,6 +55,10 @@ export function normalizeType(kind: string): string {
     if (hasNone) return rest.length ? `option<${inner}>` : "none";
     return inner;
   }
+
+  // option<X> wrapper — normalize the inner type, stay `option<…>`.
+  const opt = /^option<([\s\S]+)>$/.exec(t);
+  if (opt) return `option<${normalizeType(opt[1])}>`;
 
   // Single constructor term `ctor<inner>`: recurse. record<…>'s inner is a `|`-list of targets.
   const ctor = /^(array|set|record|references)<([\s\S]+)>$/.exec(t);
@@ -386,6 +390,14 @@ function normalizeEvent(ev: StructEvent): StructEvent {
   };
   if (ev.when !== undefined && ev.when !== "true")
     out.when = normalizeExprText(ev.when);
+  // ASYNC + comment round-trip: SurrealDB materializes RETRY 1 / MAXDEPTH 3 on read; `canonicalEvent`
+  // strips those defaults via `renderAsync`, so an authored bare `ASYNC` compares equal to the read form.
+  if (ev.async) {
+    out.async = true;
+    if (ev.retry !== undefined) out.retry = ev.retry;
+    if (ev.maxdepth !== undefined) out.maxdepth = ev.maxdepth;
+  }
+  if (ev.comment !== undefined) out.comment = ev.comment;
   return out;
 }
 
@@ -427,6 +439,16 @@ export function normalizeAccess(a: StructAccess): StructAccess {
   return a;
 }
 
+/** Normalize a `DEFINE SEQUENCE`: drop SurrealDB's materialized BATCH 1000 / START 0 defaults so an
+ *  authored minimal sequence deep-compares equal to the introspected form. */
+export function normalizeSequence(s: StructSequence): StructSequence {
+  const out: StructSequence = { name: s.name };
+  if (s.batch !== undefined && s.batch !== 1000) out.batch = s.batch;
+  if (s.start !== undefined && s.start !== 0) out.start = s.start;
+  if (s.timeout !== undefined) out.timeout = s.timeout;
+  return out;
+}
+
 /** Normalize a whole introspected/lowered database to its canonical Struct form. */
 export function normalizeDb(db: DbStructured): DbStructured {
   return {
@@ -436,6 +458,7 @@ export function normalizeDb(db: DbStructured): DbStructured {
     // Analyzers carry an ordered tokenizer/filter pipeline (order-significant) — passed through as-is.
     analyzers: db.analyzers,
     params: (db.params ?? []).map(normalizeParam),
+    sequences: (db.sequences ?? []).map(normalizeSequence),
   };
 }
 

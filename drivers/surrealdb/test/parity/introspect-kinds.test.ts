@@ -13,7 +13,12 @@ import { Surreal, surql } from "surrealdb";
 import { emitDefStatement, emitTable } from "../../src/ddl";
 import { introspectAll } from "../../src/kinds/explode";
 import { lowerAll, surrealKinds } from "../../src/kinds/registry";
-import { defineFunction, defineTable, s } from "../../src/pure";
+import {
+  defineFunction,
+  defineSequence,
+  defineTable,
+  s,
+} from "../../src/pure";
 
 // The workspace gate runs every package's suite IN PARALLEL — parallel-suite CPU contention can slow a live
 // connect/DDL past bun's 5s DEFAULT hook timeout, failing the `beforeEach`/`afterAll` below as an
@@ -84,14 +89,16 @@ const User = defineTable("ik_user", {
 const Add = defineFunction("ik_add", { a: s.int(), b: s.int() })
   .returns(s.int())
   .body(surql`RETURN $a + $b`);
+const Seq = defineSequence("ik_seq").batch(10);
 
 live("introspectAll round-trips every kind to a zero diff", () => {
   test("apply -> introspectAll -> planKinds(live, desired) is empty", async () => {
     await apply(db!, emitTable(User));
     await apply(db!, emitDefStatement(Add).ddl);
+    await apply(db!, emitDefStatement(Seq).ddl);
 
     const liveObjects = await introspectAll(db!);
-    const desired = lowerAll([User], [Add]);
+    const desired = lowerAll([User], [Add, Seq]);
 
     // Sanity: introspectAll returned objects for each kind (presence completeness).
     const kinds = new Set(liveObjects.map((o) => o.kind));
@@ -99,6 +106,7 @@ live("introspectAll round-trips every kind to a zero diff", () => {
     expect(kinds.has("index")).toBe(true);
     expect(kinds.has("event")).toBe(true);
     expect(kinds.has("function")).toBe(true);
+    expect(kinds.has("sequence")).toBe(true);
 
     const { up, down } = planKinds(surrealKinds, liveObjects, desired);
     expect(up).toEqual([]);

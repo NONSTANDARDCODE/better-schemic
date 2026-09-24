@@ -1,18 +1,22 @@
 // SurrealQL RANGES (`1..=10`) as a first-class VALUE: the `range()` builder's bound spelling, its
 // lowering (bounds BIND as params), and its uses — `IN` membership and `FOR` iteration.
 // Grammar verified on live 3.1.4: `>` after the start excludes it, `=` before the end includes it.
+//
+// (M0.5: the fluent `select()` builder was retired; these tests lower the same predicates through
+// the ref/Expr layer directly.)
 
 import { describe, expect, test } from "bun:test";
-import { defineTable, isRange, Range, range, s, surql } from "../../src/index";
-import { block, select } from "../../src/query";
-
-const Person = defineTable("person", { age: s.int(), name: s.string() });
+import { isRange, Range, range, surql } from "../../src/index";
+import { block } from "../../src/query";
+import { lowerExpr, mkRef } from "../../src/surql/predicate";
+import type { Ctx } from "../../src/surql/render";
 
 /** The lowered `WHERE` of a range predicate — the interesting half. */
-const whereOf = (r: ReturnType<typeof range<number>>) =>
-  select(Person)
-    .where((p) => p.age.in(r))
-    .toSQL();
+const whereOf = (r: ReturnType<typeof range<number>>) => {
+  const ctx: Ctx = { vars: {} };
+  const ref = mkRef({ root: { col: "age" }, kind: "number" });
+  return { sql: lowerExpr(ref.in(r), ctx), vars: ctx.vars };
+};
 
 describe("range() — bound spelling", () => {
   test("from/to INCLUDE their bound; after/until EXCLUDE it", () => {
@@ -33,7 +37,7 @@ describe("range() — bound spelling", () => {
 
   test("bounds BIND as params (they are values, not SQL text)", () => {
     const { sql, vars } = whereOf(range({ from: 18, to: 65 }));
-    expect(sql).toBe("SELECT * FROM person WHERE age IN $b0..=$b1");
+    expect(sql).toBe("age IN $b0..=$b1");
     expect(vars).toEqual({ b0: 18, b1: 65 });
   });
 
@@ -61,25 +65,21 @@ describe("range() — bound spelling", () => {
 
 describe("range() — uses", () => {
   test("IN / NOT IN test membership, alongside the list form", () => {
-    expect(
-      select(Person)
-        .where((p) => p.age.notIn(range({ from: 18, to: 65 })))
-        .toSQL().sql,
-    ).toBe("SELECT * FROM person WHERE age NOT IN $b0..=$b1");
+    const ctx: Ctx = { vars: {} };
+    const ref = mkRef({ root: { col: "age" }, kind: "number" });
+    expect(lowerExpr(ref.notIn(range({ from: 18, to: 65 })), ctx)).toBe(
+      "age NOT IN $b0..=$b1",
+    );
     // the list form is untouched
-    expect(
-      select(Person)
-        .where((p) => p.age.in([1, 2]))
-        .toSQL().sql,
-    ).toBe("SELECT * FROM person WHERE age IN $b0");
+    expect(lowerExpr(ref.in([1, 2]), ctx)).toMatch(/^age IN \$b\d+$/);
   });
 
   test("string bounds range over strings ('g' IN 'a'..'z')", () => {
-    const { sql, vars } = select(Person)
-      .where((p) => p.name.in(range({ from: "a", until: "z" })))
-      .toSQL();
-    expect(sql).toBe("SELECT * FROM person WHERE name IN $b0..$b1");
-    expect(vars).toEqual({ b0: "a", b1: "z" });
+    const ctx: Ctx = { vars: {} };
+    const ref = mkRef({ root: { col: "name" }, kind: "string" });
+    const sql = lowerExpr(ref.in(range({ from: "a", until: "z" })), ctx);
+    expect(sql).toBe("name IN $b0..$b1");
+    expect(ctx.vars).toEqual({ b0: "a", b1: "z" });
   });
 
   test("FOR iterates a range; the loop var carries the bound's type", () => {

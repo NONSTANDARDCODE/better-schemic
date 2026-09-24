@@ -249,6 +249,51 @@ describe("orderObjects (the graph primitive in isolation)", () => {
   });
 });
 
+// --- display + ordinal defaults -----------------------------------------------------------------
+
+describe("KindRegistry.display / ordinal defaults", () => {
+  test("name-derived label/plural/folder when a kind declares no display", () => {
+    expect(registry.display("table")).toEqual({
+      label: "Table",
+      plural: "Tables",
+      folder: "tables",
+    });
+  });
+
+  test("pluralizes y-endings to -ies and sibilants to -es", () => {
+    expect(registry.display("policy").plural).toBe("Policies");
+    expect(registry.display("status").plural).toBe("Statuses");
+  });
+
+  test("an unregistered / empty kind still gets name-derived defaults", () => {
+    expect(registry.display("widget").label).toBe("Widget");
+    expect(registry.display("").label).toBe("");
+  });
+
+  test("a declared display overrides the derived defaults", () => {
+    const reg = new KindRegistry();
+    reg.define({
+      name: "gadget",
+      build: (name: string) => ({ kind: "gadget", name }),
+      lower: (g: { kind: "gadget"; name: string }) => g,
+      emit: () => [],
+      remove: () => [],
+      display: { label: "Gizmo", plural: "Gizmos", folder: "gizmos" },
+    });
+    expect(reg.display("gadget")).toEqual({
+      label: "Gizmo",
+      plural: "Gizmos",
+      folder: "gizmos",
+    });
+  });
+
+  test("ordinal is the registration index; an unknown kind sorts last", () => {
+    expect(registry.ordinal("table")).toBe(0);
+    expect(registry.ordinal("index")).toBe(1);
+    expect(registry.ordinal("unknown")).toBe(Number.MAX_SAFE_INTEGER);
+  });
+});
+
 // --- introspect fan-out -------------------------------------------------------------------------
 
 describe("introspectKinds fans out across kinds off one connection", () => {

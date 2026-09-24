@@ -24,7 +24,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.13
+          bun-version: 1.4.2
 
       - uses: actions/cache@v4
         with:
@@ -47,28 +47,24 @@ jobs:
       - name: Typecheck
         run: bun run --filter '*' typecheck
 
-      # SurrealDB live/parity tests skip gracefully
-      # when no server is reachable — add a surrealdb service container later to exercise them in CI.
+      # Live/parity suites need the `surreal` binary; without it they skip gracefully here. The
+      # `coverage` job below installs the binary so they actually run under the MC/DC gate.
       - name: Test
         run: bun run --filter '*' test
 
-  # Type-completeness + instantiation-budget suites (@ark/attest). SEPARATE job because attest runs
-  # under node/tsx (not bun — see packages/core/docs/TYPE-PERF-TESTING.md) and its own TS program is
-  # slower; kept out of the hot land gate. Runs off src/ via tsx, so no build step.
-  type-perf:
-    name: type-perf (attest)
+  # MC/DC-equivalent coverage gate (branch + logical-condition) over drivers/surrealdb/src +
+  # packages/core/src. SEPARATE job: it installs the `surreal` binary so the live/parity suites run
+  # (never skip), instruments the suite, and fails on any per-file regression below its ratchet floor.
+  # See drivers/surrealdb/docs/TESTING.md.
+  coverage:
+    name: coverage (MC/DC gate)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.13
-
-      # node runs the attest suites; the pinned typescript devDep (not node) fixes instantiation counts.
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
+          bun-version: 1.4.2
 
       - uses: actions/cache@v4
         with:
@@ -82,12 +78,94 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
-      # DRIVER suites import @better-schemic/core/* as a package — node/tsx resolves those via the node
-      # condition (lib/), not the bun/src one — so core (and any cross-imported package) must be BUILT
-      # first, or the suite throws ERR_MODULE_NOT_FOUND. (A package's OWN suite imports its src/ by
-      # relative path and needs no build; the cross-package imports are what require it.)
-      - name: Build
-        run: bun run --filter '*' build
+      # The local `surreal` binary (pinned) so `spawnEphemeralServer` + the shared live preload run.
+      - name: Install SurrealDB
+        run: |
+          curl -sSf https://install.surrealdb.com | sh -s -- --version v3.2.0
+          echo "$HOME/.surrealdb" >> "$GITHUB_PATH"
+
+      - name: Coverage gate
+        run: bun run test:coverage
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: ignore
+
+
+  # Mutation gate (StrykerJS + a custom Bun test runner) over the scoped pure compilers. OFFLINE —
+  # no `surreal` binary needed — one Stryker process scheduling mutants dynamically across parallel
+  # test-runner workers. Fails on any per-file mutation-score regression below `mutation.config.json`.
+  # See drivers/surrealdb/docs/TESTING.md.
+  mutation:
+    name: mutation (Stryker · bun)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            **/node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Mutation gate
+        run: bun run test:mutation
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation
+          path: .mutation/
+          # `.mutation/` is a dot-directory, which upload-artifact skips unless hidden files are on.
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+
+  # Type-completeness + instantiation-budget suites (@ark/attest). SEPARATE job because attest runs
+  # under node/tsx (not bun — see packages/core/docs/TYPE-PERF-TESTING.md) and its own TS program is
+  # slower; kept out of the hot land gate. Runs off src/ via tsx (`--conditions=bun`), so no build step.
+  type-perf:
+    name: type-perf (attest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      # node runs the attest suites; the pinned typescript devDep (not node) fixes instantiation counts.
+      # node 24 is required for `--experimental-test-isolation=none` (one attest TS program per package).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            **/node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - name: Install
+        run: bun install --frozen-lockfile
 
       - name: Type-perf suites
         run: bun run scripts/type-perf.ts

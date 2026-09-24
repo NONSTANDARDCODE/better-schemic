@@ -28,6 +28,7 @@ import {
   type StructParam,
   type StructPerm,
   type StructPermissions,
+  type StructSequence,
   type StructTable,
 } from "./structure";
 import { filterStructured } from "./surreal-filter";
@@ -314,6 +315,8 @@ function szType(type: string, ctx?: RenderCtx): string {
       return "s.duration()";
     case "bytes":
       return "s.bytes()";
+    case "range":
+      return "s.range()";
     case "object":
       return "s.object({})";
     case "any":
@@ -830,7 +833,7 @@ export async function planPull(
     introspected,
     opts.filter ?? parseFilter({}),
   );
-  const { tables, functions, accesses, analyzers } = filtered;
+  const { tables, functions, accesses, analyzers, sequences = [] } = filtered;
   // SECRET GUARD: SurrealDB returns param values READABLY — rendering a live param that the
   // schema authors as secret/declared (out-of-band) would write its VALUE into source. Drop
   // those from the pull; their defs stay as authored. (Best effort: an unloadable schema —
@@ -849,12 +852,13 @@ export async function planPull(
       ...accesses.map(accessUnit),
       ...analyzers.map(analyzerUnit),
       ...params.map(paramUnit),
+      ...sequences.map(sequenceUnit),
     ];
     return {
       files: [
         planFile(config.schemaPath, units, keepLocal, config, () =>
           assembleCombined(
-            { tables, functions, accesses, analyzers, params },
+            { tables, functions, accesses, analyzers, params, sequences },
             makeCtx,
           ),
         ),
@@ -885,6 +889,8 @@ export async function planPull(
     add(join(dir, "analyzers", `${an.name}.ts`), analyzerUnit(an));
   for (const pm of params)
     add(join(dir, "params", `${pm.name}.ts`), paramUnit(pm));
+  for (const sq of sequences)
+    add(join(dir, "sequences", `${sq.name}.ts`), sequenceUnit(sq));
 
   const files = [...groups].map(([abs, units]) =>
     planFile(abs, units, keepLocal, config, () =>
@@ -907,6 +913,8 @@ export async function planPull(
     ...functions.map((f) => f.name),
     ...accesses.map((a) => a.name),
     ...analyzers.map((a) => a.name),
+    ...params.map((p) => p.name),
+    ...sequences.map((s) => s.name),
   ]);
   const planned = new Set(files.map((f) => f.abs));
   for (const [file, info] of await scanLocalEntities(dir)) {
@@ -1109,6 +1117,27 @@ function paramUnit(p: StructParam): RenderedUnit {
   };
 }
 
+/** Reverse a `StructSequence` into a fluent `defineSequence(name).batch(…).start(…).timeout(…)` const
+ *  (defaults are already stripped by normalizing, so a bare sequence renders just `defineSequence(name)`). */
+function renderSequenceConst(s: StructSequence): string {
+  let expr = `defineSequence(${JSON.stringify(s.name)})`;
+  if (s.batch !== undefined) expr += `.batch(${s.batch})`;
+  if (s.start !== undefined) expr += `.start(${s.start})`;
+  if (s.timeout !== undefined) expr += `.timeout(${JSON.stringify(s.timeout)})`;
+  return `export const ${fnConst(s.name)} = ${expr};`;
+}
+
+function sequenceUnit(s: StructSequence): RenderedUnit {
+  return {
+    // core `RenderedUnit.kind` lacks "sequence" yet — group with the other db-level objects for now.
+    kind: "access",
+    name: s.name,
+    exportName: fnConst(s.name),
+    code: renderSequenceConst(s),
+    imports: [`import { defineSequence } from "@better-schemic/surrealdb";`],
+  };
+}
+
 /** Build the per-table {@link RenderCtx} factory: cycle-aware ref resolution + import accumulation. */
 function ctxFactory(tables: StructTable[]): (t: StructTable) => RenderCtx {
   // Reference graph (record<…> targets + relation endpoints) → cycle-aware imports / ordering.
@@ -1189,6 +1218,8 @@ export function renderPerFile(
   for (const an of db.analyzers)
     add(fileFor("access", an.name), analyzerUnit(an));
   for (const pm of db.params) add(fileFor("access", pm.name), paramUnit(pm));
+  for (const sq of db.sequences ?? [])
+    add(fileFor("access", sq.name), sequenceUnit(sq));
 
   const out = new Map<string, string>();
   for (const [file, units] of byFile)
@@ -1203,7 +1234,7 @@ export function renderPerFile(
 
 /** Assemble the single-file combined module (tables ordered so same-file refs resolve). */
 function assembleCombined(
-  { tables, functions, accesses, analyzers, params }: DbStructured,
+  { tables, functions, accesses, analyzers, params, sequences = [] }: DbStructured,
   makeCtx: (t: StructTable) => RenderCtx,
 ): string {
   // Render each const (collecting its same-file direct deps via ctx.imports), then order so deps
@@ -1224,11 +1255,13 @@ function assembleCombined(
   const accessCode = accesses.map(renderAccessConst);
   const analyzerCode = analyzers.map(renderAnalyzerConst);
   const paramCode = params.map(renderParamConst);
+  const sequenceCode = sequences.map(renderSequenceConst);
   const factories = [...new Set(ordered.map((r) => r.factory))];
   if (functions.length) factories.push("defineFunction");
   if (accesses.length) factories.push("defineAccess");
   if (analyzers.length) factories.push("defineAnalyzer");
   if (params.length) factories.push("defineParam");
+  if (sequences.length) factories.push("defineSequence");
   factories.sort();
   const usesSurql =
     functions.length > 0 ||
@@ -1244,6 +1277,7 @@ function assembleCombined(
   const body = [
     ...paramCode,
     ...analyzerCode,
+    ...sequenceCode,
     ...ordered.map((r) => r.code),
     ...fnCode,
     ...accessCode,

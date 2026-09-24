@@ -1,0 +1,99 @@
+{
+  "$comment": "Mutation-gate knobs read by scripts/mutation/bun-runner.ts (at the sandbox root) and scripts/mutation/ratchet.ts (at the repo root). `floors` is the ratchet: a green run can never regress. Record the current score with `bun run test:mutation:update`.",
+  "bunfig": "scripts/mutation/bunfig.mutation.toml",
+  "testFiles": [
+    "drivers/surrealdb/test/unit",
+    "packages/core/test/unit"
+  ],
+  "testFilesByFile": {
+    "drivers/surrealdb/src/orm/compiler/shared.ts": [
+      "drivers/surrealdb/test/unit/orm-shared.test.ts",
+      "drivers/surrealdb/test/unit/orm-where.test.ts",
+      "drivers/surrealdb/test/unit/orm-write-shared.test.ts",
+      "drivers/surrealdb/test/unit/orm-pagination.test.ts",
+      "drivers/surrealdb/test/property/compilers.pbt.test.ts"
+    ],
+    "drivers/surrealdb/src/orm/compiler/where.ts": [
+      "drivers/surrealdb/test/unit/orm-where.test.ts",
+      "drivers/surrealdb/test/property/compilers.pbt.test.ts"
+    ],
+    "drivers/surrealdb/src/orm/compiler/select.ts": [
+      "drivers/surrealdb/test/unit/orm-reads.test.ts",
+      "drivers/surrealdb/test/unit/orm-decode.test.ts"
+    ],
+    "drivers/surrealdb/src/orm/compiler/projection.ts": [
+      "drivers/surrealdb/test/unit/orm-projection-compiler.test.ts",
+      "drivers/surrealdb/test/unit/orm-reads.test.ts"
+    ],
+    "drivers/surrealdb/src/orm/compiler/aggregate.ts": [
+      "drivers/surrealdb/test/unit/orm-aggregate-compiler.test.ts"
+    ],
+    "drivers/surrealdb/src/orm/compiler/pagination.ts": [
+      "drivers/surrealdb/test/unit/orm-pagination.test.ts"
+    ],
+    "drivers/surrealdb/src/orm/compiler/unique.ts": [
+      "drivers/surrealdb/test/unit/orm-reads.test.ts",
+      "drivers/surrealdb/test/unit/orm-writes.test.ts"
+    ],
+    "drivers/surrealdb/src/orm/compiler/relations.ts": [
+      "drivers/surrealdb/test/unit/orm-relations-compiler.test.ts"
+    ],
+    "drivers/surrealdb/src/orm/compiler/include/count.ts": [
+      "drivers/surrealdb/test/unit/orm-include.test.ts",
+      "drivers/surrealdb/test/unit/orm-include-links.test.ts"
+    ],
+    "drivers/surrealdb/src/orm/compiler/include/edges.ts": [
+      "drivers/surrealdb/test/unit/orm-include.test.ts",
+      "drivers/surrealdb/test/unit/orm-include-links.test.ts"
+    ],
+    "drivers/surrealdb/src/orm/compiler/include/index.ts": [
+      "drivers/surrealdb/test/unit/orm-include.test.ts",
+      "drivers/surrealdb/test/unit/orm-include-links.test.ts"
+    ],
+    "drivers/surrealdb/src/orm/compiler/include/links.ts": [
+      "drivers/surrealdb/test/unit/orm-include.test.ts",
+      "drivers/surrealdb/test/unit/orm-include-links.test.ts"
+    ],
+    "drivers/surrealdb/src/orm/compiler/include/projection.ts": [
+      "drivers/surrealdb/test/unit/orm-include.test.ts",
+      "drivers/surrealdb/test/unit/orm-include-links.test.ts"
+    ],
+    "drivers/surrealdb/src/orm/compiler/include/specs.ts": [
+      "drivers/surrealdb/test/unit/orm-include.test.ts",
+      "drivers/surrealdb/test/unit/orm-include-links.test.ts"
+    ],
+    "drivers/surrealdb/src/surql-type-expr.ts": [
+      "drivers/surrealdb/test/unit/surql-type.test.ts",
+      "drivers/surrealdb/test/property/compilers.pbt.test.ts"
+    ],
+    "drivers/surrealdb/src/driver/surql-type.ts": [
+      "drivers/surrealdb/test/unit/surql-type.test.ts",
+      "drivers/surrealdb/test/property/compilers.pbt.test.ts"
+    ],
+    "packages/core/src/cli-kit/filter.ts": [
+      "packages/core/test/unit/filter.test.ts",
+      "packages/core/test/unit/mcdc-decisions.test.ts",
+      "packages/core/test/property/filter.pbt.test.ts"
+    ]
+  },
+  "tolerance": 0,
+  "floors": {
+    "drivers/surrealdb/src/driver/surql-type.ts": 71.96,
+    "drivers/surrealdb/src/orm/compiler/aggregate.ts": 43.87,
+    "drivers/surrealdb/src/orm/compiler/include/count.ts": 72.3,
+    "drivers/surrealdb/src/orm/compiler/include/edges.ts": 78.12,
+    "drivers/surrealdb/src/orm/compiler/include/index.ts": 80.64,
+    "drivers/surrealdb/src/orm/compiler/include/links.ts": 74.23,
+    "drivers/surrealdb/src/orm/compiler/include/projection.ts": 78.91,
+    "drivers/surrealdb/src/orm/compiler/include/specs.ts": 66.66,
+    "drivers/surrealdb/src/orm/compiler/pagination.ts": 81.86,
+    "drivers/surrealdb/src/orm/compiler/projection.ts": 67.88,
+    "drivers/surrealdb/src/orm/compiler/relations.ts": 77.04,
+    "drivers/surrealdb/src/orm/compiler/select.ts": 57.75,
+    "drivers/surrealdb/src/orm/compiler/shared.ts": 74.66,
+    "drivers/surrealdb/src/orm/compiler/unique.ts": 66.66,
+    "drivers/surrealdb/src/orm/compiler/where.ts": 51.42,
+    "drivers/surrealdb/src/surql-type-expr.ts": 72.22,
+    "packages/core/src/cli-kit/filter.ts": 63.2
+  }
+}

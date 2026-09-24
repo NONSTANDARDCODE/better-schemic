@@ -29,6 +29,7 @@ import type {
   FunctionDef,
   ParamDef,
   PermOp,
+  SequenceDef,
   SField,
   Shape,
   StandaloneDef,
@@ -54,6 +55,7 @@ import type {
   StructParam,
   StructPerm,
   StructPermissions,
+  StructSequence,
   StructTable,
   StructTableKind,
 } from "./structure";
@@ -227,6 +229,15 @@ function lowerEvent(table: string, ev: TableEvent): StructEvent {
   // biome-ignore lint/suspicious/noThenProperty: `then` mirrors SurrealQL's event THEN clause.
   const out: StructEvent = { name: ev.name, what: table, then: thens };
   if (ev.when !== undefined) out.when = eventClause(ev.when);
+  // `ASYNC [RETRY n] [MAXDEPTH n]` — carried so the event round-trips and diffs (canonical strips
+  // SurrealDB's materialized defaults, so an omitted retry/maxDepth converges with the introspected 1/3).
+  if (ev.async) {
+    out.async = true;
+    const a = ev.async === true ? {} : ev.async;
+    if (a.retry !== undefined) out.retry = a.retry;
+    if (a.maxDepth !== undefined) out.maxdepth = a.maxDepth;
+  }
+  if (ev.comment !== undefined) out.comment = ev.comment;
   return out;
 }
 
@@ -393,10 +404,25 @@ export function lowerParam(p: ParamDef): StructParam {
   return out;
 }
 
-/** Lower a standalone def (`defineFunction`/`defineAccess`/`defineEvent`/`defineAnalyzer`/`defineParam`) to its `Struct` IR. */
+/** Lower a `defineSequence` to its `StructSequence` (normalize strips the materialized defaults). */
+export function lowerSequence(seq: SequenceDef): StructSequence {
+  const out: StructSequence = { name: seq.name };
+  if (seq.config.batch !== undefined) out.batch = seq.config.batch;
+  if (seq.config.start !== undefined) out.start = seq.config.start;
+  if (seq.config.timeout !== undefined) out.timeout = seq.config.timeout;
+  return out;
+}
+
+/** Lower a standalone def (`defineFunction`/`defineAccess`/`defineEvent`/`defineAnalyzer`/`defineParam`/`defineSequence`) to its `Struct` IR. */
 export function fromStandalone(
   def: StandaloneDef,
-): StructFunction | StructAccess | StructEvent | StructAnalyzer | StructParam {
+):
+  | StructFunction
+  | StructAccess
+  | StructEvent
+  | StructAnalyzer
+  | StructParam
+  | StructSequence {
   // An unfinished builder chain (`defineAccess("x")` with no scope/TYPE) throws its teaching error
   // here rather than mis-dispatching below.
   assertCompleteDef(def);
@@ -405,6 +431,7 @@ export function fromStandalone(
   if (def.kind === "function") return lowerFunction(def);
   if (def.kind === "analyzer") return lowerAnalyzer(def);
   if (def.kind === "param") return lowerParam(def);
+  if (def.kind === "sequence") return lowerSequence(def);
   // EXHAUSTIVE: never fall through to a sibling's lowerer (an unknown kind used to land in
   // `lowerAccess` and die on `cfg.kind`).
   if (def.kind === "access") return lowerAccess(def);
@@ -426,6 +453,7 @@ export function schemaStruct(
   const accesses: StructAccess[] = [];
   const analyzers: StructAnalyzer[] = [];
   const params: StructParam[] = [];
+  const sequences: StructSequence[] = [];
   for (const d of defs) {
     if (d.kind === "function")
       functions.push(fromStandalone(d) as StructFunction);
@@ -440,6 +468,8 @@ export function schemaStruct(
       if (d.managed) params.push(fromStandalone(d) as StructParam);
     } else if (d.kind === "event")
       byName.get(d.table)?.events.push(fromStandalone(d) as StructEvent);
+    else if (d.kind === "sequence")
+      sequences.push(fromStandalone(d) as StructSequence);
   }
   // An inline `.function(input => surql`…`)` carries an auto-created function — expand it into the
   // functions list (deduped, collision-checked) so it emits/diffs/pulls as a normal `defineFunction`
@@ -452,5 +482,6 @@ export function schemaStruct(
     accesses,
     analyzers,
     params,
+    sequences,
   });
 }

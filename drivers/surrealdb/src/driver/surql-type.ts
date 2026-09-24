@@ -61,11 +61,10 @@ function parseStringLiteral(t: string): string | null {
 export function parseSurqlType(kind: string): PortableType {
   const t = kind.trim();
 
-  // option<X>
-  const opt = /^option<([\s\S]+)>$/.exec(t);
-  if (opt) return option(parseSurqlType(opt[1]));
-
-  // Top-level union: peel `none` (absence) and `null` (null) markers, recurse on the rest.
+  // Top-level union FIRST: `option<A> | B` starts with `option<` and can end with `>`, so testing the
+  // option wrapper before splitting would swallow the whole union (the regex is greedy). `splitTopUnion`
+  // ignores `|` inside `<…>`, so `option<A | B>` still resolves to a single option below.
+  // Peel `none` (absence) and `null` (null) markers, recurse on the rest.
   const parts = splitTopUnion(t);
   if (parts.length > 1) {
     const hasNone = parts.includes("none");
@@ -77,6 +76,10 @@ export function parseSurqlType(kind: string): PortableType {
     if (hasNone) inner = option(inner);
     return inner;
   }
+
+  // option<X>
+  const opt = /^option<([\s\S]+)>$/.exec(t);
+  if (opt) return option(parseSurqlType(opt[1]));
 
   // Constructor term `ctor<inner>`. `references<…>` (rare) is kept as a Surreal-native escape hatch
   // so it round-trips losslessly rather than collapsing into `record<…>`.
@@ -130,12 +133,21 @@ export function emitSurqlType(p: PortableType): string {
         ? `'${p.value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`
         : String(p.value);
     case "option":
-      return `option<${emitSurqlType(p.inner)}>`;
+      // `none` is the canonical spelling of `option<never>` (matches normalizeType): emit it as
+      // `none` so `emit∘parse` is a true inverse. Emitting `option<none>` would re-parse to
+      // `option<option<never>>` and break the lossless round-trip.
+      return p.inner.t === "never"
+        ? "none"
+        : `option<${emitSurqlType(p.inner)}>`;
     case "nullable": {
-      // Canonical: a sorted top-level union with `null` (matches normalizeType, which sorts members
-      // and does not special-case null). `null` sorts before any scalar/ctor name.
-      const inner = emitSurqlType(p.inner);
-      return [inner, "null"].sort().join(" | ");
+      // Canonical: a flat, sorted top-level union with `null` (matches normalizeType, which sorts
+      // every member and does not special-case null). Flatten a union inner so `A | B | null` sorts
+      // as three members, not `(A | B) | null` — the latter would put `null` last.
+      const members =
+        p.inner.t === "union"
+          ? p.inner.members.map(emitSurqlType)
+          : [emitSurqlType(p.inner)];
+      return [...members, "null"].sort().join(" | ");
     }
     case "array":
       return p.size !== undefined
