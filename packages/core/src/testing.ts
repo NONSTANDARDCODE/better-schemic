@@ -400,3 +400,157 @@ function readTestSrc(dir: string): string {
     .map((f) => readFileSync(join(dir, f), "utf8"))
     .join("\n");
 }
+
+// --- MC/DC (Modified Condition/Decision Coverage) -----------------------------------------------
+//
+// Tier-1 coverage (statements/branches + oxc's per-operand truthiness) proves a decision's operands
+// were each seen true AND false — but NOT that each operand INDEPENDENTLY affects the outcome. MC/DC
+// is the stronger standard: for every condition there must be a UNIQUE-CAUSE pair — two test cases
+// that differ ONLY in that condition and flip the decision. This helper is the driver-agnostic,
+// pure engine for that proof: it enumerates the condition assignments (or takes the ones your tests
+// actually exercise), evaluates the REAL decision, and reports any condition with no such pair.
+//
+// WHY a helper and not a tool: no mainstream JS/TS tool computes true MC/DC (they stop at
+// condition/decision coverage). `analyzeMcdc` closes that gap at the test level, so a redundant
+// condition (`a && a`), a masked operand, or an untested branch fails a NAMED test instead of
+// silently passing a 100% branch gate.
+
+/** One condition's unique-cause independence pair (assignments differ only in that condition). */
+export interface McdcIndependence {
+  /** The condition name. */
+  readonly condition: string;
+  /** The two assignments (identical except at `condition`'s index). */
+  readonly pair: readonly [readonly boolean[], readonly boolean[]];
+  /** The decision outcomes for the pair (always different by construction). */
+  readonly outcomes: readonly [boolean, boolean];
+}
+
+/** The MC/DC analysis of one decision. */
+export interface McdcAnalysis {
+  readonly label: string;
+  readonly conditions: readonly string[];
+  /** Every assignment considered (rows of the truth table / the supplied cases). */
+  readonly assignments: readonly (readonly boolean[])[];
+  /** The decision outcome for each assignment. */
+  readonly outcomes: readonly boolean[];
+  /** One unique-cause pair per condition that has one. */
+  readonly independent: readonly McdcIndependence[];
+  /** Conditions with NO unique-cause pair — MC/DC is NOT satisfied for these. */
+  readonly missing: readonly string[];
+  readonly ok: boolean;
+}
+
+export interface McdcOptions {
+  /** Label for the describe block / report (`"isNotFound"`). */
+  readonly label: string;
+  /** The named conditions, in the SAME order as each assignment's booleans. */
+  readonly conditions: readonly string[];
+  /** The REAL decision under test: an assignment -> the decision's boolean outcome. */
+  readonly evaluate: (assignment: Readonly<Record<string, boolean>>) => boolean;
+  /**
+   * The assignments actually exercised (each an array of booleans aligned with `conditions`).
+   * Defaults to the FULL truth table (`2^conditions.length`) — use this when your tests only cover a
+   * subset, so the analysis reflects REAL coverage rather than a hypothetical enumeration.
+   */
+  readonly cases?: readonly (readonly boolean[])[];
+}
+
+const MAX_MCDC_CONDITIONS = 8;
+
+/** Every truth-table assignment for `n` conditions (little-endian: index 0 is the last condition). */
+function truthTable(n: number): boolean[][] {
+  const rows: boolean[][] = [];
+  for (let i = 0; i < 1 << n; i++)
+    rows.push(Array.from({ length: n }, (_, bit) => ((i >> bit) & 1) === 1));
+  return rows;
+}
+
+function toAssignment(
+  conditions: readonly string[],
+  row: readonly boolean[],
+): Record<string, boolean> {
+  const out: Record<string, boolean> = {};
+  conditions.forEach((name, i) => {
+    out[name] = row[i] === true;
+  });
+  return out;
+}
+
+/**
+ * Analyze a decision for unique-cause MC/DC. PURE — returns the per-condition independence pairs and
+ * the conditions that lack one; {@link describeMcdc} is the `bun:test` shell.
+ */
+export function analyzeMcdc(options: McdcOptions): McdcAnalysis {
+  const { label, conditions, evaluate } = options;
+  if (conditions.length === 0)
+    throw new Error("analyzeMcdc: pass at least one condition");
+  if (conditions.length > MAX_MCDC_CONDITIONS)
+    throw new Error(
+      `analyzeMcdc: ${conditions.length} conditions exceed the ${MAX_MCDC_CONDITIONS}-condition limit (the truth table would explode) — pass explicit \`cases\`.`,
+    );
+  if (new Set(conditions).size !== conditions.length)
+    throw new Error(
+      `analyzeMcdc: duplicate condition name in ${JSON.stringify(conditions)}`,
+    );
+  const assignments = options.cases ?? truthTable(conditions.length);
+  for (const row of assignments)
+    if (row.length !== conditions.length)
+      throw new Error(
+        `analyzeMcdc: a case has ${row.length} values for ${conditions.length} conditions`,
+      );
+  const outcomes = assignments.map((row) =>
+    evaluate(toAssignment(conditions, row)),
+  );
+
+  const independent: McdcIndependence[] = [];
+  const missing: string[] = [];
+  for (let i = 0; i < conditions.length; i++) {
+    let found: McdcIndependence | undefined;
+    for (let a = 0; a < assignments.length && !found; a++) {
+      for (let b = a + 1; b < assignments.length && !found; b++) {
+        const ra = assignments[a] as readonly boolean[];
+        const rb = assignments[b] as readonly boolean[];
+        if (ra[i] === rb[i]) continue;
+        if (!ra.every((v, j) => j === i || v === rb[j])) continue;
+        if (outcomes[a] !== outcomes[b])
+          found = {
+            condition: conditions[i] as string,
+            pair: [ra, rb],
+            outcomes: [outcomes[a] as boolean, outcomes[b] as boolean],
+          };
+      }
+    }
+    if (found) independent.push(found);
+    else missing.push(conditions[i] as string);
+  }
+
+  return {
+    label,
+    conditions,
+    assignments,
+    outcomes,
+    independent,
+    missing,
+    ok: missing.length === 0,
+  };
+}
+
+/**
+ * Register a decision's MC/DC proof as `bun:test` blocks. A condition with no unique-cause
+ * independence pair fails a NAMED test, so a redundant/masked operand is caught even when Tier-1
+ * branch coverage is 100%. Supply `cases` (the assignments your tests exercise) for REAL coverage;
+ * omit it to prove the decision is non-redundant over the full truth table.
+ */
+export function describeMcdc(options: McdcOptions): void {
+  const analysis = analyzeMcdc(options);
+  describe(`MC/DC: ${analysis.label}`, () => {
+    test("every condition has a unique-cause independence pair", () => {
+      expect(analysis.missing).toEqual([]);
+    });
+    for (const pair of analysis.independent) {
+      test(`condition "${pair.condition}" is independent`, () => {
+        expect(pair.outcomes[0]).not.toBe(pair.outcomes[1]);
+      });
+    }
+  });
+}

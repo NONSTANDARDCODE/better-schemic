@@ -10,7 +10,10 @@ dist
 
 # code coverage
 coverage
+.coverage
 *.lcov
+# …but the coverage TOOLING under scripts/ is source, not output
+!scripts/coverage/
 
 # logs
 logs

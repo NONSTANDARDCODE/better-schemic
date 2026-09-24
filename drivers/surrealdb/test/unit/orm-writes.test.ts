@@ -433,6 +433,73 @@ describe("upsert", () => {
   });
 });
 
+describe("update/upsert — mode & data guards", () => {
+  test("update: data XOR patches; patch mode requires patches; id can't be updated", () => {
+    const { client } = makeClient();
+    const u = (args: unknown) =>
+      codeOf(() => client.users.update(args as never));
+    expect(u({ where: { id: "user:1" }, data, patches: [] })).toBe(
+      "ValidationError",
+    );
+    expect(u({ where: { id: "user:1" }, mode: "patch" })).toBe(
+      "ValidationError",
+    );
+    expect(
+      u({
+        where: { id: "user:1" },
+        mode: "merge",
+        patches: [{ op: "remove", path: "/a" }],
+      }),
+    ).toBe("ValidationError");
+    expect(
+      u({ where: { id: "user:1" }, data: { id: "user:1", name: "A" } }),
+    ).toBe("ValidationError");
+  });
+
+  test("upsert: data XOR create/update; patch mode is not allowed", () => {
+    const { client } = makeClient();
+    const us = (args: unknown) =>
+      codeOf(() => client.users.upsert(args as never));
+    expect(
+      us({
+        where: { id: "user:1" },
+        data: { age: 2 },
+        create: { id: "user:1", ...data },
+        update: { age: 2 },
+      }),
+    ).toBe("ValidationError");
+    expect(
+      us({ where: { id: "user:1" }, mode: "patch", patches: [] }),
+    ).toBe("ValidationError");
+  });
+
+  test("upsert create/update: create needs the id, it must match, update needs a field", () => {
+    const { client } = makeClient();
+    const us = (args: unknown) =>
+      codeOf(() => client.users.upsert(args as never));
+    // create missing the id (by-id target).
+    expect(
+      us({ where: { id: "user:1" }, create: { ...data }, update: { age: 2 } }),
+    ).toBe("ValidationError");
+    // create id mismatch.
+    expect(
+      us({
+        where: { id: "user:1" },
+        create: { id: "user:2", ...data },
+        update: { age: 2 },
+      }),
+    ).toBe("ValidationError");
+    // empty update map.
+    expect(
+      us({
+        where: { id: "user:1" },
+        create: { id: "user:1", ...data },
+        update: {},
+      }),
+    ).toBe("ValidationError");
+  });
+});
+
 describe("delete", () => {
   test("DELETE t:id RETURN BEFORE and by unique", async () => {
     const { client, calls } = makeClient();
@@ -610,6 +677,152 @@ describe("relate / unrelate (edge delegate)", () => {
           },
         ),
       ),
+    ).toBe("ValidationError");
+  });
+});
+
+describe("relate / unrelate — guards and expressions", () => {
+  test("relate requires both endpoints", () => {
+    const { client } = makeClient();
+    expect(
+      codeOf(() => client.likes.relate({ from: "user:1" } as never)),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() => client.likes.relate({ to: "post:1" } as never)),
+    ).toBe("ValidationError");
+  });
+
+  test("a surql expression endpoint splices", async () => {
+    const { client, calls } = makeClient([LIKE_ROW]);
+    await client.likes.relate({ from: surql`$user`, to: "post:1" } as never);
+    expect(lastCall(calls).sql).toContain("RELATE ($user)->likes->post:1");
+  });
+
+  test("a null/undefined endpoint is rejected", () => {
+    const { client } = makeClient();
+    expect(
+      codeOf(() => client.likes.relate({ from: null, to: "post:1" } as never)),
+    ).toBe("ValidationError");
+  });
+
+  test("a non-record-id endpoint is rejected", () => {
+    const { client } = makeClient();
+    expect(
+      codeOf(() =>
+        client.likes.relate({ from: "notarecord", to: "post:1" } as never),
+      ),
+    ).toBe("ValidationError");
+  });
+
+  test("a non-string edge id is rejected", () => {
+    const { client } = makeClient();
+    expect(
+      codeOf(() =>
+        client.likes.relate({ from: "user:1", to: "post:1", id: 5 } as never),
+      ),
+    ).toBe("ValidationError");
+  });
+
+  test("relateMany guards: non-object item, missing endpoints, per-item return", () => {
+    const { client } = makeClient();
+    expect(codeOf(() => client.likes.relateMany({ data: [5] } as never))).toBe(
+      "ValidationError",
+    );
+    expect(
+      codeOf(() => client.likes.relateMany({ data: [{ from: "user:1" }] } as never)),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() =>
+        client.likes.relateMany({
+          data: [{ from: "user:1", to: "post:1", return: "before" }],
+        } as never),
+      ),
+    ).toBe("ValidationError");
+  });
+
+  test("unrelate requires both endpoints", () => {
+    const { client } = makeClient();
+    expect(
+      codeOf(() => client.likes.unrelate({ from: "user:1" } as never)),
+    ).toBe("ValidationError");
+  });
+
+  test("unrelateMany with all: true deletes every edge", async () => {
+    const { client, calls } = makeClient([LIKE_ROW]);
+    await client.likes.unrelateMany({ all: true });
+    expect(lastCall(calls).sql).toBe("DELETE likes RETURN BEFORE;");
+  });
+});
+
+describe("create.relate sugar — guards", () => {
+  const rel = (entry: unknown) =>
+    codeOf(() => client_create(entry));
+  const { client } = makeClient();
+  function client_create(entry: unknown): unknown {
+    return (client.users as unknown as { create: (a: unknown) => unknown }).create(
+      { data, relate: [entry] },
+    );
+  }
+
+  test("a non-object entry is rejected", () => {
+    expect(rel(5)).toBe("ValidationError");
+  });
+  test("an entry missing from/edge/to is rejected", () => {
+    expect(rel({ from: "user:1", edge: "likes" })).toBe("ValidationError");
+  });
+  test("a non-string edge is rejected", () => {
+    expect(rel({ from: "user:1", edge: 5, to: "$self" })).toBe(
+      "ValidationError",
+    );
+  });
+  test("an edge that is a table (not a relation) is rejected", () => {
+    expect(rel({ from: "user:1", edge: "user", to: "$self" })).toBe(
+      "ValidationError",
+    );
+  });
+  test("an unknown edge name is rejected", () => {
+    expect(rel({ from: "user:1", edge: "ghost", to: "$self" })).toBe(
+      "ValidationError",
+    );
+  });
+});
+
+describe("write compiler — create/insert guards", () => {
+  test("create and createMany require a payload", () => {
+    const { client } = makeClient();
+    expect(codeOf(() => client.users.create({} as never))).toBe(
+      "ValidationError",
+    );
+    expect(codeOf(() => client.users.createMany({ data: [5] } as never))).toBe(
+      "ValidationError",
+    );
+  });
+
+  test("insert requires data; insertMany requires an array", () => {
+    const { client } = makeClient();
+    expect(codeOf(() => client.users.insert({} as never))).toBe(
+      "ValidationError",
+    );
+    expect(codeOf(() => client.users.insertMany({ data: 5 } as never))).toBe(
+      "ValidationError",
+    );
+  });
+
+  test("onDuplicate guards: update with no updatable fields, empty map, invalid value", () => {
+    const { client } = makeClient();
+    expect(
+      codeOf(() =>
+        client.users.insert({
+          data: { id: new RecordId("user", 1) },
+          onDuplicate: "update",
+        } as never),
+      ),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() => client.users.insert({ data, onDuplicate: {} } as never)),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() => client.users.insert({ data, onDuplicate: "bad" } as never)),
     ).toBe("ValidationError");
   });
 });

@@ -7,6 +7,10 @@
   "scripts": {
     "gen:examples": "bun run scripts/gen-examples-manifest.ts",
     "gen:examples:orm": "bun run scripts/gen-examples-manifest-orm.ts",
+    "test:coverage": "bun run scripts/coverage/run.ts",
+    "test:coverage:report": "bun run scripts/coverage/report.ts",
+    "test:coverage:check": "bun run scripts/coverage/check.ts",
+    "test:coverage:update": "bun run scripts/coverage/check.ts --update",
     "skills-install": "bunx skills experimental_install"
   },
   "overrides": {
@@ -14,5 +18,11 @@
   },
   "dependencies": {
     "skills": "^1.5.26"
+  },
+  "devDependencies": {
+    "istanbul-lib-coverage": "^3.2.2",
+    "istanbul-lib-report": "^3.0.1",
+    "istanbul-reports": "^3.2.0",
+    "oxc-coverage-instrument": "^0.12.0"
   }
 }

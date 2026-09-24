@@ -126,8 +126,18 @@ export async function startHarness(): Promise<Harness> {
   const roots: string[] = [];
   let dbN = 0;
 
+  // When coverage is on, instrument the CLI child too (same preload) so commands/introspect/driver
+  // contribute their fragments. `COVERAGE_DIR`/`COVERAGE_INCLUDE` come through `process.env`.
+  const coveragePreload =
+    process.env.COVERAGE === "1"
+      ? [
+          "--preload",
+          resolve(SURREAL_PKG, "../../scripts/coverage/preload.ts"),
+        ]
+      : [];
+
   const run: Harness["run"] = async (args, opts) => {
-    const proc = Bun.spawn(["bun", "run", CLI, ...args], {
+    const proc = Bun.spawn(["bun", "run", ...coveragePreload, CLI, ...args], {
       cwd: opts.cwd,
       env: {
         ...process.env,

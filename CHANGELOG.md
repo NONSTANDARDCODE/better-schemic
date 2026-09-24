@@ -19,6 +19,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 ## [Unreleased]
 
 ### Added
+- **repo:** MC/DC reliability tooling (M8) — `bun run test:coverage` instruments
+  `drivers/surrealdb/src` + `packages/core/src` with `oxc-coverage-instrument`
+  (`reportLogic` → per-operand truthiness), aggregates the e2e CLI subprocesses' coverage, and gates
+  statements/branches/functions/lines **and logical conditions** per file with a ratchet
+  (`coverage.config.json`). `bun run test:coverage:gaps` prints the exact uncovered lines/conditions.
+  A shared ephemeral SurrealDB preload un-skips the live/parity suites. See
+  `drivers/surrealdb/docs/TESTING.md` and `ROADMAP.md` §M8.
+- **core:** `@better-schemic/core/testing` — `analyzeMcdc`/`describeMcdc`: a pure, driver-agnostic
+  **unique-cause MC/DC** engine. For a decision it finds, per condition, the independence pair (two
+  assignments differing only in that condition that flip the outcome) over the full truth table or
+  the explicit `cases` a suite exercises, and fails a named `bun:test` block on a redundant/masked
+  operand. Applied to `isNotFound`/`isValidationError`/`isUnsupportedCapability` and core `inCat`.
+- **surrealdb:** `ClientRuntime.query<T>(sql, vars?)` — the neutral `ctx.connections.<name>.query`
+  handle (core `ResolvedConnectionHandle`) now exists on the ORM client (first statement's rows).
+  Previously a chained resolver calling `ctx.connections.main.query(...)` failed with
+  `db.query is not a function` — a latent bug exposed by running the live chained-config suite.
 - **surrealdb:** `@better-schemic/surrealdb/orm` — the repository-style ORM surface (M0 skeleton):
   `defineSchema({ users: User, likes: Likes, greet, audit: "audit_log" })` + `betterSchemic(conn, { schema })`
   / `createBetterSchemic({ url, namespace, database, auth, schema })`; one delegate per schema key,

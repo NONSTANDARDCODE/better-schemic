@@ -134,6 +134,56 @@ describe("auth", () => {
     const error = await caught(() => client.auth.record());
     expect(isBetterSchemicError(error) && error.code).toBe("NotAuthenticated");
   });
+
+  test("signup passthroughs the SDK session method", async () => {
+    const { conn } = fakeConn();
+    Object.assign(conn, {
+      signup: async () => ({ access: "account" }),
+    });
+    const client = betterSchemic(conn, { schema });
+    expect(
+      await client.auth.signup({ access: "account", variables: {} }),
+    ).toEqual({ access: "account" });
+  });
+
+  test("a connection without the SDK method teaches UnsupportedCapability", async () => {
+    const { conn } = fakeConn();
+    const client = betterSchemic(conn, { schema });
+    const error = await caught(() =>
+      client.auth.signin({ username: "u", password: "p" }),
+    );
+    expect(isBetterSchemicError(error) && error.code).toBe(
+      "UnsupportedCapability",
+    );
+  });
+
+  test("a non-ONLY auth failure is normalized and rethrown", async () => {
+    const { conn } = fakeConn();
+    Object.assign(conn, {
+      auth: async () => {
+        throw new Error("kaboom");
+      },
+    });
+    const client = betterSchemic(conn, { schema });
+    const error = await caught(() => client.auth.record());
+    expect(error).toBeInstanceOf(Error);
+    expect(String(error)).toContain("kaboom");
+  });
+
+  test("a non-auth method's failure is normalized and rethrown (not the record-only mapping)", async () => {
+    const { conn } = fakeConn();
+    Object.assign(conn, {
+      signin: async () => {
+        throw new Error("bad credentials");
+      },
+    });
+    const client = betterSchemic(conn, { schema });
+    const error = await caught(() =>
+      client.auth.signin({ username: "u", password: "p" }),
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect(String(error)).toContain("bad credentials");
+  });
 });
 
 describe("admin", () => {

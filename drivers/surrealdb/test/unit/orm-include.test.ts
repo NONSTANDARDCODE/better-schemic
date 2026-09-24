@@ -6,6 +6,8 @@ import { DateTime, RecordId } from "surrealdb";
 import { defineRelation, defineTable, s, surql } from "../../src/index";
 import { betterSchemic } from "../../src/orm/client";
 import { compileRead, type ReadArgs } from "../../src/orm/compiler/select";
+import { compileIncludeOrderBy } from "../../src/orm/compiler/include/projection";
+import type { CompileCtx } from "../../src/orm/compiler/include/specs";
 import { createBinds } from "../../src/orm/compiler/shared";
 import type { BetterSchemicError } from "../../src/orm/errors";
 import { buildSchemaIndex } from "../../src/orm/schema";
@@ -466,6 +468,638 @@ describe("relational where — lowering", () => {
     })();
     expect(mixed?.code).toBe("ValidationError");
     expect(mixed?.message).toContain("mixes edge and target");
+  });
+
+  test("a fragment on a relation key is a whole predicate", () => {
+    expect(
+      compile({ where: { mentor: surql`name = ${"A"}` } }).sql,
+    ).toContain("(name = $");
+  });
+
+  test("some/every/none accept fragments; non-object operands are rejected", () => {
+    expect(
+      compile({ where: { likes: { some: surql`score > ${4}` } } }).sql,
+    ).toContain("count(");
+    expect(
+      compile({ where: { friends: { some: surql`age > ${18}` } } }).sql,
+    ).toContain("count(");
+    expect(codeOf(() => compile({ where: { likes: { some: 5 } } }))).toBe(
+      "ValidationError",
+    );
+    expect(codeOf(() => compile({ where: { friends: { some: 5 } } }))).toBe(
+      "ValidationError",
+    );
+  });
+
+  test("is/isNot on an edge or an array link is rejected", () => {
+    expect(
+      codeOf(() => compile({ where: { likes: { is: { published: true } } } })),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() => compile({ where: { friends: { is: { age: 1 } } } })),
+    ).toBe("ValidationError");
+  });
+});
+
+describe("include — dispatch guards", () => {
+  test("null include is a no-op; undefined entries are skipped", () => {
+    expect(compile({ include: null as never }).sql).toBe("SELECT * FROM user");
+    expect(
+      compile({ include: { mentor: undefined, friends: true } }).sql,
+    ).toContain("FETCH friends");
+  });
+
+  test("a non-object include is rejected", () => {
+    expect(codeOf(() => compile({ include: 5 as never }))).toBe(
+      "ValidationError",
+    );
+  });
+
+  test("select/split/orderBy shapes and the include clause guards", () => {
+    expect(compile({ select: null as never }).sql).toBe("SELECT * FROM user");
+    expect(codeOf(() => compile({ select: 5 as never }))).toBe("ValidationError");
+    expect(
+      compile({ select: { name: undefined, age: true } as never }).sql,
+    ).toContain("age");
+    expect(compile({ split: surql`x` as never }).sql).toContain("SPLIT x");
+    expect(compile({ orderBy: { age: "asc" } as never }).sql).toContain(
+      "ORDER BY",
+    );
+    // include needs the schema index.
+    const m = index.tables.get("users")!;
+    expect(
+      codeOf(() =>
+        compileRead(m, { include: { mentor: true } }, createBinds(), "findMany"),
+      ),
+    ).toBe("ValidationError");
+    // include cannot combine with groupBy.
+    expect(
+      codeOf(() => compile({ include: { mentor: true }, groupBy: ["active"] })),
+    ).toBe("ClauseNotSupported");
+    // split cannot combine with groupBy.
+    expect(
+      codeOf(() => compile({ split: "friends", groupBy: ["active"] })),
+    ).toBe("ClauseNotSupported");
+  });
+});
+
+describe("where compiler — relation/operator guards", () => {
+  test("mixing a relational operator with a plain one is rejected", () => {
+    expect(
+      codeOf(() =>
+        compile({ where: { mentor: { is: { name: "A" }, name: "B" } } }),
+      ),
+    ).toBe("ValidationError");
+  });
+
+  test("a relational operator on a non-relation field is rejected", () => {
+    expect(
+      codeOf(() => compile({ where: { name: { some: { x: 1 } } } })),
+    ).toBe("ValidationError");
+  });
+
+  test("direction must be out/in/both, and is link-invalid", () => {
+    expect(
+      codeOf(() =>
+        compile({
+          where: { likes: { some: { published: true }, direction: "bad" } },
+        }),
+      ),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() =>
+        compile({ where: { mentor: { is: { name: "A" }, direction: "in" } } }),
+      ),
+    ).toBe("ValidationError");
+  });
+
+  test("is/some operands must be non-empty filter objects", () => {
+    expect(codeOf(() => compile({ where: { mentor: { is: 5 } } }))).toBe(
+      "ValidationError",
+    );
+    expect(codeOf(() => compile({ where: { mentor: { is: {} } } }))).toBe(
+      "ValidationError",
+    );
+    expect(codeOf(() => compile({ where: { likes: { some: 5 } } }))).toBe(
+      "ValidationError",
+    );
+    expect(codeOf(() => compile({ where: { likes: { some: {} } } }))).toBe(
+      "ValidationError",
+    );
+  });
+
+  test("is supports lte", () => {
+    expect(
+      compile({ where: { mentor: { is: { age: { lte: 5 } } } } }).sql,
+    ).toContain("mentor.age <= $p");
+  });
+
+  test("not guards and lowering", () => {
+    expect(codeOf(() => compile({ where: { name: { not: 5 } } }))).toBe(
+      "ValidationError",
+    );
+    expect(codeOf(() => compile({ where: { name: { not: {} } } }))).toBe(
+      "ValidationError",
+    );
+    expect(
+      compile({ where: { name: { not: { equals: "A" } } } }).sql,
+    ).toContain("NOT (");
+  });
+});
+
+describe("where compiler — full-text / near", () => {
+  test("matchesFullText string / single-index / multi-index forms", () => {
+    expect(
+      compile({ where: { name: { matchesFullText: "alice" } } }).sql,
+    ).toBe("SELECT * FROM user WHERE name @@ $p0");
+    expect(
+      compile({ where: { name: { matchesFullText: { query: "a", index: 0 } } } })
+        .sql,
+    ).toBe("SELECT * FROM user WHERE name @0@ $p0");
+    expect(
+      compile({
+        where: {
+          name: { matchesFullText: { query: "a", indexes: [0, 1], operator: "OR" } },
+        },
+      }).sql,
+    ).toContain("(name @0@ $p0 OR name @1@ $p0)");
+  });
+
+  test("matchesFullText guards", () => {
+    expect(
+      codeOf(() => compile({ where: { name: { matchesFullText: 5 } } })),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() =>
+        compile({ where: { name: { matchesFullText: { query: 5 } } } }),
+      ),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() =>
+        compile({
+          where: { name: { matchesFullText: { query: "x", index: 0, indexes: [0] } } },
+        }),
+      ),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() =>
+        compile({ where: { name: { matchesFullText: { query: "x", index: -1 } } } }),
+      ),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() =>
+        compile({ where: { name: { matchesFullText: { query: "x", operator: "X" } } } }),
+      ),
+    ).toBe("ValidationError");
+  });
+
+  test("near KNN + geo forms, and its guards", () => {
+    expect(
+      compile({ where: { name: { near: { vector: [1, 2, 3], k: 5 } } } }).sql,
+    ).toContain("<|5|>");
+    expect(
+      codeOf(() => compile({ where: { name: { near: 5 } } })),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() => compile({ where: { name: { near: { vector: [1], k: 0 } } } })),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() =>
+        compile({ where: { name: { near: { point: [1, 2], distance: "x" } } } }),
+      ),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() => compile({ where: { name: { near: { k: 1 } } } })),
+    ).toBe("ValidationError");
+  });
+});
+
+describe("_count include — guards", () => {
+  test("entry shape, unknown option, empty select, bad relation option", () => {
+    expect(codeOf(() => compile({ include: { _count: 5 } }))).toBe(
+      "ValidationError",
+    );
+    expect(
+      codeOf(() => compile({ include: { _count: { select: 5 } } })),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() =>
+        compile({ include: { _count: { select: { likes: true }, foo: true } } }),
+      ),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() => compile({ include: { _count: { select: {} } } })),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() => compile({ include: { _count: { select: { likes: 5 } } } })),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() =>
+        compile({ include: { _count: { select: { likes: { foo: true } } } } }),
+      ),
+    ).toBe("ValidationError");
+  });
+
+  test("an invalid direction in an edge count is rejected", () => {
+    expect(
+      codeOf(() =>
+        compile({
+          include: { _count: { select: { likes: { direction: "bad" } } } },
+        }),
+      ),
+    ).toBe("ValidationError");
+  });
+});
+
+describe("include projection — array/id/wildcard paths", () => {
+  test("link select: false entries skipped, array select, bad array entry, id presence", () => {
+    expect(
+      compile({
+        include: { mentor: { select: { name: true, age: false } } },
+      }).sql,
+    ).toContain("mentor_name");
+    expect(
+      compile({ include: { mentor: { select: ["name"] } } }).sql,
+    ).toContain("mentor_name");
+    expect(
+      codeOf(() => compile({ include: { mentor: { select: [5] } } })),
+    ).toBe("ValidationError");
+    expect(
+      compile({ include: { mentor: { select: { id: true } } } }).sql,
+    ).toContain("mentor_id");
+  });
+
+  test("an array link projection has no presence leaf", () => {
+    expect(
+      compile({ include: { friends: { select: { id: true } } } }).sql,
+    ).toContain("friends_id");
+  });
+
+  test("wildcard target projections: star, empty, and a bad shape", () => {
+    expect(
+      compile({
+        include: { rel: { wildcard: true, target: { select: { "*": true } } } },
+      }).sql,
+    ).toContain("out.*");
+    expect(
+      codeOf(() =>
+        compile({
+          include: { rel: { wildcard: true, target: { select: {} } } },
+        }),
+      ),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() =>
+        compile({ include: { rel: { wildcard: true, target: { select: 5 } } } }),
+      ),
+    ).toBe("ValidationError");
+  });
+
+  test("include orderBy skips a bare undefined entry", () => {
+    expect(
+      compile({ include: { likes: { orderBy: [undefined] } } }).sql,
+    ).not.toContain("ORDER BY");
+  });
+
+  test("link select: undefined entry, null select, and an id alias", () => {
+    expect(
+      compile({
+        include: { mentor: { select: { name: true, age: undefined } } },
+      }).sql,
+    ).toContain("mentor_name");
+    expect(
+      codeOf(() => compile({ include: { mentor: { select: null } } })),
+    ).toBe("ValidationError");
+    // aliasing `id` under another name suppresses the extra presence leaf.
+    expect(
+      compile({ include: { mentor: { select: { other: "id" } } } }).sql,
+    ).toBe("SELECT *, mentor.id AS mentor_other FROM user");
+  });
+
+  test("a nested '*' in a wildcard target is rejected", () => {
+    expect(
+      codeOf(() =>
+        compile({
+          include: {
+            rel: { wildcard: true, target: { select: { nested: { "*": true } } } },
+          },
+        }),
+      ),
+    ).toBe("ValidationError");
+  });
+
+  test("wildcard edge/target shapes", () => {
+    // unknown edge with an edge projection → SCHEMALESS edge meta.
+    expect(
+      compile({
+        include: { rel: { wildcard: true, edge: { select: { score: true } } } },
+      }).sql,
+    ).toContain("rel");
+    // an array target select is accepted.
+    expect(
+      compile({
+        include: { rel: { wildcard: true, target: { select: ["name"] } } },
+      }).sql,
+    ).toContain("name");
+    // wildcard on a DECLARED edge is routed as a wildcard (edgeRef stays undefined).
+    expect(
+      compile({ include: { likes: { wildcard: true } } }).sql,
+    ).toContain("->?");
+    // an incoming wildcard target projects `in.*`.
+    expect(
+      compile({
+        include: {
+          rel: { wildcard: true, target: true, direction: "in" },
+        },
+      }).sql,
+    ).toContain("in.*");
+  });
+
+  test("_count edges accept a direction", () => {
+    expect(
+      compile({
+        include: { _count: { select: { likes: { direction: "out" } } } },
+      }).sql,
+    ).toContain("count(");
+    expect(
+      codeOf(() =>
+        compile({
+          include: { _count: { select: { likes: { direction: "bad" } } } },
+        }),
+      ),
+    ).toBe("ValidationError");
+  });
+
+  test("include orderBy: object form, non-string dir, star bypass", () => {
+    expect(
+      compile({ include: { likes: { edge: true, orderBy: { score: "asc" } } } })
+        .sql,
+    ).toContain("ORDER BY score ASC");
+    expect(
+      codeOf(() =>
+        compile({ include: { likes: { edge: true, orderBy: { score: 5 } } } }),
+      ),
+    ).toBe("ValidationError");
+    expect(
+      compile({
+        include: {
+          likes: { edge: true, select: { "*": true }, orderBy: { score: "asc" } },
+        },
+      }).sql,
+    ).toContain("ORDER BY score ASC");
+  });
+
+  test("compileIncludeOrderBy: a fragment with no spec, and no orderBy", () => {
+    const ctx = {
+      binds: createBinds(),
+      operation: "findMany",
+    } as unknown as CompileCtx;
+    expect(
+      compileIncludeOrderBy([surql`score`], undefined, ctx, "likes", "edge"),
+    ).toBe("ORDER BY (score)");
+    expect(
+      compileIncludeOrderBy(undefined, undefined, ctx, "likes", "edge"),
+    ).toBeUndefined();
+  });
+});
+
+describe("include projection — link select + orderBy guards", () => {
+  test("link select: mixing '*' with fields, bad entries, empty, missing select", () => {
+    expect(
+      codeOf(() =>
+        compile({ include: { mentor: { select: { "*": true, name: true } } } }),
+      ),
+    ).toBe("ClauseNotSupported");
+    expect(
+      codeOf(() => compile({ include: { mentor: { select: { name: 5 } } } })),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() => compile({ include: { mentor: { select: 5 } } })),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() => compile({ include: { mentor: { select: [] } } })),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() => compile({ include: { mentor: { select: {} } } })),
+    ).toBe("ValidationError");
+    expect(codeOf(() => compile({ include: { mentor: {} } }))).toBe(
+      "ValidationError",
+    );
+  });
+
+  test("duplicate flat leaves are rejected", () => {
+    expect(
+      codeOf(() =>
+        compile({
+          include: {
+            mentor: { select: { "home.city": true, home: { city: true } } },
+          },
+        }),
+      ),
+    ).toBe("ValidationError");
+  });
+
+  test("include orderBy: fragment, bad entry, bad direction, skipped undefined", () => {
+    expect(
+      compile({ include: { likes: { orderBy: [surql`rand()`] } } }).sql,
+    ).toContain("ORDER BY (rand())");
+    expect(
+      codeOf(() => compile({ include: { likes: { orderBy: [5] } } })),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() =>
+        compile({ include: { likes: { orderBy: [{ title: "up" }] } } }),
+      ),
+    ).toBe("ValidationError");
+    expect(
+      compile({ include: { likes: { orderBy: [{ title: undefined }] } } }).sql,
+    ).not.toContain("ORDER BY");
+  });
+});
+
+describe("link include — guards", () => {
+  const localCompile = (
+    s2: Parameters<typeof buildSchemaIndex>[0],
+    table: string,
+    args: ReadArgs,
+  ) => {
+    const idx = buildSchemaIndex(s2);
+    const meta = idx.tables.get(table);
+    if (!meta) throw new Error(`no table ${table}`);
+    return compileRead(meta, args, createBinds(), "findMany", { index: idx });
+  };
+
+  test("a non-object, non-true link entry is rejected; unknown options too", () => {
+    expect(codeOf(() => compile({ include: { mentor: 5 } }))).toBe(
+      "ValidationError",
+    );
+    expect(codeOf(() => compile({ include: { mentor: { foo: true } } }))).toBe(
+      "ValidationError",
+    );
+  });
+
+  test("nested include: non-object, unknown link, projected link, skipped false", () => {
+    expect(
+      codeOf(() => compile({ include: { mentor: { include: 5 } } })),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() => compile({ include: { mentor: { include: { nope: true } } } })),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() =>
+        compile({
+          include: { mentor: { include: { mentor: { select: { id: true } } } } },
+        }),
+      ),
+    ).toBe("ClauseNotSupported");
+    // A false nested entry is skipped; the true one still fetches.
+    expect(
+      compile({
+        include: { mentor: { include: { mentor: true, friends: false } } },
+      }).sql,
+    ).toContain("FETCH mentor.mentor");
+  });
+
+  test("a union link can't nest (needs a single target)", () => {
+    const A = defineTable("la", { name: s.string() });
+    const B = defineTable("lb", { name: s.string() });
+    const C = defineTable("lc", { link: s.recordId([A, B]).optional() });
+    expect(
+      codeOf(() =>
+        localCompile({ a: A, b: B, c: C }, "c", {
+          include: { link: { include: { name: true } } },
+        }),
+      ),
+    ).toBe("ValidationError");
+  });
+
+  test("a link whose target is not a typed table can't nest", () => {
+    const C = defineTable("lc", { link: s.recordId("ghost").optional() });
+    expect(
+      codeOf(() =>
+        localCompile({ c: C }, "c", {
+          include: { link: { include: { name: true } } },
+        }),
+      ),
+    ).toBe("ValidationError");
+  });
+});
+
+describe("edge include — guards", () => {
+  test("entry shape, unknown option, target+select, bad direction, bad target option", () => {
+    expect(codeOf(() => compile({ include: { likes: 5 } }))).toBe(
+      "ValidationError",
+    );
+    expect(
+      codeOf(() => compile({ include: { likes: { foo: true } } })),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() =>
+        compile({ include: { likes: { target: true, select: { id: true } } } }),
+      ),
+    ).toBe("ClauseNotSupported");
+    expect(
+      codeOf(() => compile({ include: { likes: { direction: "bad" } } })),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() =>
+        compile({
+          include: { likes: { target: { select: { id: true }, foo: true } } },
+        }),
+      ),
+    ).toBe("ValidationError");
+  });
+
+  test("edge: false with a target projects only the target", () => {
+    expect(
+      compile({ include: { likes: { edge: false, target: true } } }).sql,
+    ).toContain("->likes->post");
+  });
+});
+
+describe("include — shape/schemaless/collision guards", () => {
+  const localCompile = (
+    s2: Parameters<typeof buildSchemaIndex>[0],
+    table: string,
+    args: ReadArgs,
+  ) => {
+    const idx = buildSchemaIndex(s2);
+    const meta = idx.tables.get(table);
+    if (!meta) throw new Error(`no table ${table}`);
+    return compileRead(meta, args, createBinds(), "findMany", { index: idx });
+  };
+
+  test("include must be an object; a false entry is skipped", () => {
+    expect(codeOf(() => compile({ include: 5 }))).toBe("ValidationError");
+    expect(compile({ include: { mentor: false } }).sql).toBe(
+      "SELECT * FROM user",
+    );
+  });
+
+  test("include on a schemaless model is rejected", () => {
+    const idx = buildSchemaIndex({ audit: "audit_log" });
+    const meta = idx.schemaless.get("audit");
+    if (!meta) throw new Error("no schemaless meta");
+    expect(
+      codeOf(() =>
+        compileRead(meta, { include: { x: true } }, createBinds(), "findMany", {
+          index: idx,
+        }),
+      ),
+    ).toBe("ValidationError");
+  });
+
+  test("an include alias colliding with a column is rejected", () => {
+    const U = defineTable("cu", { name: s.string() });
+    const P = defineTable("cp", {
+      author_id: s.string(),
+      author: s.recordId(U).optional(),
+    });
+    expect(
+      codeOf(() =>
+        localCompile({ u: U, p: P }, "p", {
+          include: { author: { select: { id: true } } },
+        }),
+      ),
+    ).toBe("ValidationError");
+  });
+
+  test("an unknown include on a relation-less table lists (none)", () => {
+    const B = defineTable("cb", { name: s.string() });
+    const err = (() => {
+      try {
+        localCompile({ b: B }, "b", { include: { nope: true } });
+        return undefined;
+      } catch (e) {
+        return e as { message?: string };
+      }
+    })();
+    expect(err?.message).toContain("(none)");
+  });
+});
+
+describe("include — clause-combination guards", () => {
+  test("include cannot combine with split/groupBy/groupAll/value", () => {
+    expect(
+      codeOf(() => compile({ include: { mentor: true }, split: "tags" })),
+    ).toBe("ClauseNotSupported");
+    expect(
+      codeOf(() => compile({ include: { mentor: true }, groupAll: true })),
+    ).toBe("ClauseNotSupported");
+    expect(
+      codeOf(() => compile({ include: { mentor: true }, value: true })),
+    ).toBe("ClauseNotSupported");
+  });
+
+  test("an included key also explicitly selected is rejected", () => {
+    expect(
+      codeOf(() =>
+        compile({
+          include: { mentor: { select: { name: true } } },
+          select: { mentor: true },
+        }),
+      ),
+    ).toBe("ValidationError");
   });
 });
 

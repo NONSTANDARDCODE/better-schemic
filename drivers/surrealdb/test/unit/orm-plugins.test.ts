@@ -5,8 +5,13 @@ import { RecordId } from "surrealdb";
 import { surql } from "../../src/index";
 import { betterSchemic } from "../../src/orm/client";
 import type { Delegate } from "../../src/orm/delegate";
-import { isBetterSchemicError } from "../../src/orm/errors";
-import { definePlugin } from "../../src/orm/plugins";
+import { BetterSchemicError, isBetterSchemicError } from "../../src/orm/errors";
+import {
+  createPluginPipeline,
+  definePlugin,
+  isPlugin,
+  RuntimeOperation,
+} from "../../src/orm/plugins";
 import { defineSchema } from "../../src/orm/schema";
 import { defineTable, s } from "../../src/pure";
 import { fakeConn, lines, ok } from "../orm-fixtures";
@@ -222,5 +227,101 @@ describe("definePlugin — bootstrap validation", () => {
     } catch (e) {
       expect((e as { code?: string }).code).toBe("PluginError");
     }
+  });
+});
+
+describe("plugin runtime — edge paths", () => {
+  test("a non-string or empty plugin id fails fast", () => {
+    expect(() => createPluginPipeline([{ id: "" } as never])).toThrow(
+      /non-empty/,
+    );
+    expect(() => createPluginPipeline([{ id: 5 } as never])).toThrow(
+      /non-empty/,
+    );
+  });
+
+  test("a plugin without transform is skipped by the pipeline", () => {
+    const pipeline = createPluginPipeline([definePlugin({ id: "noop" })])!;
+    expect(pipeline.hasTransforms).toBe(false);
+    const op = new RuntimeOperation(
+      "create",
+      "user",
+      {},
+      {} as never,
+      {} as never,
+    );
+    expect(pipeline.transform(op)).toBe(false);
+  });
+
+  test("a BetterSchemicError thrown by a plugin method is returned unchanged", () => {
+    const mine = new BetterSchemicError("PluginError", "custom");
+    const plugin = definePlugin({
+      id: "p",
+      setup() {
+        throw mine;
+      },
+    });
+    const pipeline = createPluginPipeline([plugin])!;
+    try {
+      pipeline.setup({} as never);
+      throw new Error("expected a throw");
+    } catch (e) {
+      expect(e).toBe(mine);
+    }
+  });
+
+  test("extendClient / extendModel failures wrap in PluginError", () => {
+    const p = definePlugin({
+      id: "p",
+      extendClient() {
+        throw new Error("x");
+      },
+      extendModel() {
+        throw new Error("y");
+      },
+    });
+    const pipeline = createPluginPipeline([p])!;
+    expect(() => pipeline.extendClient({} as never)).toThrow(/extendClient/);
+    expect(() => pipeline.extendModel({} as never, {} as never)).toThrow(
+      /extendModel/,
+    );
+  });
+
+  test("RuntimeOperation proxies where/data and commits only what changed", () => {
+    const op = new RuntimeOperation(
+      "create",
+      "user",
+      { where: { a: 1 }, data: { b: 2 } },
+      {} as never,
+      {} as never,
+    );
+    expect(op.where).toEqual({ a: 1 }); // existing args.where
+    expect(op.data).toEqual({ b: 2 }); // existing args.data
+    op.where = { c: 3 };
+    op.data = { d: 4 };
+    expect(op.where).toEqual({ c: 3 });
+    op.commit();
+    expect(op.args.where).toEqual({ c: 3 });
+    expect(op.args.data).toEqual({ d: 4 });
+
+    // A fresh op lazily creates empty bags (and returns the SAME bag on re-read).
+    const fresh = new RuntimeOperation(
+      "create",
+      "user",
+      {},
+      {} as never,
+      {} as never,
+    );
+    const bag = fresh.where;
+    expect(bag).toEqual({});
+    expect(fresh.where).toBe(bag);
+    expect(fresh.data).toEqual({});
+  });
+
+  test("isPlugin brand check", () => {
+    expect(isPlugin(definePlugin({ id: "p" }))).toBe(true);
+    expect(isPlugin({})).toBe(false);
+    expect(isPlugin(null)).toBe(false);
+    expect(isPlugin(5)).toBe(false);
   });
 });

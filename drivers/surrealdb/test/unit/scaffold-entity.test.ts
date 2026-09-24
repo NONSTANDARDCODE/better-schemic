@@ -63,6 +63,17 @@ describe("scaffoldEntity — authorable kinds emit valid DDL", () => {
   }
 });
 
+describe("scaffoldEntity — identifier shaping", () => {
+  test("a leading-digit name is prefixed to stay a valid identifier", () => {
+    const src = scaffoldEntity("table", "123_things");
+    expect(src).toContain("export const _123Things =");
+  });
+  test("a non-alphanumeric name falls back to Entity", () => {
+    const src = scaffoldEntity("table", "___");
+    expect(src).toContain("export const Entity =");
+  });
+});
+
 describe("scaffoldEntity — throw paths", () => {
   test("index is inline-only -> throws a helpful message", () => {
     expect(() => scaffoldEntity("index", "by_email")).toThrow(

@@ -1,0 +1,3 @@
+[test]
+# Coverage instrumenter (no-op unless COVERAGE=1) + the shared ephemeral SurrealDB for live/parity.
+preload = ["../../scripts/coverage/preload.ts", "./test/preload-server.ts"]

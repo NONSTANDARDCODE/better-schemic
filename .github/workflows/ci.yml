@@ -47,10 +47,54 @@ jobs:
       - name: Typecheck
         run: bun run --filter '*' typecheck
 
-      # SurrealDB live/parity tests skip gracefully
-      # when no server is reachable — add a surrealdb service container later to exercise them in CI.
+      # Live/parity suites need the `surreal` binary; without it they skip gracefully here. The
+      # `coverage` job below installs the binary so they actually run under the MC/DC gate.
       - name: Test
         run: bun run --filter '*' test
+
+  # MC/DC-equivalent coverage gate (branch + logical-condition) over drivers/surrealdb/src +
+  # packages/core/src. SEPARATE job: it installs the `surreal` binary so the live/parity suites run
+  # (never skip), instruments the suite, and fails on any per-file regression below its ratchet floor.
+  # See drivers/surrealdb/docs/TESTING.md.
+  coverage:
+    name: coverage (MC/DC gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            **/node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # The local `surreal` binary (pinned) so `spawnEphemeralServer` + the shared live preload run.
+      - name: Install SurrealDB
+        run: |
+          curl -sSf https://install.surrealdb.com | sh -s -- --version 3.2.0
+          echo "$HOME/.surrealdb" >> "$GITHUB_PATH"
+
+      - name: Coverage gate
+        run: bun run test:coverage
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: ignore
+
 
   # Type-completeness + instantiation-budget suites (@ark/attest). SEPARATE job because attest runs
   # under node/tsx (not bun — see packages/core/docs/TYPE-PERF-TESTING.md) and its own TS program is

@@ -41,8 +41,7 @@ function validateData(
     if (result.success) return;
     const issue = result.error.issues[0];
     const path = issue?.path?.join(".");
-    const where =
-      Array.isArray(data) && index !== undefined ? ` (item ${index})` : "";
+    const where = Array.isArray(data) ? ` (item ${index})` : "";
     throw new BetterSchemicError(
       "ValidationError",
       `zod: ${operation} on "${table}"${where}${path ? ` at "${path}"` : ""}: ${issue?.message ?? "invalid data"}.`,

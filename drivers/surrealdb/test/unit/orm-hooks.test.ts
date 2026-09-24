@@ -4,7 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { AlreadyExistsError, RecordId } from "surrealdb";
 import { betterSchemic } from "../../src/orm/client";
-import { createHookDispatcher } from "../../src/orm/hooks";
+import { createHookDispatcher, resultCount } from "../../src/orm/hooks";
 import { defineSchema } from "../../src/orm/schema";
 import type {
   AfterHookPayload,
@@ -329,5 +329,60 @@ describe("hooks — fast path and after-hook failures", () => {
     });
     const error = await client.users.findMany({}).catch((e: unknown) => e);
     expect((error as Error).message).toBe("blocked");
+  });
+
+  test("an after-hook failure with no onError listener logs and leaves the operation standing", async () => {
+    const original = console.error;
+    console.error = () => {};
+    try {
+      const { conn } = clientWith();
+      const client = betterSchemic(conn, {
+        schema,
+        hooks: {
+          afterQuery: () => {
+            throw new Error("metrics down");
+          },
+        },
+      });
+      expect(await client.users.findMany({})).toHaveLength(1);
+    } finally {
+      console.error = original;
+    }
+  });
+
+  test("an onError hook that throws is swallowed and logged", async () => {
+    const original = console.error;
+    console.error = () => {};
+    try {
+      const { conn } = clientWith();
+      const client = betterSchemic(conn, {
+        schema,
+        hooks: {
+          afterQuery: () => {
+            throw new Error("after");
+          },
+          onError: () => {
+            throw new Error("onError boom");
+          },
+        },
+      });
+      expect(await client.users.findMany({})).toHaveLength(1);
+    } finally {
+      console.error = original;
+    }
+  });
+});
+
+describe("resultCount", () => {
+  test("counts numbers/booleans/arrays/objects and treats null/undefined as 0", () => {
+    expect(resultCount(5)).toBe(5);
+    expect(resultCount(true)).toBe(1);
+    expect(resultCount(false)).toBe(0);
+    expect(resultCount([1, 2, 3])).toBe(3);
+    expect(resultCount({ data: [1, 2] })).toBe(2);
+    expect(resultCount({ count: 9 })).toBe(9);
+    expect(resultCount({})).toBe(1);
+    expect(resultCount(null)).toBe(0);
+    expect(resultCount(undefined)).toBe(0);
   });
 });

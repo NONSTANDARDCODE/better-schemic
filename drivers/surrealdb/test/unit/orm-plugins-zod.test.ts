@@ -56,4 +56,52 @@ describe("zod — write validation", () => {
       await codeOf(() => client.users.create({ data: { name: "A" } })),
     ).toBeUndefined();
   });
+
+  test("reads and relates are neither create nor update — skipped", async () => {
+    const client = clientWith(schemaFor);
+    expect(await codeOf(() => client.users.findMany())).toBeUndefined();
+  });
+
+  test("validate.create:false skips create validation", async () => {
+    const { conn } = fakeConn((sql) =>
+      lines(sql).map(() => ok([{ id: new RecordId("user", 1), name: "A" }])),
+    );
+    const client = betterSchemic(conn, {
+      schema,
+      plugins: [zod({ schemas: schemaFor, validate: { create: false } })],
+    });
+    expect(
+      await codeOf(() => client.users.create({ data: { name: "A" } })),
+    ).toBeUndefined();
+  });
+
+  test("validate.update:false skips update validation", async () => {
+    const { conn } = fakeConn((sql) =>
+      lines(sql).map(() => ok([{ id: new RecordId("user", 1), name: "A" }])),
+    );
+    const client = betterSchemic(conn, {
+      schema,
+      plugins: [zod({ schemas: schemaFor, validate: { update: false } })],
+    });
+    expect(
+      await codeOf(() =>
+        client.users.update({
+          where: { id: new RecordId("user", 1) },
+          data: { name: "A" },
+        }),
+      ),
+    ).toBeUndefined();
+  });
+
+  test("a data-less update (patch) is skipped", async () => {
+    const client = clientWith(schemaFor);
+    expect(
+      await codeOf(() =>
+        client.users.patch({
+          where: { id: new RecordId("user", 1) },
+          patches: [{ op: "replace", path: "/name", value: "Aeon" }],
+        }),
+      ),
+    ).toBeUndefined();
+  });
 });

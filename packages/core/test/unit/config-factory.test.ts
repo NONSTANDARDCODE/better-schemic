@@ -10,7 +10,7 @@ import {
 import { join } from "node:path";
 import { resolveConnection } from "../../src/client";
 import { defineConfig } from "../../src/config";
-import { connectionEntry } from "../../src/connection";
+import { connectionEntry, isConnectionEntry } from "../../src/connection";
 
 // A fake driver entry whose embedded client opener just reflects the resolved config back.
 // Direct connectionEntry call so the Client generic INFERS from the opener's return type.
@@ -169,6 +169,17 @@ describe("better-schemic.ts discovery", () => {
     await expect(resolveConnection({ cwd: dir })).rejects.toThrow(
       "doesn't export a config",
     );
+  });
+});
+
+describe("isConnectionEntry", () => {
+  test("distinguishes a real factory output from stray values", () => {
+    expect(isConnectionEntry(connectionEntry("d", { schema: "./s" }))).toBe(
+      true,
+    );
+    expect(isConnectionEntry({})).toBe(false);
+    expect(isConnectionEntry(null)).toBe(false);
+    expect(isConnectionEntry(42)).toBe(false);
   });
 });
 

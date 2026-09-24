@@ -208,6 +208,16 @@ export class ClientRuntime<C extends Queryable = Queryable>
     return this.conn;
   }
 
+  /**
+   * Run ONE raw statement and return the FIRST statement's rows — the neutral
+   * `ctx.connections.<name>.query` handle a sibling connection resolver uses (core's
+   * `ResolvedConnectionHandle`). Values are bound through `vars`; for the richer raw surface
+   * (`$query`/`$unsafe`, options, multi-statement) use the `$`-prefixed escape hatches.
+   */
+  query<T = unknown>(sql: string, vars?: Record<string, unknown>): Promise<T[]> {
+    return this.conn.query<[T[]]>(sql, vars).then((r) => r[0] ?? []);
+  }
+
   /** The schema keys exposed as delegates, in schema order. */
   get tables(): readonly string[] {
     return [...this.delegates.keys()];

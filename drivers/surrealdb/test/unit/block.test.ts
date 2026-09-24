@@ -96,6 +96,40 @@ describe("lowering", () => {
   });
 });
 
+describe("body canonicalization + value kinds", () => {
+  const ifWith = (body: Parameters<ReturnType<typeof block>["if"]>[1]) =>
+    block()
+      .let({ n: 1 })
+      .if((sv) => sv.n.gt(0), body)
+      .toQuery().query;
+
+  test("a semicolon inside a quoted string is not top-level", () => {
+    expect(ifWith(surql`RETURN 'a;b'`)).toContain("{ RETURN 'a;b' }");
+    expect(ifWith(surql`RETURN "a;b"`)).toContain('{ RETURN "a;b" }');
+  });
+
+  test("a semicolon inside brackets/braces is not top-level", () => {
+    expect(ifWith(surql`RETURN [1; 2]`)).toContain("{ RETURN [1; 2] }");
+    expect(ifWith(surql`RETURN { a: 1; b: 2 }`)).toContain(
+      "{ RETURN { a: 1; b: 2 } }",
+    );
+  });
+
+  test("a top-level semicolon wraps as a multi-statement body", () => {
+    expect(ifWith(surql`LET $x = 1; RETURN $x`)).toContain(
+      "{ LET $x = 1; RETURN $x; }",
+    );
+  });
+
+  test("a Date LET carries the date kind", () => {
+    const q = block()
+      .let({ d: new Date(0) })
+      .return((sv) => sv.d)
+      .toQuery();
+    expect(q.query).toContain("LET $d =");
+  });
+});
+
 describe("composition", () => {
   test("a block interpolates into a surql template", () => {
     const q = surql`${block().return(surql`1 + 1`)}`;

@@ -251,3 +251,45 @@ release entry. Landing accumulates — publishing is a separate explicit decisio
 SurrealDB DDL completeness, tracked in `drivers/surrealdb/docs/COVERAGE.md`.
 - ✅ **surrealdb:** full `DEFINE ANALYZER` coverage + fluent `defineAnalyzer`.
 - ⏳ ongoing gaps.
+
+## M8 — MC/DC reliability hardening 🚧 *(in progress)*
+
+The SQLite-grade reliability pass: measure and drive **branch + logical-condition (MC/DC-equivalent)
+coverage** and **mutation strength** for `drivers/surrealdb/src` + `packages/core/src`, with real-DB
+integration and subprocess e2e coverage. Method + tooling: `drivers/surrealdb/docs/TESTING.md`.
+
+- ✅ **M8.0 — coverage tooling.** `scripts/coverage/{preload,lib,report,check,run,gaps}.ts`: a Bun
+  preload instruments in-scope sources with `oxc-coverage-instrument` (`reportLogic` → per-operand
+  truthiness), the e2e CLI children aggregate their `__coverage__` fragments, and a merge/report/gate
+  computes statements/branches/functions/lines **and conditions** per file with a per-file ratchet
+  (`coverage.config.json`). No-op unless `COVERAGE=1`, so the hot gate is untouched.
+- ✅ **M8.2 — de-skip live/parity.** A shared ephemeral SurrealDB preload (`test/preload-server.ts`)
+  boots ONE server per run and exports `SURREAL_URL`, so the `tryConnect()`-based live/parity suites
+  run instead of skipping (105 previously-skipped tests now execute). This exposed + fixed a real bug
+  (`ClientRuntime.query()` — the neutral `ctx.connections.<name>.query` handle — was missing).
+- 🚧 **M8.1 — drive to 100%.** Branch/condition/statement/function/line coverage is ratcheted
+  per file; files are being closed to 100% in batches. Closed to 100% across all five metrics:
+  `orm/compiler/aggregate.ts`, `orm/compiler/pagination.ts`, `orm/compiler/write.ts`,
+  `orm/compiler/unique.ts`, `orm/compiler/include/specs.ts`, `cli/scaffold.ts`, `orm/auth.ts`,
+  `plugins/zod.ts`, core `driver/portable.ts`, core `cli-kit/{meta,style,pager}.ts`, core
+  `connection.ts`. Compiler files driven to statement/function/line 100% with branch/condition
+  near-complete: `orm/compiler/mutate.ts` (100/99/100/100/94), `select.ts` (100/98/100/100/95),
+  `write-shared.ts` (98/95/100/99/94), `relate.ts` (100/99/100/100/83), `include/links.ts`
+  (100/98/100/100/90), `include/count.ts` (100/96/100/100/82), `include/projection.ts`
+  (98/98/100/98/92), `include/edges.ts` (97/97/100/97/82), `include/index.ts` (100/97/100/100/83),
+  `where.ts` (99/93/100/99/76), `relations.ts` (99/97/100/100/75), `shared.ts` (99/94/100/100/74),
+  `projection.ts` (98/98/100/98/71), `live.ts` (100/98/100/100/83).
+- ✅ **M8.3 — Tier-2 MC/DC.** `analyzeMcdc`/`describeMcdc` in `@better-schemic/core/testing`:
+  a driver-agnostic, pure unique-cause MC/DC engine (enumerates the truth table or the explicit
+  `cases` a suite exercises, finds the independence pair for every condition, fails a NAMED test on
+  a redundant/masked operand). Applied to the error predicates (`isNotFound`, `isValidationError`,
+  `isUnsupportedCapability`) and core `inCat`, plus a self-test of the engine. The **AST decision
+  inventory + reconcile** (enumerating every `src` decision and requiring each be `auto` or `table`)
+  is deferred: it needs a TS/oxc parser dependency the repo doesn't ship — a follow-up.
+- ⏳ **M8.4 — mutation gate.** StrykerJS + a Bun runner, ratcheting the mutation score.
+- ⏳ **M8.6 — CI + docs.** A coverage job (with the `surreal` binary so live tests never skip) and a
+  mutation job, plus the testing docs.
+
+Literal operands (`x || {}`, `a ?? "d"`) are excluded from the condition denominator — MC/DC covers
+every **non-constant** condition.
+

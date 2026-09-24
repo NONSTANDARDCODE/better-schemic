@@ -4,7 +4,11 @@ import { describe, expect, test } from "bun:test";
 import { DateTime, RecordId } from "surrealdb";
 import { surql } from "../../src/index";
 import { betterSchemic } from "../../src/orm/client";
-import { compileRead, type ReadArgs } from "../../src/orm/compiler/select";
+import {
+  compileOrderBy,
+  compileRead,
+  type ReadArgs,
+} from "../../src/orm/compiler/select";
 import { createBinds } from "../../src/orm/compiler/shared";
 import type { BetterSchemicError } from "../../src/orm/errors";
 import type { TableMeta } from "../../src/orm/meta";
@@ -364,6 +368,64 @@ describe("read compiler — guards (2)", () => {
   });
 });
 
+describe("read compiler — projection edge paths", () => {
+  test("array/object path descent marks `each`", () => {
+    expect(compile({ select: { "tags[*]": true } }).spec.fields[0]?.each).toBe(
+      true,
+    );
+    expect(
+      compile({ select: { "contacts.value": true } }).spec.fields[0]?.each,
+    ).toBe(true);
+    expect(compile({ select: { "tags[0]": true } }).spec.fields[0]?.each).toBe(
+      false,
+    );
+    expect(
+      compile({ select: { "address.city": true } }).spec.fields[0]?.each,
+    ).toBe(false);
+  });
+
+  test("select array + value projects the expression", () => {
+    expect(compile({ select: ["name"], value: true }).sql).toBe(
+      "SELECT VALUE name FROM user",
+    );
+  });
+
+  test("star guards: '*' must be true; value can't combine with '*'", () => {
+    expect(codeOf(() => compile({ select: { "*": 5 } }))).toBe(
+      "ValidationError",
+    );
+    expect(
+      codeOf(() => compile({ select: { "*": true }, value: true })),
+    ).toBe("ValidationError");
+  });
+
+  test("split on a non-array field fails", () => {
+    expect(codeOf(() => compile({ split: "name" }))).toBe("ValidationError");
+  });
+
+  test("nested select guards: alias, expression, invalid entry", () => {
+    expect(codeOf(() => compile({ select: { address: { city: "x" } } }))).toBe(
+      "ValidationError",
+    );
+    expect(
+      codeOf(() => compile({ select: { address: { city: surql`1` } } })),
+    ).toBe("ValidationError");
+    expect(codeOf(() => compile({ select: { name: 5 } }))).toBe(
+      "ValidationError",
+    );
+  });
+
+  test("a nested child set to false is skipped", () => {
+    expect(
+      compile({ select: { address: { city: false, country: true } } }).sql,
+    ).toBe("SELECT address.country FROM user");
+  });
+
+  test("omit entries must be field names", () => {
+    expect(codeOf(() => compile({ omit: [5] }))).toBe("ValidationError");
+  });
+});
+
 /** A complete raw row (every required field) for full-row decode tests. */
 const fullUser = (id: string, over: Record<string, unknown> = {}) => ({
   id: new RecordId("user", id),
@@ -375,6 +437,35 @@ const fullUser = (id: string, over: Record<string, unknown> = {}) => ({
   address: { city: "SP", country: "BR" },
   contacts: [{ type: "email", value: "x" }],
   ...over,
+});
+
+describe("compileOrderBy guards", () => {
+  test("empty, skipped, non-object and bad directions are rejected", () => {
+    const b = createBinds();
+    expect(codeOf(() => compileOrderBy([], b, "op"))).toBe("ValidationError");
+    expect(codeOf(() => compileOrderBy([undefined], b, "op"))).toBe(
+      "ValidationError",
+    );
+    expect(codeOf(() => compileOrderBy([5], b, "op"))).toBe("ValidationError");
+    expect(codeOf(() => compileOrderBy([{ a: "up" }], b, "op"))).toBe(
+      "ValidationError",
+    );
+    expect(codeOf(() => compileOrderBy([{ a: undefined }], b, "op"))).toBe(
+      "ValidationError",
+    );
+    expect(codeOf(() => compileOrderBy([{ a: 5 }], b, "op"))).toBe(
+      "ValidationError",
+    );
+  });
+
+  test("fragments (bare and as a direction) and plain fields", () => {
+    const b = createBinds();
+    expect(compileOrderBy([surql`rand()`], b, "op")).toBe("ORDER BY rand()");
+    expect(compileOrderBy([{ a: surql`rand()` }], b, "op")).toBe(
+      "ORDER BY rand()",
+    );
+    expect(compileOrderBy([{ a: "desc" }], b, "op")).toBe("ORDER BY a DESC");
+  });
 });
 
 describe("delegate — findMany", () => {
@@ -587,6 +678,15 @@ describe("delegate — findUnique", () => {
     ).toBeNull();
   });
 
+  test("by a single-field UNIQUE column accepts an { equals } wrapper", async () => {
+    const { conn, calls } = fakeConn(() => [ok([fullAccount("a5")])]);
+    const client = betterSchemic(conn, { schema: accountSchema });
+    await client.accounts.findUnique({
+      where: { email: { equals: "a5@x" } },
+    });
+    expect(calls[0]?.vars).toEqual({ p0: "a5@x", p1: 1 });
+  });
+
   test("UniqueTargetRequired for non-unique fields, composite indexes and bad shapes", () => {
     const client = betterSchemic(uniqueConn([]), { schema: accountSchema });
     const code = (args: unknown) => {
@@ -607,6 +707,9 @@ describe("delegate — findUnique", () => {
       "UniqueTargetRequired",
     );
     expect(code({ where: { id: "other:a1" } })).toBe("ValidationError");
+    // A malformed id value (empty object / nested equals object) is not a record id.
+    expect(code({ where: { id: {} } })).toBe("UniqueTargetRequired");
+    expect(code({ where: { id: { equals: {} } } })).toBe("UniqueTargetRequired");
   });
 
   test(".throw() on a findUnique miss throws ResultNotFound", async () => {
@@ -677,6 +780,19 @@ describe("delegate — count/exists", () => {
     const { conn } = fakeConn(() => [ok(undefined)]);
     const client = betterSchemic(conn, { schema: { users: User } });
     expect(await client.users.findMany({ only: true })).toBeNull();
+  });
+
+  test("count supports with/version/timeout clauses", async () => {
+    const { conn, calls } = fakeConn(() => [ok([{ count: 1 }])]);
+    const client = betterSchemic(conn, { schema: { users: User } });
+    await client.users.count({
+      with: { index: "i" },
+      version: new Date("2025-01-01T00:00:00Z"),
+      timeout: 5,
+    } as never);
+    expect(calls[0]?.sql).toContain("WITH INDEX i");
+    expect(calls[0]?.sql).toContain("VERSION");
+    expect(calls[0]?.sql).toContain("TIMEOUT");
   });
 });
 
@@ -816,6 +932,33 @@ describe("delegate — aggregate", () => {
     expect(() => client.users.aggregate({ select: {} } as never)).toThrow(
       /non-empty/,
     );
+  });
+
+  test("aggregate supports with/version/timeout and expression entries", async () => {
+    const { conn, calls } = fakeConn(() => [ok([{ _count: 1, x: 2 }])]);
+    const client = betterSchemic(conn, { schema: { users: User } });
+    await client.users.aggregate({
+      select: { _count: true, x: surql`count() + 1` },
+      with: { index: "i" },
+      version: new Date("2025-01-01T00:00:00Z"),
+      timeout: 5,
+    } as never);
+    expect(calls[0]?.sql).toContain("WITH INDEX i");
+    expect(calls[0]?.sql).toContain("VERSION");
+    expect(calls[0]?.sql).toContain("TIMEOUT");
+    expect(calls[0]?.sql).toContain("(count() + 1) AS x");
+  });
+
+  test("groupBy + groupAll together is rejected", () => {
+    const { conn } = fakeConn();
+    const client = betterSchemic(conn, { schema: { users: User } });
+    expect(() =>
+      client.users.aggregate({
+        select: { _count: true },
+        groupBy: ["active"],
+        groupAll: true,
+      } as never),
+    ).toThrow(/ClauseNotSupported|mutually|groupBy/);
   });
 });
 

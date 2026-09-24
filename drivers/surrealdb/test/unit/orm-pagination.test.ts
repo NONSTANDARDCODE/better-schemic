@@ -2,6 +2,7 @@
 // Golden SQL, envelope math and the teaching guards. Offline.
 import { describe, expect, test } from "bun:test";
 import { RecordId } from "surrealdb";
+import { surql } from "../../src/index";
 import { betterSchemic } from "../../src/orm/client";
 import {
   compileCursor,
@@ -393,5 +394,98 @@ describe("cursor — delegate envelope", () => {
       age: 29,
       id: new RecordId("user", "2"),
     });
+  });
+});
+
+describe("cursor — guard paths", () => {
+  test("orderBy must be plain fields with asc/desc; undefined is skipped", () => {
+    expect(
+      codeOf(() => compileCursorArgs({ limit: 1, orderBy: [surql`rand()`] })),
+    ).toBe("CursorTiebreakerRequired");
+    expect(
+      codeOf(() => compileCursorArgs({ limit: 1, orderBy: [{ name: "up" }] })),
+    ).toBe("CursorTiebreakerRequired");
+    expect(
+      compileCursorArgs({
+        limit: 1,
+        orderBy: [{ name: undefined, id: "asc" }],
+      }).sql,
+    ).toContain("ORDER BY id ASC");
+  });
+
+  test("a single-id cursor may be a bare record id", () => {
+    expect(
+      compileCursorArgs({ limit: 1, after: new RecordId("user", "1") }).sql,
+    ).toContain("id >");
+  });
+
+  test("a multi-field cursor must be an object", () => {
+    expect(
+      codeOf(() =>
+        compileCursorArgs({
+          limit: 1,
+          orderBy: [{ name: "asc" }, { id: "asc" }],
+          after: 5,
+        }),
+      ),
+    ).toBe("ValidationError");
+  });
+
+  test("a single-field UNIQUE order is a valid tiebreaker", () => {
+    const U = defineTable("u2", { email: s.string() }).index(
+      "u2_email",
+      ["email"],
+      { unique: true },
+    );
+    const m = buildSchemaIndex({ us: U }).tables.get("us") as TableMeta;
+    const plan = compileCursor(
+      m,
+      { limit: 1, orderBy: [{ email: "asc" }] },
+      createBinds(),
+    );
+    expect(plan.sql).toContain("email");
+  });
+
+  test("orderBy may be a single object; a backward desc page flips direction", () => {
+    expect(
+      compileCursorArgs({ limit: 1, orderBy: { id: "asc" } }).sql,
+    ).toContain("ORDER BY id ASC");
+    const plan = compileCursorArgs({
+      limit: 1,
+      orderBy: [{ age: "desc" }, { id: "asc" }],
+      before: { age: 30, id: new RecordId("user", "5") },
+    });
+    expect(plan.sql).toContain("ORDER BY age ASC");
+  });
+
+  test("a three-field cursor parenthesizes the nested tuple", () => {
+    const plan = compileCursorArgs({
+      limit: 1,
+      orderBy: [{ age: "asc" }, { name: "asc" }, { id: "asc" }],
+      after: { age: 30, name: "A", id: new RecordId("user", "5") },
+    });
+    expect(plan.sql).toContain("OR (");
+  });
+
+  test("a single unique (non-id) field takes an object cursor; id takes an object too", () => {
+    const U = defineTable("u3", { email: s.string() }).index(
+      "u3_email",
+      ["email"],
+      { unique: true },
+    );
+    const m = buildSchemaIndex({ us: U }).tables.get("us") as TableMeta;
+    expect(
+      compileCursor(
+        m,
+        { limit: 1, orderBy: [{ email: "asc" }], after: { email: "a@x" } },
+        createBinds(),
+      ).sql,
+    ).toContain("email >");
+    expect(
+      compileCursorArgs({
+        limit: 1,
+        after: { id: new RecordId("user", "5") },
+      }).sql,
+    ).toContain("id >");
   });
 });

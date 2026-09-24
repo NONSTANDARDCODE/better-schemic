@@ -33,6 +33,13 @@ const code = (e: unknown) => normalizeError(e).code;
 const norm = (e: unknown, ctx?: Parameters<typeof normalizeError>[1]) =>
   normalizeError(e, ctx);
 
+/** A plain Error shaped like an SDK ServerError (so all the typed getters are undefined). */
+const serverLike = (over: Record<string, unknown>): Error =>
+  Object.assign(new Error((over.message as string) ?? "boom"), {
+    kind: "Query",
+    ...over,
+  });
+
 describe("normalizeError — SDK ServerError kinds", () => {
   test("AlreadyExists -> RecordAlreadyExists (table extracted from details)", () => {
     const e = new AlreadyExistsError({
@@ -266,5 +273,148 @@ describe("predicates", () => {
     expect(isUniqueViolation(new Error("x"))).toBe(false);
     expect(isNotFound(undefined)).toBe(false);
     expect(isValidationError({})).toBe(false);
+  });
+});
+
+describe("normalizeError — refineCode detail flags (isX getters false)", () => {
+  test("detail Parse / LiveQueryNotSupported / Cancelled / NotExecuted", () => {
+    expect(code(serverLike({ details: { kind: "Parse" } }))).toBe("ParseError");
+    expect(
+      code(serverLike({ details: { kind: "LiveQueryNotSupported" } })),
+    ).toBe("LiveQueryUnsupported");
+    expect(code(serverLike({ details: { kind: "Cancelled" } }))).toBe(
+      "TransactionRollback",
+    );
+    expect(code(serverLike({ details: { kind: "NotExecuted" } }))).toBe(
+      "TransactionRollback",
+    );
+  });
+
+  test("NotExecuted with a non-DatabaseError message refines by message", () => {
+    expect(
+      code(
+        serverLike({
+          message: "write conflict",
+          details: { kind: "NotExecuted" },
+        }),
+      ),
+    ).toBe("WriteConflict");
+  });
+
+  test("TimedOut (flag and detail) -> DatabaseError", () => {
+    expect(code(serverLike({ isTimedOut: true }))).toBe("DatabaseError");
+    expect(code(serverLike({ details: { kind: "TimedOut" } }))).toBe(
+      "DatabaseError",
+    );
+  });
+
+  test("table extraction: Table detail, recordId, and tableName", () => {
+    expect(
+      norm(
+        serverLike({ details: { kind: "Table", details: { name: "widget" } } }),
+      ).table,
+    ).toBe("widget");
+    expect(norm(serverLike({ recordId: "user:u1" })).table).toBe("user");
+    expect(norm(serverLike({ tableName: "account" })).table).toBe("account");
+  });
+});
+
+describe("normalizeError — context passthrough and non-Error shapes", () => {
+  test("BetterSchemicError.from delegates to normalizeError", () => {
+    const err = BetterSchemicError.from(new Error("already exists"), {
+      operation: "create",
+    });
+    expect(err.code).toBe("RecordAlreadyExists");
+    expect(err.operation).toBe("create");
+  });
+
+  test("a context details/cause wins over the payload's", () => {
+    const payload = Object.assign(new Error("x"), {
+      kind: "Query",
+      details: { kind: "Other" },
+      cause: new Error("inner"),
+    });
+    const err = norm(payload, { details: { custom: 1 }, cause: "ctx" });
+    expect(err.details).toEqual({ custom: 1 });
+    expect(err.cause).toBe("ctx");
+  });
+
+  test("an issues payload with no message falls back to the payload message", () => {
+    const err = norm({ issues: [{}], message: "raw issue message" });
+    expect(err.code).toBe("ValidationError");
+    expect(err.message).toBe("raw issue message");
+  });
+
+  test("a non-string, non-Error throwable is stringified", () => {
+    expect(norm(42).message).toBe("Non-Error thrown: 42");
+  });
+
+  test("an explicit status wins over the catalog default", () => {
+    expect(new BetterSchemicError("ResultNotFound", "x", { status: 418 }).status).toBe(
+      418,
+    );
+    expect(new BetterSchemicError("ResultNotFound", "x").status).toBe(404);
+  });
+
+  test("from() with no context uses the empty default", () => {
+    expect(BetterSchemicError.from(new Error("boom")).code).toBe("DatabaseError");
+  });
+
+  test("null and message-less issues payloads are DatabaseError", () => {
+    expect(norm(null).code).toBe("DatabaseError");
+    expect(norm({ issues: [] }).code).toBe("DatabaseError");
+  });
+
+  test("empty tableName / recordId and non-string detail ids fall through", () => {
+    expect(norm(serverLike({ tableName: "" })).table).toBeUndefined();
+    expect(
+      norm(serverLike({ details: { kind: "Table", details: { name: 5 } } })).table,
+    ).toBeUndefined();
+    expect(
+      norm(serverLike({ details: { kind: "Record", details: { id: 5 } } })).table,
+    ).toBeUndefined();
+    expect(norm(serverLike({ recordId: "" })).table).toBeUndefined();
+  });
+
+  test("issues payload keeps an explicit context.details", () => {
+    const err = norm({ issues: [{}], message: "m" }, { details: { d: 1 } });
+    expect(err.details).toEqual({ d: 1 });
+  });
+
+  test("a server error's own cause flows through", () => {
+    const err = norm(serverLike({ cause: new Error("inner") }));
+    expect(err.cause).toBeInstanceOf(Error);
+  });
+
+  test("a non-Error throwable keeps an explicit context.details", () => {
+    expect(norm(42, { details: { d: 1 } }).details).toEqual({ d: 1 });
+  });
+
+  test("isBetterSchemicError rejects a same-named Error without a code", () => {
+    const fake = Object.assign(new Error("x"), { name: "BetterSchemicError" });
+    expect(isBetterSchemicError(fake)).toBe(false);
+  });
+});
+
+describe("predicates — remaining code branches", () => {
+  test("isNotFound matches a server RecordNotFound", () => {
+    expect(
+      isNotFound(norm(new NotFoundError({ kind: "NotFound", message: "x" }))),
+    ).toBe(true);
+  });
+
+  test("isValidationError matches ParseError and AssertionFailed", () => {
+    expect(
+      isValidationError(new BetterSchemicError("ParseError", "x")),
+    ).toBe(true);
+    expect(
+      isValidationError(new BetterSchemicError("AssertionFailed", "x")),
+    ).toBe(true);
+  });
+
+  test("isUnsupportedCapability matches LiveQueryUnsupported", () => {
+    expect(
+      isUnsupportedCapability(new BetterSchemicError("LiveQueryUnsupported", "x")),
+    ).toBe(true);
   });
 });

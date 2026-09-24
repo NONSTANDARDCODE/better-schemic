@@ -469,3 +469,37 @@ describe("where — teaching errors", () => {
     expect((many.vars.p0 as unknown[])[1]).toBeInstanceOf(RecordId);
   });
 });
+
+describe("where — any/all, full-text and metric guards", () => {
+  test("any/all: non-object operand, skipped undefined bounds, bad op", () => {
+    expect(codeOf(() => compile({ scores: { any: 5 } }))).toBe(
+      "ValidationError",
+    );
+    expect(compile({ scores: { any: { gt: undefined, lt: 5 } } }).sql).toBe(
+      "scores ?< $p0",
+    );
+    expect(codeOf(() => compile({ scores: { all: { nope: 1 } } }))).toBe(
+      "ValidationError",
+    );
+  });
+
+  test("matchesFullText object without an index uses @@", () => {
+    expect(compile({ name: { matchesFullText: { query: "x" } } }).sql).toBe(
+      "name @@ $p0",
+    );
+  });
+
+  test("near.distance must be a bare metric name", () => {
+    expect(
+      codeOf(() =>
+        compile({ embedding: { near: { vector: [0.1], k: 3, distance: "co sine" } } }),
+      ),
+    ).toBe("ValidationError");
+  });
+
+  test("matches rejects unsupported RegExp flags", () => {
+    expect(codeOf(() => compile({ name: { matches: /ab/u } }))).toBe(
+      "ValidationError",
+    );
+  });
+});

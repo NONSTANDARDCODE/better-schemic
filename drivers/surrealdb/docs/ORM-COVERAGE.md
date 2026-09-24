@@ -33,6 +33,7 @@ compile-only-proven (`[~]` status) — the exact SurrealQL is a behavioral diver
 | `client.close()` / `[Symbol.asyncDispose]` — BYO no-op, managed tears down | `[x]` | `test/unit/orm-client.test.ts:185`; `test/live/orm-client.test.ts:64` |
 | `client.tables`, `client.repository(name)` (key or physical; `RepositoryNotFound`) | `[x]` | `test/unit/orm-client.test.ts` |
 | `client.$sdk` escape hatch, `$index` | `[x]` | `test/unit/orm-client.test.ts:103` |
+| `client.query<T>(sql, vars?)` — one raw statement → first statement's rows (the neutral `ctx.connections.<name>.query` handle) | `[x]` | `test/unit/chained-config.test.ts` (live cross-connection) |
 | `surrealConnection(config \| resolver)` — authoring-side connection entry/fleet | `[x]` | `src/connection.ts`; `test/types/orm-client.assert.ts` |
 | Connection params (`authLevel` root/ns/db, `params`, `check`, env timeouts) | `[x]` | `src/connect.ts`; `test/live/orm-client.test.ts` |
 | Reserved schema-key / member collisions → `SchemaInvalid`; `$`-prefixed keys reserved; `then` guarded | `[x]` | `test/unit/orm-client.test.ts:121` |
