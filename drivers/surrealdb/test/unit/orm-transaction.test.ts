@@ -350,6 +350,29 @@ describe("client.transaction — retries and deadline", () => {
     expect(conn.transactions[0]?.cancelled).toBe(1);
   });
 
+  test("a timed-out transaction whose late commit fails still surfaces the timeout error", async () => {
+    const conn = fakeRoot();
+    const client = clientOver(conn);
+    const started = client.transaction(
+      async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return "late";
+      },
+      { timeout: 10 },
+    );
+    // The managed tx is created synchronously inside the call; a cancelled transaction can't
+    // commit, so the late settle throws — exercising the `if (timedOut)` catch arm. The final
+    // wait lets that background settle land inside this test (not after the process exits).
+    conn.transactions[0]!.commit = () => Promise.reject(new Error("cancelled"));
+    const err = await caught(() => started);
+    expect(codeOf(err)).toBe("DatabaseError");
+    expect((err as BetterSchemicError).details).toMatchObject({
+      timedOut: true,
+    });
+    expect(conn.transactions[0]?.cancelled).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  });
+
   test("duration strings are accepted for timeout", async () => {
     const conn = fakeRoot();
     const client = clientOver(conn);
