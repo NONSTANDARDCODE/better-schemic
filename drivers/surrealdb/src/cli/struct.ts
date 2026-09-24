@@ -41,10 +41,9 @@ export function normalizeType(kind: string): string {
   // double → single so both lowerings converge. Idempotent (single-quoted tokens are left alone).
   const t = canonicalizeLiterals(kind.trim());
 
-  // option<X> wrapper — normalize the inner type, stay `option<…>`.
-  const opt = /^option<([\s\S]+)>$/.exec(t);
-  if (opt) return `option<${normalizeType(opt[1])}>`;
-
+  // Top-level union FIRST: `option<A> | B` starts with `option<` and can end with `>`, so testing the
+  // option wrapper before splitting would swallow the whole union (the regex is greedy). splitTopUnion
+  // ignores `|` inside `<…>`, so `option<A | B>` still resolves to a single option below.
   const parts = splitTopUnion(t);
   if (parts.length > 1) {
     const hasNone = parts.includes("none");
@@ -55,6 +54,10 @@ export function normalizeType(kind: string): string {
     if (hasNone) return rest.length ? `option<${inner}>` : "none";
     return inner;
   }
+
+  // option<X> wrapper — normalize the inner type, stay `option<…>`.
+  const opt = /^option<([\s\S]+)>$/.exec(t);
+  if (opt) return `option<${normalizeType(opt[1])}>`;
 
   // Single constructor term `ctor<inner>`: recurse. record<…>'s inner is a `|`-list of targets.
   const ctor = /^(array|set|record|references)<([\s\S]+)>$/.exec(t);

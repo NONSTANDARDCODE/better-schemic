@@ -1,0 +1,533 @@
+{
+  "tolerance": 0,
+  "files": {
+    "drivers/surrealdb/src/cli/pull.ts": {
+      "total": 245,
+      "auto": 136,
+      "table": 0,
+      "unknown": 109
+    },
+    "drivers/surrealdb/src/pure.ts": {
+      "total": 267,
+      "auto": 178,
+      "table": 0,
+      "unknown": 89
+    },
+    "drivers/surrealdb/src/commands.ts": {
+      "total": 72,
+      "auto": 11,
+      "table": 0,
+      "unknown": 61
+    },
+    "drivers/surrealdb/src/ddl.ts": {
+      "total": 208,
+      "auto": 163,
+      "table": 0,
+      "unknown": 45
+    },
+    "drivers/surrealdb/src/orm/decode.ts": {
+      "total": 65,
+      "auto": 24,
+      "table": 0,
+      "unknown": 41
+    },
+    "packages/core/src/kind/plan.ts": {
+      "total": 58,
+      "auto": 26,
+      "table": 0,
+      "unknown": 32
+    },
+    "drivers/surrealdb/src/cli/lower.ts": {
+      "total": 94,
+      "auto": 63,
+      "table": 0,
+      "unknown": 31
+    },
+    "drivers/surrealdb/src/cli/structure.ts": {
+      "total": 117,
+      "auto": 86,
+      "table": 0,
+      "unknown": 31
+    },
+    "drivers/surrealdb/src/surql/predicate.ts": {
+      "total": 45,
+      "auto": 15,
+      "table": 0,
+      "unknown": 30
+    },
+    "packages/core/src/cli-kit/merge.ts": {
+      "total": 53,
+      "auto": 25,
+      "table": 0,
+      "unknown": 28
+    },
+    "drivers/surrealdb/src/orm/compiler/where.ts": {
+      "total": 134,
+      "auto": 107,
+      "table": 0,
+      "unknown": 27
+    },
+    "drivers/surrealdb/src/cli/struct.ts": {
+      "total": 98,
+      "auto": 72,
+      "table": 0,
+      "unknown": 26
+    },
+    "drivers/surrealdb/src/orm/transaction.ts": {
+      "total": 63,
+      "auto": 37,
+      "table": 0,
+      "unknown": 26
+    },
+    "drivers/surrealdb/src/orm/changes.ts": {
+      "total": 47,
+      "auto": 23,
+      "table": 0,
+      "unknown": 24
+    },
+    "drivers/surrealdb/src/wire.ts": {
+      "total": 58,
+      "auto": 34,
+      "table": 0,
+      "unknown": 24
+    },
+    "drivers/surrealdb/src/orm/live.ts": {
+      "total": 36,
+      "auto": 13,
+      "table": 0,
+      "unknown": 23
+    },
+    "drivers/surrealdb/src/cli/format.ts": {
+      "total": 52,
+      "auto": 33,
+      "table": 0,
+      "unknown": 19
+    },
+    "drivers/surrealdb/src/connect.ts": {
+      "total": 19,
+      "auto": 0,
+      "table": 0,
+      "unknown": 19
+    },
+    "drivers/surrealdb/src/checks.ts": {
+      "total": 33,
+      "auto": 15,
+      "table": 0,
+      "unknown": 18
+    },
+    "packages/core/src/cli-kit/diff.ts": {
+      "total": 35,
+      "auto": 17,
+      "table": 0,
+      "unknown": 18
+    },
+    "drivers/surrealdb/src/orm/raw.ts": {
+      "total": 41,
+      "auto": 24,
+      "table": 0,
+      "unknown": 17
+    },
+    "packages/core/src/cli-kit/schema.ts": {
+      "total": 25,
+      "auto": 8,
+      "table": 0,
+      "unknown": 17
+    },
+    "drivers/surrealdb/src/cli/surreal-diff.ts": {
+      "total": 45,
+      "auto": 29,
+      "table": 0,
+      "unknown": 16
+    },
+    "drivers/surrealdb/src/orm/compiler/shared.ts": {
+      "total": 81,
+      "auto": 65,
+      "table": 0,
+      "unknown": 16
+    },
+    "drivers/surrealdb/src/driver/surreal.ts": {
+      "total": 17,
+      "auto": 2,
+      "table": 0,
+      "unknown": 15
+    },
+    "drivers/surrealdb/src/orm/writes.ts": {
+      "total": 36,
+      "auto": 22,
+      "table": 0,
+      "unknown": 14
+    },
+    "drivers/surrealdb/src/cli/engine.ts": {
+      "total": 13,
+      "auto": 0,
+      "table": 0,
+      "unknown": 13
+    },
+    "drivers/surrealdb/src/orm/client.ts": {
+      "total": 45,
+      "auto": 32,
+      "table": 0,
+      "unknown": 13
+    },
+    "packages/core/src/cli-kit/config.ts": {
+      "total": 19,
+      "auto": 6,
+      "table": 0,
+      "unknown": 13
+    },
+    "drivers/surrealdb/src/cli/introspect.ts": {
+      "total": 13,
+      "auto": 2,
+      "table": 0,
+      "unknown": 11
+    },
+    "drivers/surrealdb/src/orm/schema.ts": {
+      "total": 43,
+      "auto": 32,
+      "table": 0,
+      "unknown": 11
+    },
+    "drivers/surrealdb/src/plugins/rules.ts": {
+      "total": 21,
+      "auto": 10,
+      "table": 0,
+      "unknown": 11
+    },
+    "drivers/surrealdb/src/kinds/explode.ts": {
+      "total": 22,
+      "auto": 12,
+      "table": 0,
+      "unknown": 10
+    },
+    "drivers/surrealdb/src/orm/compiler/projection.ts": {
+      "total": 76,
+      "auto": 66,
+      "table": 0,
+      "unknown": 10
+    },
+    "packages/core/src/client.ts": {
+      "total": 13,
+      "auto": 3,
+      "table": 0,
+      "unknown": 10
+    },
+    "drivers/surrealdb/src/orm/compiler/relations.ts": {
+      "total": 59,
+      "auto": 50,
+      "table": 0,
+      "unknown": 9
+    },
+    "drivers/surrealdb/src/surql/block.ts": {
+      "total": 40,
+      "auto": 31,
+      "table": 0,
+      "unknown": 9
+    },
+    "drivers/surrealdb/src/surql/render.ts": {
+      "total": 18,
+      "auto": 9,
+      "table": 0,
+      "unknown": 9
+    },
+    "drivers/surrealdb/src/orm/admin.ts": {
+      "total": 11,
+      "auto": 3,
+      "table": 0,
+      "unknown": 8
+    },
+    "drivers/surrealdb/src/orm/compiler/include/edges.ts": {
+      "total": 46,
+      "auto": 38,
+      "table": 0,
+      "unknown": 8
+    },
+    "drivers/surrealdb/src/orm/compiler/write-shared.ts": {
+      "total": 60,
+      "auto": 52,
+      "table": 0,
+      "unknown": 8
+    },
+    "drivers/surrealdb/src/orm/reads.ts": {
+      "total": 41,
+      "auto": 33,
+      "table": 0,
+      "unknown": 8
+    },
+    "packages/core/src/testing.ts": {
+      "total": 27,
+      "auto": 19,
+      "table": 0,
+      "unknown": 8
+    },
+    "drivers/surrealdb/src/orm/api.ts": {
+      "total": 11,
+      "auto": 5,
+      "table": 0,
+      "unknown": 6
+    },
+    "drivers/surrealdb/src/orm/compiler/relate.ts": {
+      "total": 46,
+      "auto": 40,
+      "table": 0,
+      "unknown": 6
+    },
+    "drivers/surrealdb/src/orm/context.ts": {
+      "total": 15,
+      "auto": 10,
+      "table": 0,
+      "unknown": 5
+    },
+    "drivers/surrealdb/src/orm/hooks.ts": {
+      "total": 20,
+      "auto": 15,
+      "table": 0,
+      "unknown": 5
+    },
+    "drivers/surrealdb/src/orm/compiler/include/projection.ts": {
+      "total": 46,
+      "auto": 42,
+      "table": 0,
+      "unknown": 4
+    },
+    "drivers/surrealdb/src/orm/compiler/mutate.ts": {
+      "total": 85,
+      "auto": 81,
+      "table": 0,
+      "unknown": 4
+    },
+    "drivers/surrealdb/src/plugins/timestamps.ts": {
+      "total": 9,
+      "auto": 5,
+      "table": 0,
+      "unknown": 4
+    },
+    "packages/core/src/authoring.ts": {
+      "total": 6,
+      "auto": 2,
+      "table": 0,
+      "unknown": 4
+    },
+    "packages/core/src/cli-kit/filter.ts": {
+      "total": 15,
+      "auto": 10,
+      "table": 1,
+      "unknown": 4
+    },
+    "drivers/surrealdb/src/orm/compiler/include/count.ts": {
+      "total": 26,
+      "auto": 23,
+      "table": 0,
+      "unknown": 3
+    },
+    "drivers/surrealdb/src/orm/compiler/include/index.ts": {
+      "total": 19,
+      "auto": 16,
+      "table": 0,
+      "unknown": 3
+    },
+    "drivers/surrealdb/src/orm/compiler/live.ts": {
+      "total": 19,
+      "auto": 16,
+      "table": 0,
+      "unknown": 3
+    },
+    "drivers/surrealdb/src/orm/compiler/select.ts": {
+      "total": 56,
+      "auto": 53,
+      "table": 0,
+      "unknown": 3
+    },
+    "drivers/surrealdb/src/orm/connect.ts": {
+      "total": 7,
+      "auto": 4,
+      "table": 0,
+      "unknown": 3
+    },
+    "drivers/surrealdb/src/orm/delegate.ts": {
+      "total": 13,
+      "auto": 10,
+      "table": 0,
+      "unknown": 3
+    },
+    "drivers/surrealdb/src/kinds/registry.ts": {
+      "total": 5,
+      "auto": 3,
+      "table": 0,
+      "unknown": 2
+    },
+    "drivers/surrealdb/src/orm/compiler/include/links.ts": {
+      "total": 22,
+      "auto": 20,
+      "table": 0,
+      "unknown": 2
+    },
+    "drivers/surrealdb/src/orm/errors.ts": {
+      "total": 44,
+      "auto": 39,
+      "table": 3,
+      "unknown": 2
+    },
+    "drivers/surrealdb/src/orm/execute.ts": {
+      "total": 20,
+      "auto": 18,
+      "table": 0,
+      "unknown": 2
+    },
+    "drivers/surrealdb/src/orm/plugins.ts": {
+      "total": 20,
+      "auto": 18,
+      "table": 0,
+      "unknown": 2
+    },
+    "drivers/surrealdb/src/orm/results.ts": {
+      "total": 10,
+      "auto": 8,
+      "table": 0,
+      "unknown": 2
+    },
+    "drivers/surrealdb/src/plugins/soft-delete.ts": {
+      "total": 12,
+      "auto": 10,
+      "table": 0,
+      "unknown": 2
+    },
+    "drivers/surrealdb/src/plugins/zod.ts": {
+      "total": 13,
+      "auto": 11,
+      "table": 0,
+      "unknown": 2
+    },
+    "packages/core/src/cli-kit/pager.ts": {
+      "total": 2,
+      "auto": 0,
+      "table": 0,
+      "unknown": 2
+    },
+    "packages/core/src/kind/registry.ts": {
+      "total": 9,
+      "auto": 7,
+      "table": 0,
+      "unknown": 2
+    },
+    "drivers/surrealdb/src/cli/surreal-filter.ts": {
+      "total": 5,
+      "auto": 4,
+      "table": 0,
+      "unknown": 1
+    },
+    "drivers/surrealdb/src/connection.ts": {
+      "total": 1,
+      "auto": 0,
+      "table": 0,
+      "unknown": 1
+    },
+    "drivers/surrealdb/src/index.ts": {
+      "total": 13,
+      "auto": 12,
+      "table": 0,
+      "unknown": 1
+    },
+    "drivers/surrealdb/src/orm/compiler/write.ts": {
+      "total": 25,
+      "auto": 24,
+      "table": 0,
+      "unknown": 1
+    },
+    "drivers/surrealdb/src/orm/fn.ts": {
+      "total": 9,
+      "auto": 8,
+      "table": 0,
+      "unknown": 1
+    },
+    "drivers/surrealdb/src/orm/meta.ts": {
+      "total": 1,
+      "auto": 0,
+      "table": 0,
+      "unknown": 1
+    },
+    "packages/core/src/config.ts": {
+      "total": 2,
+      "auto": 1,
+      "table": 0,
+      "unknown": 1
+    },
+    "packages/core/src/driver/driver.ts": {
+      "total": 2,
+      "auto": 1,
+      "table": 0,
+      "unknown": 1
+    },
+    "packages/core/src/secrets.ts": {
+      "total": 4,
+      "auto": 3,
+      "table": 0,
+      "unknown": 1
+    },
+    "drivers/surrealdb/src/cli/scaffold.ts": {
+      "total": 2,
+      "auto": 2,
+      "table": 0,
+      "unknown": 0
+    },
+    "drivers/surrealdb/src/driver/surql-type.ts": {
+      "total": 30,
+      "auto": 30,
+      "table": 0,
+      "unknown": 0
+    },
+    "drivers/surrealdb/src/orm/auth.ts": {
+      "total": 3,
+      "auto": 3,
+      "table": 0,
+      "unknown": 0
+    },
+    "drivers/surrealdb/src/orm/compiler/aggregate.ts": {
+      "total": 46,
+      "auto": 46,
+      "table": 0,
+      "unknown": 0
+    },
+    "drivers/surrealdb/src/orm/compiler/pagination.ts": {
+      "total": 34,
+      "auto": 34,
+      "table": 0,
+      "unknown": 0
+    },
+    "drivers/surrealdb/src/orm/compiler/unique.ts": {
+      "total": 11,
+      "auto": 11,
+      "table": 0,
+      "unknown": 0
+    },
+    "drivers/surrealdb/src/surql-type-expr.ts": {
+      "total": 8,
+      "auto": 8,
+      "table": 0,
+      "unknown": 0
+    },
+    "packages/core/src/cli-kit/meta.ts": {
+      "total": 5,
+      "auto": 5,
+      "table": 0,
+      "unknown": 0
+    },
+    "packages/core/src/cli-kit/style.ts": {
+      "total": 3,
+      "auto": 3,
+      "table": 0,
+      "unknown": 0
+    },
+    "packages/core/src/connection.ts": {
+      "total": 5,
+      "auto": 5,
+      "table": 0,
+      "unknown": 0
+    },
+    "packages/core/src/driver/portable.ts": {
+      "total": 6,
+      "auto": 6,
+      "table": 0,
+      "unknown": 0
+    }
+  }
+}

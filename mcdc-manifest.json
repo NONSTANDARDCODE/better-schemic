@@ -1,0 +1,9 @@
+{
+  "$comment": "Decisions proven by a Tier-2 `describeMcdc` table test instead of Tier-1 auto coverage. Key = `<repo-relative path>:<line>:<column>` (the decision's start). The value MUST be the `label` of a real `describeMcdc({ label })` call, else the mcdc gate fails.",
+  "table": {
+    "drivers/surrealdb/src/orm/errors.ts:361:2": "isNotFound",
+    "drivers/surrealdb/src/orm/errors.ts:367:4": "isValidationError",
+    "drivers/surrealdb/src/orm/errors.ts:376:9": "isUnsupportedCapability",
+    "packages/core/src/cli-kit/filter.ts:76:2": "inCat"
+  }
+}

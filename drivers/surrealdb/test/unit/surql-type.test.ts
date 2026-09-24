@@ -39,6 +39,13 @@ const CANONICAL = [
   "null | string",
   "option<null | string>",
   "references<user>",
+  "none",
+  "array<none>",
+  // A top-level union whose first member is `option<…>` and last ends with `>` — the greedy
+  // `option<…>` regex must not swallow it (round-trip regression).
+  "option<int> | string",
+  // A nullable union: `null` sorts as a FLAT member (`array<…> | null | set<…>`), not appended last.
+  "array<int> | null | set<string>",
 ];
 
 describe("surql-type bridge (Milestone 2 losslessness)", () => {
@@ -74,5 +81,26 @@ describe("surql-type bridge (Milestone 2 losslessness)", () => {
       // and the bridge's own output matches the engine's canonicalizer
       expect(emitSurqlType(parseSurqlType(input))).toBe(normalizeType(input));
     }
+  });
+
+  test("literal atoms: numbers, booleans and double-quoted strings", () => {
+    // non-string literals exercise the emit side that isn't a quoted string.
+    expect(emitSurqlType(parseSurqlType("42"))).toBe("42");
+    expect(emitSurqlType(parseSurqlType("-3.5"))).toBe("-3.5");
+    expect(emitSurqlType(parseSurqlType("true"))).toBe("true");
+    expect(emitSurqlType(parseSurqlType("false"))).toBe("false");
+    // a double-quoted literal parses identically to its single-quoted spelling.
+    expect(parseSurqlType('"admin"')).toEqual(parseSurqlType("'admin'"));
+  });
+
+  test("peculiar inputs fall through cleanly", () => {
+    // a union of ONLY none/null: no rest members → option<…> around the empty/nullable bottom.
+    expect(emitSurqlType(parseSurqlType("none | null"))).toBe(
+      "option<none | null>",
+    );
+    // an unknown geometry kind stays a Surreal-native escape hatch (not a geometry node).
+    expect(emitSurqlType(parseSurqlType("geometry<bogus>"))).toBe(
+      "geometry<bogus>",
+    );
   });
 });

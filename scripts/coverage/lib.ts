@@ -2,9 +2,9 @@
  * Shared coverage helpers — fragment merge, per-file metrics (including logical-condition truthiness
  * from `bT`), and a text table. Used by `report.ts` and `check.ts`.
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createCoverageMap, type CoverageMap } from "istanbul-lib-coverage";
+import { type CoverageMap, createCoverageMap } from "istanbul-lib-coverage";
 
 /** Raw Istanbul file coverage, as it appears in a fragment. */
 interface RawFileCoverage {
@@ -116,12 +116,16 @@ function sliceLoc(src: string, starts: number[], loc: Loc): string {
  * covers every NON-constant condition; a literal can never take both outcomes, so it must not count
  * against the condition denominator.
  */
-function isConstantOperand(text: string): boolean {
+export function isConstantOperand(text: string): boolean {
   let t = text.trim();
   // Strip balanced wrapping parens.
   while (t.startsWith("(") && t.endsWith(")")) t = t.slice(1, -1).trim();
   if (/^(?:true|false|null|undefined|NaN|Infinity)$/.test(t)) return true;
-  if (/^-?(?:\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?\d+)?n?|0[xX][0-9a-fA-F_]+n?|0[bB][01_]+n?|0[oO][0-7_]+n?)$/.test(t))
+  if (
+    /^-?(?:\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?\d+)?n?|0[xX][0-9a-fA-F_]+n?|0[bB][01_]+n?|0[oO][0-7_]+n?)$/.test(
+      t,
+    )
+  )
     return true;
   // String / template literal (a template with interpolation is not constant).
   if (/^(['"])[\s\S]*\1$/.test(t)) return true;
@@ -165,9 +169,8 @@ export function fileMetrics(
   for (const [id, truths] of Object.entries(d.bT ?? {})) {
     if (!truths) continue;
     const evaluated = d.b[id] ?? [];
-    const locs = (
-      d.branchMap[id] as { locations?: Loc[] } | undefined
-    )?.locations;
+    const locs = (d.branchMap[id] as { locations?: Loc[] } | undefined)
+      ?.locations;
     truths.forEach((truthy, leaf) => {
       // Skip constant operands: they are not "conditions" under MC/DC.
       if (source && starts && locs?.[leaf]) {
@@ -194,6 +197,44 @@ export function fileMetrics(
 /** Keep only files under one of `roots`. */
 export function inScope(file: string, roots: string[]): boolean {
   return roots.some((r) => file === r || file.startsWith(`${r}/`));
+}
+
+/**
+ * The MC/DC "auto" decision set for one file: every BRANCH entry's start location (`line:column`)
+ * mapped to whether Tier-1 instrumentation fully covers it. A branch with per-operand truthiness
+ * (`bT`) is covered when every NON-constant operand was seen both truthy and falsy; a branch without
+ * `bT` (a plain `if`/`cond-expr`) is covered when every arm was taken. Keys match a TS AST node's
+ * `line:column` start, so the mcdc inventory can reconcile TS decisions against this.
+ */
+export function coveredDecisionKeys(
+  fc: { data: RawFileCoverage; getLineCoverage(): Record<string, number> },
+  source: string,
+): Map<string, boolean> {
+  const d = fc.data;
+  const starts = lineStarts(source);
+  const out = new Map<string, boolean>();
+  for (const [id, raw] of Object.entries(d.branchMap ?? {})) {
+    const bm = raw as { loc?: Loc; locations?: Loc[] };
+    if (!bm.loc) continue;
+    const key = `${bm.loc.start.line}:${bm.loc.start.column}`;
+    const arms = d.b[id] ?? [];
+    const truths = d.bT?.[id];
+    let covered: boolean;
+    if (truths && truths.length > 0) {
+      covered = truths.every((truthy, leaf) => {
+        if (bm.locations?.[leaf]) {
+          if (isConstantOperand(sliceLoc(source, starts, bm.locations[leaf])))
+            return true;
+        }
+        const seen = arms[leaf] ?? 0;
+        return truthy > 0 && seen - truthy > 0;
+      });
+    } else {
+      covered = arms.length > 0 && arms.every((n) => n > 0);
+    }
+    out.set(key, (out.get(key) ?? true) && covered);
+  }
+  return out;
 }
 
 /** Format one metric as a fixed-width percent. */

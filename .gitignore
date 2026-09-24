@@ -15,6 +15,11 @@ coverage
 # …but the coverage TOOLING under scripts/ is source, not output
 !scripts/coverage/
 
+# mutation testing (Stryker report + sandbox + run log)
+/.mutation/
+/.stryker-tmp/
+stryker.log
+
 # logs
 logs
 _.log

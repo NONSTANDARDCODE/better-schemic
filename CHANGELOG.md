@@ -26,6 +26,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   (`coverage.config.json`). `bun run test:coverage:gaps` prints the exact uncovered lines/conditions.
   A shared ephemeral SurrealDB preload un-skips the live/parity suites. See
   `drivers/surrealdb/docs/TESTING.md` and `ROADMAP.md` §M8.
+- **repo:** mutation gate (M8.4) — `bun run test:mutation` runs StrykerJS over the scoped pure
+  compilers through a local **Bun `TestRunner`** plugin (`scripts/mutation/bun-runner.ts`) that shells
+  `bun test` per mutant offline (a server-less bunfig, per-mutant test selection), shards the work
+  across independent Stryker processes (`scripts/mutation/run.ts`), and gates the per-file mutation
+  score with a ratchet (`mutation.config.json`, recorded with `bun run test:mutation:update`). Also
+  wires the previously-undocumented `bun run test:coverage:gaps`. See `drivers/surrealdb/docs/TESTING.md`.
+- **repo:** property-based tests (M8.5) — fast-check suites for the pure compilers/parsers
+  (`drivers/surrealdb/test/property/compilers.pbt.test.ts`, `packages/core/test/property/filter.pbt.test.ts`)
+  asserting injection safety, bind totality, purity and round-trips over generated/adversarial inputs.
+  Budget via `PBT_RUNS`/`PBT_SEED`; the mutation gate pins both so a mutant's kill is deterministic.
+  26 properties; found three real type-bridge bugs (below).
+- **surrealdb:** type-bridge round-trip fixes (found by PBT) — `parseSurqlType` and the CLI
+  `normalizeType` tested the greedy `option<…>` wrapper BEFORE the top-level union, so a valid union
+  like `option<int> | string` was swallowed as one option (`option<int> | string` now canonicalizes
+  correctly); `emitSurqlType` emitted `option<none>` for `option<never>` (now `none`, a true inverse,
+  so `array<none>` round-trips); and a nullable union emitted `null` last instead of as a flat sorted
+  member (`array<int> | null | set<string>`). Regression cases added to `test/unit/surql-type.test.ts`.
+- **repo:** MC/DC decision inventory (M8.3b) — `scripts/mcdc/{inventory,reconcile}.ts` enumerate every
+  MC/DC-relevant decision in-scope with the TypeScript compiler API and classify each `auto`
+  (Tier-1) / `table` (a `describeMcdc` label in `mcdc-manifest.json`) / `unknown`, ratcheted per file
+  (`mcdc.config.json`, `bun run test:coverage:mcdc[:update]`). Wired into `scripts/coverage/run.ts`, so
+  the coverage job enforces it. First closing batch took `driver/surql-type.ts` branch+condition
+  coverage to 100%, `surql-type-expr.ts` conditions to 100% and `unique.ts` conditions to 100%.
+- **repo:** parser fuzzing (M8.7) — `test/fuzz/parsers.fuzz.test.ts` + `packages/core/test/fuzz/filter.fuzz.test.ts`
+  hammer the hand-written scanners (`splitTopUnion`/`topLevelSplitOnce`, the `SurqlType` bridge,
+  `formatForAssert`, `stripOuterParens`/`toFragment`, `hasTopLevelSemi`, `parseFilter`) with arbitrary
+  bytes, deep nesting, huge unions and a seed corpus — asserting never-throw, never-hang and the
+  idempotence/round-trips. `hasTopLevelSemi` is now exported for it. Budget `FUZZ_RUNS`; runs in the
+  normal `bun test` gate.
+- **repo:** CI hardening (M8.6) — `.github/workflows/ci.yml` now runs the heavy gates as separate jobs
+  (the existing `gate`/`coverage`/`type-perf` plus a new offline `mutation` job), so a reliability
+  regression fails the specific job with per-file detail while the hot landing gate stays fast. Method
+  and tooling are documented in `drivers/surrealdb/docs/TESTING.md`.
 - **core:** `@better-schemic/core/testing` — `analyzeMcdc`/`describeMcdc`: a pure, driver-agnostic
   **unique-cause MC/DC** engine. For a decision it finds, per condition, the independence pair (two
   assignments differing only in that condition that flip the outcome) over the full truth table or

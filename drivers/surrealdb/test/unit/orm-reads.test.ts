@@ -706,6 +706,10 @@ describe("delegate — findUnique", () => {
     expect(code({ where: { email: { contains: "@" } } })).toBe(
       "UniqueTargetRequired",
     );
+    // A single unique field with MORE than one operator is not a pure equality.
+    expect(code({ where: { email: { equals: "x", gt: "y" } } })).toBe(
+      "UniqueTargetRequired",
+    );
     expect(code({ where: { id: "other:a1" } })).toBe("ValidationError");
     // A malformed id value (empty object / nested equals object) is not a record id.
     expect(code({ where: { id: {} } })).toBe("UniqueTargetRequired");

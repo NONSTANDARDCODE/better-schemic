@@ -11,6 +11,11 @@
     "test:coverage:report": "bun run scripts/coverage/report.ts",
     "test:coverage:check": "bun run scripts/coverage/check.ts",
     "test:coverage:update": "bun run scripts/coverage/check.ts --update",
+    "test:coverage:gaps": "bun run scripts/coverage/gaps.ts",
+    "test:coverage:mcdc": "bun run scripts/mcdc/reconcile.ts",
+    "test:coverage:mcdc:update": "bun run scripts/mcdc/reconcile.ts --update",
+    "test:mutation": "bun run scripts/mutation/run.ts",
+    "test:mutation:update": "bun run scripts/mutation/run.ts --update",
     "skills-install": "bunx skills experimental_install"
   },
   "overrides": {
@@ -20,9 +25,13 @@
     "skills": "^1.5.26"
   },
   "devDependencies": {
+    "@stryker-mutator/api": "^10",
+    "@stryker-mutator/core": "^10",
+    "fast-check": "^4.10.2",
     "istanbul-lib-coverage": "^3.2.2",
     "istanbul-lib-report": "^3.0.1",
     "istanbul-reports": "^3.2.0",
-    "oxc-coverage-instrument": "^0.12.0"
+    "oxc-coverage-instrument": "^0.12.0",
+    "typescript": "^6.0.3"
   }
 }

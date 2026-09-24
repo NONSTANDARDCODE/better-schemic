@@ -43,7 +43,7 @@ import {
 
 /** Does `text` contain a top-level `;` (outside strings/braces/parens)? Decides the canonical
  *  block form: single statement `{ stmt }`, multi `{ s1; s2; }` — matching INFO's printer. */
-function hasTopLevelSemi(text: string): boolean {
+export function hasTopLevelSemi(text: string): boolean {
   let depth = 0;
   let quote: '"' | "'" | null = null;
   for (let i = 0; i < text.length; i++) {

@@ -1,0 +1,8 @@
+# Bun config used ONLY by the mutation gate (`scripts/mutation/bun-runner.ts`) via `bun --config`.
+#
+# The root `bunfig.toml` preloads `test/preload-server.ts`, which boots one ephemeral SurrealDB per
+# run. Mutation runs the OFFLINE unit suites (the pure compilers), so that server boot is pure
+# overhead and would make every mutant slow — this config drops it. `bun --config <this>` replaces
+# the root preload list; COVERAGE is forced off by the runner env too.
+[test]
+preload = []

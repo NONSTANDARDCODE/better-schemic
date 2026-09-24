@@ -96,6 +96,44 @@ jobs:
           if-no-files-found: ignore
 
 
+  # Mutation gate (StrykerJS + a custom Bun test runner) over the scoped pure compilers. OFFLINE —
+  # no `surreal` binary needed — and sharded across independent Stryker processes (static mutants are
+  # serial within one). Fails on any per-file mutation-score regression below `mutation.config.json`.
+  # See drivers/surrealdb/docs/TESTING.md.
+  mutation:
+    name: mutation (Stryker · bun)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            **/node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Mutation gate
+        run: bun run test:mutation
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation
+          path: .mutation/
+          if-no-files-found: ignore
+
+
   # Type-completeness + instantiation-budget suites (@ark/attest). SEPARATE job because attest runs
   # under node/tsx (not bun — see packages/core/docs/TYPE-PERF-TESTING.md) and its own TS program is
   # slower; kept out of the hot land gate. Runs off src/ via tsx (`--conditions=bun`), so no build step.
