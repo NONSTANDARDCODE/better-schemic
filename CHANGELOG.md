@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+## [0.1.0-alpha.2] - 2026-09-24
+
 ### Added
 - **surrealdb:** `defineSequence(name).batch(n).start(n).timeout("5s")` — database-level `DEFINE
   SEQUENCE` (a monotonic counter read via `sequence::nextval('name')`). New registered kind

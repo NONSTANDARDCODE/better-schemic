@@ -1,6 +1,6 @@
 {
   "name": "@better-schemic/surrealdb",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "SurrealDB driver + authoring for Better-schemic — s.* schema definition, SurrealQL DDL, introspection, migrations.",
   "license": "MIT",
   "author": "Vertio Solutions",

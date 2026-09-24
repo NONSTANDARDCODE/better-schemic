@@ -1,6 +1,6 @@
 {
   "name": "@better-schemic/cli",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "The Better-schemic CLI — driver-agnostic schema migrations (gen/migrate/diff/push/pull/check).",
   "license": "MIT",
   "author": "Vertio Solutions",
