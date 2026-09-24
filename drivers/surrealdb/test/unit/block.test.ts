@@ -113,6 +113,12 @@ describe("body canonicalization + value kinds", () => {
     expect(ifWith(surql`RETURN { a: 1; b: 2 }`)).toContain(
       "{ RETURN { a: 1; b: 2 } }",
     );
+    expect(ifWith(surql`RETURN (1; 2)`)).toContain("{ RETURN (1; 2) }");
+  });
+
+  test("a backslash inside a quoted string does not close it", () => {
+    // The escaped `;` stays inside the quote, so the scan treats the body as single-statement.
+    expect(ifWith(surql`RETURN 'a\\;b'`)).toContain("{ RETURN 'a\\;b' }");
   });
 
   test("a top-level semicolon wraps as a multi-statement body", () => {
