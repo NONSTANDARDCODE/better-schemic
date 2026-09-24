@@ -97,8 +97,8 @@ jobs:
 
 
   # Mutation gate (StrykerJS + a custom Bun test runner) over the scoped pure compilers. OFFLINE —
-  # no `surreal` binary needed — and sharded across independent Stryker processes (static mutants are
-  # serial within one). Fails on any per-file mutation-score regression below `mutation.config.json`.
+  # no `surreal` binary needed — one Stryker process scheduling mutants dynamically across parallel
+  # test-runner workers. Fails on any per-file mutation-score regression below `mutation.config.json`.
   # See drivers/surrealdb/docs/TESTING.md.
   mutation:
     name: mutation (Stryker · bun)
@@ -131,6 +131,8 @@ jobs:
         with:
           name: mutation
           path: .mutation/
+          # `.mutation/` is a dot-directory, which upload-artifact skips unless hidden files are on.
+          include-hidden-files: true
           if-no-files-found: ignore
 
 

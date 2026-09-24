@@ -294,9 +294,10 @@ integration and subprocess e2e coverage. Method + tooling: `drivers/surrealdb/do
   floor was lowered).
 - ✅ **M8.4 — mutation gate.** StrykerJS core + a local **Bun `TestRunner`** plugin
   (`scripts/mutation/bun-runner.ts`) that shells `bun test` per mutant (nonzero exit → Killed, hard
-  timeout → Timeout); `scripts/mutation/run.ts` shards the scope across N independent Stryker
-  processes (static mutants are serial within one) and `ratchet.ts` merges the reports and enforces
-  the per-file score floor in `mutation.config.json`. Scoped to the **pure compilers**
+  timeout → Timeout); `scripts/mutation/run.ts` runs one Stryker process whose worker pool schedules
+  mutants dynamically across `concurrency` parallel test-runner workers (static mutants reload per
+  process — no hot-swap needed) and `ratchet.ts` enforces the per-file score floor in
+  `mutation.config.json`. Scoped to the **pure compilers**
   (`orm/compiler/*`, `surql-type-expr`, `driver/surql-type`, core `cli-kit/filter`); offline (a
   server-less bunfig, `coverageAnalysis: "off"`), with per-mutant test selection. Floors recorded
   and **re-ratcheted after the PBT work** (17 files, overall ~66.7%; the type-bridge files rose the
@@ -319,7 +320,7 @@ integration and subprocess e2e coverage. Method + tooling: `drivers/surrealdb/do
 - ✅ **M8.6 — CI + docs.** `.github/workflows/ci.yml` runs the hot `gate` (build · typecheck · test —
   the PBT/fuzz suites included), the `coverage` job (installs the `surreal` binary so live/parity
   never skip; runs `test:coverage`, which now also enforces the MC/DC reconcile), the `mutation` job
-  (offline, sharded) and `type-perf`. Method + tooling documented in
+  (offline, parallel test-runner workers) and `type-perf`. Method + tooling documented in
   `drivers/surrealdb/docs/TESTING.md` (coverage/MC-DC, decision inventory, mutation, PBT, fuzzing).
 
 Literal operands (`x || {}`, `a ?? "d"`) are excluded from the condition denominator — MC/DC covers

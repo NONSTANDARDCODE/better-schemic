@@ -11,7 +11,7 @@
  * Score = (Killed + Timeout) / (Killed + Timeout + Survived + NoCoverage + RuntimeError), matching
  * Stryker's own metric. `CompileError` (unparseable mutant) and `Ignored` are excluded.
  */
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "../..");
@@ -62,39 +62,19 @@ function score(counts: Counts): number | null {
   return (detected / valid) * 100;
 }
 
-if (!existsSync(reportDir)) {
-  console.error(
-    `no mutation reports in ${reportDir} — run \`bun run test:mutation\` first.`,
-  );
-  process.exit(1);
-}
-
-/** Merge every Stryker JSON report in `.mutation/` (one per shard) into a single mutant list per file. */
-function loadReports(): MutationReport {
-  const files: NonNullable<MutationReport["files"]> = {};
-  let found = 0;
-  for (const name of readdirSync(reportDir)) {
-    if (!name.endsWith(".json")) continue;
-    let report: MutationReport;
-    try {
-      report = JSON.parse(readFileSync(join(reportDir, name), "utf8"));
-    } catch {
-      continue;
-    }
-    found++;
-    for (const [file, data] of Object.entries(report.files ?? {})) {
-      if (!files[file]) files[file] = { mutants: [] };
-      files[file]?.mutants?.push(...(data.mutants ?? []));
-    }
-  }
-  if (found === 0) {
-    console.error(`no Stryker JSON reports in ${reportDir}.`);
+/** Read Stryker's JSON report (`.mutation/mutation.json`). */
+function loadReport(): MutationReport {
+  const reportPath = join(reportDir, "mutation.json");
+  if (!existsSync(reportPath)) {
+    console.error(
+      `no Stryker JSON report at ${reportPath} — run \`bun run test:mutation\` first.`,
+    );
     process.exit(1);
   }
-  return { files };
+  return JSON.parse(readFileSync(reportPath, "utf8")) as MutationReport;
 }
 
-const report = loadReports();
+const report = loadReport();
 const config = JSON.parse(readFileSync(configPath, "utf8")) as Config;
 
 const rows: { rel: string; score: number | null; counts: Counts }[] = [];

@@ -28,8 +28,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `drivers/surrealdb/docs/TESTING.md` and `ROADMAP.md` §M8.
 - **repo:** mutation gate (M8.4) — `bun run test:mutation` runs StrykerJS over the scoped pure
   compilers through a local **Bun `TestRunner`** plugin (`scripts/mutation/bun-runner.ts`) that shells
-  `bun test` per mutant offline (a server-less bunfig, per-mutant test selection), shards the work
-  across independent Stryker processes (`scripts/mutation/run.ts`), and gates the per-file mutation
+  `bun test` per mutant offline (a server-less bunfig, per-mutant test selection), parallelizes it
+  across a dynamic pool of test-runner workers (`scripts/mutation/run.ts`), and gates the per-file mutation
   score with a ratchet (`mutation.config.json`, recorded with `bun run test:mutation:update`). Also
   wires the previously-undocumented `bun run test:coverage:gaps`. See `drivers/surrealdb/docs/TESTING.md`.
 - **repo:** property-based tests (M8.5) — fast-check suites for the pure compilers/parsers
@@ -274,6 +274,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `source.{commit,hash}` header for vendoring consumers.
 
 ### Changed
+- **repo (tooling):** the mutation gate now runs **one** Stryker process whose worker pool schedules
+  mutants dynamically across `concurrency` test-runner workers, replacing the static file sharding.
+  The size-round-robin shards were imbalanced (heaviest ~1.9x the lightest, so the job waited on it)
+  and paid the sandbox/dry-run/report cost once per shard; dynamic scheduling removes both with the
+  same mutants, tests and per-file ratchet. Tune with `--concurrency <n>` (or `MUTATION_CONCURRENCY`);
+  `--shards`/`MUTATION_SHARDS` are gone and `ratchet.ts` now reads the single `.mutation/mutation.json`.
 - **repo (tooling):** the `type-perf` CI job no longer pays attest's TypeScript program cost once per
   file — it now runs **one program per package** (~11min → ~2-3min; both suites locally 1m51s).
   `scripts/type-perf.ts` passes `--experimental-test-isolation=none` to `node --test` (node ≥ 22.8;
@@ -309,6 +315,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   retired with the fluent builder; the neutral field-ref carrier moved into the driver (`src/surql/ref.ts`).
 
 ### Fixed
+- **repo (tooling):** the CI `mutation` job's report artifact is uploaded again — the report lives in
+  the dot-directory `.mutation/`, which `actions/upload-artifact` silently skips without
+  `include-hidden-files: true`.
 - **surrealdb:** `client.import(dump)` now surfaces the FIRST failing statement of the dump instead
   of resolving successfully — the dump replays through the shared executor, so a bad statement
   rejects with its normalized `BetterSchemicError` (it previously called `query().responses()` and

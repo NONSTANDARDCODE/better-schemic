@@ -106,21 +106,23 @@ recorded with `bun run test:mutation:update`).
   test file(s) that cover it (falling back to `testFiles` — the whole unit suite). Narrowing the test
   set keeps a mutant's run honest *and* fast; a mutant that only an unrelated suite would kill is a
   survivor here, which is the signal to write a direct test.
-- **Sharding.** With `coverageAnalysis: "off"` every mutant is **static**, which Stryker runs
-  one-at-a-time (it can't hot-swap a static mutant), so one Stryker process uses ~1 core. `run.ts`
-  therefore partitions the file list across N independent Stryker processes (each with its own sandbox
-  and JSON report); `ratchet.ts` merges the reports. Tune with `--shards <n>` (default = CPU count,
-  capped at 8).
+- **Concurrency.** With `coverageAnalysis: "off"` every mutant is **static**: it must run in a fresh
+  process (activated by `__STRYKER_ACTIVE_MUTANT__`), because a static mutant can't be hot-swapped in
+  a loaded environment. Static-ness forces a *reload*, not *serialization* — Stryker's worker pool
+  schedules mutants dynamically across `concurrency` workers, each spawning its own `bun test` child,
+  so they run in parallel. `run.ts` sizes the pool at the CPU count (capped at 8); tune with
+  `--concurrency <n>` (or `MUTATION_CONCURRENCY`). Dynamic scheduling also load-balances: unlike the
+  old static file shards, no worker can end up the straggler.
 - **Equivalent mutants** (a mutation no test *could* distinguish, e.g. reordering a commutative
   build) are disabled inline with `// Stryker disable next-line <Mutator> -- <reason>` — the reason is
   reviewable, unlike a silent survivor.
 
 | Path | Role |
 | --- | --- |
-| `scripts/mutation/run.ts` | shard the scope across Stryker processes → merge → ratchet |
+| `scripts/mutation/run.ts` | run Stryker (dynamic worker pool) → ratchet |
 | `scripts/mutation/bun-runner.ts` | the `TestRunner` plugin (spawns `bun test`, maps results) |
 | `scripts/mutation/bunfig.mutation.toml` | server-less bunfig for mutant runs |
-| `scripts/mutation/ratchet.ts` | per-file mutation-score gate (merges shard reports) |
+| `scripts/mutation/ratchet.ts` | per-file mutation-score gate |
 | `stryker.config.json` | Stryker options + the scoped `mutate` list |
 | `mutation.config.json` | per-file test selection + the score floors (ratchet) |
 
@@ -218,7 +220,7 @@ time-bounded corpus asserts each call finishes well under budget. Budget is `FUZ
 | --- | --- | --- |
 | `gate` | build · typecheck · test | includes the PBT + fuzz suites (they're normal `bun test` files) |
 | `coverage` | `bun run test:coverage` | installs the pinned `surreal` binary so live/parity never skip; also enforces the MC/DC reconcile |
-| `mutation` | `bun run test:mutation` | offline (no DB), sharded across Stryker processes |
+| `mutation` | `bun run test:mutation` | offline (no DB), parallel test-runner workers |
 | `type-perf` | `bun run scripts/type-perf.ts` | attest type-completeness + instantiation budgets |
 
 All heavy gates are **separate jobs**: `land.ts` and the `gate` job stay quick, and a regression fails
