@@ -63,6 +63,7 @@ export {
   type Queryable,
   type Statement,
 } from "./execute";
+export { createQueryLogger, resolveLogger } from "./logger";
 export type {
   ColumnMeta,
   EdgeRef,
@@ -173,6 +174,21 @@ export type {
   LiveRow,
   LiveSubscription,
 } from "./types/live";
+export type {
+  ExplainPolicy,
+  LogContext,
+  LogFormat,
+  LoggerLevel,
+  LoggerOption,
+  LoggerOptions,
+  LoggerPreset,
+  LogPhase,
+  LogStatement,
+  LogStatementResult,
+  QueryLogEvent,
+  QueryLogger,
+  ResolvedLoggerOptions,
+} from "./types/logger";
 export type {
   Operation,
   OperationArgsMap,

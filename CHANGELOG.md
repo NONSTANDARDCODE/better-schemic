@@ -19,6 +19,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 ## [Unreleased]
 
 ### Added
+- **surrealdb:** built-in query logger (M9) — enable it with one flag
+  (`betterSchemic(conn, { schema, logger: true })` / `"pretty" | "compact" | "json" | "silent"` /
+  a `LoggerOptions` object, or the `BETTER_SCHEMIC_LOG` env var). It observes the executor (every
+  round-trip: delegate reads/writes, `$raw`/`$query`/`$unsafe`, `fn`, admin, changes, live and
+  `.explain()` — which fires no hooks), rendering a framed, syntax-highlighted box with binds, row
+  counts, colour-coded timing and a slow-query badge (`compact`/`json` for log shippers). `.explain()`/
+  `explain: true` plans render as an operator tree with `TableScan ⚠ full scan` / `IndexScan ✓`
+  badges, and `explain: "slow" | "all" | "analyze"` auto-`EXPLAIN`s reads (`EXPLAIN [ANALYZE] FORMAT
+  JSON`). New subpath `@better-schemic/surrealdb/logger` (`createQueryLogger`/`resolveLogger`); the
+  `logger` option on `betterSchemic`/`createBetterSchemic`. Zero-dependency, side-effect-free when
+  absent. Tests: `test/unit/orm-logger{,-highlight,-plan}.test.ts`, `test/live/orm-logger.test.ts`,
+  `test/types/orm-logger.assert.ts`; docs in `README.md`/`docs/ORM-COVERAGE.md` and the live-verified
+  `EXPLAIN` shapes in `docs/orm-syntax-map.md` §11.
 - **repo:** MC/DC reliability tooling (M8) — `bun run test:coverage` instruments
   `drivers/surrealdb/src` + `packages/core/src` with `oxc-coverage-instrument`
   (`reportLogic` → per-operand truthiness), aggregates the e2e CLI subprocesses' coverage, and gates

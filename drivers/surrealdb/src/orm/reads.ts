@@ -408,6 +408,7 @@ async function runPrepared(
         operation: prepared.operation,
         table: prepared.meta.name,
         debug: ctx.debug,
+        logger: ctx.logger,
         ...contextOption(ctx, prepared.context),
       });
       return prepared.decode(out.rows);
@@ -428,6 +429,8 @@ async function explainPrepared(
     operation: prepared.operation,
     table: prepared.meta.name,
     debug: ctx.debug,
+    phase: "explain",
+    logger: ctx.logger,
     ...contextOption(ctx, prepared.context),
   });
   return {

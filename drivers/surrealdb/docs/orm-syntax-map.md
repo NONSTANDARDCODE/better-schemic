@@ -592,3 +592,22 @@ Nota: em scripts multi-statement, o SDK pode **lançar** (não só responder por
 42. **Raw**: `$raw` (1 statement) e `$query` (N) parametrizam `${…}` via `renderValue` (fragmento compõe, valor binda); `$query({ throwOnError: false })` devolve `StatementResult[]`; `$unsafe` exige `raw.unsafe: true` (`UnsafeDisabled`); `raw.requireComment` exige `meta.comment` em script de escrita; `raw.timeoutMs` só aplica a statement única com verbo compatível.
 43. **`fn`/`api`/`auth`/admin**: `fn.call` compila `RETURN fn::x($p…)` (nome validado, nunca spliced) + atalho tipado por `defineFunction` (args NOMEADOS → posicionais); `api.*` desembrulha `body` e lança `DatabaseError` com `status`/`details` em `>= 400`; `auth.*` é passthrough da sessão (`record()` sem record access → `NotAuthenticated`); `info` compila `INFO FOR …`, `ping` faz `RETURN true`, `import` reexecuta o dump por `query()`.
 44. **`extends`**: helpers são reaplicados em clones (`$withContext`/`forkSession`) e no client de transação; colisão de nome com a superfície do client = `PluginError` fail-fast.
+
+---
+
+## 11. Logger & planos `EXPLAIN` (M9)
+
+As formas que o logger renderiza (live-probed no 3.2.0; o **shape do plano é informativo e pode mudar
+entre versões** — o renderer degrada para `JSON.stringify` em vez de lançar):
+
+| Forma | Resultado |
+| --- | --- |
+| `EXPLAIN SELECT …` (prefixo) | **string** indentada (`SelectProject [ctx: Db] [projections: *]\n    TableScan […]`) — é o que `.explain()` emite; só `SELECT` |
+| `EXPLAIN FORMAT JSON SELECT …` | **objeto** `{ operator, context, attributes, children[], metrics? }` (sem métricas) |
+| `EXPLAIN ANALYZE [FORMAT JSON] SELECT …` | igual + `metrics: { elapsed_ns, output_rows, output_batches }` e `total_rows` (reexecuta a query) |
+| `SELECT … EXPLAIN [FULL]` (sufixo) | o mesmo **objeto** estruturado (`FULL` traz as métricas) |
+| `EXPLAIN UPDATE/…` | `Invalid statement: EXPLAIN is only supported with the new execution model` → `ParseError` |
+
+O logger observa o **executor** (`runScript`), não os hooks: cobre reads/writes/`$raw`/`fn`/admin/
+changes/live e `.explain()` **sem** violar o contrato "explain não dispara hooks". O auto-`EXPLAIN`
+(`explain: "slow" | "all" | "analyze"`) reusa as formas acima e nunca loga a si mesmo.

@@ -414,6 +414,24 @@
       "lines": 90,
       "conditions": 27.77
     },
+    "drivers/surrealdb/src/orm/logger/logger.ts": {
+      "statements": 100,
+      "branches": 97.41,
+      "functions": 100,
+      "lines": 100,
+      "conditions": 90.99
+    },
+    "drivers/surrealdb/src/orm/logger/plan.ts": {
+      "statements": 100,
+      "branches": 96.77,
+      "functions": 100,
+      "lines": 100,
+      "conditions": 90.9
+    },
+    "drivers/surrealdb/src/orm/logger/emit.ts": {
+      "branches": 86.5,
+      "conditions": 52.9
+    },
     "drivers/surrealdb/src/orm/meta.ts": {
       "statements": 100,
       "branches": 100,

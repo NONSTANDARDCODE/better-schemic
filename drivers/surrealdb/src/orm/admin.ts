@@ -34,6 +34,7 @@ export function createAdminOperations(ctx: DelegateContext): AdminOperations {
       operation,
       debug: ctx.debug,
       ...(ctx.inTransaction === true ? { inTransaction: true } : {}),
+      logger: ctx.logger,
       ...contextOption(ctx),
     });
     return out.rows[0];
@@ -62,6 +63,7 @@ export function createAdminOperations(ctx: DelegateContext): AdminOperations {
       operation: "ping",
       debug: ctx.debug,
       ...(ctx.inTransaction === true ? { inTransaction: true } : {}),
+      logger: ctx.logger,
       ...contextOption(ctx),
     });
     return true;
@@ -103,6 +105,7 @@ export function createAdminOperations(ctx: DelegateContext): AdminOperations {
       ...contextOption(ctx),
       operation: "import",
       debug: ctx.debug,
+      logger: ctx.logger,
     });
     // A dump may hold many statements; surface the FIRST failure instead of "importing" silently.
     const failure = responses

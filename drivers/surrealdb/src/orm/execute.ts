@@ -16,8 +16,10 @@
 import type { QueryResponse, Surreal } from "surrealdb";
 import { contextPrefix } from "./context";
 import { BetterSchemicError, normalizeError } from "./errors";
+import { emitRoundTrip } from "./logger/emit";
 import { type StatementResult, statementResult } from "./results";
 import type { ResolvedContext } from "./types/context";
+import type { LogPhase, QueryLogger } from "./types/logger";
 
 /** Anything the executor can run statements on — the SDK `Surreal` or a `SurrealSession`. */
 export type Queryable = Pick<Surreal, "query">;
@@ -51,6 +53,10 @@ export interface ExecuteOptions {
    * control statement: it runs in the SAME round-trip and is never exposed as a result.
    */
   readonly context?: ResolvedContext;
+  /** Query logger sink (absent = zero-overhead). */
+  readonly logger?: QueryLogger;
+  /** `"explain"` when the statements are `EXPLAIN` probes (log the plans, not a real run). */
+  readonly phase?: LogPhase;
 }
 
 /** The outcome of one {@link execute} call. */
@@ -81,6 +87,18 @@ export interface RunScriptOptions {
   readonly table?: string;
   /** Include the script's `vars` in the error (client `debug: true`). */
   readonly debug?: boolean;
+  /** Query logger sink (absent = zero-overhead). */
+  readonly logger?: QueryLogger;
+  /** `"explain"` when the script is an `EXPLAIN` probe (auto-explain skips itself). */
+  readonly phase?: LogPhase;
+  /** The user statements (in order) an `execute` batch compiled, for accurate logging. */
+  readonly statements?: readonly Statement[];
+  /** Control responses at the HEAD of `raw` to skip when aligning {@link statements} (e.g. `BEGIN`). */
+  readonly offset?: number;
+  /** The batch was wrapped in `BEGIN/COMMIT TRANSACTION` (logging only). */
+  readonly transactional?: boolean;
+  /** The batch rode an open transaction (logging only). */
+  readonly inTransaction?: boolean;
 }
 
 /**
@@ -97,6 +115,8 @@ export async function runScript(
 ): Promise<readonly QueryResponse<unknown>[]> {
   const prefix = contextPrefix(options.context);
   const full = prefix ? `${prefix}\n${script}` : script;
+  const logger = options.logger?.enabled ? options.logger : undefined;
+  const started = logger ? performance.now() : 0;
   let raw: QueryResponse<unknown>[];
   try {
     raw = (await conn
@@ -104,14 +124,33 @@ export async function runScript(
       .responses()) as QueryResponse<unknown>[];
   } catch (e) {
     // A transport/connection rejection (not a per-statement failure) — normalize with context.
-    throw normalizeError(e, {
+    const error = normalizeError(e, {
       operation: options.operation,
       table: options.table,
       surql: full,
       vars: options.debug ? options.vars : undefined,
     });
+    if (logger)
+      await emitRoundTrip(conn, {
+        ...options,
+        logger,
+        script,
+        responses: [],
+        durationMs: performance.now() - started,
+        error,
+      });
+    throw error;
   }
-  return prefix ? raw.slice(1) : raw;
+  const sliced = prefix ? raw.slice(1) : raw;
+  if (logger)
+    await emitRoundTrip(conn, {
+      ...options,
+      logger,
+      script,
+      responses: sliced,
+      durationMs: performance.now() - started,
+    });
+  return sliced;
 }
 
 /** Merge every statement's binds, rejecting a name reused with a DIFFERENT value. */
@@ -167,6 +206,12 @@ export async function execute<T = unknown>(
     ...(options.operation ? { operation: options.operation } : {}),
     ...(options.table ? { table: options.table } : {}),
     debug: options.debug === true,
+    ...(options.logger ? { logger: options.logger } : {}),
+    ...(options.phase ? { phase: options.phase } : {}),
+    statements,
+    offset,
+    transactional: wrapping,
+    inTransaction: options.inTransaction === true,
   });
 
   // The server answers every statement (control statements included); a mismatch is a protocol

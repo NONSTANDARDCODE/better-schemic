@@ -474,6 +474,23 @@ live("ORM syntax map — live probes (server 3.x)", () => {
       ).rejects.toThrow(/EXPLAIN is only supported/);
     });
 
+    test("EXPLAIN FORMAT JSON / ANALYZE / suffix expose the structured plan", async () => {
+      const plan = (await last(
+        "EXPLAIN FORMAT JSON SELECT * FROM post WHERE published = true;",
+      )) as { operator?: string; children?: unknown[] };
+      expect(typeof plan.operator).toBe("string");
+      expect(Array.isArray(plan.children)).toBe(true);
+      const analyzed = (await last(
+        "EXPLAIN ANALYZE FORMAT JSON SELECT * FROM post WHERE published = true;",
+      )) as { metrics?: unknown; total_rows?: number };
+      expect(analyzed.metrics).toBeDefined();
+      expect(typeof analyzed.total_rows).toBe("number");
+      const suffix = (await last(
+        "SELECT * FROM post WHERE published = true EXPLAIN;",
+      )) as { operator?: string };
+      expect(typeof suffix.operator).toBe("string");
+    });
+
     test("VERSION needs a versioned backend (memory server rejects it)", async () => {
       await run("DEFINE TABLE cf CHANGEFEED 1h; CREATE cf:a SET n = 1;");
       await expect(

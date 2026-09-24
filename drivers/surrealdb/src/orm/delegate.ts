@@ -30,6 +30,7 @@ import type {
   LiveResult,
   LiveRow,
 } from "./types/live";
+import type { QueryLogger } from "./types/logger";
 import type {
   PluginArgs,
   PluginList,
@@ -129,6 +130,8 @@ export interface DelegateContext {
   readonly hooks?: HookDispatcher;
   /** The plugin pipeline (absent when no plugin is registered). */
   readonly pipeline?: PluginPipeline;
+  /** The query logger (absent = zero-overhead; threaded into every executor round-trip). */
+  readonly logger?: QueryLogger;
   /** The delegate's plugin state (`$state`). */
   readonly pluginState?: PluginState;
   /** `false` when the delegate was cloned with `$withoutPlugins()`. */

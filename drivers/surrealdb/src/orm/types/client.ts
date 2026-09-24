@@ -15,6 +15,7 @@ import type { ChangeRow, ChangeSet, ChangesArgs } from "./changes";
 import type { ContextAuth, ContextScope, OperationContext } from "./context";
 import type { FnSurface } from "./fn";
 import type { Hooks } from "./hooks";
+import type { LoggerOption } from "./logger";
 import type {
   LiveArgs,
   LiveDefaults,
@@ -61,6 +62,13 @@ export interface BetterSchemicOptions {
    * client type when the tuple is passed as a literal.
    */
   readonly plugins?: readonly Plugin[];
+  /**
+   * Query logger — `true`, a preset (`"pretty"`/`"json"`/`"compact"`/`"silent"`) or
+   * {@link LoggerOptions}. It observes every executor round-trip (delegate reads/writes, `$raw`,
+   * `fn`, admin, changes, live and `.explain()` plans) without changing anything. `undefined` falls
+   * back to `BETTER_SCHEMIC_LOG`; `false` disables it. Default output is a framed terminal box.
+   */
+  readonly logger?: LoggerOption;
 }
 
 /** A `defineSchema` artifact or the plain `{ key: def }` literal. */

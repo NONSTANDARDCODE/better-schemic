@@ -6,6 +6,7 @@ export default defineConfig({
     driver: "src/driver.ts",
     connection: "src/connection.ts",
     query: "src/query.ts",
+    logger: "src/logger.ts",
     orm: "src/orm/index.ts",
     "plugins/rules": "src/plugins/rules.ts",
     "plugins/zod": "src/plugins/zod.ts",

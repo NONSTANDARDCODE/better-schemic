@@ -24,6 +24,7 @@ import type { Queryable } from "./execute";
 import { createFnOperations } from "./fn";
 import { createHookDispatcher, type HookDispatcher } from "./hooks";
 import { killLive, reattachLive } from "./live";
+import { resolveLogger } from "./logger";
 import { resolveModel, type SchemaIndex } from "./meta";
 import { createPluginPipeline, type PluginPipeline } from "./plugins";
 import { createRawOperations, type RawOperations } from "./raw";
@@ -56,6 +57,7 @@ import type {
   LiveId,
   LiveSubscription,
 } from "./types/live";
+import type { QueryLogger } from "./types/logger";
 import type { Plugin } from "./types/plugins";
 import type { RawDefaults } from "./types/raw";
 import type { SchemaInput } from "./types/schema";
@@ -101,6 +103,9 @@ export class ClientRuntime<C extends Queryable = Queryable>
   /** The plugin pipeline (`betterSchemic(conn, { schema, plugins })`); absent = no plugins. */
   private readonly pipeline?: PluginPipeline;
 
+  /** The query logger (`betterSchemic(conn, { schema, logger })`); absent = zero-overhead. */
+  private readonly logger?: QueryLogger;
+
   /** The clone's default namespace/database scope (`$withContext`); absent on a plain client. */
   private readonly context?: OperationContext;
 
@@ -139,6 +144,7 @@ export class ClientRuntime<C extends Queryable = Queryable>
       readonly extensions?: readonly Extension[];
       readonly hooks?: HookDispatcher;
       readonly pipeline?: PluginPipeline;
+      readonly logger?: QueryLogger;
     } = {},
   ) {
     this.transactionDefaults = scope.transaction;
@@ -147,6 +153,7 @@ export class ClientRuntime<C extends Queryable = Queryable>
     this.rawDefaults = scope.raw;
     this.hooks = scope.hooks;
     this.pipeline = scope.pipeline;
+    this.logger = scope.logger;
     this.context = scope.context;
     this.delegateContext = {
       conn,
@@ -157,6 +164,7 @@ export class ClientRuntime<C extends Queryable = Queryable>
       ...(scope.context ? { context: scope.context } : {}),
       ...(scope.hooks ? { hooks: scope.hooks } : {}),
       ...(scope.pipeline ? { pipeline: scope.pipeline } : {}),
+      logger: scope.logger,
     };
     // Assign the fixed surfaces BEFORE the schema delegates so `assertMemberAvailable`'s
     // `name in this` check covers them — no hand-maintained reserved-name list to keep in sync.
@@ -214,7 +222,10 @@ export class ClientRuntime<C extends Queryable = Queryable>
    * `ResolvedConnectionHandle`). Values are bound through `vars`; for the richer raw surface
    * (`$query`/`$unsafe`, options, multi-statement) use the `$`-prefixed escape hatches.
    */
-  query<T = unknown>(sql: string, vars?: Record<string, unknown>): Promise<T[]> {
+  query<T = unknown>(
+    sql: string,
+    vars?: Record<string, unknown>,
+  ): Promise<T[]> {
     return this.conn.query<[T[]]>(sql, vars).then((r) => r[0] ?? []);
   }
 
@@ -304,7 +315,7 @@ export class ClientRuntime<C extends Queryable = Queryable>
   /** End a live query on the server by uuid (see {@link Client.kill}). */
   kill(uuid: LiveId): Promise<void> {
     assertSessionBound(this.context, "kill");
-    return killLive(this.conn, uuid, this.debug);
+    return killLive(this.conn, uuid, this.debug, this.logger);
   }
 
   /** Read the changefeed (see {@link Client.changes}); the typed surface lives on `Client`. */
@@ -368,6 +379,7 @@ export class ClientRuntime<C extends Queryable = Queryable>
     extensions: readonly Extension[];
     hooks?: HookDispatcher;
     pipeline?: PluginPipeline;
+    logger?: QueryLogger;
   } {
     return {
       ...(this.transactionDefaults !== undefined
@@ -381,6 +393,7 @@ export class ClientRuntime<C extends Queryable = Queryable>
       extensions: this.extensions,
       ...(this.hooks !== undefined ? { hooks: this.hooks } : {}),
       ...(this.pipeline !== undefined ? { pipeline: this.pipeline } : {}),
+      logger: this.logger,
     };
   }
 
@@ -531,6 +544,7 @@ export function buildClient<S extends SchemaInput, C extends Queryable>(
     options.hooks,
     ...(pipeline?.hooks ?? []),
   ]);
+  const logger = resolveLogger(options.logger);
   return new ClientRuntime(
     conn,
     buildSchemaIndex(schema),
@@ -544,6 +558,7 @@ export function buildClient<S extends SchemaInput, C extends Queryable>(
       ...(options.raw !== undefined ? { raw: options.raw } : {}),
       ...(hooks !== undefined ? { hooks } : {}),
       ...(pipeline !== undefined ? { pipeline } : {}),
+      logger,
     },
   ) as unknown as Client<S, C>;
 }

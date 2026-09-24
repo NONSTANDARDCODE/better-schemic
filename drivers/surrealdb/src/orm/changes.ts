@@ -224,6 +224,7 @@ export async function fetchChanges(
     operation: OPERATION,
     table: fallback?.name,
     debug: ctx.debug,
+    logger: ctx.logger,
     ...contextOption(ctx, args?.context),
   });
   return normalizeChangeSets(out.rows[0], index, fallback);

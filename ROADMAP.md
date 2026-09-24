@@ -326,3 +326,26 @@ integration and subprocess e2e coverage. Method + tooling: `drivers/surrealdb/do
 Literal operands (`x || {}`, `a ?? "d"`) are excluded from the condition denominator — MC/DC covers
 every **non-constant** condition.
 
+## M9 — query logger & observability ✅ *(complete)*
+
+A built-in, zero-dependency query logger enabled with one flag (`logger: true` / a preset / a
+`LoggerOptions` object / `BETTER_SCHEMIC_LOG`), observing the executor so it sees every round-trip.
+
+- ✅ **M9.1 pretty renderer** — framed box (box-drawing + emoji), SurrealQL syntax highlighting
+  (keywords/strings/records/`$binds`/`fn::`/durations/comments) with clause-aligned wrapping,
+  typed/truncated/circular-safe binds, row counts (incl. the `count` scalar), colour-coded duration
+  and a `🐌 SLOW` badge; `compact` and `json` formats; level gating (`debug`/`info`/`warn`/`silent`);
+  `NO_COLOR`/`FORCE_COLOR`/TTY detection; `verbose` row preview.
+- ✅ **M9.2 executor seam** — `runScript` emits one event per round-trip (operation/table/phase/
+  statements/results/duration/context/error); threaded through `ClientRuntime`/`DelegateContext`
+  (clones, `$withContext`, transactions and forks inherit it). Absent logger = zero overhead.
+- ✅ **M9.3 EXPLAIN rendering** — `.explain()`/`explain: true` plans (which fire no hooks) render as
+  an operator tree; the renderer accepts the structured object (`EXPLAIN FORMAT JSON` /
+  `SELECT … EXPLAIN [FULL]`), the indented string (`EXPLAIN <stmt>`) and the legacy array, with
+  `TableScan ⚠ full scan` / `IndexScan ✓` badges; `explain: "slow" | "all" | "analyze"` auto-explain.
+- ✅ **M9.4 surface + docs** — subpath `@better-schemic/surrealdb/logger`
+  (`createQueryLogger`/`resolveLogger`); `logger` option on `betterSchemic`/`createBetterSchemic`;
+  README, `docs/ORM-COVERAGE.md` §9 and `docs/orm-syntax-map.md` §11 (live-probed `EXPLAIN` shapes +
+  `test/live/orm-syntax.test.ts` probes). Tests: `test/unit/orm-logger{,-highlight,-plan}.test.ts`,
+  `test/live/orm-logger.test.ts`, `test/types/orm-logger.assert.ts`.
+

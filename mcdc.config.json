@@ -151,6 +151,12 @@
       "table": 0,
       "unknown": 15
     },
+    "drivers/surrealdb/src/orm/logger/logger.ts": {
+      "total": 136,
+      "auto": 121,
+      "table": 0,
+      "unknown": 15
+    },
     "drivers/surrealdb/src/orm/writes.ts": {
       "total": 36,
       "auto": 22,
@@ -174,6 +180,12 @@
       "auto": 6,
       "table": 0,
       "unknown": 13
+    },
+    "drivers/surrealdb/src/orm/logger/emit.ts": {
+      "total": 31,
+      "auto": 19,
+      "table": 0,
+      "unknown": 12
     },
     "drivers/surrealdb/src/cli/introspect.ts": {
       "total": 13,
@@ -268,6 +280,12 @@
     "drivers/surrealdb/src/orm/compiler/relate.ts": {
       "total": 46,
       "auto": 40,
+      "table": 0,
+      "unknown": 6
+    },
+    "drivers/surrealdb/src/orm/logger/plan.ts": {
+      "total": 60,
+      "auto": 54,
       "table": 0,
       "unknown": 6
     },
@@ -368,8 +386,8 @@
       "unknown": 2
     },
     "drivers/surrealdb/src/orm/execute.ts": {
-      "total": 20,
-      "auto": 18,
+      "total": 26,
+      "auto": 24,
       "table": 0,
       "unknown": 2
     },
@@ -496,6 +514,18 @@
     "drivers/surrealdb/src/orm/compiler/unique.ts": {
       "total": 11,
       "auto": 11,
+      "table": 0,
+      "unknown": 0
+    },
+    "drivers/surrealdb/src/orm/logger/colors.ts": {
+      "total": 34,
+      "auto": 34,
+      "table": 0,
+      "unknown": 0
+    },
+    "drivers/surrealdb/src/orm/logger/highlight.ts": {
+      "total": 50,
+      "auto": 50,
       "table": 0,
       "unknown": 0
     },

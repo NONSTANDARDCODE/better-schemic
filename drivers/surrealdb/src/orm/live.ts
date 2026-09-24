@@ -30,6 +30,7 @@ import type {
   LiveNotification,
   LiveSubscription,
 } from "./types/live";
+import type { QueryLogger } from "./types/logger";
 import type { PatchOp } from "./types/write";
 
 /** The structural slice of the SDK live message the runtime reads. */
@@ -311,6 +312,7 @@ async function startServerLive(
     operation: "live",
     table: meta.name,
     debug: ctx.debug,
+    logger: ctx.logger,
   });
   const id = out.rows[0];
   if (!(id instanceof Uuid))
@@ -457,11 +459,13 @@ export async function killLive(
   conn: Queryable,
   id: LiveId,
   debug = false,
+  logger?: QueryLogger,
 ): Promise<void> {
   const text = liveIdText(id, "kill");
   await execute(conn, {
     statements: [{ sql: "KILL $p0", vars: { p0: text } }],
     operation: "kill",
     debug,
+    logger,
   });
 }

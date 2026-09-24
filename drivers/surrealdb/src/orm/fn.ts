@@ -44,6 +44,7 @@ export function createFnOperations(ctx: DelegateContext): FnSurface {
       operation: "fn.call",
       debug: ctx.debug,
       ...(ctx.inTransaction === true ? { inTransaction: true } : {}),
+      logger: ctx.logger,
       ...(context ? { context } : {}),
     });
     return out.rows[0];

@@ -157,6 +157,7 @@ export function createRawOperations(
         ...contextOption(ctx),
         operation,
         debug: ctx.debug,
+        logger: ctx.logger,
       });
       const responses = raw.map((response, index) =>
         statementResult<unknown>(response, {

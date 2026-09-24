@@ -268,7 +268,26 @@ Runtime `errors.ts`, `results.ts`.
 | `lazyResult<T>` — lazy thenable | `[x]` | `test/unit/orm-reads.test.ts:397` |
 | `.explain()` — reads only; writes have none | `[x]` | `test/unit/orm-writes.test.ts:618` |
 
-## 9. Errors-guard vocabulary (teaching errors by code)
+## 9. Logging & observability (M9)
+
+Runtime `src/orm/logger/*` (`colors`/`highlight`/`plan`/`logger`); public subpath
+`@better-schemic/surrealdb/logger` + the `logger` client option. The logger observes the executor
+(`runScript`), so it sees every round-trip — including `.explain()` (which fires no hooks).
+
+| Feature | Status | Surface / test |
+|---|---|---|
+| `logger` option — `true` / preset / `LoggerOptions`; `BETTER_SCHEMIC_LOG` env fallback | `[x]` | `test/unit/orm-logger.test.ts` (resolveLogger); `test/types/orm-logger.assert.ts` |
+| `pretty` frame — box, icons, syntax highlight, binds, rows, duration, counter, timestamp | `[x]` | `test/unit/orm-logger.test.ts`; `test/unit/orm-logger-highlight.test.ts` |
+| `compact` / `json` formats (log-shipper friendly, JSON-safe vars) | `[x]` | `test/unit/orm-logger.test.ts` |
+| Level gating (`debug`/`info`/`warn`/`silent`) + `slowMs` slow badge | `[x]` | `test/unit/orm-logger.test.ts` |
+| SurrealQL tokenizer (keywords/strings/records/`$binds`/`fn::`/durations/comments) + clause wrap | `[x]` | `test/unit/orm-logger-highlight.test.ts` |
+| `EXPLAIN` plan renderer — object / indented string / legacy array; `TableScan ⚠` / `IndexScan ✓` | `[x]` | `test/unit/orm-logger-plan.test.ts`; `test/live/orm-logger.test.ts` |
+| `.explain()` / `explain: true` plan logging (no hooks fired) | `[x]` | `test/unit/orm-logger.test.ts`; `test/live/orm-logger.test.ts` |
+| Auto-explain — `explain: "slow" \| "all" \| "analyze"` (`EXPLAIN [ANALYZE] FORMAT JSON`) | `[x]` | `test/unit/orm-logger.test.ts`; `test/live/orm-logger.test.ts` |
+| Coverage — reads/writes/`$raw`/`fn`/admin/changes/live/transactions + `$withContext` scope + errors | `[x]` | `test/unit/orm-logger.test.ts` |
+| Zero-overhead when absent / `silent` | `[x]` | `test/unit/orm-logger.test.ts` |
+
+## 10. Errors-guard vocabulary (teaching errors by code)
 
 Every guard below is intentional (a strongly-typed alternative to a silently-wrong query). The
 `BetterSchemicErrorCode` is the error contract; see §1–§7 for the triggering call.
@@ -304,6 +323,7 @@ Every guard below is intentional (a strongly-typed alternative to a silently-wro
 | Raw/admin/auth/api/fn/session | `[x]` — `$unsafe` gated |
 | Context/multi-connection (`$withContext`, `meta`, `forkSession`, `extends`) | `[x]` |
 | Hooks/plugins (families, `definePlugin`, F1 `rules`/`zod`, F2 `timestamps`/`soft-delete`) | `[x]` |
+| Logger (`logger: true`/presets, `EXPLAIN` plan rendering, auto-explain, `@better-schemic/surrealdb/logger`) | `[x]` |
 | Types/errors/results (26 codes, predicates, throwing/lazy results, explain) | `[x]` |
 
 > **Not in this document:** DDL/schema authoring → [`COVERAGE.md`](./COVERAGE.md); the raw SurrealQL

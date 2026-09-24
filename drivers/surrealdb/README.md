@@ -278,6 +278,53 @@ const all  = await client.users.findMany({ deleted: "with" }); // include them
 await client.users.restoreById(id);                            // clear deletedAt
 ```
 
+### Beautiful query logging (M9)
+
+Enable the built-in logger with one flag — a framed, syntax-highlighted box for every round-trip,
+with timing, row counts and (optionally) the `EXPLAIN` plan tree:
+
+```ts
+const client = betterSchemic(db, { schema, logger: true });
+// presets: "pretty" (default) | "compact" | "json" (log shippers) | "silent"
+// await client.users.findMany({ where: { age: { gte: 18 } } });
+// ╭─ 🔍 findMany · user ─────────────────────────────╮
+// │ SELECT * FROM user                               │
+// │   WHERE age >= $p0                               │
+// │ $p0 = 18                                         │
+// ╰─ 2 rows · 12.4ms · #1 · 14:03:22.881 ────────────╯
+```
+
+It observes the **executor** (reads, writes, `$raw`, `fn`, admin, changes, live — and `.explain()`
+plans), never changing the operation:
+
+```ts
+const client = betterSchemic(db, {
+  schema,
+  logger: {
+    slowMs: 50,          // mark slow queries (also gates `level: "info"`)
+    explain: "slow",     // auto-EXPLAIN reads >= slowMs ("all" | "analyze" available)
+    verbose: true,       // preview the first rows
+    colors: "auto",      // honours NO_COLOR / FORCE_COLOR / TTY
+  },
+});
+
+// .explain() / explain: true render the server plan as an operator tree:
+// ╭─ 🔎 EXPLAIN findMany · user ─────────────────────────────────╮
+// │ SELECT * FROM user WHERE age >= $p0                          │
+// │ plan                                                         │
+// │ SelectProject [ctx: Db, projections: *]                      │
+// │ └─ TableScan [ctx: Db, table: user, direction: Forward] ⚠ full scan
+// ╰─ 0.11ms · #2 ───────────────────────────────────────────────╯
+```
+
+Construct one explicitly (or use another preset) via the dedicated subpath, and enable it without
+code with `BETTER_SCHEMIC_LOG=1|pretty|json` (`BETTER_SCHEMIC_LOG_LEVEL`, `BETTER_SCHEMIC_LOG_SLOW_MS`):
+
+```ts
+import { createQueryLogger } from "@better-schemic/surrealdb/logger";
+const client = betterSchemic(db, { schema, logger: createQueryLogger({ format: "json" }) });
+```
+
 
 `client.users.$model` is the delegate metadata; `client.repository("user")` looks
 up by schema key OR physical name; `client.tables` lists the keys; `client.$sdk`
@@ -292,7 +339,8 @@ escape hatches/admin/context (M5 — `$raw`/`$query`/`$unsafe`, `fn`/`api`/`auth
 `ping`/`export`/`import`, `$withContext` multi-tenant scoping with per-call `context`) and
 plugins/hooks (M6 — observation `hooks`, `definePlugin` with transforms/typed `operationArgs`/
 `extendClient`/`extendModel`, plus the official plugins `plugins/rules`, `plugins/zod`,
-`plugins/timestamps` and `plugins/soft-delete`).
+`plugins/timestamps` and `plugins/soft-delete`). M9 adds the built-in query logger
+(`logger: true` / `@better-schemic/surrealdb/logger`) with `EXPLAIN` plan rendering.
 
 The runtime surface is mapped exhaustively in [`docs/ORM-COVERAGE.md`](docs/ORM-COVERAGE.md), the
 live-verified SurrealQL facts live in [`docs/orm-syntax-map.md`](docs/orm-syntax-map.md), the
