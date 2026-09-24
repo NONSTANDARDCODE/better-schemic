@@ -65,8 +65,8 @@
     "./orm": {
       "bun": "./src/orm/index.ts",
       "import": {
-        "types": "./lib/orm.d.ts",
-        "default": "./lib/orm.js"
+        "types": "./lib/orm/index.d.ts",
+        "default": "./lib/orm/index.js"
       }
     },
     "./plugins/rules": {
@@ -100,7 +100,7 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && tsc -p tsconfig.build.json",
     "prepack": "bun run build",
     "test": "bun test",
     "test:types": "bun run ../../scripts/type-perf.ts drivers/surrealdb",

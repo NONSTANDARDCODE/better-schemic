@@ -7,7 +7,7 @@ export default defineConfig({
     connection: "src/connection.ts",
     query: "src/query.ts",
     logger: "src/logger.ts",
-    orm: "src/orm/index.ts",
+    "orm/index": "src/orm/index.ts",
     "plugins/rules": "src/plugins/rules.ts",
     "plugins/zod": "src/plugins/zod.ts",
     "plugins/timestamps": "src/plugins/timestamps.ts",
@@ -16,7 +16,10 @@ export default defineConfig({
   outDir: "lib",
   format: ["esm"],
   target: "esnext",
-  dts: true,
+  // Declarations are NOT emitted here: rollup-plugin-dts ran one TS program per entry and its worker
+  // blew past its ~2 GB heap on the 10-entry graph (zod-driven type instantiation). A single
+  // `tsc -p tsconfig.build.json` pass emits the whole tree's `.d.ts` in ~40 s / <1 GB. See package.json.
+  dts: false,
   clean: true,
   sourcemap: true,
   // Keep @better-schemic/core external — one shared module instance (its registries/WeakMaps must match

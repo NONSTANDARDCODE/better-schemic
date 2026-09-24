@@ -300,6 +300,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `source.{commit,hash}` header for vendoring consumers.
 
 ### Changed
+- **surrealdb (tooling):** declaration (`.d.ts`) generation no longer runs through `tsup`'s per-entry
+  `rollup-plugin-dts` worker. That worker built one TypeScript program over the zod-heavy authoring
+  graph and exceeded its ~2 GB heap on the 10 entries (the release swallowed an
+  `ERR_WORKER_OUT_OF_MEMORY` unless `--max-old-space-size` was raised, and took ~147 s even then). A
+  single `tsc -p tsconfig.build.json` pass emits the whole tree's declarations in ~40 s / <1 GB, so
+  `tsup` now builds JS only (`dts: false`) and `build` runs `tsup && tsc -p tsconfig.build.json`. The
+  emitted declarations are per-module (mirroring `src/`) instead of bundled per subpath; the only
+  moved path is the ORM subpath (`lib/orm.d.ts`/`lib/orm.js` → `lib/orm/index.d.ts`/`lib/orm/index.js`),
+  reflected in `exports`.
 - **repo (tooling):** the coverage gate is now **two-tier** (`coverage.config.json`): a `critical` list
   of core algorithms must reach **100%** on every metric, while every other in-scope file only has to
   clear a global floor of **95%** statements/branches/functions/lines and **90%** conditions
