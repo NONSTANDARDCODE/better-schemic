@@ -132,6 +132,8 @@ const next = await client.users.cursor({
   limit: 20,
   after: { age: 30, id: "user:42" },
 });
+// Cursor values carry the STORED value (`s.datetime()` round-trips a `DateTime` with nanoseconds;
+// `id` a `RecordId`) — never the codec-decoded app value, so `after`/`before` never lose precision.
 
 // Writes (M2) — validated by the codec, one round-trip, decoded rows back:
 const created = await client.users.create({

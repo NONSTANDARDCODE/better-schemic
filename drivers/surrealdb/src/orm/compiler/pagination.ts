@@ -194,8 +194,9 @@ export interface CursorPlan {
   /** The page was fetched in reverse; the delegate reverses the rows back. */
   readonly backward: boolean;
   /**
-   * Where each `orderBy` field rides in the decoded row: in place, or under a reserved
-   * `_keyset_<n>` alias the delegate reads for the cursor and strips from `data`.
+   * Where each `orderBy` field rides in the RAW row: in place, or under a reserved
+   * `_keyset_<n>` alias the delegate reads for the cursor and strips from `data`. Cursor values
+   * are never codec-decoded (a `DateTime` keeps its nanoseconds).
    */
   readonly keyset: readonly CursorKey[];
 }

@@ -303,22 +303,22 @@ function cursorPlan(
   const decode = (rows: readonly unknown[]): unknown => {
     const pageRows = rowsAt(rows, 0);
     const hasMore = pageRows.length > plan.limit;
-    const decoded = decodeRows(
-      pageRows.slice(0, plan.limit),
-      meta,
-      plan.projection,
-      ctx.index,
-    );
+    const probe = pageRows.slice(0, plan.limit);
+    const decoded = decodeRows(probe, meta, plan.projection, ctx.index);
     const data = plan.backward ? [...decoded].reverse() : decoded;
+    // The cursors carry the STORED value, so they read the RAW probe rows paired positionally
+    // with `data` (both reversed for `before`) — never the codec-decoded app value. A datetime
+    // field keeps its nanoseconds (`Date` would truncate to ms, and the keyset predicate would
+    // then skip every row created in the same millisecond).
+    const raw = plan.backward ? [...probe].reverse() : probe;
     const hasPrevious = plan.backward
       ? hasMore
       : args.after !== undefined || args.before !== undefined;
     const hasNext = plan.backward ? true : hasMore;
-    // Build the cursors BEFORE stripping the keyset aliases — they ride the decoded row.
     const nextCursor = hasNext
-      ? cursorOf(data[data.length - 1], plan.keyset)
+      ? cursorOf(raw[raw.length - 1], plan.keyset)
       : null;
-    const previousCursor = hasPrevious ? cursorOf(data[0], plan.keyset) : null;
+    const previousCursor = hasPrevious ? cursorOf(raw[0], plan.keyset) : null;
     for (const row of data) stripKeyset(row, plan.keyset);
     return {
       data,
@@ -357,7 +357,7 @@ function cursorOf(row: unknown, keyset: readonly CursorKey[]): unknown {
     if (value === undefined)
       throw compileError(
         "ValidationError",
-        `cursor: the decoded row is missing "${key.field}" — the server returned no value for an orderBy field (a NONE keyset value can't build a cursor).`,
+        `cursor: the raw row is missing "${key.field}" — the server returned no value for an orderBy field (a NONE keyset value can't build a cursor).`,
         { operation: "cursor", field: key.field },
       );
     tuple[key.field] = value;
@@ -366,7 +366,7 @@ function cursorOf(row: unknown, keyset: readonly CursorKey[]): unknown {
 }
 
 /**
- * Read one keyset value off a decoded row: the reserved alias, or the field itself — its nested
+ * Read one keyset value off a raw row: the reserved alias, or the field itself — its nested
  * path, falling back to the flat key a same-path `select` alias lands under.
  */
 function keysetValue(row: unknown, key: CursorKey): unknown {
@@ -383,7 +383,7 @@ function stripKeyset(row: unknown, keyset: readonly CursorKey[]): void {
   for (const key of keyset) if (key.alias !== undefined) delete row[key.alias];
 }
 
-/** Read a dotted path off a decoded row (`undefined` when an ancestor is missing or a scalar). */
+/** Read a dotted path off a raw row (`undefined` when an ancestor is missing or a scalar). */
 function readPath(value: unknown, segments: readonly string[]): unknown {
   let current: unknown = value;
   for (const segment of segments) {

@@ -268,6 +268,12 @@ SELECT [VALUE] <projeção> FROM <alvo>
 | `SELECT *, age AS _keyset_0 OMIT age FROM t ORDER BY age ASC` | o alias explícito **sobrevive ao `OMIT`** (inclusive de um ancestral) — o compilador nunca reescreve `select`/`omit` |
 | `ORDER BY <alias do select>` | resolve o **alias**, não o campo — por isso um `select` que redefine o nome do campo ordenado é erro de compilação |
 
+> O cursor monta `nextCursor`/`previousCursor` a partir da linha **crua** (raw), nunca do valor
+> decodificado pelo codec: um campo `datetime` volta como `DateTime` do SDK com nanossegundos (o
+> bind CBOR usa `toCompact()`), então `after`/`before` comparam o valor exato do banco. O `Date` do
+> codec trunca em milissegundos e faria o predicate `field < $c OR (field = $c AND …)` pular todas
+> as linhas criadas no mesmo ms. `data` continua decodificado e sem os aliases `_keyset_<n>`.
+
 ---
 
 ## 4. WHERE — operadores verificados

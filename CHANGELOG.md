@@ -18,6 +18,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+### Fixed
+- **surrealdb:** `cursor` now builds `nextCursor`/`previousCursor` from the RAW result rows, not the
+  codec-decoded ones: a `s.datetime()` keyset field carries the SDK `DateTime` with nanoseconds
+  (the CBOR bind uses `toCompact()`), so `after`/`before` compare the exact stored value — the
+  `Date` the codec produces truncates to ms and made the keyset predicate skip every row created in
+  the same millisecond. `data` still decodes to app values and never exposes the `_keyset_<n>`
+  aliases. Tests: `test/unit/orm-cursor.test.ts`, `test/live/orm-reads.test.ts`; docs:
+  `docs/orm-syntax-map.md` §3.3, `docs/ORM-COVERAGE.md`, `README.md`.
+
 ## [0.1.0-alpha.3] - 2026-10-02
 
 ### Changed

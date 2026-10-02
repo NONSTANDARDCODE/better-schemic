@@ -61,7 +61,10 @@ export interface ProjectionExtras {
   readonly parts?: readonly string[];
   /** Link fields materialized by `FETCH` — the base `*` decode must pass them through. */
   readonly passthrough?: readonly string[];
-  /** Aliases appended to the projection (`path AS alias`), decoded as leaves (keyset cursors). */
+  /**
+   * Aliases appended to the projection (`path AS alias`), decoded as leaves — the delegate strips
+   * them from `data`; keyset cursor values are read from the RAW rows, not these decoded leaves.
+   */
   readonly aliases?: readonly ProjectionAlias[];
 }
 

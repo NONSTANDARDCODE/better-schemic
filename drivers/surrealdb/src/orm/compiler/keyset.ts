@@ -1,14 +1,16 @@
 /**
- * The cursor keyset projection — where `cursor`'s `orderBy` fields ride in the decoded row.
+ * The cursor keyset projection — where `cursor`'s `orderBy` fields ride in the result rows.
  *
  * A keyset read must carry every ordered field to build `nextCursor`/`previousCursor`, but the
  * user's `select` does not have to return them. When the projection already returns a field, the
  * cursor reads it in place; when it doesn't (a narrower sub-select, an alias, an expression, a
  * `*` + `omit`), the compiler APPENDS a reserved top-level alias (`path AS _keyset_<n>`) that the
- * runtime reads for the cursor and deletes from `data` afterwards. The user's projection is never
- * rewritten and `omit` is never dropped, so `data` stays exactly the selection. The one remaining
- * teaching error is a projection entry that REDEFINES the ordered name (`{ age: "id" }`): ORDER BY
- * binds select aliases, so the keyset predicate and the sort would read different values.
+ * runtime reads for the cursor and deletes from `data` afterwards. Cursor values come from the RAW
+ * rows (never the codec-decoded app values), so a `DateTime` keeps its nanoseconds. The user's
+ * projection is never rewritten and `omit` is never dropped, so `data` stays exactly the selection.
+ * The one remaining teaching error is a projection entry that REDEFINES the ordered name
+ * (`{ age: "id" }`): ORDER BY binds select aliases, so the keyset predicate and the sort would read
+ * different values.
  */
 import type { ModelMeta } from "../meta";
 import {
@@ -18,11 +20,14 @@ import {
   pathSegments,
 } from "./shared";
 
-/** Where one `orderBy` field rides in the decoded row. */
+/** Where one `orderBy` field rides in the result row. */
 export interface CursorKey {
   /** The ordered field path (also the `nextCursor`/`previousCursor` tuple key). */
   readonly field: string;
-  /** The reserved alias carrying the value; absent = the projection returns it in place. */
+  /**
+   * The reserved alias carrying the value; absent = the projection returns it in place. The
+   * cursor reads the value from the RAW row under this key (never the decoded app value).
+   */
   readonly alias?: string;
 }
 

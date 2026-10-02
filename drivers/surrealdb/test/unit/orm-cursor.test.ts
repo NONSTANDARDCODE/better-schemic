@@ -3,7 +3,7 @@
 // not return, reads the cursors from them and strips them from `data`. Offline. `paginate` lives in
 // `orm-pagination.test.ts`.
 import { describe, expect, test } from "bun:test";
-import { RecordId } from "surrealdb";
+import { DateTime, RecordId } from "surrealdb";
 import { surql } from "../../src/index";
 import { betterSchemic } from "../../src/orm/client";
 import { compileCursor } from "../../src/orm/compiler/pagination";
@@ -986,5 +986,99 @@ describe("cursor — guard paths", () => {
         after: { id: new RecordId("user", "5") },
       }).sql,
     ).toContain("id >");
+  });
+});
+
+describe("cursor — raw keyset values (datetime precision)", () => {
+  const Event = defineTable("event", {
+    name: s.string(),
+    at: s.datetime(),
+  });
+
+  /** A `DateTime` sharing one millisecond (`.123`) with distinct nanoseconds. */
+  const at = (ns: number): DateTime =>
+    new DateTime(`2026-08-01T10:00:00.12300000${ns}Z`);
+
+  /** A full raw row whose `at` carries nanoseconds (same ms across the fixture). */
+  const eventRow = (id: string, ns: number) => ({
+    id: new RecordId("event", id),
+    name: `ns-${id}`,
+    at: at(ns),
+  });
+
+  test("an aliased datetime keyset value keeps its nanoseconds", async () => {
+    // The server answers the ALIASED projection: `at`/`id` ride `_keyset_0`/`_keyset_1`.
+    const rows = [7, 6, 5].map((ns) => ({
+      name: `ns-${ns}`,
+      _keyset_0: at(ns),
+      _keyset_1: new RecordId("event", String(ns)),
+    }));
+    const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
+    const client = betterSchemic(conn, { schema: { events: Event } });
+    const page = await client.events.cursor({
+      limit: 2,
+      select: { name: true },
+      orderBy: [{ at: "desc" }, { id: "desc" }],
+    });
+    expect(calls[0]?.sql).toContain("at AS _keyset_0, id AS _keyset_1");
+    expect(page.data).toEqual([{ name: "ns-7" }, { name: "ns-6" }]);
+    expect(Object.keys(page.data[0] as object)).not.toContain("_keyset_0");
+    // The cursor carries the STORED DateTime (ns), not the ms-truncated decoded Date.
+    const cursor = page.pagination.nextCursor as { at: DateTime; id: RecordId };
+    expect(cursor.at).toBeInstanceOf(DateTime);
+    expect(cursor.at.toISOString()).toBe("2026-08-01T10:00:00.123000006Z");
+    expect(JSON.parse(JSON.stringify(cursor.at))).toBe(
+      "2026-08-01T10:00:00.123000006Z",
+    );
+    // Feeding it back binds the exact DateTime — the ns survive `after`.
+    await client.events.cursor({
+      limit: 2,
+      select: { name: true },
+      orderBy: [{ at: "desc" }, { id: "desc" }],
+      after: cursor,
+    });
+    const bound = calls[1]?.vars?.c0;
+    expect(bound).toBeInstanceOf(DateTime);
+    expect((bound as DateTime).toISOString()).toBe(
+      "2026-08-01T10:00:00.123000006Z",
+    );
+  });
+
+  test("an in-place datetime decodes to Date but its cursor stays raw", async () => {
+    const rows = [eventRow("7", 7), eventRow("6", 6), eventRow("5", 5)];
+    const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
+    const client = betterSchemic(conn, { schema: { events: Event } });
+    const page = await client.events.cursor({
+      limit: 2,
+      select: { at: true, name: true, id: true },
+      orderBy: [{ at: "desc" }, { id: "desc" }],
+    });
+    expect(calls[0]?.sql).toBe(
+      "SELECT at, name, id FROM event ORDER BY at DESC, id DESC LIMIT $p0;",
+    );
+    const row = page.data[0] as { at: Date };
+    expect(row.at).toBeInstanceOf(Date);
+    expect(row.at.toISOString()).toBe("2026-08-01T10:00:00.123Z");
+    const cursor = page.pagination.nextCursor as { at: DateTime; id: RecordId };
+    expect(cursor.at).toBeInstanceOf(DateTime);
+    expect(cursor.at.toISOString()).toBe("2026-08-01T10:00:00.123000006Z");
+  });
+
+  test("a star row decodes `at` to Date and keeps the raw cursor", async () => {
+    const rows = [eventRow("7", 7), eventRow("6", 6), eventRow("5", 5)];
+    const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
+    const client = betterSchemic(conn, { schema: { events: Event } });
+    const page = await client.events.cursor({
+      limit: 2,
+      orderBy: [{ at: "desc" }, { id: "desc" }],
+    });
+    expect(calls[0]?.sql).toBe(
+      "SELECT * FROM event ORDER BY at DESC, id DESC LIMIT $p0;",
+    );
+    const row = page.data[0] as { at: Date };
+    expect(row.at.toISOString()).toBe("2026-08-01T10:00:00.123Z");
+    const cursor = page.pagination.nextCursor as { at: DateTime; id: RecordId };
+    expect(cursor.at).toBeInstanceOf(DateTime);
+    expect(cursor.at.toISOString()).toBe("2026-08-01T10:00:00.123000006Z");
   });
 });

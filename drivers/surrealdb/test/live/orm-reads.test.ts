@@ -6,7 +6,7 @@ import { setDefaultTimeout } from "bun:test";
 setDefaultTimeout(120_000);
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { RecordId, Surreal } from "surrealdb";
+import { DateTime, RecordId, Surreal } from "surrealdb";
 import {
   type EphemeralServer,
   spawnEphemeralServer,
@@ -30,7 +30,11 @@ const User = defineTable("rd_user", {
   address: s.object({ city: s.string() }),
   contacts: s.array(s.object({ type: s.string(), value: s.string() })),
 }).index("rd_idx_name", ["name"], { unique: true });
-const schema = defineSchema({ users: User });
+const Event = defineTable("rd_event", {
+  name: s.string(),
+  at: s.datetime(),
+});
+const schema = defineSchema({ users: User, events: Event });
 
 live("orm reads — live", () => {
   let server: EphemeralServer;
@@ -60,6 +64,11 @@ live("orm reads — live", () => {
       DEFINE INDEX rd_idx_name ON rd_user FIELDS name UNIQUE;
       DEFINE ANALYZER rd_ascii TOKENIZERS blank,class FILTERS lowercase,ascii;
       DEFINE INDEX rd_idx_name_ft ON rd_user FIELDS name FULLTEXT ANALYZER rd_ascii BM25;
+
+      REMOVE TABLE IF EXISTS rd_event;
+      DEFINE TABLE rd_event SCHEMAFULL;
+      DEFINE FIELD name ON rd_event TYPE string;
+      DEFINE FIELD at ON rd_event TYPE datetime;
 
       CREATE rd_user:1 CONTENT { name: "Alice", age: 30, at: d'2025-01-01T00:00:00Z', tags: ["db", "graph"], address: { city: "SP" }, contacts: [{ type: "email", value: "a@x" }] };
       CREATE rd_user:2 CONTENT { name: "Bob", age: 25, active: false, at: d'2025-02-01T00:00:00Z', tags: ["db"], address: { city: "RJ" }, contacts: [{ type: "phone", value: "555" }] };
@@ -389,6 +398,60 @@ live("orm reads — live", () => {
     expect(page.data).toEqual([{ name: "Alice" }, { name: "Bob" }]);
     expect(page.pagination.nextCursor).toEqual(new RecordId("rd_user", 2));
     expect(page.pagination.hasNext).toBe(true);
+  });
+
+  test("cursor: same-millisecond datetimes paginate without skipping (ns preserved)", async () => {
+    for (let i = 1; i <= 7; i++)
+      await db.query(
+        "CREATE rd_event CONTENT { name: $name, at: type::datetime($at) };",
+        { name: `ns-${i}`, at: `2026-08-01T10:00:00.12300000${i}Z` },
+      );
+    const desc = [{ at: "desc" }, { id: "desc" }] as const;
+
+    const first = await client.events.cursor({ orderBy: desc, limit: 5 });
+    expect(first.data.map((row) => row.name)).toEqual([
+      "ns-7",
+      "ns-6",
+      "ns-5",
+      "ns-4",
+      "ns-3",
+    ]);
+    // `data` still decodes the codec value (ms), but the cursor carries the raw DateTime (ns).
+    expect(first.data[0]?.at).toBeInstanceOf(Date);
+    const cursor = first.pagination.nextCursor as {
+      at: DateTime;
+      id: RecordId;
+    };
+    expect(cursor.at).toBeInstanceOf(DateTime);
+    expect(cursor.at.toISOString()).toBe("2026-08-01T10:00:00.123000003Z");
+
+    // Before the fix this page came back EMPTY: the ms-truncated cursor skipped ns-2/ns-1.
+    const second = await client.events.cursor({
+      orderBy: desc,
+      limit: 5,
+      after: cursor,
+    });
+    expect(second.data.map((row) => row.name)).toEqual(["ns-2", "ns-1"]);
+    expect(second.pagination.hasNext).toBe(false);
+
+    // The ascending direction round-trips the same way.
+    const asc = [{ at: "asc" }, { id: "asc" }] as const;
+    const ascFirst = await client.events.cursor({ orderBy: asc, limit: 5 });
+    expect(ascFirst.data.map((row) => row.name)).toEqual([
+      "ns-1",
+      "ns-2",
+      "ns-3",
+      "ns-4",
+      "ns-5",
+    ]);
+    const ascCursor = ascFirst.pagination.nextCursor as { at: DateTime };
+    expect(ascCursor.at.toISOString()).toBe("2026-08-01T10:00:00.123000005Z");
+    const ascSecond = await client.events.cursor({
+      orderBy: asc,
+      limit: 5,
+      after: ascCursor,
+    });
+    expect(ascSecond.data.map((row) => row.name)).toEqual(["ns-6", "ns-7"]);
   });
 
   test("explain: true / .explain() return the server plan without executing", async () => {

@@ -51,7 +51,7 @@ Entry: `createReadOperations` (`reads.ts`); compiler `compiler/{select,aggregate
 | `exists` — `SELECT VALUE id … LIMIT 1` | `[x]` | `test/unit/orm-reads.test.ts:645`; `test/live/orm-reads.test.ts:200` |
 | `aggregate` — `_count`, path, `{sum,avg,min,max,median,stddev,variance,collect,distinct}`, fragment | `[x]` | `test/unit/orm-reads.test.ts:683`; `test/live/orm-reads.test.ts:214` |
 | `paginate` — data+count in ONE round-trip, offset envelope | `[x]` | `test/unit/orm-pagination.test.ts:47`; `test/live/orm-reads.test.ts:268` |
-| `cursor` — keyset tuple, unique tiebreaker, before/after; ordered fields the `select` misses ride reserved `_keyset_<n>` aliases (read for the cursors, stripped from `data`) | `[x]` | `test/unit/orm-cursor.test.ts:62`; `test/live/orm-reads.test.ts:307` |
+| `cursor` — keyset tuple, unique tiebreaker, before/after; ordered fields the `select` misses ride reserved `_keyset_<n>` aliases (read for the cursors, stripped from `data`); cursor values are the RAW stored values (`DateTime` keeps ns — never the codec-decoded app value) | `[x]` | `test/unit/orm-cursor.test.ts:62`/`:992`; `test/live/orm-reads.test.ts:307`/`:403` |
 | `where` — full operator vocabulary | `[x]` | `test/unit/orm-where.test.ts`; `test/live/orm-reads.test.ts:414` |
 | `select` — array / projection object, paths, aliases, `*`, nested, expressions | `[x]` | `test/unit/orm-reads.test.ts:63`/`:80`/`:92` |
 | `omit` — `(keyof App)[]` | `[x]` | `test/unit/orm-reads.test.ts:101` |
