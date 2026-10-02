@@ -591,6 +591,34 @@ live("ORM syntax map — live probes (server 3.x)", () => {
       );
       expect(Array.isArray(rows)).toBe(true);
     });
+
+    test("the ORDER BY idiom must be projected; aliases and `*` satisfy it", async () => {
+      // The ordered path must appear in the selection — omitting it is a parse error.
+      await expect(
+        last("SELECT id FROM user ORDER BY age ASC;"),
+      ).rejects.toThrow(/order idiom/i);
+      // An aliased projection of the ordered path IS an idiom; the alias is what comes back.
+      const rows = await last(
+        "SELECT name, age AS _keyset_0, id AS _keyset_1 FROM user ORDER BY age DESC, id ASC LIMIT 5;",
+      );
+      expect(rows[0]).toEqual({
+        name: "Carol",
+        _keyset_0: 35,
+        _keyset_1: "user:carol",
+      });
+      // `*` covers the idiom; OMIT does not remove an explicit alias of the omitted path.
+      const omitted = await last(
+        "SELECT *, age AS _keyset_0 OMIT age FROM user ORDER BY age ASC LIMIT 5;",
+      );
+      expect(omitted[0]).not.toHaveProperty("age");
+      expect(omitted[0]).toHaveProperty("_keyset_0");
+      // A dotted alias survives an omitted ancestor too.
+      const post = await last(
+        "SELECT *, author.name AS _keyset_0 OMIT author FROM post LIMIT 1;",
+      );
+      expect(post[0]).not.toHaveProperty("author");
+      expect(post[0]).toHaveProperty("_keyset_0");
+    });
   });
 
   describe("graph traversal", () => {

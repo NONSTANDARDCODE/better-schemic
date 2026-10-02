@@ -10,6 +10,7 @@
 import { BoundQuery } from "surrealdb";
 import type { ModelMeta, SchemaIndex } from "../meta";
 import { compileCount } from "./aggregate";
+import { type CursorKey, keysetProjection } from "./keyset";
 import type { ProjectionSpec } from "./projection";
 import { compileRead } from "./select";
 import {
@@ -146,7 +147,12 @@ export function compilePaginate(
   };
 }
 
-/** `cursor` args: a read with a required `limit` and optional `after`/`before` cursors. */
+/**
+ * `cursor` args: a read with a required `limit` and optional `after`/`before` cursors. `select`
+ * doesn't need the `orderBy` fields: the compiler appends reserved `_keyset_<n>` aliases for the
+ * keyset columns it is missing, and the delegate reads the cursors from them and strips them from
+ * the returned rows.
+ */
 export interface CursorArgs {
   where?: unknown;
   select?: unknown;
@@ -171,6 +177,12 @@ export interface CursorArgs {
   groupBy?: unknown;
   groupAll?: unknown;
   split?: unknown;
+  /** Rejected: a VALUE projection is a scalar, not a keyset row. */
+  value?: unknown;
+  /** Rejected: a cursor page is many rows. */
+  only?: unknown;
+  /** Rejected: offsets are `paginate`'s job — the keyset moves with after/before. */
+  start?: unknown;
 }
 
 /** The compiled `cursor` plan. */
@@ -181,6 +193,11 @@ export interface CursorPlan {
   readonly order: readonly CursorOrder[];
   /** The page was fetched in reverse; the delegate reverses the rows back. */
   readonly backward: boolean;
+  /**
+   * Where each `orderBy` field rides in the decoded row: in place, or under a reserved
+   * `_keyset_<n>` alias the delegate reads for the cursor and strips from `data`.
+   */
+  readonly keyset: readonly CursorKey[];
 }
 
 /**
@@ -225,6 +242,13 @@ export function compileCursor(
         ? predicate
         : { AND: [args.where, predicate] };
 
+  const keyset = keysetProjection(
+    meta,
+    args.select,
+    args.omit,
+    order,
+    operation,
+  );
   const compiled = compileRead(
     meta,
     {
@@ -241,7 +265,7 @@ export function compileCursor(
     },
     binds,
     operation,
-    { index: options.index },
+    { index: options.index, aliases: keyset.aliases },
   );
   return {
     sql: compiled.sql,
@@ -249,6 +273,7 @@ export function compileCursor(
     limit,
     order,
     backward,
+    keyset: keyset.keys,
   };
 }
 
@@ -262,6 +287,24 @@ function rejectPaginationArgs(args: CursorArgs, operation: string): void {
         `${operation}: "${key}" is not supported with cursor pagination — use paginate() or $query.`,
         { operation },
       );
+  if (args.value === true)
+    throw compileError(
+      "ClauseNotSupported",
+      `${operation}: "value" is not supported with cursor pagination — a VALUE row is a scalar, not a keyset row.`,
+      { operation },
+    );
+  if (args.only === true)
+    throw compileError(
+      "ClauseNotSupported",
+      `${operation}: "only" is not supported with cursor pagination — a cursor page is many rows. Use findUnique for a single row.`,
+      { operation },
+    );
+  if (args.start !== undefined)
+    throw compileError(
+      "ClauseNotSupported",
+      `${operation}: "start" is not supported with cursor pagination — the keyset moves with after/before. Use paginate for offset pages.`,
+      { operation },
+    );
 }
 
 /** Parse `orderBy` into plain field/direction entries (default: `id asc`). */

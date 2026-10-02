@@ -359,6 +359,38 @@ live("orm reads — live", () => {
     expect(second.pagination.hasNext).toBe(false);
   });
 
+  test("cursor: orderBy fields omitted from select are projected and stripped", async () => {
+    const first = await client.users.cursor({
+      select: { name: true },
+      orderBy: [{ age: "desc" }, { id: "asc" }],
+      limit: 2,
+    });
+    expect(first.data).toEqual([{ name: "Carol" }, { name: "Alice" }]);
+    expect(first.pagination.nextCursor).toEqual({
+      age: 30,
+      id: new RecordId("rd_user", 1),
+    });
+
+    const second = await client.users.cursor({
+      select: { name: true },
+      orderBy: [{ age: "desc" }, { id: "asc" }],
+      limit: 2,
+      after: first.pagination.nextCursor as Record<string, unknown>,
+    });
+    expect(second.data).toEqual([{ name: "Bob" }]);
+    expect(second.pagination.hasNext).toBe(false);
+  });
+
+  test("cursor: the default id keyset works with a select that omits id", async () => {
+    const page = await client.users.cursor({
+      select: { name: true },
+      limit: 2,
+    });
+    expect(page.data).toEqual([{ name: "Alice" }, { name: "Bob" }]);
+    expect(page.pagination.nextCursor).toEqual(new RecordId("rd_user", 2));
+    expect(page.pagination.hasNext).toBe(true);
+  });
+
   test("explain: true / .explain() return the server plan without executing", async () => {
     const plan = await client.users.findMany({
       where: { active: true },

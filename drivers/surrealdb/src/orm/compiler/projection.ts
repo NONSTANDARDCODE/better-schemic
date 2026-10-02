@@ -55,12 +55,22 @@ export interface ProjectionSpec {
   readonly includes: readonly IncludeSpec[];
 }
 
-/** Extra projection sources the read assembler merges in (`include`). */
+/** Extra projection sources the read assembler merges in (`include`, cursor keyset columns). */
 export interface ProjectionExtras {
   /** SQL expressions appended to the projection (`author.id AS author_id`, subqueries, counts). */
   readonly parts?: readonly string[];
   /** Link fields materialized by `FETCH` — the base `*` decode must pass them through. */
   readonly passthrough?: readonly string[];
+  /** Aliases appended to the projection (`path AS alias`), decoded as leaves (keyset cursors). */
+  readonly aliases?: readonly ProjectionAlias[];
+}
+
+/** One alias the read appends: `path AS alias`, landing as a decoded top-level key. */
+export interface ProjectionAlias {
+  /** The output/raw key the alias lands under. */
+  readonly alias: string;
+  /** The field path the alias projects. */
+  readonly path: string;
 }
 
 /** The full-row decode spec (writes always return whole records). ONE canonical instance. */
@@ -82,6 +92,15 @@ export function compileProjection(
   const omitList = omitListOf(omit, operation);
   const extraParts = extras.parts ?? [];
   const passthrough = extras.passthrough ?? [];
+  // Caller-appended aliases (`author_id`, cursor keyset columns) decode as regular leaves; they
+  // never participate in `*`/`omit` (the overlay runs after the star decode + omit deletions).
+  const aliases = extras.aliases ?? [];
+  const aliasParts = aliases.map(
+    ({ alias, path }) => `${renderPath(path)} AS ${escapeIdent(alias)}`,
+  );
+  const aliasFields = aliases.map(({ alias, path }) =>
+    projectedFieldFor(meta, [alias], [alias], path.split("."), split),
+  );
   if (select === undefined || select === null) {
     if (value)
       throw compileError(
@@ -96,14 +115,15 @@ export function compileProjection(
       passthrough,
       operation,
     );
+    const allParts = [...extraParts, ...aliasParts];
     return {
       text: starText(
-        extraParts.length ? `*, ${extraParts.join(", ")}` : "*",
+        allParts.length ? `*, ${allParts.join(", ")}` : "*",
         omitList,
       ),
       spec: {
         star: true,
-        fields: [],
+        fields: aliasFields,
         omit: omitList,
         value: false,
         includes: [],
@@ -121,7 +141,17 @@ export function compileProjection(
           `${operation}: select array entries must be field names, got ${describeValue(key)}.`,
           { operation },
         );
-      fields.push(projectedFieldFor(meta, [key], [key], key.split("."), split));
+      // The server returns a dotted path NESTED (`SELECT address.city` → `{ address: { city } }`),
+      // so the leaf decodes from the nested raw path even though the projected key stays literal.
+      fields.push(
+        projectedFieldFor(
+          meta,
+          [key],
+          pathSegments(key),
+          key.split("."),
+          split,
+        ),
+      );
     }
     if (fields.length === 0)
       throw compileError(
@@ -131,8 +161,16 @@ export function compileProjection(
       );
     if (value) return valueProjection(fields, operation);
     return {
-      text: [...fields.map((f) => f.expr), ...extraParts].join(", "),
-      spec: { star: false, fields, omit: [], value: false, includes: [] },
+      text: [...fields.map((f) => f.expr), ...extraParts, ...aliasParts].join(
+        ", ",
+      ),
+      spec: {
+        star: false,
+        fields: [...fields, ...aliasFields],
+        omit: [],
+        value: false,
+        includes: [],
+      },
     };
   }
 
@@ -177,7 +215,7 @@ export function compileProjection(
       `${operation}: select is empty — project at least one field.`,
       { operation },
     );
-  const allParts = [...parts, ...extraParts];
+  const allParts = [...parts, ...extraParts, ...aliasParts];
   const text = star
     ? starText(allParts.length ? `*, ${allParts.join(", ")}` : "*", omitList)
     : allParts.join(", ");
@@ -188,7 +226,7 @@ export function compileProjection(
     text,
     spec: {
       star,
-      fields,
+      fields: [...fields, ...aliasFields],
       omit: star ? omitList : [],
       value: false,
       includes: [],

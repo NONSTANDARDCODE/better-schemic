@@ -73,12 +73,13 @@ export const reads = group(
         client.users.paginate({ where: { active: true }, limit: 20, start: 0 }),
     }),
     ormExample(import.meta.url, {
-      title: "cursor — keyset after",
-      note: "The probe fetches limit+1 rows so `hasNext` needs no extra query.",
-      sql: "SELECT * FROM user WHERE (id > $c0) ORDER BY id ASC LIMIT $p0;",
+      title: "cursor — keyset after (orderBy keys auto-projected)",
+      note: "The probe fetches limit+1 rows; `name` is the only selected column, so `id` rides along as the reserved `_keyset_0` alias — read for the cursor, stripped from `data`.",
+      sql: "SELECT name, id AS _keyset_0 FROM user WHERE (id > $c0) ORDER BY id ASC LIMIT $p0;",
       vars: { c0: "user:10", p0: 21 },
       def: (client) =>
         client.users.cursor({
+          select: { name: true },
           orderBy: [{ id: "asc" }],
           limit: 20,
           after: "user:10",

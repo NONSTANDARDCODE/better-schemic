@@ -50,8 +50,8 @@ Entry: `createReadOperations` (`reads.ts`); compiler `compiler/{select,aggregate
 | `count` — `SELECT count() … GROUP ALL` | `[x]` | `test/unit/orm-reads.test.ts:623`; `test/live/orm-reads.test.ts:200` |
 | `exists` — `SELECT VALUE id … LIMIT 1` | `[x]` | `test/unit/orm-reads.test.ts:645`; `test/live/orm-reads.test.ts:200` |
 | `aggregate` — `_count`, path, `{sum,avg,min,max,median,stddev,variance,collect,distinct}`, fragment | `[x]` | `test/unit/orm-reads.test.ts:683`; `test/live/orm-reads.test.ts:214` |
-| `paginate` — data+count in ONE round-trip, offset envelope | `[x]` | `test/unit/orm-pagination.test.ts:56`; `test/live/orm-reads.test.ts:268` |
-| `cursor` — keyset tuple, unique tiebreaker, before/after | `[x]` | `test/unit/orm-pagination.test.ts:214`; `test/live/orm-reads.test.ts:307` |
+| `paginate` — data+count in ONE round-trip, offset envelope | `[x]` | `test/unit/orm-pagination.test.ts:47`; `test/live/orm-reads.test.ts:268` |
+| `cursor` — keyset tuple, unique tiebreaker, before/after; ordered fields the `select` misses ride reserved `_keyset_<n>` aliases (read for the cursors, stripped from `data`) | `[x]` | `test/unit/orm-cursor.test.ts:62`; `test/live/orm-reads.test.ts:307` |
 | `where` — full operator vocabulary | `[x]` | `test/unit/orm-where.test.ts`; `test/live/orm-reads.test.ts:414` |
 | `select` — array / projection object, paths, aliases, `*`, nested, expressions | `[x]` | `test/unit/orm-reads.test.ts:63`/`:80`/`:92` |
 | `omit` — `(keyof App)[]` | `[x]` | `test/unit/orm-reads.test.ts:101` |
@@ -298,11 +298,11 @@ Every guard below is intentional (a strongly-typed alternative to a silently-wro
 | `UnsafeDisabled` | `$unsafe` without `raw: { unsafe: true }` |
 | `UnsafeMutation` | `deleteMany` without `where` (requires `all:true`) |
 | `UnknownField` | unknown include option / where key |
-| `ValidationError` | arg shape errors (`take`/`skip`, mixed relational ops, invalid patch, missing `by`) |
+| `ValidationError` | arg shape errors (`take`/`skip`, mixed relational ops, invalid patch, missing `by`); cursor `orderBy` field redefined by a select alias/expression (ORDER BY would bind the alias) |
 | `UniqueTargetRequired` | `findUnique`/`update`/`delete` `where` not `id`/single-field UNIQUE |
 | `ReturnNotSupported` | unsupported `return` for the op (`after`/`diff` on delete, `diff` on expression upsert) |
 | `HavingUnsupported` | `aggregate.having` |
-| `ClauseNotSupported` | `aggregate`+`split`, `include`+`value`/`split`/`groupBy`, cursor with group/split |
+| `ClauseNotSupported` | `aggregate`+`split`, `include`+`value`/`split`/`groupBy`, cursor with group/split/`value`/`only`/`start` |
 | `ClauseNotSupportedInLive` | disallowed clause in `live` |
 | `LiveInTransaction` / `LiveQueryUnsupported` | `live` in a tx / over a websocket-less transport |
 | `CursorDirectionConflict` / `CursorTiebreakerRequired` | `after`+`before`; non-unique last order field |

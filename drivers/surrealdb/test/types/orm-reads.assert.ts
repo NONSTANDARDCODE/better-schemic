@@ -11,6 +11,7 @@ import type { ExplainResult, ThrowingResult } from "../../src/orm/results";
 import { defineSchema } from "../../src/orm/schema";
 import type {
   AggregateShape,
+  CursorArgs,
   CursorResult,
   FindManyResult,
   FindOneResult,
@@ -198,6 +199,28 @@ describe("read envelopes", () => {
       CursorResult<Row>,
       Awaited<ReadResult<CursorResult<Row>, Record<string, never>>>
     >();
+  });
+
+  it("cursor: select may omit the orderBy fields; value/only/start are off-surface", () => {
+    attest<
+      { name: string },
+      ResultOf<
+        U,
+        {
+          select: { name: true };
+          orderBy: [{ age: "desc" }, { id: "asc" }];
+        }
+      >
+    >();
+    // @ts-expect-error — a VALUE projection is a scalar, not a keyset row
+    const withValue: CursorArgs<U> = { limit: 1, value: true };
+    // @ts-expect-error — a cursor page is many rows
+    const withOnly: CursorArgs<U> = { limit: 1, only: true };
+    // @ts-expect-error — offsets are `paginate`'s job
+    const withStart: CursorArgs<U> = { limit: 1, start: 5 };
+    void withValue;
+    void withOnly;
+    void withStart;
   });
 
   it("aggregate shapes dispatch per operator", () => {

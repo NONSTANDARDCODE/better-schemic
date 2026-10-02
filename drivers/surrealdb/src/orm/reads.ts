@@ -14,6 +14,7 @@ import {
   compileCount,
   compileExists,
 } from "./compiler/aggregate";
+import type { CursorKey } from "./compiler/keyset";
 import type {
   CursorArgs as CursorRuntimeArgs,
   PaginateArgs as PaginateRuntimeArgs,
@@ -21,10 +22,15 @@ import type {
 import { compileCursor, compilePaginate } from "./compiler/pagination";
 import type { CompileReadOptions, ReadArgs } from "./compiler/select";
 import { compileRead } from "./compiler/select";
-import { type Binds, compileError, createBinds } from "./compiler/shared";
+import {
+  type Binds,
+  compileError,
+  createBinds,
+  pathSegments,
+} from "./compiler/shared";
 import { uniqueTarget } from "./compiler/unique";
 import { contextOption, resolveMeta } from "./context";
-import { decodeRow, decodeRows } from "./decode";
+import { decodeRow, decodeRows, isRecord } from "./decode";
 import type { DelegateContext } from "./delegate";
 import { execute, type Statement } from "./execute";
 import { runWithHooks } from "./hooks";
@@ -308,16 +314,20 @@ function cursorPlan(
       ? hasMore
       : args.after !== undefined || args.before !== undefined;
     const hasNext = plan.backward ? true : hasMore;
+    // Build the cursors BEFORE stripping the keyset aliases — they ride the decoded row.
+    const nextCursor = hasNext
+      ? cursorOf(data[data.length - 1], plan.keyset)
+      : null;
+    const previousCursor = hasPrevious ? cursorOf(data[0], plan.keyset) : null;
+    for (const row of data) stripKeyset(row, plan.keyset);
     return {
       data,
       pagination: {
         type: "cursor",
         hasNext,
         hasPrevious,
-        nextCursor: hasNext
-          ? cursorOf(data[data.length - 1], plan.order)
-          : null,
-        previousCursor: hasPrevious ? cursorOf(data[0], plan.order) : null,
+        nextCursor,
+        previousCursor,
       },
     };
   };
@@ -337,24 +347,50 @@ function cursorPlan(
 }
 
 /** Extract a row's cursor value (the id for a single-id order, a tuple otherwise). */
-function cursorOf(
-  row: unknown,
-  order: readonly { readonly field: string }[],
-): unknown {
+function cursorOf(row: unknown, keyset: readonly CursorKey[]): unknown {
   if (row === undefined || row === null) return null;
-  const record = row as Record<string, unknown>;
-  if (order.length === 1 && order[0]?.field === "id") return record.id;
+  if (keyset.length === 1 && keyset[0]?.field === "id")
+    return keysetValue(row, keyset[0]);
   const tuple: Record<string, unknown> = {};
-  for (const entry of order) {
-    if (!(entry.field in record))
+  for (const key of keyset) {
+    const value = keysetValue(row, key);
+    if (value === undefined)
       throw compileError(
         "ValidationError",
-        `cursor: the decoded row is missing "${entry.field}" — include every orderBy field in "select" so the next cursor can be built.`,
-        { operation: "cursor", field: entry.field },
+        `cursor: the decoded row is missing "${key.field}" — the server returned no value for an orderBy field (a NONE keyset value can't build a cursor).`,
+        { operation: "cursor", field: key.field },
       );
-    tuple[entry.field] = record[entry.field];
+    tuple[key.field] = value;
   }
   return tuple;
+}
+
+/**
+ * Read one keyset value off a decoded row: the reserved alias, or the field itself — its nested
+ * path, falling back to the flat key a same-path `select` alias lands under.
+ */
+function keysetValue(row: unknown, key: CursorKey): unknown {
+  if (key.alias !== undefined)
+    return isRecord(row) ? row[key.alias] : undefined;
+  const nested = readPath(row, pathSegments(key.field));
+  if (nested !== undefined) return nested;
+  return isRecord(row) ? row[key.field] : undefined;
+}
+
+/** Remove the reserved keyset aliases the compiler appended (they aren't part of the result). */
+function stripKeyset(row: unknown, keyset: readonly CursorKey[]): void {
+  if (!isRecord(row)) return;
+  for (const key of keyset) if (key.alias !== undefined) delete row[key.alias];
+}
+
+/** Read a dotted path off a decoded row (`undefined` when an ancestor is missing or a scalar). */
+function readPath(value: unknown, segments: readonly string[]): unknown {
+  let current: unknown = value;
+  for (const segment of segments) {
+    if (!isRecord(current)) return undefined;
+    current = current[segment];
+  }
+  return current;
 }
 
 /** `findUnique`: target the record (id) or filter by the unique field, then take the one row. */

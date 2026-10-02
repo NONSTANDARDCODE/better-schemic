@@ -417,9 +417,18 @@ export interface PaginateArgs<TD extends AnyTableDef, S = SchemaInput>
   count?: boolean;
 }
 
-/** `cursor` args: a read with a required `limit` and the keyset cursors. */
+/**
+ * `cursor` args: a read with a required `limit` and the keyset cursors.
+ *
+ * `select` does NOT need to include the `orderBy` fields: the compiler appends reserved
+ * `_keyset_<n>` aliases for the missing keyset columns and reads the cursors from them (stripping
+ * them afterwards), so `data` is exactly the selection.
+ */
 export interface CursorArgs<TD extends AnyTableDef, S = SchemaInput>
-  extends Omit<ReadArgs<TD, S>, "limit" | "groupBy" | "groupAll" | "split"> {
+  extends Omit<
+    ReadArgs<TD, S>,
+    "limit" | "groupBy" | "groupAll" | "split" | "value" | "only" | "start"
+  > {
   limit: number;
   /** Rows after this cursor. */
   after?: CursorInput;

@@ -373,6 +373,18 @@ live("orm relations — live", () => {
       limit: 1,
     });
     expect(cursor.data[0]?._count).toBeDefined();
+
+    // A reduced select still hydrates includes; the hidden keyset `id` is stripped from `data`.
+    const reduced = await client.users.cursor({
+      select: { name: true },
+      include: { _count: { select: { likes: true } } },
+      limit: 1,
+    });
+    expect(reduced.data[0]).toEqual({
+      name: "Alice",
+      _count: { likes: 2 },
+    });
+    expect(reduced.pagination.nextCursor).toEqual(new RecordId("rl_user", 1));
   });
 
   test("M3.5: recursion flows through a surql projection fragment", async () => {

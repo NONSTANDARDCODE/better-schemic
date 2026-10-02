@@ -84,17 +84,25 @@ function skipString(src: string, i: number, quote: string): number {
 }
 
 /**
- * Extract the verbatim source of the `def:` property in an `ormExample(import.meta.url, { … def: <expr> })`
- * call — a balanced-delimiter scan from `def:` to its terminating `,`/closer at depth 0 (strings and
- * `${…}` templates skipped). `def` is authored LAST so the scan ends cleanly at the object's close.
+ * Extract the verbatim source of the `def:` property of ONE `ormExample(import.meta.url, { … })` call
+ * — the one anchored by `title: "<title>"`, so every entry renders ITS OWN snippet (a first-match
+ * scan would give every example in a file the same, first `def`). A missing title throws: a silent
+ * fallback would ship the wrong snippet instead of failing the build. A balanced-delimiter scan runs
+ * from `def:` to its terminating `,`/closer at depth 0 (strings and `${…}` templates skipped). `def`
+ * is authored LAST so the scan ends cleanly at the object's close.
  */
-function extractDefSource(src: string): string {
-  const m = /\bdef:\s*/.exec(src);
+function extractDefSource(src: string, title: string): string {
+  const anchor = src.indexOf(`title: ${JSON.stringify(title)}`);
+  if (anchor === -1)
+    throw new Error(
+      `orm example file has no \`title: ${JSON.stringify(title)}\` to anchor its \`def:\` snippet`,
+    );
+  const m = /\bdef:\s*/.exec(src.slice(anchor));
   if (!m)
     throw new Error(
       "orm example file has no `def:` property to render as `code`",
     );
-  const start = m.index + m[0].length;
+  const start = anchor + m.index + m[0].length;
   let i = start;
   let depth = 0;
   while (i < src.length) {
@@ -134,7 +142,10 @@ export function ormExample(
   return {
     title: e.title,
     note: e.note,
-    code: extractDefSource(readFileSync(fileURLToPath(metaUrl), "utf8")),
+    code: extractDefSource(
+      readFileSync(fileURLToPath(metaUrl), "utf8"),
+      e.title,
+    ),
     def: e.def,
     sql: e.sql,
     vars: e.vars ?? {},

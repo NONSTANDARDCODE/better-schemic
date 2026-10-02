@@ -217,7 +217,9 @@ export interface Delegate<
   ): ReadResult<PaginationResult<ResultOf<TD, A, S>>, A>;
   /**
    * A keyset page (`after`/`before`) ordered by unique fields (the last one is the tiebreaker,
-   * `id` by default). One probe statement (`LIMIT n+1`) per page.
+   * `id` by default). One probe statement (`LIMIT n+1`) per page. `select` may omit the `orderBy`
+   * fields — the compiler appends reserved `_keyset_<n>` aliases for the keyset and strips them,
+   * so `data` carries exactly the selection.
    */
   cursor<const A extends WithPluginArgs<CursorArgs<TD, S>, P, "cursor">>(
     args: A,

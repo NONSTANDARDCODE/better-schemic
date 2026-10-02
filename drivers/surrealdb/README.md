@@ -126,7 +126,12 @@ const byTag = await client.users.aggregate({
   groupBy: ["tags"],
 });
 const page = await client.users.paginate({ orderBy: [{ id: "asc" }], limit: 20, start: 0 });
-const next = await client.users.cursor({ limit: 20, after: "user:42" });
+const next = await client.users.cursor({
+  select: { name: true },                      // keyset fields ride reserved `_keyset_<n>` aliases
+  orderBy: [{ age: "desc" }, { id: "asc" }],   // ...read for the cursors and stripped from `data`
+  limit: 20,
+  after: { age: 30, id: "user:42" },
+});
 
 // Writes (M2) — validated by the codec, one round-trip, decoded rows back:
 const created = await client.users.create({

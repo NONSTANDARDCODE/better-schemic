@@ -29,4 +29,16 @@ describe("ORM cookbook: delegate call -> runtime SurrealQL", () => {
       expect(group.examples.length).toBeGreaterThan(0);
     }
   });
+
+  test("each example's `code` is its own def snippet", () => {
+    // The extraction is title-anchored: a first-match scan would give every entry in a file the SAME
+    // (first) `def` — the per-group uniqueness check catches that regression.
+    for (const group of allOrmGroups) {
+      const codes = group.examples.map((example) => example.code);
+      expect(new Set(codes).size).toBe(codes.length);
+      for (const example of group.examples) {
+        expect(example.code.startsWith("(client)")).toBe(true);
+      }
+    }
+  });
 });

@@ -543,6 +543,26 @@ describe("delegate — findMany", () => {
     ]);
   });
 
+  test("a field-list path resolves its value from the nested raw row", async () => {
+    const { conn } = fakeConn(() => [
+      ok([
+        {
+          address: { city: "SP" },
+          contacts: { type: ["email", "phone"] },
+        },
+      ]),
+    ]);
+    const c = betterSchemic(conn, { schema: { users: User } });
+    // A dotted/bracketed array entry is off the typed surface (`keyof App[]`), but the decoder
+    // must still find the value the server returns NESTED for the projected path.
+    const rows = await c.users.findMany({
+      select: ["address.city", "contacts[*].type"] as never,
+    });
+    expect(rows as unknown).toEqual([
+      { "address.city": "SP", "contacts[*].type": ["email", "phone"] },
+    ]);
+  });
+
   test("only unwraps a single object", async () => {
     const { conn: c6 } = fakeConn(() => [ok(fullUser("u4", { name: "Dan" }))]);
     const c = betterSchemic(c6, { schema: { users: User } });

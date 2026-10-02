@@ -51,7 +51,7 @@ export function decodeRow(
   index?: SchemaIndex,
 ): unknown {
   const decoded = decodeBase(row, meta, spec);
-  if (spec.includes.length === 0 || !index || !isObject(decoded))
+  if (spec.includes.length === 0 || !index || !isRecord(decoded))
     return decoded;
   for (const include of spec.includes)
     hydrateInclude(row, decoded, include, index);
@@ -71,7 +71,7 @@ function decodeBase(
       ? decodeSchema(spec.starSchema, row, meta.name)
       : decodeFull(meta, row);
     for (const field of spec.omit)
-      if (isObject(base)) delete (base as Record<string, unknown>)[field];
+      if (isRecord(base)) delete (base as Record<string, unknown>)[field];
     for (const field of spec.fields)
       setAt(
         base,
@@ -121,7 +121,7 @@ function hydrateInclude(
       return;
     }
     case "count": {
-      const bucket = isObject(decoded._count) ? decoded._count : {};
+      const bucket = isRecord(decoded._count) ? decoded._count : {};
       bucket[include.key] = getAt(rawRow, [include.source]);
       decoded._count = bucket;
       return;
@@ -148,14 +148,14 @@ function decodeLinkEntry(
   index: SchemaIndex,
 ): unknown {
   const meta = targetMetaFor(spec.targets, index, raw);
-  if (!meta || !isObject(raw)) return raw;
+  if (!meta || !isRecord(raw)) return raw;
   const nestedKeys = spec.nested.map((nested) => nested.key);
   const schema =
     nestedKeys.length === 0
       ? (meta.def.object as unknown as z.ZodType)
       : passthroughSchema(meta, nestedKeys);
   const decoded = decodeSchema(schema, raw, meta.name);
-  if (!isObject(decoded)) return decoded;
+  if (!isRecord(decoded)) return decoded;
   for (const nested of spec.nested)
     if (nested.kind === "link-fetch" || nested.kind === "link-projection")
       hydrateInclude(raw, decoded, nested, index);
@@ -273,7 +273,7 @@ function decodeEdgeRow(
   index: SchemaIndex,
 ): unknown {
   if (spec.shape === "edge-target") {
-    if (!isObject(row))
+    if (!isRecord(row))
       return {
         edge: decodeEdgeProjection(row, spec.edge, index),
         target: undefined,
@@ -327,7 +327,7 @@ function recordTableOf(raw: unknown): string | undefined {
     const colon = raw.indexOf(":");
     return colon > 0 ? raw.slice(0, colon) : undefined;
   }
-  if (!isObject(raw)) return undefined;
+  if (!isRecord(raw)) return undefined;
   return recordTableOf(raw.id);
 }
 
@@ -368,7 +368,7 @@ function passthroughSchema(
 
 /** The full row through the table codec. */
 function decodeFull(meta: TableMeta, row: unknown): unknown {
-  if (!isObject(row)) return row;
+  if (!isRecord(row)) return row;
   return decodeSchema(meta.def.object as unknown as z.ZodType, row, meta.name);
 }
 
@@ -426,7 +426,7 @@ function projectPassthrough(row: unknown, spec: ProjectionSpec): unknown {
 function getAt(value: unknown, path: readonly string[]): unknown {
   let current = value;
   for (const key of path) {
-    if (!isObject(current)) return undefined;
+    if (!isRecord(current)) return undefined;
     current = (current as Record<string, unknown>)[key];
   }
   return current;
@@ -434,18 +434,19 @@ function getAt(value: unknown, path: readonly string[]): unknown {
 
 /** Write a nested key path (creating intermediate objects) into a decoded row. */
 function setAt(target: unknown, path: readonly string[], value: unknown): void {
-  if (!isObject(target) || path.length === 0) return;
+  if (!isRecord(target) || path.length === 0) return;
   let current = target as Record<string, unknown>;
   for (let i = 0; i < path.length - 1; i++) {
     const key = path[i] as string;
     const next = current[key];
-    if (!isObject(next)) current[key] = {};
+    if (!isRecord(next)) current[key] = {};
     current = current[key] as Record<string, unknown>;
   }
   current[path[path.length - 1] as string] = value;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> =>
+/** A record-shaped value (a decoded row/sub-object — class instances included, arrays not). */
+export const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
 const isTableMeta = (meta: ModelMeta): meta is TableMeta =>

@@ -10,7 +10,11 @@
 import { escapeIdent } from "surrealdb";
 import type { ModelMeta, SchemaIndex } from "../meta";
 import { compileIncludes } from "./include";
-import { compileProjection, type ProjectionSpec } from "./projection";
+import {
+  compileProjection,
+  type ProjectionAlias,
+  type ProjectionSpec,
+} from "./projection";
 import {
   type Binds,
   compileError,
@@ -74,6 +78,8 @@ export interface CompileReadOptions {
   readonly target?: string;
   /** The schema index — required to resolve `include` relations. */
   readonly index?: SchemaIndex;
+  /** Aliases the read appends to the projection (keyset cursor columns; decoded as leaves). */
+  readonly aliases?: readonly ProjectionAlias[];
 }
 
 /** Compile a read into its statement + decode spec (binds accumulate into `binds`). */
@@ -148,7 +154,11 @@ export function compileRead(
     binds,
     operation,
     splitPath,
-    { parts: extraParts, passthrough: compiled.passthrough },
+    {
+      parts: extraParts,
+      passthrough: compiled.passthrough,
+      ...(options.aliases ? { aliases: options.aliases } : {}),
+    },
   );
   const spec: ProjectionSpec = { ...baseSpec, includes: compiled.specs };
 

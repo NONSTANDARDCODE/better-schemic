@@ -18,6 +18,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+## [0.1.0-alpha.3] - 2026-10-02
+
+### Changed
+- **surrealdb:** `cursor` no longer requires the `orderBy` fields in `select`/`omit` — the compiler
+  appends reserved `_keyset_<n>` aliases for the keyset columns the projection misses
+  (`SELECT name, id AS _keyset_0 …`), reads `nextCursor`/`previousCursor` from them and strips them
+  from `data`, so `select: { name: true }` + `orderBy: [{ age: "desc" }, { id: "asc" }]` paginates
+  normally. The user's projection and `omit` are never rewritten (an explicit alias survives `OMIT`,
+  including an ancestor's), so `*` + `omit` of an ordered field, narrower sub-selects and dotted
+  aliases all work now; only a `select` entry that REDEFINES the ordered name (`{ age: "id" }`) stays
+  a teaching `ValidationError` — `ORDER BY` binds the alias while the keyset predicate compares the
+  stored field. `value`, `only` and `start` are rejected for `cursor` (type + runtime) instead of
+  being passed through/ignored. Docs: `docs/orm-syntax-map.md` §3.3, `docs/ORM-COVERAGE.md`; tests:
+  `test/unit/orm-cursor.test.ts`, `test/live/orm-reads.test.ts`, `test/live/orm-syntax.test.ts`,
+  `test/types/orm-reads.assert.ts`.
+- **repo:** the ORM reference manifest (`examples-manifest-orm.json`) now carries each example's OWN
+  `def` snippet — the extractor is anchored on the literal `title:` (a first-match scan used to stamp
+  every entry in a file with the same, first `def`) and THROWS when the anchor is missing (a silent
+  fallback would ship the wrong snippet); `test/examples/orm-reference.test.ts` guards snippet
+  uniqueness per group.
+
+### Fixed
+- **surrealdb:** a `select` array entry with a dotted/bracketed path (`["address.city"]`,
+  `["contacts[*].type"]`) decoded `undefined` — the leaf now resolves its value from the nested raw
+  row the server returns for the projected path, keeping its literal output key (the object-entry
+  forms were already correct). `test/unit/orm-reads.test.ts`.
+
 ## [0.1.0-alpha.2] - 2026-09-24
 
 ### Added

@@ -4,7 +4,7 @@ Every row below was **live-probed** against SurrealDB **3.2.0** (local `surreal`
 in-memory server), never inferred. This is the ground truth the `/orm` compiler must emit: where the
 original design prototype disagreed, the server wins.
 
-- Executable half: `test/live/orm-syntax.test.ts` (89 probes, skips without the `surreal` binary).
+- Executable half: `test/live/orm-syntax.test.ts` (91 probes, skips without the `surreal` binary).
   A server upgrade that changes any behaviour here fails that suite first.
 - Related: [`graph-syntax-map.md`](./graph-syntax-map.md) (graph traversal detail, probed on 3.1.4).
 - How to re-run: `cd drivers/surrealdb && bun test test/live/orm-syntax.test.ts`.
@@ -263,6 +263,10 @@ SELECT [VALUE] <projeção> FROM <alvo>
 | `SELECT … ORDER BY id ASC LIMIT n` + `SELECT count() … GROUP ALL` | 2 statements no mesmo `query` (`paginate`) |
 | `WHERE (age < $c0 OR (age = $c0 AND id > $c1)) ORDER BY age DESC, id ASC LIMIT n` | cursor por tupla |
 | `id > $c` / `id < $c` | cursor por record id (`before` reordena no client) |
+| `SELECT id FROM t ORDER BY age` | **parse error** (`Missing order idiom`) — o servidor exige o campo ordenado na seleção; a projeção `*` cobre |
+| `SELECT name, age AS _keyset_0, id AS _keyset_1 FROM t ORDER BY age DESC, id ASC LIMIT n` | um alias da própria path satisfaz o order idiom; é assim que o cursor projeta os campos do keyset que o `select` não devolve, e o client os remove do `data` |
+| `SELECT *, age AS _keyset_0 OMIT age FROM t ORDER BY age ASC` | o alias explícito **sobrevive ao `OMIT`** (inclusive de um ancestral) — o compilador nunca reescreve `select`/`omit` |
+| `ORDER BY <alias do select>` | resolve o **alias**, não o campo — por isso um `select` que redefine o nome do campo ordenado é erro de compilação |
 
 ---
 
