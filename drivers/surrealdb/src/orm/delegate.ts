@@ -75,6 +75,8 @@ import type {
   UpdateEachArgs,
   UpdateManyArgs,
   UpsertArgs,
+  UpsertDeltaArgs,
+  UpsertDeltaResult,
   UpsertManyArgs,
   WrittenResult,
 } from "./types/write";
@@ -274,6 +276,26 @@ export interface Delegate<
   upsert<const A extends WithPluginArgs<UpsertArgs<TD, S>, P, "upsert">>(
     args: A,
   ): WrittenResult<TD, A>;
+  /**
+   * Create-or-update by id or a single-field UNIQUE index in ONE round-trip, returning the
+   * resulting row, the previous row and the field-level delta of DECODED app values
+   * (`RETURN VALUE { before: $before, after: $after }` — both snapshots come from the SAME
+   * statement, so no concurrent writer can slip between them). Omit `where` to create (a
+   * generated id per the table's `idStrategy`, or `data.id` infers the target); `onMissing:
+   * "throw"` makes it a strict update that rejects `ResultNotFound` instead of creating.
+   *
+   * ```ts
+   * const { record, created, before, delta, changed } = await client.users.upsertDelta({
+   *   where: { id: "user:42" },
+   *   data: { name: "Aeon", balance: decimal("12.34") },
+   * });
+   * if (created) logger.info("created", { id: record.id });
+   * if (changed.includes("balance")) ledger.create({ delta: delta!.new.balance });
+   * ```
+   */
+  upsertDelta<
+    const A extends WithPluginArgs<UpsertDeltaArgs<TD, S>, P, "upsertDelta">,
+  >(args: A): Promise<UpsertDeltaResult<TD>>;
   /** Upsert many: with ids one `INSERT … ON DUPLICATE`; without, `conflict` resolves each row. */
   upsertMany<
     const A extends WithPluginArgs<UpsertManyArgs<TD>, P, "upsertMany">,

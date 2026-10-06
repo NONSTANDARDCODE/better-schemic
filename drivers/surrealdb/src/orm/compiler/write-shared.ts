@@ -41,8 +41,9 @@ export interface WritePlan {
    * (batch ops); singular ops point at the one statement holding the row/state.
    */
   readonly resultIndexes?: readonly number[];
-  /** `row` = one record; `many` = a row list; `none` = no payload; `diff` = the raw JSON Patch. */
-  readonly result: "row" | "many" | "none" | "diff";
+  /** `row` = one record; `many` = a row list; `none` = no payload; `diff` = the raw JSON Patch;
+   *  `delta` = the `{ before, after }` envelope `upsertDelta` decodes. */
+  readonly result: "row" | "many" | "none" | "diff" | "delta";
   /** The row may be absent (`.throw()` attaches `NotFoundInfo`) — singular update/patch/delete. */
   readonly mayMiss?: boolean;
   /** `updateEach`'s eager `select` decode spec (the rows come back whole from the server). */
@@ -106,6 +107,18 @@ export interface UpsertRuntimeArgs {
   mode?: unknown;
   only?: unknown;
   return?: unknown;
+  timeout?: unknown;
+  scope?: unknown;
+  meta?: Record<string, unknown>;
+}
+
+export interface UpsertDeltaRuntimeArgs {
+  where?: unknown;
+  data?: unknown;
+  create?: unknown;
+  update?: unknown;
+  mode?: unknown;
+  onMissing?: unknown;
   timeout?: unknown;
   scope?: unknown;
   meta?: Record<string, unknown>;
@@ -403,6 +416,19 @@ export function mutationTail(
       ? ""
       : ` TIMEOUT ${durationLiteral(timeout, operation)}`;
   return `${returnClause}${timeoutClause}`;
+}
+
+/** The `upsertDelta` envelope: `before`/`after` come from the statement's own state (one snapshot). */
+export const DELTA_ENVELOPE =
+  " RETURN VALUE { before: $before, after: $after }";
+
+/** The delta envelope + ` TIMEOUT …` (RETURN must precede TIMEOUT — live-probed 3.2). */
+export function deltaTail(timeout: unknown, operation: string): string {
+  const timeoutClause =
+    timeout === undefined
+      ? ""
+      : ` TIMEOUT ${durationLiteral(timeout, operation)}`;
+  return `${DELTA_ENVELOPE}${timeoutClause}`;
 }
 
 /** Map a `return` + cardinality to the plan's result interpretation. */

@@ -104,4 +104,41 @@ describe("zod — write validation", () => {
       ),
     ).toBeUndefined();
   });
+
+  test("upsertDelta validates its payload (update family)", async () => {
+    const client = clientWith(schemaFor);
+    expect(
+      await codeOf(() =>
+        client.users.upsertDelta({
+          where: { id: "user:1" },
+          data: { name: "A" },
+        }),
+      ),
+    ).toBe("ValidationError");
+    expect(
+      await codeOf(() => client.users.upsertDelta({ data: { name: "A" } })),
+    ).toBe("ValidationError");
+
+    const { conn } = fakeConn((sql) =>
+      lines(sql).map((line) =>
+        ok(
+          line.startsWith("UPSERT") || line.startsWith("CREATE")
+            ? [{ after: { id: new RecordId("user", 1), name: "Aeon" } }]
+            : null,
+        ),
+      ),
+    );
+    const valid = betterSchemic(conn, {
+      schema,
+      plugins: [zod({ schemas: schemaFor })],
+    });
+    expect(
+      await codeOf(() =>
+        valid.users.upsertDelta({
+          where: { id: "user:1" },
+          data: { name: "Aeon" },
+        }),
+      ),
+    ).toBeUndefined();
+  });
 });

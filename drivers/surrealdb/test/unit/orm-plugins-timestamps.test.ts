@@ -1,7 +1,7 @@
 // M6.4 — the official `timestamps` plugin: `app` mode stamps time::now() on create/update and
 // `database` mode strips the managed columns. Offline (expressions splice into the statement text).
 import { describe, expect, test } from "bun:test";
-import { RecordId } from "surrealdb";
+import { DateTime, RecordId } from "surrealdb";
 import { betterSchemic } from "../../src/orm/client";
 import { defineSchema } from "../../src/orm/schema";
 import { timestamps } from "../../src/plugins/timestamps";
@@ -30,6 +30,55 @@ describe("timestamps — app mode", () => {
     await client.users.create({ data: { name: "A" } });
     expect(calls[0]?.sql).toContain("createdAt: time::now()");
     expect(calls[0]?.sql).toContain("updatedAt: time::now()");
+  });
+
+  test("upsertDelta: updatedAt rides the delta on update and create has none", async () => {
+    const before = {
+      id: new RecordId("user", 1),
+      name: "A",
+      createdAt: new DateTime(new Date("2020-01-01T00:00:00.000Z")),
+      updatedAt: new DateTime(new Date("2020-01-01T00:00:00.000Z")),
+    };
+    const after = {
+      ...before,
+      name: "B",
+      updatedAt: new DateTime(new Date("2021-01-01T00:00:00.000Z")),
+    };
+    const { conn, calls } = fakeConn((sql) =>
+      lines(sql).map((line) =>
+        ok(line.startsWith("IF ") ? [{ before, after }] : null),
+      ),
+    );
+    const client = betterSchemic(conn, {
+      schema,
+      plugins: [timestamps()],
+    });
+    const result = await client.users.upsertDelta({
+      where: { id: "user:1" },
+      data: { name: "B" },
+    });
+    expect(result.created).toBe(false);
+    expect(result.changed).toEqual(["name", "updatedAt"]);
+    expect(result.delta?.new.updatedAt).toBeInstanceOf(Date);
+    expect(calls[0]?.sql).toContain("updatedAt: time::now()");
+    expect(calls[0]?.sql).not.toContain("createdAt: time::now()");
+
+    const fresh = fakeConn((sql) =>
+      lines(sql).map((line) =>
+        ok(line.startsWith("IF ") ? [{ after: after }] : null),
+      ),
+    );
+    const createClient = betterSchemic(fresh.conn, {
+      schema,
+      plugins: [timestamps()],
+    });
+    const created = await createClient.users.upsertDelta({
+      data: { id: "user:1", name: "A" },
+    });
+    expect(created.created).toBe(true);
+    expect(created.delta).toBeNull();
+    // `upsertDelta` is update-family: timestamps stamps `updatedAt` on both branches (like upsert).
+    expect(fresh.calls[0]?.sql).toContain("updatedAt: time::now()");
   });
 
   test("update stamps only updatedAt", async () => {

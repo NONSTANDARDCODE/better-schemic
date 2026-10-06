@@ -154,6 +154,23 @@ const upserted = await client.users.upsert({
   where: { email: "aeon@x.dev" },               // id or a single-field UNIQUE index
   data: { email: "aeon@x.dev", age: 33 },
 });
+const { record, created, before, delta, changed } = await client.users.upsertDelta({
+  where: { id: created.id },                    // or a UNIQUE field, or `data.id`, or omitted to create
+  data: { age: 34 },
+});
+// ONE statement, `RETURN VALUE { before, after }` — no read-then-write race. On a create
+// `created: true` and `before`/`delta` are null; on an update `delta.old`/`delta.new` carry ONLY
+// the changed fields as DECODED app values (server-computed for surql expressions), and
+// `changed` names them. `onMissing: "throw"` = strict update (never creates; ResultNotFound):
+const strict = await client.users.upsertDelta({
+  where: { id: created.id },
+  data: { age: 35 },
+  onMissing: "throw",
+});
+void before;
+void delta;
+void changed;
+void strict;
 const removed = await client.users.delete({ where: { id: created.id } });
 
 // Created ids: every ORM create without an explicit `id` generates a ULID by default

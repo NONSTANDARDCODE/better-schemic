@@ -307,6 +307,140 @@ live("ORM syntax map — live probes (server 3.x)", () => {
     });
   });
 
+  describe("UPSERT DELTA — RETURN VALUE { before, after }", () => {
+    test("UPSERT ONLY t:id envelope: create has before undefined, update has both", async () => {
+      const created = await last(
+        "UPSERT ONLY user:dl1 MERGE { name: 'DL', age: 1 } RETURN VALUE { before: $before, after: $after };",
+      );
+      expect("before" in created).toBe(true);
+      expect(created.before).toBeUndefined();
+      expect(created.after).toMatchObject({
+        id: "user:dl1",
+        name: "DL",
+        age: 1,
+      });
+
+      const updated = await last(
+        "UPSERT ONLY user:dl1 MERGE { age: 2 } RETURN VALUE { before: $before, after: $after };",
+      );
+      expect(updated.before).toMatchObject({ id: "user:dl1", age: 1 });
+      expect(updated.after).toMatchObject({ id: "user:dl1", age: 2 });
+    });
+
+    test("non-ONLY forms return an ARRAY of envelopes", async () => {
+      const created = await last(
+        "UPSERT user MERGE { name: 'DLP', age: 1 } WHERE name = 'DLP' RETURN VALUE { before: $before, after: $after };",
+      );
+      expect(Array.isArray(created)).toBe(true);
+      expect(created[0].before).toBeUndefined();
+      const updated = await last(
+        "UPSERT user MERGE { name: 'DLP', age: 3 } WHERE name = 'DLP' RETURN VALUE { before: $before, after: $after };",
+      );
+      expect(updated[0].before).toMatchObject({ age: 1 });
+      expect(updated[0].after).toMatchObject({ age: 3 });
+    });
+
+    test("generated-target subquery carries the envelope on both branches", async () => {
+      const sql =
+        "UPSERT ((SELECT VALUE id FROM user WHERE name = 'DLG' LIMIT 1)[0] ?? type::record(s\"user\", rand::ulid())) " +
+        "MERGE { name: 'DLG', age: 1 } RETURN VALUE { before: $before, after: $after };";
+      const created = await last(sql);
+      expect(created[0].before).toBeUndefined();
+      const id = String(created[0].after.id);
+      const updated = await last(sql.replace("age: 1", "age: 4"));
+      expect(String(updated[0].after.id)).toBe(id);
+      expect(updated[0].before).toMatchObject({ age: 1 });
+    });
+
+    test("LET/IF branch envelopes work per branch, with per-branch TIMEOUT", async () => {
+      const createSql = `LET $__existing = (SELECT VALUE id FROM user WHERE name = 'DLIF' LIMIT 1);
+IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) CONTENT { name: 'DLIF', age: 1 } RETURN VALUE { before: $before, after: $after } TIMEOUT 5s ELSE UPDATE $__existing[0] MERGE { age: 2 } RETURN VALUE { before: $before, after: $after } TIMEOUT 5s END;`;
+      const created = await last(createSql);
+      expect(created[0].before).toBeUndefined();
+      expect(created[0].after).toMatchObject({ name: "DLIF", age: 1 });
+      const updated = await last(createSql);
+      expect(updated[0].before).toMatchObject({ age: 1 });
+      expect(updated[0].after).toMatchObject({ age: 2 });
+    });
+
+    test("strict UPDATE shapes: NONE on an ONLY miss, [] on a WHERE miss", async () => {
+      expect(
+        await last(
+          "UPDATE ONLY user:dlmiss MERGE { name: 'X' } RETURN VALUE { before: $before, after: $after };",
+        ),
+      ).toBeUndefined();
+      expect(
+        await last(
+          "UPDATE user MERGE { name: 'X' } WHERE name = 'NOPE' RETURN VALUE { before: $before, after: $after };",
+        ),
+      ).toEqual([]);
+      await run("CREATE ONLY user:dlstrict CONTENT { name: 'DS', age: 1 };");
+      const hit = await last(
+        "UPDATE ONLY user:dlstrict SET age = age + 1 RETURN VALUE { before: $before, after: $after };",
+      );
+      expect(hit.before).toMatchObject({ age: 1 });
+      expect(hit.after).toMatchObject({ age: 2 });
+    });
+
+    test("TIMEOUT follows RETURN: the reverse order is a parse error", async () => {
+      expect(
+        await caught(
+          run(
+            "UPSERT ONLY user:dl1 MERGE { age: 9 } RETURN VALUE { before: $before, after: $after } TIMEOUT 5s;",
+          ),
+        ),
+      ).toBeNull();
+      expect(
+        await caught(
+          run(
+            "UPSERT ONLY user:dl1 MERGE { age: 9 } TIMEOUT 5s RETURN VALUE { before: $before, after: $after };",
+          ),
+        ),
+      ).not.toBeNull();
+      expect(
+        await caught(
+          run(
+            "LET $e = (SELECT VALUE id FROM user WHERE name = 'DLIF' LIMIT 1); IF array::len($e) = 0 THEN CREATE user:dlend CONTENT { name: 'End', age: 1 } RETURN VALUE { before: $before, after: $after } ELSE UPDATE $e[0] MERGE { age: 2 } RETURN VALUE { before: $before, after: $after } END TIMEOUT 5s;",
+          ),
+        ),
+      ).not.toBeNull();
+    });
+
+    test("INSERT … ON DUPLICATE also exposes the envelope (observed, not relied upon)", async () => {
+      const inserted = await last(
+        "INSERT INTO user { id: user:dlins, name: 'DI', age: 1 } ON DUPLICATE KEY UPDATE age = $input.age RETURN VALUE { before: $before, after: $after };",
+      );
+      expect(inserted[0].before).toBeUndefined();
+      expect(inserted[0].after).toMatchObject({ id: "user:dlins", age: 1 });
+      const duplicate = await last(
+        "INSERT INTO user { id: user:dlins, name: 'DI', age: 2 } ON DUPLICATE KEY UPDATE age = $input.age RETURN VALUE { before: $before, after: $after };",
+      );
+      expect(duplicate[0].before).toMatchObject({ age: 1 });
+      expect(duplicate[0].after).toMatchObject({ age: 2 });
+    });
+
+    test("capture-and-return (LET before + trailing RETURN) does NOT surface a value", async () => {
+      await run("CREATE ONLY user:dlcap CONTENT { name: 'Cap', age: 1 };");
+      const out = await last(
+        "LET $__b = (SELECT * FROM ONLY user:dlcap)[0]; UPDATE ONLY user:dlcap MERGE { age: 2 } RETURN NONE; RETURN { before: $__b, after: (SELECT * FROM ONLY user:dlcap)[0] };",
+      );
+      // The trailing plain RETURN inside a multi-statement script comes back empty on 3.2 —
+      // hence the per-branch RETURN VALUE form (the only proven one).
+      expect(out).toEqual({});
+    });
+
+    test("CONTENT removal: the removed field disappears from after", async () => {
+      await run(
+        "CREATE ONLY user:dlrm CONTENT { name: 'RM', age: 1, tags: ['x'], active: true };",
+      );
+      const out = await last(
+        "UPSERT ONLY user:dlrm CONTENT { name: 'RM', age: 1, active: true } RETURN VALUE { before: $before, after: $after };",
+      );
+      expect(out.before).toMatchObject({ tags: ["x"] });
+      expect("tags" in out.after).toBe(false);
+    });
+  });
+
   describe("GENERATED IDS — type::record / INSERT id expression / UPSERT target expression", () => {
     const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
     const idPart = (id: unknown) => String(id).replace(/^user:/, "");

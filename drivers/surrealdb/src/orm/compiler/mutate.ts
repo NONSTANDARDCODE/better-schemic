@@ -14,7 +14,7 @@ import {
   isPlainObject,
   renderPath,
 } from "./shared";
-import { requireUniqueField, uniqueTarget } from "./unique";
+import { requireUniqueField, type UniqueTarget, uniqueTarget } from "./unique";
 import { mergeScope, scopePredicate, scopeWhere } from "./where";
 import {
   assignmentList,
@@ -22,6 +22,7 @@ import {
   createTarget,
   type DeleteManyRuntimeArgs,
   type DeleteRuntimeArgs,
+  deltaTail,
   encodeData,
   encodedBody,
   generatedTarget,
@@ -41,6 +42,7 @@ import {
   type UpdateEachRuntimeArgs,
   type UpdateManyRuntimeArgs,
   type UpdateRuntimeArgs,
+  type UpsertDeltaRuntimeArgs,
   type UpsertManyRuntimeArgs,
   type UpsertRuntimeArgs,
   unsetList,
@@ -431,22 +433,309 @@ function compileUpsertIfElse(
       `${operation}: RETURN DIFF is not supported when expressions must read the existing row (LET/IF) — use "after"/"before"/"none".`,
       { operation, table: meta.name },
     );
-  const table = escapeIdent(meta.name);
-  const createEncoded = encodeData(meta, args.create, "create", operation);
   // `CREATE … RETURN BEFORE` has no prior state; NONE is the honest empty answer.
-  const createInner = ret === "none" || ret === "before" ? " RETURN NONE" : "";
-  const updateInner =
-    ret === "before" ? " RETURN BEFORE" : ret === "none" ? " RETURN NONE" : "";
+  return compileIfElse(
+    meta,
+    where,
+    args.create,
+    args.update,
+    mode,
+    binds,
+    operation,
+    ret === "none" || ret === "before" ? " RETURN NONE" : "",
+    ret === "before" ? " RETURN BEFORE" : ret === "none" ? " RETURN NONE" : "",
+    resultOf(ret, "row"),
+  );
+}
+
+/**
+ * The LET/IF lowering shared by `upsert` (RETURN tails from `ret`) and `upsertDelta` (the
+ * `{ before, after }` envelope + TIMEOUT on EACH branch — the only form that carries `$before`/
+ * `$after` while branching; live-probed 3.2). `result` is whatever the caller's decode expects.
+ */
+function compileIfElse(
+  meta: ModelMeta,
+  where: string,
+  create: unknown,
+  update: unknown,
+  mode: WriteMode,
+  binds: Binds,
+  operation: string,
+  createTail: string,
+  updateTail: string,
+  result: WritePlan["result"],
+): WritePlan {
+  const table = escapeIdent(meta.name);
+  const createEncoded = encodeData(meta, create, "create", operation);
   const steps = [
     `LET $__existing = (SELECT VALUE id FROM ${table} WHERE ${where} LIMIT 1);`,
-    `IF array::len($__existing) = 0 THEN CREATE ${createTarget(meta, args.create, false, operation)} CONTENT ${payload(createEncoded, binds)}${createInner} ELSE UPDATE $__existing[0] ${encodedBody(mode, encodeData(meta, args.update, "update", operation), binds)}${updateInner} END;`,
+    `IF array::len($__existing) = 0 THEN CREATE ${createTarget(meta, create, false, operation)} CONTENT ${payload(createEncoded, binds)}${createTail} ELSE UPDATE $__existing[0] ${encodedBody(mode, encodeData(meta, update, "update", operation), binds)}${updateTail} END;`,
   ];
   return {
     statements: steps,
     transactional: true,
     resultIndexes: [1],
-    result: resultOf(ret, "row"),
+    result,
   };
+}
+
+// --- upsertDelta ---------------------------------------------------------------------------------
+
+/**
+ * Compile `upsertDelta` — create-or-update (or a strict update with `onMissing: "throw"`) that
+ * returns the `{ before, after }` envelope from the SAME statement that wrote. Every lowering is
+ * the `upsert` equivalent with the envelope tail; the LET/IF form carries it (plus TIMEOUT) on
+ * EACH branch — the one form the server lets carry `$before`/`$after` while branching.
+ */
+export function compileUpsertDelta(
+  meta: ModelMeta,
+  args: UpsertDeltaRuntimeArgs,
+  binds: Binds,
+  operation = "upsertDelta",
+): WritePlan {
+  const onMissing = readOnMissing(args.onMissing, operation);
+  const hasData = args.data !== undefined;
+  const hasCreate = args.create !== undefined;
+  const hasUpdate = args.update !== undefined;
+  // Resolve the payload shape ONCE: `both` gates the distinct-branch form, `anyBranch` the
+  // "which payload" guards. Keeping them as named booleans avoids unreachable short-circuit arms.
+  const both = hasCreate && hasUpdate;
+  const anyBranch = hasCreate || hasUpdate;
+  if (!hasData && !both)
+    throw compileError(
+      "ValidationError",
+      `${operation}: pass "data" (one payload for both branches) OR "create" + "update".`,
+      { operation, table: meta.name },
+    );
+  if (hasData && anyBranch)
+    throw compileError(
+      "ValidationError",
+      `${operation}: pass "data" OR "create" + "update" — not both.`,
+      { operation, table: meta.name },
+    );
+  if (onMissing === "throw" && anyBranch)
+    throw compileError(
+      "ValidationError",
+      `${operation}: onMissing "throw" is a strict UPDATE — it never creates, so pass "data" (applied by the update) instead of "create" + "update".`,
+      { operation, table: meta.name },
+    );
+  const mode = updateMode(args.mode, operation, "merge");
+  if (mode === "patch")
+    throw compileError(
+      "ValidationError",
+      `${operation}: mode "patch" is not part of upsertDelta — use patch() or update({ mode: "patch" }).`,
+      { operation, table: meta.name },
+    );
+  const target = resolveDeltaTarget(meta, args, operation);
+  const tail = deltaTail(args.timeout, operation);
+
+  if (target === undefined) {
+    if (onMissing === "throw")
+      throw compileError(
+        "ValidationError",
+        `${operation}: onMissing "throw" needs a target — pass "where" (or let "data.id" infer it).`,
+        { operation, table: meta.name },
+      );
+    if (anyBranch)
+      throw compileError(
+        "ValidationError",
+        `${operation}: distinct "create"/"update" payloads need a target — pass "where" (or "data" with an "id").`,
+        { operation, table: meta.name },
+      );
+    if (args.mode !== undefined)
+      throw compileError(
+        "ValidationError",
+        `${operation}: "mode" only applies to the update branch — a target-less call is a plain create.`,
+        { operation, table: meta.name },
+      );
+    const encoded = encodeData(meta, args.data, "create", operation);
+    return {
+      statements: [
+        `CREATE ${createTarget(meta, args.data, false, operation)} CONTENT ${payload(encoded, binds)}${tail}`,
+      ],
+      transactional: false,
+      resultIndexes: [0],
+      result: "delta",
+    };
+  }
+
+  if (onMissing === "throw") {
+    // Strict update: never a create branch. `UPDATE ONLY t:id` misses as NONE; the unique-field
+    // form misses as [] — the runtime treats "no envelope" as the miss either way.
+    const encoded = encodeData(
+      meta,
+      args.data,
+      mode === "content" || mode === "replace" ? "create" : "update",
+      operation,
+    );
+    const body = encodedBody(mode, encoded, binds);
+    if (target.kind === "id")
+      return {
+        statements: [
+          `UPDATE ONLY ${recordTarget(meta, target.id, operation)} ${body}${scopeWhere(args.scope, binds, meta)}${tail}`,
+        ],
+        transactional: false,
+        resultIndexes: [0],
+        result: "delta",
+        mayMiss: true,
+      };
+    return {
+      statements: [
+        `UPDATE ${escapeIdent(meta.name)} ${body} WHERE ${upsertWhere(meta, target, binds, args.scope)}${tail}`,
+      ],
+      transactional: false,
+      resultIndexes: [0],
+      result: "delta",
+      mayMiss: true,
+    };
+  }
+
+  if (hasData) {
+    const encoded = encodeData(
+      meta,
+      args.data,
+      mode === "content" || mode === "replace" ? "create" : "update",
+      operation,
+    );
+    const hasExpressions = Object.values(
+      encoded as Record<string, unknown>,
+    ).some(hasRefDeep);
+    if (!hasExpressions) {
+      if (target.kind === "id") {
+        const body = encodedBody(mode, encoded, binds);
+        return {
+          statements: [
+            `UPSERT ${recordTarget(meta, target.id, operation)} ${body}${scopeWhere(args.scope, binds, meta)}${tail}`,
+          ],
+          transactional: false,
+          resultIndexes: [0],
+          result: "delta",
+        };
+      }
+      // Unique-field target, no expressions: a payload `id` wins (the plain-table form carries it
+      // in the payload), so only an id-less payload switches to the generated target — the subquery
+      // resolves the existing record, `??` falls back to `type::record(<table>, <fn>())` on a miss.
+      const generated =
+        createId(meta, args.data) === undefined
+          ? generatedTarget(meta)
+          : undefined;
+      if (generated !== undefined) {
+        const where = upsertWhere(meta, target, binds, args.scope);
+        const body = encodedBody(mode, encoded, binds);
+        return {
+          statements: [
+            `UPSERT ((SELECT VALUE id FROM ${escapeIdent(meta.name)} WHERE ${where} LIMIT 1)[0] ?? ${generated}) ${body}${tail}`,
+          ],
+          transactional: false,
+          resultIndexes: [0],
+          result: "delta",
+        };
+      }
+      const body = encodedBody(mode, encoded, binds);
+      return {
+        statements: [
+          `UPSERT ${escapeIdent(meta.name)} ${body} WHERE ${upsertWhere(meta, target, binds, args.scope)}${tail}`,
+        ],
+        transactional: false,
+        resultIndexes: [0],
+        result: "delta",
+      };
+    }
+    // Expressions can reference the existing row — branch first, then write (envelope per branch).
+    return compileIfElse(
+      meta,
+      upsertWhere(meta, target, binds, args.scope),
+      args.data,
+      args.data,
+      mode,
+      binds,
+      operation,
+      tail,
+      tail,
+      "delta",
+    );
+  }
+
+  // Distinct `create` + `update` payloads: always the LET/IF form (per-branch envelope + TIMEOUT,
+  // scope support), never `INSERT … ON DUPLICATE` — see `docs/orm-syntax-map.md` §2.3/2.4.
+  assertDeltaCreateId(meta, target, args.create, operation);
+  return compileIfElse(
+    meta,
+    upsertWhere(meta, target, binds, args.scope),
+    args.create,
+    args.update,
+    mode,
+    binds,
+    operation,
+    tail,
+    tail,
+    "delta",
+  );
+}
+
+/** The `onMissing` allow-list (default `"create"` — true upsert semantics). */
+function readOnMissing(value: unknown, operation: string): "create" | "throw" {
+  if (value === undefined) return "create";
+  if (value !== "create" && value !== "throw")
+    throw compileError(
+      "ValidationError",
+      `${operation}: onMissing must be "create" or "throw" (got ${describeValue(value)}).`,
+      { operation },
+    );
+  return value;
+}
+
+/**
+ * The delta target: an explicit `where` wins; otherwise a single-payload `data.id` infers an id
+ * target; neither means a plain create. A `where.id` that disagrees with `data.id` is rejected
+ * (they name the same record) — `upsert` parity plus the inferred-target form.
+ */
+function resolveDeltaTarget(
+  meta: ModelMeta,
+  args: UpsertDeltaRuntimeArgs,
+  operation: string,
+): UniqueTarget | undefined {
+  if (args.where !== undefined) {
+    const target = uniqueTarget(meta, args.where, operation);
+    if (
+      target.kind === "id" &&
+      isPlainObject(args.data) &&
+      args.data.id !== undefined &&
+      recordIdText(args.data.id) !== target.id
+    )
+      throw compileError(
+        "ValidationError",
+        `${operation}: "data.id" (${String(args.data.id)}) must match where.id (${String((args.where as { id?: unknown }).id)}) — they name the same record.`,
+        { operation, table: meta.name, field: "id" },
+      );
+    return target;
+  }
+  if (isPlainObject(args.data) && args.data.id !== undefined)
+    return uniqueTarget(meta, { id: args.data.id }, operation);
+  return undefined;
+}
+
+/** Validate the distinct `create` branch against an id target (parity with `upsert`). */
+function assertDeltaCreateId(
+  meta: ModelMeta,
+  target: UniqueTarget,
+  create: unknown,
+  operation: string,
+): void {
+  if (target.kind !== "id") return;
+  const createId = isPlainObject(create) ? create.id : undefined;
+  if (createId === undefined)
+    throw compileError(
+      "ValidationError",
+      `${operation}: "create" must include the "id" when targeting one.`,
+      { operation, table: meta.name },
+    );
+  if (recordIdText(createId) !== recordIdText(target.id))
+    throw compileError(
+      "ValidationError",
+      `${operation}: "create.id" (${String(createId)}) must match where.id (${String(target.id)}).`,
+      { operation, table: meta.name },
+    );
 }
 
 /** Compile `upsertMany` — ids → one `INSERT … ON DUPLICATE`; conflict field → per-row upserts. */

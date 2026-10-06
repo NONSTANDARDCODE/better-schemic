@@ -4,7 +4,7 @@ Every row below was **live-probed** against SurrealDB **3.2.0** (local `surreal`
 in-memory server), never inferred. This is the ground truth the `/orm` compiler must emit: where the
 original design prototype disagreed, the server wins.
 
-- Executable half: `test/live/orm-syntax.test.ts` (91 probes, skips without the `surreal` binary).
+- Executable half: `test/live/orm-syntax.test.ts` (117 probes, skips without the `surreal` binary).
   A server upgrade that changes any behaviour here fails that suite first.
 - Related: [`graph-syntax-map.md`](./graph-syntax-map.md) (graph traversal detail, probed on 3.1.4).
 - How to re-run: `cd drivers/surrealdb && bun test test/live/orm-syntax.test.ts`.
@@ -113,6 +113,21 @@ original design prototype disagreed, the server wins.
 | `UPSERT t:id SET $p` (objeto inteiro) | **parse error** (`Unexpected token 'a parameter'`) — usar `SET f = $p` por campo | o ORM emite per-field |
 | `UPSERT ONLY t:id MERGE/SET` | ok (objeto? → array, verificado: array) | |
 | `UPSERT t:id CONTENT $p` | substitui o conteúdo | |
+
+#### 2.3.1 `RETURN VALUE { before: $before, after: $after }` — o envelope do `upsertDelta` (probe 3.2.0)
+
+| Forma | Resultado |
+| --- | --- |
+| `UPSERT ONLY t:id … RETURN VALUE { before: $before, after: $after }` (create) | objeto `{ after }` — a chave `before` **existe** com `undefined` (sobre WS; `null` sobre HTTP JSON) |
+| a mesma forma (update) | `{ before, after }` — os dois lados vêm do MESMO statement (snapshot atômico) |
+| formas não-`ONLY` (por tabela, subquery gerada) | **array** `[envelope]`; o decode achata (`payloadRows`) |
+| `LET`+`IF/ELSE` com o envelope em CADA branch | o statement `IF` devolve `[envelope]`; `$before` é `undefined` no branch de CREATE; expressões (`SET f = f + 10`) produzem valores calculados pelo servidor nos dois lados |
+| `… RETURN VALUE { … } TIMEOUT 5s` | ok — `RETURN` **antes** de `TIMEOUT`; `TIMEOUT … RETURN` é parse error; `END TIMEOUT` idem; `TIMEOUT` por branch DENTRO do IF funciona |
+| `UPDATE ONLY t:missing … RETURN VALUE { … }` | `undefined` (NONE) — o miss do modo estrito |
+| `UPDATE t … WHERE … RETURN VALUE { … }` sem match | `[]` — o miss do modo estrito por campo único |
+| `CREATE t CONTENT … RETURN VALUE { … }` | `[{ after }]` (ou objeto com `ONLY`) — branch de criação sem `before` |
+| `INSERT … ON DUPLICATE … RETURN VALUE { … }` | o envelope **expõe** `$before`/`$after` no `RETURN` (3.2.0) — **observado, não usado**: a nota de `$before`/`$after` NONE vale para o contexto de ATRIBUIÇÃO; `upsertDelta` usa `LET`/`IF` para branches distintos (robustez entre versões + suporte a `scope`) |
+| `LET $__b = (SELECT …); UPDATE …; RETURN { before: $__b, after: … }` | `{}` — o capture-and-return com `RETURN` final NÃO devolve valor; **rejeitado** (por isso o envelope por branch) |
 
 ### 2.4 `UPDATE`
 
@@ -623,6 +638,7 @@ Nota: em scripts multi-statement, o SDK pode **lançar** (não só responder por
 43. **`fn`/`api`/`auth`/admin**: `fn.call` compila `RETURN fn::x($p…)` (nome validado, nunca spliced) + atalho tipado por `defineFunction` (args NOMEADOS → posicionais); `api.*` desembrulha `body` e lança `DatabaseError` com `status`/`details` em `>= 400`; `auth.*` é passthrough da sessão (`record()` sem record access → `NotAuthenticated`); `info` compila `INFO FOR …`, `ping` faz `RETURN true`, `import` reexecuta o dump por `query()`.
 44. **`extends`**: helpers são reaplicados em clones (`$withContext`/`forkSession`) e no client de transação; colisão de nome com a superfície do client = `PluginError` fail-fast.
 45. **Estratégia de id por tabela (`idStrategy`)**: o ORM gera o id no SERVIDOR — `create`/`createMany`/`create.relate` via target `type::record(s"t", rand::ulid()|rand::uuid())` (ou tabela simples para `rand`, o default do servidor); `insert`/`insertMany`/`skipDuplicates` via campo de expressão `id`; `upsert`/`upsertMany` por campo único via target-expression (subquery `?? type::record(…)`). Default `ulid`; `id` explícito e singleton sempre vencem; `id: s.uuid()/s.ulid()` infere a estratégia e um `.idStrategy` incompatível é `SchemaInvalid` no `defineSchema`; um `id` uuid v4/v6 resolvido vira `"none"` (explicit-only) e um create sem id falha no compile com erro ensinado. **Sem DDL** (migrations nunca divergem) e SQL cru/`sc pull` continuam/voltam ao default do servidor.
+46. **`upsertDelta` (create-or-update com delta)**: alvo por `where` id/UNIQUE, inferido de `data.id`, ou sem alvo = `CREATE` (id por `idStrategy`); o envelope `RETURN VALUE { before: $before, after: $after }` acompanha TODA lowering (`UPSERT` id/campo único/subquery gerada, `UPDATE` estrito, `CREATE`, e por branch no `LET`/`IF` — com `TIMEOUT` por branch); `onMissing: "throw"` compila `UPDATE ONLY t:id` ou `UPDATE t … WHERE uniq` e um resultado sem envelope vira `ResultNotFound`; o delta compara valores **decodificados** (`Date`/`RecordId`/`Decimal`/… via `.equals()`, nunca strings de wire), só campos alterados, na ordem das chaves do `after`; branches distintos (`create`+`update`) sempre usam `LET`/`IF`, nunca `INSERT … ON DUPLICATE`.
 
 ---
 
