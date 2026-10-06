@@ -49,6 +49,11 @@ export interface WritePlan {
   /** A miss is an ERROR, not a null: the decode raises `ResultNotFound` — `upsert` with
    *  `onMissing: "throw"` (the default) or a create-mode `return: "after"` that produced no row. */
   readonly missError?: boolean;
+  /** The miss came from a STRICT update lowering (`UPDATE ONLY t:id` / `UPDATE … WHERE uniq`),
+   *  never from a create branch filtered by a permission/plugin scope. The decode picks the
+   *  teaching message from THIS, not from `args.onMissing` (a target-less create has no explicit
+   *  `onMissing: "throw"` even though the arg is absent and the default is `"throw"`). */
+  readonly strictMiss?: boolean;
   /** `updateEach`'s eager `select` decode spec (the rows come back whole from the server). */
   readonly select?: ProjectionSpec;
 }

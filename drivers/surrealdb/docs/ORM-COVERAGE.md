@@ -101,7 +101,7 @@ Writes are **eager** (run immediately, no `.explain()`).
 | `update` `unset` (extra statement with data) | `[x]` | `test/unit/orm-writes.test.ts:236`; `test/live/orm-writes.test.ts:194` |
 | `updateMany` — optional `where` (whole table) | `[x]` | `test/unit/orm-writes.test.ts:296`; `test/live/orm-writes.test.ts:240` |
 | `patch` — JSON Patch (`add/remove/replace/move/copy/test`, validated) | `[x]` | `test/unit/orm-writes.test.ts:304`; `test/live/orm-writes.test.ts:261` |
-| `upsert` — `where` id/UNIQUE; **STRICT by default** (`UPDATE ONLY t:id` / `UPDATE … WHERE uniq`, miss → `ResultNotFound`); `onMissing:"create"` = create-or-update (`data` or `create`+`update`) | `[x]` | `test/unit/orm-writes.test.ts:358`; `test/live/orm-writes.test.ts:284` |
+| `upsert` — alvo `where` id/UNIQUE, inferido de `data.id` ou **sem alvo = `CREATE` puro** (id por `idStrategy`); **STRICT by default** (`UPDATE ONLY t:id` / `UPDATE … WHERE uniq`, miss → `ResultNotFound`); `onMissing:"create"` = create-or-update (`data` ou `create`+`update`); a mensagem do miss vem do plano (`strictMiss`) | `[x]` | `test/unit/orm-writes.test.ts:359`; `test/live/orm-writes.test.ts:285`/`:338`; guardas target-less `:531`; tenant `test/unit/orm-plugins-tenant.test.ts` |
 | `upsertDelta` — **STRICT update by default** (`onMissing:"throw"`) em UMA ida, devolvendo `record`/`before`/`delta`/`changed` **decodificados** (`RETURN VALUE { before: $before, after: $after }`); alvo por `where`, `data.id` ou create sem alvo; `onMissing:"create"` = create-or-update | `[x]` | `test/unit/orm-mutate-delta.test.ts`; `test/live/orm-writes-delta.test.ts`; probes `test/live/orm-syntax.test.ts` (`UPSERT DELTA` + `STRICT upsert lowering`) |
 | `upsertMany` — ids ⇒ `ON DUPLICATE`; else `conflict` (single UNIQUE) required | `[x]` | `test/unit/orm-writes.test.ts:416`; `test/live/orm-writes.test.ts:321` |
 | `delete` — unique `where`, `return` `before`/`none` | `[x]` | `test/unit/orm-writes.test.ts:436`; `test/live/orm-writes.test.ts:347` |
@@ -125,7 +125,7 @@ Writes are **eager** (run immediately, no `.explain()`).
 | `upsert` `mode:"patch"` | `[ ]` | → `ValidationError`. `test/unit/orm-writes.test.ts:393` |
 | `upsertDeltaMany` (batch) | `[ ]` | fora de escopo; o compiler do singular fica reutilizável |
 | `upsertDelta` com `onMissing:"throw"` + `create`/`update` | `[ ]` | estrito nunca cria → `ValidationError` (passe `data`/`update`). `test/unit/orm-mutate-delta.test.ts` |
-| `upsertDelta` sem alvo com `mode`/branches distintos | `[ ]` | create puro não tem branch de update → `ValidationError`. `test/unit/orm-mutate-delta.test.ts` |
+| `upsert`/`upsertDelta` sem alvo com `mode`/`onMissing:"throw"` explícito/branches distintos | `[ ]` | create puro não tem branch de update → `ValidationError` (`assertTargetlessCreate`). `test/unit/orm-writes.test.ts:531`; `test/unit/orm-mutate-delta.test.ts` |
 | `create.relate` + `return:"diff"`; `relateMany` per-item `return` | `[ ]` | → `ReturnNotSupported` / `ValidationError`. `test/unit/orm-writes-returns.test.ts:230`/`:243` |
 | `insert` with array `data` | `[ ]` | use `insertMany`. `test/unit/orm-writes.test.ts:154` |
 | `upsertMany` without ids and no `conflict` | `[ ]` | → `ValidationError`. `test/unit/orm-writes.test.ts:424` |

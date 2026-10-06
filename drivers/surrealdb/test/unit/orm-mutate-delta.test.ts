@@ -644,6 +644,17 @@ describe("upsertDelta — runtime decode", () => {
     expect(calls[0]?.sql).not.toContain("UPSERT");
   });
 
+  test("a filtered TARGET-LESS create uses the scope message, not the strict one", async () => {
+    const { client: c, calls } = clientFor(() => null);
+    const error = (await caught(() =>
+      c.ledgers.upsertDelta({ data: { name: "A" } }),
+    )) as BetterSchemicError;
+    expect(error.code).toBe("ResultNotFound");
+    expect(calls[0]?.sql).toContain("CREATE");
+    expect(error.message).toContain("plugin scope");
+    expect(error.message).not.toContain('onMissing: "throw"');
+  });
+
   test("a scope-filtered create-mode upsert that writes no row rejects ResultNotFound", async () => {
     const { client: c } = clientFor(() => null);
     const error = (await caught(() =>

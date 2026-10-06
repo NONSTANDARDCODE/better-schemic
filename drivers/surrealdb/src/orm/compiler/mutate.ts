@@ -1,7 +1,9 @@
 /**
  * The mutation lowering — `update`/`updateMany`/`patch`/`upsert`/`upsertMany`/`delete`/
- * `deleteMany`/`updateEach`. Singular targets are record ids or a single-field UNIQUE index
- * (`uniqueTarget`) and never create; batches set `transactional: true` for atomicity.
+ * `deleteMany`/`updateEach`. Singular targets resolve `where` (a record id or a single-field
+ * UNIQUE index) or an inferred `data.id`; `update`/`patch`/`delete` never create, while `upsert`
+ * creates when a target is absent and creates outright when there is none. Batches set
+ * `transactional: true` for atomicity.
  */
 import { escapeIdent, RecordId } from "surrealdb";
 import { hasRefDeep } from "../../pure";
@@ -223,10 +225,12 @@ function compileMutation(
 
 // --- upsert --------------------------------------------------------------------------------------
 
-/** Compile `upsert` — by default a STRICT update by id or a single-field UNIQUE index: a target
- *  that does not exist (or is filtered out by a permission/plugin scope) rejects `ResultNotFound`
- *  instead of silently creating or resolving `null`. `onMissing: "create"` restores the
- *  create-or-update lowering. */
+/** Compile `upsert` — by default a STRICT update by id, a single-field UNIQUE index or an inferred
+ *  `data.id`: a target that does not exist (or is filtered out by a permission/plugin scope)
+ *  rejects `ResultNotFound` instead of silently creating or resolving `null`. `onMissing: "create"`
+ *  restores the create-or-update lowering. With NO target at all (`where` omitted and no `data.id`)
+ *  the call is a plain `CREATE` (mirroring `create()`); only an explicit `onMissing: "throw"`
+ *  forbids that. */
 export function compileUpsert(
   meta: ModelMeta,
   args: UpsertRuntimeArgs,
@@ -239,30 +243,32 @@ export function compileUpsert(
     ["after", "before", "diff", "none"],
     "after",
   );
-  const onMissing = readOnMissing(args.onMissing, operation) ?? "throw";
+  const explicit = readOnMissing(args.onMissing, operation);
+  const onMissing = explicit ?? "throw";
   const hasData = args.data !== undefined;
   const hasCreate = args.create !== undefined;
   const hasUpdate = args.update !== undefined;
+  // Resolve the payload shape ONCE (like `upsertDelta`): `anyBranch` gates "which payload" guards.
+  const anyBranch = hasCreate || hasUpdate;
   if (!hasData && !(hasCreate && hasUpdate))
     throw compileError(
       "ValidationError",
       `${operation}: pass "data" (one payload for both branches) OR "create" + "update".`,
       { operation, table: meta.name },
     );
-  if (hasData && (hasCreate || hasUpdate))
+  if (hasData && anyBranch)
     throw compileError(
       "ValidationError",
       `${operation}: pass "data" OR "create" + "update" — not both.`,
       { operation, table: meta.name },
     );
-  if (onMissing === "throw" && (hasCreate || hasUpdate))
+  if (onMissing === "throw" && anyBranch)
     throw compileError(
       "ValidationError",
       `${operation}: onMissing "throw" (the default) is a strict UPDATE — it never creates; pass "data" (applied by the update) or onMissing: "create" to allow the create branch.`,
       { operation, table: meta.name },
     );
 
-  const target = uniqueTarget(meta, args.where, operation);
   const mode = updateMode(args.mode, operation, "merge");
   if (mode === "patch")
     throw compileError(
@@ -270,6 +276,25 @@ export function compileUpsert(
       `${operation}: mode "patch" is not part of upsert — use patch() or update({ mode: "patch" }).`,
       { operation, table: meta.name },
     );
+  const target = resolveUpsertTarget(meta, args, operation);
+
+  if (target === undefined) {
+    assertTargetlessCreate(meta, operation, {
+      explicit,
+      anyBranch,
+      mode: args.mode,
+    });
+    const encoded = encodeData(meta, args.data, "create", operation);
+    return {
+      statements: [
+        `CREATE ${createTarget(meta, args.data, args.only === true, operation)} CONTENT ${payload(encoded, binds)}${mutationTail(ret, args.timeout, operation)}`,
+      ],
+      transactional: false,
+      resultIndexes: [0],
+      result: resultOf(ret, "row"),
+      ...(ret === "after" ? { missError: true } : {}),
+    };
+  }
 
   if (onMissing === "throw")
     return compileStrictUpsert(meta, target, args, mode, ret, binds, operation);
@@ -304,10 +329,11 @@ export function compileUpsert(
         };
       }
       // Unique-field target, no expressions. A payload `id` wins (the plain-table form carries it
-      // in the payload, and `id` inside MERGE on an EXISTING record is a server error — live-probed
-      // 3.2), so only an id-less payload switches to the generated target: the subquery resolves the
-      // existing record by the unique field, `??` falls back to `type::record(<table>, <fn>())` on a
-      // miss. One statement, so `RETURN DIFF` stays supported (the LET/IF fallback can't honor it).
+      // in the payload), so only an id-less payload switches to the generated target: injecting the
+      // generated expression into a MERGE against an existing record is a server error (`Found … for
+      // the id field, but a specific record has been specified` — live-probed 3.2; a matching id is
+      // accepted). The subquery resolves the existing record by the unique field, `??` falls back to
+      // `type::record(<table>, <fn>())` on a miss. One statement, so `RETURN DIFF` stays supported.
       // `encodeData` above already rejected non-object data — while `createId` handles both.
       const generated =
         createId(meta, args.data) === undefined
@@ -361,7 +387,8 @@ export function compileUpsert(
  * never creates. A miss returns no row and the runtime raises `ResultNotFound`. `return: "none"`
  * still compiles the row-returning form (the miss must stay observable) and the decode discards
  * the row; `return: "diff"` is rejected because an empty diff cannot tell "no match" from
- * "no change".
+ * "no change". `strictMiss` tells the decode this is a STRICT miss (the "it never creates"
+ * teaching message), as opposed to a create branch filtered by a permission/plugin scope.
  */
 function compileStrictUpsert(
   meta: ModelMeta,
@@ -400,6 +427,7 @@ function compileStrictUpsert(
     resultIndexes: [0],
     result: resultOf(ret, "row"),
     missError: true,
+    strictMiss: true,
   };
 }
 
@@ -603,28 +631,15 @@ export function compileUpsertDelta(
       `${operation}: mode "patch" is not part of upsertDelta — use patch() or update({ mode: "patch" }).`,
       { operation, table: meta.name },
     );
-  const target = resolveDeltaTarget(meta, args, operation);
+  const target = resolveUpsertTarget(meta, args, operation);
   const tail = deltaTail(args.timeout, operation);
 
   if (target === undefined) {
-    if (explicit === "throw")
-      throw compileError(
-        "ValidationError",
-        `${operation}: onMissing "throw" needs a target — pass "where" (or let "data.id" infer it).`,
-        { operation, table: meta.name },
-      );
-    if (anyBranch)
-      throw compileError(
-        "ValidationError",
-        `${operation}: distinct "create"/"update" payloads need a target — pass "where" (or "data" with an "id").`,
-        { operation, table: meta.name },
-      );
-    if (args.mode !== undefined)
-      throw compileError(
-        "ValidationError",
-        `${operation}: "mode" only applies to the update branch — a target-less call is a plain create.`,
-        { operation, table: meta.name },
-      );
+    assertTargetlessCreate(meta, operation, {
+      explicit,
+      anyBranch,
+      mode: args.mode,
+    });
     const encoded = encodeData(meta, args.data, "create", operation);
     return {
       statements: [
@@ -638,7 +653,8 @@ export function compileUpsertDelta(
 
   if (onMissing === "throw") {
     // Strict update: never a create branch. `UPDATE ONLY t:id` misses as NONE; the unique-field
-    // form misses as [] — the runtime treats "no envelope" as the miss either way.
+    // form misses as [] — the runtime treats "no envelope" as the miss either way. `strictMiss`
+    // keeps the "it never creates" message honest for that miss.
     const encoded = encodeData(
       meta,
       args.data,
@@ -655,6 +671,7 @@ export function compileUpsertDelta(
         resultIndexes: [0],
         result: "delta",
         mayMiss: true,
+        strictMiss: true,
       };
     return {
       statements: [
@@ -664,6 +681,7 @@ export function compileUpsertDelta(
       resultIndexes: [0],
       result: "delta",
       mayMiss: true,
+      strictMiss: true,
     };
   }
 
@@ -751,8 +769,8 @@ export function compileUpsertDelta(
 }
 
 /** Validate `onMissing`; `undefined` passes through — each caller applies its own default
- *  (`upsert`/`upsertDelta` are STRICT on a targeted call; a target-less `upsertDelta` is a plain
- *  create, which only an explicit `"throw"` forbids). */
+ *  (`upsert`/`upsertDelta` are STRICT on a targeted call; a target-less call is a plain create,
+ *  which only an explicit `"throw"` forbids). */
 function readOnMissing(
   value: unknown,
   operation: string,
@@ -768,13 +786,13 @@ function readOnMissing(
 }
 
 /**
- * The delta target: an explicit `where` wins; otherwise a single-payload `data.id` infers an id
- * target; neither means a plain create. A `where.id` that disagrees with `data.id` is rejected
- * (they name the same record) — `upsert` parity plus the inferred-target form.
+ * The target shared by `upsert` and `upsertDelta`: an explicit `where` wins; otherwise a
+ * single-payload `data.id` infers an id target; neither means a plain create. A `where.id` that
+ * disagrees with `data.id` is rejected (they name the same record).
  */
-function resolveDeltaTarget(
+function resolveUpsertTarget(
   meta: ModelMeta,
-  args: UpsertDeltaRuntimeArgs,
+  args: { where?: unknown; data?: unknown },
   operation: string,
 ): UniqueTarget | undefined {
   if (args.where !== undefined) {
@@ -795,6 +813,41 @@ function resolveDeltaTarget(
   if (isPlainObject(args.data) && args.data.id !== undefined)
     return uniqueTarget(meta, { id: args.data.id }, operation);
   return undefined;
+}
+
+/**
+ * The guards a TARGET-LESS upsert shares (`upsert` and `upsertDelta`): with no `where` and no
+ * inferable `data.id` the call is a plain create, so an explicit `"throw"`, distinct payload
+ * branches or a `mode` have no branch to act on. Same wording in both ops so the teaching text
+ * never drifts.
+ */
+function assertTargetlessCreate(
+  meta: ModelMeta,
+  operation: string,
+  args: {
+    readonly explicit: "create" | "throw" | undefined;
+    readonly anyBranch: boolean;
+    readonly mode: unknown;
+  },
+): void {
+  if (args.explicit === "throw")
+    throw compileError(
+      "ValidationError",
+      `${operation}: onMissing "throw" needs a target — pass "where" (or let "data.id" infer it).`,
+      { operation, table: meta.name },
+    );
+  if (args.anyBranch)
+    throw compileError(
+      "ValidationError",
+      `${operation}: distinct "create"/"update" payloads need a target — pass "where" (or "data" with an "id").`,
+      { operation, table: meta.name },
+    );
+  if (args.mode !== undefined)
+    throw compileError(
+      "ValidationError",
+      `${operation}: "mode" only applies to the update branch — a target-less call is a plain create.`,
+      { operation, table: meta.name },
+    );
 }
 
 /** Validate the distinct `create` branch against an id target (parity with `upsert`). */

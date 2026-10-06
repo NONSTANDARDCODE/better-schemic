@@ -354,6 +354,14 @@ describe("tenantRls — creates and upserts", () => {
     expect(String(payloadBind(calls[0]!)?.tenant_id)).toBe("user:abc");
   });
 
+  test("upsert target-less create injects the tenant", async () => {
+    const { client, calls } = scoped();
+    const row = await client.customers.upsert({ data: { name: "A" } });
+    expect(calls[0]?.sql).toContain("CREATE");
+    expect(String(payloadBind(calls[0]!)?.tenant_id)).toBe("user:abc");
+    expect(row).toMatchObject({ name: "A" });
+  });
+
   test("upsertDelta strict rejects a cross-tenant id instead of creating", async () => {
     const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok(null)));
     const client = betterSchemic(conn, {

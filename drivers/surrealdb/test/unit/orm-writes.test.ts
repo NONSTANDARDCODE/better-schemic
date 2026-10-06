@@ -6,7 +6,8 @@ import { RecordId } from "surrealdb";
 import { surql } from "../../src/index";
 import type { Client } from "../../src/orm/client";
 import { betterSchemic } from "../../src/orm/client";
-import { fakeConn, ok } from "../orm-fixtures";
+import type { BetterSchemicError } from "../../src/orm/errors";
+import { caught, fakeConn, ok } from "../orm-fixtures";
 import {
   codeOf,
   data,
@@ -474,6 +475,116 @@ describe("upsert", () => {
       return: "none",
     });
     expect(lastCall(calls).sql).toBe("UPDATE ONLY user:1 MERGE $p0;");
+  });
+
+  test("no target (no where, no data.id): a plain CREATE, mirroring create()", async () => {
+    const { client, calls } = makeClient();
+    const row = await client.users.upsert({ data });
+    expect(lastCall(calls).sql).toBe(
+      'CREATE type::record(s"user", rand::ulid()) CONTENT $p0;',
+    );
+    expect(row).toMatchObject({ name: "A", age: 30 });
+    // `onMissing: "create"` is a no-op on a target-less call — it is already a create.
+    await client.users.upsert({ data, onMissing: "create" });
+    expect(lastCall(calls).sql).toBe(
+      'CREATE type::record(s"user", rand::ulid()) CONTENT $p0;',
+    );
+  });
+
+  test("no target mirrors create's only/diff/timeout lowering", async () => {
+    const { client, calls } = makeClient([ROW]);
+    await client.users.upsert({ data, only: true });
+    expect(lastCall(calls).sql).toBe(
+      'CREATE ONLY type::record(s"user", rand::ulid()) CONTENT $p0;',
+    );
+    await client.users.upsert({ data, return: "diff" });
+    expect(lastCall(calls).sql).toBe(
+      'CREATE type::record(s"user", rand::ulid()) CONTENT $p0 RETURN DIFF;',
+    );
+    await client.users.upsert({ data, timeout: "2s" });
+    expect(lastCall(calls).sql).toBe(
+      'CREATE type::record(s"user", rand::ulid()) CONTENT $p0 TIMEOUT 2s;',
+    );
+  });
+
+  test("data.id infers the id target: strict UPDATE ONLY, no where needed", async () => {
+    const { client, calls } = makeClient();
+    const row = await client.users.upsert({
+      data: { ...data, id: "user:inferred" },
+    });
+    expect(lastCall(calls).sql).toBe("UPDATE ONLY user:inferred MERGE $p0;");
+    const payload = lastCall(calls).vars.p0 as { id: unknown };
+    expect(payload.id).toBeInstanceOf(RecordId);
+    expect(String(payload.id)).toBe("user:inferred");
+    expect(row).toMatchObject({ name: "A" });
+  });
+
+  test("data.id + onMissing create: UPSERT t:id (create-or-update)", async () => {
+    const { client, calls } = makeClient();
+    await client.users.upsert({
+      data: { ...data, id: "user:9" },
+      onMissing: "create",
+    });
+    expect(lastCall(calls).sql).toBe("UPSERT user:9 MERGE $p0;");
+  });
+
+  test("target-less guards teach with the upsertDelta wording", () => {
+    const { client } = makeClient();
+    expect(() => client.users.upsert({ data, onMissing: "throw" })).toThrow(
+      /needs a target — pass "where"/,
+    );
+    expect(() =>
+      client.users.upsert({
+        create: { ...data, id: "user:1" },
+        update: { age: 2 },
+        onMissing: "create",
+      }),
+    ).toThrow(/distinct "create"\/"update" payloads need a target/);
+    expect(() => client.users.upsert({ data, mode: "set" })).toThrow(
+      /"mode" only applies to the update branch/,
+    );
+  });
+
+  test("where.id/data.id mismatch, non-unique and undefined where keep teaching errors", () => {
+    const { client } = makeClient();
+    const us = (args: unknown) =>
+      codeOf(() => client.users.upsert(args as never));
+    expect(
+      us({ where: { id: "user:1" }, data: { ...data, id: "user:2" } }),
+    ).toBe("ValidationError");
+    // Identical ids name the same record — no error.
+    expect(
+      us({ where: { id: "user:1" }, data: { ...data, id: "user:1" } }),
+    ).toBeUndefined();
+    expect(us({ where: { age: 1 }, data })).toBe("UniqueTargetRequired");
+    expect(us({ where: { id: undefined }, data })).toBe(
+      "UniqueTargetRequired",
+    );
+  });
+
+  test("target-less: the created row comes back; a filtered create rejects, never null", async () => {
+    const { client } = makeClient([ROW]);
+    const row = await client.users.upsert({ data });
+    expect(row).toMatchObject({ name: "A", age: 30 });
+
+    const { conn } = fakeConn((sql) => sql.split("\n").map(() => ok(null)));
+    const filtered = betterSchemic(conn, { schema }) as Client<typeof schema>;
+    const error = (await caught(() =>
+      filtered.users.upsert({ data }),
+    )) as BetterSchemicError;
+    expect(error.code).toBe("ResultNotFound");
+    expect(error.message).toContain("wrote no row");
+    expect(error.message).not.toContain("onMissing");
+  });
+
+  test("strict targeted miss keeps the onMissing teaching message", async () => {
+    const { conn } = fakeConn((sql) => sql.split("\n").map(() => ok(null)));
+    const client = betterSchemic(conn, { schema }) as Client<typeof schema>;
+    const error = (await caught(() =>
+      client.users.upsert({ where: { id: "user:missing" }, data: { age: 1 } }),
+    )) as BetterSchemicError;
+    expect(error.code).toBe("ResultNotFound");
+    expect(error.message).toContain('onMissing: "throw"');
   });
 
   test("upsertMany with ids: INSERT ON DUPLICATE from the union of fields", async () => {

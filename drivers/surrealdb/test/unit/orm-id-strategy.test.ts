@@ -371,6 +371,18 @@ describe("compiler — ulid default", () => {
     );
   });
 
+  test("target-less upsert is a plain CREATE with the strategy target", () => {
+    expect(
+      sql(compileUpsert(meta("ulidT"), { data: { name: "A" } }, b())),
+    ).toBe('CREATE type::record(s"ulid_t", rand::ulid()) CONTENT $p0;');
+    // `rand` keeps the server's plain-table default; explicit `only` still applies.
+    expect(
+      sql(
+        compileUpsert(meta("randT"), { data: { name: "A" }, only: true }, b()),
+      ),
+    ).toBe("CREATE ONLY rand_t CONTENT $p0;");
+  });
+
   test("upsert create/update branches generate on the CREATE side only", () => {
     const plan = sql(
       compileUpsert(

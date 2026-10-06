@@ -81,7 +81,8 @@ export type CreatedResult<TD extends AnyTableDef, A> =
  * What `insert`/`upsert` resolve to. `RETURN BEFORE` exposes the PREVIOUS row on a conflict
  * (live-verified on 3.2.4) and `null` when the target was newly created. A STRICT `upsert` (its
  * default) rejects `ResultNotFound` when the target matches nothing — it never resolves the
- * contract-breaking `null`.
+ * contract-breaking `null`; a target-less `upsert` is a plain create, and a create filtered by a
+ * permission/scope rejects the same way.
  */
 export type WrittenResult<TD extends AnyTableDef, A> =
   ReturnOf<A> extends "none"
@@ -235,15 +236,21 @@ export interface PatchArgs<TD extends AnyTableDef, S = SchemaInput>
 
 // --- upsert --------------------------------------------------------------------------------------
 
-/** `upsert` — by default a STRICT update by id or a single-field UNIQUE index; `onMissing:
- *  "create"` restores create-or-update. */
+/** `upsert` — by default a STRICT update by id, a single-field UNIQUE index or an inferred
+ *  `data.id`; `onMissing: "create"` restores create-or-update. With NO target at all the call is
+ *  a plain `CREATE` (mirroring `create()`). */
 export interface UpsertArgs<TD extends AnyTableDef, S = SchemaInput>
   extends WriteMeta {
-  where: WhereInput<TD, S>;
   /**
-   * One payload for both branches (`UPSERT t:id MERGE $p` / `UPSERT t MERGE $p WHERE uniq = $v`).
-   * Partial patches are allowed (the merge path); the server enforces required fields when the
-   * create branch runs.
+   * The target: `{ id }` or a single-field UNIQUE index (same rules as `upsertDelta`). Omit it to
+   * infer the target from `data.id`, or to CREATE when neither is present (a generated id per the
+   * table's `idStrategy`).
+   */
+  where?: WhereInput<TD, S>;
+  /**
+   * One payload for both branches (`UPSERT t:id MERGE $p` / `UPSERT t MERGE $p WHERE uniq = $v`) —
+   * or the record to CREATE when the call is target-less. Partial patches are allowed (the merge
+   * path); the codec enforces required fields when the create branch runs.
    */
   data?: CreateData<TD> | UpdateData<TD>;
   /** The create branch (with `update`; distinct payloads compile `INSERT … ON DUPLICATE …`).
@@ -253,13 +260,16 @@ export interface UpsertArgs<TD extends AnyTableDef, S = SchemaInput>
   update?: UpdateData<TD>;
   /**
    * What to do when the target matches nothing:
-   * - `"throw"` (default) — STRICT update: reject with `ResultNotFound`, never create.
+   * - `"throw"` (default) — STRICT update: reject with `ResultNotFound`, never create. Requires
+   *   an inferable target (`where`, or `data.id`); explicit `"throw"` on a target-less call is
+   *   rejected (there is nothing to miss).
    * - `"create"` — true upsert semantics (create the record when the target is absent).
    */
   readonly onMissing?: "create" | "throw";
-  /** How the update branch rewrites (`merge` default). */
+  /** How the update branch rewrites (`merge` default). A target-less call is a plain create, so
+   *  an explicit `mode` there is rejected (it would have nothing to rewrite). */
   readonly mode?: Exclude<UpdateMode, "patch">;
-  /** `UPSERT ONLY t:id …`. */
+  /** `UPSERT ONLY t:id …`, or `CREATE ONLY …` on a target-less call. */
   readonly only?: boolean;
   readonly return?: WriteReturn;
   readonly timeout?: number | string;

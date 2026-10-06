@@ -441,3 +441,24 @@ flags no caso comum.
   miss real, cross-tenant, idStrategy, concorrência, transação), tipos (`@ark/attest`), probes de
   sintaxe (`UPDATE ONLY` miss → NONE, `UPDATE … WHERE` miss → []), README, `ORM-COVERAGE.md`,
   `orm-syntax-map.md` §2.3/§12, `COVERAGE.md`, CHANGELOG, cookbooks + manifests regenerados.
+
+## M13 — fricções alpha.8: alvo opcional do `upsert` (paridade com o `upsertDelta`) ✅ *(complete)*
+
+Uma passada de DX sobre a fricção do `apps/core`: as duas APIs de upsert passam a resolver o alvo do
+mesmo jeito, então as rotas de save trocam `upsertDelta({ data })` por `upsert({ data })` — uma
+chamada, sem branch e sem cast, sem o custo do envelope delta.
+
+- ✅ **M13.1 alvo compartilhado** — `where` opcional no `UpsertArgs`; `resolveUpsertTarget` (extraído
+  do delta) resolve `where` > `data.id` > sem alvo; `where.id` divergente de `data.id` é
+  `ValidationError`; `where` não-único/`{ id: undefined }` continua `UniqueTargetRequired`.
+- ✅ **M13.2 lowering sem alvo** — `compileUpsert` ganha o ramo `target === undefined`: `CREATE`
+  (target por `idStrategy`, `only`/`return`/`timeout` do `create`); com `return:"after"`, um create
+  filtrado por permission/escopo → `ResultNotFound`; guardas compartilhadas
+  (`assertTargetlessCreate`) com o delta: `"throw"` explícito, branches distintos e `mode` sem alvo.
+- ✅ **M13.3 miss honesto** — `WritePlan.strictMiss` (setado só pelas lowerings estritas) decide a
+  mensagem do `upsertMiss`/`deltaMiss`; um create sem alvo filtrado não afirma mais
+  `onMissing:"throw"`.
+- ✅ **M13.4 testes + docs** — unit (lowering/guardas/decode/miss/idStrategy/tenant), live
+  (target-less create, `data.id` estrito, miss, create-or-update, MERGE com id igual), tipos
+  (`@ark/attest`), probe de sintaxe (`UPDATE ONLY t:id MERGE { id: t:id }`), README,
+  `ORM-COVERAGE.md`, `orm-syntax-map.md` §2.3/§12, CHANGELOG, cookbook + manifest regenerado.

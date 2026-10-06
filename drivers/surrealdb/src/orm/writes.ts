@@ -390,7 +390,7 @@ async function runPrepared(
 /** Await a prepared write, attaching `.throw()` when the compiled plan says the row may be absent. */
 function finish(ctx: DelegateContext, prepared: PreparedWrite): unknown {
   const promise = runPrepared(ctx, prepared);
-  // `upsertDelta` handles its own misses (ResultNotFound from the decode, per `onMissing`): the
+  // `upsertDelta` handles its own misses (ResultNotFound from the decode, strict or filtered): the
   // strict branch must REJECT rather than expose a `.throw()` the typed surface doesn't carry.
   if (!prepared.mayMiss || prepared.delta) return promise;
   return attachThrow(promise as Promise<unknown | null>, (): NotFoundInfo => {
@@ -476,19 +476,21 @@ function decodeUpsertResult(
   return decodeResult(plan, rows, meta);
 }
 
-/** The `ResultNotFound` for an `upsert` that produced no row. */
+/** The `ResultNotFound` for an `upsert` that produced no row. The message classifies the miss by
+ *  the COMPILED plan (`strictMiss`), never by `args.onMissing`: a target-less create has no
+ *  `onMissing: "throw"` even though its default applies. */
 function upsertMiss(
   plan: WritePlan,
   meta: ModelMeta,
   args: UpsertRuntimeArgs,
 ): BetterSchemicError {
   const statement = plan.statements[plan.statements.length - 1];
-  const strict = args.onMissing !== "create";
+  const strict = plan.strictMiss === true;
   return new BetterSchemicError(
     "ResultNotFound",
     strict
       ? `${meta.name}: no record matched upsert (onMissing: "throw") — it never creates; pass onMissing: "create" to upsert instead.`
-      : `${meta.name}: upsert wrote no row — the target may be filtered by a permission or plugin scope; check access or use $withoutPlugins() for an admin path.`,
+      : `${meta.name}: upsert wrote no row — a permission or plugin scope filtered it (the target, or the create); check access, or use $withoutPlugins() for an explicit admin path.`,
     {
       table: meta.name,
       operation: "upsert",
@@ -534,19 +536,21 @@ function decodeDeltaResult(
   return { record: after, created: false, before, delta, changed };
 }
 
-/** The `ResultNotFound` for an `upsertDelta` that produced no envelope. */
+/** The `ResultNotFound` for an `upsertDelta` that produced no envelope. Like `upsertMiss`, the
+ *  message classifies the miss by the COMPILED plan (`strictMiss`): a target-less create filtered
+ *  by a permission is not a strict miss. */
 function deltaMiss(
   plan: WritePlan,
   meta: ModelMeta,
   args: UpsertDeltaRuntimeArgs,
 ): BetterSchemicError {
   const statement = plan.statements[plan.statements.length - 1];
-  const strict = args.onMissing !== "create";
+  const strict = plan.strictMiss === true;
   return new BetterSchemicError(
     "ResultNotFound",
     strict
       ? `${meta.name}: no record matched upsertDelta (onMissing: "throw") — it never creates; use onMissing: "create" to upsert instead.`
-      : `${meta.name}: upsertDelta wrote no row — a plugin scope (e.g. tenantRls) can filter the target out; check the scope, or use $withoutPlugins() for an explicit admin path.`,
+      : `${meta.name}: upsertDelta wrote no row — a permission or plugin scope can filter the write out (tenantRls, a table permission); check access, or use $withoutPlugins() for an explicit admin path.`,
     {
       table: meta.name,
       operation: "upsertDelta",

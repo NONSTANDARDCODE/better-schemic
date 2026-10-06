@@ -270,10 +270,11 @@ export interface Delegate<
     args: A,
   ): UpdatedResult<TD, A>;
   /**
-   * Update by id or a single-field UNIQUE index — STRICT by default: a target that matches
-   * nothing (or is filtered out by a permission/plugin scope) rejects `ResultNotFound`, never
-   * creates. `data` is one payload for both branches, or `create` + `update` for distinct ones
-   * (both require `onMissing: "create"`, which restores create-or-update).
+   * Update by id, a single-field UNIQUE index or an inferred `data.id` — STRICT by default: a
+   * target that matches nothing (or is filtered out by a permission/plugin scope) rejects
+   * `ResultNotFound`, never creates. With no target at all (`where` omitted and no `data.id`) the
+   * call is a plain CREATE. `data` is one payload for both branches, or `create` + `update` for
+   * distinct ones (both require `onMissing: "create"`, which restores create-or-update).
    */
   upsert<const A extends WithPluginArgs<UpsertArgs<TD, S>, P, "upsert">>(
     args: A,

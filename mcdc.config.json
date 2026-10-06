@@ -8,10 +8,10 @@
       "unknown": 104
     },
     "drivers/surrealdb/src/pure.ts": {
-      "total": 272,
-      "auto": 183,
+      "total": 294,
+      "auto": 197,
       "table": 0,
-      "unknown": 89
+      "unknown": 97
     },
     "drivers/surrealdb/src/commands.ts": {
       "total": 72,
@@ -254,10 +254,10 @@
       "unknown": 8
     },
     "drivers/surrealdb/src/orm/compiler/write-shared.ts": {
-      "total": 60,
-      "auto": 52,
+      "total": 79,
+      "auto": 70,
       "table": 0,
-      "unknown": 8
+      "unknown": 9
     },
     "drivers/surrealdb/src/orm/reads.ts": {
       "total": 41,
@@ -308,10 +308,10 @@
       "unknown": 4
     },
     "drivers/surrealdb/src/orm/compiler/mutate.ts": {
-      "total": 85,
-      "auto": 81,
+      "total": 142,
+      "auto": 133,
       "table": 0,
-      "unknown": 4
+      "unknown": 9
     },
     "drivers/surrealdb/src/plugins/timestamps.ts": {
       "total": 9,

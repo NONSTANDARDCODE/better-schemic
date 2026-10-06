@@ -18,6 +18,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+### Added
+- **surrealdb:** `upsert` now resolves its target exactly like `upsertDelta`: `where` is optional, a
+  plain `data.id` infers the id target, and a call with neither compiles a plain `CREATE` (a
+  generated id per the table's `idStrategy`) instead of rejecting `UniqueTargetRequired`. The
+  target-less guardrails match the delta (explicit `onMissing: "throw"`, distinct
+  `create`/`update` payloads or a `mode` are `ValidationError`s), `return`/`only`/`timeout` mirror
+  `create()`, and a create-mode/target-less write filtered by a permission/plugin scope rejects
+  `ResultNotFound` instead of resolving `null`. Calling with `where` is unchanged (source-compatible
+  widening). Tests: `test/unit/orm-writes.test.ts`, `test/unit/orm-id-strategy.test.ts`,
+  `test/unit/orm-plugins-tenant.test.ts`, `test/live/orm-writes.test.ts` (matching-id MERGE probe in
+  `test/live/orm-syntax.test.ts`); cookbook `examples/orm/writes.ts`.
+
+### Fixed
+- **surrealdb:** the `ResultNotFound` message of a create-mode/target-less `upsert`/`upsertDelta`
+  filtered by a permission/plugin scope is now classified by the compiled plan (`strictMiss`), so it
+  no longer claims `onMissing: "throw"` / "it never creates" on a call that compiled a plain create.
+
 ## [0.1.0-alpha.8] - 2026-10-06
 
 ### Added

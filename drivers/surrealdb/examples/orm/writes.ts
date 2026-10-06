@@ -201,6 +201,40 @@ export const writes = group(
         }),
     }),
     ormExample(import.meta.url, {
+      title: "upsert — no target is a plain CREATE (idStrategy id)",
+      note: "With neither `where` nor `data.id` the call is a plain create — the id comes from the table's `idStrategy`.",
+      sql: 'CREATE type::record(s"user", rand::ulid()) CONTENT $p0;',
+      vars: {
+        p0: {
+          name: "A",
+          email: "a@x",
+          age: 30,
+          active: true,
+          tags: [],
+          address: { city: "SP" },
+        },
+      },
+      def: (client) =>
+        client.users.upsert({
+          data: {
+            name: "A",
+            email: "a@x",
+            age: 30,
+            active: true,
+            tags: [],
+            address: { city: "SP" },
+          },
+        }),
+    }),
+    ormExample(import.meta.url, {
+      title: "upsert — data.id infers the STRICT id target",
+      note: "`where` omitted: the payload `id` names the record and matches the MERGE target; a miss still rejects `ResultNotFound`.",
+      sql: "UPDATE ONLY user:aeon MERGE $p0;",
+      vars: { p0: { id: "user:aeon", age: 32 } },
+      def: (client) =>
+        client.users.upsert({ data: { id: "user:aeon", age: 32 } }),
+    }),
+    ormExample(import.meta.url, {
       title: "upsertDelta — create-or-update with the before/after envelope (onMissing create)",
       note: "ONE statement: `$before`/`$after` come from the same UPSERT, decoded into `record`/`before`/`delta`.",
       sql: "UPSERT user:aeon MERGE $p0 RETURN VALUE { before: $before, after: $after };",

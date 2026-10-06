@@ -173,9 +173,15 @@ const patched = await client.users.patch({
   patches: [{ op: "replace", path: "/age", value: 32 }],
 });
 const upserted = await client.users.upsert({
-  where: { email: "aeon@x.dev" },               // id or a single-field UNIQUE index
+  where: { email: "aeon@x.dev" },               // id, a single-field UNIQUE index — or infer from `data.id`
   data: { email: "aeon@x.dev", age: 33 },
   onMissing: "create",                          // STRICT by default: a miss rejects ResultNotFound
+});
+const saved = await client.users.upsert({
+  data: { id: created.id, age: 33 },            // `data.id` infers the target — strict UPDATE ONLY
+});
+const fresh = await client.users.upsert({
+  data: { name: "Nova", email: "nova@x.dev", age: 1, tags: [] }, // no target at all → CREATE
 });
 const { record, created, before, delta, changed } = await client.users.upsertDelta({
   where: { id: created.id },                    // or a UNIQUE field, or `data.id`, or omitted to create
@@ -185,8 +191,9 @@ const { record, created, before, delta, changed } = await client.users.upsertDel
 // ONE statement, `RETURN VALUE { before, after }` — no read-then-write race. On a create
 // `created: true` and `before`/`delta` are null; on an update `delta.old`/`delta.new` carry ONLY
 // the changed fields as DECODED app values (server-computed for surql expressions), and
-// `changed` names them. Both upserts are STRICT by default — a targeted miss rejects
-// `ResultNotFound`; `onMissing: "create"` (above) restores create-or-update:
+// `changed` names them. Both upserts resolve the target the same way (`where` > `data.id` > no
+// target = plain create) and are STRICT by default — a targeted miss rejects `ResultNotFound`;
+// `onMissing: "create"` (above) restores create-or-update:
 const strict = await client.users.upsert({
   where: { id: created.id },
   data: { age: 35 },                            // UPDATE ONLY — never creates, never resolves null

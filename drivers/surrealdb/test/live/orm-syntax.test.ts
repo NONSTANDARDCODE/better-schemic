@@ -324,6 +324,18 @@ live("ORM syntax map — live probes (server 3.x)", () => {
       expect(hitWhere).toEqual([
         expect.objectContaining({ id: "user:strict_hit", age: 3 }),
       ]);
+      // A payload `id` EQUAL to the target is accepted (only a divergent/generated id errors) —
+      // the target inferred from `data.id` compiles `UPDATE ONLY t:id MERGE $p` with the id bound
+      // in the payload, so this is the fact that lowering rests on.
+      await run("CREATE ONLY user:strict_same CONTENT { name: 'SS', age: 1 };");
+      const sameId = await last(
+        "UPDATE ONLY user:strict_same MERGE { id: user:strict_same, age: 2 };",
+      );
+      expect(sameId).toMatchObject({ id: "user:strict_same", age: 2 });
+      const divergent = await caught(
+        last("UPDATE ONLY user:strict_same MERGE { id: user:other, age: 3 };"),
+      );
+      expect(String(divergent)).toMatch(/specific record has been specified/);
     });
   });
 

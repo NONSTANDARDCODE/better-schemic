@@ -335,6 +335,41 @@ live("orm writes — live", () => {
     expect(branches2).toMatchObject({ age: 11 });
   });
 
+  test("upsert: target-less creates; data.id infers a STRICT target", async () => {
+    // No `where` and no `data.id` → a plain CREATE with the server-side idStrategy.
+    const fresh = await client.users.upsert({ data: base("NoTarget") });
+    expect(fresh.id).toBeInstanceOf(RecordId);
+    expect(String(fresh.id)).toStartWith("wr_user:");
+    expect(fresh).toMatchObject({ name: "NoTarget", age: 30 });
+
+    // `data.id` alone names the target; the payload id MATCHES the MERGE target (live-checked).
+    await client.users.create({
+      data: { ...base("Inferred"), id: "wr_user:inferred" },
+    });
+    const updated = await client.users.upsert({
+      data: { id: "wr_user:inferred", age: 62 },
+    });
+    expect(updated).toMatchObject({ name: "Inferred", age: 62 });
+
+    // A missing inferred target is still STRICT: ResultNotFound, never a create.
+    const miss = await caught(() =>
+      client.users.upsert({ data: { id: "wr_user:inferred_missing", age: 1 } }),
+    );
+    expect((miss as { code?: string }).code).toBe("ResultNotFound");
+    expect(
+      await client.users.findUnique({
+        where: { id: "wr_user:inferred_missing" },
+      }),
+    ).toBeNull();
+
+    // `onMissing: "create"` restores create-or-update over the inferred target.
+    const created = await client.users.upsert({
+      data: { id: "wr_user:inferred_new", ...base("InferredNew") },
+      onMissing: "create",
+    });
+    expect(created).toMatchObject({ name: "InferredNew" });
+  });
+
   test("upsertMany: with ids (one statement) and by conflict field", async () => {
     const withIds = await client.users.upsertMany({
       data: [

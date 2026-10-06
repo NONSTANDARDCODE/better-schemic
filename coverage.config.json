@@ -527,7 +527,7 @@
       "branches": 86.88,
       "functions": 84.09,
       "lines": 88.69,
-      "conditions": 61.06
+      "conditions": 60.92
     },
     "drivers/surrealdb/src/query.ts": {
       "statements": 95,

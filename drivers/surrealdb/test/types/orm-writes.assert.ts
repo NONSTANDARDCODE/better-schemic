@@ -120,6 +120,24 @@ function typeProbes(): void {
   });
   attest<Promise<Row>, typeof upserted>();
 
+  // A target-less `upsert` is a plain CREATE; `data.id` alone infers the strict id target.
+  const targetless = client.users.upsert({
+    data: {
+      name: "B",
+      email: "b@x",
+      age: 2,
+      active: true,
+      tags: [],
+      address: { city: "X", country: "Y" },
+    },
+  });
+  attest<Promise<Row>, typeof targetless>();
+  void client.users.upsert({ data: { id: "user:b", age: 2 } });
+  void client.users.upsert({
+    data: { id: "user:b", age: 2 },
+    onMissing: "create",
+  });
+
   void client.users.upsertDelta({ where: { id: "user:a" }, data: { age: 1 } });
   void client.users.upsertDelta({ data: { id: "user:a", age: 2 } });
   void client.users.upsertDelta({
