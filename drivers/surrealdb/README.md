@@ -50,6 +50,28 @@ DEFINE INDEX user_email_idx ON TABLE user FIELDS email UNIQUE;
 DEFINE FIELD createdAt ON TABLE user TYPE datetime DEFAULT time::now() READONLY;
 ```
 
+`$value` computes/coerces on write and is **create-optional by default** (`time::now()`, a total
+derived from other fields). An expression that reads `$value` declares its intent — `{ optional:
+false }` for a transform that requires client input, `{ optional: true }` when the DB may compute
+it without input. A parent mapping can mark the nested keys it fills as optional PER ITEM:
+
+```ts
+export const Order = defineTable("order", {
+  products: s
+    .array(
+      s.object({
+        product: s.string(),
+        quantity: s.int(),
+        sellingPriceAtOrder: s.number(),
+      }),
+    )
+    .$value(
+      surql`$value.map(|$p| { RETURN { product: $p.product, quantity: $p.quantity, sellingPriceAtOrder: 1 } })`,
+      { optional: true, computes: ["sellingPriceAtOrder"] },
+    ),
+});
+```
+
 The connection lives in `better-schemic.config.ts` — a named connection from the
 `surrealConnection` factory (no `driver:` string to keep in sync):
 
@@ -153,19 +175,21 @@ const patched = await client.users.patch({
 const upserted = await client.users.upsert({
   where: { email: "aeon@x.dev" },               // id or a single-field UNIQUE index
   data: { email: "aeon@x.dev", age: 33 },
+  onMissing: "create",                          // STRICT by default: a miss rejects ResultNotFound
 });
 const { record, created, before, delta, changed } = await client.users.upsertDelta({
   where: { id: created.id },                    // or a UNIQUE field, or `data.id`, or omitted to create
   data: { age: 34 },
+  onMissing: "create",                          // strict by default here too
 });
 // ONE statement, `RETURN VALUE { before, after }` — no read-then-write race. On a create
 // `created: true` and `before`/`delta` are null; on an update `delta.old`/`delta.new` carry ONLY
 // the changed fields as DECODED app values (server-computed for surql expressions), and
-// `changed` names them. `onMissing: "throw"` = strict update (never creates; ResultNotFound):
-const strict = await client.users.upsertDelta({
+// `changed` names them. Both upserts are STRICT by default — a targeted miss rejects
+// `ResultNotFound`; `onMissing: "create"` (above) restores create-or-update:
+const strict = await client.users.upsert({
   where: { id: created.id },
-  data: { age: 35 },
-  onMissing: "throw",
+  data: { age: 35 },                            // UPDATE ONLY — never creates, never resolves null
 });
 void before;
 void delta;

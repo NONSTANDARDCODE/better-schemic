@@ -56,6 +56,7 @@ describe("timestamps — app mode", () => {
     const result = await client.users.upsertDelta({
       where: { id: "user:1" },
       data: { name: "B" },
+      onMissing: "create",
     });
     expect(result.created).toBe(false);
     expect(result.changed).toEqual(["name", "updatedAt"]);
@@ -74,6 +75,7 @@ describe("timestamps — app mode", () => {
     });
     const created = await createClient.users.upsertDelta({
       data: { id: "user:1", name: "A" },
+      onMissing: "create",
     });
     expect(created.created).toBe(true);
     expect(created.delta).toBeNull();

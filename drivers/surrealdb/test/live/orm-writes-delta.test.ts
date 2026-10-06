@@ -70,6 +70,7 @@ live("orm upsertDelta — live", () => {
     const created = await client.accounts.upsertDelta({
       where: { id: "dl_account:1" },
       data: base("Acct1"),
+      onMissing: "create",
     });
     expect(created.created).toBe(true);
     expect(created.before).toBeNull();
@@ -137,12 +138,11 @@ live("orm upsertDelta — live", () => {
     expect(noop.record.count).toBe(2);
   });
 
-  test("strict mode: a missing id rejects ResultNotFound and creates nothing", async () => {
+  test("strict is the default: a missing id rejects ResultNotFound and creates nothing", async () => {
     const error = (await caught(() =>
       client.accounts.upsertDelta({
         where: { id: "dl_account:strict" },
         data: base("Strict"),
-        onMissing: "throw",
       }),
     )) as BetterSchemicError;
     expect(error.code).toBe("ResultNotFound");
@@ -155,7 +155,6 @@ live("orm upsertDelta — live", () => {
     const hit = await client.accounts.upsertDelta({
       where: { id: "dl_account:1" },
       data: { note: "strict" },
-      onMissing: "throw",
     });
     expect(hit.created).toBe(false);
     expect(hit.changed).toEqual(["note"]);
@@ -166,6 +165,7 @@ live("orm upsertDelta — live", () => {
     const created = await client.accounts.upsertDelta({
       where: { name: "UniqueA" },
       data: { ...base("UniqueA") },
+      onMissing: "create",
     });
     expect(created.created).toBe(true);
     const updated = await client.accounts.upsertDelta({
@@ -183,6 +183,7 @@ live("orm upsertDelta — live", () => {
     await client.accounts.upsertDelta({
       where: { id: "dl_account:expr" },
       data: { ...base("Expr"), count: 5 },
+      onMissing: "create",
     });
     const bumped = await client.accounts.upsertDelta({
       where: { id: "dl_account:expr" },
@@ -201,6 +202,7 @@ live("orm upsertDelta — live", () => {
       where: { id: "dl_account:branches" },
       create: { id: "dl_account:branches", ...base("Branches") },
       update: { count: 7 },
+      onMissing: "create",
     } as const;
     const created = await client.accounts.upsertDelta({ ...args });
     expect(created.created).toBe(true);
@@ -216,6 +218,7 @@ live("orm upsertDelta — live", () => {
     await client.accounts.upsertDelta({
       where: { id: "dl_account:remove" },
       data: { ...base("Remove"), note: "byebye" },
+      onMissing: "create",
     });
     const removed = await client.accounts.upsertDelta({
       where: { id: "dl_account:remove" },
@@ -235,6 +238,7 @@ live("orm upsertDelta — live", () => {
     await client.accounts.upsertDelta({
       where: { id: "dl_account:codec" },
       data: { ...base("Codec"), at: first, owner: owner.id },
+      onMissing: "create",
     });
     const codec = await client.accounts.upsertDelta({
       where: { id: "dl_account:codec" },
@@ -258,6 +262,7 @@ live("orm upsertDelta — live", () => {
         client.accounts.upsertDelta({
           where: { id: "dl_account:race" },
           data: { name: "Race", balance: new Decimal("10.00"), count: i },
+          onMissing: "create",
         }),
       ),
     );
@@ -293,6 +298,7 @@ live("orm upsertDelta — live", () => {
       tx.accounts.upsertDelta({
         where: { id: "dl_account:tx" },
         data: base("Tx"),
+        onMissing: "create",
       }),
     );
     expect(committed.created).toBe(true);
@@ -306,6 +312,7 @@ live("orm upsertDelta — live", () => {
         await tx.accounts.upsertDelta({
           where: { id: "dl_account:tx2" },
           data: base("Tx2"),
+          onMissing: "create",
         });
         throw new Error("boom");
       }),

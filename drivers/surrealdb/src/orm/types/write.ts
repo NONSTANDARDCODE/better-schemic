@@ -79,7 +79,9 @@ export type CreatedResult<TD extends AnyTableDef, A> =
 
 /**
  * What `insert`/`upsert` resolve to. `RETURN BEFORE` exposes the PREVIOUS row on a conflict
- * (live-verified on 3.2.4) and `null` when the target was newly created.
+ * (live-verified on 3.2.4) and `null` when the target was newly created. A STRICT `upsert` (its
+ * default) rejects `ResultNotFound` when the target matches nothing — it never resolves the
+ * contract-breaking `null`.
  */
 export type WrittenResult<TD extends AnyTableDef, A> =
   ReturnOf<A> extends "none"
@@ -233,7 +235,8 @@ export interface PatchArgs<TD extends AnyTableDef, S = SchemaInput>
 
 // --- upsert --------------------------------------------------------------------------------------
 
-/** `upsert` — create-or-update by id or a single-field UNIQUE index. */
+/** `upsert` — by default a STRICT update by id or a single-field UNIQUE index; `onMissing:
+ *  "create"` restores create-or-update. */
 export interface UpsertArgs<TD extends AnyTableDef, S = SchemaInput>
   extends WriteMeta {
   where: WhereInput<TD, S>;
@@ -243,10 +246,17 @@ export interface UpsertArgs<TD extends AnyTableDef, S = SchemaInput>
    * create branch runs.
    */
   data?: CreateData<TD> | UpdateData<TD>;
-  /** The create branch (with `update`; distinct payloads compile `INSERT … ON DUPLICATE …`). */
+  /** The create branch (with `update`; distinct payloads compile `INSERT … ON DUPLICATE …`).
+   *  Requires `onMissing: "create"`. */
   create?: CreateData<TD>;
-  /** The update branch (with `create`). */
+  /** The update branch (with `create`). Requires `onMissing: "create"`. */
   update?: UpdateData<TD>;
+  /**
+   * What to do when the target matches nothing:
+   * - `"throw"` (default) — STRICT update: reject with `ResultNotFound`, never create.
+   * - `"create"` — true upsert semantics (create the record when the target is absent).
+   */
+  readonly onMissing?: "create" | "throw";
   /** How the update branch rewrites (`merge` default). */
   readonly mode?: Exclude<UpdateMode, "patch">;
   /** `UPSERT ONLY t:id …`. */
@@ -269,9 +279,10 @@ export interface FieldDelta<T> {
 export type DeltaKey<T> = keyof T & string;
 
 /**
- * `upsertDelta` — create-or-update by id or a single-field UNIQUE index in ONE round-trip,
- * returning the resulting row, the previous row and the field-level delta of DECODED app values.
- * `onMissing: "throw"` turns it into a strict update (never creates; `ResultNotFound` on a miss).
+ * `upsertDelta` — by default a STRICT update by id or a single-field UNIQUE index in ONE
+ * round-trip, returning the resulting row, the previous row and the field-level delta of DECODED
+ * app values. A targeted miss rejects `ResultNotFound`; `onMissing: "create"` restores
+ * create-or-update (a target-less call is always a plain create).
  *
  * ```ts
  * const { record, created, before, delta, changed } = await client.users.upsertDelta({
@@ -297,9 +308,9 @@ export interface UpsertDeltaArgs<TD extends AnyTableDef, S = SchemaInput>
   readonly mode?: Exclude<UpdateMode, "patch">;
   /**
    * What to do when the target matches nothing:
-   * - `"create"` (default) — true upsert semantics (create the record).
-   * - `"throw"` — strict update: reject with `ResultNotFound`, never create.
+   * - `"throw"` (default) — strict update: reject with `ResultNotFound`, never create.
    *   Requires an inferable target (`where`, or `data.id`).
+   * - `"create"` — true upsert semantics (create the record).
    */
   readonly onMissing?: "create" | "throw";
   readonly timeout?: number | string;

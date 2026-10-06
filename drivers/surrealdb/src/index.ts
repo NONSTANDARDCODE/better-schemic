@@ -177,6 +177,7 @@ export {
 export type { FnArg, Frag } from "./fn";
 export type {
   AnalyzerConfig,
+  AnyField,
   App,
   AsymmetricJwtAlgorithm,
   CallArgs,

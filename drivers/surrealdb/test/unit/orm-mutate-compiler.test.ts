@@ -111,7 +111,8 @@ describe("compileUpdate / compileUpdateMany / compilePatch", () => {
 });
 
 describe("compileUpsert", () => {
-  test("defaults, only, and the XOR/mode guards", () => {
+  test("defaults (strict), only, and the XOR/mode guards", () => {
+    // STRICT is the default: a plain UPDATE, never a create-or-update.
     expect(
       sql(
         compileUpsert(
@@ -120,12 +121,40 @@ describe("compileUpsert", () => {
           b(),
         ),
       ),
-    ).toContain("UPSERT");
+    ).toBe("UPDATE user MERGE $p0 WHERE email = $p1");
     expect(
       sql(
         compileUpsert(
           meta,
           { where: { id: "user:1" }, data: { name: "B" }, only: true },
+          b(),
+        ),
+      ),
+    ).toBe("UPDATE ONLY user:1 MERGE $p0");
+    // `onMissing: "create"` opts back into create-or-update.
+    expect(
+      sql(
+        compileUpsert(
+          meta,
+          {
+            where: { email: "b@x" },
+            data: { name: "B", email: "b@x" },
+            onMissing: "create",
+          },
+          b(),
+        ),
+      ),
+    ).toContain("UPSERT");
+    expect(
+      sql(
+        compileUpsert(
+          meta,
+          {
+            where: { id: "user:1" },
+            data: { name: "B" },
+            only: true,
+            onMissing: "create",
+          },
           b(),
         ),
       ),
@@ -164,7 +193,7 @@ describe("compileUpsert", () => {
         ),
       ),
     ).toBe("ValidationError");
-    // mode "content" encodes for create.
+    // mode "content" encodes for create (both strict and create modes).
     expect(
       sql(
         compileUpsert(
@@ -185,7 +214,12 @@ describe("compileUpsert", () => {
       code(() =>
         compileUpsert(
           meta,
-          { where: { id: "user:1" }, create: {}, update: { name: "B" } },
+          {
+            where: { id: "user:1" },
+            create: {},
+            update: { name: "B" },
+            onMissing: "create",
+          },
           b(),
         ),
       ),
@@ -198,6 +232,7 @@ describe("compileUpsert", () => {
             where: { id: "user:1" },
             create: { id: "user:2" },
             update: { name: "B" },
+            onMissing: "create",
           },
           b(),
         ),
@@ -211,6 +246,7 @@ describe("compileUpsert", () => {
             where: { id: "user:1" },
             create: { id: "user:1", name: "B" },
             update: { name: "B" },
+            onMissing: "create",
           },
           b(),
         ),
@@ -218,16 +254,27 @@ describe("compileUpsert", () => {
     ).toContain("ON DUPLICATE");
   });
 
-  test("expressions route through LET/IF with return-aware tails", () => {
+  test("expressions route through LET/IF with return-aware tails (create mode)", () => {
     const expr = { name: surql`"B"`, email: "b@x" };
     expect(
-      sql(compileUpsert(meta, { where: { email: "b@x" }, data: expr }, b())),
+      sql(
+        compileUpsert(
+          meta,
+          { where: { email: "b@x" }, data: expr, onMissing: "create" },
+          b(),
+        ),
+      ),
     ).toContain("LET $__existing");
     expect(
       sql(
         compileUpsert(
           meta,
-          { where: { email: "b@x" }, data: expr, return: "none" },
+          {
+            where: { email: "b@x" },
+            data: expr,
+            return: "none",
+            onMissing: "create",
+          },
           b(),
         ),
       ),
@@ -236,7 +283,12 @@ describe("compileUpsert", () => {
       sql(
         compileUpsert(
           meta,
-          { where: { email: "b@x" }, data: expr, return: "before" },
+          {
+            where: { email: "b@x" },
+            data: expr,
+            return: "before",
+            onMissing: "create",
+          },
           b(),
         ),
       ),
@@ -245,11 +297,20 @@ describe("compileUpsert", () => {
       code(() =>
         compileUpsert(
           meta,
-          { where: { email: "b@x" }, data: expr, return: "diff" },
+          {
+            where: { email: "b@x" },
+            data: expr,
+            return: "diff",
+            onMissing: "create",
+          },
           b(),
         ),
       ),
     ).toBe("ReturnNotSupported");
+    // STRICT (the default) needs no branch: the direct UPDATE evaluates the expression.
+    expect(
+      sql(compileUpsert(meta, { where: { email: "b@x" }, data: expr }, b())),
+    ).toBe('UPDATE user MERGE { email: $b0, name: "B" } WHERE email = $p0');
   });
 });
 
@@ -700,10 +761,26 @@ describe("plugin scope — singular targets", () => {
   });
 
   test("upsert appends the scope to the resolved id/unique target", () => {
-    const byId = sql(
+    // STRICT (default): the scope rides the UPDATE ONLY WHERE.
+    const strictById = sql(
       compileUpsert(
         meta,
         { where: { id: "user:1" }, data: { name: "B" }, scope },
+        b(),
+      ),
+    );
+    expect(strictById).toContain("UPDATE ONLY user:1 MERGE");
+    expect(strictById).toContain("WHERE org_id = ");
+    // Create mode: the same scope on the UPSERT lowering.
+    const byId = sql(
+      compileUpsert(
+        meta,
+        {
+          where: { id: "user:1" },
+          data: { name: "B" },
+          scope,
+          onMissing: "create",
+        },
         b(),
       ),
     );
@@ -712,7 +789,12 @@ describe("plugin scope — singular targets", () => {
     const byEmail = sql(
       compileUpsert(
         meta,
-        { where: { email: "a@x" }, data: { name: "B" }, scope },
+        {
+          where: { email: "a@x" },
+          data: { name: "B" },
+          scope,
+          onMissing: "create",
+        },
         b(),
       ),
     );
@@ -728,6 +810,7 @@ describe("plugin scope — singular targets", () => {
         create: { id: "user:1", name: "B" },
         update: { name: surql`"C"` },
         scope,
+        onMissing: "create",
       },
       b(),
     );
@@ -775,6 +858,7 @@ describe("plugin scope — singular targets", () => {
             create: { id: "user:1", name: "B" },
             update: { name: "B" },
             scope,
+            onMissing: "create",
           },
           b(),
         ),

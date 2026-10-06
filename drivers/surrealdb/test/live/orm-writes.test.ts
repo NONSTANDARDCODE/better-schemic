@@ -16,6 +16,7 @@ import { defineRelation, defineTable, s, surql } from "../../src/index";
 import { betterSchemic, type Client } from "../../src/orm/client";
 import { isUniqueViolation } from "../../src/orm/errors";
 import { defineSchema } from "../../src/orm/schema";
+import { caught } from "../orm-fixtures";
 
 const ENABLED = surrealBinaryAvailable();
 const live = describe.skipIf(!ENABLED);
@@ -281,10 +282,23 @@ live("orm writes — live", () => {
     );
   });
 
-  test("upsert: by id, by unique (creates), distinct create/update", async () => {
+  test("upsert: strict miss, by id, by unique (creates), distinct create/update", async () => {
+    // STRICT is the default: a missing target rejects ResultNotFound instead of creating.
+    const miss = await caught(() =>
+      client.users.upsert({
+        where: { id: "wr_user:missing" },
+        data: { age: 1 },
+      }),
+    );
+    expect((miss as { code?: string }).code).toBe("ResultNotFound");
+    expect(
+      await client.users.findUnique({ where: { id: "wr_user:missing" } }),
+    ).toBeNull();
+
     const byId = await client.users.upsert({
       where: { id: "wr_user:upsert" },
       data: { ...base("Upsert"), id: "wr_user:upsert" },
+      onMissing: "create",
     });
     expect(byId).toMatchObject({ name: "Upsert" });
 
@@ -297,6 +311,7 @@ live("orm writes — live", () => {
     const byEmail = await client.users.upsert({
       where: { email: "newupsert@x.dev" },
       data: { ...base("NewUpsert"), email: "newupsert@x.dev" },
+      onMissing: "create",
     });
     expect(byEmail).toMatchObject({ name: "NewUpsert" });
 
@@ -306,6 +321,7 @@ live("orm writes — live", () => {
       update: {
         age: surql`(SELECT VALUE age FROM ONLY wr_user:branches) + 10`,
       },
+      onMissing: "create",
     });
     expect(branches).toMatchObject({ name: "Branches", age: 1 });
     const branches2 = await client.users.upsert({
@@ -314,6 +330,7 @@ live("orm writes — live", () => {
       update: {
         age: surql`(SELECT VALUE age FROM ONLY wr_user:branches) + 10`,
       },
+      onMissing: "create",
     });
     expect(branches2).toMatchObject({ age: 11 });
   });
@@ -534,6 +551,7 @@ live("orm writes — live", () => {
       create: { ...base("BeforeUpsert"), id: "wr_user:beforeup", age: 1 },
       update: { age: surql`age + 10` },
       return: "before",
+      onMissing: "create",
     });
     expect(before).toMatchObject({ age: 1 });
   });

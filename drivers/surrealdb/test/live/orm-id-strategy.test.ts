@@ -190,6 +190,7 @@ live("orm id strategy — live", () => {
     const created = await client.uuids.upsert({
       where: { email: "new@x" },
       data: { email: "new@x", name: "New" },
+      onMissing: "create",
     });
     expect(created).not.toBeNull();
     expect(idPart(created!)).toMatch(UUID_V7);
@@ -207,12 +208,14 @@ live("orm id strategy — live", () => {
       where: { email: "branch@x" },
       create: { email: "branch@x", name: "Branch" },
       update: { name: "Branch2" },
+      onMissing: "create",
     });
     expect(idPart(created!)).toMatch(UUID_V7);
     const updated = await client.uuids.upsert({
       where: { email: "branch@x" },
       create: { email: "branch@x", name: "Branch" },
       update: { name: "Branch2" },
+      onMissing: "create",
     });
     expect(String(updated?.id)).toBe(String(created?.id));
     expect(updated).toMatchObject({ name: "Branch2" });
@@ -223,6 +226,7 @@ live("orm id strategy — live", () => {
       where: { email: "set@x" },
       mode: "set",
       data: { email: "set@x", name: "Set" },
+      onMissing: "create",
     });
     expect(idPart(created!)).toMatch(UUID_V7);
 
@@ -230,6 +234,7 @@ live("orm id strategy — live", () => {
       where: { email: "set@x" },
       data: { email: "set@x", name: "Set2" },
       return: "diff",
+      onMissing: "create",
     });
     expect(Array.isArray(diff)).toBe(true);
   });

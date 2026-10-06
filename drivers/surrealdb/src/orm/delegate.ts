@@ -270,19 +270,21 @@ export interface Delegate<
     args: A,
   ): UpdatedResult<TD, A>;
   /**
-   * Create-or-update by id or a single-field UNIQUE index — `data` for one payload, or
-   * `create` + `update` for distinct branches (never conflicts).
+   * Update by id or a single-field UNIQUE index — STRICT by default: a target that matches
+   * nothing (or is filtered out by a permission/plugin scope) rejects `ResultNotFound`, never
+   * creates. `data` is one payload for both branches, or `create` + `update` for distinct ones
+   * (both require `onMissing: "create"`, which restores create-or-update).
    */
   upsert<const A extends WithPluginArgs<UpsertArgs<TD, S>, P, "upsert">>(
     args: A,
   ): WrittenResult<TD, A>;
   /**
-   * Create-or-update by id or a single-field UNIQUE index in ONE round-trip, returning the
-   * resulting row, the previous row and the field-level delta of DECODED app values
+   * STRICT update by id or a single-field UNIQUE index in ONE round-trip by default, returning
+   * the resulting row, the previous row and the field-level delta of DECODED app values
    * (`RETURN VALUE { before: $before, after: $after }` — both snapshots come from the SAME
-   * statement, so no concurrent writer can slip between them). Omit `where` to create (a
-   * generated id per the table's `idStrategy`, or `data.id` infers the target); `onMissing:
-   * "throw"` makes it a strict update that rejects `ResultNotFound` instead of creating.
+   * statement, so no concurrent writer can slip between them). A targeted miss rejects
+   * `ResultNotFound`; `onMissing: "create"` restores create-or-update. Omit `where` for a plain
+   * create (a generated id per the table's `idStrategy`, or `data.id` infers the target).
    *
    * ```ts
    * const { record, created, before, delta, changed } = await client.users.upsertDelta({

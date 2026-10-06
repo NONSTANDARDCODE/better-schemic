@@ -5,6 +5,7 @@ import { schemaStruct } from "../../src/cli/lower";
 import { structuredSnapshot } from "../../src/cli/structure";
 import { emitField, emitTable, renderPermissions } from "../../src/ddl";
 import {
+  type AnyField,
   defineRelation,
   defineTable,
   defineView,
@@ -15,10 +16,10 @@ import {
 } from "../../src/pure";
 
 /** DDL for a single standalone field `x` on table `t`. */
-const ddl = (field: SField, opts?: Parameters<typeof emitField>[3]) =>
+const ddl = (field: AnyField, opts?: Parameters<typeof emitField>[3]) =>
   emitField("x", "t", field, opts);
 /** The bare SurrealQL type a field infers to (for leaf-type assertions). */
-const typeOf = (field: SField) => {
+const typeOf = (field: AnyField) => {
   const m = ddl(field).match(/TYPE (.+);$/);
   if (!m) throw new Error(`no TYPE in: ${ddl(field)}`);
   return m[1];

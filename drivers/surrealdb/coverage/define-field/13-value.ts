@@ -7,6 +7,8 @@ export default cover(import.meta.url, {
   ddl: `DEFINE TABLE user TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD email ON TABLE user TYPE string VALUE string::lowercase($value);`,
   def: defineTable("user", {
-    email: s.string().$value(surql`string::lowercase($value)`),
+    email: s.string().$value(surql`string::lowercase($value)`, {
+      optional: false,
+    }),
   }).schemafull(),
 });

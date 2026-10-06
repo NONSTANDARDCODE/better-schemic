@@ -92,7 +92,7 @@ live("tenant plugin — live (privileged session)", () => {
     expect(all.length).toBeGreaterThanOrEqual(2);
   });
 
-  test("cross-tenant update/delete/upsert are no-ops (scoped WHERE)", async () => {
+  test("cross-tenant update/delete/upsert are no-ops (scoped WHERE) — strict upsert rejects", async () => {
     const c = client();
     const a = await c.customers.$forTenant(A).create({ data: { name: "a2" } });
 
@@ -104,9 +104,12 @@ live("tenant plugin — live (privileged session)", () => {
     expect(
       await c.customers.$forTenant(B).delete({ where: { id: a.id } }),
     ).toBeNull();
-    await c.customers
-      .$forTenant(B)
-      .upsert({ where: { id: a.id }, data: { name: "hacked2" } });
+    const crossTenant = (await caught(() =>
+      c.customers
+        .$forTenant(B)
+        .upsert({ where: { id: a.id }, data: { name: "hacked2" } }),
+    )) as BetterSchemicError;
+    expect(crossTenant.code).toBe("ResultNotFound");
 
     const after = await c.customers
       .$forTenant(A)
@@ -149,18 +152,22 @@ live("tenant plugin — live (privileged session)", () => {
   test("upsert on a missing id creates in the scoped tenant", async () => {
     const c = client();
     const id = new RecordId("t_customer", "upsert1");
-    const row = await c.customers
-      .$forTenant(A)
-      .upsert({ where: { id }, data: { name: "u1" } });
+    const row = await c.customers.$forTenant(A).upsert({
+      where: { id },
+      data: { name: "u1" },
+      onMissing: "create",
+    });
     expect(String(row?.tenant_id)).toBe("t_user:a");
   });
 
   test("upsertDelta: scoped create/update, and a cross-tenant strict miss rejects", async () => {
     const c = client();
     const id = new RecordId("t_customer", "delta1");
-    const created = await c.customers
-      .$forTenant(A)
-      .upsertDelta({ where: { id }, data: { name: "d1" } });
+    const created = await c.customers.$forTenant(A).upsertDelta({
+      where: { id },
+      data: { name: "d1" },
+      onMissing: "create",
+    });
     expect(created.created).toBe(true);
     expect(created.delta).toBeNull();
     expect(String(created.record.tenant_id)).toBe("t_user:a");

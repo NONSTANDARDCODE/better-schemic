@@ -1,4 +1,4 @@
-import { describe, expectTypeOf, test } from "bun:test";
+import { describe, expect, expectTypeOf, test } from "bun:test";
 import { type DateTime, RecordId, type RecordIdValue, surql } from "surrealdb";
 import { z } from "zod";
 import {
@@ -331,11 +331,11 @@ describe("nested create-optionality", () => {
 describe("$value create-optionality", () => {
   const T = defineTable("t", {
     id: z.string(),
-    slug: s.string().$value(surql`string::slug($value)`), // create-required (consumes $value)
-    updatedAt: s.datetime().$value(surql`time::now()`, { optional: true }), // create-optional
+    slug: s.string().$value(surql`string::slug($value)`, { optional: false }), // create-required
+    updatedAt: s.datetime().$value(surql`time::now()`), // create-optional by default
   });
 
-  test("{ optional: true } makes the field create-optional; default stays required", () => {
+  test("$value is create-optional by default; { optional: false } requires input", () => {
     expectTypeOf<Create<typeof T>>().toEqualTypeOf<{
       slug: string;
       id?: RecordId<"t", string>;
@@ -344,10 +344,122 @@ describe("$value create-optionality", () => {
     expectTypeOf<{ slug: string }>().toExtend<Create<typeof T>>();
   });
 
-  test("encode enforces the create-required slug; create-optional updatedAt is allowed", () => {
+  test("encode enforces the create-required slug; the default $value is optional", () => {
     T.encode({ slug: "x" });
     T.encode({ slug: "x", updatedAt: new Date() });
-    // @ts-expect-error - slug is create-required (its $value consumes client input)
+    // @ts-expect-error - slug is create-required ({ optional: false })
     T.encode({});
+  });
+});
+
+describe("$value computes", () => {
+  const Order = defineTable("order", {
+    id: z.string(),
+    products: s
+      .array(
+        s.object({
+          product: s.string(),
+          quantity: s.int(),
+          sellingPriceAtOrder: s.number(),
+          costPriceAtOrder: s.number(),
+        }),
+      )
+      .$value(
+        surql`$value.map(|$p| { RETURN { product: $p.product, quantity: $p.quantity, sellingPriceAtOrder: 1, costPriceAtOrder: 2 } })`,
+        {
+          optional: true,
+          computes: ["sellingPriceAtOrder", "costPriceAtOrder"],
+        },
+      ),
+  });
+
+  test("computes makes the listed nested keys optional PER ITEM", () => {
+    expectTypeOf<Create<typeof Order>["products"]>().toEqualTypeOf<
+      | {
+          product: string;
+          quantity: number;
+          sellingPriceAtOrder?: number;
+          costPriceAtOrder?: number;
+        }[]
+      | undefined
+    >();
+    expectTypeOf<{
+      products: { product: string; quantity: number }[];
+    }>().toExtend<Create<typeof Order>>();
+  });
+
+  test("the decoded app type keeps every key required", () => {
+    expectTypeOf<
+      App<typeof Order>["products"][number]["sellingPriceAtOrder"]
+    >().toEqualTypeOf<number>();
+  });
+
+  test("a key outside the nested element is a compile error", () => {
+    const bad = () =>
+      s.array(s.object({ a: s.string() })).$value(surql`$value`, {
+        optional: true,
+        // @ts-expect-error - "b" is not a key of the element
+        computes: ["b"],
+      });
+    expectTypeOf(bad).toBeFunction();
+  });
+
+  test(".create accepts partial nested items and still validates the required keys", () => {
+    expect(
+      Order.create.safeParse({ products: [{ product: "p", quantity: 1 }] })
+        .success,
+    ).toBe(true);
+    expect(
+      Order.create.safeParse({ products: [{ product: "p" }] }).success,
+    ).toBe(false);
+  });
+
+  test("an s.object field supports computes too (no array wrapper)", () => {
+    const Meta = defineTable("meta_probe", {
+      id: z.string(),
+      totals: s
+        .object({ subTotal: s.number(), total: s.number() })
+        .$value(surql`{ subTotal: 1, total: 2 }`, {
+          optional: true,
+          computes: ["total"],
+        }),
+    });
+    expectTypeOf<Create<typeof Meta>["totals"]>().toEqualTypeOf<
+      { subTotal: number; total?: number } | undefined
+    >();
+    expect(Meta.create.safeParse({ totals: { subTotal: 1 } }).success).toBe(
+      true,
+    );
+  });
+
+  test("authoring guard: reads `$value` without an explicit choice throws", () => {
+    expect(() => s.string().$value(surql`string::lowercase($value)`)).toThrow(
+      /optional/,
+    );
+    expect(() =>
+      s.string().$value(surql`string::lowercase($value)`, { optional: false }),
+    ).not.toThrow();
+    // An input-independent expression needs no flag.
+    expect(() => s.datetime().$value(surql`time::now()`)).not.toThrow();
+    // `$default`/`.optional()` fields are already create-optional — no flag needed.
+    expect(() =>
+      s.string().$default("x").$value(surql`string::lowercase($value)`),
+    ).not.toThrow();
+  });
+
+  test("authoring guard: computes validates the field shape and the keys", () => {
+    // The TYPE also rejects both (see the probes above) — the `as never` casts exercise the
+    // RUNTIME backstop for a broadly-typed (e.g. dynamic) schema.
+    expect(() =>
+      s.string().$value(surql`time::now()`, {
+        computes: ["x"] as never,
+      }),
+    ).toThrow(/nested keys/);
+    expect(() =>
+      s.array(s.object({ a: s.string() })).$value(surql`$value`, {
+        optional: true,
+        computes: ["b"] as never,
+      }),
+    ).toThrow(/not a field/);
   });
 });

@@ -305,6 +305,26 @@ live("ORM syntax map — live probes (server 3.x)", () => {
         /name/,
       );
     });
+
+    test("STRICT upsert lowering (the ORM default): UPDATE ONLY miss is NONE, UPDATE … WHERE miss is []", async () => {
+      // `upsert` with `onMissing: "throw"` compiles these two shapes; both must NEVER create.
+      expect(
+        await last("UPDATE ONLY user:strict_miss MERGE { name: 'X' };"),
+      ).toBeUndefined();
+      expect(
+        await last("UPDATE user MERGE { name: 'X' } WHERE name = 'NOPE';"),
+      ).toEqual([]);
+      await run("CREATE ONLY user:strict_hit CONTENT { name: 'SH', age: 1 };");
+      // `ONLY` returns the OBJECT; the plain-table form returns an ARRAY.
+      const hit = await last("UPDATE ONLY user:strict_hit MERGE { age: 2 };");
+      expect(hit).toMatchObject({ id: "user:strict_hit", age: 2 });
+      const hitWhere = await last(
+        "UPDATE user MERGE { age: 3 } WHERE name = 'SH';",
+      );
+      expect(hitWhere).toEqual([
+        expect.objectContaining({ id: "user:strict_hit", age: 3 }),
+      ]);
+    });
   });
 
   describe("UPSERT DELTA — RETURN VALUE { before, after }", () => {

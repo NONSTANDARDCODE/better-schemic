@@ -46,6 +46,9 @@ export interface WritePlan {
   readonly result: "row" | "many" | "none" | "diff" | "delta";
   /** The row may be absent (`.throw()` attaches `NotFoundInfo`) — singular update/patch/delete. */
   readonly mayMiss?: boolean;
+  /** A miss is an ERROR, not a null: the decode raises `ResultNotFound` — `upsert` with
+   *  `onMissing: "throw"` (the default) or a create-mode `return: "after"` that produced no row. */
+  readonly missError?: boolean;
   /** `updateEach`'s eager `select` decode spec (the rows come back whole from the server). */
   readonly select?: ProjectionSpec;
 }
@@ -105,6 +108,7 @@ export interface UpsertRuntimeArgs {
   create?: unknown;
   update?: unknown;
   mode?: unknown;
+  onMissing?: unknown;
   only?: unknown;
   return?: unknown;
   timeout?: unknown;

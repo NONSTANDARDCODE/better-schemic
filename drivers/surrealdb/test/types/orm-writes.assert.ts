@@ -92,6 +92,11 @@ function typeProbes(): void {
   void client.users.upsert({ where: { id: "user:a" }, data: { age: 1 } });
   void client.users.upsert({
     where: { id: "user:a" },
+    data: { age: 1 },
+    onMissing: "create",
+  });
+  void client.users.upsert({
+    where: { id: "user:a" },
     create: {
       name: "A",
       email: "a@x",
@@ -101,7 +106,19 @@ function typeProbes(): void {
       address: { city: "X", country: "Y" },
     },
     update: { age: 2 },
+    onMissing: "create",
   });
+  void client.users.upsert({
+    where: { id: "user:a" },
+    data: { age: 1 },
+    // @ts-expect-error — onMissing is "create" | "throw"
+    onMissing: "nope",
+  });
+  const upserted = client.users.upsert({
+    where: { id: "user:a" },
+    data: { age: 1 },
+  });
+  attest<Promise<Row>, typeof upserted>();
 
   void client.users.upsertDelta({ where: { id: "user:a" }, data: { age: 1 } });
   void client.users.upsertDelta({ data: { id: "user:a", age: 2 } });

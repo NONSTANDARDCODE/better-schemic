@@ -412,3 +412,32 @@ resultante, a anterior e o delta campo-a-campo de valores **decodificados** —
 - ✅ **M11.5 testes + docs** — unit (lowering/guardas/decode), live (contrato, codecs, estrito,
   concorrência, transação), tipos (`@ark/attest`), probes de sintaxe; README, `ORM-COVERAGE.md`,
   syntax map, CHANGELOG, cookbook (`examples/orm/writes.ts` + manifest regenerado).
+
+## M12 — fricções alpha.7: upsert estrito por padrão + `$value` create-opcional + `computes` ✅ *(complete)*
+
+Uma passada de DX sobre as quatro fricções encontradas no `apps/core` do alpha.7 — defaults
+perigosos viram explícitos, o contrato de `upsert` deixa de mentir e o `$value` para de exigir
+flags no caso comum.
+
+- ✅ **M12.1 `$value` create-opcional + guard** — `$value(expr)` vira create-opcional por padrão
+  (espelha a schema `.create` runtime, que já marcava todo `VALUE` como opcional); uma expressão
+  que LÊ `$value` precisa declarar `{ optional: false }` (transform que exige input) ou
+  `{ optional: true }` (o DB pode computar sem input) — sem escolha explícita e sem
+  `$default`/Zod-optional, o authoring lança erro ensinando (o TIPO não lê o texto da expressão).
+  `{ optional: false }` também endurece a schema `.create`. `sc pull` emite `{ optional: true }`
+  quando o `VALUE` puxado lê `$value`; `readsClientValue` compartilha a detecção.
+- ✅ **M12.2 `computes`** — `$value(…, { computes: […] })` marca as chaves aninhadas que a
+  expressão do pai preenche como create-opcionais POR ITEM (`Create<>`/`CreateData`/`create()` +
+  schema `.create`), tipadas contra o elemento (typo/campo escalar falham no authoring). As flags
+  `computes:<key>` viajam num brand type-only (`~szFlags`) lido por propriedade — imune à
+  inferência estrutural; sem DDL e sem `sc pull`.
+- ✅ **M12.3 upsert estrito + contrato honesto** — `onMissing: "create" | "throw"` (default
+  `"throw"`) nos dois upserts: alvo inexistente ou filtrado (permission/escopo) rejeita
+  `ResultNotFound` em vez de criar em silêncio ou resolver `null`; `UPDATE ONLY t:id` /
+  `UPDATE t … WHERE uniq`; `create`+`update` exige `onMissing: "create"`; `return: "none"` estrito
+  compila row-returning (miss observável) e `return: "diff"` é recusado; `return: "after"` em modo
+  create que não escreve linha também rejeita. `upsertMany` fica como está (insert-style).
+- ✅ **M12.4 testes + docs** — unit (lowering/guardas/decode/miss), live (estrito por padrão,
+  miss real, cross-tenant, idStrategy, concorrência, transação), tipos (`@ark/attest`), probes de
+  sintaxe (`UPDATE ONLY` miss → NONE, `UPDATE … WHERE` miss → []), README, `ORM-COVERAGE.md`,
+  `orm-syntax-map.md` §2.3/§12, `COVERAGE.md`, CHANGELOG, cookbooks + manifests regenerados.

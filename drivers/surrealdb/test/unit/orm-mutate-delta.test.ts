@@ -54,7 +54,7 @@ const ROW = {
 const ENVELOPE = "RETURN VALUE { before: $before, after: $after }";
 
 describe("compileUpsertDelta — lowering", () => {
-  test("id target: UPSERT t:id with the envelope (+ timeout)", () => {
+  test("strict is the DEFAULT: UPDATE ONLY t:id with the envelope (+ timeout)", () => {
     expect(
       sql(
         compileUpsertDelta(
@@ -63,7 +63,7 @@ describe("compileUpsertDelta — lowering", () => {
           b(),
         ),
       ),
-    ).toBe(`UPSERT delta_ledger:1 MERGE $p0 ${ENVELOPE}`);
+    ).toBe(`UPDATE ONLY delta_ledger:1 MERGE $p0 ${ENVELOPE}`);
     expect(
       sql(
         compileUpsertDelta(
@@ -76,7 +76,23 @@ describe("compileUpsertDelta — lowering", () => {
           b(),
         ),
       ),
-    ).toBe(`UPSERT delta_ledger:1 MERGE $p0 ${ENVELOPE} TIMEOUT 500ms`);
+    ).toBe(`UPDATE ONLY delta_ledger:1 MERGE $p0 ${ENVELOPE} TIMEOUT 500ms`);
+  });
+
+  test("onMissing create: UPSERT t:id with the envelope", () => {
+    expect(
+      sql(
+        compileUpsertDelta(
+          meta,
+          {
+            where: { id: "delta_ledger:1" },
+            data: { name: "B" },
+            onMissing: "create",
+          },
+          b(),
+        ),
+      ),
+    ).toBe(`UPSERT delta_ledger:1 MERGE $p0 ${ENVELOPE}`);
   });
 
   test("data.id infers the id target", () => {
@@ -84,7 +100,7 @@ describe("compileUpsertDelta — lowering", () => {
       sql(
         compileUpsertDelta(
           meta,
-          { data: { id: "delta_ledger:1", name: "B" } },
+          { data: { id: "delta_ledger:1", name: "B" }, onMissing: "create" },
           b(),
         ),
       ),
@@ -106,7 +122,7 @@ describe("compileUpsertDelta — lowering", () => {
       sql(
         compileUpsertDelta(
           meta,
-          { where: { name: "A" }, data: { name: "A" } },
+          { where: { name: "A" }, data: { name: "A" }, onMissing: "create" },
           b(),
         ),
       ),
@@ -120,7 +136,11 @@ describe("compileUpsertDelta — lowering", () => {
       sql(
         compileUpsertDelta(
           meta,
-          { where: { name: "A" }, data: { id: "delta_ledger:9", name: "A" } },
+          {
+            where: { name: "A" },
+            data: { id: "delta_ledger:9", name: "A" },
+            onMissing: "create",
+          },
           b(),
         ),
       ),
@@ -135,6 +155,7 @@ describe("compileUpsertDelta — lowering", () => {
           {
             where: { name: "A" },
             data: { name: "A" },
+            onMissing: "create",
             timeout: "2s",
           },
           b(),
@@ -165,6 +186,7 @@ describe("compileUpsertDelta — lowering", () => {
             create: { name: "A" },
             update: { name: "B" },
             where: { name: "A" },
+            onMissing: "create",
             timeout: "2s",
           },
           b(),
@@ -204,6 +226,7 @@ describe("compileUpsertDelta — lowering", () => {
       {
         where: { id: "delta_ledger:1" },
         data: { balance: surql`balance + 1` },
+        onMissing: "create",
         timeout: "5s",
       },
       b(),
@@ -223,6 +246,7 @@ describe("compileUpsertDelta — lowering", () => {
         where: { id: "delta_ledger:1" },
         create: { id: "delta_ledger:1", name: "A" },
         update: { name: "B" },
+        onMissing: "create",
       },
       b(),
     );
@@ -234,7 +258,12 @@ describe("compileUpsertDelta — lowering", () => {
 
     const byUnique = compileUpsertDelta(
       meta,
-      { where: { name: "A" }, create: { name: "A" }, update: { note: "x" } },
+      {
+        where: { name: "A" },
+        create: { name: "A" },
+        update: { note: "x" },
+        onMissing: "create",
+      },
       b(),
     );
     expect(sql(byUnique)).toContain(
@@ -250,12 +279,26 @@ describe("compileUpsertDelta — lowering", () => {
           {
             where: { id: "delta_ledger:1" },
             data: { name: "B" },
+            onMissing: "create",
             mode: "content",
           },
           b(),
         ),
       ),
     ).toBe(`UPSERT delta_ledger:1 CONTENT $p0 ${ENVELOPE}`);
+    expect(
+      sql(
+        compileUpsertDelta(
+          meta,
+          {
+            where: { id: "delta_ledger:1" },
+            data: { name: "B" },
+            mode: "content",
+          },
+          b(),
+        ),
+      ),
+    ).toBe(`UPDATE ONLY delta_ledger:1 CONTENT $p0 ${ENVELOPE}`);
   });
 
   test("the plugin scope rides the WHERE (never the target)", () => {
@@ -266,6 +309,7 @@ describe("compileUpsertDelta — lowering", () => {
           {
             where: { id: "delta_ledger:1" },
             data: { name: "B" },
+            onMissing: "create",
             scope: { owner: { equals: "delta_user:u1" } },
           },
           b(),
@@ -346,7 +390,7 @@ describe("compileUpsertDelta — guards", () => {
         }),
       ),
     ).toBe("ValidationError");
-    // An explicit `onMissing: "create"` is valid (the default is the same behavior).
+    // An explicit `onMissing: "create"` opts into create-or-update (the default is STRICT).
     expect(
       codeOf(
         args({
@@ -356,6 +400,16 @@ describe("compileUpsertDelta — guards", () => {
         }),
       ),
     ).toBeUndefined();
+    // The default is strict: a create/update branch is rejected without the opt-in.
+    expect(
+      codeOf(
+        args({
+          where: { id: "delta_ledger:1" },
+          create: { id: "delta_ledger:1", name: "A" },
+          update: { name: "B" },
+        }),
+      ),
+    ).toBe("ValidationError");
     // replace mode on both the create-or-update and the strict path (full payload).
     const full = { name: "A", balance: new Decimal("1.00") };
     expect(
@@ -415,6 +469,7 @@ describe("compileUpsertDelta — guards", () => {
           where: { id: "delta_ledger:1" },
           create: { name: "A" },
           update: { name: "B" },
+          onMissing: "create",
         }),
       ),
     ).toBe("ValidationError");
@@ -424,6 +479,7 @@ describe("compileUpsertDelta — guards", () => {
           where: { id: "delta_ledger:1" },
           create: { id: "delta_ledger:2", name: "A" },
           update: { name: "B" },
+          onMissing: "create",
         }),
       ),
     ).toBe("ValidationError");
@@ -434,6 +490,7 @@ describe("compileUpsertDelta — guards", () => {
           where: { id: "delta_ledger:1" },
           create: 5,
           update: { name: "B" },
+          onMissing: "create",
         }),
       ),
     ).toBe("ValidationError");
@@ -467,6 +524,7 @@ describe("upsertDelta — runtime decode", () => {
     const result = await c.ledgers.upsertDelta({
       where: { id: "delta_ledger:1" },
       data: { name: "A" },
+      onMissing: "create",
     });
     expect(result.created).toBe(true);
     expect(result.before).toBeNull();
@@ -499,6 +557,7 @@ describe("upsertDelta — runtime decode", () => {
     const result = await c.ledgers.upsertDelta({
       where: { id: "delta_ledger:1" },
       data: { balance: new Decimal("12.34") },
+      onMissing: "create",
     });
     expect(result.created).toBe(false);
     expect(result.changed).toEqual(["balance", "at"]);
@@ -523,6 +582,7 @@ describe("upsertDelta — runtime decode", () => {
     const result = await c.ledgers.upsertDelta({
       where: { id: "delta_ledger:1" },
       data: { name: "A" },
+      onMissing: "create",
     });
     expect(result.created).toBe(false);
     expect(result.delta).toBeNull();
@@ -544,6 +604,7 @@ describe("upsertDelta — runtime decode", () => {
     const result = await c.ledgers.upsertDelta({
       where: { id: "delta_ledger:1" },
       data: { name: "A" },
+      onMissing: "create",
       mode: "content",
     });
     expect(result.changed).toEqual(["note"]);
@@ -567,13 +628,12 @@ describe("upsertDelta — runtime decode", () => {
     expect(result.changed).toEqual(["name"]);
   });
 
-  test("strict miss rejects ResultNotFound (never creates)", async () => {
+  test("strict miss rejects ResultNotFound (never creates) — the DEFAULT", async () => {
     const { client: c, calls } = clientFor(() => null);
     const error = (await caught(() =>
       c.ledgers.upsertDelta({
         where: { id: "delta_ledger:missing" },
         data: { name: "B" },
-        onMissing: "throw",
       }),
     )) as BetterSchemicError;
     expect(error.code).toBe("ResultNotFound");
@@ -584,12 +644,13 @@ describe("upsertDelta — runtime decode", () => {
     expect(calls[0]?.sql).not.toContain("UPSERT");
   });
 
-  test("a scope-filtered upsert that writes no row rejects ResultNotFound", async () => {
+  test("a scope-filtered create-mode upsert that writes no row rejects ResultNotFound", async () => {
     const { client: c } = clientFor(() => null);
     const error = (await caught(() =>
       c.ledgers.upsertDelta({
         where: { id: "delta_ledger:1" },
         data: { name: "B" },
+        onMissing: "create",
         scope: { owner: { equals: "delta_user:other" } },
       }),
     )) as BetterSchemicError;
@@ -605,6 +666,7 @@ describe("upsertDelta — runtime decode", () => {
       c.ledgers.upsertDelta({
         where: { id: "delta_ledger:1" },
         data: { name: "A" },
+        onMissing: "create",
       }),
     )) as BetterSchemicError;
     expect(error.code).toBe("ResultNotFound");
@@ -623,6 +685,12 @@ describe("upsertDelta — runtime decode", () => {
     });
     expect((strict as { throw?: unknown }).throw).toBeUndefined();
     await caught(() => strict);
+    const strictDefault = c.ledgers.upsertDelta({
+      where: { id: "delta_ledger:1" },
+      data: { name: "B" },
+    });
+    expect((strictDefault as { throw?: unknown }).throw).toBeUndefined();
+    await caught(() => strictDefault);
   });
 });
 

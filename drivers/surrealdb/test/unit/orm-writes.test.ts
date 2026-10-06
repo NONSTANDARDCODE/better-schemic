@@ -356,17 +356,39 @@ describe("patch", () => {
 });
 
 describe("upsert", () => {
-  test("by id: UPSERT t:id MERGE", async () => {
+  test("strict by id (default): UPDATE ONLY t:id — never creates", async () => {
     const { client, calls } = makeClient();
     await client.users.upsert({ where: { id: "user:1" }, data: { age: 2 } });
+    expect(lastCall(calls).sql).toBe("UPDATE ONLY user:1 MERGE $p0;");
+  });
+
+  test("onMissing create by id: UPSERT t:id MERGE", async () => {
+    const { client, calls } = makeClient();
+    await client.users.upsert({
+      where: { id: "user:1" },
+      data: { age: 2 },
+      onMissing: "create",
+    });
     expect(lastCall(calls).sql).toBe("UPSERT user:1 MERGE $p0;");
   });
 
-  test("by unique field: UPSERT t MERGE $p WHERE uniq = $v", async () => {
+  test("strict by unique field: UPDATE t … WHERE uniq = $v", async () => {
+    const { client, calls } = makeClient();
+    await client.users.upsert({
+      where: { email: "a@x" },
+      data: { age: 2 },
+    });
+    expect(lastCall(calls).sql).toBe(
+      "UPDATE user MERGE $p0 WHERE email = $p1;",
+    );
+  });
+
+  test("onMissing create by unique field: resolve-or-create with the generated target", async () => {
     const { client, calls } = makeClient();
     await client.users.upsert({
       where: { email: "a@x" },
       data: { email: "a@x", age: 2 },
+      onMissing: "create",
     });
     expect(lastCall(calls).sql).toBe(
       'UPSERT ((SELECT VALUE id FROM user WHERE email = $p0 LIMIT 1)[0] ?? type::record(s"user", rand::ulid())) MERGE $p1;',
@@ -379,6 +401,7 @@ describe("upsert", () => {
       where: { id: "user:1" },
       create: { id: "user:1", ...data },
       update: { active: false },
+      onMissing: "create",
     });
     const call = lastCall(calls);
     expect(call.sql).toBe(
@@ -392,6 +415,7 @@ describe("upsert", () => {
       where: { id: "user:1" },
       create: { id: "user:1", ...data },
       update: { age: surql`age + 1` },
+      onMissing: "create",
     });
     expect(lastCall(calls).sql).toContain(
       "LET $__existing = (SELECT VALUE id FROM user WHERE id = $p0 LIMIT 1);",
@@ -408,6 +432,7 @@ describe("upsert", () => {
       where: { email: "a@x" },
       create: { ...data },
       update: { age: 2 },
+      onMissing: "create",
     });
     expect(calls[0]?.sql).toContain(
       "LET $__existing = (SELECT VALUE id FROM user WHERE email = $p0 LIMIT 1);",
@@ -423,6 +448,32 @@ describe("upsert", () => {
     expect(codeOf(() => client.users.upsert({ where: { id: "user:1" } }))).toBe(
       "ValidationError",
     );
+  });
+
+  test("strict rejects create/update branches and RETURN DIFF with teaching errors", () => {
+    const { client } = makeClient();
+    const us = (args: unknown) =>
+      codeOf(() => client.users.upsert(args as never));
+    expect(
+      us({
+        where: { id: "user:1" },
+        create: { id: "user:1", ...data },
+        update: { age: 2 },
+      }),
+    ).toBe("ValidationError");
+    expect(
+      us({ where: { id: "user:1" }, data: { age: 2 }, return: "diff" }),
+    ).toBe("ReturnNotSupported");
+  });
+
+  test("strict return: none still compiles the row-returning form (miss stays observable)", async () => {
+    const { client, calls } = makeClient();
+    await client.users.upsert({
+      where: { id: "user:1" },
+      data: { age: 2 },
+      return: "none",
+    });
+    expect(lastCall(calls).sql).toBe("UPDATE ONLY user:1 MERGE $p0;");
   });
 
   test("upsertMany with ids: INSERT ON DUPLICATE from the union of fields", async () => {

@@ -137,6 +137,7 @@ describe("zod — write validation", () => {
         valid.users.upsertDelta({
           where: { id: "user:1" },
           data: { name: "Aeon" },
+          onMissing: "create",
         }),
       ),
     ).toBeUndefined();

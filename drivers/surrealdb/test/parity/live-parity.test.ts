@@ -151,7 +151,9 @@ const Big = defineTable("pl_big", {
   arrobj: s.array(s.object({ x: s.string() })),
   def: s.string().$default("pending"),
   defa: s.datetime().$defaultAlways(surql`time::now()`),
-  val: s.string().$value(surql`string::lowercase($value)`),
+  val: s.string().$value(surql`string::lowercase($value)`, {
+    optional: false,
+  }),
   asrt: s.number().$assert(surql`$value > 0`),
   ro: s.string().$readonly(),
   cmt: s.string().$comment("a field"),

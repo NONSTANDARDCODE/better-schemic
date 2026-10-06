@@ -155,9 +155,14 @@ describe("field validation guards", () => {
     expect(T(s.string().$computed(surql`1`).$readonly())).toThrow(
       /\$computed can't be combined with \$readonly/,
     );
-    expect(T(s.string().$computed(surql`1`).$value(surql`$value`))).toThrow(
-      /\$computed can't be combined with \$value/,
-    );
+    expect(
+      T(
+        s
+          .string()
+          .$computed(surql`1`)
+          .$value(surql`$value`, { optional: false }),
+      ),
+    ).toThrow(/\$computed can't be combined with \$value/);
     expect(T(s.string().$computed(surql`1`).$assert(surql`true`))).toThrow(
       /\$computed can't be combined with \$assert/,
     );

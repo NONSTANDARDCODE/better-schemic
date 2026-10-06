@@ -101,7 +101,9 @@ const Big = defineTable("sp_big", {
     .optional()
     .$default("x")
     .$value(surql`IF $input = "x" THEN NONE ELSE $value END`),
-  val: s.string().$value(surql`string::lowercase($value)`),
+  val: s.string().$value(surql`string::lowercase($value)`, {
+    optional: false,
+  }),
   asrt: s.number().$assert(surql`$value > 0`),
   ro: s.string().$readonly(),
   cmt: s.string().$comment("a field"),

@@ -98,6 +98,7 @@ describe("return semantics — before/diff and the batch decode", () => {
           create: { id: "user:1", ...data },
           update: { age: surql`age + 1` },
           return: "diff",
+          onMissing: "create",
         }),
       ),
     ).toBe("ReturnNotSupported");
@@ -120,6 +121,7 @@ describe("return semantics — before/diff and the batch decode", () => {
       create: { id: "user:1", ...data },
       update: { age: surql`age + 1` },
       return: "before",
+      onMissing: "create",
     });
     const sql = lastCall(calls).sql;
     expect(sql).toContain("THEN CREATE user:1 CONTENT $p1 RETURN NONE");

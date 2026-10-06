@@ -15,7 +15,7 @@ import {
 } from "@better-schemic/core";
 import type { Surreal } from "surrealdb";
 import { stripNullGuard } from "../ddl";
-import { formatForAssert } from "../pure";
+import { formatForAssert, readsClientValue } from "../pure";
 import { splitTopUnion, topLevelSplitOnce } from "../surql-type-expr";
 import { formatSurql } from "./format";
 import {
@@ -461,7 +461,13 @@ function renderField(node: FieldNode, indent: string, ctx?: RenderCtx): string {
       const lit = parseLiteral(p.default);
       expr += `.${method}(${lit ? JSON.stringify(lit.value) : `surql\`${p.default}\``})`;
     }
-    if (p.value !== undefined) expr += `.$value(surql\`${p.value}\`)`;
+    if (p.value !== undefined) {
+      // A VALUE that reads `$value` consumes client input; DDL cannot say whether the field is
+      // required on create, so pull declares the permissive side EXPLICITLY — the `$value`
+      // authoring guard demands a choice, and create-optional is the honest DDL-only reading.
+      const opt = readsClientValue(p.value) ? ", { optional: true }" : "";
+      expr += `.$value(surql\`${p.value}\`${opt})`;
+    }
     if (p.computed !== undefined) expr += `.$computed(surql\`${p.computed}\`)`;
     // The format builder re-bakes its `string::is_<fmt>` assert, so drop it when we reversed one.
     if (assertText !== undefined && assertText !== "" && !fmt)

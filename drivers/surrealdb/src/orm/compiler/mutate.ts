@@ -223,7 +223,10 @@ function compileMutation(
 
 // --- upsert --------------------------------------------------------------------------------------
 
-/** Compile `upsert` — create-or-update by id or a single-field UNIQUE index. */
+/** Compile `upsert` — by default a STRICT update by id or a single-field UNIQUE index: a target
+ *  that does not exist (or is filtered out by a permission/plugin scope) rejects `ResultNotFound`
+ *  instead of silently creating or resolving `null`. `onMissing: "create"` restores the
+ *  create-or-update lowering. */
 export function compileUpsert(
   meta: ModelMeta,
   args: UpsertRuntimeArgs,
@@ -236,6 +239,7 @@ export function compileUpsert(
     ["after", "before", "diff", "none"],
     "after",
   );
+  const onMissing = readOnMissing(args.onMissing, operation) ?? "throw";
   const hasData = args.data !== undefined;
   const hasCreate = args.create !== undefined;
   const hasUpdate = args.update !== undefined;
@@ -251,6 +255,12 @@ export function compileUpsert(
       `${operation}: pass "data" OR "create" + "update" — not both.`,
       { operation, table: meta.name },
     );
+  if (onMissing === "throw" && (hasCreate || hasUpdate))
+    throw compileError(
+      "ValidationError",
+      `${operation}: onMissing "throw" (the default) is a strict UPDATE — it never creates; pass "data" (applied by the update) or onMissing: "create" to allow the create branch.`,
+      { operation, table: meta.name },
+    );
 
   const target = uniqueTarget(meta, args.where, operation);
   const mode = updateMode(args.mode, operation, "merge");
@@ -260,6 +270,15 @@ export function compileUpsert(
       `${operation}: mode "patch" is not part of upsert — use patch() or update({ mode: "patch" }).`,
       { operation, table: meta.name },
     );
+
+  if (onMissing === "throw")
+    return compileStrictUpsert(meta, target, args, mode, ret, binds, operation);
+
+  // A create-mode `return: "after"` promises a row (`WrittenResult` = `Promise<App>`): when the
+  // write produced NONE (the target was filtered out by a permission/plugin scope) the decode
+  // raises `ResultNotFound` instead of resolving the contract-breaking `null`.
+  const missError: Pick<WritePlan, "missError"> =
+    ret === "after" ? { missError: true } : {};
   const only = args.only === true ? "ONLY " : "";
 
   if (hasData) {
@@ -281,6 +300,7 @@ export function compileUpsert(
           transactional: false,
           resultIndexes: [0],
           result: resultOf(ret, "row"),
+          ...missError,
         };
       }
       // Unique-field target, no expressions. A payload `id` wins (the plain-table form carries it
@@ -303,6 +323,7 @@ export function compileUpsert(
           transactional: false,
           resultIndexes: [0],
           result: resultOf(ret, "row"),
+          ...missError,
         };
       }
       const body = encodedBody(mode, encoded, binds);
@@ -313,22 +334,73 @@ export function compileUpsert(
         transactional: false,
         resultIndexes: [0],
         result: resultOf(ret, "row"),
+        ...missError,
       };
     }
     // Expressions can reference the existing row — `UPSERT … WHERE` would evaluate them on the
     // (empty) create branch too, so the LET/IF form distinguishes the branches first.
-    return compileUpsertIfElse(
-      meta,
-      upsertWhere(meta, target, binds, args.scope),
-      { ...args, create: args.data, update: args.data },
-      mode,
-      ret,
-      binds,
-      operation,
-    );
+    return {
+      ...compileUpsertIfElse(
+        meta,
+        upsertWhere(meta, target, binds, args.scope),
+        { ...args, create: args.data, update: args.data },
+        mode,
+        ret,
+        binds,
+        operation,
+      ),
+      ...missError,
+    };
   }
 
   return compileUpsertBranches(meta, target, args, mode, ret, binds, operation);
+}
+
+/**
+ * The strict (`onMissing: "throw"`, the default) upsert lowering: a pure UPDATE by id/unique —
+ * never creates. A miss returns no row and the runtime raises `ResultNotFound`. `return: "none"`
+ * still compiles the row-returning form (the miss must stay observable) and the decode discards
+ * the row; `return: "diff"` is rejected because an empty diff cannot tell "no match" from
+ * "no change".
+ */
+function compileStrictUpsert(
+  meta: ModelMeta,
+  target: ReturnType<typeof uniqueTarget>,
+  args: UpsertRuntimeArgs,
+  mode: WriteMode,
+  ret: WriteRet,
+  binds: Binds,
+  operation: string,
+): WritePlan {
+  if (ret === "diff")
+    throw compileError(
+      "ReturnNotSupported",
+      `${operation}: RETURN DIFF is not supported on a strict upsert (an empty diff can't tell "no match" from "no change") — use "after"/"before", or onMissing: "create".`,
+      { operation, table: meta.name },
+    );
+  const encoded = encodeData(
+    meta,
+    args.data,
+    mode === "content" || mode === "replace" ? "create" : "update",
+    operation,
+  );
+  const body = encodedBody(mode, encoded, binds);
+  const tail = mutationTail(
+    ret === "none" ? "after" : ret,
+    args.timeout,
+    operation,
+  );
+  const sql =
+    target.kind === "id"
+      ? `UPDATE ONLY ${recordTarget(meta, target.id, operation)} ${body}${scopeWhere(args.scope, binds, meta)}${tail}`
+      : `UPDATE ${escapeIdent(meta.name)} ${body} WHERE ${upsertWhere(meta, target, binds, args.scope)}${tail}`;
+  return {
+    statements: [sql],
+    transactional: false,
+    resultIndexes: [0],
+    result: resultOf(ret, "row"),
+    missError: true,
+  };
 }
 
 /** The LET/IF `WHERE` for a resolved unique target (`id = $record` / `uniq = $value`), ANDed with
@@ -399,6 +471,7 @@ function compileUpsertBranches(
       transactional: false,
       resultIndexes: [0],
       result: resultOf(ret, "row"),
+      ...(ret === "after" ? { missError: true } : {}),
     };
   }
   return compileUpsertIfElse(
@@ -434,7 +507,7 @@ function compileUpsertIfElse(
       { operation, table: meta.name },
     );
   // `CREATE … RETURN BEFORE` has no prior state; NONE is the honest empty answer.
-  return compileIfElse(
+  const plan = compileIfElse(
     meta,
     where,
     args.create,
@@ -446,6 +519,7 @@ function compileUpsertIfElse(
     ret === "before" ? " RETURN BEFORE" : ret === "none" ? " RETURN NONE" : "",
     resultOf(ret, "row"),
   );
+  return ret === "after" ? { ...plan, missError: true } : plan;
 }
 
 /**
@@ -482,10 +556,12 @@ function compileIfElse(
 // --- upsertDelta ---------------------------------------------------------------------------------
 
 /**
- * Compile `upsertDelta` — create-or-update (or a strict update with `onMissing: "throw"`) that
- * returns the `{ before, after }` envelope from the SAME statement that wrote. Every lowering is
- * the `upsert` equivalent with the envelope tail; the LET/IF form carries it (plus TIMEOUT) on
- * EACH branch — the one form the server lets carry `$before`/`$after` while branching.
+ * Compile `upsertDelta` — by default a STRICT update with `onMissing: "throw"` (a targeted miss
+ * rejects `ResultNotFound`; a target-less call is still a plain create); `onMissing: "create"`
+ * restores create-or-update. Returns the `{ before, after }` envelope from the SAME statement
+ * that wrote. Every lowering is the `upsert` equivalent with the envelope tail; the LET/IF form
+ * carries it (plus TIMEOUT) on EACH branch — the one form the server lets carry `$before`/`$after`
+ * while branching.
  */
 export function compileUpsertDelta(
   meta: ModelMeta,
@@ -493,7 +569,8 @@ export function compileUpsertDelta(
   binds: Binds,
   operation = "upsertDelta",
 ): WritePlan {
-  const onMissing = readOnMissing(args.onMissing, operation);
+  const explicit = readOnMissing(args.onMissing, operation);
+  const onMissing = explicit ?? "throw";
   const hasData = args.data !== undefined;
   const hasCreate = args.create !== undefined;
   const hasUpdate = args.update !== undefined;
@@ -516,7 +593,7 @@ export function compileUpsertDelta(
   if (onMissing === "throw" && anyBranch)
     throw compileError(
       "ValidationError",
-      `${operation}: onMissing "throw" is a strict UPDATE — it never creates, so pass "data" (applied by the update) instead of "create" + "update".`,
+      `${operation}: onMissing "throw" (the default) is a strict UPDATE — it never creates, so pass "data" (applied by the update) or onMissing: "create" for distinct "create"/"update" branches.`,
       { operation, table: meta.name },
     );
   const mode = updateMode(args.mode, operation, "merge");
@@ -530,7 +607,7 @@ export function compileUpsertDelta(
   const tail = deltaTail(args.timeout, operation);
 
   if (target === undefined) {
-    if (onMissing === "throw")
+    if (explicit === "throw")
       throw compileError(
         "ValidationError",
         `${operation}: onMissing "throw" needs a target — pass "where" (or let "data.id" infer it).`,
@@ -673,9 +750,14 @@ export function compileUpsertDelta(
   );
 }
 
-/** The `onMissing` allow-list (default `"create"` — true upsert semantics). */
-function readOnMissing(value: unknown, operation: string): "create" | "throw" {
-  if (value === undefined) return "create";
+/** Validate `onMissing`; `undefined` passes through — each caller applies its own default
+ *  (`upsert`/`upsertDelta` are STRICT on a targeted call; a target-less `upsertDelta` is a plain
+ *  create, which only an explicit `"throw"` forbids). */
+function readOnMissing(
+  value: unknown,
+  operation: string,
+): "create" | "throw" | undefined {
+  if (value === undefined) return undefined;
   if (value !== "create" && value !== "throw")
     throw compileError(
       "ValidationError",

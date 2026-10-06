@@ -3,6 +3,7 @@ import { BoundQuery, escapeIdent, toSurqlString } from "surrealdb";
 import {
   type AccessDef,
   type AnalyzerDef,
+  type AnyField,
   assertCompleteDef,
   type Expr,
   type FieldPermissions,
@@ -239,7 +240,7 @@ export interface DefineStatement {
 }
 
 /** The SurrealQL type of a field schema (e.g. `string`, `option<int>`, `record<user>`). */
-export function fieldType(field: SField): string {
+export function fieldType(field: AnyField): string {
   return inferField(field.schema).type;
 }
 
@@ -856,7 +857,7 @@ function emit(
 export function emitFieldStatements(
   name: string,
   table: string,
-  field: SField,
+  field: AnyField,
   opts?: DefineOptions,
   schemafull = true,
 ): DefineStatement[] {
@@ -886,7 +887,7 @@ export function emitFieldStatements(
 export function emitField(
   name: string,
   table: string,
-  field: SField,
+  field: AnyField,
   opts?: DefineOptions,
 ): string {
   return emitFieldStatements(name, table, field, opts)

@@ -57,7 +57,9 @@ describe("field-clause callbacks — $value / $this refs", () => {
       title: s.string(),
       password: s
         .string()
-        .$value((f) => surql`crypto::bcrypt::generate(${f.value})`),
+        .$value((f) => surql`crypto::bcrypt::generate(${f.value})`, {
+          optional: false,
+        }),
       slug: s.string().$computed((f) => surql`string::slug(${f.this.title})`),
     });
     const ddl = emitTable(T);

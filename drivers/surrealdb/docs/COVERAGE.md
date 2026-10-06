@@ -101,7 +101,9 @@ live parity suites (`test/parity/{struct,live,canonical}-parity.test.ts`) and th
 
 - [x] `DEFAULT` and `DEFAULT ALWAYS` — `.$default()` / `.$defaultAlways()` (literal vs `surql\`…\``
   preserved on round-trip: bare literals stay bare, surql stays wrapped)
-- [x] `VALUE <expr>` — `.$value(surql)`
+- [x] `VALUE <expr>` — `.$value(surql)` (create-OPTIONAL by default; an expression that reads
+  `$value` must declare `{ optional: true | false }`, and `{ computes: […] }` marks the nested keys
+  a parent mapping fills as create-optional per item — ORM/type metadata, no DDL)
 - [x] `COMPUTED <expr>` — `.$computed(surql)`
 - [x] `ASSERT <expr>` — `.$assert(surql?)`, plus `$`-constraints that bake asserts
   (`.$min/$max/$length/$size/$regex/$gt/$gte/$lt/$lte`). `$min`/`$max` cover string/number/array/set;

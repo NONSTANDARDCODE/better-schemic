@@ -101,8 +101,8 @@ Writes are **eager** (run immediately, no `.explain()`).
 | `update` `unset` (extra statement with data) | `[x]` | `test/unit/orm-writes.test.ts:236`; `test/live/orm-writes.test.ts:194` |
 | `updateMany` — optional `where` (whole table) | `[x]` | `test/unit/orm-writes.test.ts:296`; `test/live/orm-writes.test.ts:240` |
 | `patch` — JSON Patch (`add/remove/replace/move/copy/test`, validated) | `[x]` | `test/unit/orm-writes.test.ts:304`; `test/live/orm-writes.test.ts:261` |
-| `upsert` — `where` id/UNIQUE; `data` or `create`+`update` branches | `[x]` | `test/unit/orm-writes.test.ts:346`; `test/live/orm-writes.test.ts:284` |
-| `upsertDelta` — create-or-update (ou update estrito com `onMissing:"throw"`) em UMA ida, devolvendo `record`/`before`/`delta`/`changed` **decodificados** (`RETURN VALUE { before: $before, after: $after }`); alvo por `where`, `data.id` ou create sem alvo | `[x]` | `test/unit/orm-mutate-delta.test.ts`; `test/live/orm-writes-delta.test.ts`; probes `test/live/orm-syntax.test.ts` (`UPSERT DELTA`) |
+| `upsert` — `where` id/UNIQUE; **STRICT by default** (`UPDATE ONLY t:id` / `UPDATE … WHERE uniq`, miss → `ResultNotFound`); `onMissing:"create"` = create-or-update (`data` or `create`+`update`) | `[x]` | `test/unit/orm-writes.test.ts:358`; `test/live/orm-writes.test.ts:284` |
+| `upsertDelta` — **STRICT update by default** (`onMissing:"throw"`) em UMA ida, devolvendo `record`/`before`/`delta`/`changed` **decodificados** (`RETURN VALUE { before: $before, after: $after }`); alvo por `where`, `data.id` ou create sem alvo; `onMissing:"create"` = create-or-update | `[x]` | `test/unit/orm-mutate-delta.test.ts`; `test/live/orm-writes-delta.test.ts`; probes `test/live/orm-syntax.test.ts` (`UPSERT DELTA` + `STRICT upsert lowering`) |
 | `upsertMany` — ids ⇒ `ON DUPLICATE`; else `conflict` (single UNIQUE) required | `[x]` | `test/unit/orm-writes.test.ts:416`; `test/live/orm-writes.test.ts:321` |
 | `delete` — unique `where`, `return` `before`/`none` | `[x]` | `test/unit/orm-writes.test.ts:436`; `test/live/orm-writes.test.ts:347` |
 | `deleteMany` — optional `where`; without it requires `all:true` (`UnsafeMutation`) | `[x]` | `test/unit/orm-writes.test.ts:463` |
@@ -121,6 +121,7 @@ Writes are **eager** (run immediately, no `.explain()`).
 | `delete`/`deleteMany` `return` `after`/`diff` | `[ ]` | only `before`/`none` → `ReturnNotSupported`. `test/unit/orm-writes.test.ts:448` |
 | `updateEach` `return` `before`/`diff`; `mode:"replace"` | `[ ]` | only `after`/`none`; replace excluded. `test/unit/orm-writes-returns.test.ts:293` |
 | `upsert`/`upsertMany` `RETURN DIFF` with expressions or explicit map | `[ ]` | → `ReturnNotSupported`. `test/unit/orm-writes-returns.test.ts:90`/`:152` |
+| `upsert` strict + `RETURN DIFF` | `[ ]` | → `ReturnNotSupported` (diff vazio não distingue "não casou" de "não mudou"); `test/unit/orm-writes.test.ts` |
 | `upsert` `mode:"patch"` | `[ ]` | → `ValidationError`. `test/unit/orm-writes.test.ts:393` |
 | `upsertDeltaMany` (batch) | `[ ]` | fora de escopo; o compiler do singular fica reutilizável |
 | `upsertDelta` com `onMissing:"throw"` + `create`/`update` | `[ ]` | estrito nunca cria → `ValidationError` (passe `data`/`update`). `test/unit/orm-mutate-delta.test.ts` |

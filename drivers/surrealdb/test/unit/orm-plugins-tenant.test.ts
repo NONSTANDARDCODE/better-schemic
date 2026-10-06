@@ -303,6 +303,7 @@ describe("tenantRls — creates and upserts", () => {
     await client.customers.upsert({
       where: { id: "customer:1" },
       data: { name: "A" },
+      onMissing: "create",
     });
     expect(calls[0]?.sql).toContain("UPSERT");
     expect(calls[0]?.sql).toContain("WHERE tenant_id = ");
@@ -329,6 +330,7 @@ describe("tenantRls — creates and upserts", () => {
     const result = await client.customers.upsertDelta({
       where: { id: "customer:1" },
       data: { name: "B" },
+      onMissing: "create",
     });
     expect(result.created).toBe(false);
     expect(result.changed).toEqual(["name"]);
@@ -401,6 +403,7 @@ describe("tenantRls — creates and upserts", () => {
       where: { id: "customer:1" },
       create: { id: "customer:1", name: "A" },
       update: { name: surql`"B"` },
+      onMissing: "create",
     });
     expect(calls[0]?.sql).toContain("LET");
     expect(calls[0]?.sql).toContain("tenant_id = ");
@@ -447,6 +450,7 @@ describe("tenantRls — creates and upserts", () => {
         where: { id: "customer:1" },
         create: { id: "customer:1", name: "A" },
         update: { name: "B" },
+        onMissing: "create",
       }),
     );
     expect((error as Error).message).toContain("ON DUPLICATE");

@@ -105,6 +105,13 @@ export interface SurrealMeta {
   default?: BoundQuery;
   defaultAlways?: boolean;
   value?: BoundQuery;
+  /** `{ optional: false }` on `.$value(…)` — the field is create-REQUIRED (the `Create<>` type
+   *  and the `.create` schema agree). Absent = create-OPTIONAL (the default for VALUE fields). */
+  valueRequired?: true;
+  /** `{ computes: […] }` on `.$value(…)` — the nested keys the expression fills on an
+   *  `s.object`/`array<s.object>` field, so `Create<>` and `.create` make them optional per
+   *  item. ORM/type metadata only: emits NO DDL and `sc pull` cannot recover it. */
+  computes?: readonly string[];
   /** `COMPUTED <expr>` — a derived, read-only column (computed on read; never written). */
   computed?: BoundQuery;
   /**
@@ -156,6 +163,18 @@ function toExpr(value: unknown): BoundQuery {
   if (value instanceof BoundQuery) return value;
   const literal = primitiveLiteral(value);
   return literal ? new BoundQuery(literal) : surql`${value}`;
+}
+
+/** Matches the reserved `$value` parameter in an expression — NOT `$values`/`$value_x`. */
+const CLIENT_VALUE_REF = /\$value(?![A-Za-z0-9_])/;
+
+/**
+ * Whether a VALUE/DEFAULT expression consumes the client input (`$value`). Shared by the
+ * `$value` authoring guard and `sc pull` (which must declare `{ optional: true }` when it
+ * round-trips such an expression — DDL alone cannot say the field is required on create).
+ */
+export function readsClientValue(expr: string | BoundQuery): boolean {
+  return CLIENT_VALUE_REF.test(typeof expr === "string" ? expr : expr.query);
 }
 
 /** Build an SField for a Zod string-format schema, baking `string::is_<fmt>($value)`
@@ -236,6 +255,11 @@ export abstract class SFieldBase<
     readonly schema: S,
     readonly native: N,
   ) {}
+
+  /** Type-only brand read by `FlagsOf` — a direct property keeps the flags inference exact even
+   *  when method signatures mention a generic (e.g. `$value`'s `computes`). `declare` = zero
+   *  runtime emit, like `s.object`'s `~szShape`. */
+  declare readonly "~szFlags": Flags;
 
   /** Standard Schema (v1) interop — delegates to the underlying Zod schema, so every `s.*` field is a
    *  valid `StandardSchemaV1` (`field['~standard'].validate(input)`), matching `@better-schemic/core`'s base. */
@@ -664,23 +688,48 @@ export class SField<
     });
   }
   /**
-   * Set a DB-side `VALUE` clause. Whether the field is create-OPTIONAL depends on
-   * whether the expression consumes the client input (`$value`), which can't be
-   * inferred — so it's explicit via the `optional` option:
-   *   - `time::now()` ignores input -> `{ optional: true }` (create-optional)
-   *   - `string::lowercase($value)` requires input -> default (create-required)
-   * Optionality is purely type-level (the option drives the `"create"` flag that
-   * `Create<>`/`encode()` read); it does not touch the app type or DB nullability.
-   * There is no separate update option — every field is already optional in `Update<>`.
+   * Set a DB-side `VALUE` clause. Create-optionality defaults to create-OPTIONAL and, when the
+   * runtime can see that the expression consumes client input (`$value`), the call must declare
+   * its intent — the TYPE system cannot read the expression text:
+   *   - `time::now()` (input-independent) -> create-optional automatically;
+   *   - `string::lowercase($value)` -> pass `{ optional: false }` (a transform that REQUIRES input);
+   *   - a parent mapping / a field that may be computed without input -> `{ optional: true }`.
+   * The guard is skipped when the field is already optional (`$default`/`.optional()`).
+   * `computes` names the nested keys the expression fills on an `s.object`/`array<s.object>` field,
+   * so `Create<>`/`.create` make them optional per item.
+   * Optionality is purely type-level (the `"create"` flag that `Create<>`/`.create` read); it does
+   * not touch the app type or DB nullability. There is no separate update option — every field is
+   * already optional in `Update<>`.
    */
-  $value<O extends boolean = false>(
+  $value<
+    O extends boolean | undefined = undefined,
+    const C extends readonly ComputesKey<S>[] = readonly [],
+  >(
     expr: FieldExpr,
-    // biome-ignore lint/correctness/noUnusedFunctionParameters: drives the O generic (type-level only)
-    opts?: { optional?: O },
-  ): SField<S, O extends true ? Flags | "create" : Flags> {
+    opts?: { optional?: O; computes?: C },
+  ): SField<
+    S,
+    Flags | ComputedFlags<C> | (O extends false ? never : "create")
+  > {
+    const value = resolveFieldExpr(expr);
+    if (
+      opts?.optional === undefined &&
+      readsClientValue(value) &&
+      this.surreal.default === undefined &&
+      this.surreal.defaultAlways !== true &&
+      !this.isOptional()
+    )
+      throw new Error(
+        "$value: the expression reads `$value` (client input), so create-optionality can't be " +
+          "inferred — pass { optional: false } to REQUIRE the field on create (a transform of " +
+          "the input), or { optional: true } when the DB may compute it without input.",
+      );
+    const computes = normalizeComputes(this.schema, opts?.computes);
     return new SField(this.schema, {
       ...this.surreal,
-      value: resolveFieldExpr(expr),
+      value,
+      ...(computes ? { computes } : {}),
+      ...(opts?.optional === false ? { valueRequired: true as const } : {}),
     });
   }
   /**
@@ -1119,7 +1168,7 @@ export class SField<
 }
 
 /** A flag-agnostic SField, for internal storage where flags don't matter. */
-type AnyField = SField<z.ZodType, string>;
+export type AnyField = SField<z.ZodType, string>;
 
 // --- Surreal-native field schemas ---
 
@@ -1933,7 +1982,9 @@ export const s = {
 export type Shape = Record<string, AnyField | z.ZodType>;
 type SchemaOf<F> =
   F extends SField<infer S, infer _> ? S : F extends z.ZodType ? F : never;
-type FlagsOf<F> = F extends SField<z.ZodType, infer Fl> ? Fl : never;
+type FlagsOf<F> = F extends { readonly "~szFlags": infer Fl extends string }
+  ? Fl
+  : never;
 /**
  * Whether a field carries the `"internal"` flag (set by `.$internal()`). The
  * `string extends FlagsOf<F>` guard short-circuits the broad `Shape` case (where
@@ -1953,19 +2004,31 @@ type ZShape<S extends Shape> = {
 /** Every field's zshape, including internal ones — backs the `.system` view. */
 type ZShapeAll<S extends Shape> = { [K in keyof S]: SchemaOf<S[K]> };
 /** The Zod raw shape of the create-input ({@link TableDef.create}): internal fields dropped, and each
- *  create-optional key (`id`, `$default`/`$defaultAlways`/`$value(optional)`/`$computed`, or already
- *  Zod-optional) wrapped in `ZodOptional` — mirrors {@link CreateShape}. */
+ *  create-optional key (`id`, `$default`/`$defaultAlways`/`$value`/`$computed`, or already
+ *  Zod-optional) wrapped in `ZodOptional` — mirrors {@link CreateShape}. A `$value({ computes })`
+ *  field re-shapes its nested object so the computed keys are optional per item. */
 //   The `string extends FlagsOf<S[K]>` guard (as in {@link IsInternal}) keeps `CreateZShape<Shape>` /
 //   `UpdateZShape<Shape>` shape-agnostic — mapping to a bare `z.ZodType` for the widened `Shape` case —
 //   so `TableDef<"t", concrete>` stays assignable to `TableDef<string, Shape>`.
-type CreateZShape<S extends Shape> = {
+type CreateZValue<F, Sc = SchemaOf<F>, C extends string = ComputedKeys<F>> = [
+  C,
+] extends [never]
+  ? Sc
+  : [ArrayShapeOf<Sc>] extends [never]
+    ? ShapeOf<Sc> extends infer NS extends Shape
+      ? z.ZodObject<CreateZShape<NS, C>>
+      : Sc
+    : ArrayShapeOf<Sc> extends infer ENS extends Shape
+      ? z.ZodArray<z.ZodObject<CreateZShape<ENS, C>>>
+      : Sc;
+type CreateZShape<S extends Shape, Computed extends string = never> = {
   [K in keyof S as IsInternal<S[K]> extends true
     ? never
     : K]: string extends FlagsOf<S[K]>
     ? z.ZodType
-    : CreateOptional<S, K> extends true
-      ? z.ZodOptional<SchemaOf<S[K]>>
-      : SchemaOf<S[K]>;
+    : CreateOptional<S, K, Computed> extends true
+      ? z.ZodOptional<CreateZValue<S[K]>>
+      : CreateZValue<S[K]>;
 };
 /** The Zod raw shape of the update-input ({@link TableDef.update}): internal + `id` + readonly fields
  *  dropped, all the rest `ZodOptional` (a partial patch) — mirrors {@link UpdateShape}. */
@@ -1991,11 +2054,13 @@ type SZObject<S extends Shape> = z.ZodObject<ZShape<S>> & {
   readonly "~szShape"?: S;
 };
 type ToField<F> =
-  F extends SField<infer Sc, infer Fl> ? SField<Sc, Fl> : SField<SchemaOf<F>>;
+  F extends SField<infer Sc, infer _>
+    ? SField<Sc, FlagsOf<F>>
+    : SField<SchemaOf<F>>;
 type Fields<S extends Shape> = { [K in keyof S]: ToField<S[K]> };
 type Unwrap<F> =
-  F extends SField<z.ZodOptional<infer Inner extends z.ZodType>, infer Fl>
-    ? SField<Inner, Fl>
+  F extends SField<z.ZodOptional<infer Inner extends z.ZodType>, infer _>
+    ? SField<Inner, FlagsOf<F>>
     : F;
 type PartialShape<S extends Shape> = {
   [K in keyof S]: SField<z.ZodOptional<SchemaOf<S[K]>>, FlagsOf<S[K]>>;
@@ -2245,6 +2310,84 @@ function arrayElementFields(
 }
 
 /**
+ * Validate a `$value`'s `{ computes: […] }` list against the field's nested object: the field must
+ * be an `s.object` or an `array<s.object>`, and every key must exist. Returns the list (a copy) or
+ * `undefined` when none was given. Fail-fast at authoring — a typo'd/irrelevant key is DX debt.
+ */
+function normalizeComputes(
+  schema: z.ZodType,
+  computes: readonly string[] | undefined,
+): readonly string[] | undefined {
+  if (computes === undefined || computes.length === 0) return undefined;
+  const core = unwrapCore(schema);
+  const fields = objectFieldsRegistry.get(core) ?? arrayElementFields(core);
+  if (!fields)
+    throw new Error(
+      "$value: { computes: […] } needs an s.object or array of s.object field — this field has no nested keys.",
+    );
+  for (const key of computes)
+    if (!(key in fields))
+      throw new Error(
+        `$value: { computes: […] } names "${key}", which is not a field of the nested object.`,
+      );
+  return [...computes];
+}
+
+/** Clone a schema replacing one def field (Zod's internal `clone`, like the object-mode helper). */
+function cloneDef(
+  schema: z.ZodType,
+  patch: Record<string, unknown>,
+): z.ZodType {
+  const def = schema._zod.def as unknown as Record<string, unknown>;
+  return (
+    schema as unknown as { clone(d: Record<string, unknown>): z.ZodType }
+  ).clone({ ...def, ...patch });
+}
+
+/** A nested object schema with `keys` wrapped `.optional()` (re-registered for nested DDL/encode). */
+function withOptionalKeys(
+  objectSchema: z.ZodType,
+  fields: Record<string, AnyField>,
+  keys: readonly string[],
+): z.ZodType {
+  const overrides: Record<string, z.ZodType> = {};
+  for (const key of keys) {
+    const field = fields[key];
+    if (field) overrides[key] = field.schema.optional();
+  }
+  const next = (objectSchema as unknown as z.ZodObject).extend(overrides);
+  objectFieldsRegistry.set(next, fields);
+  return next;
+}
+
+/**
+ * Wrap the `computes` keys `.optional()` in a field's nested object/array-of-object schema,
+ * preserving the identity-preserving wrappers around it. Backs the `.create` schema for
+ * `$value(…, { computes: […] })` — the DB fills those keys, so client input may omit them.
+ */
+function optionalizeComputed(
+  schema: z.ZodType,
+  keys: readonly string[],
+): z.ZodType {
+  const def = schema._zod.def as unknown as {
+    type: string;
+    innerType?: z.ZodType;
+    element?: z.ZodType;
+  };
+  if (ENCODE_PEEL.has(def.type) && def.innerType)
+    return cloneDef(schema, {
+      innerType: optionalizeComputed(def.innerType, keys),
+    });
+  const fields = objectFieldsRegistry.get(schema);
+  if (fields) return withOptionalKeys(schema, fields, keys);
+  if (def.type === "array" && def.element)
+    return cloneDef(schema, {
+      element: optionalizeComputed(def.element, keys),
+    });
+  return schema;
+}
+
+/**
  * Validate + encode one provided field value to its wire form (non-throwing — the shared core
  * of both `encode` and `safeEncode`). A nested `s.object` (or an array of one) recurses via
  * `safeEncodeInput`, so absent nested keys are OMITTED — on CREATE the DB fills their defaults;
@@ -2429,53 +2572,92 @@ type ArrayShapeOf<Sc> =
             : never;
 
 /**
+ * The nested keys a field's `$value(…, { computes: […] })` fills, recovered from its
+ * `computes:<key>` flags. `never` when there are none — and for shape-agnostic `Shape` fields
+ * (whose flags widen to `string`), so `TableDef<string, Shape>` stays assignable.
+ */
+type ComputedKeys<F> =
+  string extends FlagsOf<F>
+    ? never
+    : FlagsOf<F> extends infer Fl
+      ? Fl extends `computes:${infer K}`
+        ? K
+        : never
+      : never;
+
+/** The `computes:<key>` flag(s) an `$value` call contributes (the type-level carrier). */
+type ComputedFlags<C extends readonly string[]> = `computes:${C[number]}`;
+
+/**
+ * The nested keys a `$value` may declare as computed: only an `s.object`/`array<s.object>`
+ * field has nested keys (everything else resolves to `never`, so a typo is a compile error).
+ */
+type ComputesKey<S extends z.ZodType> = [ShapeOf<S>] extends [never]
+  ? [ArrayShapeOf<S>] extends [never]
+    ? never
+    : keyof (z.output<S> extends readonly (infer E)[] ? E : never) & string
+  : keyof z.output<S> & string;
+
+/**
  * The create-input VALUE type for a field. A nested `s.object` recurses into its own
  * `CreateShape` (so nested `$default`/`"create"` fields become optional too); an array of
  * `s.object` becomes that nested create-shape's array; everything else is the plain app
- * type (`AppOf`). `[X] extends [never]` guards each branch because `never extends Shape` is
- * vacuously true and would otherwise wrongly match the object branch for scalar fields.
+ * type (`AppOf`). `C` carries the parent's `computes` keys, making the keys the parent's
+ * `$value` fills optional PER ITEM. `[X] extends [never]` guards each branch because
+ * `never extends Shape` is vacuously true and would otherwise wrongly match the object branch.
  */
-type CreateValue<F, Sc = SchemaOf<F>> = [ShapeOf<Sc>] extends [never]
+type CreateValue<F, Sc = SchemaOf<F>, C extends string = ComputedKeys<F>> = [
+  ShapeOf<Sc>,
+] extends [never]
   ? [ArrayShapeOf<Sc>] extends [never]
     ? AppOf<F>
     : ArrayShapeOf<Sc> extends infer ENS extends Shape
-      ? CreateShape<ENS>[]
+      ? CreateShape<ENS, C>[]
       : AppOf<F>
   : ShapeOf<Sc> extends infer NS extends Shape
-    ? CreateShape<NS>
+    ? CreateShape<NS, C>
     : AppOf<F>;
 
-type CreateOptional<S extends Shape, K extends keyof S> = K extends "id"
+type CreateOptional<
+  S extends Shape,
+  K extends keyof S,
+  Computed extends string = never,
+> = K extends "id"
   ? true
-  : "create" extends FlagsOf<S[K]>
+  : K extends Computed
     ? true
-    : InputOptional<S[K]>;
+    : "create" extends FlagsOf<S[K]>
+      ? true
+      : InputOptional<S[K]>;
 // Public create input: internal fields are never settable by clients. Field VALUES use
-// `CreateValue` so a nested `s.object`'s own create-optional fields (a nested `$default`)
-// are optional too — while `CreateOptional` (the `?` modifier) is unchanged.
-type CreateShape<S extends Shape> = Prettify<
+// `CreateValue` so a nested `s.object`'s own create-optional fields (a nested `$default`) AND a
+// parent's `computes` keys are optional too — while `CreateOptional` (the `?` modifier) is unchanged.
+type CreateShape<S extends Shape, Computed extends string = never> = Prettify<
   {
     [K in keyof S as IsInternal<S[K]> extends true
       ? never
-      : CreateOptional<S, K> extends true
+      : CreateOptional<S, K, Computed> extends true
         ? never
         : K]: CreateValue<S[K]>;
   } & {
     [K in keyof S as IsInternal<S[K]> extends true
       ? never
-      : CreateOptional<S, K> extends true
+      : CreateOptional<S, K, Computed> extends true
         ? K
         : never]?: CreateValue<S[K]>;
   }
 >;
 // System create input: includes internal fields (the old, all-fields behavior).
-type CreateShapeAll<S extends Shape> = Prettify<
+type CreateShapeAll<
+  S extends Shape,
+  Computed extends string = never,
+> = Prettify<
   {
-    [K in keyof S as CreateOptional<S, K> extends true
+    [K in keyof S as CreateOptional<S, K, Computed> extends true
       ? never
       : K]: CreateValue<S[K]>;
   } & {
-    [K in keyof S as CreateOptional<S, K> extends true
+    [K in keyof S as CreateOptional<S, K, Computed> extends true
       ? K
       : never]?: CreateValue<S[K]>;
   }
@@ -2842,20 +3024,28 @@ export class TableDef<Name extends string, S extends Shape> {
   // .refine()/.or()`d for client-input validation — instead of hand-rebuilding from the field map.
 
   /** The **create-input** schema: internal fields dropped; DB-filled fields (`id`, `$default`/
-   *  `$defaultAlways`/`$value`/`$computed`) and Zod-optional fields are optional. Composable. */
+   *  `$defaultAlways`/`$value`/`$computed`) and Zod-optional fields are optional — except a
+   *  `$value({ optional: false })` field, which is create-required. A `$value({ computes })` field
+   *  additionally makes its computed nested keys optional. Composable. */
   get create(): z.ZodObject<CreateZShape<S>> {
     const shape: Record<string, z.ZodType> = {};
     for (const [k, f] of Object.entries(this.fields)) {
       const field = f as AnyField;
       if (field.surreal.internal) continue;
+      const computes = field.surreal.computes;
+      const base =
+        computes && computes.length > 0
+          ? optionalizeComputed(field.schema, computes)
+          : field.schema;
       const optional =
         k === "id" ||
         field.surreal.default !== undefined ||
         field.surreal.defaultAlways === true ||
-        field.surreal.value !== undefined ||
+        (field.surreal.value !== undefined &&
+          field.surreal.valueRequired !== true) ||
         field.surreal.computed !== undefined ||
         field.isOptional();
-      shape[k] = optional ? field.schema.optional() : field.schema;
+      shape[k] = optional ? base.optional() : base;
     }
     return z.object(shape) as unknown as z.ZodObject<CreateZShape<S>>;
   }

@@ -9,7 +9,9 @@ DEFINE FIELD email ON TABLE c TYPE string VALUE string::lowercase($value);
 DEFINE FIELD full ON TABLE c TYPE string COMPUTED name.first + ' ' + name.last;`,
   def: defineTable("c", {
     id: s.string(),
-    email: s.string().$value(surql`string::lowercase($value)`),
+    email: s.string().$value(surql`string::lowercase($value)`, {
+      optional: false,
+    }),
     full: s.string().$computed(surql`name.first + ' ' + name.last`),
   }),
 });

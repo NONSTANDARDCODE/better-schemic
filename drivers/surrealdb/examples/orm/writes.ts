@@ -119,7 +119,7 @@ export const writes = group(
       def: (client) => client.randUsers.create({ data: { name: "A" } }),
     }),
     ormExample(import.meta.url, {
-      title: "upsert — generated id resolves the unique row, else creates",
+      title: "upsert — generated id resolves the unique row, else creates (onMissing create)",
       note: "One statement: the subquery finds the existing row by UNIQUE, `??` falls back to the generated target.",
       sql: 'UPSERT ((SELECT VALUE id FROM uuid_user WHERE email = $p0 LIMIT 1)[0] ?? type::record(s"uuid_user", rand::uuid())) MERGE $p1;',
       vars: { p0: "a@x", p1: { email: "a@x", name: "A" } },
@@ -127,6 +127,7 @@ export const writes = group(
         client.uuidUsers.upsert({
           where: { email: "a@x" },
           data: { email: "a@x", name: "A" },
+          onMissing: "create",
         }),
     }),
     ormExample(import.meta.url, {
@@ -182,14 +183,25 @@ export const writes = group(
       def: (client) => client.users.updateMany({ data: { active: false } }),
     }),
     ormExample(import.meta.url, {
-      title: "upsert — insert-or-update over id",
-      sql: "UPSERT user:aeon MERGE $p0;",
+      title: "upsert — STRICT update over id (the default; a miss rejects ResultNotFound)",
+      sql: "UPDATE ONLY user:aeon MERGE $p0;",
       vars: { p0: { age: 32 } },
       def: (client) =>
         client.users.upsert({ where: { id: "user:aeon" }, data: { age: 32 } }),
     }),
     ormExample(import.meta.url, {
-      title: "upsertDelta — create-or-update with the before/after envelope",
+      title: "upsert — insert-or-update over id (onMissing create)",
+      sql: "UPSERT user:aeon MERGE $p0;",
+      vars: { p0: { age: 32 } },
+      def: (client) =>
+        client.users.upsert({
+          where: { id: "user:aeon" },
+          data: { age: 32 },
+          onMissing: "create",
+        }),
+    }),
+    ormExample(import.meta.url, {
+      title: "upsertDelta — create-or-update with the before/after envelope (onMissing create)",
       note: "ONE statement: `$before`/`$after` come from the same UPSERT, decoded into `record`/`before`/`delta`.",
       sql: "UPSERT user:aeon MERGE $p0 RETURN VALUE { before: $before, after: $after };",
       vars: { p0: { age: 32 } },
@@ -197,22 +209,22 @@ export const writes = group(
         client.users.upsertDelta({
           where: { id: "user:aeon" },
           data: { age: 32 },
+          onMissing: "create",
         }),
     }),
     ormExample(import.meta.url, {
-      title: "upsertDelta — strict update never creates (onMissing throw)",
-      note: "`onMissing: 'throw'` compiles `UPDATE ONLY`; a miss rejects `ResultNotFound`.",
+      title: "upsertDelta — STRICT update never creates (the default)",
+      note: "`onMissing: 'throw'` (the default) compiles `UPDATE ONLY`; a miss rejects `ResultNotFound`.",
       sql: "UPDATE ONLY user:aeon MERGE $p0 RETURN VALUE { before: $before, after: $after };",
       vars: { p0: { age: 33 } },
       def: (client) =>
         client.users.upsertDelta({
           where: { id: "user:aeon" },
           data: { age: 33 },
-          onMissing: "throw",
         }),
     }),
     ormExample(import.meta.url, {
-      title: "upsertDelta — distinct create/update payloads",
+      title: "upsertDelta — distinct create/update payloads (onMissing create)",
       note: "Distinct branches branch first (LET/IF) and envelope EACH branch in one transactional round-trip.",
       sql: "BEGIN TRANSACTION;\nLET $__existing = (SELECT VALUE id FROM user WHERE id = $p0 LIMIT 1);\nIF array::len($__existing) = 0 THEN CREATE user:aeon CONTENT $p1 RETURN VALUE { before: $before, after: $after } ELSE UPDATE $__existing[0] MERGE $p2 RETURN VALUE { before: $before, after: $after } END;\nCOMMIT TRANSACTION;",
       vars: {
@@ -241,6 +253,7 @@ export const writes = group(
             address: { city: "SP" },
           },
           update: { age: 31 },
+          onMissing: "create",
         }),
     }),
     ormExample(import.meta.url, {

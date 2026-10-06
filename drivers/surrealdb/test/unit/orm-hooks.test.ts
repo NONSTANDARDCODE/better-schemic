@@ -183,6 +183,7 @@ describe("hooks — write operations", () => {
     const result = await client.users.upsertDelta({
       where: { id: "user:1" },
       data: { name: "B" },
+      onMissing: "create",
     });
     expect(result.changed).toEqual(["name"]);
     expect(seen.before?.operation).toBe("upsertDelta");
@@ -246,6 +247,7 @@ describe("hooks — write operations", () => {
       where: { id: "user:1" },
       create: { id: "user:1", name: "A", age: 1 },
       update: { age: 2 },
+      onMissing: "create",
     });
     expect(data).toEqual({ age: 2 });
   });

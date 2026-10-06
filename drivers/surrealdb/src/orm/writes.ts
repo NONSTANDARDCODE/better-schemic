@@ -204,7 +204,7 @@ export function createWriteOperations(
           "upsert",
           args,
           (binds) => compileUpsert(meta, args, binds, "upsert"),
-          (plan, rows) => decodeResult(plan, rows, meta),
+          (plan, rows) => decodeUpsertResult(plan, rows, meta, args),
         ),
       ),
     upsertDelta: (args: UpsertDeltaRuntimeArgs = {}) =>
@@ -460,6 +460,45 @@ function decodeResult(
 }
 
 /**
+ * The `upsert` decode: a plan that marks a miss as an ERROR (`missError` — the strict default, or
+ * a create-mode `return: "after"` that produced no row because a permission/plugin scope filtered
+ * the target) raises `ResultNotFound` before the generic row/none/diff interpretation. Everything
+ * else delegates to {@link decodeResult}.
+ */
+function decodeUpsertResult(
+  plan: WritePlan,
+  rows: readonly (unknown | undefined)[],
+  meta: ModelMeta,
+  args: UpsertRuntimeArgs,
+): unknown {
+  if (plan.missError === true && payloadRows(plan, rows).length === 0)
+    throw upsertMiss(plan, meta, args);
+  return decodeResult(plan, rows, meta);
+}
+
+/** The `ResultNotFound` for an `upsert` that produced no row. */
+function upsertMiss(
+  plan: WritePlan,
+  meta: ModelMeta,
+  args: UpsertRuntimeArgs,
+): BetterSchemicError {
+  const statement = plan.statements[plan.statements.length - 1];
+  const strict = args.onMissing !== "create";
+  return new BetterSchemicError(
+    "ResultNotFound",
+    strict
+      ? `${meta.name}: no record matched upsert (onMissing: "throw") — it never creates; pass onMissing: "create" to upsert instead.`
+      : `${meta.name}: upsert wrote no row — the target may be filtered by a permission or plugin scope; check access or use $withoutPlugins() for an admin path.`,
+    {
+      table: meta.name,
+      operation: "upsert",
+      details: args.where,
+      surql: statement,
+    },
+  );
+}
+
+/**
  * `upsertDelta`: the `{ before, after }` envelope → the typed create/update delta result. Both
  * sides decode through the table codecs separately; `before` absent (`undefined` over WS, `null`
  * over HTTP) is the create branch. An absent envelope (strict miss, or a scope-filtered target)
@@ -502,7 +541,7 @@ function deltaMiss(
   args: UpsertDeltaRuntimeArgs,
 ): BetterSchemicError {
   const statement = plan.statements[plan.statements.length - 1];
-  const strict = args.onMissing === "throw";
+  const strict = args.onMissing !== "create";
   return new BetterSchemicError(
     "ResultNotFound",
     strict

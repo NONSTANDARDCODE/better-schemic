@@ -18,6 +18,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+### Added
+- **surrealdb:** `$value(…, { computes: […] })` — declare the nested keys a parent `VALUE`
+  expression fills on an `s.object`/`array<s.object>` field, so `Create<>`/`CreateData`/`create()`
+  and the `TableDef.create` schema make them optional PER ITEM (the keys are typed against the
+  element; a typo or a scalar field fails fast at authoring). ORM/type metadata only — it emits NO
+  DDL and `sc pull` cannot recover it. Example:
+  `products: s.array(s.object({ … })).$value(surql\`$value.map(…)\`, { optional: true, computes: ["sellingPriceAtOrder"] })`.
+- **surrealdb:** `upsert`/`upsertDelta` `onMissing: "create" | "throw"` (default `"throw"`) — a
+  targeted call is now a STRICT update by default: a target that does not exist (or is filtered
+  out by a permission/plugin scope) rejects `ResultNotFound` instead of silently creating or
+  resolving `null`. `onMissing: "create"` opts back into create-or-update. `upsertDelta` without a
+  target stays a plain create. Tests: `test/unit/orm-mutate-{compiler,delta}.test.ts`,
+  `test/live/orm-writes{,-delta}.test.ts`; cookbook `examples/orm/writes.ts`.
+- **surrealdb:** `$value` create-optionality is now INFERRED where the runtime can see it and
+  explicit where it cannot: an expression that ignores client input (`time::now()`, computed
+  totals) is create-OPTIONAL by default (no flag needed), matching the runtime `.create` schema;
+  an expression that READS `$value` must declare its intent — `{ optional: false }` (a transform
+  that requires input, e.g. `string::lowercase($value)`) or `{ optional: true }` (the DB may
+  compute it without input) — otherwise the authoring call throws a teaching error. The
+  `{ optional: false }` marker also makes the `.create` schema require the field.
+
+### Changed
+- **surrealdb (breaking):** `upsert` is STRICT by default — it compiles `UPDATE ONLY t:id …` /
+  `UPDATE t … WHERE uniq = $v` and rejects `ResultNotFound` on a miss; it never creates unless
+  `onMissing: "create"` is passed. Distinct `create`/`update` branches require the same opt-in.
+  `return: "none"` still compiles the row-returning form so a miss stays observable;
+  `return: "diff"` is refused on a strict upsert (an empty diff can't tell "no match" from "no
+  change"). A create-mode `return: "after"` that writes no row (permission/scope filtered) now
+  also rejects `ResultNotFound` instead of resolving the contract-breaking `null`.
+- **surrealdb (breaking):** `upsertDelta` is STRICT by default too (`onMissing` defaults to
+  `"throw"`); `onMissing: "create"` restores create-or-update. The target-less call remains a plain
+  create, and an explicit `onMissing: "throw"` without a target is still rejected.
+- **surrealdb (breaking):** `$value(expr)` no longer requires `{ optional: true }` for
+  input-independent expressions (they are create-optional automatically), and an expression that
+  reads `$value` must pass an explicit `{ optional: true | false }` — the old silent
+  create-required default is gone. `sc pull` emits `{ optional: true }` when a pulled `VALUE` reads
+  `$value` (DDL alone cannot express create-requiredness).
+
 ## [0.1.0-alpha.7] - 2026-10-06
 
 ### Added

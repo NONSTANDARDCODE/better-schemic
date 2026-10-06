@@ -21,18 +21,18 @@ import {
   fieldType,
 } from "../../src/ddl";
 import {
+  type AnyField,
   defineAccess,
   defineFunction,
   defineRelation,
   defineTable,
-  type SField,
   s,
 } from "../../src/pure";
 
 /** DDL for a single standalone field `f` on table `t`. */
-const fieldDdl = (field: SField) => emitField("f", "t", field);
+const fieldDdl = (field: AnyField) => emitField("f", "t", field);
 /** The bare SurrealQL leaf type a field infers to (`fieldType` from the library). */
-const typeOf = (field: SField) => fieldType(field);
+const typeOf = (field: AnyField) => fieldType(field);
 
 // ===========================================================================
 // SECTION: DATA MODEL / TYPES — https://surrealdb.com/docs/surrealql/datamodel
@@ -104,7 +104,7 @@ describe("types — string formats (string::is_* baked when the DB has the valid
 
   // FIXED (batch 2): additional 3.1.3 string::is_* validators (no Zod format builder).
   test("batch-2 validators bake their string::is_* ASSERT", () => {
-    const cases: [SField, string][] = [
+    const cases: [AnyField, string][] = [
       [s.alpha(), "is_alpha"],
       [s.alphanum(), "is_alphanum"],
       [s.ascii(), "is_ascii"],
@@ -399,7 +399,13 @@ describe("field clauses", () => {
   });
 
   test("VALUE / READONLY / COMMENT", () => {
-    expect(fieldDdl(s.string().$value(surql`string::lowercase($value)`))).toBe(
+    expect(
+      fieldDdl(
+        s.string().$value(surql`string::lowercase($value)`, {
+          optional: false,
+        }),
+      ),
+    ).toBe(
       "DEFINE FIELD f ON TABLE t TYPE string VALUE string::lowercase($value);",
     );
     expect(fieldDdl(s.string().$readonly())).toBe(

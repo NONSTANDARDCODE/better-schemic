@@ -307,7 +307,11 @@ describe("compiler — ulid default", () => {
       sql(
         compileUpsert(
           meta("ulidT"),
-          { where: { email: "a@x" }, data: { email: "a@x", name: "A" } },
+          {
+            where: { email: "a@x" },
+            data: { email: "a@x", name: "A" },
+            onMissing: "create",
+          },
           b(),
         ),
       ),
@@ -322,6 +326,7 @@ describe("compiler — ulid default", () => {
           {
             where: { email: "a@x" },
             data: { id: new RecordId("ulid_t", "9"), email: "a@x" },
+            onMissing: "create",
           },
           b(),
         ),
@@ -332,11 +337,21 @@ describe("compiler — ulid default", () => {
       sql(
         compileUpsert(
           meta("ulidT"),
-          { where: { id: "ulid_t:1" }, data: { name: "A" } },
+          { where: { id: "ulid_t:1" }, data: { name: "A" }, onMissing: "create" },
           b(),
         ),
       ),
     ).toBe("UPSERT ulid_t:1 MERGE $p0;");
+    // STRICT (the default) never needs a generated target — a plain UPDATE.
+    expect(
+      sql(
+        compileUpsert(
+          meta("ulidT"),
+          { where: { email: "a@x" }, data: { name: "A" } },
+          b(),
+        ),
+      ),
+    ).toBe("UPDATE ulid_t MERGE $p0 WHERE email = $p1;");
     // `only` rides the generated target (live-probed: an expression target accepts ONLY).
     expect(
       sql(
@@ -346,6 +361,7 @@ describe("compiler — ulid default", () => {
             where: { email: "a@x" },
             data: { email: "a@x" },
             only: true,
+            onMissing: "create",
           },
           b(),
         ),
@@ -363,6 +379,7 @@ describe("compiler — ulid default", () => {
           where: { email: "a@x" },
           create: { email: "a@x", name: "A" },
           update: { name: "B" },
+          onMissing: "create",
         },
         b(),
       ),
@@ -418,7 +435,7 @@ describe("compiler — uuid and rand", () => {
       sql(
         compileUpsert(
           meta("uuidT"),
-          { where: { email: "a@x" }, data: { email: "a@x" } },
+          { where: { email: "a@x" }, data: { email: "a@x" }, onMissing: "create" },
           b(),
         ),
       ),
@@ -450,7 +467,7 @@ describe("compiler — uuid and rand", () => {
       sql(
         compileUpsert(
           meta("randT"),
-          { where: { email: "a@x" }, data: { email: "a@x" } },
+          { where: { email: "a@x" }, data: { email: "a@x" }, onMissing: "create" },
           b(),
         ),
       ),
@@ -498,7 +515,7 @@ describe("generated-id helpers — edge cases", () => {
       codeOf(() =>
         compileUpsert(
           meta("uuidV4IdT"),
-          { where: { name: "A" }, data: { name: "A" } },
+          { where: { name: "A" }, data: { name: "A" }, onMissing: "create" },
           b(),
         ),
       ),
