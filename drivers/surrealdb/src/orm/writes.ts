@@ -19,6 +19,7 @@ import {
   compileUpdateEach,
   compileUpdateMany,
   compileUpsert,
+  compileUpsertDelta,
   compileUpsertMany,
 } from "./compiler/mutate";
 import { fullProjectionSpec, type ProjectionSpec } from "./compiler/projection";
@@ -45,13 +46,15 @@ import type {
   UpdateEachRuntimeArgs,
   UpdateManyRuntimeArgs,
   UpdateRuntimeArgs,
+  UpsertDeltaRuntimeArgs,
   UpsertManyRuntimeArgs,
   UpsertRuntimeArgs,
   WritePlan,
 } from "./compiler/write-shared";
 import { contextOption, resolveMeta } from "./context";
-import { decodeRows } from "./decode";
+import { decodeRows, isRecord } from "./decode";
 import type { DelegateContext } from "./delegate";
+import { computeFieldDelta } from "./delta";
 import { BetterSchemicError } from "./errors";
 import { execute, type Statement } from "./execute";
 import { runWithHooks } from "./hooks";
@@ -77,6 +80,8 @@ interface PreparedWrite {
   readonly where?: unknown;
   /** The compiled plan says the singular row may be absent (`.throw()` attaches). */
   readonly mayMiss: boolean;
+  /** The plan returns the `{ before, after }` envelope (`upsertDelta` decodes it itself). */
+  readonly delta: boolean;
   readonly decode: (rows: readonly (unknown | undefined)[]) => unknown;
   /** Per-call scope override, resolved against the client's context at run time. */
   readonly context?: OperationContext;
@@ -202,6 +207,18 @@ export function createWriteOperations(
           (plan, rows) => decodeResult(plan, rows, meta),
         ),
       ),
+    upsertDelta: (args: UpsertDeltaRuntimeArgs = {}) =>
+      finish(
+        ctx,
+        prepare(
+          meta,
+          "upsertDelta",
+          args,
+          (binds) => compileUpsertDelta(meta, args, binds, "upsertDelta"),
+          (plan, rows) => decodeDeltaResult(plan, rows, meta, args),
+          args.data !== undefined ? args.data : args.update,
+        ),
+      ),
     upsertMany: (args: UpsertManyRuntimeArgs = {}) =>
       finish(
         ctx,
@@ -309,11 +326,14 @@ function prepare(
   args: object,
   compile: (binds: Binds) => WritePlan,
   decode: (plan: WritePlan, rows: readonly (unknown | undefined)[]) => unknown,
+  /** The hook payload when it isn't `args.data` (upsertDelta's distinct branches). */
+  payload?: unknown,
 ): PreparedWrite {
   const binds = createBinds();
   const plan = compile(binds);
   const where = (args as { where?: unknown }).where;
-  const data = (args as { data?: unknown }).data;
+  const data =
+    payload !== undefined ? payload : (args as { data?: unknown }).data;
   const context = (args as { context?: OperationContext }).context;
   const hookMeta = (args as { meta?: Record<string, unknown> }).meta;
   return {
@@ -324,6 +344,7 @@ function prepare(
     ...(where !== undefined ? { where } : {}),
     ...(data !== undefined ? { data } : {}),
     mayMiss: plan.mayMiss === true,
+    delta: plan.result === "delta",
     decode: (rows) => decode(plan, rows),
     ...(context ? { context } : {}),
     ...(hookMeta !== undefined ? { hookMeta } : {}),
@@ -369,7 +390,9 @@ async function runPrepared(
 /** Await a prepared write, attaching `.throw()` when the compiled plan says the row may be absent. */
 function finish(ctx: DelegateContext, prepared: PreparedWrite): unknown {
   const promise = runPrepared(ctx, prepared);
-  if (!prepared.mayMiss) return promise;
+  // `upsertDelta` handles its own misses (ResultNotFound from the decode, per `onMissing`): the
+  // strict branch must REJECT rather than expose a `.throw()` the typed surface doesn't carry.
+  if (!prepared.mayMiss || prepared.delta) return promise;
   return attachThrow(promise as Promise<unknown | null>, (): NotFoundInfo => {
     const statement = prepared.statements[prepared.statements.length - 1];
     return {
@@ -434,6 +457,64 @@ function decodeResult(
   if (plan.result === "diff") return payloadDiff(plan, rows);
   const data = decodeRows(payloadRows(plan, rows), meta, FULL);
   return plan.result === "row" ? (data[0] ?? null) : data;
+}
+
+/**
+ * `upsertDelta`: the `{ before, after }` envelope → the typed create/update delta result. Both
+ * sides decode through the table codecs separately; `before` absent (`undefined` over WS, `null`
+ * over HTTP) is the create branch. An absent envelope (strict miss, or a scope-filtered target)
+ * is a `ResultNotFound` — `record` is never nullable.
+ */
+function decodeDeltaResult(
+  plan: WritePlan,
+  rows: readonly (unknown | undefined)[],
+  meta: ModelMeta,
+  args: UpsertDeltaRuntimeArgs,
+): unknown {
+  const envelope = payloadRows(plan, rows)[0];
+  if (!isRecord(envelope)) throw deltaMiss(plan, meta, args);
+  if (!isRecord(envelope.after)) throw deltaMiss(plan, meta, args);
+  const after = decodeRows([envelope.after], meta, FULL)[0] as Record<
+    string,
+    unknown
+  >;
+  const rawBefore = envelope.before;
+  if (rawBefore === undefined || rawBefore === null)
+    return {
+      record: after,
+      created: true,
+      before: null,
+      delta: null,
+      changed: [],
+    };
+  const before = decodeRows([rawBefore], meta, FULL)[0] as Record<
+    string,
+    unknown
+  >;
+  const { delta, changed } = computeFieldDelta(before, after);
+  return { record: after, created: false, before, delta, changed };
+}
+
+/** The `ResultNotFound` for an `upsertDelta` that produced no envelope. */
+function deltaMiss(
+  plan: WritePlan,
+  meta: ModelMeta,
+  args: UpsertDeltaRuntimeArgs,
+): BetterSchemicError {
+  const statement = plan.statements[plan.statements.length - 1];
+  const strict = args.onMissing === "throw";
+  return new BetterSchemicError(
+    "ResultNotFound",
+    strict
+      ? `${meta.name}: no record matched upsertDelta (onMissing: "throw") — it never creates; use onMissing: "create" to upsert instead.`
+      : `${meta.name}: upsertDelta wrote no row — a plugin scope (e.g. tenantRls) can filter the target out; check the scope, or use $withoutPlugins() for an explicit admin path.`,
+    {
+      table: meta.name,
+      operation: "upsertDelta",
+      details: args.where,
+      surql: statement,
+    },
+  );
 }
 
 /** A batch plan: `data` rows, the affected `count`, and how many items were skipped. */

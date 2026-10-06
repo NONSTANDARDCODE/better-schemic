@@ -189,6 +189,61 @@ export const writes = group(
         client.users.upsert({ where: { id: "user:aeon" }, data: { age: 32 } }),
     }),
     ormExample(import.meta.url, {
+      title: "upsertDelta — create-or-update with the before/after envelope",
+      note: "ONE statement: `$before`/`$after` come from the same UPSERT, decoded into `record`/`before`/`delta`.",
+      sql: "UPSERT user:aeon MERGE $p0 RETURN VALUE { before: $before, after: $after };",
+      vars: { p0: { age: 32 } },
+      def: (client) =>
+        client.users.upsertDelta({
+          where: { id: "user:aeon" },
+          data: { age: 32 },
+        }),
+    }),
+    ormExample(import.meta.url, {
+      title: "upsertDelta — strict update never creates (onMissing throw)",
+      note: "`onMissing: 'throw'` compiles `UPDATE ONLY`; a miss rejects `ResultNotFound`.",
+      sql: "UPDATE ONLY user:aeon MERGE $p0 RETURN VALUE { before: $before, after: $after };",
+      vars: { p0: { age: 33 } },
+      def: (client) =>
+        client.users.upsertDelta({
+          where: { id: "user:aeon" },
+          data: { age: 33 },
+          onMissing: "throw",
+        }),
+    }),
+    ormExample(import.meta.url, {
+      title: "upsertDelta — distinct create/update payloads",
+      note: "Distinct branches branch first (LET/IF) and envelope EACH branch in one transactional round-trip.",
+      sql: "BEGIN TRANSACTION;\nLET $__existing = (SELECT VALUE id FROM user WHERE id = $p0 LIMIT 1);\nIF array::len($__existing) = 0 THEN CREATE user:aeon CONTENT $p1 RETURN VALUE { before: $before, after: $after } ELSE UPDATE $__existing[0] MERGE $p2 RETURN VALUE { before: $before, after: $after } END;\nCOMMIT TRANSACTION;",
+      vars: {
+        p0: "user:aeon",
+        p1: {
+          id: "user:aeon",
+          name: "A",
+          email: "a@x",
+          age: 30,
+          active: true,
+          tags: [],
+          address: { city: "SP" },
+        },
+        p2: { age: 31 },
+      },
+      def: (client) =>
+        client.users.upsertDelta({
+          where: { id: "user:aeon" },
+          create: {
+            id: "user:aeon",
+            name: "A",
+            email: "a@x",
+            age: 30,
+            active: true,
+            tags: [],
+            address: { city: "SP" },
+          },
+          update: { age: 31 },
+        }),
+    }),
+    ormExample(import.meta.url, {
       title: "delete — RETURN BEFORE",
       sql: "DELETE user:aeon RETURN BEFORE;",
       vars: {},

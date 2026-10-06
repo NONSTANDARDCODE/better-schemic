@@ -29,6 +29,7 @@ export type UpdateOperation =
   | "updateMany"
   | "updateEach"
   | "upsert"
+  | "upsertDelta"
   | "upsertMany"
   | "patch";
 

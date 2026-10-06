@@ -255,6 +255,84 @@ export interface UpsertArgs<TD extends AnyTableDef, S = SchemaInput>
   readonly timeout?: number | string;
 }
 
+// --- upsertDelta ---------------------------------------------------------------------------------
+
+/** One changed field of a row: the delta `upsertDelta` hands back. Keys are CHANGED fields only. */
+export interface FieldDelta<T> {
+  /** The previous values of the changed fields. */
+  readonly old: Partial<T>;
+  /** The resulting values of the changed fields (`undefined` = the field was removed). */
+  readonly new: Partial<T>;
+}
+
+/** A changed field name, typed against the model (`keyof App<TD> & string`). */
+export type DeltaKey<T> = keyof T & string;
+
+/**
+ * `upsertDelta` — create-or-update by id or a single-field UNIQUE index in ONE round-trip,
+ * returning the resulting row, the previous row and the field-level delta of DECODED app values.
+ * `onMissing: "throw"` turns it into a strict update (never creates; `ResultNotFound` on a miss).
+ *
+ * ```ts
+ * const { record, created, before, delta, changed } = await client.users.upsertDelta({
+ *   where: { id: "user:42" },
+ *   data: { name: "Aeon" },
+ * });
+ * ```
+ */
+export interface UpsertDeltaArgs<TD extends AnyTableDef, S = SchemaInput>
+  extends WriteMeta {
+  /**
+   * The target: `{ id }` or a single-field UNIQUE index (same rules as `upsert`). Omit it to get
+   * a plain create (a generated id per the table's `idStrategy`), or let `data.id` infer it.
+   */
+  where?: WhereInput<TD, S>;
+  /** One payload for both branches; combine with `create` + `update` for distinct payloads. */
+  data?: CreateData<TD> | UpdateData<TD>;
+  /** The create branch (with `update`; distinct payloads compile the LET/IF lowering). */
+  create?: CreateData<TD>;
+  /** The update branch (with `create`). */
+  update?: UpdateData<TD>;
+  /** How the update branch rewrites (`merge` default). `patch` is not supported. */
+  readonly mode?: Exclude<UpdateMode, "patch">;
+  /**
+   * What to do when the target matches nothing:
+   * - `"create"` (default) — true upsert semantics (create the record).
+   * - `"throw"` — strict update: reject with `ResultNotFound`, never create.
+   *   Requires an inferable target (`where`, or `data.id`).
+   */
+  readonly onMissing?: "create" | "throw";
+  readonly timeout?: number | string;
+}
+
+/**
+ * What `upsertDelta` resolves to. `created` discriminates the branches, so `before`/`delta` narrow
+ * automatically: a create has no previous state (`before: null`, `delta: null`, `changed: []`).
+ */
+export type UpsertDeltaResult<TD extends AnyTableDef> =
+  | {
+      /** The row AFTER the write, codec-decoded (same shape every other write returns). */
+      readonly record: App<TD>;
+      /** `true` when the target did not exist and the create branch ran. */
+      readonly created: true;
+      /** Always `null` on create — there was no previous state. */
+      readonly before: null;
+      /** Always `null` on create. */
+      readonly delta: null;
+      /** Always empty on create. */
+      readonly changed: readonly [];
+    }
+  | {
+      readonly record: App<TD>;
+      readonly created: false;
+      /** The row BEFORE the update, codec-decoded. */
+      readonly before: App<TD>;
+      /** `null` when the update changed nothing. Keys are exactly `changed`. */
+      readonly delta: FieldDelta<App<TD>> | null;
+      /** Names of the changed fields, in stable order; `[]` when nothing changed. */
+      readonly changed: readonly DeltaKey<App<TD>>[];
+    };
+
 /** `upsertMany` — with ids, one `INSERT … ON DUPLICATE`; without, `conflict` resolves each row. */
 export interface UpsertManyArgs<TD extends AnyTableDef> extends WriteMeta {
   data: readonly CreateData<TD>[];

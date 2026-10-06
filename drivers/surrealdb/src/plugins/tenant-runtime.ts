@@ -455,10 +455,16 @@ export function tenantRls(options: TenantRlsOptions = {}) {
         return;
       }
       if (family === "update") {
-        if (op.kind === "upsert" || op.kind === "upsertMany") {
+        if (
+          op.kind === "upsert" ||
+          op.kind === "upsertDelta" ||
+          op.kind === "upsertMany"
+        ) {
           // The create branch needs the value in the payload (an UPSERT's WHERE does not filter
           // the create branch) — and the update branch is scoped via `scope`. Distinct
-          // `create`/`update` branches each get their own payload check.
+          // `create`/`update` branches each get their own payload check. `upsertDelta`'s strict
+          // `onMissing: "throw"` never creates, but the same payload checks stay correct (the
+          // update branch rejects a divergent value; the inferred target is scoped).
           injectCreateData(op, tag, tenant);
           injectCreateData(op, tag, tenant, op.args.create);
           assertUpdateData(op, tag, tenant, op.args.update);

@@ -160,6 +160,96 @@ describe("hooks — write operations", () => {
     expect(ops).toEqual(["update", "delete"]);
   });
 
+  test("upsertDelta routes to beforeUpdate/afterUpdate with the write payload", async () => {
+    const seen: { before?: HookPayload; after?: AfterHookPayload } = {};
+    const before = { id: new RecordId("user", 1), name: "A", age: 1 };
+    const after = { id: new RecordId("user", 1), name: "B", age: 1 };
+    const { conn } = fakeConn((sql) =>
+      lines(sql).map((line) =>
+        ok(line.startsWith("UPSERT") ? [{ before, after }] : null),
+      ),
+    );
+    const client = betterSchemic(conn, {
+      schema,
+      hooks: {
+        beforeUpdate: (info) => {
+          seen.before = info;
+        },
+        afterUpdate: (info) => {
+          seen.after = info;
+        },
+      },
+    });
+    const result = await client.users.upsertDelta({
+      where: { id: "user:1" },
+      data: { name: "B" },
+    });
+    expect(result.changed).toEqual(["name"]);
+    expect(seen.before?.operation).toBe("upsertDelta");
+    expect(seen.before?.table).toBe("user");
+    expect(seen.before?.data).toEqual({ name: "B" });
+    expect(seen.before?.where).toEqual({ id: "user:1" });
+    expect(seen.after?.operation).toBe("upsertDelta");
+    expect(seen.after?.result).toMatchObject({
+      created: false,
+      changed: ["name"],
+    });
+  });
+
+  test("upsertDelta hooks fire on the create branch too", async () => {
+    const ops: string[] = [];
+    const { conn } = fakeConn((sql) =>
+      lines(sql).map((line) =>
+        ok(
+          line.startsWith("CREATE") || line.startsWith("UPSERT")
+            ? [{ after: { id: new RecordId("user", 2), name: "A", age: 1 } }]
+            : null,
+        ),
+      ),
+    );
+    const client = betterSchemic(conn, {
+      schema,
+      hooks: {
+        beforeUpdate: ({ operation }) => {
+          ops.push(`before:${operation}`);
+        },
+        afterUpdate: ({ operation }) => {
+          ops.push(`after:${operation}`);
+        },
+      },
+    });
+    const result = await client.users.upsertDelta({
+      data: { name: "A", age: 1 },
+    });
+    expect(result.created).toBe(true);
+    expect(ops).toEqual(["before:upsertDelta", "after:upsertDelta"]);
+  });
+
+  test("upsertDelta distinct branches carry the update payload to the hooks", async () => {
+    let data: unknown;
+    const before = { id: new RecordId("user", 1), name: "A", age: 1 };
+    const after = { id: new RecordId("user", 1), name: "A", age: 2 };
+    const { conn } = fakeConn((sql) =>
+      lines(sql).map((line) =>
+        ok(line.startsWith("IF ") ? [{ before, after }] : null),
+      ),
+    );
+    const client = betterSchemic(conn, {
+      schema,
+      hooks: {
+        beforeUpdate: (info) => {
+          data = info.data;
+        },
+      },
+    });
+    await client.users.upsertDelta({
+      where: { id: "user:1" },
+      create: { id: "user:1", name: "A", age: 1 },
+      update: { age: 2 },
+    });
+    expect(data).toEqual({ age: 2 });
+  });
+
   test("relate/unrelate route to beforeRelate", async () => {
     const ops: string[] = [];
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok([])));

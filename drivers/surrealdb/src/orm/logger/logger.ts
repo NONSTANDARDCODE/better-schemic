@@ -51,6 +51,7 @@ const ICON_BY_OPERATION: Record<string, string> = {
   updateMany: "✏️",
   updateEach: "✏️",
   upsert: "✏️",
+  upsertDelta: "🧾",
   upsertMany: "✏️",
   patch: "🩹",
   delete: "🗑️",

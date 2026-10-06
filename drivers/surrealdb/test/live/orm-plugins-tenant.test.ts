@@ -12,7 +12,10 @@ import { RecordId } from "surrealdb";
 import { surrealBinaryAvailable } from "../../src/cli/engine";
 import { emitTable } from "../../src/ddl";
 import { betterSchemic } from "../../src/orm/client";
-import { isTenantViolation } from "../../src/orm/errors";
+import {
+  type BetterSchemicError,
+  isTenantViolation,
+} from "../../src/orm/errors";
 import { defineSchema } from "../../src/orm/schema";
 import { softDelete } from "../../src/plugins/soft-delete";
 import { tenant, tenantRls } from "../../src/plugins/tenant";
@@ -54,9 +57,12 @@ live("tenant plugin — live (privileged session)", () => {
     live_ = await startLiveServer({
       namespace: "tenant_plugin",
       database: "live",
-      ddl: [emitTable(User), emitTable(Customer), emitTable(Order), emitTable(Unique)].join(
-        "\n",
-      ),
+      ddl: [
+        emitTable(User),
+        emitTable(Customer),
+        emitTable(Order),
+        emitTable(Unique),
+      ].join("\n"),
     });
   });
 
@@ -149,6 +155,37 @@ live("tenant plugin — live (privileged session)", () => {
     expect(String(row?.tenant_id)).toBe("t_user:a");
   });
 
+  test("upsertDelta: scoped create/update, and a cross-tenant strict miss rejects", async () => {
+    const c = client();
+    const id = new RecordId("t_customer", "delta1");
+    const created = await c.customers
+      .$forTenant(A)
+      .upsertDelta({ where: { id }, data: { name: "d1" } });
+    expect(created.created).toBe(true);
+    expect(created.delta).toBeNull();
+    expect(String(created.record.tenant_id)).toBe("t_user:a");
+
+    const updated = await c.customers
+      .$forTenant(A)
+      .upsertDelta({ where: { id }, data: { name: "d2" } });
+    expect(updated.created).toBe(false);
+    expect(updated.changed).toEqual(["name"]);
+    expect(updated.delta?.old.name).toBe("d1");
+    expect(updated.delta?.new.name).toBe("d2");
+
+    const error = (await caught(() =>
+      c.customers.$forTenant(B).upsertDelta({
+        where: { id },
+        data: { name: "hacked" },
+        onMissing: "throw",
+      }),
+    )) as BetterSchemicError;
+    expect(error.code).toBe("ResultNotFound");
+    expect(
+      (await c.customers.$forTenant(A).findUnique({ where: { id } }))?.name,
+    ).toBe("d2");
+  });
+
   test("findUnique is scoped: a cross-tenant id and unique field resolve to null", async () => {
     const c = client();
     const a = await c.uniques.$forTenant(A).create({ data: { code: "a5" } });
@@ -170,10 +207,12 @@ live("tenant plugin — live (privileged session)", () => {
   test("read scoping covers count/exists/aggregate/findFirst and keeps other tenants out", async () => {
     const c = client();
     await c.customers.$forTenant(B).create({ data: { name: "b5" } });
-    expect(await c.customers.$forTenant(A).count({ where: { name: "b5" } })).toBe(0);
-    expect(await c.customers.$forTenant(A).exists({ where: { name: "b5" } })).toBe(
-      false,
-    );
+    expect(
+      await c.customers.$forTenant(A).count({ where: { name: "b5" } }),
+    ).toBe(0);
+    expect(
+      await c.customers.$forTenant(A).exists({ where: { name: "b5" } }),
+    ).toBe(false);
     const agg = await c.customers
       .$forTenant(A)
       .aggregate({ where: { name: "b5" }, select: { _count: true } });

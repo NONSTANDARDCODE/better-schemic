@@ -310,6 +310,68 @@ describe("tenantRls — creates and upserts", () => {
     expect(String(payload.tenant_id)).toBe("user:abc");
   });
 
+  test("upsertDelta injects, scopes and decodes the envelope", async () => {
+    const { conn, calls } = fakeConn((sql) =>
+      lines(sql).map((line) =>
+        ok(
+          line.startsWith("UPSERT") ||
+            line.startsWith("CREATE") ||
+            line.startsWith("IF ")
+            ? [{ before: CUSTOMER, after: { ...CUSTOMER, name: "B" } }]
+            : null,
+        ),
+      ),
+    );
+    const client = betterSchemic(conn, {
+      schema,
+      plugins: [tenantRls({ tenant: "user:abc" })],
+    });
+    const result = await client.customers.upsertDelta({
+      where: { id: "customer:1" },
+      data: { name: "B" },
+    });
+    expect(result.created).toBe(false);
+    expect(result.changed).toEqual(["name"]);
+    expect(calls[0]?.sql).toContain("UPSERT");
+    expect(calls[0]?.sql).toContain("WHERE tenant_id = ");
+    expect(String(payloadBind(calls[0]!)?.tenant_id)).toBe("user:abc");
+  });
+
+  test("upsertDelta target-less create injects the tenant", async () => {
+    const { conn, calls } = fakeConn((sql) =>
+      lines(sql).map((line) =>
+        ok(line.startsWith("CREATE") ? [{ after: CUSTOMER }] : null),
+      ),
+    );
+    const client = betterSchemic(conn, {
+      schema,
+      plugins: [tenantRls({ tenant: "user:abc" })],
+    });
+    const result = await client.customers.upsertDelta({ data: { name: "A" } });
+    expect(result.created).toBe(true);
+    expect(String(payloadBind(calls[0]!)?.tenant_id)).toBe("user:abc");
+  });
+
+  test("upsertDelta strict rejects a cross-tenant id instead of creating", async () => {
+    const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok(null)));
+    const client = betterSchemic(conn, {
+      schema,
+      plugins: [tenantRls({ tenant: "user:abc" })],
+    });
+    const error = await caught(() =>
+      client.customers.upsertDelta({
+        where: { id: "customer:other" },
+        data: { name: "B" },
+        onMissing: "throw",
+      }),
+    );
+    expect((error as { code?: string }).code).toBe("ResultNotFound");
+    expect(calls[0]?.sql).toContain("UPDATE ONLY customer:other");
+    expect(calls[0]?.sql).toContain("WHERE tenant_id = ");
+    expect(calls[0]?.sql).not.toContain("UPSERT");
+    expect(calls[0]?.sql).not.toContain("CREATE");
+  });
+
   test("upsertMany by conflict injects each row and scopes the per-item WHERE", async () => {
     const { client, calls } = scoped();
     await client.customers.upsertMany({

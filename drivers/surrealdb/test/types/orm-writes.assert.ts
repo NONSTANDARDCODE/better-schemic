@@ -14,9 +14,12 @@ import type {
   BatchWriteResult,
   CreatedResult,
   DeletedResult,
+  DeltaKey,
+  FieldDelta,
   UpdateData,
   UpdatedResult,
   UpdateEachItem,
+  UpsertDeltaResult,
   WriteData,
   WrittenResult,
 } from "../../src/orm/types/write";
@@ -98,6 +101,68 @@ function typeProbes(): void {
       address: { city: "X", country: "Y" },
     },
     update: { age: 2 },
+  });
+
+  void client.users.upsertDelta({ where: { id: "user:a" }, data: { age: 1 } });
+  void client.users.upsertDelta({ data: { id: "user:a", age: 2 } });
+  void client.users.upsertDelta({
+    where: { id: "user:a" },
+    data: { age: 1 },
+    onMissing: "throw",
+    timeout: "5s",
+  });
+  void client.users.upsertDelta({
+    where: { id: "user:a" },
+    create: {
+      name: "A",
+      email: "a@x",
+      age: 1,
+      active: true,
+      tags: [],
+      address: { city: "X", country: "Y" },
+    },
+    update: { age: 2 },
+    mode: "merge",
+  });
+  void client.users.upsertDelta({
+    where: { email: "a@x" },
+    data: { email: "a@x", age: surql`age + 1`.as<number>() },
+    mode: "set",
+  });
+  void client.users.upsertDelta({
+    where: { id: "user:a" },
+    data: { age: 1 },
+    // @ts-expect-error — mode "patch" is not part of upsertDelta
+    mode: "patch",
+  });
+  void client.users.upsertDelta({
+    where: { id: "user:a" },
+    data: { age: 1 },
+    // @ts-expect-error — onMissing is "create" | "throw"
+    onMissing: "nope",
+  });
+  void client.users.upsertDelta({
+    where: { id: "user:a" },
+    // @ts-expect-error — "old" is not assignable to the int field
+    data: { age: "old" },
+  });
+
+  // The result envelope narrows on `created` (attest checks each branch at compile time).
+  const deltaResult = client.users.upsertDelta({
+    where: { id: "user:a" },
+    data: { age: 1 },
+  });
+  attest<Promise<UpsertDeltaResult<U>>, typeof deltaResult>();
+  void deltaResult.then((row) => {
+    if (row.created) {
+      attest<null, typeof row.before>();
+      attest<null, typeof row.delta>();
+      attest<readonly [], typeof row.changed>();
+    } else {
+      attest<Row, typeof row.before>();
+      attest<FieldDelta<Row> | null, typeof row.delta>();
+      attest<readonly DeltaKey<Row>[], typeof row.changed>();
+    }
   });
   void client.users.updateMany({ data: { active: false } });
   void client.users.deleteMany({ where: { age: { lt: 1 } } });
@@ -243,6 +308,7 @@ describe("updateEach and relate are typed", () => {
     attest<true, "update" extends keyof Users ? true : false>();
     attest<true, "patch" extends keyof Users ? true : false>();
     attest<true, "upsert" extends keyof Users ? true : false>();
+    attest<true, "upsertDelta" extends keyof Users ? true : false>();
     attest<true, "delete" extends keyof Users ? true : false>();
     attest<true, "updateEach" extends keyof Users ? true : false>();
   });

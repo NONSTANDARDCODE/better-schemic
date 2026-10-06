@@ -18,6 +18,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+### Added
+- **surrealdb:** `delegate.upsertDelta(args)` — create-or-update in ONE round-trip that returns the
+  resulting row, the previous row and a field-level delta of **decoded app values**, sourced from
+  `RETURN VALUE { before: $before, after: $after }` on the same statement that wrote (no
+  read-then-write race). The target comes from `where` (id or a single-field UNIQUE index), from
+  `data.id`, or — when omitted — the call is a plain create (a generated id per the table's
+  `idStrategy`). `onMissing: "throw"` makes it a strict update: `UPDATE ONLY t:id` /
+  `UPDATE t … WHERE uniq`, rejecting `ResultNotFound` instead of creating. `created` discriminates
+  `{ before: null, delta: null, changed: [] }` from `{ before, delta: { old, new }, changed }`
+  (changed fields only; a field removed by `content`/`replace` appears in `changed` with
+  `undefined` in `delta.new`). `equalAppValue` compares decoded `Date`/`RecordId`/`Decimal`/
+  `Duration`/`Uint8Array`/arrays/plain objects. Distinct `create`+`update` payloads use the
+  LET/IF lowering — envelope (and `TIMEOUT`) per branch, never `INSERT … ON DUPLICATE`. Hooks fire
+  as the `update` family (`operation: "upsertDelta"`), tenant RLS injects/scopes the payload, zod
+  validates it, timestamps rides in the delta. Types `UpsertDeltaArgs`/`UpsertDeltaResult`/
+  `FieldDelta`/`DeltaKey` are exported from `@better-schemic/surrealdb/orm`. Live-probed facts:
+  `docs/orm-syntax-map.md` §2.3.1; tests `test/unit/orm-mutate-delta.test.ts`,
+  `test/live/orm-writes-delta.test.ts`, `test/live/orm-syntax.test.ts` (`UPSERT DELTA` probes),
+  `test/types/orm-writes.assert.ts`; cookbook `examples/orm/writes.ts`.
+
 ## [0.1.0-alpha.6] - 2026-10-05
 
 ### Added

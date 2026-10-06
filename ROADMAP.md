@@ -387,3 +387,28 @@ Fora de escopo (documentado): `relate*`/`live`/raw e `$withoutPlugins()` (o limi
 do banco / o escape explícito). `findUnique` é escopado como qualquer leitura (alvo id e campo
 único), e `insert({ onDuplicate })`/`upsertMany` por ids são recusados fail-closed (o lowering
 `INSERT … ON DUPLICATE` não tem `WHERE`).
+
+## M11 — `upsertDelta` (create-or-update com delta decodificado) ✅ *(complete)*
+
+Uma escrita **aditiva**: `delegate.upsertDelta(args)` cria-ou-atualiza em UMA ida e devolve a linha
+resultante, a anterior e o delta campo-a-campo de valores **decodificados** —
+`RETURN VALUE { before: $before, after: $after }` no MESMO statement (sem corrida read-then-write).
+
+- ✅ **M11.1 API + tipos** — `UpsertDeltaArgs` (`where?` id/UNIQUE, `data` XOR `create`+`update`,
+  `mode` sem `patch`, `onMissing: "create" | "throw"`, `timeout`) e `UpsertDeltaResult<TD>`
+  discriminado por `created` (`before`/`delta` estreitam sozinhos; `changed` tipado como
+  `DeltaKey<App<TD>>[]`); `FieldDelta`/`DeltaKey` exportados do `/orm`.
+- ✅ **M11.2 lowering + probes** — alvo por `where`, inferido de `data.id` ou create sem alvo
+  (`CREATE`, id por `idStrategy`); envelope em TODA lowering; `onMissing:"throw"` compila
+  `UPDATE ONLY t:id`/`UPDATE t … WHERE uniq` e um resultado sem envelope vira `ResultNotFound`;
+  expressões e branches distintos via LET/IF com envelope+TIMEOUT POR BRANCH; facts live-probed
+  (3.2.0) em `docs/orm-syntax-map.md` §2.3.1 + probes `UPSERT DELTA` (117 no total).
+- ✅ **M11.3 runtime** — `delta.ts` (`equalAppValue`/`computeFieldDelta`: `Date`, `.equals()` dos
+  valores do SDK, `Uint8Array`, arrays/objetos recursivos; nunca `JSON.stringify`); decode do
+  envelope em `writes.ts` (cada lado decodificado pelo codec da tabela; `before` ausente = create).
+- ✅ **M11.4 integração** — hooks (família update, payload do write), `tenantRls` (injeção/escopo +
+  estrito cross-tenant → `ResultNotFound`), `timestamps` (updatedAt no delta), `zod`, logger;
+  `upsert` intocado (SQL, tipos e comportamento).
+- ✅ **M11.5 testes + docs** — unit (lowering/guardas/decode), live (contrato, codecs, estrito,
+  concorrência, transação), tipos (`@ark/attest`), probes de sintaxe; README, `ORM-COVERAGE.md`,
+  syntax map, CHANGELOG, cookbook (`examples/orm/writes.ts` + manifest regenerado).

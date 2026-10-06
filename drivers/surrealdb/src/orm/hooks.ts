@@ -47,6 +47,7 @@ const FAMILY_BY_OPERATION: Record<OperationKind, OperationFamily> = {
   updateMany: "update",
   updateEach: "update",
   upsert: "update",
+  upsertDelta: "update",
   upsertMany: "update",
   patch: "update",
   delete: "delete",

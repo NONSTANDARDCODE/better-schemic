@@ -85,7 +85,7 @@ Entry: `createReadOperations` (`reads.ts`); compiler `compiler/{select,aggregate
 
 ## 2. Writes
 
-Entry: `createWriteOperations` (`writes.ts`); compiler `compiler/{write,mutate,relate,write-shared}.ts`.
+Entry: `createWriteOperations` (`writes.ts`); compiler `compiler/{write,mutate,relate,write-shared}.ts`; runtime delta helpers `delta.ts`.
 Writes are **eager** (run immediately, no `.explain()`).
 
 | Feature | Status | Surface / test |
@@ -102,6 +102,7 @@ Writes are **eager** (run immediately, no `.explain()`).
 | `updateMany` — optional `where` (whole table) | `[x]` | `test/unit/orm-writes.test.ts:296`; `test/live/orm-writes.test.ts:240` |
 | `patch` — JSON Patch (`add/remove/replace/move/copy/test`, validated) | `[x]` | `test/unit/orm-writes.test.ts:304`; `test/live/orm-writes.test.ts:261` |
 | `upsert` — `where` id/UNIQUE; `data` or `create`+`update` branches | `[x]` | `test/unit/orm-writes.test.ts:346`; `test/live/orm-writes.test.ts:284` |
+| `upsertDelta` — create-or-update (ou update estrito com `onMissing:"throw"`) em UMA ida, devolvendo `record`/`before`/`delta`/`changed` **decodificados** (`RETURN VALUE { before: $before, after: $after }`); alvo por `where`, `data.id` ou create sem alvo | `[x]` | `test/unit/orm-mutate-delta.test.ts`; `test/live/orm-writes-delta.test.ts`; probes `test/live/orm-syntax.test.ts` (`UPSERT DELTA`) |
 | `upsertMany` — ids ⇒ `ON DUPLICATE`; else `conflict` (single UNIQUE) required | `[x]` | `test/unit/orm-writes.test.ts:416`; `test/live/orm-writes.test.ts:321` |
 | `delete` — unique `where`, `return` `before`/`none` | `[x]` | `test/unit/orm-writes.test.ts:436`; `test/live/orm-writes.test.ts:347` |
 | `deleteMany` — optional `where`; without it requires `all:true` (`UnsafeMutation`) | `[x]` | `test/unit/orm-writes.test.ts:463` |
@@ -121,6 +122,9 @@ Writes are **eager** (run immediately, no `.explain()`).
 | `updateEach` `return` `before`/`diff`; `mode:"replace"` | `[ ]` | only `after`/`none`; replace excluded. `test/unit/orm-writes-returns.test.ts:293` |
 | `upsert`/`upsertMany` `RETURN DIFF` with expressions or explicit map | `[ ]` | → `ReturnNotSupported`. `test/unit/orm-writes-returns.test.ts:90`/`:152` |
 | `upsert` `mode:"patch"` | `[ ]` | → `ValidationError`. `test/unit/orm-writes.test.ts:393` |
+| `upsertDeltaMany` (batch) | `[ ]` | fora de escopo; o compiler do singular fica reutilizável |
+| `upsertDelta` com `onMissing:"throw"` + `create`/`update` | `[ ]` | estrito nunca cria → `ValidationError` (passe `data`/`update`). `test/unit/orm-mutate-delta.test.ts` |
+| `upsertDelta` sem alvo com `mode`/branches distintos | `[ ]` | create puro não tem branch de update → `ValidationError`. `test/unit/orm-mutate-delta.test.ts` |
 | `create.relate` + `return:"diff"`; `relateMany` per-item `return` | `[ ]` | → `ReturnNotSupported` / `ValidationError`. `test/unit/orm-writes-returns.test.ts:230`/`:243` |
 | `insert` with array `data` | `[ ]` | use `insertMany`. `test/unit/orm-writes.test.ts:154` |
 | `upsertMany` without ids and no `conflict` | `[ ]` | → `ValidationError`. `test/unit/orm-writes.test.ts:424` |
