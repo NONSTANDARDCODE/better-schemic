@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+## [0.1.0-alpha.9] - 2026-10-06
+
 ### Added
 - **surrealdb:** `upsert` now resolves its target exactly like `upsertDelta`: `where` is optional, a
   plain `data.id` infers the id target, and a call with neither compiles a plain `CREATE` (a
