@@ -4,6 +4,7 @@
  * (`FieldFamily` lives with the field walker that computes it: `../wire`.)
  */
 
+import type { IdStrategy } from "../pure";
 import type { FieldFamily } from "../wire";
 import type {
   AnyFunctionDef,
@@ -12,6 +13,13 @@ import type {
 } from "./types/schema";
 
 export type { FieldFamily };
+
+/**
+ * The ORM create-id strategy RESOLVED for a table at index build: a generation strategy, or
+ * `"none"` when the declared id field's codec can't be produced (uuid v4/v6) — writes must carry
+ * an explicit id (`.idStrategy(...)` stays the authoring-facing `IdStrategy`).
+ */
+export type ResolvedIdStrategy = IdStrategy | "none";
 
 /** Record-link metadata of a column (itself, or its array/set element). */
 export interface RecordLinkMeta {
@@ -68,6 +76,10 @@ export interface TableMeta {
   readonly def: AnyTableDef;
   /** A singleton's fixed record-id key, when declared via `defineSingleton`. */
   readonly singletonId?: string;
+  /** The ORM create-id strategy, resolved at index build: the declared `.idStrategy(...)`, the
+   *  explicit id field's type (`s.uuid()`/`s.ulid()`), or the `"ulid"` default; `"none"` when the
+   *  id field's codec is ungeneratable (uuid v4/v6 — explicit ids only). */
+  readonly idStrategy: ResolvedIdStrategy;
   /** Public columns (internal `$internal()` fields are excluded). */
   readonly columns: ReadonlyMap<string, ColumnMeta>;
   /** The subset of `columns` that are record links (single or array). */

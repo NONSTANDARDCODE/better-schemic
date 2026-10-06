@@ -123,6 +123,10 @@ export const surql: typeof surqlTag & {
   ) => BoundQuery<[unknown]>;
   /** The escaped table name as a fragment. */
   table: (table: { name: string }) => BoundQuery<[unknown]>;
+  /** An ESCAPED identifier fragment (`escapeIdent`) — for presets/plugins composing a dynamic
+   *  column/field name: `surql\`${surql.ident(col)} = ${surql.$.auth.id}\``. Escaping happens
+   *  ALWAYS, so a caller-supplied name can never inject syntax. */
+  ident: (name: string) => BoundQuery;
   /** The param-path proxy: `surql.$.after.email` splices `$after.email`. */
   $: Record<string, ParamRef & Record<string, ParamRef>>;
   /** The typed builtin-function catalog: `surql.fn.string.len(x)` -> `Frag<number>`. */
@@ -135,6 +139,7 @@ export const surql: typeof surqlTag & {
     surqlTag`type::record(${new Table(table.name)}, ${id})`,
   table: (table: { name: string }): BoundQuery<[unknown]> =>
     surqlTag`${new Table(table.name)}`,
+  ident: (name: string): BoundQuery => new BoundQuery(escapeIdent(name)),
   $: paramProxy([]) as unknown as Record<
     string,
     ParamRef & Record<string, ParamRef>
@@ -188,6 +193,7 @@ export type {
   FulltextFieldOptions,
   FulltextOptions,
   HnswOptions,
+  IdStrategy,
   JwtAlgorithm,
   JwtConfig,
   ParamConfig,

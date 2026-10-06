@@ -50,15 +50,15 @@ describe("compileCreate / compileCreateMany", () => {
     ).toContain("CREATE");
   });
 
-  test("skipDuplicates requires an id on every item", () => {
+  test("skipDuplicates: id-less rows get the generated id; explicit ids keep the whole bind", () => {
     expect(
       code(() => compileCreateMany(meta, { data: [5], skipDuplicates: true }, b())),
     ).toBe("ValidationError");
     expect(
-      code(() =>
+      sql(
         compileCreateMany(meta, { data: [{ name: "A" }], skipDuplicates: true }, b()),
       ),
-    ).toBe("ValidationError");
+    ).toContain('INSERT IGNORE INTO user { name: $b0, id: rand::ulid() }');
     expect(
       sql(
         compileCreateMany(
@@ -67,7 +67,7 @@ describe("compileCreate / compileCreateMany", () => {
           b(),
         ),
       ),
-    ).toContain("INSERT IGNORE");
+    ).toContain("INSERT IGNORE INTO user $p0");
   });
 });
 

@@ -8,7 +8,8 @@
  * cannot disagree with the DDL emitter about a field's type, family, optionality or link targets.
  */
 import type { z } from "zod";
-import { type FieldInfo, inferField } from "../wire";
+import type { IdStrategy } from "../pure";
+import { type FieldInfo, inferField, zodDef } from "../wire";
 import { BetterSchemicError } from "./errors";
 import type {
   ColumnMeta,
@@ -17,6 +18,7 @@ import type {
   LinkMeta,
   ModelMeta,
   RecordLinkMeta,
+  ResolvedIdStrategy,
   SchemaIndex,
   SchemalessMeta,
   TableMeta,
@@ -156,6 +158,67 @@ function columnMeta(name: string, field: unknown, table: string): ColumnMeta {
   };
 }
 
+/**
+ * The strategy an explicit `id` field implies: `uuid` for `s.uuid()`/`s.uuidv7()` (a Zod uuid
+ * format or the native uuid codec), `ulid` for `s.ulid()`; `undefined` when the id field is
+ * absent/broad (any strategy works). `"unsupported"` marks a format NO strategy can produce
+ * (uuid v4/v6) — an explicit `.idStrategy(...)` on such a table is a fail-fast `SchemaInvalid`.
+ */
+function inferIdStrategy(
+  def: AnyTableDef,
+): IdStrategy | "unsupported" | undefined {
+  const idField = (def.fields as Record<string, unknown> | undefined)?.id as
+    | { valueType?: z.ZodType }
+    | undefined;
+  const valueType = idField?.valueType;
+  if (valueType === undefined) return undefined;
+  // The Zod probe runs first: `inferField` maps every uuid string format to the native `uuid`
+  // type, but only `rand::uuid()` (v7) can satisfy it — a pinned v4/v6 id is unsatisfiable.
+  const zod = zodDef(valueType);
+  if (zod.format === "uuid") {
+    const version = zod.version;
+    return version === undefined || version === "v7" ? "uuid" : "unsupported";
+  }
+  if (zod.format === "ulid") return "ulid";
+  try {
+    // The native `s.uuid()` codec carries no Zod format — its SurrealQL type is `uuid`.
+    if (inferField(valueType).type === "uuid") return "uuid";
+  } catch {
+    // No SurrealQL mapping — no inference.
+  }
+  return undefined;
+}
+
+/**
+ * Resolve a table's ORM create-id strategy: an explicit `.idStrategy(...)` wins, otherwise the
+ * explicit id field's type, otherwise `"ulid"`. A declared strategy that cannot satisfy the id
+ * field's codec fails HERE (import time, `SchemaInvalid`) instead of decoding the first create;
+ * an undeclared ungeneratable id field resolves to `"none"` (explicit-id writes stay valid, a
+ * generated create fails at compile time).
+ */
+function resolveIdStrategy(def: AnyTableDef): ResolvedIdStrategy {
+  const declared = def.config.idStrategy;
+  const inferred = inferIdStrategy(def);
+  if (inferred === "unsupported") {
+    if (declared !== undefined)
+      throw invalid(
+        `table "${def.name}": idStrategy "${declared}" can't satisfy the declared id field (uuid v4/v6 — no ORM strategy generates that format). Pass an explicit id or change the id field.`,
+        { table: def.name },
+      );
+    return "none";
+  }
+  if (declared !== undefined) {
+    if (inferred !== undefined && declared !== inferred)
+      throw invalid(
+        `table "${def.name}": idStrategy "${declared}" conflicts with the declared id field, which requires "${inferred}" — use idStrategy("${inferred}") or change the id field.`,
+        { table: def.name },
+      );
+    return declared;
+  }
+  if (inferred !== undefined) return inferred;
+  return "ulid";
+}
+
 function tableMeta(
   key: string,
   def: AnyTableDef,
@@ -184,6 +247,7 @@ function tableMeta(
     kind: relation ? "relation" : "table",
     def,
     ...(def.singletonId !== undefined ? { singletonId: def.singletonId } : {}),
+    idStrategy: resolveIdStrategy(def),
     columns,
     links,
     outgoing: adjacency.outgoing,
@@ -260,6 +324,7 @@ function build(entries: SchemaInput): SchemaIndex {
         name: entry.name,
         kind: "table",
         def: entry,
+        idStrategy: resolveIdStrategy(entry),
         columns: new Map(),
         links: new Map(),
         outgoing: [],

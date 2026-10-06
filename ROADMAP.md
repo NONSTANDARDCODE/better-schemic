@@ -71,12 +71,19 @@ edge operations `relate`/`relateMany`/`unrelate`/`unrelateMany` on the relation 
 - ✅ **M2.7** `updateEach` — per-item statements, distinct `by` guard, `skipped`, `onEmpty: 'throw'`.
 - ✅ **M2.8** `relate`/`relateMany`/`unrelate`/`unrelateMany` — edge-delegate object args, typed
   endpoints validated against the `RelationDef`, named edge ids, edge data; `RelationDelegate`.
+- ✅ **M2.9** `idStrategy` — per-table create-id generation (`ulid` default / `uuid` v7 / `rand`),
+  applied to every create path (`create`/`createMany`/`create.relate`, `insert`/`insertMany`,
+  `upsert`/`upsertMany`, `skipDuplicates`); explicit ids and singletons always win, `id: s.uuid()`/
+  `s.ulid()` infers the strategy with a conflict fail-fast at `defineSchema` (a pinned uuid v4/v6 id
+  field resolves to `"none"` — explicit ids only, a generated create fails at compile time), and no
+  DDL is emitted (migrations never diff).
 
 Also in this arc: record-string coercion in `where` (`"user:aeon"` → `RecordId`), `BatchResult.count`
 optional on `return: 'none'`, `return: 'diff'` as the flat combined patch list, `insert`/`upsert`
-`before` typed `App | null`, fail-fast `skipDuplicates` ids and `upsertMany.conflict` UNIQUE,
-`updateEach.select` compiled before the write, `unrelate` timeout, and the new live map entries
-(`FOR` returns `NONE`, `SET $obj` parse error, ON DUPLICATE branch evaluation).
+`before` typed `App | null`, `skipDuplicates` generating ids for id-less rows and
+`upsertMany.conflict` UNIQUE, `updateEach.select` compiled before the write, `unrelate` timeout, and
+the new live map entries (`FOR` returns `NONE`, `SET $obj` parse error, ON DUPLICATE branch
+evaluation, generated-id forms).
 
 ## M3 — relações e grafos ✅ *(complete)*
 
@@ -351,3 +358,32 @@ A built-in, zero-dependency query logger enabled with one flag (`logger: true` /
   `test/live/orm-syntax.test.ts` probes). Tests: `test/unit/orm-logger{,-highlight,-plan}.test.ts`,
   `test/live/orm-logger.test.ts`, `test/types/orm-logger.assert.ts`.
 
+## M10 — multi-tenancy (preset `tenant()` + runtime `tenantRls()`) ✅ *(complete)*
+
+Isolamento row-level por tenant como plugin oficial — preset de schema + runtime fail-closed para
+sessões privilegiadas, com zero-diff para quem já escrevia a receita na mão.
+
+- ✅ **M10.1 preset `tenant(principal, options?)`** — coluna tipada `record<principal>`
+  (`DEFAULT $auth.id` / `ASSERT $value != NONE` / `READONLY`), permissions por op
+  (`<col> = $auth.id`; soft delete com a cláusula `$before`; `createOnly` → `update NONE`), evento
+  guard `{table}_protect_<col>`, índices `{table}_<col>_idx` / `{table}_<deleted>_idx` e
+  `meta.tenant`; opções `column`/`softDelete`/`createOnly`/`protect`/`indexes`/`names`.
+- ✅ **M10.2 runtime `tenantRls(options?)`** — `TenantRequired` fail-closed antes de compilar,
+  injeção de escopo em create/upsert (e em `update` com `mode: "replace"`, cujo campo `READONLY`
+  precisa estar presente), `Operation.scope` ANDado em TODA leitura (inclusive os alvos id/unique do
+  `findUnique`) e escrita (inclusive alvos singulares por id/unique), `$forTenant(...)` via
+  `extendModel` (estado namespaced pelo id do plugin), `TenantViolation` para payload/where/patch
+  divergente, validação de bootstrap (coluna record link + tombstone) e recusa fail-closed dos
+  caminhos `INSERT … ON DUPLICATE` (sem `WHERE`).
+- ✅ **M10.3 extensões pequenas e retrocompatíveis** — placeholders `{table}` em event/index de
+  preset, `TablePreset.meta` → `TableConfig.meta` (opaco; emit/snapshot/diff ignoram),
+  `surql.ident(name)` (identificador escapado) e os códigos `TenantRequired`/`TenantViolation`
+  (403) + `isTenantViolation`.
+- ✅ **M10.4 testes + docs** — unit (preset/runtime/compiler/`surql.ident`), tipos (`@ark/attest`),
+  live (e2e privilegiado + probes de sintaxe em `test/live/orm-syntax.test.ts`); `README`,
+  `docs/orm-syntax-map.md` §2, `docs/ORM-COVERAGE.md` §7/§8, `docs/COVERAGE.md`, CHANGELOG.
+
+Fora de escopo (documentado): `relate*`/`live`/raw e `$withoutPlugins()` (o limite é a permission
+do banco / o escape explícito). `findUnique` é escopado como qualquer leitura (alvo id e campo
+único), e `insert({ onDuplicate })`/`upsertMany` por ids são recusados fail-closed (o lowering
+`INSERT … ON DUPLICATE` não tem `WHERE`).

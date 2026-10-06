@@ -78,8 +78,12 @@ const leaf = (
   ...extra,
 });
 
-/** Read a Zod schema's internal def with a loose type for traversal. */
-function zdef(schema: z.ZodType): { type: string; [k: string]: unknown } {
+/** Read a Zod schema's internal def with a loose type for traversal (the ONE place raw `_zod.def`
+ *  access is spelled, so format/version probes stay in the walker that owns Zod internals). */
+export function zodDef(schema: z.ZodType): {
+  type: string;
+  [k: string]: unknown;
+} {
   return schema._zod.def as unknown as { type: string; [k: string]: unknown };
 }
 
@@ -149,7 +153,7 @@ export function inferField(
   const explicit = surrealTypeRegistry.get(schema);
   if (explicit) return nativeLeaf(explicit);
 
-  const def = zdef(schema);
+  const def = zodDef(schema);
   switch (def.type) {
     case "string":
     case "template_literal": // z.templateLiteral — a string-typed literal pattern
@@ -229,7 +233,7 @@ export function inferField(
       const shape = def.shape as Record<string, z.ZodType>;
       const fields = objectFieldsRegistry.get(schema); // SField shape if built via s.object
       const catchall = def.catchall as z.ZodType | undefined;
-      const flexible = !!catchall && zdef(catchall).type === "unknown";
+      const flexible = !!catchall && zodDef(catchall).type === "unknown";
       const children = Object.entries(shape).map(([key, value]) => ({
         suffix: `.${escapeIdent(key)}`,
         info: inferField(value, seen),
@@ -311,7 +315,7 @@ export function inferField(
       const opts = (def.options ?? []) as z.ZodType[];
       // A `none`-ish member (z.undefined()/z.void()) makes the union optional: `T | none` -> `option<T>`.
       const noneish = (o: z.ZodType) => {
-        const t = zdef(o).type;
+        const t = zodDef(o).type;
         return t === "undefined" || t === "void";
       };
       let hasNone = opts.some(noneish);

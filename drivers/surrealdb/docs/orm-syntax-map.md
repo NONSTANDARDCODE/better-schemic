@@ -75,6 +75,8 @@ original design prototype disagreed, the server wins.
 | `CREATE t CONTENT $p` | `[ {…id gerado…} ]` | id aleatório |
 | `CREATE ONLY t CONTENT $p` | **objeto** (não array) | usado por `create({ only: true })` |
 | `CREATE t:id CONTENT $p` | `[ {…} ]` | id explícito |
+| `CREATE [ONLY] type::record(s"t", rand::ulid()) CONTENT $p` | id **ULID** (26 chars, ordenável por tempo) | target gerado no servidor — o lowering do ORM quando não há id explícito. `type::record(t, …)` com ident simples também funciona; um ident **escapado** (`⟨x-y⟩`) dobra o escape → usar `toSurqlString` (`s"…"`) |
+| `CREATE t CONTENT { …, id: rand::ulid() }` | id ULID | forma alternativa (campo `id` de expressão dentro do CONTENT) |
 | `CREATE t:id` duplicado | **erro** `Database record \`t:id\` already exists` (`AlreadyExists`) | normalizar → `RecordAlreadyExists` |
 | `LET $c = (CREATE ONLY t CONTENT $p); RETURN $c;` | objeto criado | açúcar `create + relate` (`to: '$self'`) |
 | `CREATE t CONTENT $p RETURN NONE` | `[]` | payload mínimo |
@@ -93,6 +95,8 @@ original design prototype disagreed, the server wins.
 | `INSERT … ON DUPLICATE … RETURN DIFF` | `[[ { op: "change", path, value: "@@ … @@" } ]]` | formato **paged diff** (aninhado), ≠ do UPDATE |
 | `INSERT INTO t $p` com `id` string (`"user:x"`) | id vira a **string** (`user:⟨user:x⟩`), não um record id | o ORM converte para `RecordId` antes de bindar |
 | `INSERT … ON DUPLICATE` com payload parcial + tabela SCHEMAFULL | **erro** de coerce no campo ausente | o INSERT precisa ser uma linha inserível (o `ON DUPLICATE` não relaxa a validação) |
+| `INSERT … ON DUPLICATE KEY UPDATE` com payload de OUTRO tenant (id adivinhado) | **atualiza a linha do outro tenant** (o `tenant_id` `READONLY` permanece o original) | não há `WHERE`: por isso `tenantRls` rejeita `onDuplicate` ≠ `"ignore"` em tabela tagueada |
+| `INSERT INTO t { …, id: rand::ulid() }` (ou array com uma expressão por linha) | cada linha ganha seu id, avaliado por elemento | o ORM injeta o campo de EXPRESSÃO quando não há id explícito; spread de payload (`{ ...$d, id: … }`) é **parse error** |
 | `INSERT RELATION INTO edge {…}` | linhas da aresta | caminho nativo para `relateMany`/seed |
 
 ### 2.3 `UPSERT`
@@ -100,7 +104,12 @@ original design prototype disagreed, the server wins.
 | Form | Result | Notes |
 | --- | --- | --- |
 | `UPSERT t:id MERGE $p` | `[ {…} ]`; cria se faltar | `upsert` por id |
-| `UPSERT t MERGE $p WHERE cond` | linhas afetadas; **cria quando nada casa** | `upsert` por campo único (validar unicidade no schema) |
+| `UPSERT t MERGE $p WHERE cond` | linhas afetadas; **cria quando nada casa** — e só quando o PRÓPRIO payload satisfaz o `WHERE` | `upsert` por campo único (validar unicidade no schema) |
+| `UPSERT ONLY t:id MERGE $p WHERE tenant = $t` (registro de OUTRO tenant) | `NONE` (objeto) — **não atualiza** | o `WHERE` filtra o branch de UPDATE; é o canal `scope` do plugin `tenantRls` |
+| `UPSERT ONLY t:missing MERGE $p WHERE tenant = $t` (payload COM o tenant) | **cria** com o tenant do payload | o branch de CREATE **não avalia o `WHERE`** — por isso o runtime SEMPRE injeta o tenant no payload |
+| `UPSERT t MERGE $p WHERE uniq = $v AND tenant = $t` | hit de outro tenant → `[]`; miss cria com o tenant do payload | `upsertMany` conflict-form |
+| `UPSERT ((SELECT VALUE id FROM t WHERE uniq = $v LIMIT 1)[0] ?? type::record(s"t", rand::ulid())) MERGE $p` | hit atualiza o existente; miss cria com id gerado | lowering do ORM com `idStrategy` ≠ `rand`: 1 statement, `RETURN DIFF` preservado; `UPSERT ONLY <expr>` devolve objeto |
+| `UPSERT t:id MERGE { …, id: rand::ulid() }` num registro EXISTENTE | **erro** `Found '…' for the id field, but a specific record has been specified` | id não pode ser injetado no MERGE — por isso o upsert gerado usa o target-expression, nunca o payload |
 | `UPSERT t:id SET $p` (objeto inteiro) | **parse error** (`Unexpected token 'a parameter'`) — usar `SET f = $p` por campo | o ORM emite per-field |
 | `UPSERT ONLY t:id MERGE/SET` | ok (objeto? → array, verificado: array) | |
 | `UPSERT t:id CONTENT $p` | substitui o conteúdo | |
@@ -111,6 +120,12 @@ original design prototype disagreed, the server wins.
 | --- | --- | --- |
 | `UPDATE t:id MERGE $p` (inexistente) | `[]` — **não cria** | DIVERGE (2.x criava) |
 | `UPDATE t MERGE $p WHERE cond` (sem match) | `[]` | seguro para `updateMany` |
+| `UPDATE ONLY t:id … WHERE tenant = $t` (outro tenant) | `NONE` (não `[]`) — não atualiza | alvo singular com `WHERE`: canal `scope` do `tenantRls` |
+| `UPDATE t:id SET tenant_id = <mesmo valor>` | ok | `READONLY` só rejeita MUDANÇA de valor |
+| `UPDATE t:id SET tenant_id = <outro>` | erro `Found changed value for field …, but field is readonly` | backstop do DDL |
+| `UPDATE t CONTENT { … sem o campo READONLY }` | preserva o valor `READONLY` | |
+| `UPDATE t REPLACE { … sem o campo READONLY }` | **erro** (`Found changed value … readonly`) | `REPLACE` exige o campo presente |
+| `UPDATE ONLY t:id REPLACE { …, tenant: <mesmo> } WHERE tenant = <mesmo>` | objeto atualizado | o runtime injeta o tenant no payload `replace` (o valor igual passa no `READONLY`) |
 | `UPDATE ONLY t:id SET …` | **objeto** | `only: true` |
 | `SET` | atribuição por campo | |
 | `MERGE` | merge profundo | default |
@@ -135,9 +150,12 @@ original design prototype disagreed, the server wins.
 | --- | --- |
 | `DELETE t:id RETURN BEFORE` | `[ registro ]` |
 | `DELETE t:id` inexistente | `[]` |
+| `DELETE t:id WHERE tenant = $t` (outro tenant) | `[]` — não remove (canal `scope`) |
 | `DELETE t:id RETURN NONE` | `[]` |
 | `DELETE FROM t WHERE cond RETURN BEFORE` | removidos |
 | `DELETE t` (tabela) | remove tudo |
+
+**Event guard do preset `tenant()`:** o `DEFINE EVENT … THEN IF $auth != NONE AND $after.<col> != $auth.id { THROW s"…"; }` do preset é aceito; `INFO … STRUCTURE` devolve o `WHEN` em single quotes e o `THEN` com o literal `'…'` (o `s"…"` do inline converge na canonicalização `canonicalizeLiterals`), então authored ≡ introspected (`diff --live` limpo).
 
 ### 2.6 `RELATE` / arestas
 
@@ -184,6 +202,8 @@ round-trip; o executor reporta a falha **raiz** (pula `NotExecuted`/`Cancelled`,
 | `SELECT id, f, path.sub AS alias` | projeção | paths desconhecidos → `null` (validar no client com `strict`) |
 | `SELECT * OMIT f` | remove campos | funciona mesmo com `f` selecionado |
 | `SELECT * FROM ONLY t:id` | **objeto** | inexistente → `null`/`undefined` (falsy) |
+| `SELECT * FROM ONLY t:id WHERE cond` | objeto no hit; **`NONE`** (falsy) quando o `WHERE` filtra | alvo `ONLY` + filtro: o canal `scope` do `tenantRls` no `findUnique` por id |
+| `SELECT … FROM t WHERE uniq = $v AND scope LIMIT 1` | array 0/1 | `findUnique` por campo único com escopo ANDado |
 | `SELECT * FROM ONLY t` (2+ rows) | **erro** (`Expected a single result output`) | `LIMIT 1` resolve (`FROM ONLY t LIMIT 1` → objeto) |
 | `SELECT VALUE f` | array de valores | `value: true` |
 | `SELECT VALUE id … LIMIT 1` | probe de `exists` | |
@@ -559,7 +579,7 @@ Nota: em scripts multi-statement, o SDK pode **lançar** (não só responder por
 ## 9. Decisões de lowering que o ORM implementa
 
 1. **`update` simplificado**: alvo direto (`UPDATE t:id …`), sem workaround de `WHERE`; `updateMany` sem match → `[]` (nunca cria).
-2. **`upsert` por campo único**: `UPSERT t MERGE $p WHERE uniq = $v` (cria quando nada casa) é o lowering preferencial; `LET`+`IF/ELSE` fica como fallback.
+2. **`upsert` por campo único**: `UPSERT t MERGE $p WHERE uniq = $v` (cria quando nada casa — só se o payload satisfizer o `WHERE`) é o lowering quando a estratégia de id é `rand` ou o payload tem `id`; com id gerado (`ulid`/`uuid`) o lowering é `UPSERT ((SELECT VALUE id FROM t WHERE uniq = $v LIMIT 1)[0] ?? type::record(s"t", <fn>())) MERGE $p` (1 statement, `RETURN DIFF` preservado); `LET`+`IF/ELSE` fica como fallback (expressões/create+update).
 3. **Remover `parallel`** da superfície de leitura (ou marcar `UnsupportedCapability`).
 4. **Remover fuzzy `~`/`?~`/`*~`**; expor `string::similarity::*` via `fn.*`/fragments.
 5. **Full-text**: usar `FULLTEXT ANALYZER`; `search::highlight` com 4 args; `matchesFullText` aceita `index`/`indexes`.
@@ -582,7 +602,7 @@ Nota: em scripts multi-statement, o SDK pode **lançar** (não só responder por
 22. **Ranges de record**: `t:1..=2` / `t:abc..=xyz` (sufixo de id, nunca `t:1..t:2`); ids não-identificadores são escapados (`⟨a-b⟩`).
 23. **`math::avg` não existe em 3.x** (parse error; a sugestão do servidor é `math::log`) — o ORM mantém a API `{ avg: 'campo' }` e emite `math::mean(campo)`. `math::median/stddev/variance` existem.
 24. **`GROUP BY` exige a chave na projeção** (`Missing group idiom … in statement selection`): `aggregate` valida que cada `groupBy` aparece no `select` (quando a projeção é estaticamente analisável) e ensina a corrigir.
-25. **Writes (M2)**: alvos singulares = `id` ou índice UNIQUE (`UniqueTargetRequired`); `update` nunca cria (`[]` → `null`); `delete` só `before`/`none`; `deleteMany` exige `all: true` sem `where`; `updateEach`/`skipDuplicates` = 1 statement por item (e `skipDuplicates` exige `id` explícito); `upsertMany.conflict` exige índice UNIQUE; `RETURN DIFF` é achatado no decode (`[[ops]]` → `ops`) e **somado entre os statements** do batch (`update` data+unset, `createMany`, …); `INSERT/upsert RETURN BEFORE` devolve o estado anterior — o tipo é `App | null`; `id` string vira `RecordId` no payload.
+25. **Writes (M2)**: alvos singulares = `id` ou índice UNIQUE (`UniqueTargetRequired`); `update` nunca cria (`[]` → `null`); `delete` só `before`/`none`; `deleteMany` exige `all: true` sem `where`; `updateEach`/`skipDuplicates` = 1 statement por item (e `skipDuplicates` gera id por linha quando o item não tem `id`); `upsertMany.conflict` exige índice UNIQUE; `RETURN DIFF` é achatado no decode (`[[ops]]` → `ops`) e **somado entre os statements** do batch (`update` data+unset, `createMany`, …); `INSERT/upsert RETURN BEFORE` devolve o estado anterior — o tipo é `App | null`; `id` string vira `RecordId` no payload.
 26. **Records no `where`**: string `"tabela:id"` em coluna de record (inclusive `id`) é convertida para `RecordId` pelo compiler — sem isso o valor viraria string e não casaria nada (silent no-match).
 27. **`include` de link**: `FETCH` é a última cláusula, o link precisa estar na seleção (o compiler o adiciona quando necessário), alias projetado sobrevive ao FETCH, e o filtro do include é o split edge/target (`->(edge WHERE …)->(target WHERE …)`).
 28. **`include` de aresta**: registros do alvo só via subquery; direção `in` inverte as duas setas (`<-edge<-target`) e materializa `in.*`; `edge`+`target` usa `out.*`+`WHERE out.<campo>` e é remontado como `{ edge, target }` no client. Direção `both`: `<->edge<->target` funciona para o alvo e `<->edge` para as arestas, mas `edge`+`target` é recusado (não existe um alias único de alvo; `?.*` é parse error).
@@ -602,6 +622,7 @@ Nota: em scripts multi-statement, o SDK pode **lançar** (não só responder por
 42. **Raw**: `$raw` (1 statement) e `$query` (N) parametrizam `${…}` via `renderValue` (fragmento compõe, valor binda); `$query({ throwOnError: false })` devolve `StatementResult[]`; `$unsafe` exige `raw.unsafe: true` (`UnsafeDisabled`); `raw.requireComment` exige `meta.comment` em script de escrita; `raw.timeoutMs` só aplica a statement única com verbo compatível.
 43. **`fn`/`api`/`auth`/admin**: `fn.call` compila `RETURN fn::x($p…)` (nome validado, nunca spliced) + atalho tipado por `defineFunction` (args NOMEADOS → posicionais); `api.*` desembrulha `body` e lança `DatabaseError` com `status`/`details` em `>= 400`; `auth.*` é passthrough da sessão (`record()` sem record access → `NotAuthenticated`); `info` compila `INFO FOR …`, `ping` faz `RETURN true`, `import` reexecuta o dump por `query()`.
 44. **`extends`**: helpers são reaplicados em clones (`$withContext`/`forkSession`) e no client de transação; colisão de nome com a superfície do client = `PluginError` fail-fast.
+45. **Estratégia de id por tabela (`idStrategy`)**: o ORM gera o id no SERVIDOR — `create`/`createMany`/`create.relate` via target `type::record(s"t", rand::ulid()|rand::uuid())` (ou tabela simples para `rand`, o default do servidor); `insert`/`insertMany`/`skipDuplicates` via campo de expressão `id`; `upsert`/`upsertMany` por campo único via target-expression (subquery `?? type::record(…)`). Default `ulid`; `id` explícito e singleton sempre vencem; `id: s.uuid()/s.ulid()` infere a estratégia e um `.idStrategy` incompatível é `SchemaInvalid` no `defineSchema`; um `id` uuid v4/v6 resolvido vira `"none"` (explicit-only) e um create sem id falha no compile com erro ensinado. **Sem DDL** (migrations nunca divergem) e SQL cru/`sc pull` continuam/voltam ao default do servidor.
 
 ---
 

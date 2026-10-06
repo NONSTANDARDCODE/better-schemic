@@ -28,6 +28,9 @@ export type BetterSchemicErrorCode =
   | "UnsupportedCapability"
   | "UnknownField"
   | "SchemaInvalid"
+  // tenant row-level security (the `plugins/tenant` preset + runtime plugin)
+  | "TenantRequired"
+  | "TenantViolation"
   // live
   | "LiveQueryUnsupported"
   | "ClauseNotSupportedInLive"
@@ -63,6 +66,8 @@ const DEFAULT_STATUS: Record<BetterSchemicErrorCode, number> = {
   UnsupportedCapability: 501,
   UnknownField: 400,
   SchemaInvalid: 500,
+  TenantRequired: 403,
+  TenantViolation: 403,
   LiveQueryUnsupported: 501,
   ClauseNotSupportedInLive: 400,
   LiveInTransaction: 409,
@@ -343,6 +348,15 @@ export const isAssertionFailed = (e: unknown): boolean =>
 /** Permissions / record access denied. */
 export const isPermissionDenied = (e: unknown): boolean =>
   codeOf(e) === "PermissionDenied";
+
+/**
+ * A tenant-scope guard from `plugins/tenant` — no scope for a tenant-tagged table
+ * (`TenantRequired`) or a scope/payload that diverges from it (`TenantViolation`). Both 403.
+ */
+export const isTenantViolation = (e: unknown): boolean => {
+  const code = codeOf(e);
+  return code === "TenantRequired" || code === "TenantViolation";
+};
 
 /** Optimistic-concurrency conflict — retryable inside a transaction. */
 export const isWriteConflict = (e: unknown): boolean =>

@@ -18,6 +18,61 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+### Added
+- **surrealdb:** `defineTable(…).idStrategy("ulid" | "uuid" | "rand")` — per-table ORM create-id
+  generation, server-side and dependency-free: `create`/`createMany`/`create.relate` target
+  `type::record(<table>, rand::ulid())`; `insert`/`insertMany`/`skipDuplicates` inject an `id`
+  expression field; `upsert`/`upsertMany` by a single-field UNIQUE resolve-or-create in ONE
+  statement (`(SELECT VALUE id FROM t WHERE uniq = $v LIMIT 1)[0] ?? type::record(…)`, preserving
+  `RETURN DIFF`). Default `"ulid"`; `"uuid"` is `rand::uuid()` (UUID v7); `"rand"` restores the
+  pre-feature `rand::id()`. An explicit payload `id` and singleton ids always win, and an explicit
+  `id: s.uuid()`/`s.ulid()` field infers the strategy (a conflicting `.idStrategy(…)` fails fast
+  with `SchemaInvalid` at `defineSchema`; a pinned uuid v4/v6 id field resolves to `"none"` —
+  explicit ids only, a generated create fails at compile time instead of emitting a doomed write).
+  It emits NO DDL — migrations never diff, raw SQL keeps the server default, and `sc pull` cannot
+  recover it. Tests: `test/unit/orm-id-strategy.test.ts`, `test/live/orm-id-strategy.test.ts`, live
+  probes in `test/live/orm-syntax.test.ts`; docs: `docs/orm-syntax-map.md` §2/§9,
+  `docs/ORM-COVERAGE.md`, `README.md`; ORM cookbook (`examples/orm/writes.ts` + `_schema.ts`).
+- **surrealdb:** core authoring/runtime extensions for reusable presets/plugins: preset
+  `{table}` placeholders in event/index names (interpolated by `TableDef.use`), opaque
+  `TablePreset.meta` merged into `TableConfig.meta` (DDL/snapshot/diff/introspection-neutral — the
+  runtime reads it back via `TableMeta.def.config.meta`), `surql.ident(name)` (an always-escaped
+  identifier fragment for dynamic columns), and the `TenantRequired`/`TenantViolation` error codes
+  (403, `isTenantViolation`). The plugin runtime gains the internal `Operation.scope` channel: EVERY
+  compiler ANDs it into its filter — reads (`findMany`/`findUnique`/`count`/`exists`/`aggregate`/
+  `paginate`/`cursor`) and writes, including SINGULAR targets
+  (`update`/`patch`/`delete`/`upsert`/`updateEach`) — without joining `uniqueTarget`, so a plugin
+  can scope by id/unique field (`UPDATE ONLY t:id … WHERE scope`, `SELECT … FROM ONLY t:id WHERE
+  scope`) with no change for callers that do not use it.
+- **surrealdb:** `plugins/tenant` — the official multi-tenant RLS plugin. Schema preset
+  `tenant(principal, options?)` stamps the tenant column
+  (`record<principal> DEFAULT $auth.id ASSERT $value != NONE READONLY`), per-op permissions
+  (`<col> = $auth.id`, plus the soft-delete `$before` tombstone clause and `createOnly`'s
+  `update NONE`), the `{table}_protect_<col>` guard event and the `<table>_<col>_idx` /
+  `<table>_<deleted>_idx` indexes — the same names as the hand-written recipe (zero-diff). Runtime
+  `tenantRls({ tenant?, tables?, column? })` enforces the same scope client-side for PRIVILEGED
+  sessions (where `$auth`/permissions do not filter): fail-closed `TenantRequired` for a tagged
+  table with no scope, scope injection on create-family payloads (plus `mode: "replace"` updates,
+  whose READONLY tenant must be present), AND-combined scope on EVERY read (including `findUnique`'s
+  id/unique targets) and write, `$forTenant(...)` via `extendModel`, `TenantViolation` on divergent
+  payloads/where/patch, bootstrap validation (the tag's column is a record link; the soft-delete
+  column exists) and fail-closed refusal of the `INSERT … ON DUPLICATE` paths (no `WHERE` —
+  cross-tenant write). Boundaries documented: `relate*`/`live`/raw and `$withoutPlugins()` bypass
+  the runtime scope. Subpath `@better-schemic/surrealdb/plugins/tenant`; tests:
+  `test/unit/tenant-preset.test.ts`, `test/unit/orm-plugins-tenant.test.ts`,
+  `test/unit/surql-ident.test.ts`, `test/types/orm-tenant.assert.ts`,
+  `test/live/orm-plugins-tenant.test.ts` + live probes in `test/live/orm-syntax.test.ts`; docs:
+  `docs/orm-syntax-map.md` §2, `docs/ORM-COVERAGE.md` §7/§8, `docs/COVERAGE.md`, `README.md`.
+
+### Changed
+- **surrealdb:** ORM-created records without an explicit `id` now default to **ULID**
+  (`rand::ulid()` — 26 chars, time-sortable) instead of the server's `rand::id()` (20 chars,
+  unordered). Opt back per table with `.idStrategy("rand")`. `createMany({ skipDuplicates: true })`
+  no longer requires an explicit `id` on every item: id-less rows get the table's generated id
+  (conflicts still skip on explicit ids/unique indexes). `upsert`/`upsertMany` by a unique field
+  with a generated strategy now attempt the create branch on a miss — a SCHEMAFULL payload missing
+  required fields surfaces a schema error instead of silently returning no row.
+
 ### Fixed
 - **surrealdb:** `cursor` now builds `nextCursor`/`previousCursor` from the RAW result rows, not the
   codec-decoded ones: a `s.datetime()` keyset field carries the SDK `DateTime` with nanoseconds

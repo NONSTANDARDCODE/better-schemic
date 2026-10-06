@@ -3,7 +3,6 @@
 import { describe, expect, test } from "bun:test";
 import { surql } from "../../src/index";
 import { betterSchemic } from "../../src/orm/client";
-import { createBinds } from "../../src/orm/compiler/shared";
 import {
   compileDelete,
   compileDeleteMany,
@@ -14,6 +13,7 @@ import {
   compileUpsert,
   compileUpsertMany,
 } from "../../src/orm/compiler/mutate";
+import { createBinds } from "../../src/orm/compiler/shared";
 import { fakeConn, ok } from "../orm-fixtures";
 import { schema } from "./orm-writes-fixtures";
 
@@ -36,7 +36,13 @@ const sql = (plan: { statements: readonly string[] }): string =>
 describe("compileUpdate / compileUpdateMany / compilePatch", () => {
   test("defaults and the update guards", () => {
     expect(
-      sql(compileUpdate(meta, { where: { id: "user:1" }, data: { name: "B" } }, b())),
+      sql(
+        compileUpdate(
+          meta,
+          { where: { id: "user:1" }, data: { name: "B" } },
+          b(),
+        ),
+      ),
     ).toContain("UPDATE");
     // `before` reads the first statement.
     expect(
@@ -61,14 +67,20 @@ describe("compileUpdate / compileUpdateMany / compilePatch", () => {
       code(() =>
         compileUpdate(
           meta,
-          { where: { id: "user:1" }, mode: "merge", patches: [{ op: "remove", path: "/a" }] },
+          {
+            where: { id: "user:1" },
+            mode: "merge",
+            patches: [{ op: "remove", path: "/a" }],
+          },
           b(),
         ),
       ),
     ).toBe("ValidationError");
     // a non-object payload fails in the id guard's false branch, then in encodeData.
     expect(
-      code(() => compileUpdate(meta, { where: { id: "user:1" }, data: 5 }, b())),
+      code(() =>
+        compileUpdate(meta, { where: { id: "user:1" }, data: 5 }, b()),
+      ),
     ).toBe("ValidationError");
     // data + patches is rejected.
     expect(
@@ -101,7 +113,13 @@ describe("compileUpdate / compileUpdateMany / compilePatch", () => {
 describe("compileUpsert", () => {
   test("defaults, only, and the XOR/mode guards", () => {
     expect(
-      sql(compileUpsert(meta, { where: { email: "b@x" }, data: { name: "B", email: "b@x" } }, b())),
+      sql(
+        compileUpsert(
+          meta,
+          { where: { email: "b@x" }, data: { name: "B", email: "b@x" } },
+          b(),
+        ),
+      ),
     ).toContain("UPSERT");
     expect(
       sql(
@@ -114,14 +132,24 @@ describe("compileUpsert", () => {
     ).toContain("UPSERT ONLY");
     // create without update.
     expect(
-      code(() => compileUpsert(meta, { where: { email: "b@x" }, create: { name: "B" } }, b())),
+      code(() =>
+        compileUpsert(
+          meta,
+          { where: { email: "b@x" }, create: { name: "B" } },
+          b(),
+        ),
+      ),
     ).toBe("ValidationError");
     // data + update.
     expect(
       code(() =>
         compileUpsert(
           meta,
-          { where: { email: "b@x" }, data: { name: "B" }, update: { name: "B" } },
+          {
+            where: { email: "b@x" },
+            data: { name: "B" },
+            update: { name: "B" },
+          },
           b(),
         ),
       ),
@@ -129,7 +157,11 @@ describe("compileUpsert", () => {
     // mode "patch" is not part of upsert.
     expect(
       code(() =>
-        compileUpsert(meta, { where: { email: "b@x" }, data: { name: "B" }, mode: "patch" }, b()),
+        compileUpsert(
+          meta,
+          { where: { email: "b@x" }, data: { name: "B" }, mode: "patch" },
+          b(),
+        ),
       ),
     ).toBe("ValidationError");
     // mode "content" encodes for create.
@@ -137,7 +169,11 @@ describe("compileUpsert", () => {
       sql(
         compileUpsert(
           meta,
-          { where: { email: "b@x" }, data: { name: "B", email: "b@x" }, mode: "content" },
+          {
+            where: { email: "b@x" },
+            data: { name: "B", email: "b@x" },
+            mode: "content",
+          },
           b(),
         ),
       ),
@@ -147,14 +183,22 @@ describe("compileUpsert", () => {
   test("id-target create/update: id guard, mismatch, ON DUPLICATE", () => {
     expect(
       code(() =>
-        compileUpsert(meta, { where: { id: "user:1" }, create: {}, update: { name: "B" } }, b()),
+        compileUpsert(
+          meta,
+          { where: { id: "user:1" }, create: {}, update: { name: "B" } },
+          b(),
+        ),
       ),
     ).toBe("ValidationError");
     expect(
       code(() =>
         compileUpsert(
           meta,
-          { where: { id: "user:1" }, create: { id: "user:2" }, update: { name: "B" } },
+          {
+            where: { id: "user:1" },
+            create: { id: "user:2" },
+            update: { name: "B" },
+          },
           b(),
         ),
       ),
@@ -163,7 +207,11 @@ describe("compileUpsert", () => {
       sql(
         compileUpsert(
           meta,
-          { where: { id: "user:1" }, create: { id: "user:1", name: "B" }, update: { name: "B" } },
+          {
+            where: { id: "user:1" },
+            create: { id: "user:1", name: "B" },
+            update: { name: "B" },
+          },
           b(),
         ),
       ),
@@ -176,14 +224,30 @@ describe("compileUpsert", () => {
       sql(compileUpsert(meta, { where: { email: "b@x" }, data: expr }, b())),
     ).toContain("LET $__existing");
     expect(
-      sql(compileUpsert(meta, { where: { email: "b@x" }, data: expr, return: "none" }, b())),
+      sql(
+        compileUpsert(
+          meta,
+          { where: { email: "b@x" }, data: expr, return: "none" },
+          b(),
+        ),
+      ),
     ).toContain("RETURN NONE");
     expect(
-      sql(compileUpsert(meta, { where: { email: "b@x" }, data: expr, return: "before" }, b())),
+      sql(
+        compileUpsert(
+          meta,
+          { where: { email: "b@x" }, data: expr, return: "before" },
+          b(),
+        ),
+      ),
     ).toContain("RETURN BEFORE");
     expect(
       code(() =>
-        compileUpsert(meta, { where: { email: "b@x" }, data: expr, return: "diff" }, b()),
+        compileUpsert(
+          meta,
+          { where: { email: "b@x" }, data: expr, return: "diff" },
+          b(),
+        ),
       ),
     ).toBe("ReturnNotSupported");
   });
@@ -195,7 +259,12 @@ describe("compileUpsertMany", () => {
       sql(
         compileUpsertMany(
           meta,
-          { data: [{ id: "user:1", name: "A" }, { id: "user:2", name: "B" }] },
+          {
+            data: [
+              { id: "user:1", name: "A" },
+              { id: "user:2", name: "B" },
+            ],
+          },
           b(),
         ),
       ),
@@ -240,7 +309,11 @@ describe("compileUpsertMany", () => {
       sql(
         compileUpsertMany(
           meta,
-          { data: [{ email: "a@x" }], conflict: "email", update: { name: "B" } },
+          {
+            data: [{ email: "a@x" }],
+            conflict: "email",
+            update: { name: "B" },
+          },
           b(),
         ),
       ),
@@ -249,7 +322,12 @@ describe("compileUpsertMany", () => {
       sql(
         compileUpsertMany(
           meta,
-          { data: [{ email: "a@x" }], conflict: "email", update: { name: "B" }, return: "none" },
+          {
+            data: [{ email: "a@x" }],
+            conflict: "email",
+            update: { name: "B" },
+            return: "none",
+          },
           b(),
         ),
       ),
@@ -258,7 +336,12 @@ describe("compileUpsertMany", () => {
       sql(
         compileUpsertMany(
           meta,
-          { data: [{ email: "a@x" }], conflict: "email", update: { name: "B" }, return: "before" },
+          {
+            data: [{ email: "a@x" }],
+            conflict: "email",
+            update: { name: "B" },
+            return: "before",
+          },
           b(),
         ),
       ),
@@ -267,7 +350,12 @@ describe("compileUpsertMany", () => {
       code(() =>
         compileUpsertMany(
           meta,
-          { data: [{ email: "a@x" }], conflict: "email", update: { name: "B" }, return: "diff" },
+          {
+            data: [{ email: "a@x" }],
+            conflict: "email",
+            update: { name: "B" },
+            return: "diff",
+          },
           b(),
         ),
       ),
@@ -275,13 +363,21 @@ describe("compileUpsertMany", () => {
     // empty update map.
     expect(
       code(() =>
-        compileUpsertMany(meta, { data: [{ email: "a@x" }], conflict: "email", update: {} }, b()),
+        compileUpsertMany(
+          meta,
+          { data: [{ email: "a@x" }], conflict: "email", update: {} },
+          b(),
+        ),
       ),
     ).toBe("ValidationError");
     // non-unique conflict field.
     expect(
       code(() =>
-        compileUpsertMany(meta, { data: [{ name: "A" }], conflict: "name" }, b()),
+        compileUpsertMany(
+          meta,
+          { data: [{ name: "A" }], conflict: "name" },
+          b(),
+        ),
       ),
     ).toBe("UniqueTargetRequired");
   });
@@ -289,25 +385,32 @@ describe("compileUpsertMany", () => {
 
 describe("compileDelete / compileDeleteMany", () => {
   test("defaults, id vs field targets, and the unsafe-all guard", () => {
-    expect(sql(compileDelete(meta, { where: { id: "user:1" } }, b()))).toContain("DELETE");
+    expect(
+      sql(compileDelete(meta, { where: { id: "user:1" } }, b())),
+    ).toContain("DELETE");
     expect(
       sql(compileDelete(meta, { where: { email: "a@x" } }, b())),
     ).toContain("DELETE FROM");
     expect(
-      compileDelete(meta, { where: { id: "user:1" }, return: "none" }, b()).result,
+      compileDelete(meta, { where: { id: "user:1" }, return: "none" }, b())
+        .result,
     ).toBe("none");
     expect(
       sql(compileDeleteMany(meta, { where: { name: "A" } }, b())),
     ).toContain("DELETE FROM");
     expect(code(() => compileDeleteMany(meta, {}, b()))).toBe("UnsafeMutation");
-    expect(sql(compileDeleteMany(meta, { all: true }, b()))).toContain("DELETE");
+    expect(sql(compileDeleteMany(meta, { all: true }, b()))).toContain(
+      "DELETE",
+    );
   });
 });
 
 describe("compileUpdateEach", () => {
   test("defaults, guards, and patch vs merge lowering", () => {
     expect(
-      sql(compileUpdateEach(meta, { data: [{ id: "user:1", name: "B" }] }, b())),
+      sql(
+        compileUpdateEach(meta, { data: [{ id: "user:1", name: "B" }] }, b()),
+      ),
     ).toContain("UPDATE");
     // a non-object item.
     expect(code(() => compileUpdateEach(meta, { data: [5] }, b()))).toBe(
@@ -328,7 +431,11 @@ describe("compileUpdateEach", () => {
       code(() =>
         compileUpdateEach(
           meta,
-          { data: [{ id: "user:1", name: "B" }], return: "none", onEmpty: "throw" },
+          {
+            data: [{ id: "user:1", name: "B" }],
+            return: "none",
+            onEmpty: "throw",
+          },
           b(),
         ),
       ),
@@ -397,7 +504,11 @@ describe("mutate — remaining reachable branches", () => {
       sql(
         compileUpsert(
           meta,
-          { where: { email: "b@x" }, data: { name: "B", email: "b@x" }, mode: "replace" },
+          {
+            where: { email: "b@x" },
+            data: { name: "B", email: "b@x" },
+            mode: "replace",
+          },
           b(),
         ),
       ),
@@ -407,7 +518,11 @@ describe("mutate — remaining reachable branches", () => {
   test("upsert id-target with a non-object create throws the id guard", () => {
     expect(
       code(() =>
-        compileUpsert(meta, { where: { id: "user:1" }, create: 5, update: { name: "B" } }, b()),
+        compileUpsert(
+          meta,
+          { where: { id: "user:1" }, create: 5, update: { name: "B" } },
+          b(),
+        ),
       ),
     ).toBe("ValidationError");
   });
@@ -485,10 +600,215 @@ describe("mutate — remaining reachable branches", () => {
       sql(
         compileUpdateEach(
           meta,
-          { data: [{ id: "user:1", name: "B" }], return: "none", onEmpty: "return" },
+          {
+            data: [{ id: "user:1", name: "B" }],
+            return: "none",
+            onEmpty: "return",
+          },
           b(),
         ),
       ),
     ).toContain("UPDATE");
+  });
+});
+
+// --- plugin scope (Operation.scope) --------------------------------------------------------------
+// The internal channel `plugins/tenant` uses to scope a SINGULAR target (id/unique) without
+// joining `uniqueTarget`: the scope is ANDed into the WHERE of every statement.
+
+const scope = { org_id: { equals: "org:1" } };
+
+describe("plugin scope — singular targets", () => {
+  test("update by id appends WHERE <scope> (target resolution untouched)", () => {
+    const plan = compileUpdate(
+      meta,
+      { where: { id: "user:1" }, data: { name: "B" }, scope },
+      b(),
+    );
+    expect(sql(plan)).toContain("UPDATE user:1 MERGE");
+    expect(sql(plan)).toContain("WHERE org_id = ");
+  });
+
+  test("update by a unique field ANDs scope with the unique predicate", () => {
+    const plan = compileUpdate(
+      meta,
+      { where: { email: "a@x" }, data: { name: "B" }, scope },
+      b(),
+    );
+    expect(sql(plan)).toContain("email = ");
+    expect(sql(plan)).toContain("org_id = ");
+  });
+
+  test("patch, delete (id + unique) and deleteMany carry the scope", () => {
+    expect(
+      sql(
+        compilePatch(
+          meta,
+          {
+            where: { id: "user:1" },
+            patches: [{ op: "remove", path: "/name" }],
+            scope,
+          },
+          b(),
+        ),
+      ),
+    ).toContain("WHERE org_id = ");
+    expect(
+      sql(compileDelete(meta, { where: { id: "user:1" }, scope }, b())),
+    ).toContain("DELETE user:1 WHERE org_id = ");
+    const unique = sql(
+      compileDelete(meta, { where: { email: "a@x" }, scope }, b()),
+    );
+    expect(unique).toContain("email = ");
+    expect(unique).toContain("org_id = ");
+    expect(
+      sql(compileDeleteMany(meta, { where: { active: true }, scope }, b())),
+    ).toContain("org_id = ");
+    // A scope alone still satisfies the destructive-write guard.
+    expect(sql(compileDeleteMany(meta, { scope }, b()))).toContain(
+      "DELETE FROM user WHERE org_id = ",
+    );
+  });
+
+  test("updateMany ANDs scope with the caller's where", () => {
+    const plan = compileUpdateMany(
+      meta,
+      { data: { name: "B" }, where: { active: true }, scope },
+      b(),
+    );
+    expect(sql(plan)).toContain("active = ");
+    expect(sql(plan)).toContain("org_id = ");
+  });
+
+  test("updateEach appends the scope to every per-item WHERE", () => {
+    const plan = compileUpdateEach(
+      meta,
+      {
+        data: [
+          { id: "user:1", name: "B" },
+          { id: "user:2", name: "C" },
+        ],
+        scope,
+      },
+      b(),
+    );
+    expect(plan.statements).toHaveLength(2);
+    for (const statement of plan.statements) {
+      expect(statement).toContain("WHERE id = ");
+      expect(statement).toContain("org_id = ");
+    }
+  });
+
+  test("upsert appends the scope to the resolved id/unique target", () => {
+    const byId = sql(
+      compileUpsert(
+        meta,
+        { where: { id: "user:1" }, data: { name: "B" }, scope },
+        b(),
+      ),
+    );
+    expect(byId).toContain("UPSERT user:1 MERGE");
+    expect(byId).toContain("WHERE org_id = ");
+    const byEmail = sql(
+      compileUpsert(
+        meta,
+        { where: { email: "a@x" }, data: { name: "B" }, scope },
+        b(),
+      ),
+    );
+    expect(byEmail).toContain("email = ");
+    expect(byEmail).toContain("org_id = ");
+  });
+
+  test("upsert with distinct branches and an expression scopes the LET/IF WHERE", () => {
+    const plan = compileUpsert(
+      meta,
+      {
+        where: { id: "user:1" },
+        create: { id: "user:1", name: "B" },
+        update: { name: surql`"C"` },
+        scope,
+      },
+      b(),
+    );
+    const sqlText = sql(plan);
+    expect(sqlText).toContain("LET");
+    expect(sqlText).toContain("org_id = ");
+  });
+
+  test("upsertMany by conflict scopes each per-item WHERE", () => {
+    const plan = compileUpsertMany(
+      meta,
+      {
+        data: [
+          { email: "a@x", name: "B" },
+          { email: "b@x", name: "C" },
+        ],
+        conflict: "email",
+        scope,
+      },
+      b(),
+    );
+    expect(plan.statements).toHaveLength(2);
+    for (const statement of plan.statements) {
+      expect(statement).toContain("email = ");
+      expect(statement).toContain("org_id = ");
+    }
+  });
+
+  test("ON DUPLICATE lowerings without a WHERE refuse the scope", () => {
+    expect(
+      code(() =>
+        compileUpsertMany(
+          meta,
+          { data: [{ id: "user:1", name: "B" }], scope },
+          b(),
+        ),
+      ),
+    ).toBe("UnsupportedCapability");
+    expect(
+      code(() =>
+        compileUpsert(
+          meta,
+          {
+            where: { id: "user:1" },
+            create: { id: "user:1", name: "B" },
+            update: { name: "B" },
+            scope,
+          },
+          b(),
+        ),
+      ),
+    ).toBe("UnsupportedCapability");
+  });
+
+  test("where: null and empty scope bags never produce an empty AND branch", () => {
+    // `null` is a valid "no filter" for `where` — the scope alone must compile (regression: it
+    // used to become `AND[null, scope]` and throw "empty filter").
+    expect(
+      sql(compileUpdateMany(meta, { data: { name: "B" }, where: null, scope }, b())),
+    ).toContain("WHERE org_id = ");
+    expect(
+      sql(compileDeleteMany(meta, { where: null, scope, all: true }, b())),
+    ).toContain("DELETE FROM user WHERE org_id = ");
+    // A lazily-created EMPTY scope bag is a no-op, not an empty AND branch.
+    expect(
+      sql(compileUpdateMany(meta, { data: { name: "B" }, where: { active: true }, scope: {} }, b())),
+    ).toContain("active = ");
+  });
+
+  test("without a scope the emitted SQL is unchanged", () => {
+    expect(
+      sql(
+        compileUpdate(
+          meta,
+          { where: { id: "user:1" }, data: { name: "B" } },
+          b(),
+        ),
+      ),
+    ).toBe("UPDATE user:1 MERGE $p0");
+    expect(sql(compileDelete(meta, { where: { id: "user:1" } }, b()))).toBe(
+      "DELETE user:1 RETURN BEFORE",
+    );
   });
 });

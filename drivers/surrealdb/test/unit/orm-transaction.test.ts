@@ -112,7 +112,7 @@ describe("client.transaction — commit/cancel/rollback", () => {
       await tx.users.createMany({ data: [{ name: "A" }, { name: "B" }] });
     });
     const sql = conn.transactions[0]?.calls[0]?.sql ?? "";
-    expect(sql).toContain("CREATE user CONTENT $p0;");
+    expect(sql).toContain('CREATE type::record(s"user", rand::ulid()) CONTENT $p0;');
     expect(sql).not.toContain("BEGIN TRANSACTION");
     expect(sql).not.toContain("COMMIT TRANSACTION");
   });

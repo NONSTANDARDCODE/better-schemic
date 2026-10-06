@@ -21,6 +21,7 @@ import {
   isBetterSchemicError,
   isNotFound,
   isPermissionDenied,
+  isTenantViolation,
   isTransactionRollback,
   isUniqueViolation,
   isUnsupportedCapability,
@@ -269,10 +270,20 @@ describe("predicates", () => {
     expect(isNotFound(norm(already))).toBe(false);
   });
 
+  test("isTenantViolation matches both tenant-scope codes (403)", () => {
+    const required = new BetterSchemicError("TenantRequired", "no scope");
+    const violation = new BetterSchemicError("TenantViolation", "forged");
+    expect(isTenantViolation(required)).toBe(true);
+    expect(isTenantViolation(violation)).toBe(true);
+    expect(required.status).toBe(403);
+    expect(violation.status).toBe(403);
+  });
+
   test("predicates return false for unrelated values", () => {
     expect(isUniqueViolation(new Error("x"))).toBe(false);
     expect(isNotFound(undefined)).toBe(false);
     expect(isValidationError({})).toBe(false);
+    expect(isTenantViolation(new Error("x"))).toBe(false);
   });
 });
 
@@ -350,14 +361,16 @@ describe("normalizeError — context passthrough and non-Error shapes", () => {
   });
 
   test("an explicit status wins over the catalog default", () => {
-    expect(new BetterSchemicError("ResultNotFound", "x", { status: 418 }).status).toBe(
-      418,
-    );
+    expect(
+      new BetterSchemicError("ResultNotFound", "x", { status: 418 }).status,
+    ).toBe(418);
     expect(new BetterSchemicError("ResultNotFound", "x").status).toBe(404);
   });
 
   test("from() with no context uses the empty default", () => {
-    expect(BetterSchemicError.from(new Error("boom")).code).toBe("DatabaseError");
+    expect(BetterSchemicError.from(new Error("boom")).code).toBe(
+      "DatabaseError",
+    );
   });
 
   test("null and message-less issues payloads are DatabaseError", () => {
@@ -368,10 +381,12 @@ describe("normalizeError — context passthrough and non-Error shapes", () => {
   test("empty tableName / recordId and non-string detail ids fall through", () => {
     expect(norm(serverLike({ tableName: "" })).table).toBeUndefined();
     expect(
-      norm(serverLike({ details: { kind: "Table", details: { name: 5 } } })).table,
+      norm(serverLike({ details: { kind: "Table", details: { name: 5 } } }))
+        .table,
     ).toBeUndefined();
     expect(
-      norm(serverLike({ details: { kind: "Record", details: { id: 5 } } })).table,
+      norm(serverLike({ details: { kind: "Record", details: { id: 5 } } }))
+        .table,
     ).toBeUndefined();
     expect(norm(serverLike({ recordId: "" })).table).toBeUndefined();
   });
@@ -404,9 +419,9 @@ describe("predicates — remaining code branches", () => {
   });
 
   test("isValidationError matches ParseError and AssertionFailed", () => {
-    expect(
-      isValidationError(new BetterSchemicError("ParseError", "x")),
-    ).toBe(true);
+    expect(isValidationError(new BetterSchemicError("ParseError", "x"))).toBe(
+      true,
+    );
     expect(
       isValidationError(new BetterSchemicError("AssertionFailed", "x")),
     ).toBe(true);
@@ -414,7 +429,9 @@ describe("predicates — remaining code branches", () => {
 
   test("isUnsupportedCapability matches LiveQueryUnsupported", () => {
     expect(
-      isUnsupportedCapability(new BetterSchemicError("LiveQueryUnsupported", "x")),
+      isUnsupportedCapability(
+        new BetterSchemicError("LiveQueryUnsupported", "x"),
+      ),
     ).toBe(true);
   });
 });

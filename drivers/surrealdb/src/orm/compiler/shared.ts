@@ -13,7 +13,7 @@
  * The bind map is SHARED across every statement of one operation, so names never collide when the
  * executor merges a batch (`paginate` compiles its two statements into one round-trip).
  */
-import { BoundQuery, escapeIdent } from "surrealdb";
+import { BoundQuery, escapeIdent, RecordId } from "surrealdb";
 import {
   type Ctx,
   fragOf,
@@ -515,6 +515,7 @@ export function describeValue(v: unknown): string {
   if (v === null) return "null";
   if (Array.isArray(v)) return `[${v.length} item(s)]`;
   if (v instanceof Date) return v.toISOString();
+  if (v instanceof RecordId) return `"${v}"`;
   if (typeof v === "object") {
     const ctor = v.constructor?.name;
     return ctor && ctor !== "Object" ? ctor : "{…}";

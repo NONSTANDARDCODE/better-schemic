@@ -101,6 +101,12 @@ live("ORM syntax map — live probes (server 3.x)", () => {
       DEFINE TABLE likes TYPE RELATION IN user OUT post;
       DEFINE FIELD score ON likes TYPE int;
 
+      DEFINE TABLE tdoc SCHEMAFULL;
+      DEFINE FIELD name ON tdoc TYPE string;
+      DEFINE FIELD tenant_id ON tdoc TYPE record<user> DEFAULT $auth.id ASSERT $value != NONE READONLY;
+      DEFINE EVENT OVERWRITE tdoc_protect_tenant_id ON TABLE tdoc WHEN $event = 'CREATE' OR $event = 'UPDATE' THEN IF $auth != NONE AND $after.tenant_id != $auth.id { THROW s"tenant_id cannot manually be set to a different value than the authenticated user"; };
+      DEFINE INDEX OVERWRITE tdoc_tenant_id_idx ON TABLE tdoc FIELDS tenant_id;
+
       CREATE user:alice CONTENT { name: "Alice", age: 30 };
       CREATE user:bob CONTENT { name: "Bob", age: 25, mentor: user:alice, friends: [user:alice] };
       CREATE user:carol CONTENT { name: "Carol", age: 35 };
@@ -108,6 +114,8 @@ live("ORM syntax map — live probes (server 3.x)", () => {
       CREATE post:p2 CONTENT { title: "World", author: user:bob, tags: ["db"], published: false };
       RELATE user:alice->likes->post:p1 SET score = 5;
       RELATE user:bob->likes->post:p1 SET score = 3;
+      CREATE tdoc:a CONTENT { name: "A", tenant_id: user:alice };
+      CREATE tdoc:b CONTENT { name: "B", tenant_id: user:bob };
     `);
   });
 
@@ -299,6 +307,90 @@ live("ORM syntax map — live probes (server 3.x)", () => {
     });
   });
 
+  describe("GENERATED IDS — type::record / INSERT id expression / UPSERT target expression", () => {
+    const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+    const idPart = (id: unknown) => String(id).replace(/^user:/, "");
+
+    test('CREATE ONLY type::record(s"user", rand::ulid()) CONTENT $p generates a ULID', async () => {
+      const out = await last(
+        'CREATE ONLY type::record(s"user", rand::ulid()) CONTENT $p;',
+        { p: { name: "Gen1", age: 1 } },
+      );
+      expect(out).toEqual(expect.objectContaining({ name: "Gen1", age: 1 }));
+      expect(String(out.id).startsWith("user:")).toBe(true);
+      expect(idPart(out.id)).toMatch(ULID);
+    });
+
+    test("a bare table identifier also works inside type::record", async () => {
+      const out = await last(
+        "CREATE ONLY type::record(user, rand::ulid()) CONTENT { name: 'Gen2', age: 2 };",
+      );
+      expect(idPart(out.id)).toMatch(ULID);
+    });
+
+    test('an ESCAPED identifier double-escapes inside type::record — use s"..."', async () => {
+      await run(
+        "DEFINE TABLE `gen-weird` SCHEMAFULL; DEFINE FIELD name ON `gen-weird` TYPE string;",
+      );
+      const good = await last(
+        'CREATE ONLY type::record(s"gen-weird", rand::ulid()) CONTENT { name: "W" };',
+      );
+      const bad = await last(
+        'CREATE ONLY type::record(`gen-weird`, rand::ulid()) CONTENT { name: "B" };',
+      );
+      // The s"..." form targets the table `gen-weird`; the backtick-ident form targets a table
+      // whose name LITERALLY contains backticks (the identifier got escaped as data).
+      expect(String(good.id).startsWith("⟨gen-weird⟩:")).toBe(true);
+      expect(String(bad.id).startsWith("⟨`gen-weird`⟩:")).toBe(true);
+    });
+
+    test("CREATE t CONTENT with an id expression also sets the id (alternative form)", async () => {
+      const out = await last(
+        "CREATE user CONTENT { name: 'Gen3', age: 3, id: rand::ulid() };",
+      );
+      expect(idPart(out[0].id)).toMatch(ULID);
+    });
+
+    test("INSERT evaluates an id expression per row (single and array)", async () => {
+      const one = await last(
+        "INSERT INTO user { name: $p0, age: $p1, id: rand::ulid() };",
+        { p0: "Gen4", p1: 4 },
+      );
+      expect(idPart(one[0].id)).toMatch(ULID);
+      const many = await last(
+        "INSERT INTO user [{ name: $p0, age: $p1, id: rand::ulid() }, { name: $p2, age: $p3, id: rand::ulid() }];",
+        { p0: "Gen5", p1: 5, p2: "Gen6", p3: 6 },
+      );
+      const ids = many.map((row: { id: unknown }) => String(row.id));
+      expect(new Set(ids).size).toBe(2);
+      for (const id of ids) expect(idPart(id)).toMatch(ULID);
+    });
+
+    test("UPSERT (subquery ?? type::record(...)) updates on a hit, creates on a miss", async () => {
+      await run(
+        'CREATE ONLY user:gen_target CONTENT { name: "Target", age: 10 };',
+      );
+      const hit = await last(
+        'UPSERT ((SELECT VALUE id FROM user WHERE name = $p0 LIMIT 1)[0] ?? type::record(s"user", rand::ulid())) MERGE $p1;',
+        { p0: "Target", p1: { age: 11 } },
+      );
+      expect(String(hit[0].id)).toBe("user:gen_target");
+      const miss = await last(
+        'UPSERT ((SELECT VALUE id FROM user WHERE name = $p0 LIMIT 1)[0] ?? type::record(s"user", rand::ulid())) MERGE $p1;',
+        { p0: "Target2", p1: { name: "Target2", age: 12 } },
+      );
+      expect(String(miss[0].id)).not.toBe("user:gen_target");
+      expect(idPart(miss[0].id)).toMatch(ULID);
+    });
+
+    test("an id expression inside MERGE on an EXISTING record is a server error", async () => {
+      const err = await caught(
+        last("UPSERT user:gen_target MERGE { id: rand::ulid(), age: 13 };"),
+      );
+      expect(String(err)).toMatch(/id/i);
+    });
+  });
+
   describe("DELETE", () => {
     test("DELETE t:id RETURN BEFORE removes and returns; RETURN NONE empty", async () => {
       expect(await last("DELETE user:i3 RETURN BEFORE;")).toEqual([
@@ -313,6 +405,123 @@ live("ORM syntax map — live probes (server 3.x)", () => {
         "DELETE FROM user WHERE name = 'Ghosty' RETURN BEFORE;",
       );
       expect(out).toEqual([expect.objectContaining({ name: "Ghosty" })]);
+    });
+  });
+
+  describe("tenant scoping — WHERE on a record target (plugin scope channel)", () => {
+    test("SELECT … FROM ONLY t:id WHERE <scope> filters the target (object on hit, NONE on miss)", async () => {
+      expect(
+        await last("SELECT * FROM ONLY tdoc:b WHERE tenant_id = user:bob;"),
+      ).toEqual(expect.objectContaining({ tenant_id: "user:bob" }));
+      expect(
+        await last("SELECT * FROM ONLY tdoc:b WHERE tenant_id = user:alice;"),
+      ).toBeFalsy();
+    });
+
+    test("SELECT … FROM t WHERE <pred> AND <scope> LIMIT 1 filters the unique-field form", async () => {
+      expect(
+        await last(
+          "SELECT * FROM tdoc WHERE id = tdoc:b AND tenant_id = user:bob LIMIT 1;",
+        ),
+      ).toHaveLength(1);
+      expect(
+        await last(
+          "SELECT * FROM tdoc WHERE id = tdoc:b AND tenant_id = user:alice LIMIT 1;",
+        ),
+      ).toEqual([]);
+    });
+
+    test("UPDATE ONLY t:id REPLACE needs the READONLY tenant present (same value passes)", async () => {
+      await last(
+        "CREATE ONLY tdoc:rep CONTENT { name: 'R', tenant_id: user:alice };",
+      );
+      const error = await caught(
+        last("UPDATE ONLY tdoc:rep REPLACE { name: 'R2' };"),
+      );
+      expect(String(error)).toMatch(/readonly/);
+      expect(
+        await last(
+          "UPDATE ONLY tdoc:rep REPLACE { name: 'R2', tenant_id: user:alice };",
+        ),
+      ).toEqual(expect.objectContaining({ name: "R2" }));
+      await last("DELETE tdoc:rep;");
+    });
+
+    test("UPDATE ONLY t:id … WHERE <other tenant> is a no-op (NONE)", async () => {
+      expect(
+        await last(
+          "UPDATE ONLY tdoc:a MERGE { name: 'A2' } WHERE tenant_id = user:alice;",
+        ),
+      ).toEqual(expect.objectContaining({ name: "A2" }));
+      expect(
+        await last(
+          "UPDATE ONLY tdoc:b MERGE { name: 'B2' } WHERE tenant_id = user:alice;",
+        ),
+      ).toBeFalsy();
+      expect(await last("SELECT name FROM ONLY tdoc:b;")).toEqual(
+        expect.objectContaining({ name: "B" }),
+      );
+    });
+
+    test("DELETE t:id WHERE <other tenant> removes nothing", async () => {
+      expect(await last("DELETE tdoc:b WHERE tenant_id = user:alice;")).toEqual(
+        [],
+      );
+      expect(await last("SELECT name FROM ONLY tdoc:b;")).toEqual(
+        expect.objectContaining({ name: "B" }),
+      );
+    });
+
+    test("UPSERT ONLY t:id … WHERE <other tenant> is a no-op on an existing record", async () => {
+      expect(
+        await last(
+          "UPSERT ONLY tdoc:b MERGE { name: 'B3' } WHERE tenant_id = user:alice;",
+        ),
+      ).toBeFalsy();
+      expect(await last("SELECT name FROM ONLY tdoc:b;")).toEqual(
+        expect.objectContaining({ name: "B" }),
+      );
+    });
+
+    test("UPSERT ONLY t:missing … WHERE scope CREATES — the create branch ignores the WHERE (payload carries the tenant)", async () => {
+      const created = await last(
+        "UPSERT ONLY tdoc:new MERGE { name: 'N', tenant_id: user:alice } WHERE tenant_id = user:alice;",
+      );
+      expect(created).toEqual(
+        expect.objectContaining({ name: "N", tenant_id: "user:alice" }),
+      );
+      // The runtime plugin relies on this: it ALWAYS injects the scoped tenant into the payload.
+      await last("DELETE tdoc:new;");
+    });
+
+    test("a READONLY tenant column blocks a changed UPDATE value (same value is a no-op)", async () => {
+      expect(await last("UPDATE tdoc:a SET tenant_id = user:alice;")).toEqual([
+        expect.objectContaining({ tenant_id: "user:alice" }),
+      ]);
+      const error = await caught(
+        last("UPDATE tdoc:a SET tenant_id = user:bob;"),
+      );
+      expect(String(error)).toMatch(/readonly/);
+    });
+
+    test("INSERT … ON DUPLICATE KEY UPDATE can touch another tenant's row (why the plugin refuses it)", async () => {
+      await last(
+        "INSERT INTO tdoc { id: tdoc:b, name: 'B4', tenant_id: user:alice } ON DUPLICATE KEY UPDATE name = 'B4';",
+      );
+      // The row was updated, but its READONLY tenant stayed user:bob.
+      expect(await last("SELECT name, tenant_id FROM ONLY tdoc:b;")).toEqual(
+        expect.objectContaining({ name: "B4", tenant_id: "user:bob" }),
+      );
+      await last("UPDATE tdoc:b SET name = 'B';");
+    });
+
+    test("the guard event round-trips INFO with single-quoted literals", async () => {
+      const info = await last("INFO FOR TABLE tdoc STRUCTURE;");
+      const event = (
+        info as { events: { name: string; when: string; then: string[] }[] }
+      ).events.find((e) => e.name === "tdoc_protect_tenant_id");
+      expect(event?.when).toBe("$event = 'CREATE' OR $event = 'UPDATE'");
+      expect(event?.then[0]).toContain("THROW 'tenant_id cannot");
     });
   });
 

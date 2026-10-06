@@ -92,7 +92,9 @@ Writes are **eager** (run immediately, no `.explain()`).
 |---|---|---|
 | `create` — `CREATE [ONLY] t:id CONTENT`; string id → `RecordId` | `[x]` | `test/unit/orm-writes.test.ts:21`; `test/live/orm-writes.test.ts:86` |
 | `createMany` — one `CREATE` per row, ONE round-trip (implicit tx) | `[x]` | `test/unit/orm-writes.test.ts:73`; `test/live/orm-writes.test.ts:109` |
+| `createMany` `skipDuplicates` — one `INSERT IGNORE` per row; id-less rows get the generated id | `[x]` | `test/unit/orm-id-strategy.test.ts`; `test/live/orm-id-strategy.test.ts` |
 | `create.relate` sugar — `LET … CREATE ONLY; RELATE; RETURN` | `[x]` | `test/unit/orm-writes.test.ts:109`; `test/live/orm-writes.test.ts:131` |
+| `idStrategy` — per-table create-id generation (`ulid` default, `uuid` v7, `rand`); explicit id + singleton win; schema-versioned by `defineSchema` (id-field inference + conflict fail-fast; a pinned uuid v4/v6 id field resolves to `"none"` — explicit ids only, generated creates fail at compile time) | `[x]` | `CREATE type::record(s"t", rand::ulid())` / INSERT `id` expression / upsert target-expression. No DDL (migrations never diff); raw SQL + `sc pull` keep/fall back to the server default. `test/unit/orm-id-strategy.test.ts`; `test/live/orm-id-strategy.test.ts` |
 | `insert` — `INSERT INTO` + `onDuplicate` (`ignore`/`update`/map) | `[x]` | `test/unit/orm-writes.test.ts:125`; `test/live/orm-syntax.test.ts:1269` |
 | `insertMany` — single `INSERT`, batched | `[x]` | `test/unit/orm-writes.test.ts:169`; `test/live/orm-writes.test.ts:158` |
 | `update` — unique `where`, **never creates**; modes `merge`/`set`/`content`/`replace`/`patch` | `[x]` | `test/unit/orm-writes.test.ts:184`; `test/live/orm-writes.test.ts:194` |
@@ -120,7 +122,6 @@ Writes are **eager** (run immediately, no `.explain()`).
 | `upsert`/`upsertMany` `RETURN DIFF` with expressions or explicit map | `[ ]` | → `ReturnNotSupported`. `test/unit/orm-writes-returns.test.ts:90`/`:152` |
 | `upsert` `mode:"patch"` | `[ ]` | → `ValidationError`. `test/unit/orm-writes.test.ts:393` |
 | `create.relate` + `return:"diff"`; `relateMany` per-item `return` | `[ ]` | → `ReturnNotSupported` / `ValidationError`. `test/unit/orm-writes-returns.test.ts:230`/`:243` |
-| `skipDuplicates` without explicit id on every item | `[ ]` | → `ValidationError`. `test/unit/orm-writes.test.ts:84` |
 | `insert` with array `data` | `[ ]` | use `insertMany`. `test/unit/orm-writes.test.ts:154` |
 | `upsertMany` without ids and no `conflict` | `[ ]` | → `ValidationError`. `test/unit/orm-writes.test.ts:424` |
 | `relate`/`unrelate` on a plain (non-relation) table | `[ ]` | → `ValidationError`. `test/unit/orm-writes.test.ts:581` |
@@ -225,7 +226,7 @@ Runtime `context.ts`; `$withContext`, `forkSession`, `extends`.
 
 ## 7. Hooks & plugins
 
-Runtime `hooks.ts`, `plugins.ts`; built-ins `src/plugins/*` (subpaths `plugins/{rules,zod,timestamps,soft-delete}`).
+Runtime `hooks.ts`, `plugins.ts`; built-ins `src/plugins/*` (subpaths `plugins/{rules,zod,timestamps,soft-delete,tenant}`).
 
 | Feature | Status | Surface / test |
 |---|---|---|
@@ -242,6 +243,11 @@ Runtime `hooks.ts`, `plugins.ts`; built-ins `src/plugins/*` (subpaths `plugins/{
 | F1 `plugins/zod` — `{ schemas, validate? }` | `[x]` | `test/unit/orm-plugins-zod.test.ts` |
 | F2 `plugins/timestamps` — `app` stamp / `database` strip | `[x]` | `test/unit/orm-plugins-timestamps.test.ts`; `test/live/orm-plugins.test.ts:78` |
 | F2 `plugins/soft-delete` — soft `delete`/`deleteMany`, `deleted` filter, `restore`/`restoreById` | `[x]` | `test/unit/orm-plugins-soft-delete.test.ts`; `test/live/orm-plugins.test.ts:49` |
+| `Operation.scope` — plugin scope channel ANDed by EVERY compiler (reads: `findMany`/`findUnique`/`count`/`exists`/`aggregate`/`paginate`/`cursor`; writes incl. singular targets `update`/`patch`/`delete`/`upsert`/`updateEach`; never joins `uniqueTarget`) | `[x]` | `test/unit/orm-reads.test.ts` (plugin scope); `test/unit/orm-mutate-compiler.test.ts` (plugin scope); `test/unit/orm-plugins-tenant.test.ts` |
+| Preset `{table}` placeholders + opaque `meta` (A1/A2) | `[x]` | `test/unit/table-preset.test.ts` |
+| `surql.ident(name)` — escaped identifier fragment for presets/plugins | `[x]` | `test/unit/surql-ident.test.ts` |
+| F3 `plugins/tenant` PRESET — `tenant(principal, options?)` column/permissions/guard event/indexes + `meta.tenant` (zero-diff with the manual recipe) | `[x]` | `test/unit/tenant-preset.test.ts`; `test/types/orm-tenant.assert.ts` |
+| F3 `plugins/tenant` RUNTIME — `tenantRls`, `$forTenant`, fail-closed scope, payload/where divergence, scoped reads (incl. `findUnique` id/unique targets), `replace`-mode injection, ON DUPLICATE refusal, bootstrap validation, soft-delete combo | `[x]` | `test/unit/orm-plugins-tenant.test.ts`; `test/live/orm-plugins-tenant.test.ts` |
 | Type-level extraction — `PluginArgs`/`PluginClientExtras`/`PluginModelExtras` | `[x]` | `test/types/orm-m6.assert.ts` |
 
 ### Not implemented / guarded
@@ -251,6 +257,9 @@ Runtime `hooks.ts`, `plugins.ts`; built-ins `src/plugins/*` (subpaths `plugins/{
 | `soft-delete` filtering on `findUnique` | `[x]` by design | `where` is the unique target — filtering would break `uniqueTarget`; documented in-code |
 | `soft-delete` `deletedBy` from `meta.actor` | `[x]` | `test/unit/orm-plugins-soft-delete.test.ts` |
 | `restore`/`restoreById` via `UNSET` (not `SET null`) | `[x]` | codec `date().optional()` rejects `null`; documented in-code |
+| `tenant` runtime scope on `relate*`/`unrelate*`, `live`, `$raw`/`$query`/`$unsafe` | `[x]` by design | the DB permission (or `$withoutPlugins()`) is the boundary; documented in-code |
+| `tenant` runtime on `insert({ onDuplicate: "update" \| map })` and `upsertMany` by ids | `[x]` fail-closed | `INSERT … ON DUPLICATE KEY UPDATE` has no `WHERE` (cross-tenant write) → `TenantViolation`; use `upsert({ data })`/`conflict` |
+| `tenant` runtime on `upsert({ create, update })` by id | `[x]` fail-closed | the `INSERT … ON DUPLICATE` lowering has no scoped form → teaching `UnsupportedCapability`; use `upsert({ data })` |
 
 ## 8. Types, errors & results
 
@@ -259,9 +268,9 @@ Runtime `errors.ts`, `results.ts`.
 | Feature | Status | Surface / test |
 |---|---|---|
 | `BetterSchemicError` — `code`/`status`/`table`/`field`/`surql`/`vars`/`cause`; `from()` | `[x]` | `test/unit/orm-errors.test.ts` |
-| Error-code catalog (26 codes, per-code default HTTP status) | `[x]` | `test/unit/orm-errors.test.ts:36` |
+| Error-code catalog (28 codes, per-code default HTTP status — incl. `TenantRequired`/`TenantViolation`, 403) | `[x]` | `test/unit/orm-errors.test.ts:36` |
 | `normalizeError` — SDK `ServerError` mapping, Zod issue → `ValidationError` | `[x]` | `test/unit/orm-errors.test.ts:146` |
-| Predicates — `isUniqueViolation`/`isNotFound`/`isValidationError`/… | `[x]` | `test/unit/orm-errors.test.ts:224` |
+| Predicates — `isUniqueViolation`/`isNotFound`/`isValidationError`/`isTenantViolation`/… | `[x]` | `test/unit/orm-errors.test.ts:224` |
 | `ThrowingResult`/`attachThrow`/`NotFoundInfo` — miss ⇒ `null`, `.throw()` | `[x]` | `test/unit/orm-results.test.ts:15` |
 | `BatchResult<T>` — `count`/`data`/`skipped`/`statements` | `[x]` | `test/unit/orm-results.test.ts:96` |
 | `StatementResult<T>` / `statementResult` | `[x]` | `test/unit/orm-results.test.ts:110` |
@@ -309,6 +318,7 @@ Every guard below is intentional (a strongly-typed alternative to a silently-wro
 | `ResultNotFound` / `RecordNotFound` | `.throw()` on a miss |
 | `RecordAlreadyExists` | duplicate create |
 | `SchemaInvalid` / `RepositoryNotFound` / `PluginError` | bootstrap collisions / unknown repository / plugin id or `extend*` collision |
+| `TenantRequired` / `TenantViolation` | `tenantRls`: a tenant-tagged table with no scope; a divergent/forged tenant payload, `where`, patch or `ON DUPLICATE` path (both 403) |
 
 ---
 
@@ -322,9 +332,9 @@ Every guard below is intentional (a strongly-typed alternative to a silently-wro
 | Live/changefeeds (live, DIFF, FETCH, reconnect, `SHOW CHANGES`) | `[x]` |
 | Raw/admin/auth/api/fn/session | `[x]` — `$unsafe` gated |
 | Context/multi-connection (`$withContext`, `meta`, `forkSession`, `extends`) | `[x]` |
-| Hooks/plugins (families, `definePlugin`, F1 `rules`/`zod`, F2 `timestamps`/`soft-delete`) | `[x]` |
+| Hooks/plugins (families, `definePlugin`, F1 `rules`/`zod`, F2 `timestamps`/`soft-delete`, F3 `tenant`) | `[x]` |
 | Logger (`logger: true`/presets, `EXPLAIN` plan rendering, auto-explain, `@better-schemic/surrealdb/logger`) | `[x]` |
-| Types/errors/results (26 codes, predicates, throwing/lazy results, explain) | `[x]` |
+| Types/errors/results (28 codes, predicates, throwing/lazy results, explain) | `[x]` |
 
 > **Not in this document:** DDL/schema authoring → [`COVERAGE.md`](./COVERAGE.md); the raw SurrealQL
 > facts the compiler emits (statement shapes, operator semantics, divergences) →

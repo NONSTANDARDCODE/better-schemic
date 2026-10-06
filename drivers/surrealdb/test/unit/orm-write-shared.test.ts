@@ -23,6 +23,7 @@ import {
   updatableFields,
   updateMode,
 } from "../../src/orm/compiler/write-shared";
+import { mergeScope, scopePredicate } from "../../src/orm/compiler/where";
 import { defineSchema } from "../../src/orm/schema";
 import { fakeConn, ok } from "../orm-fixtures";
 import { schema } from "./orm-writes-fixtures";
@@ -80,10 +81,7 @@ describe("setAssignments / assignmentList", () => {
   test("assignmentList is empty for a non-object, and splices expressions", () => {
     const b = createBinds();
     expect(assignmentList(5, b)).toBe("");
-    const out = assignmentList(
-      { name: "A", active: surql`time::now()` },
-      b,
-    );
+    const out = assignmentList({ name: "A", active: surql`time::now()` }, b);
     expect(out).toContain("name =");
     expect(out).toContain("time::now()");
   });
@@ -149,7 +147,9 @@ describe("readReturn / updateMode / pure helpers", () => {
     expect(recordIdText("user:1")).toBe("1");
     expect(recordIdText(5)).toBe("5");
     expect(recordIdText({})).toBe("[object Object]");
-    expect(updatableFields({ id: 1, in: 2, out: 3, name: 4 })).toEqual(["name"]);
+    expect(updatableFields({ id: 1, in: 2, out: 3, name: 4 })).toEqual([
+      "name",
+    ]);
     expect(mutationTail("before", 5, "op")).toContain("RETURN BEFORE");
     expect(mutationTail("before", 5, "op")).toContain("TIMEOUT");
   });
@@ -172,15 +172,15 @@ describe("readReturn / updateMode / pure helpers", () => {
     expect(code(() => patchOps([{ op: "add", path: 5 }], "patch"))).toBe(
       "ValidationError",
     );
-    expect(patchOps([{ op: "copy", path: "/a", from: "/b" }], "patch")).toHaveLength(
-      1,
-    );
+    expect(
+      patchOps([{ op: "copy", path: "/a", from: "/b" }], "patch"),
+    ).toHaveLength(1);
     expect(code(() => patchOps([{ op: "copy", path: "/a" }], "patch"))).toBe(
       "ValidationError",
     );
-    expect(patchOps([{ op: "test", path: "/a", value: 1 }], "patch")).toHaveLength(
-      1,
-    );
+    expect(
+      patchOps([{ op: "test", path: "/a", value: 1 }], "patch"),
+    ).toHaveLength(1);
   });
 
   test("unset/return/mode guards take non-string and empty values", () => {
@@ -189,5 +189,40 @@ describe("readReturn / updateMode / pure helpers", () => {
       "ReturnNotSupported",
     );
     expect(code(() => updateMode(5, "op", "merge"))).toBe("ValidationError");
+  });
+});
+
+describe("plugin scope helpers", () => {
+  test("scopePredicate compiles on a schemaless model too (no table metadata)", () => {
+    const schemaless = { key: "audit", name: "audit_log", schemaless: true };
+    expect(
+      scopePredicate(
+        { tenant_id: { equals: "user:1" } },
+        createBinds(),
+        schemaless as never,
+      ),
+    ).toContain("tenant_id = ");
+    // An EMPTY scope compiles to no predicate.
+    expect(scopePredicate({}, createBinds(), schemaless as never)).toBe("");
+  });
+
+  test("mergeScope: absent/empty/null filters collapse, present ones AND", () => {
+    const scope = { tenant_id: { equals: "user:1" } };
+    const where = { name: "A" };
+    // Either side absent — and `null`/`{}` count as absent (a lazily-created scope bag or a
+    // JS caller passing `where: null` must not produce an empty AND branch).
+    expect(mergeScope(where, undefined)).toEqual(where);
+    expect(mergeScope(undefined, scope)).toEqual(scope);
+    expect(mergeScope(where, {})).toEqual(where);
+    expect(mergeScope({}, scope)).toEqual(scope);
+    expect(mergeScope(null, scope)).toEqual(scope);
+    expect(mergeScope(where, null)).toEqual(where);
+    expect(mergeScope(undefined, undefined)).toBeUndefined();
+    expect(mergeScope(null, {})).toBeNull();
+    // Both present: AND, preserving each side verbatim (fragments included).
+    expect(mergeScope(where, scope)).toEqual({ AND: [where, scope] });
+    const fragment = surql`name = "A"`;
+    expect(mergeScope(fragment, scope)).toEqual({ AND: [fragment, scope] });
+    expect(mergeScope(where, fragment)).toEqual({ AND: [where, fragment] });
   });
 });

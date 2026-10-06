@@ -233,6 +233,7 @@ This is where the honesty lives — projections, redactions, and emit-but-don't-
 | Indexes (plain, unique, composite, count, COMMENT, vector HNSW/DISKANN, full-text) | `[x]` — full `DEFINE INDEX` (modifiers CONCURRENTLY/DEFER n/a) |
 | Analyzers (`DEFINE ANALYZER`) | `[x]` |
 | Events | `[x]` — incl. `ASYNC RETRY`/`MAXDEPTH` |
+| Presets (`defineTable.preset` + `TableDef.use`) | `[x]` — typed column merge, AND-narrowing permissions, appended events/indexes, `{table}` name placeholders, opaque `meta` (the official `tenant()` preset uses all of them) |
 | Functions | `[x]` (body-format caveat) |
 | Access/Auth (RECORD) | `[x]` |
 | Access/Auth (JWT, BEARER) | `[~]` — secrets redacted |

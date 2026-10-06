@@ -23,7 +23,7 @@ describe("create", () => {
     const { client, calls } = makeClient();
     await client.users.create({ data });
     expect(lastCall(calls)).toEqual({
-      sql: "CREATE user CONTENT $p0;",
+      sql: 'CREATE type::record(s"user", rand::ulid()) CONTENT $p0;',
       vars: { p0: data },
     });
   });
@@ -44,9 +44,13 @@ describe("create", () => {
   test("return none/diff/only lower the RETURN clause", async () => {
     const { client, calls } = makeClient([]);
     await client.users.create({ data, return: "none" });
-    expect(lastCall(calls).sql).toBe("CREATE user CONTENT $p0 RETURN NONE;");
+    expect(lastCall(calls).sql).toBe(
+      'CREATE type::record(s"user", rand::ulid()) CONTENT $p0 RETURN NONE;',
+    );
     await client.users.create({ data, return: "diff" });
-    expect(lastCall(calls).sql).toBe("CREATE user CONTENT $p0 RETURN DIFF;");
+    expect(lastCall(calls).sql).toBe(
+      'CREATE type::record(s"user", rand::ulid()) CONTENT $p0 RETURN DIFF;',
+    );
   });
 
   test("expression fields splice; literal fields stay codec-encoded", async () => {
@@ -56,7 +60,7 @@ describe("create", () => {
     });
     const call = lastCall(calls);
     expect(stable(call.sql, call.vars)).toEqual({
-      sql: "CREATE user CONTENT { email: $b0, age: $b1, active: $b2, tags: [], address: { city: $b3 }, name: string::uppercase($frag0) };",
+      sql: 'CREATE type::record(s"user", rand::ulid()) CONTENT { email: $b0, age: $b1, active: $b2, tags: [], address: { city: $b3 }, name: string::uppercase($frag0) };',
       vars: { b0: "a@x", b1: 1, b2: true, b3: "SP", frag0: "a" },
     });
   });
@@ -74,7 +78,7 @@ describe("create", () => {
     const { client, calls } = makeClient();
     const p = client.users.createMany({ data: [data, { ...data, name: "B" }] });
     expect(calls[0]?.sql).toBe(
-      "BEGIN TRANSACTION;\nCREATE user CONTENT $p0;\nCREATE user CONTENT $p1;\nCOMMIT TRANSACTION;",
+      'BEGIN TRANSACTION;\nCREATE type::record(s"user", rand::ulid()) CONTENT $p0;\nCREATE type::record(s"user", rand::ulid()) CONTENT $p1;\nCOMMIT TRANSACTION;',
     );
     const result = await p;
     expect(result.count).toBe(2);
@@ -117,7 +121,15 @@ describe("create", () => {
       relate: [{ from: "user:1", edge: "likes", to: "$self" }],
     });
     expect(calls[0]?.sql).toBe(
-      "BEGIN TRANSACTION;\nLET $__created = (CREATE ONLY post CONTENT $p0);\nRELATE user:1->likes->$__created;\nRETURN $__created;\nCOMMIT TRANSACTION;",
+      'BEGIN TRANSACTION;\nLET $__created = (CREATE ONLY type::record(s"post", rand::ulid()) CONTENT $p0);\nRELATE user:1->likes->$__created;\nRETURN $__created;\nCOMMIT TRANSACTION;',
+    );
+    // An explicit id keeps the targeted form (never the generated target).
+    await client.posts.create({
+      data: { id: "post:fixed", title: "T" },
+      relate: [{ from: "user:1", edge: "likes", to: "$self" }],
+    });
+    expect(calls[1]?.sql).toContain(
+      "LET $__created = (CREATE ONLY post:fixed CONTENT $p0);",
     );
   });
 });
@@ -162,7 +174,7 @@ describe("insert", () => {
       return: "before",
     });
     expect(lastCall(calls).sql).toBe(
-      "INSERT IGNORE INTO user $p0 RETURN BEFORE;",
+      "INSERT IGNORE INTO user { name: $b0, email: $b1, age: $b2, active: $b3, tags: [], address: { city: $b4 }, id: rand::ulid() } RETURN BEFORE;",
     );
   });
 
@@ -357,7 +369,7 @@ describe("upsert", () => {
       data: { email: "a@x", age: 2 },
     });
     expect(lastCall(calls).sql).toBe(
-      "UPSERT user MERGE $p0 WHERE email = $p1;",
+      'UPSERT ((SELECT VALUE id FROM user WHERE email = $p0 LIMIT 1)[0] ?? type::record(s"user", rand::ulid())) MERGE $p1;',
     );
   });
 
@@ -385,7 +397,7 @@ describe("upsert", () => {
       "LET $__existing = (SELECT VALUE id FROM user WHERE id = $p0 LIMIT 1);",
     );
     expect(lastCall(calls).sql).toContain(
-      "IF array::len($__existing) = 0 THEN CREATE user CONTENT $p1 ELSE UPDATE $__existing[0] MERGE { age: age + 1 } END;",
+      "IF array::len($__existing) = 0 THEN CREATE user:1 CONTENT $p1 ELSE UPDATE $__existing[0] MERGE { age: age + 1 } END;",
     );
     await p;
   });
@@ -401,7 +413,7 @@ describe("upsert", () => {
       "LET $__existing = (SELECT VALUE id FROM user WHERE email = $p0 LIMIT 1);",
     );
     expect(calls[0]?.sql).toContain(
-      "IF array::len($__existing) = 0 THEN CREATE user CONTENT $p1 ELSE UPDATE $__existing[0] MERGE $p2 END;",
+      'IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) CONTENT $p1 ELSE UPDATE $__existing[0] MERGE $p2 END;',
     );
     await p;
   });
@@ -425,7 +437,7 @@ describe("upsert", () => {
     const { client, calls } = makeClient();
     await client.users.upsertMany({ data: [{ ...data }], conflict: "email" });
     expect(lastCall(calls).sql).toBe(
-      "UPSERT user MERGE $p0 WHERE email = $p0.email;",
+      'UPSERT ((SELECT VALUE id FROM user WHERE email = $p0.email LIMIT 1)[0] ?? type::record(s"user", rand::ulid())) MERGE $p0;',
     );
     expect(codeOf(() => client.users.upsertMany({ data: [{ ...data }] }))).toBe(
       "ValidationError",

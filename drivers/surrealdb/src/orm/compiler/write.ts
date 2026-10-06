@@ -16,22 +16,22 @@ import {
   compileError,
   describeValue,
   isPlainObject,
-  isTableMeta,
   renderPath,
   renderValue,
 } from "./shared";
 import {
   type CreateManyRuntimeArgs,
   type CreateRuntimeArgs,
+  createTarget,
   encodeData,
   type InsertRuntimeArgs,
   mutationTail,
   payload,
   readReturn,
-  recordTarget,
   requireArray,
   resultOf,
   updatableFields,
+  withGeneratedId,
   type WritePlan,
   type WriteRet,
 } from "./write-shared";
@@ -79,7 +79,7 @@ export function compileCreate(
       { operation, table: meta.name },
     );
   const statements = [
-    `LET $__created = (CREATE ONLY ${escapeIdent(meta.name)} CONTENT ${payload(encoded, binds)});`,
+    `LET $__created = (CREATE ${createTarget(meta, args.data, true, operation)} CONTENT ${payload(encoded, binds)});`,
     ...relate.map((entry) => relateStatement(entry, binds, operation)),
     ret === "after" ? "RETURN $__created;" : "RETURN NONE;",
   ];
@@ -127,14 +127,6 @@ function compileSkipDuplicates(
   binds: Binds,
   operation: string,
 ): WritePlan {
-  data.forEach((item, i) => {
-    if (!isPlainObject(item) || item.id === undefined)
-      throw compileError(
-        "ValidationError",
-        `${operation}: "skipDuplicates" needs an explicit "id" on every item (item ${i} has none) — id-less rows can't conflict; use insertMany({ onDuplicate: "ignore" }).`,
-        { operation, table: meta.name },
-      );
-  });
   const statements = data.map((item) =>
     insertStatement(meta, item, "ignore", ret, binds, operation),
   );
@@ -221,8 +213,10 @@ function insertStatement(
 ): string {
   const table = escapeIdent(meta.name);
   const encoded = Array.isArray(data)
-    ? data.map((item) => encodeData(meta, item, "create", operation))
-    : encodeData(meta, data, "create", operation);
+    ? data.map((item) =>
+        withGeneratedId(meta, encodeData(meta, item, "create", operation)),
+      )
+    : withGeneratedId(meta, encodeData(meta, data, "create", operation));
   const payloadText = payload(encoded, binds);
   let sql = `INSERT INTO ${table} ${payloadText}`;
 
@@ -263,27 +257,4 @@ function insertStatement(
     );
 
   return `${sql}${mutationTail(ret, undefined, operation)}`;
-}
-
-/** `ONLY t:id` / `t:id` / `t` / `t:<singleton>` target for CREATE. */
-function createTarget(
-  meta: ModelMeta,
-  data: unknown,
-  only: boolean,
-  operation: string,
-): string {
-  const id = createId(meta, data);
-  const target =
-    id !== undefined
-      ? recordTarget(meta, id, operation)
-      : escapeIdent(meta.name);
-  return `${only ? "ONLY " : ""}${target}`;
-}
-
-/** The explicit `id` of a payload, or a singleton delegate's fixed id. */
-function createId(meta: ModelMeta, data: unknown): unknown {
-  if (isPlainObject(data) && data.id !== undefined) return data.id;
-  const singleton = isTableMeta(meta) ? meta.singletonId : undefined;
-  if (singleton !== undefined) return `${meta.name}:${singleton}`;
-  return undefined;
 }

@@ -156,6 +156,15 @@ const upserted = await client.users.upsert({
 });
 const removed = await client.users.delete({ where: { id: created.id } });
 
+// Created ids: every ORM create without an explicit `id` generates a ULID by default
+// (`rand::ulid()` — 26 chars, time-sortable). Pick another strategy per table in authoring:
+//   defineTable("user", { … }).idStrategy("uuid")   // rand::uuid() — UUID v7
+//   defineTable("legacy", { … }).idStrategy("rand") // rand::id() — the server default (20 chars)
+// An explicit `id` always wins and singleton tables keep their fixed id. The strategy is
+// ORM-only: it emits NO DDL (migrations never diff), raw SQL keeps the server default, and
+// `sc pull` cannot recover it. A pinned uuid v4/v6 `id` field is explicit-only: creates without
+// an `id` fail at compile time (no strategy can generate that format).
+
 // Edges live on the relation delegate (`defineRelation`):
 // const like = await client.likes.relate({ from: "user:1", to: "post:1", data: { score: 5 } });
 // await client.likes.unrelate({ from: "user:1", to: "post:1" });
@@ -285,6 +294,35 @@ const all  = await client.users.findMany({ deleted: "with" }); // include them
 await client.users.restoreById(id);                            // clear deletedAt
 ```
 
+Official F3 plugin (M10) — multi-tenant RLS: a schema PRESET (`tenant()`) plus a runtime plugin
+(`tenantRls()`) for privileged sessions, where `$auth`/DDL permissions do not filter:
+
+```ts
+import { tenant, tenantRls } from "@better-schemic/surrealdb/plugins/tenant";
+
+// Schema: one `.use(tenant(principal, options?))` per table — tenant column + per-op permissions +
+// `{table}_protect_<column>` guard event + indexes (zero-diff with the hand-written recipe).
+const User = defineTable("user", { name: s.string() });
+const Customer = defineTable("customer", {
+  name: s.string(),
+  deletedAt: s.datetime().optional(),          // app-declared tombstone (softDelete: true)
+}).use(tenant(User, { softDelete: true }));
+const Order = defineTable("order", { total: s.number() })
+  .use(tenant(User, { createOnly: true }));    // append-only: update = NONE
+
+// Runtime: every tenant-tagged table requires a scope BEFORE compiling (fail-closed).
+const client = betterSchemic(db, {
+  schema: defineSchema({ users: User, customers: Customer, orders: Order }),
+  plugins: [tenantRls({ tenant: () => ctx.tenantId })],
+});
+await client.customers.findMany({});                          // ✗ TenantRequired (no scope)
+await client.customers.$forTenant("user:abc").findMany({});   // ✓ scoped to user:abc
+await client.customers.$forTenant("user:abc").create({ data: { name: "A" } }); // tenant injected
+await client.customers.$forTenant("user:abc").findUnique({ where: { id: "customer:1" } });
+// ✓ reads are scoped too (id and single-field UNIQUE targets) — a cross-tenant id resolves null
+await client.customers.$withoutPlugins().findMany({});        // explicit admin escape (audited)
+```
+
 ### Beautiful query logging (M9)
 
 Enable the built-in logger with one flag — a framed, syntax-highlighted box for every round-trip,
@@ -346,7 +384,7 @@ escape hatches/admin/context (M5 — `$raw`/`$query`/`$unsafe`, `fn`/`api`/`auth
 `ping`/`export`/`import`, `$withContext` multi-tenant scoping with per-call `context`) and
 plugins/hooks (M6 — observation `hooks`, `definePlugin` with transforms/typed `operationArgs`/
 `extendClient`/`extendModel`, plus the official plugins `plugins/rules`, `plugins/zod`,
-`plugins/timestamps` and `plugins/soft-delete`). M9 adds the built-in query logger
+`plugins/timestamps`, `plugins/soft-delete` and `plugins/tenant`). M9 adds the built-in query logger
 (`logger: true` / `@better-schemic/surrealdb/logger`) with `EXPLAIN` plan rendering.
 
 The runtime surface is mapped exhaustively in [`docs/ORM-COVERAGE.md`](docs/ORM-COVERAGE.md), the

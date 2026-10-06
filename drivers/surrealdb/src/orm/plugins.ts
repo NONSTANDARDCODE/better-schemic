@@ -195,6 +195,7 @@ export class RuntimeOperation implements Operation {
   meta?: Record<string, unknown>;
   #where?: Record<string, unknown>;
   #data?: Record<string, unknown>;
+  #scope?: Record<string, unknown>;
 
   constructor(
     kind: OperationKind,
@@ -236,10 +237,24 @@ export class RuntimeOperation implements Operation {
     this.#data = value;
   }
 
-  /** Flush a `where`/`data` bag created by a transform back into `args` (no-op if untouched). */
+  /** A plugin-written filter the WRITE compilers AND into every statement (see `Operation.scope`). */
+  get scope(): Record<string, unknown> {
+    if (this.#scope) return this.#scope;
+    const existing = this.args.scope;
+    if (existing !== undefined) return existing as Record<string, unknown>;
+    this.#scope = {};
+    return this.#scope;
+  }
+
+  set scope(value: Record<string, unknown>) {
+    this.#scope = value;
+  }
+
+  /** Flush a `where`/`data`/`scope` bag created by a transform back into `args` (no-op if untouched). */
   commit(): void {
     if (this.#where !== undefined) this.args.where = this.#where;
     if (this.#data !== undefined) this.args.data = this.#data;
+    if (this.#scope !== undefined) this.args.scope = this.#scope;
   }
 }
 

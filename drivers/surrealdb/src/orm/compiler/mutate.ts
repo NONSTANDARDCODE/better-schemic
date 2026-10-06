@@ -15,12 +15,16 @@ import {
   renderPath,
 } from "./shared";
 import { requireUniqueField, uniqueTarget } from "./unique";
+import { mergeScope, scopePredicate, scopeWhere } from "./where";
 import {
   assignmentList,
+  createId,
+  createTarget,
   type DeleteManyRuntimeArgs,
   type DeleteRuntimeArgs,
   encodeData,
   encodedBody,
+  generatedTarget,
   isRecordColumn,
   mutationTail,
   patchOps,
@@ -76,7 +80,12 @@ export function compileUpdateMany(
   operation = "updateMany",
   options: { readonly index?: SchemaIndex } = {},
 ): WritePlan {
-  const where = whereSql(args.where, binds, meta, options.index);
+  const where = whereSql(
+    mergeScope(args.where, args.scope),
+    binds,
+    meta,
+    options.index,
+  );
   return compileMutation(
     meta,
     escapeIdent(meta.name),
@@ -261,13 +270,44 @@ export function compileUpsert(
     const hasExpressions =
       isPlainObject(encoded) && Object.values(encoded).some(hasRefDeep);
     if (!hasExpressions) {
+      if (target.kind === "id") {
+        const body = encodedBody(mode, encoded, binds);
+        return {
+          statements: [
+            `UPSERT ${only}${recordTarget(meta, target.id, operation)} ${body}${scopeWhere(args.scope, binds, meta)}${mutationTail(ret, args.timeout, operation)}`,
+          ],
+          transactional: false,
+          resultIndexes: [0],
+          result: resultOf(ret, "row"),
+        };
+      }
+      // Unique-field target, no expressions. A payload `id` wins (the plain-table form carries it
+      // in the payload, and `id` inside MERGE on an EXISTING record is a server error — live-probed
+      // 3.2), so only an id-less payload switches to the generated target: the subquery resolves the
+      // existing record by the unique field, `??` falls back to `type::record(<table>, <fn>())` on a
+      // miss. One statement, so `RETURN DIFF` stays supported (the LET/IF fallback can't honor it).
+      // `encodeData` above already rejected non-object data — while `createId` handles both.
+      const generated =
+        createId(meta, args.data) === undefined
+          ? generatedTarget(meta)
+          : undefined;
+      if (generated !== undefined) {
+        const where = upsertWhere(meta, target, binds, args.scope);
+        const body = encodedBody(mode, encoded, binds);
+        return {
+          statements: [
+            `UPSERT ${only}((SELECT VALUE id FROM ${escapeIdent(meta.name)} WHERE ${where} LIMIT 1)[0] ?? ${generated}) ${body}${mutationTail(ret, args.timeout, operation)}`,
+          ],
+          transactional: false,
+          resultIndexes: [0],
+          result: resultOf(ret, "row"),
+        };
+      }
       const body = encodedBody(mode, encoded, binds);
-      const sql =
-        target.kind === "id"
-          ? `UPSERT ${only}${recordTarget(meta, target.id, operation)} ${body}${mutationTail(ret, args.timeout, operation)}`
-          : `UPSERT ${only}${escapeIdent(meta.name)} ${body} WHERE ${renderPath(target.field)} = ${binds.add(target.value)}${mutationTail(ret, args.timeout, operation)}`;
       return {
-        statements: [sql],
+        statements: [
+          `UPSERT ${only}${escapeIdent(meta.name)} ${body} WHERE ${upsertWhere(meta, target, binds, args.scope)}${mutationTail(ret, args.timeout, operation)}`,
+        ],
         transactional: false,
         resultIndexes: [0],
         result: resultOf(ret, "row"),
@@ -277,7 +317,7 @@ export function compileUpsert(
     // (empty) create branch too, so the LET/IF form distinguishes the branches first.
     return compileUpsertIfElse(
       meta,
-      upsertWhere(meta, target, binds),
+      upsertWhere(meta, target, binds, args.scope),
       { ...args, create: args.data, update: args.data },
       mode,
       ret,
@@ -289,15 +329,20 @@ export function compileUpsert(
   return compileUpsertBranches(meta, target, args, mode, ret, binds, operation);
 }
 
-/** The LET/IF `WHERE` for a resolved unique target (`id = $record` / `uniq = $value`). */
+/** The LET/IF `WHERE` for a resolved unique target (`id = $record` / `uniq = $value`), ANDed with
+ *  the plugin `scope` (see `Operation.scope`) when present. */
 function upsertWhere(
   meta: ModelMeta,
   target: ReturnType<typeof uniqueTarget>,
   binds: Binds,
+  scope?: unknown,
 ): string {
-  return target.kind === "id"
-    ? `id = ${binds.add(new RecordId(meta.name, target.id))}`
-    : `${renderPath(target.field)} = ${binds.add(target.value)}`;
+  const base =
+    target.kind === "id"
+      ? `id = ${binds.add(new RecordId(meta.name, target.id))}`
+      : `${renderPath(target.field)} = ${binds.add(target.value)}`;
+  const scoped = scopePredicate(scope, binds, meta);
+  return scoped ? `${base} AND ${scoped}` : base;
 }
 
 /** `create` + `update` distinct: `INSERT … ON DUPLICATE` (literal update) or `LET`/`IF`. */
@@ -330,6 +375,12 @@ function compileUpsertBranches(
     isPlainObject(updateEncoded) &&
     Object.values(updateEncoded).some(hasRefDeep);
   if (target.kind === "id" && !hasExpressions) {
+    if (args.scope !== undefined)
+      throw compileError(
+        "UnsupportedCapability",
+        `${operation}: a plugin scope can't be applied to the INSERT … ON DUPLICATE KEY UPDATE path — pass "data" (a single payload) instead of "create" + "update", or use $withoutPlugins().`,
+        { operation, table: meta.name },
+      );
     const createEncoded = encodeData(meta, args.create, "create", operation);
     const assignments = assignmentList(updateEncoded, binds);
     if (!assignments)
@@ -350,7 +401,7 @@ function compileUpsertBranches(
   }
   return compileUpsertIfElse(
     meta,
-    upsertWhere(meta, target, binds),
+    upsertWhere(meta, target, binds, args.scope),
     args,
     mode,
     ret,
@@ -388,7 +439,7 @@ function compileUpsertIfElse(
     ret === "before" ? " RETURN BEFORE" : ret === "none" ? " RETURN NONE" : "";
   const steps = [
     `LET $__existing = (SELECT VALUE id FROM ${table} WHERE ${where} LIMIT 1);`,
-    `IF array::len($__existing) = 0 THEN CREATE ${table} CONTENT ${payload(createEncoded, binds)}${createInner} ELSE UPDATE $__existing[0] ${encodedBody(mode, encodeData(meta, args.update, "update", operation), binds)}${updateInner} END;`,
+    `IF array::len($__existing) = 0 THEN CREATE ${createTarget(meta, args.create, false, operation)} CONTENT ${payload(createEncoded, binds)}${createInner} ELSE UPDATE $__existing[0] ${encodedBody(mode, encodeData(meta, args.update, "update", operation), binds)}${updateInner} END;`,
   ];
   return {
     statements: steps,
@@ -428,6 +479,12 @@ export function compileUpsertMany(
   const updateMap = explicitUpdateMap(meta, args.update, operation);
 
   if (withIds === encoded.length) {
+    if (args.scope !== undefined)
+      throw compileError(
+        "UnsupportedCapability",
+        `${operation}: a plugin scope can't be applied to the all-ids INSERT … ON DUPLICATE KEY UPDATE path — provide rows without ids plus "conflict", or use $withoutPlugins().`,
+        { operation, table: meta.name },
+      );
     const assignments = updateMap
       ? assignmentList(updateMap, binds)
       : updatableFields(encoded)
@@ -466,20 +523,27 @@ export function compileUpsertMany(
 
   const table = escapeIdent(meta.name);
   const updatePayload = updateMap ? payload(updateMap, binds) : undefined;
+  // Reaching this path means NO item carries an id (`withIds` is 0, else the all-ids form ran or
+  // the mixed guard threw), so the generated target is the same for every item.
+  const generated = generatedTarget(meta);
+  const scope = scopePredicate(args.scope, binds, meta);
   const statements: string[] = [];
   const resultIndexes: number[] = [];
   encoded.forEach((item, i) => {
     const itemBind = binds.add(item);
-    const where = `${renderPath(conflict)} = ${itemBind}.${renderPath(conflict)}`;
+    const baseWhere = `${renderPath(conflict)} = ${itemBind}.${renderPath(conflict)}`;
+    const where = scope ? `${baseWhere} AND ${scope}` : baseWhere;
     if (updatePayload === undefined) {
       statements.push(
-        `UPSERT ${table} MERGE ${itemBind} WHERE ${where}${mutationTail(ret, undefined, operation)};`,
+        generated !== undefined
+          ? `UPSERT ((SELECT VALUE id FROM ${table} WHERE ${where} LIMIT 1)[0] ?? ${generated}) MERGE ${itemBind}${mutationTail(ret, undefined, operation)};`
+          : `UPSERT ${table} MERGE ${itemBind} WHERE ${where}${mutationTail(ret, undefined, operation)};`,
       );
     } else {
       // Expressions must read the existing row → LET/IF (`ON DUPLICATE` evaluates them on create).
       statements.push(
         `LET $__e${i} = (SELECT VALUE id FROM ${table} WHERE ${where} LIMIT 1);`,
-        `IF array::len($__e${i}) = 0 THEN CREATE ${table} CONTENT ${itemBind}${ret === "none" || ret === "before" ? " RETURN NONE" : ""} ELSE UPDATE $__e${i}[0] MERGE ${updatePayload}${ret === "before" ? " RETURN BEFORE" : ret === "none" ? " RETURN NONE" : ""} END;`,
+        `IF array::len($__e${i}) = 0 THEN CREATE ${createTarget(meta, item, false, operation)} CONTENT ${itemBind}${ret === "none" || ret === "before" ? " RETURN NONE" : ""} ELSE UPDATE $__e${i}[0] MERGE ${updatePayload}${ret === "before" ? " RETURN BEFORE" : ret === "none" ? " RETURN NONE" : ""} END;`,
       );
     }
     resultIndexes.push(statements.length - 1);
@@ -535,8 +599,8 @@ export function compileDelete(
   const target = uniqueTarget(meta, args.where, operation);
   const sql =
     target.kind === "id"
-      ? `DELETE ${recordTarget(meta, target.id, operation)}`
-      : `DELETE FROM ${escapeIdent(meta.name)}${whereSql(args.where, binds, meta, options.index)}`;
+      ? `DELETE ${recordTarget(meta, target.id, operation)}${scopeWhere(args.scope, binds, meta, options.index)}`
+      : `DELETE FROM ${escapeIdent(meta.name)}${whereSql(mergeScope(args.where, args.scope), binds, meta, options.index)}`;
   return {
     statements: [`${sql}${mutationTail(ret, args.timeout, operation)}`],
     transactional: false,
@@ -555,7 +619,12 @@ export function compileDeleteMany(
   options: { readonly index?: SchemaIndex } = {},
 ): WritePlan {
   const ret = readReturn(args.return, operation, ["before", "none"], "before");
-  const where = whereSql(args.where, binds, meta, options.index);
+  const where = whereSql(
+    mergeScope(args.where, args.scope),
+    binds,
+    meta,
+    options.index,
+  );
   if (!where && args.all !== true)
     throw compileError(
       "UnsafeMutation",
@@ -610,8 +679,9 @@ export function compileUpdateEach(
   const rows = buildEachRows(meta, data, mode, args.patches, by, operation);
   const table = escapeIdent(meta.name);
   const tail = mutationTail(ret, args.timeout, operation);
+  const scope = scopePredicate(args.scope, binds, meta);
   const statements = rows.map((row) => {
-    const target = `${renderPath(by)} = ${binds.add(row.by)}`;
+    const target = `${renderPath(by)} = ${binds.add(row.by)}${scope ? ` AND ${scope}` : ""}`;
     const body =
       mode === "patch" ? patchOps(row.patches, operation) : (row.fields ?? {});
     return `UPDATE ${table} ${encodedBody(mode, body, binds)} WHERE ${target}${tail}`;

@@ -13,11 +13,11 @@ import {
   escapeIdent,
   FileRef,
   Geometry,
-  Range as SurrealRange,
   RecordId,
   RecordIdRange,
   type RecordIdValue,
   type Surreal,
+  Range as SurrealRange,
   surql,
   Table,
   Uuid,
@@ -2017,12 +2017,37 @@ function fieldRefs<S extends Shape>(fields: Fields<S>): FieldRefs<S> {
   return out as FieldRefs<S>;
 }
 
+/**
+ * The ORM-side id generation strategy of a table — how the ORM generates a record id when a write
+ * creates a record WITHOUT an explicit `id` (see {@link TableDef.idStrategy}):
+ *
+ * - `"ulid"` — `rand::ulid()` (26 chars, time-sortable). The DEFAULT.
+ * - `"uuid"` — `rand::uuid()` (UUID v7, time-sortable).
+ * - `"rand"` — `rand::id()` (20 chars, no ordering) — the server default, i.e. the pre-feature
+ *   behavior.
+ *
+ * It is ORM-only authoring metadata: it emits NO DDL (migrations never diff on it) and raw SQL
+ * (`$query`/`client.query`/`$unsafe`) keeps the server default. `sc pull` cannot recover it from
+ * the database, so a pulled schema falls back to the default.
+ */
+export type IdStrategy = "ulid" | "uuid" | "rand";
+
 export interface TableConfig {
   schemafull: boolean;
   /** Table `TYPE`: `normal` (default) or `any` (holds both records and graph edges). */
   type?: "normal" | "any";
   drop?: boolean;
   comment?: string;
+  /**
+   * OPAQUE authoring metadata — a place for presets/plugins to TAG a table
+   * (`meta.tenant = { column, principal, softDelete, createOnly }`). It emits NO DDL, never enters
+   * a snapshot, and the diff/introspection engines ignore it — the runtime reads it back through
+   * `TableMeta.def.config.meta`. Use dot-free keys (`tenant`, not `acme.tenant`).
+   */
+  meta?: Record<string, unknown>;
+  /** ORM create-id generation strategy. Omitted = `"ulid"` (or the explicit id field's type). See
+   *  {@link TableDef.idStrategy}. ORM-only: never emitted as DDL. */
+  idStrategy?: IdStrategy;
   /** Table-level `PERMISSIONS`. Omitted ops default to NONE in SurrealDB. See `.permissions()`. */
   permissions?: TablePermissions;
   relation?: { from: string[]; to: string[]; enforced?: boolean };
@@ -2505,7 +2530,9 @@ type MakeWireAll<S extends Shape> = Partial<z.input<z.ZodObject<ZShapeAll<S>>>>;
 
 // --- table presets (composable bundles applied via TableDef.use) --------------------------------
 
-/** A row-change event contributed by a preset — the `.event(name, spec)` shape, name inline. */
+/** A row-change event contributed by a preset — the `.event(name, spec)` shape, name inline.
+ *  The name may carry a `{table}` placeholder, interpolated by `TableDef.use()`
+ *  (`"{table}_protect_tenant_id"` -> `"customer_protect_tenant_id"`). */
 export interface PresetEvent {
   name: string;
   when?: Expr;
@@ -2513,7 +2540,8 @@ export interface PresetEvent {
   async?: EventAsync;
   comment?: string;
 }
-/** A composite index contributed by a preset — the `.index(name, fields, opts)` shape, inline. */
+/** A composite index contributed by a preset — the `.index(name, fields, opts)` shape, inline.
+ *  The name may carry a `{table}` placeholder (see {@link PresetEvent}). */
 export interface PresetIndex extends IndexOptions {
   name: string;
   fields: readonly string[];
@@ -2532,10 +2560,14 @@ export interface TablePreset<Cols extends Shape = {}> {
   /** Table `PERMISSIONS`, per-op **AND**-combined with the table's own + other presets' — a preset can
    *  only NARROW access, never widen it. */
   permissions?: TablePermissions;
-  /** Row-change events, appended. */
+  /** Row-change events, appended. A `{table}` placeholder in `name` is interpolated by `.use()`. */
   events?: PresetEvent[];
-  /** Composite indexes, appended. */
+  /** Composite indexes, appended. A `{table}` placeholder in `name` is interpolated by `.use()`. */
   indexes?: PresetIndex[];
+  /** OPAQUE metadata merged into {@link TableConfig.meta} — DDL/diff/introspection-neutral. A
+   *  preset's marker for the runtime (`meta.tenant = { … }`), read back via `TableMeta.def.config.meta`.
+   *  Later `.use()` calls win on key conflicts (preset-vs-preset: last one wins, table's own meta first). */
+  meta?: Record<string, unknown>;
 }
 
 /** A preset's contributed columns (its `Cols`). */
@@ -2880,6 +2912,33 @@ export class TableDef<Name extends string, S extends Shape> {
     });
   }
   /**
+   * Choose how the ORM generates a record id when a write creates a record WITHOUT an explicit
+   * `id` — `create`/`createMany`/`create.relate`, `insert`/`insertMany`, `upsert`/`upsertMany`
+   * (including `createMany({ skipDuplicates: true })`). Default: `"ulid"`.
+   *
+   * - `"ulid"` — `rand::ulid()` (26 chars, time-sortable)
+   * - `"uuid"` — `rand::uuid()` (UUID v7, time-sortable)
+   * - `"rand"` — `rand::id()` (20 chars) — the server default, i.e. the pre-feature behavior
+   *
+   * An explicit `id` in the payload ALWAYS wins, singleton tables keep their fixed id, and an
+   * explicit `id: s.uuid()`/`s.ulid()` field defaults to the matching strategy (a conflicting
+   * `.idStrategy(...)` is rejected by `defineSchema`). Generation happens on the SERVER
+   * (`type::record(<table>, rand::ulid())` / an `id` expression field), so it needs no client
+   * dependency. It emits NO DDL: `sc diff`/migrations never see it, raw SQL and writes outside
+   * the ORM keep the server default, and `sc pull` cannot recover it from the database.
+   */
+  idStrategy(strategy: IdStrategy): TableDef<Name, S> {
+    if (strategy !== "ulid" && strategy !== "uuid" && strategy !== "rand")
+      throw new Error(
+        `idStrategy(${JSON.stringify(strategy)}) — expected "ulid" | "uuid" | "rand".`,
+      );
+    if (this.config.singleton !== undefined)
+      throw new Error(
+        `idStrategy is not applicable to singleton table "${this.name}" — its id is fixed at "${this.name}:${this.config.singleton}".`,
+      );
+    return this.withConfig({ idStrategy: strategy });
+  }
+  /**
    * Add a composite index: `DEFINE INDEX <name> ON TABLE <table> FIELDS <fields> [UNIQUE]`, or a
    * materialized row-count index with `{ count: true }` (no fields → `DEFINE INDEX <name> … COUNT`).
    *
@@ -2967,9 +3026,11 @@ export class TableDef<Name extends string, S extends Shape> {
    * Apply a {@link TablePreset | preset} — a reusable bundle of columns + permissions + events + indexes
    * (`defineTable("post", fields).use(tenant("org_id")).use(timestamps())`). Its columns typed-merge into
    * the table (fully typed at any depth — **chain** `.use(a).use(b)` for several); permissions per-op
-   * AND-combine (narrow, never widen); events + indexes append. A column-name clash with an existing
-   * column throws at apply/gen time. (Single-arg + chaining, deliberately — a variadic typed merge would
-   * either cap the arity or drop the column types past that cap; chaining keeps every preset typesafe.)
+   * AND-combine (narrow, never widen); events + indexes append (a `{table}` placeholder in their
+   * names interpolates to the table name); opaque `meta` merges (later presets win per key). A
+   * column-name clash with an existing column throws at apply/gen time. (Single-arg + chaining,
+   * deliberately — a variadic typed merge would either cap the arity or drop the column types past
+   * that cap; chaining keeps every preset typesafe.)
    */
   use<P extends TablePreset>(
     preset: P & CheckPreset<S, P>,
@@ -2988,8 +3049,20 @@ export class TableDef<Name extends string, S extends Shape> {
       t = t.permissions(
         combinePermissions(t.config.permissions, preset.permissions),
       );
-    for (const e of preset.events ?? []) t = t.event(e.name, e);
-    for (const i of preset.indexes ?? []) t = t.index(i.name, i.fields, i);
+    // `{table}` lets a generic preset emit per-table names (`"{table}_protect_tenant_id"`) without
+    // constraining the table at author time — index/event names are table-scoped in SurrealDB.
+    for (const e of preset.events ?? [])
+      t = t.event(e.name.replaceAll("{table}", t.name), e);
+    for (const i of preset.indexes ?? [])
+      t = t.index(i.name.replaceAll("{table}", t.name), i.fields, i);
+    // Opaque marker metadata — merged (table's own first, later presets win) and never emitted.
+    if (preset.meta !== undefined)
+      t = t.withConfig({
+        meta: {
+          ...(t.config.meta ?? {}),
+          ...preset.meta,
+        },
+      });
     // `S & PresetCols` keeps the EXISTING id in WithSmartId's input — `IdValue` extracts its
     // declared value type verbatim (a tuple id, a singleton literal). The previous
     // `Omit<S, "id">` re-derived the id as the broad RecordIdValue.

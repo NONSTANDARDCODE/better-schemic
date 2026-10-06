@@ -9,6 +9,11 @@ import {
   compileRead,
   type ReadArgs,
 } from "../../src/orm/compiler/select";
+import {
+  compileAggregate,
+  compileCount,
+  compileExists,
+} from "../../src/orm/compiler/aggregate";
 import { createBinds } from "../../src/orm/compiler/shared";
 import type { BetterSchemicError } from "../../src/orm/errors";
 import type { TableMeta } from "../../src/orm/meta";
@@ -235,6 +240,67 @@ describe("read compiler — clause order (live-verified)", () => {
         includes: [],
       },
     });
+  });
+});
+
+describe("read compiler — plugin scope", () => {
+  const scope = { active: { equals: true } };
+  const scopedSql = (
+    args: ReadArgs,
+    options?: Parameters<typeof compileRead>[4],
+  ): string => compileRead(meta, args, createBinds(), "findUnique", options).sql;
+
+  test("findMany ANDs the scope into the caller's where", () => {
+    expect(compile({ where: { name: "A" }, scope }).sql).toBe(
+      "SELECT * FROM user WHERE (name = $p0 AND active = $p1)",
+    );
+  });
+
+  test("a null/absent where still gets the scope; an empty scope is a no-op", () => {
+    expect(compile({ where: null, scope }).sql).toBe(
+      "SELECT * FROM user WHERE active = $p0",
+    );
+    expect(compile({ scope }).sql).toBe("SELECT * FROM user WHERE active = $p0");
+    // An empty scope bag never reaches the compiler as an AND branch.
+    expect(compile({ where: { name: "A" }, scope: {} }).sql).toBe(
+      "SELECT * FROM user WHERE name = $p0",
+    );
+  });
+
+  test("a fragment where is ANDed with the scope", () => {
+    expect(compile({ where: surql`name = "A"`, scope }).sql).toBe(
+      'SELECT * FROM user WHERE ((name = "A") AND active = $p0)',
+    );
+  });
+
+  test("count/exists/aggregate scope their own WHERE", () => {
+    expect(compileCount(meta, { scope }, createBinds(), "count", {})).toBe(
+      "SELECT count() FROM user WHERE active = $p0 GROUP ALL",
+    );
+    expect(compileExists(meta, { scope }, createBinds(), "exists", {})).toBe(
+      "SELECT VALUE id FROM user WHERE active = $p0 LIMIT $p1",
+    );
+    expect(
+      compileAggregate(
+        meta,
+        { select: { _count: true }, scope },
+        createBinds(),
+        "aggregate",
+        {},
+      ).sql,
+    ).toBe("SELECT count() AS _count FROM user WHERE active = $p0 GROUP ALL");
+  });
+
+  test("findUnique scopes BOTH the id target and the unique-field target", () => {
+    expect(
+      scopedSql(
+        { where: undefined, only: true, scope },
+        { target: "ONLY user:1" },
+      ),
+    ).toBe("SELECT * FROM ONLY user:1 WHERE active = $p0");
+    expect(scopedSql({ where: { name: "A" }, scope, limit: 1 })).toBe(
+      "SELECT * FROM user WHERE (name = $p0 AND active = $p1) LIMIT $p2",
+    );
   });
 });
 

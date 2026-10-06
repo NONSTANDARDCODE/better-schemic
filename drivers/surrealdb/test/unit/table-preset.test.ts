@@ -170,3 +170,40 @@ describe(".use: column-name clashes are rejected", () => {
     );
   });
 });
+
+describe(".use: {table} name placeholders (A1)", () => {
+  test("event and index names interpolate per table", () => {
+    const Preset = defineTable.preset({
+      events: [
+        {
+          name: "{table}_guard",
+          // biome-ignore lint/suspicious/noThenProperty: SurrealQL's event THEN clause.
+          then: surql`RETURN true`,
+        },
+      ],
+      indexes: [{ name: "{table}_by_x", fields: ["x"] }],
+    });
+    const A = defineTable("alpha", { x: s.string() }).use(Preset);
+    const B = defineTable("beta", { x: s.string() }).use(Preset);
+    expect(emitTable(A)).toContain("DEFINE EVENT alpha_guard ON TABLE alpha");
+    expect(emitTable(B)).toContain("DEFINE EVENT beta_guard ON TABLE beta");
+    expect(emitTable(A)).toContain("DEFINE INDEX alpha_by_x ON TABLE alpha");
+    expect(emitTable(B)).toContain("DEFINE INDEX beta_by_x ON TABLE beta");
+  });
+});
+
+describe(".use: opaque meta (A2)", () => {
+  test("use() merges preset meta over the table's own", () => {
+    const T = defineTable("doc", {})
+      .use(defineTable.preset({ meta: { a: 1, b: 1 } }))
+      .use(defineTable.preset({ meta: { b: 2, c: 3 } }));
+    expect(T.config.meta).toEqual({ a: 1, b: 2, c: 3 });
+  });
+
+  test("meta never emits DDL — a meta-only table is identical to a bare one", () => {
+    const base = defineTable.preset({ meta: { owner: "acme" } });
+    expect(emitTable(defineTable("doc", {}).use(base))).toBe(
+      emitTable(defineTable("doc", {})),
+    );
+  });
+});

@@ -9,6 +9,7 @@ import {
   defineFunction,
   defineRelation,
   defineTable,
+  type IdStrategy,
   s,
 } from "../../src/index";
 import { defineSchema } from "../../src/orm/schema";
@@ -47,6 +48,24 @@ const schema = defineSchema({
   audit: "audit_log",
 });
 type S = typeof schema;
+
+describe("idStrategy — authoring types", () => {
+  it("the strategy union is enforced and chainable", () => {
+    const withUuid = defineTable("t", { name: s.string() }).idStrategy("uuid");
+    const withRand = defineTable("t", { name: s.string() }).idStrategy("rand");
+    const withUlid = defineTable("t", { name: s.string() }).idStrategy("ulid");
+    // `config` is the general `TableConfig`, so the property is the union (not the literal).
+    attest<IdStrategy | undefined, (typeof withUuid)["config"]["idStrategy"]>();
+    attest<IdStrategy | undefined, (typeof withRand)["config"]["idStrategy"]>();
+    attest<IdStrategy | undefined, (typeof withUlid)["config"]["idStrategy"]>();
+    // @ts-expect-error — "nanoid" is not an IdStrategy
+    const bad: IdStrategy = "nanoid";
+    void bad;
+  });
+  it("IdStrategy is exported from the authoring index", () => {
+    attest<"ulid" | "uuid" | "rand", IdStrategy>();
+  });
+});
 
 describe("SchemaDef — key extraction", () => {
   it("TableKeys is tables AND relation keys", () => {

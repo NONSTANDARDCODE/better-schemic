@@ -10,7 +10,13 @@
  * rejected with a teaching `UnsupportedCapability` instead of being emitted.
  */
 import { RecordId } from "surrealdb";
-import type { EdgeRef, FieldFamily, SchemaIndex, TableMeta } from "../meta";
+import type {
+  EdgeRef,
+  FieldFamily,
+  ModelMeta,
+  SchemaIndex,
+  TableMeta,
+} from "../meta";
 import {
   classifyWhereByOwner,
   type EdgeDirection,
@@ -27,6 +33,7 @@ import {
   isArrayPath,
   isLowerableValue,
   isPlainObject,
+  isTableMeta,
   joinAnd,
   paren,
   renderPath,
@@ -76,6 +83,58 @@ export function compileWhere(
     if (compiled !== undefined) parts.push(compiled);
   }
   return parts.length ? joinAnd(parts) : undefined;
+}
+
+// --- plugin scope (`Operation.scope`) ------------------------------------------------------------
+
+/** True for a filter that constrains nothing — absent, `null`, or an empty plain object. */
+function isAbsentFilter(value: unknown): boolean {
+  return (
+    value === undefined ||
+    value === null ||
+    (isPlainObject(value) && Object.keys(value).length === 0)
+  );
+}
+
+/**
+ * AND a plugin `scope` bag (see `Operation.scope`) with a `where` filter: the plugin channel that
+ * scopes a statement without joining the unique-target resolution. Either side may be absent, and
+ * an empty plain object counts as absent (the filter compiler rejects empty `AND` branches, so a
+ * lazily-created scope bag must never reach it).
+ */
+export function mergeScope(where: unknown, scope: unknown): unknown {
+  if (isAbsentFilter(scope)) return where;
+  if (isAbsentFilter(where)) return scope;
+  return { AND: [where, scope] };
+}
+
+/** Compile a plugin scope bag to its predicate text (no `WHERE`); "" when there is no scope. */
+export function scopePredicate(
+  scope: unknown,
+  binds: Binds,
+  meta: ModelMeta,
+  index?: SchemaIndex,
+): string {
+  if (scope === undefined) return "";
+  const options: WhereOptions = {
+    operation: "scope",
+    ...(index !== undefined ? { index } : {}),
+    // `meta` is optional here (a schemaless model scopes by field name only).
+    ...(isTableMeta(meta) ? { meta } : {}),
+  };
+  const predicate = compileWhere(scope, binds, options);
+  return predicate === undefined ? "" : predicate;
+}
+
+/** ` WHERE <scope>` (empty when there is no scope). */
+export function scopeWhere(
+  scope: unknown,
+  binds: Binds,
+  meta: ModelMeta,
+  index?: SchemaIndex,
+): string {
+  const predicate = scopePredicate(scope, binds, meta, index);
+  return predicate ? ` WHERE ${predicate}` : "";
 }
 
 /** Compile an `AND`/`OR`/`NOT` operand (each entry a full filter object). */

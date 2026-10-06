@@ -42,8 +42,9 @@ object itself), so it hangs off `defineTable`, not the `define*` family, and is 
 |---|---|
 | `columns` | **typed-merge** into the row (and the derived `.create`/`.update`/`.object`). Any name clash — preset-vs-table or preset-vs-preset — is a **compile error** (`PresetColumnConflict<K>` names the key) backed by a runtime throw. No silent clobber. |
 | `permissions` | per-op **AND-combine** with the table's own + earlier presets' — a preset can only **narrow** access, never widen. `false` absorbs, `true` is the identity, exprs AND together. `same as X` refs resolve to concrete rules first. (Permission combining is dialect-native per the ratified amendment; AND is the surreal model.) |
-| `events` | **append** (table-scoped names). |
+| `events` | **append** (table-scoped names; a `{table}` placeholder in the name interpolates to the table name at `.use()` — index names too). |
 | `indexes` | **append**. |
+| `meta` | **merge** into `TableConfig.meta` — opaque to emit/snapshot/diff/introspection; presets/plugins use it to TAG a table (the official `tenant()` preset stamps `meta.tenant = { column, principal, softDelete, createOnly }`, read back by `tenantRls`). |
 
 The four slot **names** are the cross-driver contract; contents are dialect-specific
 (surreal `TablePermissions`/events).

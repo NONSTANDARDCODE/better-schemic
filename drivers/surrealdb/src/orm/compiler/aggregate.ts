@@ -35,7 +35,7 @@ import {
   renderPath,
   renderValue,
 } from "./shared";
-import { compileWhere } from "./where";
+import { compileWhere, mergeScope } from "./where";
 
 /** The clauses `count`/`exists` accept (no projection/order — they don't apply). */
 export interface CountArgs {
@@ -45,6 +45,8 @@ export interface CountArgs {
   timeout?: unknown;
   version?: unknown;
   meta?: Record<string, unknown>;
+  /** Plugin scope (see `Operation.scope`) — AND-combined into the compiled `where`. */
+  scope?: unknown;
   /** Return the `EXPLAIN` plan instead of executing. */
   explain?: unknown;
   /** Removed/renamed args — rejected with a teaching error. */
@@ -79,7 +81,7 @@ export function compileCount(
   ];
   if (args.with !== undefined)
     parts.push(compileWithClause(args.with, operation));
-  const where = compileWhere(args.where, binds, {
+  const where = compileWhere(mergeScope(args.where, args.scope), binds, {
     ...(isTableMeta(meta) ? { meta } : {}),
     index: options.index,
     operation,
@@ -108,7 +110,7 @@ export function compileExists(
   ];
   if (args.with !== undefined)
     parts.push(compileWithClause(args.with, operation));
-  const where = compileWhere(args.where, binds, {
+  const where = compileWhere(mergeScope(args.where, args.scope), binds, {
     ...(isTableMeta(meta) ? { meta } : {}),
     index: options.index,
     operation,
@@ -137,6 +139,8 @@ export interface AggregateArgs {
   timeout?: unknown;
   version?: unknown;
   meta?: Record<string, unknown>;
+  /** Plugin scope (see `Operation.scope`) — AND-combined into the compiled `where`. */
+  scope?: unknown;
   /** Return the `EXPLAIN` plan instead of executing. */
   explain?: unknown;
   /** Not expressible in SurrealQL — always rejected with `HavingUnsupported`. */
@@ -229,7 +233,7 @@ export function compileAggregate(
   ];
   if (args.with !== undefined)
     statement.push(compileWithClause(args.with, operation));
-  const where = compileWhere(args.where, binds, {
+  const where = compileWhere(mergeScope(args.where, args.scope), binds, {
     ...(isTableMeta(meta) ? { meta } : {}),
     index: options.index,
     operation,

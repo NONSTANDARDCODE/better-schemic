@@ -52,6 +52,8 @@ export interface PaginateArgs {
   timeout?: unknown;
   version?: unknown;
   meta?: Record<string, unknown>;
+  /** Plugin scope (see `Operation.scope`) — AND-combined into the compiled `where`. */
+  scope?: unknown;
   /** Return the `EXPLAIN` plan instead of executing. */
   explain?: unknown;
   /** `false` skips the count statement and probes `LIMIT n+1` for `hasNext`. Default `true`. */
@@ -125,7 +127,13 @@ export function compilePaginate(
         : { select: { [split as string]: true }, split };
     const inner = compileRead(
       meta,
-      { where: args.where, with: args.with, range: args.range, ...core },
+      {
+        where: args.where,
+        with: args.with,
+        range: args.range,
+        scope: args.scope,
+        ...core,
+      },
       binds,
       operation,
       { index: options.index },
@@ -164,6 +172,8 @@ export interface CursorArgs {
   timeout?: unknown;
   version?: unknown;
   meta?: Record<string, unknown>;
+  /** Plugin scope (see `Operation.scope`) — AND-combined into the compiled `where`. */
+  scope?: unknown;
   /** Return the `EXPLAIN` plan instead of executing. */
   explain?: unknown;
   /** Relation hydration (M3). */

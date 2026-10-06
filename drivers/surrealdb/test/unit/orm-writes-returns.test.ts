@@ -22,7 +22,9 @@ describe("return semantics — before/diff and the batch decode", () => {
     const { client, calls } = makeClient([]);
     const result = await client.users.create({ data, return: "before" });
     expect(result).toBeNull();
-    expect(lastCall(calls).sql).toBe("CREATE user CONTENT $p0 RETURN BEFORE;");
+    expect(lastCall(calls).sql).toBe(
+      'CREATE type::record(s"user", rand::ulid()) CONTENT $p0 RETURN BEFORE;',
+    );
   });
 
   test("batch diff results decode as flattened patch ops, not rows", async () => {
@@ -120,7 +122,7 @@ describe("return semantics — before/diff and the batch decode", () => {
       return: "before",
     });
     const sql = lastCall(calls).sql;
-    expect(sql).toContain("THEN CREATE user CONTENT $p1 RETURN NONE");
+    expect(sql).toContain("THEN CREATE user:1 CONTENT $p1 RETURN NONE");
     expect(sql).toContain(
       "ELSE UPDATE $__existing[0] MERGE { age: age + 1 } RETURN BEFORE END;",
     );
@@ -144,7 +146,7 @@ describe("return semantics — before/diff and the batch decode", () => {
       "LET $__e0 = (SELECT VALUE id FROM user WHERE email = $p0.email LIMIT 1);",
     );
     expect(sql).toContain(
-      "IF array::len($__e0) = 0 THEN CREATE user CONTENT $p0 ELSE UPDATE $__e0[0] MERGE { age: age + 1 } END;",
+      'IF array::len($__e0) = 0 THEN CREATE type::record(s"user", rand::ulid()) CONTENT $p0 ELSE UPDATE $__e0[0] MERGE { age: age + 1 } END;',
     );
     expect(result.count).toBe(1);
   });
@@ -180,14 +182,20 @@ describe("return semantics — before/diff and the batch decode", () => {
 });
 
 describe("eager guards — skipDuplicates, relate sugar, unrelate timeout, updateEach", () => {
-  test("skipDuplicates needs an explicit id on every item", () => {
+  test("skipDuplicates: id-less rows compile with a generated id; non-objects still fail", async () => {
     const { client, calls } = makeClient();
     expect(
       codeOf(() =>
-        client.users.createMany({ data: [data, data], skipDuplicates: true }),
+        client.users.createMany({ data: [5 as never], skipDuplicates: true }),
       ),
     ).toBe("ValidationError");
-    expect(calls).toHaveLength(0);
+    await client.users.createMany({ data: [data, data], skipDuplicates: true });
+    expect(calls[0]?.sql).toBe(
+      "BEGIN TRANSACTION;\n" +
+        "INSERT IGNORE INTO user { name: $b0, email: $b1, age: $b2, active: $b3, tags: [], address: { city: $b4 }, id: rand::ulid() };\n" +
+        "INSERT IGNORE INTO user { name: $b5, email: $b6, age: $b7, active: $b8, tags: [], address: { city: $b9 }, id: rand::ulid() };\n" +
+        "COMMIT TRANSACTION;",
+    );
   });
 
   test("relate sugar validates the edge and codec-checks its data", async () => {

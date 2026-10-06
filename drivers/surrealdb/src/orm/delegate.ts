@@ -17,7 +17,7 @@ import { BetterSchemicError } from "./errors";
 import type { Queryable } from "./execute";
 import type { HookDispatcher } from "./hooks";
 import { createLiveOperation } from "./live";
-import type { ModelMeta, SchemaIndex } from "./meta";
+import type { ModelMeta, ResolvedIdStrategy, SchemaIndex } from "./meta";
 import { type PluginPipeline, RuntimeOperation } from "./plugins";
 import { createReadOperations } from "./reads";
 import type { BatchResult } from "./results";
@@ -94,6 +94,9 @@ export interface ModelInfo {
   readonly kind: ModelKind;
   /** A singleton's fixed record-id key, when declared via `defineSingleton`. */
   readonly singletonId?: string;
+  /** The ORM create-id strategy (`"ulid"` default; schemaless models resolve to `"ulid"`;
+   *  `"none"` = the id field's codec is ungeneratable — explicit ids only). */
+  readonly idStrategy: ResolvedIdStrategy;
   /** The edge names adjacent to this model (for plugin introspection). */
   readonly relations: {
     readonly outgoing: readonly string[];
@@ -451,6 +454,8 @@ function modelInfo(meta: ModelMeta): ModelInfo {
       name: meta.name,
       dbName: meta.name,
       kind: "schemaless",
+      // Schemaless entries can't declare `.idStrategy(...)` — they ride the uniform `ulid` default.
+      idStrategy: "ulid",
       relations: { outgoing: [], incoming: [] },
       hasField: () => true,
     };
@@ -462,6 +467,7 @@ function modelInfo(meta: ModelMeta): ModelInfo {
     ...(meta.singletonId !== undefined
       ? { singletonId: meta.singletonId }
       : {}),
+    idStrategy: meta.idStrategy,
     relations: {
       outgoing: meta.outgoing.map((edge) => edge.name),
       incoming: meta.incoming.map((edge) => edge.name),

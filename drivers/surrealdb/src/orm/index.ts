@@ -49,6 +49,7 @@ export {
   isNotFound,
   isPermissionDenied,
   isSerializationFailure,
+  isTenantViolation,
   isTransactionRollback,
   isUniqueViolation,
   isUnsupportedCapability,

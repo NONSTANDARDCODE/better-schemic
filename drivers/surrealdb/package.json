@@ -97,6 +97,13 @@
         "default": "./lib/plugins/soft-delete.js"
       }
     },
+    "./plugins/tenant": {
+      "bun": "./src/plugins/tenant.ts",
+      "import": {
+        "types": "./lib/plugins/tenant.d.ts",
+        "default": "./lib/plugins/tenant.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "scripts": {

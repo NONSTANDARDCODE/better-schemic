@@ -4,10 +4,10 @@
  * codec-validated `data` with expression splice, record targets/ids, RETURN mapping, update
  * modes, patch/unset validation and the small arg guards. One place per rule, like `./shared`.
  */
-import { escapeIdent, RecordId } from "surrealdb";
-import { hasRefDeep } from "../../pure";
+import { BoundQuery, escapeIdent, RecordId, toSurqlString } from "surrealdb";
+import { hasRefDeep, type IdStrategy } from "../../pure";
 import { normalizeError } from "../errors";
-import type { ModelMeta, SchemaIndex } from "../meta";
+import type { ModelMeta, ResolvedIdStrategy, SchemaIndex } from "../meta";
 import type { ProjectionSpec } from "./projection";
 import {
   type Binds,
@@ -23,7 +23,7 @@ import {
   splitRecordId,
 } from "./shared";
 import { uniqueTarget } from "./unique";
-import { compileWhere } from "./where";
+import { compileWhere, mergeScope, scopeWhere } from "./where";
 
 /** The modes a write can rewrite a record with (SurrealQL verbs). */
 export type WriteMode = "merge" | "set" | "content" | "replace" | "patch";
@@ -81,6 +81,8 @@ export interface UpdateRuntimeArgs {
   only?: unknown;
   return?: unknown;
   timeout?: unknown;
+  /** Plugin scope (see `Operation.scope`) — AND-combined into the WHERE, never a unique target. */
+  scope?: unknown;
   meta?: Record<string, unknown>;
 }
 
@@ -92,6 +94,7 @@ export interface UpdateManyRuntimeArgs {
   unset?: unknown;
   return?: unknown;
   timeout?: unknown;
+  scope?: unknown;
   meta?: Record<string, unknown>;
 }
 
@@ -104,6 +107,7 @@ export interface UpsertRuntimeArgs {
   only?: unknown;
   return?: unknown;
   timeout?: unknown;
+  scope?: unknown;
   meta?: Record<string, unknown>;
 }
 
@@ -112,6 +116,7 @@ export interface UpsertManyRuntimeArgs {
   update?: unknown;
   conflict?: unknown;
   return?: unknown;
+  scope?: unknown;
   meta?: Record<string, unknown>;
 }
 
@@ -119,6 +124,7 @@ export interface DeleteRuntimeArgs {
   where?: unknown;
   return?: unknown;
   timeout?: unknown;
+  scope?: unknown;
   meta?: Record<string, unknown>;
 }
 
@@ -127,6 +133,7 @@ export interface DeleteManyRuntimeArgs {
   all?: unknown;
   return?: unknown;
   timeout?: unknown;
+  scope?: unknown;
   meta?: Record<string, unknown>;
 }
 
@@ -139,6 +146,7 @@ export interface UpdateEachRuntimeArgs {
   return?: unknown;
   select?: unknown;
   timeout?: unknown;
+  scope?: unknown;
   meta?: Record<string, unknown>;
 }
 // --- shared helpers ------------------------------------------------------------------------------
@@ -212,6 +220,104 @@ export function recordIdText(id: unknown): string {
   return splitRecordId(id)?.id ?? String(id);
 }
 
+// --- generated ids (per-table `idStrategy`) ------------------------------------------------------
+
+/** The server expression that generates a record id for a strategy. */
+const ID_FN: Record<IdStrategy, string> = {
+  ulid: "rand::ulid()",
+  uuid: "rand::uuid()",
+  rand: "rand::id()",
+};
+
+/** The ORM create-id strategy of a model: typed tables carry the resolved strategy; schemaless
+ *  entries can't declare one and ride the uniform `"ulid"` default. */
+export function idStrategyOf(meta: ModelMeta): ResolvedIdStrategy {
+  return isTableMeta(meta) ? meta.idStrategy : "ulid";
+}
+
+/** How (or whether) the ORM generates a create id for a model. */
+type IdGeneration =
+  /** No injection needed: the plain target already yields the server default (`rand`), or the id
+   *  is fixed (a singleton). */
+  | { readonly kind: "server" }
+  /** `type::record(<table>, <fn>)` for CREATE/UPSERT targets, `<fn>` as the INSERT `id` field. */
+  | { readonly kind: "target"; readonly fn: string }
+  /** The declared id field's codec can't be produced by any strategy (uuid v4/v6) — creating
+   *  without an explicit id is a compile error, never a doomed server write. */
+  | { readonly kind: "explicit" };
+
+/** Resolve the ONE generation decision every create path shares. */
+function idGenerationOf(meta: ModelMeta): IdGeneration {
+  if (isTableMeta(meta) && meta.singletonId !== undefined)
+    return { kind: "server" };
+  const strategy = idStrategyOf(meta);
+  if (strategy === "rand") return { kind: "server" };
+  if (strategy === "none") return { kind: "explicit" };
+  return { kind: "target", fn: ID_FN[strategy] };
+}
+
+/** The teaching error for a create that needs a generated id on an explicit-only table. */
+function explicitIdError(meta: ModelMeta): ReturnType<typeof compileError> {
+  return compileError(
+    "ValidationError",
+    `cannot generate an id for table "${meta.name}": its declared id field uses a format no ORM strategy produces (uuid v4/v6) — pass an explicit "id", or change the id field.`,
+    { table: meta.name },
+  );
+}
+
+/** The explicit `id` of a payload, or a singleton delegate's fixed id. */
+export function createId(meta: ModelMeta, data: unknown): unknown {
+  if (isPlainObject(data) && data.id !== undefined) return data.id;
+  const singleton = isTableMeta(meta) ? meta.singletonId : undefined;
+  if (singleton !== undefined) return `${meta.name}:${singleton}`;
+  return undefined;
+}
+
+/**
+ * The `type::record(<table>, <fn>())` create target that generates an id server-side — or
+ * `undefined` when the plain target already does the job (the server default for `rand`, or a
+ * singleton's fixed id). An explicit-only table (uuid v4/v6 id field) THROWS: there is no id the
+ * ORM can generate.
+ *
+ * The table name is rendered with `toSurqlString` (`s"user"`): an ESCAPED identifier
+ * (`escapeIdent` -> `⟨weird-name⟩`) is double-escaped inside `type::record`, live-probed on 3.2.
+ */
+export function generatedTarget(meta: ModelMeta): string | undefined {
+  const generation = idGenerationOf(meta);
+  if (generation.kind === "explicit") throw explicitIdError(meta);
+  if (generation.kind === "server") return undefined;
+  return `type::record(${toSurqlString(meta.name)}, ${generation.fn})`;
+}
+
+/** `ONLY t:id` / `t:id` / `ONLY type::record(t, fn())` / `t` target for CREATE. An explicit payload
+ *  `id` (or a singleton's fixed id) always wins over the table's strategy. */
+export function createTarget(
+  meta: ModelMeta,
+  data: unknown,
+  only: boolean,
+  operation: string,
+): string {
+  const id = createId(meta, data);
+  const prefix = only ? "ONLY " : "";
+  if (id !== undefined) return `${prefix}${recordTarget(meta, id, operation)}`;
+  const generated = generatedTarget(meta);
+  if (generated !== undefined) return `${prefix}${generated}`;
+  return `${prefix}${escapeIdent(meta.name)}`;
+}
+
+/**
+ * Add the generated `id` expression field to an INSERT payload (`{ …, id: rand::ulid() }`) when the
+ * model's strategy isn't the server default and the payload has no explicit id. The object renders
+ * as a SurrealQL literal with per-field binds (object spread + expression is a parse error on 3.2).
+ */
+export function withGeneratedId(meta: ModelMeta, encoded: unknown): unknown {
+  if (!isPlainObject(encoded) || encoded.id !== undefined) return encoded;
+  const generation = idGenerationOf(meta);
+  if (generation.kind === "explicit") throw explicitIdError(meta);
+  if (generation.kind === "server") return encoded;
+  return { ...encoded, id: new BoundQuery(generation.fn) };
+}
+
 /** Coerce an `id` payload to the SDK `RecordId` the codec expects (bare ids use the delegate's table). */
 function toRecordId(
   meta: ModelMeta,
@@ -234,7 +340,7 @@ export function toRecord(value: unknown, operation: string): RecordId {
   return new RecordId(parts.table, parts.id);
 }
 
-/** Resolve the singular write target (id or single-field UNIQUE) + its optional WHERE. */
+/** The singular write target (id or single-field UNIQUE) + its optional WHERE. */
 export function singleTarget(
   meta: ModelMeta,
   args: UpdateRuntimeArgs,
@@ -246,11 +352,11 @@ export function singleTarget(
   if (target.kind === "id")
     return {
       target: `${args.only === true ? "ONLY " : ""}${recordTarget(meta, target.id, operation)}`,
-      where: "",
+      where: scopeWhere(args.scope, binds, meta, index),
     };
   return {
     target: `${args.only === true ? "ONLY " : ""}${escapeIdent(meta.name)}`,
-    where: whereSql(args.where, binds, meta, index),
+    where: whereSql(mergeScope(args.where, args.scope), binds, meta, index),
   };
 }
 

@@ -9,8 +9,8 @@ export const writes = group(
   "create / insert / update / upsert / delete",
   [
     ormExample(import.meta.url, {
-      title: "create — CONTENT payload",
-      sql: "CREATE user CONTENT $p0;",
+      title: "create — CONTENT payload (default ULID id, generated server-side)",
+      sql: 'CREATE type::record(s"user", rand::ulid()) CONTENT $p0;',
       vars: {
         p0: {
           name: "A",
@@ -63,7 +63,7 @@ export const writes = group(
     }),
     ormExample(import.meta.url, {
       title: "createMany — batched creates",
-      sql: "BEGIN TRANSACTION;\nCREATE user CONTENT $p0;\nCREATE user CONTENT $p1;\nCOMMIT TRANSACTION;",
+      sql: 'BEGIN TRANSACTION;\nCREATE type::record(s"user", rand::ulid()) CONTENT $p0;\nCREATE type::record(s"user", rand::ulid()) CONTENT $p1;\nCOMMIT TRANSACTION;',
       vars: {
         p0: {
           name: "A",
@@ -102,6 +102,31 @@ export const writes = group(
               address: { city: "SP" },
             },
           ],
+        }),
+    }),
+    ormExample(import.meta.url, {
+      title: "create — idStrategy('uuid') generates a UUID v7 server-side",
+      note: "`.idStrategy('uuid')` — no DDL, ORM-only; raw SQL keeps the server default.",
+      sql: 'CREATE type::record(s"uuid_user", rand::uuid()) CONTENT $p0;',
+      vars: { p0: { name: "A", email: "a@x" } },
+      def: (client) =>
+        client.uuidUsers.create({ data: { name: "A", email: "a@x" } }),
+    }),
+    ormExample(import.meta.url, {
+      title: "create — idStrategy('rand') keeps the server default (rand::id())",
+      sql: "CREATE rand_user CONTENT $p0;",
+      vars: { p0: { name: "A" } },
+      def: (client) => client.randUsers.create({ data: { name: "A" } }),
+    }),
+    ormExample(import.meta.url, {
+      title: "upsert — generated id resolves the unique row, else creates",
+      note: "One statement: the subquery finds the existing row by UNIQUE, `??` falls back to the generated target.",
+      sql: 'UPSERT ((SELECT VALUE id FROM uuid_user WHERE email = $p0 LIMIT 1)[0] ?? type::record(s"uuid_user", rand::uuid())) MERGE $p1;',
+      vars: { p0: "a@x", p1: { email: "a@x", name: "A" } },
+      def: (client) =>
+        client.uuidUsers.upsert({
+          where: { email: "a@x" },
+          data: { email: "a@x", name: "A" },
         }),
     }),
     ormExample(import.meta.url, {

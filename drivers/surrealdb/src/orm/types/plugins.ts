@@ -29,6 +29,15 @@ export interface Operation {
   readonly args: Record<string, unknown>;
   where: Record<string, unknown>;
   data: Record<string, unknown>;
+  /**
+   * A plugin-written filter AND-combined by EVERY compiler into the statement it compiles —
+   * reads (`findMany`/`findUnique`/`count`/`exists`/`aggregate`/`paginate`/`cursor`) and writes.
+   * Unlike `where`, it NEVER participates in the singular target resolution (`uniqueTarget`), so a
+   * plugin can scope `update`/`delete`/`patch`/`upsert` by id/unique field (`UPDATE ONLY t:id …
+   * WHERE <scope>`) and `findUnique`'s targets. Lazily created like `where`. INTERNAL channel: user
+   * args never expose it; not part of the typed surface.
+   */
+  scope: Record<string, unknown>;
   meta?: Record<string, unknown>;
   readonly state: PluginState;
   /** The validated schema index — the canonical source for field/relation introspection. */

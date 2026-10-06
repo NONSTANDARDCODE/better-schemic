@@ -287,22 +287,26 @@ describe("plugin runtime — edge paths", () => {
     );
   });
 
-  test("RuntimeOperation proxies where/data and commits only what changed", () => {
+  test("RuntimeOperation proxies where/data/scope and commits only what changed", () => {
     const op = new RuntimeOperation(
       "create",
       "user",
-      { where: { a: 1 }, data: { b: 2 } },
+      { where: { a: 1 }, data: { b: 2 }, scope: { e: 5 } },
       {} as never,
       {} as never,
     );
     expect(op.where).toEqual({ a: 1 }); // existing args.where
     expect(op.data).toEqual({ b: 2 }); // existing args.data
+    expect(op.scope).toEqual({ e: 5 }); // existing args.scope
     op.where = { c: 3 };
     op.data = { d: 4 };
+    op.scope = { f: 6 };
     expect(op.where).toEqual({ c: 3 });
+    expect(op.scope).toEqual({ f: 6 });
     op.commit();
     expect(op.args.where).toEqual({ c: 3 });
     expect(op.args.data).toEqual({ d: 4 });
+    expect(op.args.scope).toEqual({ f: 6 });
 
     // A fresh op lazily creates empty bags (and returns the SAME bag on re-read).
     const fresh = new RuntimeOperation(
@@ -316,6 +320,21 @@ describe("plugin runtime — edge paths", () => {
     expect(bag).toEqual({});
     expect(fresh.where).toBe(bag);
     expect(fresh.data).toEqual({});
+    const scopeBag = fresh.scope;
+    expect(scopeBag).toEqual({});
+    expect(fresh.scope).toBe(scopeBag);
+    fresh.commit();
+    expect(fresh.args.scope).toBe(scopeBag);
+    // A transform that never touches `scope` does not inject an empty bag.
+    const untouched = new RuntimeOperation(
+      "create",
+      "user",
+      {},
+      {} as never,
+      {} as never,
+    );
+    untouched.commit();
+    expect("scope" in untouched.args).toBe(false);
   });
 
   test("isPlugin brand check", () => {
