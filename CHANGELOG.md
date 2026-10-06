@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+## [0.1.0-alpha.7] - 2026-10-06
+
 ### Added
 - **surrealdb:** `delegate.upsertDelta(args)` — create-or-update in ONE round-trip that returns the
   resulting row, the previous row and a field-level delta of **decoded app values**, sourced from

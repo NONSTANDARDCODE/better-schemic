@@ -19,7 +19,7 @@
     },
     "drivers/surrealdb": {
       "name": "@better-schemic/surrealdb",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
         "@better-schemic/core": "workspace:*",
       },
@@ -46,7 +46,7 @@
     },
     "packages/better-schemic": {
       "name": "better-schemic",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "bin": {
         "better-schemic": "bin.mjs",
         "sc": "bin.mjs",
@@ -57,7 +57,7 @@
     },
     "packages/cli": {
       "name": "@better-schemic/cli",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "bin": {
         "better-schemic": "lib/cli.js",
         "sc": "lib/cli.js",
@@ -79,7 +79,7 @@
     },
     "packages/core": {
       "name": "@better-schemic/core",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "dependencies": {
         "commander": "^14.0.2",
         "jiti": "^2.4.2",
@@ -103,7 +103,7 @@
     },
     "packages/create-better-schemic": {
       "name": "create-better-schemic",
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.7",
       "bin": {
         "create-better-schemic": "lib/index.js",
       },
