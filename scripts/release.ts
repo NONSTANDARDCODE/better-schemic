@@ -6,9 +6,12 @@ import { join } from "node:path";
  *   bun scripts/release.ts <version|next> [--dry-run]
  *
  * `next` auto-bumps the trailing prerelease number from core's current version (0.1.0-alpha.10 ->
- * 0.1.0-alpha.11) — the continuous-deployment path (see scripts/land.ts / AGENTS.md).
+ * 0.1.0-alpha.11), skipping versions already published to npm — the continuous-deployment path
+ * (see scripts/land.ts / AGENTS.md).
  *
  * Encapsulates the publish gotchas we have hit (see memory: publish-pin-gotcha):
+ *  - `next` skips versions already on npm — the local manifests can lag the registry (a release cut
+ *    from another checkout), and npm refuses to republish a version.
  *  - `bun publish` rewrites each dependent's `@better-schemic/core: workspace:*` using bun.lock, and a bare
  *    version bump does NOT refresh that recorded version. So we REBUILD the lockfile (rm + install).
  *  - We then PACK-VERIFY every dependent actually pins core@<version> BEFORE publishing anything (a
@@ -48,20 +51,46 @@ const displayName = (p: string) =>
     ? p
     : `@better-schemic/${p}`;
 
-// `next` -> bump the trailing .N of core's current version (0.1.0-alpha.10 -> 0.1.0-alpha.11).
+// `next` -> bump the trailing .N of core's current version (0.1.0-alpha.10 -> 0.1.0-alpha.11),
+// skipping any candidate already published to npm (local manifests can lag the registry, and a
+// republish is impossible).
+function bump(v: string): string {
+  const m = v.match(/^(.*[-.])(\d+)$/);
+  if (!m) {
+    console.error(
+      `cannot auto-bump "${v}" — no trailing .N to increment; pass an explicit version.`,
+    );
+    process.exit(1);
+  }
+  return `${m[1]}${Number(m[2]) + 1}`;
+}
+
+async function publishedVersions(name: string): Promise<Set<string>> {
+  const res = await fetch(
+    `https://registry.npmjs.org/${name.replace("/", "%2F")}`,
+  );
+  if (!res.ok) {
+    console.error(
+      `cannot list ${name} on npm (HTTP ${res.status}) — refusing to guess a version; pass one explicitly.`,
+    );
+    process.exit(1);
+  }
+  const body = (await res.json()) as { versions?: Record<string, unknown> };
+  return new Set(Object.keys(body.versions ?? {}));
+}
+
 async function resolveVersion(arg: string): Promise<string> {
   if (arg !== "next") return arg;
   const cur = JSON.parse(
     await Bun.file(join(pkgDir("core"), "package.json")).text(),
   ).version as string;
-  const m = cur.match(/^(.*[-.])(\d+)$/);
-  if (!m) {
-    console.error(
-      `cannot auto-bump "${cur}" — no trailing .N to increment; pass an explicit version.`,
-    );
-    process.exit(1);
+  const published = await publishedVersions("@better-schemic/core");
+  let next = bump(cur);
+  while (published.has(next)) {
+    console.log(`skipping ${next} — already published on npm`);
+    next = bump(next);
   }
-  return `${m[1]}${Number(m[2]) + 1}`;
+  return next;
 }
 const version = await resolveVersion(versionArg);
 if (versionArg === "next") console.log(`auto-bumped -> ${version}`);

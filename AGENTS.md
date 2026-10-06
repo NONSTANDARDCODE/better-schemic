@@ -40,7 +40,7 @@ Land a branch with **`bun scripts/land.ts <branch>`**: rebase onto `main`, fast-
 **gate it** (typecheck + test the workspace — a red gate rolls `main` back and ships nothing), push
 `main`, then delete the branch. **Landing ACCUMULATES — it does NOT deploy.** Releases are
 **cut explicitly**: review the accumulated changes, then run **`bun scripts/release.ts next`**
-(lockstep all packages to npm) + commit/push the version bumps + stamp the CHANGELOG. So changes pile
+(lockstep all packages to npm, skipping versions already published) + commit/push the version bumps + stamp the CHANGELOG. So changes pile
 up on `main` between releases; nothing publishes until a release is cut. (`land.ts --deploy` land+ships
 in one step — only for an immediate release.)
 

@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+## [0.1.0-alpha.6] - 2026-10-05
+
 ### Added
 - **surrealdb:** `defineTable(…).idStrategy("ulid" | "uuid" | "rand")` — per-table ORM create-id
   generation, server-side and dependency-free: `create`/`createMany`/`create.relate` target
