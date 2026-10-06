@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+## [0.1.0-alpha.8] - 2026-10-06
+
 ### Added
 - **surrealdb:** `$value(…, { computes: […] })` — declare the nested keys a parent `VALUE`
   expression fills on an `s.object`/`array<s.object>` field, so `Create<>`/`CreateData`/`create()`
