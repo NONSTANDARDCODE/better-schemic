@@ -13,8 +13,8 @@
   "type": "module",
   "sideEffects": false,
   "bin": {
-    "better-schemic": "lib/cli.js",
-    "sc": "lib/cli.js"
+    "better-schemic": "lib/cli/index.js",
+    "sc": "lib/cli/index.js"
   },
   "publishConfig": {
     "access": "public"
@@ -28,12 +28,11 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "bun run ../../scripts/build.ts",
     "prepack": "bun run build",
     "test": "bun test",
-    "typecheck": "tsgo --noEmit",
-    "lint": "biome check .",
-    "typecheck:legacy": "tsc --noEmit"
+    "typecheck": "bun check",
+    "lint": "biome check ."
   },
   "dependencies": {
     "@better-schemic/core": "workspace:*",
@@ -44,9 +43,6 @@
     "@better-schemic/surrealdb": "workspace:*",
     "@types/bun": "latest",
     "surrealdb": "^2.0.3",
-    "tsup": "^8",
-    "typescript": "^6.0.3",
-    "@typescript/native-preview": "7.0.0-dev.20260707.2",
     "zod": "^4.3.5"
   }
 }

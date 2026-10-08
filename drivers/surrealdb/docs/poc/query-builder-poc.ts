@@ -10,7 +10,7 @@
  * This is the load-bearing risk for "build a query builder on top of @better-schemic/core".
  * If this compiles, the core inference threading is feasible.
  *
- * Compile with:  bunx tsc --noEmit -p tsconfig.json   (from this directory)
+ * Compile with:  bunx tsgo --noEmit -p tsconfig.json   (from this directory)
  */
 
 import type { RecordId } from "surrealdb";

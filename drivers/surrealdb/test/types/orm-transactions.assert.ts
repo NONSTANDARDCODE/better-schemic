@@ -1,9 +1,9 @@
 // M4.1 — TYPE assertions for `client.transaction`: the callback receives a `TransactionClient`
 // (delegates preserved, lifecycle/realtime stripped, `rollback` typed `never`), the options accept
 // retries/timeout/isolation, `mode` is "sdk"-only and the root client keeps the after* scope hooks.
-// Run under node/tsx (NOT bun): `bun run --cwd drivers/surrealdb test:types`.
-import { after, before, describe, it } from "node:test";
-import { attest } from "@ark/attest";
+// Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
+import { describe, it } from "node:test";
+import { assertType } from "../../../../scripts/type-assert";
 import type { SurrealTransaction } from "surrealdb";
 import { defineTable, s } from "../../src/index";
 import type { Client } from "../../src/orm/client";
@@ -14,10 +14,7 @@ import type {
   TransactionClient,
   TransactionOptions,
 } from "../../src/orm/types/transaction";
-import { setupTypes, teardownTypes } from "./_setup";
 
-before(setupTypes);
-after(teardownTypes);
 
 const User = defineTable("user", { name: s.string(), age: s.int() });
 const schema = defineSchema({ users: User });
@@ -30,69 +27,69 @@ const openNested = (tx: Tx) => tx.transaction(async () => "inner");
 
 describe("client.transaction — typing", () => {
   it("the callback receives the transaction client and the call resolves the callback value", () => {
-    attest<Promise<number>, ReturnType<typeof openRoot>>();
+    assertType<Promise<number>, ReturnType<typeof openRoot>>();
     const tx = {} as Tx;
-    attest<Delegate<typeof User, typeof schema>, Tx["users"]>();
-    attest<SurrealTransaction, Tx["$sdk"]>();
-    attest<(reason?: unknown) => never, Tx["rollback"]>();
-    attest<void, ReturnType<Tx["afterCommit"]>>();
-    attest<void, ReturnType<Tx["afterRollback"]>>();
+    assertType<Delegate<typeof User, typeof schema>, Tx["users"]>();
+    assertType<SurrealTransaction, Tx["$sdk"]>();
+    assertType<(reason?: unknown) => never, Tx["rollback"]>();
+    assertType<void, ReturnType<Tx["afterCommit"]>>();
+    assertType<void, ReturnType<Tx["afterRollback"]>>();
     // Transactions nest as a value on the tx client too.
-    attest<Promise<string>, ReturnType<typeof openNested>>();
+    assertType<Promise<string>, ReturnType<typeof openNested>>();
     void tx;
   });
 
   it("lifecycle, realtime and session-bound admin surfaces are NOT on the tx client", () => {
-    attest<false, "close" extends keyof Tx ? true : false>();
-    attest<false, "forkSession" extends keyof Tx ? true : false>();
-    attest<false, "$withContext" extends keyof Tx ? true : false>();
-    attest<false, "live" extends keyof Tx ? true : false>();
-    attest<false, "liveOf" extends keyof Tx ? true : false>();
-    attest<false, "kill" extends keyof Tx ? true : false>();
-    attest<false, "changes" extends keyof Tx ? true : false>();
-    attest<false, "export" extends keyof Tx ? true : false>();
-    attest<false, "import" extends keyof Tx ? true : false>();
-    attest<false, "version" extends keyof Tx ? true : false>();
+    assertType<false, "close" extends keyof Tx ? true : false>();
+    assertType<false, "forkSession" extends keyof Tx ? true : false>();
+    assertType<false, "$withContext" extends keyof Tx ? true : false>();
+    assertType<false, "live" extends keyof Tx ? true : false>();
+    assertType<false, "liveOf" extends keyof Tx ? true : false>();
+    assertType<false, "kill" extends keyof Tx ? true : false>();
+    assertType<false, "changes" extends keyof Tx ? true : false>();
+    assertType<false, "export" extends keyof Tx ? true : false>();
+    assertType<false, "import" extends keyof Tx ? true : false>();
+    assertType<false, "version" extends keyof Tx ? true : false>();
     // The compiler-driven surfaces DO work in-transaction.
-    attest<true, "$raw" extends keyof Tx ? true : false>();
-    attest<true, "fn" extends keyof Tx ? true : false>();
-    attest<true, "info" extends keyof Tx ? true : false>();
+    assertType<true, "$raw" extends keyof Tx ? true : false>();
+    assertType<true, "fn" extends keyof Tx ? true : false>();
+    assertType<true, "info" extends keyof Tx ? true : false>();
   });
 
   it("the root client exposes the transaction scope hooks", () => {
-    attest<void, ReturnType<C["afterCommit"]>>();
-    attest<void, ReturnType<C["afterRollback"]>>();
-    attest<Promise<void>, ReturnType<C["close"]>>();
+    assertType<void, ReturnType<C["afterCommit"]>>();
+    assertType<void, ReturnType<C["afterRollback"]>>();
+    assertType<Promise<void>, ReturnType<C["close"]>>();
   });
 
   it("options: retries/timeout/isolation are typed; mode accepts only 'sdk'", () => {
-    attest<
+    assertType<
       false,
       "sql" extends NonNullable<TransactionOptions["mode"]> ? true : false
     >();
-    attest<
+    assertType<
       true,
       "sdk" extends NonNullable<TransactionOptions["mode"]> ? true : false
     >();
-    attest<
+    assertType<
       true,
       "writeConflict" extends NonNullable<RetryOptions["on"]>[number]
         ? true
         : false
     >();
-    attest<
+    assertType<
       true,
       "serializationFailure" extends NonNullable<RetryOptions["on"]>[number]
         ? true
         : false
     >();
-    attest<
+    assertType<
       true,
       "connectionError" extends NonNullable<RetryOptions["on"]>[number]
         ? true
         : false
     >();
-    attest<
+    assertType<
       true,
       "snapshot" extends NonNullable<TransactionOptions["isolation"]>
         ? true

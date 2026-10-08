@@ -1,0 +1,9 @@
+{
+  "drivers/surrealdb/test/types/orm-m5.bench.ts": 4597159,
+  "drivers/surrealdb/test/types/orm-reads.bench.ts": 4541895,
+  "drivers/surrealdb/test/types/orm-relations.bench.ts": 4691206,
+  "drivers/surrealdb/test/types/orm-transactions.bench.ts": 4649264,
+  "drivers/surrealdb/test/types/orm-writes.bench.ts": 4588205,
+  "packages/core/test/types/authoring-pure.bench.ts": 586,
+  "packages/core/test/types/authoring-types.bench.ts": 165101
+}

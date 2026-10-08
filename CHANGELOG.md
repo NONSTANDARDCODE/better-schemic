@@ -49,6 +49,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   report a phantom divergence on tables with events. Live-verified with the
   `createOnly({ hard: true })` guard event (`test/parity/struct-parity.test.ts`).
 
+### Changed
+- **repo (tooling):** `build` is now Bun-native — `scripts/build.ts` bundles each entry with
+  `Bun.build` (deps external for libraries, bundled for self-contained bins) and emits `.d.ts` with
+  the TypeScript 7 native compiler (`tsgo -p tsconfig.build.json`). tsup is gone; `@better-schematic/core`
+  now publishes the source-mirrored `lib/driver/sdk.{js,d.ts}` for its `./driver` subpath, and the CLI
+  bin is `lib/cli/index.js` (the `better-schemic`/`sc` commands are unchanged). `typecheck` now runs on Bun's native `bun check` (Bun >= 1.4.3; CI pins 1.4.3).
+- **repo (tooling):** the type-test suites no longer use `@ark/attest`/`typescript`/`tsx`. The
+  `.assert.ts` completeness checks now call `assertType<E, A>()` (mutual assignability + `any`/`never`
+  guards — `scripts/type-assert.ts`) and are enforced by `bun check` as part of `typecheck`; the
+  `.bench.ts` instantiation budgets are enforced by `scripts/type-bench.ts` (one isolated tsgo program
+  per file, ±20% threshold, baselines in `scripts/type-budgets.json`). CI's `type-perf` job is now
+  `type-bench` and needs neither node nor tsx.
+- **repo (tooling):** the MC/DC decision inventory (`scripts/mcdc/inventory.ts`) parses with
+  `oxc-parser` — the same Rust parser family the coverage instrumenter uses — instead of the
+  TypeScript compiler API. Inventories were verified byte-identical (4064 decisions across the
+  in-scope files).
+
+### Removed
+- **repo (tooling):** the `tsup`, `typescript`, `@ark/attest` and `tsx` devDependencies, every
+  `tsup.config.ts`, and the `typecheck:legacy` escape hatches. The classic TypeScript compiler is no
+  longer installed anywhere in the workspace.
+
 ## [0.1.0-alpha.9] - 2026-10-06
 
 ### Added

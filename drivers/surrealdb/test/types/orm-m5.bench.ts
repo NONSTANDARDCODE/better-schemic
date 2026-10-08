@@ -1,7 +1,7 @@
-// TYPE-INSTANTIATION BUDGET for the M5 client surface (@ark/attest `bench().types()`): the Client
+// TYPE-INSTANTIATION BUDGET for the M5 client surface (budgets enforced by `scripts/type-bench.ts`): the Client
 // intersection grew with the raw overloads, `FnSurface` and the `$withContext` overloads. The budget
-// guards REGRESSION (+20% threshold); re-baseline intentionally (`ATTEST_updateSnapshots=1`).
-import { bench } from "@ark/attest";
+// guards REGRESSION (+20% threshold); re-baseline intentionally (`bun run scripts/type-bench.ts --update`).
+import { bench } from "../../../../scripts/type-bench";
 import { defineFunction, defineTable, s } from "../../src/index";
 import type { Client } from "../../src/orm/client";
 
@@ -14,4 +14,4 @@ type S = typeof schema;
 
 bench("Client<S> — the M5 surface (raw/context/fn)", () => {
   return {} as Client<S>;
-}).types([75574, "instantiations"]);
+});

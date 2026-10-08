@@ -1,8 +1,8 @@
 // M6 — TYPE assertions for plugins: `operationArgs` fold into delegate args, `extendModel` lands on
-// the delegate and `extendClient` on the client. Run under node/tsx (NOT bun):
-// `bun run --cwd drivers/surrealdb test:types`.
-import { after, before, describe, it } from "node:test";
-import { attest } from "@ark/attest";
+// the delegate and `extendClient` on the client.
+// Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
+import { describe, it } from "node:test";
+import { assertType } from "../../../../scripts/type-assert";
 import type { Surreal } from "surrealdb";
 import { defineTable, s } from "../../src/index";
 import type { Client } from "../../src/orm/client";
@@ -16,10 +16,7 @@ import type {
 import { createOnlyGuard as createOnlyGuardPlugin } from "../../src/plugins/create-only";
 import { softDelete as softDeletePlugin } from "../../src/plugins/soft-delete";
 import { timestamps as timestampsPlugin } from "../../src/plugins/timestamps";
-import { setupTypes, teardownTypes } from "./_setup";
 
-before(setupTypes);
-after(teardownTypes);
 
 const User = defineTable("user", { name: s.string() });
 const schema = defineSchema({ users: User });
@@ -68,59 +65,59 @@ describe("plugins — official F2 typing", () => {
 
   it("softDelete adds `deleted` to reads and restore/restoreById to the delegate", () => {
     type CSD = Client<typeof schema, Surreal, [SD]>;
-    attest<
+    assertType<
       { deleted?: "with" | "without" | "only" },
       PluginArgs<[SD], "findMany">
     >();
-    attest<
+    assertType<
       true,
       "restore" extends keyof PluginModelExtras<[SD]> ? true : false
     >();
-    attest<true, "restore" extends keyof CSD["users"] ? true : false>();
-    attest<true, "restoreById" extends keyof CSD["users"] ? true : false>();
+    assertType<true, "restore" extends keyof CSD["users"] ? true : false>();
+    assertType<true, "restoreById" extends keyof CSD["users"] ? true : false>();
   });
 
   it("timestamps does not add per-operation args", () => {
-    attest<Record<never, never>, PluginArgs<[TS], "create">>();
+    assertType<Record<never, never>, PluginArgs<[TS], "create">>();
   });
 
   it("createOnlyGuard does not add per-operation args on any op", () => {
-    attest<Record<never, never>, PluginArgs<[CO], "create">>();
-    attest<Record<never, never>, PluginArgs<[CO], "update">>();
-    attest<Record<never, never>, PluginArgs<[CO], "insert">>();
+    assertType<Record<never, never>, PluginArgs<[CO], "create">>();
+    assertType<Record<never, never>, PluginArgs<[CO], "update">>();
+    assertType<Record<never, never>, PluginArgs<[CO], "insert">>();
   });
 });
 
 describe("plugins — typing", () => {
   it("operationArgs fold into the matching delegate method args (optional)", () => {
-    attest<
+    assertType<
       { deleted?: "with" | "without" | "only" },
       PluginArgs<[Soft], "findMany">
     >();
-    attest<{ mode?: "soft" | "hard" }, PluginArgs<[Soft], "delete">>();
-    attest<Record<never, never>, PluginArgs<[Soft], "create">>();
-    attest<
+    assertType<{ mode?: "soft" | "hard" }, PluginArgs<[Soft], "delete">>();
+    assertType<Record<never, never>, PluginArgs<[Soft], "create">>();
+    assertType<
       true,
       ReturnType<typeof findManyDeleted> extends object ? true : false
     >();
-    attest<true, ReturnType<typeof deleteSoft> extends object ? true : false>();
+    assertType<true, ReturnType<typeof deleteSoft> extends object ? true : false>();
   });
 
   it("extendModel methods land on the delegate", () => {
-    attest<
+    assertType<
       true,
       "restore" extends keyof PluginModelExtras<[Soft]> ? true : false
     >();
-    attest<true, "restore" extends keyof C["users"] ? true : false>();
-    attest<unknown, ReturnType<typeof restore>>();
+    assertType<true, "restore" extends keyof C["users"] ? true : false>();
+    assertType<unknown, ReturnType<typeof restore>>();
   });
 
   it("extendClient methods land on the client", () => {
-    attest<
+    assertType<
       true,
       "hello" extends keyof PluginClientExtras<[WithClient]> ? true : false
     >();
-    attest<true, "hello" extends keyof CC ? true : false>();
-    attest<"hi", ReturnType<typeof hello>>();
+    assertType<true, "hello" extends keyof CC ? true : false>();
+    assertType<"hi", ReturnType<typeof hello>>();
   });
 });

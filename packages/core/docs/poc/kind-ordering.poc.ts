@@ -7,7 +7,7 @@
 // table — a FUNCTION before a TABLE, which any "tables-first" ordinal gets wrong. The graph handles it;
 // the ordinal + owner are only presentation. Drops run the result in REVERSE.
 //
-// Typecheck: bunx tsc --noEmit --strict --target esnext --moduleResolution bundler --skipLibCheck \
+// Typecheck: bunx tsgo --noEmit --strict --target esnext --moduleResolution bundler --skipLibCheck \
 //   packages/core/docs/poc/kind-ordering.poc.ts
 
 type Ref = { kind: string; name: string };

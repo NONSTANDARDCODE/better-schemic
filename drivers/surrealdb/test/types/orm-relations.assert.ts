@@ -1,8 +1,8 @@
 // M3 — TYPE assertions for relations & graph: `include` result shapes (links/edges/edge+target/
 // `_count`) and the relational `where` vocabulary, all derived from the authored schema.
-// Run under node/tsx (NOT bun): `bun run --cwd drivers/surrealdb test:types`.
-import { after, before, describe, it } from "node:test";
-import { attest } from "@ark/attest";
+// Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
+import { describe, it } from "node:test";
+import { assertType } from "../../../../scripts/type-assert";
 import type { RecordId } from "surrealdb";
 import { defineRelation, defineTable, s } from "../../src/index";
 import type { Client } from "../../src/orm/client";
@@ -11,10 +11,7 @@ import type { IncludeArg } from "../../src/orm/types/include";
 import type { ResultOf, Simplify } from "../../src/orm/types/select";
 import type { Where } from "../../src/orm/types/where";
 import type { App } from "../../src/pure";
-import { setupTypes, teardownTypes } from "./_setup";
 
-before(setupTypes);
-after(teardownTypes);
 
 const UserBase = defineTable("user", { name: s.string(), age: s.int() });
 const User = UserBase.extend({
@@ -40,18 +37,18 @@ type Row = App<U>;
 
 describe("include — link result shapes", () => {
   it("true fetches the whole target (null for a missing single link, [] array link)", () => {
-    attest<
+    assertType<
       Simplify<Omit<Row, "mentor"> & { mentor: App<U> | null }>,
       ResultOf<U, { include: { mentor: true } }, S>
     >();
-    attest<
+    assertType<
       Simplify<Omit<Row, "friends"> & { friends: App<U>[] }>,
       ResultOf<U, { include: { friends: true } }, S>
     >();
   });
 
   it("select projects the target; nested include recurses", () => {
-    attest<
+    assertType<
       Simplify<
         Omit<Row, "mentor"> & {
           mentor: { id: Row["id"]; name: string } | null;
@@ -63,7 +60,7 @@ describe("include — link result shapes", () => {
         S
       >
     >();
-    attest<
+    assertType<
       true,
       ResultOf<
         U,
@@ -87,15 +84,15 @@ describe("include — link result shapes", () => {
 
 describe("include — edge result shapes", () => {
   it("true/select return target rows; edge returns edge rows", () => {
-    attest<
+    assertType<
       Simplify<Omit<Row, "likes"> & { likes: App<P>[] }>,
       ResultOf<U, { include: { likes: true } }, S>
     >();
-    attest<
+    assertType<
       Simplify<Omit<Row, "likes"> & { likes: { title: string }[] }>,
       ResultOf<U, { include: { likes: { select: { title: true } } } }, S>
     >();
-    attest<
+    assertType<
       Simplify<Omit<Row, "likes"> & { likes: { score: number }[] }>,
       ResultOf<
         U,
@@ -106,7 +103,7 @@ describe("include — edge result shapes", () => {
   });
 
   it("edge+target remounts `{ edge, target }`", () => {
-    attest<
+    assertType<
       true,
       ResultOf<
         U,
@@ -131,13 +128,13 @@ describe("include — edge result shapes", () => {
   });
 
   it("the incoming side types the same way (schema key OR physical name)", () => {
-    attest<
+    assertType<
       true,
       ResultOf<P, { include: { likes: true } }, S> extends { likes: App<U>[] }
         ? true
         : false
     >();
-    attest<
+    assertType<
       true,
       ResultOf<P, { include: { user_likes: true } }, S> extends {
         user_likes: App<U>[];
@@ -148,7 +145,7 @@ describe("include — edge result shapes", () => {
   });
 
   it("_count types one number per selected relation", () => {
-    attest<
+    assertType<
       true,
       ResultOf<
         U,
@@ -163,23 +160,23 @@ describe("include — edge result shapes", () => {
 
 describe("relational where", () => {
   it("is/isNot accept a target filter; some/every/none accept edge+target", () => {
-    attest<
+    assertType<
       true,
       { mentor: { is: { name: "Alice" } } } extends Where<U, S> ? true : false
     >();
-    attest<
+    assertType<
       true,
       { mentor: { isNot: { name: "Alice" } } } extends Where<U, S>
         ? true
         : false
     >();
-    attest<
+    assertType<
       true,
       { likes: { some: { published: true } } } extends Where<U, S>
         ? true
         : false
     >();
-    attest<
+    assertType<
       true,
       {
         likes: { some: { score: { gt: 4 }; published: true }; direction: "in" };
@@ -187,13 +184,13 @@ describe("relational where", () => {
         ? true
         : false
     >();
-    attest<
+    assertType<
       true,
       { friends: { some: { age: { gt: 18 } } } } extends Where<U, S>
         ? true
         : false
     >();
-    attest<
+    assertType<
       true,
       { friends: { every: { age: 18 } } } extends Where<U, S> ? true : false
     >();
@@ -214,7 +211,7 @@ describe("relational where", () => {
   it("the client delegate carries the schema-typed include/where", () => {
     type C = Client<S>;
     type Args = Parameters<C["users"]["findMany"]>[0];
-    attest<
+    assertType<
       true,
       {
         include: { mentor: { select: { name: true } }; likes: true };
@@ -230,19 +227,19 @@ describe("relational where", () => {
     type UpdateArgs = Parameters<C["users"]["updateMany"]>[0];
     type DeleteArgs = Parameters<C["users"]["deleteMany"]>[0];
     type RelateArgs = Parameters<C["likes"]["unrelateMany"]>[0];
-    attest<
+    assertType<
       true,
       { where: { likes: { some: { score: { gt: 4 } } } } } extends UpdateArgs
         ? true
         : false
     >();
-    attest<
+    assertType<
       true,
       { where: { mentor: { is: { name: "Alice" } } } } extends DeleteArgs
         ? true
         : false
     >();
-    attest<
+    assertType<
       true,
       { where: { score: { gt: 4 } } } extends RelateArgs ? true : false
     >();

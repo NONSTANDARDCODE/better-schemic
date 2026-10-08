@@ -1,6 +1,6 @@
 {
   "//": "Self-contained tsconfig for the query-builder POC. Does NOT extend or",
-  "//2": "pollute the package typecheck. Run: bunx tsc --noEmit -p tsconfig.json",
+  "//2": "pollute the package typecheck. Run: bunx tsgo --noEmit -p tsconfig.json",
   "compilerOptions": {
     "lib": ["ESNext"],
     "target": "ESNext",

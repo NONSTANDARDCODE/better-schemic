@@ -222,7 +222,7 @@ time-bounded corpus asserts each call finishes well under budget. Budget is `FUZ
 | `gate` | build · typecheck · test | includes the PBT + fuzz suites (they're normal `bun test` files) |
 | `coverage` | `bun run test:coverage` | installs the pinned `surreal` binary so live/parity never skip; also enforces the MC/DC reconcile |
 | `mutation` | `bun run test:mutation` | offline (no DB), parallel test-runner workers |
-| `type-perf` | `bun run scripts/type-perf.ts` | attest type-completeness + instantiation budgets |
+| `type-bench` | `bun run scripts/type-bench.ts` | `bun check` type-completeness (rides `typecheck`) + per-file instantiation budgets |
 
 All heavy gates are **separate jobs**: `land.ts` and the `gate` job stay quick, and a regression fails
 the specific job (coverage, mutation or MC/DC) with the per-file detail.

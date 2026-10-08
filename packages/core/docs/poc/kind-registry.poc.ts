@@ -11,7 +11,7 @@
 // — both via ONE `createKind`, both fully type-inferred on the authoring side, both driven by one
 // generic `plan()` that has zero knowledge of either kind.
 //
-// Typecheck: bunx tsc --noEmit --strict --target esnext --moduleResolution bundler --skipLibCheck \
+// Typecheck: bunx tsgo --noEmit --strict --target esnext --moduleResolution bundler --skipLibCheck \
 //   packages/core/docs/poc/kind-registry.poc.ts
 
 /* ===== shared substrate (core) — the field/type vocabulary that stays NEUTRAL ===== */

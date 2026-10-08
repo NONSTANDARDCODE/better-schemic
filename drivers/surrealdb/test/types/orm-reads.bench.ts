@@ -1,10 +1,10 @@
-// TYPE-INSTANTIATION BUDGETS for the read surface (@ark/attest `bench().types()`).
-// Run under node/tsx (NOT bun): `bun run --cwd drivers/surrealdb test:types`.
+// TYPE-INSTANTIATION BUDGETS for the read surface (budgets enforced by `scripts/type-bench.ts`).
+// Budget enforced by `scripts/type-bench.ts` (one tsgo program per file, ±20%).
 //
 // The number is the instantiations the expression's TYPE triggers; the budget guards REGRESSION — a
 // change that makes a generic materially more expensive blows the +20% threshold and fails.
-// Re-baseline intentionally (`ATTEST_updateSnapshots=1`) when a change is a known, justified cost.
-import { bench } from "@ark/attest";
+// Re-baseline intentionally (`bun run scripts/type-bench.ts --update`) when a change is a known, justified cost.
+import { bench } from "../../../../scripts/type-bench";
 import type { Surql } from "../../src/frag";
 import { defineTable, s } from "../../src/index";
 import type { AggregateShape, ResultOf } from "../../src/orm/types/select";
@@ -22,7 +22,7 @@ type U = typeof User;
 
 bench("Where<TD> — nested logical filter", () => {
   return {} as Where<U>;
-}).types([77186, "instantiations"]);
+});
 
 bench("ResultOf<TD> — select with path/alias/fragment", () => {
   return {} as ResultOf<
@@ -36,19 +36,19 @@ bench("ResultOf<TD> — select with path/alias/fragment", () => {
       };
     }
   >;
-}).types([77561, "instantiations"]);
+});
 
 bench("ResultOf<TD> — omit/split adjustments", () => {
   return {} as ResultOf<U, { omit: ["age"]; split: "tags" }>;
-}).types([77238, "instantiations"]);
+});
 
 bench("AggregateShape<TD> — count + avg + collect", () => {
   return {} as AggregateShape<
     U,
     { _count: true; avgAge: { avg: "age" }; names: { collect: "name" } }
   >;
-}).types([76263, "instantiations"]);
+});
 
 bench("App<TD> — the decoded row (baseline)", () => {
   return {} as App<U>;
-}).types([11765, "instantiations"]);
+});

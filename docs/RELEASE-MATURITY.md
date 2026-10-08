@@ -44,8 +44,8 @@ Mostly a hardening road, not a build road.
 - [ ] **External adoption + a soak period** — beta baked long enough with users who aren't us (beyond
       the dogfood repo) that the sharp edges surfaced and got filed.
 - [ ] **Self-serve docs** — the docs site + migration/upgrade guides; users can learn it without us.
-- [ ] **Test depth green in CI** — the repo-wide type-test suite (attest, per-expression instantiation
-      budgets), e2e-vs-live, parity, and the example-cookbook goldens.
+- [ ] **Test depth green in CI** — the repo-wide type-test suite (compile-time `assertType` checks +
+      per-file instantiation budgets via tsgo), e2e-vs-live, parity, and the example-cookbook goldens.
 - [ ] **Upgrade story** — versioned snapshots + a path to migrate projects from older Better-schemic versions
       (1.0 implies we support that).
 - [ ] **Semver commitment documented** — a public policy: what "breaking" means, deprecation windows.

@@ -1,8 +1,8 @@
 // M1.8 — TYPE assertions for the read surface: `where`, `select`/`omit`/`value`/`only`/`split`
 // result shapes, the throwing reads, the aggregate/count/paginate/cursor envelopes, and `explain`.
-// Run under node/tsx (NOT bun): `bun run --cwd drivers/surrealdb test:types`.
-import { after, before, describe, it } from "node:test";
-import { attest } from "@ark/attest";
+// Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
+import { describe, it } from "node:test";
+import { assertType } from "../../../../scripts/type-assert";
 import type { Surql } from "../../src/frag";
 import { defineTable, s } from "../../src/index";
 import type { Client } from "../../src/orm/client";
@@ -22,10 +22,7 @@ import type {
 } from "../../src/orm/types/select";
 import type { Where } from "../../src/orm/types/where";
 import type { App } from "../../src/pure";
-import { setupTypes, teardownTypes } from "./_setup";
 
-before(setupTypes);
-after(teardownTypes);
 
 const User = defineTable("user", {
   name: s.string(),
@@ -43,7 +40,7 @@ type Users = C["users"];
 
 describe("where — family-aware filters and paths", () => {
   it("pure values, operators and paths typecheck", () => {
-    attest<
+    assertType<
       true,
       {
         active: true;
@@ -61,13 +58,13 @@ describe("where — family-aware filters and paths", () => {
   });
 
   it("rejects wrong-family operators and wrong value types", () => {
-    attest<false, { age: { contains: "x" } } extends Where<U> ? true : false>();
-    attest<
+    assertType<false, { age: { contains: "x" } } extends Where<U> ? true : false>();
+    assertType<
       false,
       { name: { containsAll: ["a"] } } extends Where<U> ? true : false
     >();
-    attest<false, { age: "old" } extends Where<U> ? true : false>();
-    attest<
+    assertType<false, { age: "old" } extends Where<U> ? true : false>();
+    assertType<
       false,
       { active: { between: [1, 2] } } extends Where<U> ? true : false
     >();
@@ -80,8 +77,8 @@ describe("where — family-aware filters and paths", () => {
   });
 
   it("record ids accept strings; the logical combinators recurse", () => {
-    attest<true, { id: "user:aeon" } extends Where<U> ? true : false>();
-    attest<
+    assertType<true, { id: "user:aeon" } extends Where<U> ? true : false>();
+    assertType<
       true,
       { OR: [{ NOT: { id: "user:a" } }, { age: 1 }] } extends Where<U>
         ? true
@@ -92,11 +89,11 @@ describe("where — family-aware filters and paths", () => {
 
 describe("select — result shapes", () => {
   it("no projection is the decoded row", () => {
-    attest<Row, ResultOf<U, Record<string, never>>>();
+    assertType<Row, ResultOf<U, Record<string, never>>>();
   });
 
   it("field lists, paths (nested), aliases and fragments", () => {
-    attest<
+    assertType<
       {
         id: Row["id"];
         address: { city: string };
@@ -115,40 +112,40 @@ describe("select — result shapes", () => {
         }
       >
     >();
-    attest<
+    assertType<
       { id: Row["id"]; name: string },
       ResultOf<U, { select: ["id", "name"] }>
     >();
-    attest<
+    assertType<
       { bump: number },
       ResultOf<U, { select: { bump: Surql<[number]> } }>
     >();
   });
 
   it("nested sub-objects and star + expression", () => {
-    attest<
+    assertType<
       { address: { city: string; country: string } },
       ResultOf<U, { select: { address: { city: true; country: true } } }>
     >();
-    attest<
+    assertType<
       Row & { score: number },
       ResultOf<U, { select: { "*": true; score: Surql<[number]> } }>
     >();
   });
 
   it("omit removes keys; value unwraps; only unwraps the page", () => {
-    attest<Omit<Row, "age">, ResultOf<U, { omit: ["age"] }>>();
-    attest<string, ResultOf<U, { select: { name: true }; value: true }>>();
+    assertType<Omit<Row, "age">, ResultOf<U, { omit: ["age"] }>>();
+    assertType<string, ResultOf<U, { select: { name: true }; value: true }>>();
     // `only` unwraps the PAGE (see FindManyResult) — ResultOf stays the row shape.
-    attest<Row, ResultOf<U, { only: true }>>();
+    assertType<Row, ResultOf<U, { only: true }>>();
   });
 
   it("split changes the field to its element type", () => {
-    attest<
+    assertType<
       Omit<Row, "tags"> & { tags: string },
       ResultOf<U, { split: "tags" }>
     >();
-    attest<
+    assertType<
       { name: string; tags: string },
       ResultOf<U, { select: { name: true; tags: true }; split: "tags" }>
     >();
@@ -157,52 +154,52 @@ describe("select — result shapes", () => {
 
 describe("read envelopes", () => {
   it("findMany is a lazy promise with .explain(); explain:true yields the plan", () => {
-    attest<
+    assertType<
       Promise<Row[]> & { explain(): Promise<ExplainResult> },
       FindManyResult<U, Record<string, never>>
     >();
-    attest<Promise<ExplainResult>, FindManyResult<U, { explain: true }>>();
+    assertType<Promise<ExplainResult>, FindManyResult<U, { explain: true }>>();
   });
 
   it("findFirst/findOne/findUnique are ThrowingResults with .explain()", () => {
-    attest<
+    assertType<
       ThrowingResult<Row> & { explain(): Promise<ExplainResult> },
       FindOneResult<U, Record<string, never>>
     >();
-    attest<
+    assertType<
       ThrowingResult<Row> & { explain(): Promise<ExplainResult> },
       FindUniqueResult<U, { where: { id: "user:a" } }>
     >();
   });
 
   it("count/exists/aggregate/paginate/cursor carry their payloads", () => {
-    attest<
+    assertType<
       Promise<number> & { explain(): Promise<ExplainResult> },
       ReadResult<number, Record<string, never>>
     >();
-    attest<
+    assertType<
       Promise<boolean> & { explain(): Promise<ExplainResult> },
       ReadResult<boolean, Record<string, never>>
     >();
-    attest<
+    assertType<
       { _count: number; avgAge: number; names: string[] },
       AggregateShape<
         U,
         { _count: true; avgAge: { avg: "age" }; names: { collect: "name" } }
       >
     >();
-    attest<
+    assertType<
       PaginationResult<Row>,
       Awaited<ReadResult<PaginationResult<Row>, Record<string, never>>>
     >();
-    attest<
+    assertType<
       CursorResult<Row>,
       Awaited<ReadResult<CursorResult<Row>, Record<string, never>>>
     >();
   });
 
   it("cursor: select may omit the orderBy fields; value/only/start are off-surface", () => {
-    attest<
+    assertType<
       { name: string },
       ResultOf<
         U,
@@ -224,7 +221,7 @@ describe("read envelopes", () => {
   });
 
   it("aggregate shapes dispatch per operator", () => {
-    attest<
+    assertType<
       {
         total: number;
         first: Date;
@@ -248,16 +245,16 @@ describe("read envelopes", () => {
   });
 
   it("explain: true flips count/exists to the plan", () => {
-    attest<Promise<ExplainResult>, ReadResult<number, { explain: true }>>();
-    attest<Promise<ExplainResult>, ReadResult<boolean, { explain: true }>>();
+    assertType<Promise<ExplainResult>, ReadResult<number, { explain: true }>>();
+    assertType<Promise<ExplainResult>, ReadResult<boolean, { explain: true }>>();
   });
 
   it("the delegate exposes the read surface", () => {
-    attest<true, "findMany" extends keyof Users ? true : false>();
-    attest<true, "findUnique" extends keyof Users ? true : false>();
-    attest<true, "aggregate" extends keyof Users ? true : false>();
-    attest<true, "paginate" extends keyof Users ? true : false>();
-    attest<true, "cursor" extends keyof Users ? true : false>();
-    attest<Delegate<U>, Users>();
+    assertType<true, "findMany" extends keyof Users ? true : false>();
+    assertType<true, "findUnique" extends keyof Users ? true : false>();
+    assertType<true, "aggregate" extends keyof Users ? true : false>();
+    assertType<true, "paginate" extends keyof Users ? true : false>();
+    assertType<true, "cursor" extends keyof Users ? true : false>();
+    assertType<Delegate<U>, Users>();
   });
 });

@@ -1,7 +1,7 @@
 // M0.3 — TYPE assertions for the result wrappers (`ThrowingResult` / `BatchResult` / `StatementResult`).
-// Run under node/tsx (NOT bun): `bun run --cwd drivers/surrealdb test:types`.
-import { after, before, describe, it } from "node:test";
-import { attest } from "@ark/attest";
+// Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
+import { describe, it } from "node:test";
+import { assertType } from "../../../../scripts/type-assert";
 import type { BetterSchemicError } from "../../src/orm/errors";
 import type {
   BatchResult,
@@ -9,14 +9,11 @@ import type {
   StatementResult,
   ThrowingResult,
 } from "../../src/orm/results";
-import { setupTypes, teardownTypes } from "./_setup";
 
-before(setupTypes);
-after(teardownTypes);
 
 describe("ThrowingResult<T>", () => {
   it("is a Promise<T | null> augmented with `.throw()` yielding T", () => {
-    attest<
+    assertType<
       Promise<number | null> & {
         throw(factory?: (info: NotFoundInfo) => Error): Promise<number>;
       },
@@ -27,7 +24,7 @@ describe("ThrowingResult<T>", () => {
 
 describe("BatchResult<T>", () => {
   it("carries count/data/skipped/statements (count optional with return:'none')", () => {
-    attest<
+    assertType<
       {
         readonly count?: number;
         readonly data?: readonly string[];
@@ -41,7 +38,7 @@ describe("BatchResult<T>", () => {
 
 describe("StatementResult<T>", () => {
   it("carries result/status/time/error", () => {
-    attest<
+    assertType<
       {
         readonly result: number[];
         readonly status: "OK" | "ERR";

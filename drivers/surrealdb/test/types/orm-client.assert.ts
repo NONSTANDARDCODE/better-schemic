@@ -1,8 +1,8 @@
 // M0.5 — TYPE assertions for the `/orm` client: schema keys map to delegates, functions do NOT
 // (they land with client.fn in M5.2), and the lifecycle surface is intact.
-// Run under node/tsx (NOT bun): `bun run --cwd drivers/surrealdb test:types`.
-import { after, before, describe, it } from "node:test";
-import { attest } from "@ark/attest";
+// Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
+import { describe, it } from "node:test";
+import { assertType } from "../../../../scripts/type-assert";
 import {
   defineFunction,
   defineRelation,
@@ -13,10 +13,7 @@ import type { Client } from "../../src/orm/client";
 import type { Delegate, RelationDelegate } from "../../src/orm/delegate";
 import { defineSchema } from "../../src/orm/schema";
 import type { AnyTableDef } from "../../src/orm/types/schema";
-import { setupTypes, teardownTypes } from "./_setup";
 
-before(setupTypes);
-after(teardownTypes);
 
 const User = defineTable("user", { name: s.string() });
 const Post = defineTable("post", {
@@ -37,23 +34,23 @@ type C = Client<typeof schema>;
 
 describe("Client<S> — schema keys -> delegates", () => {
   it("every model key resolves to a Delegate (typed per model)", () => {
-    attest<Delegate<typeof User, typeof schema>, C["users"]>();
-    attest<Delegate<typeof Post, typeof schema>, C["posts"]>();
+    assertType<Delegate<typeof User, typeof schema>, C["users"]>();
+    assertType<Delegate<typeof Post, typeof schema>, C["posts"]>();
     // A relation maps to the RelationDelegate (RELATE surface) with the schema-typed args.
-    attest<RelationDelegate<typeof Likes, typeof schema>, C["likes"]>();
+    assertType<RelationDelegate<typeof Likes, typeof schema>, C["likes"]>();
     // Schemaless entries map to the loosely-typed delegate over unknown rows.
-    attest<Delegate<AnyTableDef, typeof schema>, C["audit"]>();
+    assertType<Delegate<AnyTableDef, typeof schema>, C["audit"]>();
   });
   it("model keys are part of the client type; function keys are not", () => {
-    attest<true, "users" extends keyof C ? true : false>();
-    attest<true, "audit" extends keyof C ? true : false>();
-    attest<false, "greet" extends keyof C ? true : false>();
-    attest<false, "nope" extends keyof C ? true : false>();
+    assertType<true, "users" extends keyof C ? true : false>();
+    assertType<true, "audit" extends keyof C ? true : false>();
+    assertType<false, "greet" extends keyof C ? true : false>();
+    assertType<false, "nope" extends keyof C ? true : false>();
   });
   it("lifecycle members survive the delegate mapping", () => {
-    attest<readonly string[], C["tables"]>();
-    attest<Delegate, ReturnType<C["repository"]>>();
-    attest<Promise<void>, ReturnType<C["close"]>>();
-    attest<Promise<Client<typeof schema>>, ReturnType<C["forkSession"]>>();
+    assertType<readonly string[], C["tables"]>();
+    assertType<Delegate, ReturnType<C["repository"]>>();
+    assertType<Promise<void>, ReturnType<C["close"]>>();
+    assertType<Promise<Client<typeof schema>>, ReturnType<C["forkSession"]>>();
   });
 });

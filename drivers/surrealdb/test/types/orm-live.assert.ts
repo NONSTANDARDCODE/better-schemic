@@ -1,8 +1,8 @@
 // M4.2 — TYPE assertions for live queries: the notification envelope (discriminated on `action`),
 // the row shape following `select`, the delegate/client surfaces and the args guardrails.
-// Run under node/tsx (NOT bun): `bun run --cwd drivers/surrealdb test:types`.
-import { after, before, describe, it } from "node:test";
-import { attest } from "@ark/attest";
+// Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
+import { describe, it } from "node:test";
+import { assertType } from "../../../../scripts/type-assert";
 import type { RecordId } from "surrealdb";
 import { type App, defineTable, s } from "../../src/index";
 import type { Client } from "../../src/orm/client";
@@ -16,10 +16,7 @@ import type {
   LiveRow,
   LiveSubscription,
 } from "../../src/orm/types/live";
-import { setupTypes, teardownTypes } from "./_setup";
 
-before(setupTypes);
-after(teardownTypes);
 
 const UserBase = defineTable("user", { name: s.string(), age: s.int() });
 const User = UserBase.extend({
@@ -42,18 +39,18 @@ const liveDynamic = (client: C) =>
 describe("live — typing", () => {
   it("the subscription row follows select (and the full row otherwise)", () => {
     // Derived from the SAME `App` field so the expected type can't drift on RecordId generics.
-    attest<
+    assertType<
       { id: App<U>["id"]; name: string },
       LiveRow<U, { select: { id: true; name: true } }>
     >();
-    attest<App<U>, LiveRow<U, { diff: true }>>();
-    attest<
+    assertType<App<U>, LiveRow<U, { diff: true }>>();
+    assertType<
       LiveResult<U, { select: { id: true; name: true } }>,
       ReturnType<typeof liveSelected>
     >();
-    attest<LiveResult<U, { diff: true }>, ReturnType<typeof liveFull>>();
+    assertType<LiveResult<U, { diff: true }>, ReturnType<typeof liveFull>>();
     // The dynamic form is the full-row default (no `select`).
-    attest<
+    assertType<
       LiveResult<U, Record<string, never>>,
       ReturnType<typeof liveDynamic>
     >();
@@ -61,36 +58,36 @@ describe("live — typing", () => {
 
   it("notifications discriminate on action (RECONNECTED has no recordId)", () => {
     // The union IS the change payload plus the lifecycle event (no Extract — tsgo defers
-    // conditional-type instantiation inside attest's constraint check).
-    attest<
+    // conditional-type instantiation inside the equality constraint).
+    assertType<
       LiveNotification<LiveRowName>,
       LiveChange<LiveRowName> | LiveReconnected
     >();
-    attest<null, LiveReconnected["value"]>();
-    attest<false, "recordId" extends keyof LiveReconnected ? true : false>();
-    attest<RecordId, LiveChange<LiveRowName>["recordId"]>();
-    attest<{ name: string } | null, LiveChange<LiveRowName>["value"]>();
+    assertType<null, LiveReconnected["value"]>();
+    assertType<false, "recordId" extends keyof LiveReconnected ? true : false>();
+    assertType<RecordId, LiveChange<LiveRowName>["recordId"]>();
+    assertType<{ name: string } | null, LiveChange<LiveRowName>["value"]>();
   });
 
   it("live args accept the read where/select and link fetches only", () => {
-    attest<
+    assertType<
       true,
       "mentor" extends NonNullable<LiveArgs<U>["fetch"]>[number] ? true : false
     >();
-    attest<
+    assertType<
       false,
       "nope" extends NonNullable<LiveArgs<U>["fetch"]>[number] ? true : false
     >();
-    attest<true, "diff" extends keyof LiveArgs<U> ? true : false>();
-    attest<true, "where" extends keyof LiveArgs<U> ? true : false>();
-    attest<true, "select" extends keyof LiveArgs<U> ? true : false>();
+    assertType<true, "diff" extends keyof LiveArgs<U> ? true : false>();
+    assertType<true, "where" extends keyof LiveArgs<U> ? true : false>();
+    assertType<true, "select" extends keyof LiveArgs<U> ? true : false>();
   });
 
   it("client surfaces keep their shapes", () => {
-    attest<
+    assertType<
       Promise<LiveSubscription<Record<string, unknown>>>,
       ReturnType<C["liveOf"]>
     >();
-    attest<Promise<void>, ReturnType<C["kill"]>>();
+    assertType<Promise<void>, ReturnType<C["kill"]>>();
   });
 });

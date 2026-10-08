@@ -9,7 +9,7 @@ import {
 import { basename, join, resolve } from "node:path";
 import * as p from "@clack/prompts";
 // The @better-schemic versions this scaffolder pins are its OWN version (the packages release lockstep), so a
-// fresh project always gets a matching set. Inlined at build by tsup.
+// fresh project always gets a matching set. Inlined at build by the Bun bundler.
 import { version as BETTER_SCHEMIC_VERSION } from "../package.json";
 
 const RANGE = `^${BETTER_SCHEMIC_VERSION}`;

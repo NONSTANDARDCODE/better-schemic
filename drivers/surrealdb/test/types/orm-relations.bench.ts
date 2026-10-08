@@ -1,10 +1,10 @@
-// TYPE-INSTANTIATION BUDGETS for the relations/graph surface (@ark/attest `bench().types()`).
-// Run under node/tsx (NOT bun): `bun run --cwd drivers/surrealdb test:types`.
+// TYPE-INSTANTIATION BUDGETS for the relations/graph surface (budgets enforced by `scripts/type-bench.ts`).
+// Budget enforced by `scripts/type-bench.ts` (one tsgo program per file, ±20%).
 //
 // The number is the instantiations the expression's TYPE triggers; the budget guards REGRESSION — a
 // change that makes a generic materially more expensive blows the +20% threshold and fails.
-// Re-baseline intentionally (`ATTEST_updateSnapshots=1`) when a change is a known, justified cost.
-import { bench } from "@ark/attest";
+// Re-baseline intentionally (`bun run scripts/type-bench.ts --update`) when a change is a known, justified cost.
+import { bench } from "../../../../scripts/type-bench";
 import { defineRelation, defineTable, s } from "../../src/index";
 import type { IncludeArg } from "../../src/orm/types/include";
 import type { ResultOf } from "../../src/orm/types/select";
@@ -34,11 +34,11 @@ type U = typeof User;
 
 bench("IncludeArg<TD, S> — links + edges + _count", () => {
   return {} as IncludeArg<U, S>;
-}).types([109262, "instantiations"]);
+});
 
 bench("Where<TD, S> — relational operators", () => {
   return {} as Where<U, S>;
-}).types([109009, "instantiations"]);
+});
 
 bench("ResultOf<TD, A, S> — include with select/_count", () => {
   return {} as ResultOf<
@@ -52,4 +52,4 @@ bench("ResultOf<TD, A, S> — include with select/_count", () => {
     },
     S
   >;
-}).types([1161, "instantiations"]);
+});

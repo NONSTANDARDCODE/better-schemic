@@ -248,7 +248,7 @@ Known DX debt carried: `soft-delete` não filtra `findUnique` (o `where` é o al
 
 Exhaustive `docs/ORM-COVERAGE.md` (runtime surface, separate from the schema `COVERAGE.md`), an ORM
 reference cookbook (`examples/orm/*` + `examples-manifest-orm.json` + `test/examples/orm-reference.test.ts`),
-driver README/examples, docs sweep (superseded banners), type-perf baselines, final e2e, and the
+driver README/examples, docs sweep (superseded banners), type-bench baselines, final e2e, and the
 release entry. Landing accumulates — publishing is a separate explicit decision.
 
 ---
@@ -329,7 +329,7 @@ integration and subprocess e2e coverage. Method + tooling: `drivers/surrealdb/do
 - ✅ **M8.6 — CI + docs.** `.github/workflows/ci.yml` runs the hot `gate` (build · typecheck · test —
   the PBT/fuzz suites included), the `coverage` job (installs the `surreal` binary so live/parity
   never skip; runs `test:coverage`, which now also enforces the MC/DC reconcile), the `mutation` job
-  (offline, parallel test-runner workers) and `type-perf`. Method + tooling documented in
+  (offline, parallel test-runner workers) and `type-bench`. Method + tooling documented in
   `drivers/surrealdb/docs/TESTING.md` (coverage/MC-DC, decision inventory, mutation, PBT, fuzzing).
 
 Literal operands (`x || {}`, `a ?? "d"`) are excluded from the condition denominator — MC/DC covers

@@ -1,9 +1,9 @@
 // M2.8 — TYPE assertions for the write surface: per-op args (`create`/`insert`/`update`/`patch`/
 // `upsert`/`delete`/`updateEach`/`relate`), the result envelopes dispatched by `return`, the
-// expression-carrying `data`, and the relation-only RELATE surface. Run under node/tsx:
-// `bun run --cwd drivers/surrealdb test:types`.
-import { after, before, describe, it } from "node:test";
-import { attest } from "@ark/attest";
+// expression-carrying `data`, and the relation-only RELATE surface.
+// Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
+import { describe, it } from "node:test";
+import { assertType } from "../../../../scripts/type-assert";
 import type { Surql } from "../../src/frag";
 import { defineRelation, defineTable, s, surql } from "../../src/index";
 import type { Client } from "../../src/orm/client";
@@ -24,10 +24,7 @@ import type {
   WrittenResult,
 } from "../../src/orm/types/write";
 import type { App } from "../../src/pure";
-import { setupTypes, teardownTypes } from "./_setup";
 
-before(setupTypes);
-after(teardownTypes);
 
 const User = defineTable("user", {
   name: s.string(),
@@ -50,7 +47,7 @@ type L = typeof Likes;
 declare const client: C;
 
 /**
- * TYPE-ONLY probes: the closure is never invoked (attest/tsc check the delegate signatures; running
+ * TYPE-ONLY probes: the closure is never invoked (tsgo checks the delegate signatures; running
  * them would need a real connection). The `@ts-expect-error` directives live here too.
  */
 function typeProbes(): void {
@@ -118,7 +115,7 @@ function typeProbes(): void {
     where: { id: "user:a" },
     data: { age: 1 },
   });
-  attest<Promise<Row>, typeof upserted>();
+  assertType<Promise<Row>, typeof upserted>();
 
   // A target-less `upsert` is a plain CREATE; `data.id` alone infers the strict id target.
   const targetless = client.users.upsert({
@@ -131,7 +128,7 @@ function typeProbes(): void {
       address: { city: "X", country: "Y" },
     },
   });
-  attest<Promise<Row>, typeof targetless>();
+  assertType<Promise<Row>, typeof targetless>();
   void client.users.upsert({ data: { id: "user:b", age: 2 } });
   void client.users.upsert({
     data: { id: "user:b", age: 2 },
@@ -182,21 +179,21 @@ function typeProbes(): void {
     data: { age: "old" },
   });
 
-  // The result envelope narrows on `created` (attest checks each branch at compile time).
+  // The result envelope narrows on `created` (tsgo checks each branch at compile time).
   const deltaResult = client.users.upsertDelta({
     where: { id: "user:a" },
     data: { age: 1 },
   });
-  attest<Promise<UpsertDeltaResult<U>>, typeof deltaResult>();
+  assertType<Promise<UpsertDeltaResult<U>>, typeof deltaResult>();
   void deltaResult.then((row) => {
     if (row.created) {
-      attest<null, typeof row.before>();
-      attest<null, typeof row.delta>();
-      attest<readonly [], typeof row.changed>();
+      assertType<null, typeof row.before>();
+      assertType<null, typeof row.delta>();
+      assertType<readonly [], typeof row.changed>();
     } else {
-      attest<Row, typeof row.before>();
-      attest<FieldDelta<Row> | null, typeof row.delta>();
-      attest<readonly DeltaKey<Row>[], typeof row.changed>();
+      assertType<Row, typeof row.before>();
+      assertType<FieldDelta<Row> | null, typeof row.delta>();
+      assertType<readonly DeltaKey<Row>[], typeof row.changed>();
     }
   });
   void client.users.updateMany({ data: { active: false } });
@@ -258,68 +255,68 @@ void typeProbes;
 
 describe("write results dispatch on the `return` literal", () => {
   it("create resolves rows; none/before are null; diff is unknown[]", () => {
-    attest<Promise<Row>, CreatedResult<U, Record<string, never>>>();
-    attest<Promise<Row>, CreatedResult<U, { return: "after" }>>();
-    attest<Promise<null>, CreatedResult<U, { return: "none" }>>();
-    attest<Promise<null>, CreatedResult<U, { return: "before" }>>();
-    attest<Promise<unknown[]>, CreatedResult<U, { return: "diff" }>>();
+    assertType<Promise<Row>, CreatedResult<U, Record<string, never>>>();
+    assertType<Promise<Row>, CreatedResult<U, { return: "after" }>>();
+    assertType<Promise<null>, CreatedResult<U, { return: "none" }>>();
+    assertType<Promise<null>, CreatedResult<U, { return: "before" }>>();
+    assertType<Promise<unknown[]>, CreatedResult<U, { return: "diff" }>>();
   });
 
   it("insert/upsert `before` exposes the previous row (or null when created)", () => {
-    attest<Promise<Row | null>, WrittenResult<U, { return: "before" }>>();
-    attest<Promise<Row>, WrittenResult<U, Record<string, never>>>();
-    attest<Promise<null>, WrittenResult<U, { return: "none" }>>();
-    attest<Promise<unknown[]>, WrittenResult<U, { return: "diff" }>>();
+    assertType<Promise<Row | null>, WrittenResult<U, { return: "before" }>>();
+    assertType<Promise<Row>, WrittenResult<U, Record<string, never>>>();
+    assertType<Promise<null>, WrittenResult<U, { return: "none" }>>();
+    assertType<Promise<unknown[]>, WrittenResult<U, { return: "diff" }>>();
   });
 
   it("update/patch are ThrowingResults (a miss resolves null)", () => {
-    attest<ThrowingResult<Row>, UpdatedResult<U, Record<string, never>>>();
-    attest<ThrowingResult<Row>, UpdatedResult<U, { return: "before" }>>();
-    attest<Promise<null>, UpdatedResult<U, { return: "none" }>>();
-    attest<Promise<unknown[]>, UpdatedResult<U, { return: "diff" }>>();
+    assertType<ThrowingResult<Row>, UpdatedResult<U, Record<string, never>>>();
+    assertType<ThrowingResult<Row>, UpdatedResult<U, { return: "before" }>>();
+    assertType<Promise<null>, UpdatedResult<U, { return: "none" }>>();
+    assertType<Promise<unknown[]>, UpdatedResult<U, { return: "diff" }>>();
   });
 
   it("delete only accepts before|none", () => {
-    attest<ThrowingResult<Row>, DeletedResult<U, Record<string, never>>>();
-    attest<Promise<null>, DeletedResult<U, { return: "none" }>>();
+    assertType<ThrowingResult<Row>, DeletedResult<U, Record<string, never>>>();
+    assertType<Promise<null>, DeletedResult<U, { return: "none" }>>();
   });
 
   it("batches resolve a BatchResult, a patch list with diff", () => {
-    attest<
+    assertType<
       Promise<BatchResult<Row>>,
       BatchWriteResult<U, Record<string, never>>
     >();
-    attest<Promise<unknown[]>, BatchWriteResult<U, { return: "diff" }>>();
+    assertType<Promise<unknown[]>, BatchWriteResult<U, { return: "diff" }>>();
   });
 });
 
 describe("write data accepts fragments and partial updates", () => {
   it("WriteData allows a surql expression per field", () => {
-    attest<
+    assertType<
       true,
       { age: Surql<[number]> } extends WriteData<{ age: number }> ? true : false
     >();
-    attest<
+    assertType<
       true,
       { name: string } extends WriteData<{ name: string }> ? true : false
     >();
   });
 
   it("UpdateData is deep-partial (id/readonly excluded by the codec shape)", () => {
-    attest<true, { age: number } extends UpdateData<U> ? true : false>();
-    attest<true, { age: 1 } extends UpdateData<U> ? true : false>();
+    assertType<true, { age: number } extends UpdateData<U> ? true : false>();
+    assertType<true, { age: 1 } extends UpdateData<U> ? true : false>();
   });
 });
 
 describe("updateEach and relate are typed", () => {
   it("updateEach items carry the by field plus update data", () => {
-    attest<
+    assertType<
       false,
       { id: string; age: number } extends UpdateEachItem<U, "email">
         ? true
         : false
     >();
-    attest<
+    assertType<
       true,
       { email: string; age: number } extends UpdateEachItem<U, "email">
         ? true
@@ -328,23 +325,23 @@ describe("updateEach and relate are typed", () => {
   });
 
   it("only RELATION delegates expose relate/unrelate", () => {
-    attest<true, "relate" extends keyof Likess ? true : false>();
-    attest<true, "relateMany" extends keyof Likess ? true : false>();
-    attest<true, "unrelate" extends keyof Likess ? true : false>();
-    attest<false, "relate" extends keyof Users ? true : false>();
-    attest<true, Likess extends ModelDelegate<L> ? true : false>();
+    assertType<true, "relate" extends keyof Likess ? true : false>();
+    assertType<true, "relateMany" extends keyof Likess ? true : false>();
+    assertType<true, "unrelate" extends keyof Likess ? true : false>();
+    assertType<false, "relate" extends keyof Users ? true : false>();
+    assertType<true, Likess extends ModelDelegate<L> ? true : false>();
   });
 
   it("the delegate exposes the write surface", () => {
-    attest<true, "create" extends keyof Users ? true : false>();
-    attest<true, "createMany" extends keyof Users ? true : false>();
-    attest<true, "insert" extends keyof Users ? true : false>();
-    attest<true, "insertMany" extends keyof Users ? true : false>();
-    attest<true, "update" extends keyof Users ? true : false>();
-    attest<true, "patch" extends keyof Users ? true : false>();
-    attest<true, "upsert" extends keyof Users ? true : false>();
-    attest<true, "upsertDelta" extends keyof Users ? true : false>();
-    attest<true, "delete" extends keyof Users ? true : false>();
-    attest<true, "updateEach" extends keyof Users ? true : false>();
+    assertType<true, "create" extends keyof Users ? true : false>();
+    assertType<true, "createMany" extends keyof Users ? true : false>();
+    assertType<true, "insert" extends keyof Users ? true : false>();
+    assertType<true, "insertMany" extends keyof Users ? true : false>();
+    assertType<true, "update" extends keyof Users ? true : false>();
+    assertType<true, "patch" extends keyof Users ? true : false>();
+    assertType<true, "upsert" extends keyof Users ? true : false>();
+    assertType<true, "upsertDelta" extends keyof Users ? true : false>();
+    assertType<true, "delete" extends keyof Users ? true : false>();
+    assertType<true, "updateEach" extends keyof Users ? true : false>();
   });
 });

@@ -24,7 +24,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.3
 
       - uses: actions/cache@v4
         with:
@@ -64,7 +64,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.3
 
       - uses: actions/cache@v4
         with:
@@ -108,7 +108,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.3
 
       - uses: actions/cache@v4
         with:
@@ -136,24 +136,18 @@ jobs:
           if-no-files-found: ignore
 
 
-  # Type-completeness + instantiation-budget suites (@ark/attest). SEPARATE job because attest runs
-  # under node/tsx (not bun — see packages/core/docs/TYPE-PERF-TESTING.md) and its own TS program is
-  # slower; kept out of the hot land gate. Runs off src/ via tsx (`--conditions=bun`), so no build step.
-  type-perf:
-    name: type-perf (attest)
+  # Type-completeness + instantiation-budget suites. Compile-time asserts (`assertType`) ride the
+  # normal `tsgo --noEmit` typecheck; this job only enforces the `.bench.ts` budgets — one tsgo
+  # program per bench file, ±20% threshold (`scripts/type-bench.ts`, no node/tsx needed).
+  type-bench:
+    name: type-bench (tsgo)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
-
-      # node runs the attest suites; the pinned typescript devDep (not node) fixes instantiation counts.
-      # node 24 is required for `--experimental-test-isolation=none` (one attest TS program per package).
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
+          bun-version: 1.4.3
 
       - uses: actions/cache@v4
         with:
@@ -167,5 +161,5 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
-      - name: Type-perf suites
-        run: bun run scripts/type-perf.ts
+      - name: Type-bench suites
+        run: bun run scripts/type-bench.ts
