@@ -18,6 +18,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+### Added
+- **surrealdb:** `plugins/create-only` — append-only (create-only) tables as an official plugin pair
+  on the new subpath `@better-schemic/surrealdb/plugins/create-only`:
+  - `createOnly({ hard?: boolean })` — the schema PRESET: narrows the table with
+    `PERMISSIONS FOR update NONE` (AND-combined with the table's own permissions — the record-user
+    barrier covers `UPDATE`, the update path of `UPSERT` and `INSERT … ON DUPLICATE KEY UPDATE`) and
+    stamps the opaque `meta.createOnly` marker. `hard: true` additionally emits a
+    `{table}_create_only` DB event (`WHEN $event = 'UPDATE' THEN { THROW … }`) — events run without
+    permission checks, so it blocks privileged (root) sessions, `$withoutPlugins()` and raw SQL too.
+  - `createOnlyGuard({ tables?: string[] })` — the runtime plugin: rejects the whole update family
+    (`update`/`updateMany`/`updateEach`/`patch`/`upsert`/`upsertDelta`/`upsertMany`) and
+    `insert`/`insertMany` with `onDuplicate: "update" | <map>` BEFORE compiling, with the new
+    `CreateOnlyViolation` code (403, predicate `isCreateOnlyViolation`) and a teaching,
+    hard-aware `$withoutPlugins()` hint. `tables` guards preset-less schemas (`sc pull`); delete
+    stays allowed (immutable rows, not tombstones), and `insert({ onDuplicate: "ignore" })` is the
+    idempotent-create idiom.
+  - `timestamps()` reads the same marker and never stamps `updatedAt` on a create-only table
+    (create or bypassed update; independent of plugin registration order); the `tenant()` preset
+    stamps `meta.createOnly` when `createOnly: true`, so both halves cover it.
+  - Tests: `test/unit/create-only-preset.test.ts`, `test/unit/orm-plugins-create-only.test.ts`,
+    `test/unit/orm-plugins-timestamps.test.ts`, `test/unit/orm-errors.test.ts`,
+    `test/live/orm-plugins.test.ts`, `test/parity/struct-parity.test.ts`; types in
+    `test/types/orm-m6.assert.ts`.
+
+### Fixed
+- **surrealdb:** struct-IR event parity — `INFO … STRUCTURE` deserializes an event's `what` as an
+  SDK `Table` object, while the authored lowering uses the table-name string; the introspected side
+  now normalizes it (`endpointName`), so `diff --live` and the struct-parity keystone no longer
+  report a phantom divergence on tables with events. Live-verified with the
+  `createOnly({ hard: true })` guard event (`test/parity/struct-parity.test.ts`).
+
 ## [0.1.0-alpha.9] - 2026-10-06
 
 ### Added

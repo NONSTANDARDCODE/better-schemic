@@ -97,6 +97,13 @@
         "default": "./lib/plugins/soft-delete.js"
       }
     },
+    "./plugins/create-only": {
+      "bun": "./src/plugins/create-only.ts",
+      "import": {
+        "types": "./lib/plugins/create-only.d.ts",
+        "default": "./lib/plugins/create-only.js"
+      }
+    },
     "./plugins/tenant": {
       "bun": "./src/plugins/tenant.ts",
       "import": {

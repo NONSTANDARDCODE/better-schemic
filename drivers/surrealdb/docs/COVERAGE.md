@@ -30,6 +30,8 @@ live parity suites (`test/parity/{struct,live,canonical}-parity.test.ts`) and th
 - [x] `TYPE RELATION [IN … OUT …] [ENFORCED]` — `defineRelation()` + `.from()` / `.to()` / `.enforced()`
 - [x] `COMMENT` — `.comment(text)`
 - [x] table `PERMISSIONS FOR select/create/update/delete [WHERE …]` — `.permissions(spec)`
+- [x] append-only tables — preset `createOnly({ hard? })`: `FOR update NONE` + `meta.createOnly`
+      (+ opt-in `{table}_create_only` event `WHEN $event = 'UPDATE' THEN { THROW … }`)
 - [x] `CHANGEFEED <dur> [INCLUDE ORIGINAL]` — `.changefeed(expiry, opts?)` (emitted + introspected)
 - [x] `DROP`-marked tables — `.drop(true)`
 - [x] `TYPE RELATION … ENFORCED` — `defineRelation().enforced()` (round-trips: introspect + canonical + pull)

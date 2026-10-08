@@ -462,3 +462,24 @@ chamada, sem branch e sem cast, sem o custo do envelope delta.
   (target-less create, `data.id` estrito, miss, create-or-update, MERGE com id igual), tipos
   (`@ark/attest`), probe de sintaxe (`UPDATE ONLY t:id MERGE { id: t:id }`), README,
   `ORM-COVERAGE.md`, `orm-syntax-map.md` §2.3/§12, CHANGELOG, cookbook + manifest regenerado.
+
+## M14 — create-only (append-only) tables: preset `createOnly()` + runtime `createOnlyGuard()` ✅ *(complete)*
+
+Tabelas append-only declaradas no schema: `update` bloqueado no banco (`FOR update NONE`), guarda
+client-side fail-fast para sessões privilegiadas e `updatedAt` suprimido pelo `timestamps()`.
+
+- ✅ **M14.1 preset `createOnly({ hard? })`** — permissions `FOR update NONE` (AND-narrowed com as da
+  tabela), marker opaco `meta.createOnly`, evento duro opt-in `{table}_create_only`
+  (`WHEN $event = 'UPDATE' THEN { THROW … }`) que roda SEM permission checks (bloqueia root/raw/
+  `$withoutPlugins()`); o preset `tenant(…, { createOnly: true })` passa a carimbar o mesmo marker.
+- ✅ **M14.2 runtime `createOnlyGuard({ tables? })`** — a família update inteira + `insert` com
+  `onDuplicate: "update" | map` rejeitados ANTES de compilar (`CreateOnlyViolation`, 403,
+  `isCreateOnlyViolation`) com hint teaching ciente do evento duro; fallback `tables` para schemas
+  sem preset (pulled/schemaless); tags por `SchemaIndex` cacheadas (WeakMap, caminho quente = 1 `Map.get`).
+- ✅ **M14.3 interop `timestamps()`** — tabela create-only nunca recebe `updatedAt` (create ou
+  update burlado), independente da ordem de registro dos plugins (marker lido no transform).
+- ✅ **M14.4 testes + docs + fix de paridade** — unit (preset golden/AND-narrowing/runtime/interop/
+  erros), tipos (`@ark/attest`), live (guard + evento duro derrubando o escape root), struct-parity
+  (evento round-trip; `what` do INFO normalizado de `Table` → string, corrigindo um phantom-diff
+  pré-existente em QUALQUER tabela com evento); README, `ORM-COVERAGE.md` §7/§8, `COVERAGE.md`,
+  `orm-syntax-map.md` §2.5, CHANGELOG.

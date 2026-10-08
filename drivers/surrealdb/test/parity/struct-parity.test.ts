@@ -21,6 +21,7 @@ import {
   introspectStructured,
 } from "../../src/cli/structure";
 import { emitDefStatement, emitStatements } from "../../src/ddl";
+import { createOnly } from "../../src/plugins/create-only";
 import { defineFunction, defineRelation, defineTable, s } from "../../src/pure";
 
 // The workspace gate runs every package's suite IN PARALLEL — parallel-suite CPU contention can slow a live
@@ -114,11 +115,18 @@ const Less = defineTable("sp_less", { id: z.string() })
   .schemaless()
   .comment("c");
 const Rel = defineRelation("sp_likes", { id: z.string() }).from(Big).to(Big);
+const CreateOnly = defineTable("sp_create_only", {
+  id: z.string(),
+  action: s.string(),
+})
+  .permissions({ select: true, create: true, delete: true })
+  .use(createOnly({ hard: true }));
 const Fn = defineFunction("sp_add", { a: s.int(), b: s.int() })
   .returns(s.int())
   .body(surql`RETURN $a + $b;`);
 
-const TABLES = [Big, Less, Rel];
+// Kept in the live INFO order (alphabetical) so the `diff --ts` rendering compares equal.
+const TABLES = [Big, CreateOnly, Less, Rel];
 const DEFS = [Fn];
 const asTable = (t: unknown) => t as Parameters<typeof fromTableDef>[0];
 const asDef = (d: unknown) => d as Parameters<typeof fromStandalone>[0];

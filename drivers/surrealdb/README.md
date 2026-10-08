@@ -371,6 +371,32 @@ await client.customers.$forTenant("user:abc").findUnique({ where: { id: "custome
 await client.customers.$withoutPlugins().findMany({});        // explicit admin escape (audited)
 ```
 
+Official plugin (M14) — create-only (append-only) tables: the `createOnly()` schema PRESET
+(`update` locked to `NONE`, optional hard event) plus the `createOnlyGuard()` runtime plugin
+(fail-fast for privileged sessions, where the DDL permission does not gate):
+
+```ts
+import { createOnly, createOnlyGuard } from "@better-schemic/surrealdb/plugins/create-only";
+
+// Schema: PERMISSIONS FOR update NONE + meta.createOnly. `hard: true` also emits an
+// `{table}_create_only` event — events run without permission checks, so root/$withoutPlugins/raw
+// are blocked too. `timestamps()` sees the marker and never stamps `updatedAt` on this table.
+const AuditLog = defineTable("audit_log", {
+  action: s.string(),
+  createdAt: s.datetime().optional(),
+}).use(createOnly({ hard: true }));
+
+const client = betterSchemic(db, {
+  schema: defineSchema({ auditLogs: AuditLog }),
+  plugins: [timestamps(), createOnlyGuard()],
+});
+await client.auditLogs.create({ data: { action: "login" } });  // createdAt only (no updatedAt)
+await client.auditLogs.update({ where: { id }, data: { action: "x" } }); // ✗ CreateOnlyViolation
+await client.auditLogs.$withoutPlugins().update({ where: { id }, data: {} }); // ✗ hard event THROWs
+// create()/insert({ onDuplicate: "ignore" }) write; delete stays allowed (rows are immutable,
+// not tombstones). `createOnlyGuard({ tables: ["audit_log"] })` covers preset-less schemas.
+```
+
 ### Beautiful query logging (M9)
 
 Enable the built-in logger with one flag — a framed, syntax-highlighted box for every round-trip,
@@ -433,7 +459,8 @@ escape hatches/admin/context (M5 — `$raw`/`$query`/`$unsafe`, `fn`/`api`/`auth
 plugins/hooks (M6 — observation `hooks`, `definePlugin` with transforms/typed `operationArgs`/
 `extendClient`/`extendModel`, plus the official plugins `plugins/rules`, `plugins/zod`,
 `plugins/timestamps`, `plugins/soft-delete` and `plugins/tenant`). M9 adds the built-in query logger
-(`logger: true` / `@better-schemic/surrealdb/logger`) with `EXPLAIN` plan rendering.
+(`logger: true` / `@better-schemic/surrealdb/logger`) with `EXPLAIN` plan rendering, and M14 adds
+`plugins/create-only` (append-only tables: preset + runtime guard + optional hard event).
 
 The runtime surface is mapped exhaustively in [`docs/ORM-COVERAGE.md`](docs/ORM-COVERAGE.md), the
 live-verified SurrealQL facts live in [`docs/orm-syntax-map.md`](docs/orm-syntax-map.md), the

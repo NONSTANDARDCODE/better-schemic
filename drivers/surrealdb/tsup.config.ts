@@ -12,6 +12,7 @@ export default defineConfig({
     "plugins/zod": "src/plugins/zod.ts",
     "plugins/timestamps": "src/plugins/timestamps.ts",
     "plugins/soft-delete": "src/plugins/soft-delete.ts",
+    "plugins/create-only": "src/plugins/create-only.ts",
     "plugins/tenant": "src/plugins/tenant.ts",
   },
   outDir: "lib",

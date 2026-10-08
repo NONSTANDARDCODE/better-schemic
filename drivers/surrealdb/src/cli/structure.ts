@@ -799,7 +799,12 @@ export async function introspectStructured(
         ...i,
         index: normalizeIndexSpec(i.index),
       })),
-      events: tinfo.events ?? [],
+      // The SDK deserializes an event's `what` as a `Table` object — normalize to its name so the
+      // live struct deep-compares equal to the authored one (`what` is a plain string there).
+      events: (tinfo.events ?? []).map((event) => ({
+        ...event,
+        what: endpointName(event.what),
+      })),
     });
   }
   const num = (v: string | number | undefined): number | undefined =>

@@ -7,6 +7,9 @@
  * - `"database"`: the timestamps are owned by the table's `DEFINE FIELD … VALUE time::now()`; the
  *   plugin only ensures no write CLOBBERS the managed value (it strips the columns from the payload).
  *
+ * A create-only table (`createOnly()` / `tenant(…, { createOnly: true })`) never gets `updatedAt`:
+ * the marker is read per operation, so the skip is independent of plugin registration order.
+ *
  * ```ts
  * import { timestamps } from "@better-schemic/surrealdb/plugins/timestamps";
  * const client = betterSchemic(db, { schema, plugins: [timestamps({ createdAt: "createdAt" })] });
@@ -16,6 +19,7 @@ import { surql } from "../index";
 import { isCreateOperation, isUpdateOperation } from "../orm/hooks";
 import { definePlugin } from "../orm/plugins";
 import type { Plugin } from "../orm/types/plugins";
+import { createOnlyTags } from "./create-only-shared";
 
 /** The `timestamps` plugin options. */
 export interface TimestampsOptions {
@@ -44,11 +48,14 @@ export function timestamps(options: TimestampsOptions = {}): Plugin {
       const isCreate = isCreateOperation(op.kind);
       const isUpdate = isUpdateOperation(op.kind);
       if (!isCreate && !isUpdate) return;
+      // A create-only (append-only) table never carries `updatedAt` — not on create, not on a
+      // bypassed update. The per-index lookup is cached; untagged tables take one `Map.has`.
+      const createOnly = createOnlyTags(op.index).has(op.table);
       if (mode === "app") {
         if (isCreate) {
           op.data[createdAt] = surql`time::now()`;
-          op.data[updatedAt] = surql`time::now()`;
-        } else {
+          if (!createOnly) op.data[updatedAt] = surql`time::now()`;
+        } else if (!createOnly) {
           op.data[updatedAt] = surql`time::now()`;
         }
         return;

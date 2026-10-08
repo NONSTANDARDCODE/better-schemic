@@ -31,6 +31,8 @@ export type BetterSchemicErrorCode =
   // tenant row-level security (the `plugins/tenant` preset + runtime plugin)
   | "TenantRequired"
   | "TenantViolation"
+  // create-only / append-only tables (the `plugins/create-only` runtime guard)
+  | "CreateOnlyViolation"
   // live
   | "LiveQueryUnsupported"
   | "ClauseNotSupportedInLive"
@@ -68,6 +70,7 @@ const DEFAULT_STATUS: Record<BetterSchemicErrorCode, number> = {
   SchemaInvalid: 500,
   TenantRequired: 403,
   TenantViolation: 403,
+  CreateOnlyViolation: 403,
   LiveQueryUnsupported: 501,
   ClauseNotSupportedInLive: 400,
   LiveInTransaction: 409,
@@ -357,6 +360,13 @@ export const isTenantViolation = (e: unknown): boolean => {
   const code = codeOf(e);
   return code === "TenantRequired" || code === "TenantViolation";
 };
+
+/**
+ * A create-only (`plugins/create-only`) table rejected a write that could update records —
+ * `CreateOnlyViolation`, 403. The operation never reached the database.
+ */
+export const isCreateOnlyViolation = (e: unknown): boolean =>
+  codeOf(e) === "CreateOnlyViolation";
 
 /** Optimistic-concurrency conflict — retryable inside a transaction. */
 export const isWriteConflict = (e: unknown): boolean =>

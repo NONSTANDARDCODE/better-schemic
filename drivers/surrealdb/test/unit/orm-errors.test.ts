@@ -19,6 +19,7 @@ import {
   type BetterSchemicErrorCode,
   isAssertionFailed,
   isBetterSchemicError,
+  isCreateOnlyViolation,
   isNotFound,
   isPermissionDenied,
   isTenantViolation,
@@ -279,11 +280,22 @@ describe("predicates", () => {
     expect(violation.status).toBe(403);
   });
 
+  test("isCreateOnlyViolation matches the append-only guard code (403)", () => {
+    const violation = new BetterSchemicError(
+      "CreateOnlyViolation",
+      "no updates",
+    );
+    expect(isCreateOnlyViolation(violation)).toBe(true);
+    expect(violation.status).toBe(403);
+    expect(isCreateOnlyViolation(new Error("x"))).toBe(false);
+  });
+
   test("predicates return false for unrelated values", () => {
     expect(isUniqueViolation(new Error("x"))).toBe(false);
     expect(isNotFound(undefined)).toBe(false);
     expect(isValidationError({})).toBe(false);
     expect(isTenantViolation(new Error("x"))).toBe(false);
+    expect(isCreateOnlyViolation(undefined)).toBe(false);
   });
 });
 

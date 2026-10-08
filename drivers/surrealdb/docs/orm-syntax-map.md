@@ -179,6 +179,8 @@ original design prototype disagreed, the server wins.
 
 **Event guard do preset `tenant()`:** o `DEFINE EVENT … THEN IF $auth != NONE AND $after.<col> != $auth.id { THROW s"…"; }` do preset é aceito; `INFO … STRUCTURE` devolve o `WHEN` em single quotes e o `THEN` com o literal `'…'` (o `s"…"` do inline converge na canonicalização `canonicalizeLiterals`), então authored ≡ introspected (`diff --live` limpo).
 
+**Event guard do preset `createOnly({ hard: true })`:** o `DEFINE EVENT {table}_create_only … WHEN $event = 'UPDATE' THEN { THROW s"…" }` é aceito e **roda mesmo para sessões privileged/root** (`$auth = NONE`, sem permission checks), então bloqueia `$withoutPlugins()`, `$raw`/`$sdk` e migrações — `PERMISSIONS FOR update NONE` sozinha só barra record users. `INFO … STRUCTURE` devolve o `THEN` single-line com o literal `'…'`; o round-trip authored ≡ introspected é provado no `struct-parity` (corpus `sp_create_only`). Live: `test/live/orm-plugins.test.ts` (o update via root falha com `THROW`, a linha fica intacta).
+
 ### 2.6 `RELATE` / arestas
 
 | Form | Result |

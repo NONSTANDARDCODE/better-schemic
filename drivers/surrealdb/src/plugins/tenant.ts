@@ -49,6 +49,7 @@ import {
   type TablePermissions,
   type TablePreset,
 } from "../pure";
+import { CREATE_ONLY_MARKER } from "./create-only-shared";
 import { assertIdent } from "./tenant-shared";
 
 // --- the schema preset: tenant(principal, options?) ----------------------------------------------
@@ -61,7 +62,8 @@ export interface TenantTableMeta {
   readonly principal: string;
   /** The preserved tombstone column, or `false` when the table is not soft-deletable. */
   readonly softDelete: string | false;
-  /** `true` when `update` is locked to `NONE` (append-only table). */
+  /** `true` when `update` is locked to `NONE` (append-only table) — also stamps the top-level
+   *  `meta.createOnly` marker read by `createOnlyGuard()` + `timestamps()`. */
   readonly createOnly: boolean;
 }
 
@@ -247,6 +249,9 @@ export function tenant<
         softDelete: deleted ?? false,
         createOnly,
       } satisfies TenantTableMeta,
+      // The canonical create-only marker: `createOnlyGuard()` enforces it client-side and
+      // `timestamps()` skips `updatedAt` on this table.
+      ...(createOnly ? { [CREATE_ONLY_MARKER]: true } : {}),
     },
   });
 }

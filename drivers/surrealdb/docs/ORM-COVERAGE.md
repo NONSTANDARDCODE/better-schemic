@@ -231,7 +231,7 @@ Runtime `context.ts`; `$withContext`, `forkSession`, `extends`.
 
 ## 7. Hooks & plugins
 
-Runtime `hooks.ts`, `plugins.ts`; built-ins `src/plugins/*` (subpaths `plugins/{rules,zod,timestamps,soft-delete,tenant}`).
+Runtime `hooks.ts`, `plugins.ts`; built-ins `src/plugins/*` (subpaths `plugins/{rules,zod,timestamps,soft-delete,create-only,tenant}`).
 
 | Feature | Status | Surface / test |
 |---|---|---|
@@ -253,6 +253,9 @@ Runtime `hooks.ts`, `plugins.ts`; built-ins `src/plugins/*` (subpaths `plugins/{
 | `surql.ident(name)` — escaped identifier fragment for presets/plugins | `[x]` | `test/unit/surql-ident.test.ts` |
 | F3 `plugins/tenant` PRESET — `tenant(principal, options?)` column/permissions/guard event/indexes + `meta.tenant` (zero-diff with the manual recipe) | `[x]` | `test/unit/tenant-preset.test.ts`; `test/types/orm-tenant.assert.ts` |
 | F3 `plugins/tenant` RUNTIME — `tenantRls`, `$forTenant`, fail-closed scope, payload/where divergence, scoped reads (incl. `findUnique` id/unique targets), `replace`-mode injection, ON DUPLICATE refusal, bootstrap validation, soft-delete combo | `[x]` | `test/unit/orm-plugins-tenant.test.ts`; `test/live/orm-plugins-tenant.test.ts` |
+| M14 `plugins/create-only` PRESET — `createOnly({ hard? })`: `PERMISSIONS FOR update NONE` (AND-narrowed), `meta.createOnly`, optional `{table}_create_only` event (blocks even root/raw) | `[x]` | `test/unit/create-only-preset.test.ts`; `test/parity/struct-parity.test.ts` |
+| M14 `plugins/create-only` RUNTIME — `createOnlyGuard({ tables? })`: update family + `insert({ onDuplicate: "update" \| map })` → `CreateOnlyViolation` before compiling; hard-aware hint; per-index tag cache | `[x]` | `test/unit/orm-plugins-create-only.test.ts`; `test/live/orm-plugins.test.ts` |
+| M14 `timestamps()` create-only interop — tagged tables never get `updatedAt` (create or bypassed update), order-independent | `[x]` | `test/unit/orm-plugins-timestamps.test.ts` |
 | Type-level extraction — `PluginArgs`/`PluginClientExtras`/`PluginModelExtras` | `[x]` | `test/types/orm-m6.assert.ts` |
 
 ### Not implemented / guarded
@@ -265,6 +268,10 @@ Runtime `hooks.ts`, `plugins.ts`; built-ins `src/plugins/*` (subpaths `plugins/{
 | `tenant` runtime scope on `relate*`/`unrelate*`, `live`, `$raw`/`$query`/`$unsafe` | `[x]` by design | the DB permission (or `$withoutPlugins()`) is the boundary; documented in-code |
 | `tenant` runtime on `insert({ onDuplicate: "update" \| map })` and `upsertMany` by ids | `[x]` fail-closed | `INSERT … ON DUPLICATE KEY UPDATE` has no `WHERE` (cross-tenant write) → `TenantViolation`; use `upsert({ data })`/`conflict` |
 | `tenant` runtime on `upsert({ create, update })` by id | `[x]` fail-closed | the `INSERT … ON DUPLICATE` lowering has no scoped form → teaching `UnsupportedCapability`; use `upsert({ data })` |
+| `create-only` guard on raw SQL (`$raw`/`$query`/`$unsafe`), `$sdk`, `relate*`/`unrelate*` | `[x]` by design | the preset's DB permission (record users) and the opt-in `hard` event (every session, raw included) are the boundary; documented in-code |
+| `create-only` guard on a pulled schema (`sc pull`) | `[x]` by design | `meta` markers are not recoverable from the DB → pass `createOnlyGuard({ tables: [...] })`; the permission/event persist in the DDL |
+| `create-only` on `insert({ onDuplicate: "ignore" })` / plain insert | `[x]` allowed | `INSERT IGNORE` never updates — the idempotent-create idiom for append-only tables |
+| `create-only` blocks delete? | `[x]` by design | NO — create-only = immutable rows, not tombstones; only the update family is rejected (`hard` emits `WHEN $event = 'UPDATE'`) |
 
 ## 8. Types, errors & results
 
@@ -273,9 +280,9 @@ Runtime `errors.ts`, `results.ts`.
 | Feature | Status | Surface / test |
 |---|---|---|
 | `BetterSchemicError` — `code`/`status`/`table`/`field`/`surql`/`vars`/`cause`; `from()` | `[x]` | `test/unit/orm-errors.test.ts` |
-| Error-code catalog (28 codes, per-code default HTTP status — incl. `TenantRequired`/`TenantViolation`, 403) | `[x]` | `test/unit/orm-errors.test.ts:36` |
+| Error-code catalog (29 codes, per-code default HTTP status — incl. `TenantRequired`/`TenantViolation`/`CreateOnlyViolation`, 403) | `[x]` | `test/unit/orm-errors.test.ts:36` |
 | `normalizeError` — SDK `ServerError` mapping, Zod issue → `ValidationError` | `[x]` | `test/unit/orm-errors.test.ts:146` |
-| Predicates — `isUniqueViolation`/`isNotFound`/`isValidationError`/`isTenantViolation`/… | `[x]` | `test/unit/orm-errors.test.ts:224` |
+| Predicates — `isUniqueViolation`/`isNotFound`/`isValidationError`/`isTenantViolation`/`isCreateOnlyViolation`/… | `[x]` | `test/unit/orm-errors.test.ts:224` |
 | `ThrowingResult`/`attachThrow`/`NotFoundInfo` — miss ⇒ `null`, `.throw()` | `[x]` | `test/unit/orm-results.test.ts:15` |
 | `BatchResult<T>` — `count`/`data`/`skipped`/`statements` | `[x]` | `test/unit/orm-results.test.ts:96` |
 | `StatementResult<T>` / `statementResult` | `[x]` | `test/unit/orm-results.test.ts:110` |

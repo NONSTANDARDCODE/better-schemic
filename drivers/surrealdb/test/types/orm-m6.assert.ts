@@ -13,6 +13,7 @@ import type {
   PluginClientExtras,
   PluginModelExtras,
 } from "../../src/orm/types/plugins";
+import { createOnlyGuard as createOnlyGuardPlugin } from "../../src/plugins/create-only";
 import { softDelete as softDeletePlugin } from "../../src/plugins/soft-delete";
 import { timestamps as timestampsPlugin } from "../../src/plugins/timestamps";
 import { setupTypes, teardownTypes } from "./_setup";
@@ -60,8 +61,10 @@ const hello = (client: CC) => client.hello();
 describe("plugins — official F2 typing", () => {
   const sd = softDeletePlugin();
   const ts = timestampsPlugin();
+  const co = createOnlyGuardPlugin();
   type SD = typeof sd;
   type TS = typeof ts;
+  type CO = typeof co;
 
   it("softDelete adds `deleted` to reads and restore/restoreById to the delegate", () => {
     type CSD = Client<typeof schema, Surreal, [SD]>;
@@ -79,6 +82,12 @@ describe("plugins — official F2 typing", () => {
 
   it("timestamps does not add per-operation args", () => {
     attest<Record<never, never>, PluginArgs<[TS], "create">>();
+  });
+
+  it("createOnlyGuard does not add per-operation args on any op", () => {
+    attest<Record<never, never>, PluginArgs<[CO], "create">>();
+    attest<Record<never, never>, PluginArgs<[CO], "update">>();
+    attest<Record<never, never>, PluginArgs<[CO], "insert">>();
   });
 });
 
