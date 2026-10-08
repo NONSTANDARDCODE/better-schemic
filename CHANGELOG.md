@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+## [0.1.0-alpha.10] - 2026-10-08
+
 ### Added
 - **surrealdb:** `plugins/create-only` — append-only (create-only) tables as an official plugin pair
   on the new subpath `@better-schemic/surrealdb/plugins/create-only`:
