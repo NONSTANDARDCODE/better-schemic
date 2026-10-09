@@ -205,6 +205,8 @@ export class KindRegistry {
     P extends PortableObject,
   >(spec: KindSpec<Build, A, P>): Build {
     this.kinds.set(spec.name, spec);
+    this.ordinalIndex = undefined;
+    this.displayCache.clear();
     return spec.build;
   }
 
@@ -241,10 +243,18 @@ export class KindRegistry {
    * `"field"` items a table's `displayItems` emits) — they just get the name-derived defaults.
    */
   display(kind: string): ResolvedDisplay {
+    const cached = this.displayCache.get(kind);
+    if (cached) return cached;
     const d = this.kinds.get(kind)?.display ?? {};
     const label = d.label ?? capitalize(kind);
     const plural = d.plural ?? pluralize(label);
-    return { label, plural, folder: d.folder ?? slugify(plural) };
+    const resolved: ResolvedDisplay = {
+      label,
+      plural,
+      folder: d.folder ?? slugify(plural),
+    };
+    this.displayCache.set(kind, resolved);
+    return resolved;
   }
 
   /** Registered kind names, in registration order (== ordinal order). */
@@ -256,10 +266,13 @@ export class KindRegistry {
    * A kind's ORDINAL = its registration index. Used ONLY as a tie-break among objects with no
    * dependency relation, so independent objects come out stably layered (readability); it never
    * overrides the dependency graph. An unknown kind sorts last.
+   *
+   * The index is materialized once (invalidated on `define`): `ordinal` is called from SORT
+   * comparators, so a per-call `indexOf` over the kind list would make ordering O(n·k).
    */
   ordinal(kind: string): number {
-    const i = this.names().indexOf(kind);
-    return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+    this.ordinalIndex ??= new Map(this.names().map((n, i) => [n, i]));
+    return this.ordinalIndex.get(kind) ?? Number.MAX_SAFE_INTEGER;
   }
 
   /** [name, engine] pairs in registration order — the spine iterates these. */
@@ -267,4 +280,9 @@ export class KindRegistry {
   entries(): [string, KindEngine<any, any>][] {
     return [...this.kinds.entries()];
   }
+
+  /** Registration index per kind (see {@link ordinal}); rebuilt after every `define`. */
+  private ordinalIndex?: Map<string, number>;
+  /** Resolved presentation per kind (see {@link display}); cleared on `define`. */
+  private readonly displayCache = new Map<string, ResolvedDisplay>();
 }

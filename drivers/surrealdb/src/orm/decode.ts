@@ -381,10 +381,77 @@ function passthroughSchema(
 /** Built passthrough schemas per table, keyed by the NUL-joined field list. */
 const PASSTHROUGH_CACHE = new WeakMap<TableMeta, Map<string, z.ZodType>>();
 
-/** The full row through the table codec. */
+/**
+ * Compiled per-row decoders (memoized per table). A `*` read decodes EVERY field of EVERY row
+ * through `z.decode(objectSchema)`, and Zod's object parse dominated the star-read profile (~2.3x a
+ * projected read). The compiled decoder keeps Zod for the fields that actually transform (codecs:
+ * RecordId/datetime/…) and checks fast primitives with `typeof`, falling back to the FULL object
+ * decode on any mismatch — so error messages and output keys (shape order, stripped extras,
+ * explicit-undefined handling) stay byte-identical to the pure-Zod path.
+ */
+type RowDecoder = (row: Record<string, unknown>) => unknown;
+const ROW_DECODER = new WeakMap<TableMeta, RowDecoder>();
+
+function rowDecoderFor(meta: TableMeta): RowDecoder {
+  const existing = ROW_DECODER.get(meta);
+  if (existing) return existing;
+  const schema = meta.def.object as unknown as z.ZodType;
+  const shape = (
+    meta.def.object as unknown as { shape: Record<string, z.ZodType> }
+  ).shape;
+  const fields = Object.entries(shape).map(([key, fieldSchema]) => ({
+    key,
+    schema: fieldSchema,
+    shape: shapeOf(fieldSchema),
+  }));
+  const viaZod = (row: Record<string, unknown>): unknown =>
+    decodeSchema(schema, row, meta.name);
+  const decoder: RowDecoder = (row) => {
+    const out: Record<string, unknown> = {};
+    for (const field of fields) {
+      const value = row[field.key];
+      if (value === undefined) {
+        if (!field.shape.optional) return viaZod(row); // missing required -> Zod's error
+        // Zod keeps an EXPLICIT undefined and drops an absent key — mirror both.
+        if (Object.hasOwn(row, field.key)) out[field.key] = undefined;
+        continue;
+      }
+      if (value === null) {
+        if (!field.shape.nullable) return viaZod(row);
+        out[field.key] = null;
+        continue;
+      }
+      if (field.shape.fast) {
+        if (matchesFast(field.shape.fast, value)) {
+          out[field.key] = value;
+          continue;
+        }
+        return viaZod(row); // wrong type -> the full decode for the contextual error
+      }
+      if (field.shape.fastArray !== null && Array.isArray(value)) {
+        const decoded = decodeFastArray(field.shape.fastArray, value);
+        if (decoded !== undefined) {
+          out[field.key] = decoded;
+          continue;
+        }
+        return viaZod(row); // a bad element -> the exact array error
+      }
+      try {
+        out[field.key] = z.decode(field.schema, value as never);
+      } catch {
+        return viaZod(row); // re-run through the object schema for the identical error shape
+      }
+    }
+    return out;
+  };
+  ROW_DECODER.set(meta, decoder);
+  return decoder;
+}
+
+/** The full row through the table codec (compiled fast path when possible). */
 function decodeFull(meta: TableMeta, row: unknown): unknown {
   if (!isRecord(row)) return row;
-  return decodeSchema(meta.def.object as unknown as z.ZodType, row, meta.name);
+  return rowDecoderFor(meta)(row);
 }
 
 /** Decode a row with an arbitrary schema, attributing failures to the table. */
@@ -410,6 +477,123 @@ function decodeLeaf(
   return decodeWith(value, field, table);
 }
 
+/**
+ * The HOT-path fast classifier: schemas whose decode is EXACTLY a primitive identity check (no
+ * checks/transform/format beyond `safeint`) skip Zod's parse machinery entirely — a findMany decodes
+ * hundreds of primitive leaves per row and Zod's parse+checks were ~30% of the runtime profile.
+ * A mismatch falls THROUGH to `z.decode`, so the error path is unchanged. Memoized per schema.
+ */
+type FastKind = "string" | "number" | "safeint" | "boolean";
+type FieldShape = {
+  /** The fast primitive kind, or `null` when the schema needs Zod (codec/container/checks). */
+  readonly fast: FastKind | null;
+  /** Array-of-fast-primitive kind (`s.array(s.string())`), or `null`. */
+  readonly fastArray: FastKind | null;
+  /** The schema was wrapped in `.optional()` (an absent/undefined value is legal). */
+  readonly optional: boolean;
+  /** The schema was wrapped in `.nullable()` (a `null` value is legal). */
+  readonly nullable: boolean;
+};
+
+/** The `_zod.def` fields the classifier reads (structural — Zod's internal def is not exported). */
+interface ZodDefShape {
+  type?: string;
+  format?: string;
+  checks?: unknown[];
+  check?: unknown;
+  element?: { _zod?: { def?: ZodDefShape } };
+  innerType?: { _zod?: { def?: ZodDefShape } };
+}
+const defOf = (schema: object): ZodDefShape | undefined =>
+  (schema as unknown as { _zod?: { def?: ZodDefShape } })._zod?.def;
+
+const SHAPE_OF = new WeakMap<object, FieldShape>();
+
+/** Classify the INNER primitive of a schema (after optional/nullable unwrapping). */
+function fastKindFrom(def: ZodDefShape | undefined): FastKind | null {
+  if (!def || (Array.isArray(def.checks) && def.checks.length > 0)) return null;
+  switch (def.type) {
+    case "string":
+      return Object.keys(def).length === 1 ? "string" : null;
+    case "boolean":
+      return Object.keys(def).length === 1 ? "boolean" : null;
+    case "number":
+      // `z.number()`: keys {type, checks} — finite only (Zod rejects NaN AND Infinity).
+      if (def.format === undefined)
+        return def.check === undefined ? "number" : null;
+      return def.format === "safeint" ? "safeint" : null; // `z.int()`
+    default:
+      return null;
+  }
+}
+
+function shapeOf(schema: z.ZodType): FieldShape {
+  let shape = SHAPE_OF.get(schema);
+  if (shape) return shape;
+  let def = defOf(schema);
+  let optional = false;
+  let nullable = false;
+  // Unwrap optional/nullable: a present value decodes as the inner type.
+  while (
+    def &&
+    (def.type === "optional" || def.type === "nullable") &&
+    def.innerType
+  ) {
+    if (def.type === "optional") optional = true;
+    else nullable = true;
+    def = defOf(def.innerType);
+  }
+  shape = {
+    fast: fastKindFrom(def),
+    fastArray: fastArrayKindFrom(def),
+    optional,
+    nullable,
+  };
+  SHAPE_OF.set(schema, shape);
+  return shape;
+}
+
+/** `s.array(<plain fast primitive>)` — element-wise typeof checks replace Zod's array parse. */
+function fastArrayKindFrom(def: ZodDefShape | undefined): FastKind | null {
+  if (!def) return null;
+  if (def.type !== "array" || !def.element) return null;
+  // Array-level checks (min/max/exact length) MUST stay in Zod.
+  if (Array.isArray(def.checks) && def.checks.length > 0) return null;
+  const element = defOf(def.element);
+  if (!element) return null;
+  // No optional/nullable element wrappers: an element that unwraps differently would need Zod.
+  if (element.type === "optional" || element.type === "nullable") return null;
+  return fastKindFrom(element);
+}
+
+/** Exact-value check for a fast kind (throws never; a mismatch falls to Zod for the error). */
+function matchesFast(kind: FastKind, value: unknown): boolean {
+  switch (kind) {
+    case "string":
+      return typeof value === "string";
+    case "number":
+      return typeof value === "number" && Number.isFinite(value);
+    case "safeint":
+      return typeof value === "number" && Number.isSafeInteger(value);
+    case "boolean":
+      return typeof value === "boolean";
+  }
+}
+
+/** Element-wise decode of an array of a fast primitive; `undefined` when any element mismatches. */
+function decodeFastArray(
+  kind: FastKind,
+  value: readonly unknown[],
+): unknown[] | undefined {
+  const out = new Array<unknown>(value.length);
+  for (let i = 0; i < value.length; i++) {
+    const element = value[i];
+    if (!matchesFast(kind, element)) return undefined;
+    out[i] = element;
+  }
+  return out;
+}
+
 /** Decode a value with the field's codec, attributing failures to the table/field. */
 function decodeWith(
   value: unknown,
@@ -417,6 +601,12 @@ function decodeWith(
   table: string,
 ): unknown {
   if (value === undefined || value === null || !field.schema) return value;
+  const shape = shapeOf(field.schema);
+  if (shape.fast !== null && matchesFast(shape.fast, value)) return value;
+  if (shape.fastArray !== null && Array.isArray(value)) {
+    const decoded = decodeFastArray(shape.fastArray, value);
+    if (decoded !== undefined) return decoded;
+  }
   try {
     return z.decode(field.schema, value as never);
   } catch (e) {

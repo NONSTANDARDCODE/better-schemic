@@ -3,6 +3,7 @@
 // itself: codecs, star/omit, explicit paths (nested/implicit-array/index), value, split and failures.
 import { describe, expect, test } from "bun:test";
 import { DateTime, RecordId } from "surrealdb";
+import { z } from "zod";
 import { surql } from "../../src/index";
 import { compileRead, type ReadArgs } from "../../src/orm/compiler/select";
 import { createBinds } from "../../src/orm/compiler/shared";
@@ -40,6 +41,188 @@ const fullRow = (over: Record<string, unknown> = {}) => ({
   address: { city: "SP", country: "BR" },
   contacts: [{ type: "email", value: "a@x" }],
   ...over,
+});
+
+// A primitives-only table (fast primitives + an array of primitives) — the compiled full-row
+// decoder's happy path, where Zod is skipped entirely.
+const Plain = defineTable("plain", {
+  name: s.string(),
+  count: s.int(),
+  ratio: s.number(),
+  ok: s.boolean(),
+  note: s.string().optional(),
+  tags: s.array(s.string()),
+  strictTags: s.array(s.string()).min(1).optional(),
+});
+const plainMeta = buildSchemaIndex({ plain: Plain }).tables.get(
+  "plain",
+) as TableMeta;
+const plainRow = (over: Record<string, unknown> = {}) => ({
+  id: new RecordId("plain", "p1"),
+  name: "n",
+  count: 2,
+  ratio: 1.5,
+  ok: true,
+  tags: ["a", "b"],
+  ...over,
+});
+
+describe("decode — compiled fast path (full rows)", () => {
+  test("primitives + primitive arrays decode, unknown keys strip (Zod parity)", () => {
+    const [row] = decode({}, [plainRow({ extra: "x" })], plainMeta) as Record<
+      string,
+      unknown
+    >[];
+    expect(row).toEqual({
+      id: new RecordId("plain", "p1"),
+      name: "n",
+      count: 2,
+      ratio: 1.5,
+      ok: true,
+      tags: ["a", "b"],
+    });
+    // A fresh array (Zod never aliases the input array).
+    expect(row?.tags).not.toBe(plainRow().tags);
+  });
+
+  test("an absent optional is dropped; an explicit undefined is kept", () => {
+    const [absent] = decode({}, [plainRow()], plainMeta) as Record<
+      string,
+      unknown
+    >[];
+    expect(Object.hasOwn(absent as object, "note")).toBe(false);
+    const [explicit] = decode(
+      {},
+      [plainRow({ note: undefined })],
+      plainMeta,
+    ) as Record<string, unknown>[];
+    expect(Object.hasOwn(explicit as object, "note")).toBe(true);
+    expect(explicit?.note).toBeUndefined();
+  });
+
+  test("a mismatch falls back to Zod — same ValidationError with the field path", () => {
+    for (const bad of [
+      { count: "x" },
+      { count: 1.5 },
+      { ok: 1 },
+      { tags: ["a", 2] },
+      { tags: "not-array" },
+      { ratio: Number.POSITIVE_INFINITY },
+      { ratio: Number.NaN },
+    ]) {
+      const err = (() => {
+        try {
+          decode({}, [plainRow(bad)], plainMeta);
+          return undefined;
+        } catch (e) {
+          return e as BetterSchemicError;
+        }
+      })();
+      expect(err?.code).toBe("ValidationError");
+      expect(err?.message).toMatch(/Validation failed at "/);
+    }
+  });
+
+  test("a missing required fast field still throws (Zod parity)", () => {
+    const err = (() => {
+      try {
+        decode({}, [{ id: new RecordId("plain", "p1"), name: "n" }], plainMeta);
+        return undefined;
+      } catch (e) {
+        return e as BetterSchemicError;
+      }
+    })();
+    expect(err?.code).toBe("ValidationError");
+  });
+
+  test("array-level checks stay in Zod (an empty min-array still throws)", () => {
+    const err = (() => {
+      try {
+        decode({}, [plainRow({ strictTags: [] })], plainMeta);
+        return undefined;
+      } catch (e) {
+        return e as BetterSchemicError;
+      }
+    })();
+    expect(err?.code).toBe("ValidationError");
+  });
+
+  test("projected fast leaves decode without Zod and reject mismatches", () => {
+    expect(
+      decode({ select: { count: true, tags: true } }, [plainRow()], plainMeta),
+    ).toEqual([{ count: 2, tags: ["a", "b"] }]);
+    expect(() =>
+      decode(
+        { select: { count: true } },
+        [plainRow({ count: "x" })],
+        plainMeta,
+      ),
+    ).toThrow(/Validation failed/);
+  });
+
+  test("compiled full-row decode matches pure Zod on random rows (parity fuzz)", () => {
+    const values: unknown[] = [
+      undefined,
+      null,
+      "s",
+      3,
+      1.5,
+      true,
+      [],
+      ["a"],
+      ["a", 2],
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      { city: "x" },
+    ];
+    let seed = 7;
+    const rnd = () => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
+    const keys = [
+      "name",
+      "count",
+      "ratio",
+      "ok",
+      "note",
+      "tags",
+      "strictTags",
+      "extra",
+    ];
+    for (let i = 0; i < 500; i++) {
+      const row: Record<string, unknown> = { id: new RecordId("plain", "p1") };
+      for (const key of keys)
+        if (rnd() < 0.7) row[key] = values[Math.floor(rnd() * values.length)];
+      let expected: unknown;
+      let actual: unknown;
+      let expectedError = false;
+      let actualError = false;
+      try {
+        expected = z.decode(Plain.object, row as never);
+      } catch {
+        expectedError = true;
+      }
+      try {
+        actual = decodeRow(row, plainMeta, {
+          star: true,
+          fields: [],
+          omit: [],
+          value: false,
+          includes: [],
+        });
+      } catch {
+        actualError = true;
+      }
+      expect(actualError).toBe(expectedError);
+      if (!expectedError && !actualError) {
+        expect(Object.keys(actual as object)).toEqual(
+          Object.keys(expected as object),
+        );
+        expect(actual).toEqual(expected);
+      }
+    }
+  });
 });
 
 describe("decode — full rows", () => {

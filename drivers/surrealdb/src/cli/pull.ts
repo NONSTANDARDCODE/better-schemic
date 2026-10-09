@@ -10,7 +10,6 @@ import {
   type PullPlan,
   parseFilter,
   type RenderedUnit,
-  scanLocalEntities,
 } from "@better-schemic/core";
 import type { Surreal } from "surrealdb";
 import { stripNullGuard } from "../ddl";
@@ -880,15 +879,18 @@ export async function planPull(
     opts.filter ?? parseFilter({}),
   );
   const { tables, functions, accesses, analyzers, sequences = [] } = filtered;
-  // ONE schema load feeds the SECRET GUARD and the table→file map (previously two full passes).
-  // SurrealDB returns param values READABLY — rendering a live param that the schema authors as
-  // secret/declared (out-of-band) would write its VALUE into source. Drop those from the pull;
-  // their defs stay as authored. FAIL CLOSED: when the schema can't be loaded we can't tell which
-  // params are secret-bearing, so NO param is pulled (never leak a live value).
+  // ONE schema load feeds the SECRET GUARD, the table→file map AND the per-file entity scan
+  // (previously three full import passes). SurrealDB returns param values READABLY — rendering a
+  // live param that the schema authors as secret/declared (out-of-band) would write its VALUE into
+  // source. Drop those from the pull; their defs stay as authored. FAIL CLOSED: when the schema
+  // can't be loaded we can't tell which params are secret-bearing, so NO param is pulled (never
+  // leak a live value).
   let oob: Set<string> | undefined;
   const tableLoc = new Map<string, string>();
+  let loaded: Awaited<ReturnType<typeof loadDefs>> | undefined;
+  let loadError: unknown;
   try {
-    const loaded = await loadDefs(config.schemaPath);
+    loaded = await loadDefs(config.schemaPath);
     oob = new Set(
       loaded.defs
         .filter(
@@ -902,8 +904,9 @@ export async function planPull(
       const file = loaded.fileOf.get(t);
       if (file) tableLoc.set(t.name, file);
     }
-  } catch {
+  } catch (e) {
     oob = undefined;
+    loadError = e;
   }
   const params =
     oob === undefined ? [] : filtered.params.filter((p) => !oob.has(p.name));
@@ -936,6 +939,9 @@ export async function planPull(
 
   // Directory layout: one file per object, merged into wherever the object already lives (falling
   // back to its kind folder). A table the user keeps in some other file is updated there, in place.
+  // The directory layout always required a loadable schema (its entity scan imports every module):
+  // surface the captured load error instead of re-importing just to throw.
+  if (!loaded) throw loadError;
   const dir = config.schemaPath;
   const groups = new Map<string, RenderedUnit[]>();
   const add = (abs: string, u: RenderedUnit) => {
@@ -993,7 +999,7 @@ export async function planPull(
     ...sequences.map((s) => s.name),
   ]);
   const planned = new Set(files.map((f) => f.abs));
-  for (const [file, info] of await scanLocalEntities(dir)) {
+  for (const [file, info] of loaded.localEntities) {
     if (planned.has(file)) continue;
     const localOnly = info.entities.filter((e) => !dbNames.has(e.name));
     if (!localOnly.length) continue;

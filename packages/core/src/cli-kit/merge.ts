@@ -5,9 +5,17 @@
 // that exists in your files but not in the DB), which the caller resolves via keep/drop.
 
 import { lstatSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
-import { generateCode, parseModule } from "magicast";
 import { colorEnabled, style } from "./style";
+
+// `magicast` (recast + its parser) is ~115ms of module init that most commands never need — only
+// `pull`'s merge path parses TS. Load it on FIRST merge (createRequire keeps `mergeUnits`
+// synchronous) instead of at barrel import, so `sc --help`/`sc diff` start lean.
+const require_ = createRequire(import.meta.url);
+let magicastModule: typeof import("magicast") | undefined;
+const magicast = (): typeof import("magicast") =>
+  (magicastModule ??= require_("magicast") as typeof import("magicast"));
 
 /** One rendered object (table / function / access): its const statement + the imports it needs. */
 export interface RenderedUnit {
@@ -213,6 +221,7 @@ export function mergeUnits(
   units: RenderedUnit[],
   opts: MergeOptions,
 ): MergeResult {
+  const { generateCode, parseModule } = magicast();
   const mod = parseModule(existingSrc);
   const body = asMod(mod).$ast.body;
 

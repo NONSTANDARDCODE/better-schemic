@@ -136,6 +136,25 @@ export function renderBareFragment(
 const SEGMENT = /^([^[\]]+)((?:\[\d+\]|\[\*\])*)$/;
 
 /**
+ * Path derivations are MEMOIZED: the same field paths (`age`, `meta.city`, `contacts[*].type`)
+ * recur on every query, and `renderPath`/`pathSegments` otherwise re-split + re-regex each call —
+ * a measurable share of read compilation (~5% of a findMany profile). Bounded: a long-lived app
+ * with dynamically-built paths can't grow the maps without limit.
+ */
+const PATH_CACHE_MAX = 4000;
+function memoPath<V>(cache: Map<string, V>, path: string, compute: () => V): V {
+  const hit = cache.get(path);
+  if (hit !== undefined) return hit;
+  const value = compute();
+  if (cache.size >= PATH_CACHE_MAX) cache.clear();
+  cache.set(path, value);
+  return value;
+}
+const RENDER_PATH_CACHE = new Map<string, string>();
+const SEGMENTS_CACHE = new Map<string, readonly string[]>();
+const ARRAY_PATH_CACHE = new Map<string, boolean>();
+
+/**
  * Escape a field PATH as an identifier chain: each dot-separated segment's base is escaped
  * (`⟨weird name⟩`) and its index suffixes are validated — `contacts[*].type` and `contacts[0].type`
  * pass, `contacts[abc]` is a teaching `ValidationError` (silently quoting it would hide the typo).
@@ -146,24 +165,28 @@ export function renderPath(path: string): string {
       "ValidationError",
       `a field path must be a non-empty string (got ${typeof path}).`,
     );
-  return path
-    .split(".")
-    .map((segment) => {
-      const match = SEGMENT.exec(segment);
-      if (!match)
-        throw compileError(
-          "ValidationError",
-          `field path "${path}" has an invalid segment "${segment}" — only [<n>] and [*] indexes are allowed.`,
-          { field: path },
-        );
-      return `${escapeIdent(match[1] as string)}${match[2]}`;
-    })
-    .join(".");
+  return memoPath(RENDER_PATH_CACHE, path, () =>
+    path
+      .split(".")
+      .map((segment) => {
+        const match = SEGMENT.exec(segment);
+        if (!match)
+          throw compileError(
+            "ValidationError",
+            `field path "${path}" has an invalid segment "${segment}" — only [<n>] and [*] indexes are allowed.`,
+            { field: path },
+          );
+        return `${escapeIdent(match[1] as string)}${match[2]}`;
+      })
+      .join("."),
+  );
 }
 
 /** Does this path end in an array projection (`[*]`) — i.e. its value is an ARRAY, not a scalar? */
 export function isArrayPath(path: string): boolean {
-  return path.split(".").some((segment) => segment.includes("[*]"));
+  return memoPath(ARRAY_PATH_CACHE, path, () =>
+    path.split(".").some((segment) => segment.includes("[*]")),
+  );
 }
 
 /** AND-join already-compiled fragments (assumes non-empty). */
@@ -227,9 +250,9 @@ export function uniqueFields(meta: ModelMeta): readonly string[] {
 
 /** A path string -> its segments, brackets stripped (`contacts[*].type` -> `contacts.type`). */
 export function pathSegments(path: string): readonly string[] {
-  return path
-    .split(".")
-    .map((segment) => segment.replace(/\[\d+\]|\[\*\]/g, ""));
+  return memoPath(SEGMENTS_CACHE, path, () =>
+    path.split(".").map((segment) => segment.replace(/\[\d+\]|\[\*\]/g, "")),
+  );
 }
 
 /** Normalize a single-or-list field-path arg (`groupBy`, `split`-adjacent lists). */

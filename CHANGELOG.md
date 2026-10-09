@@ -51,13 +51,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `*`-projection schemas and leaf codecs are memoized per table; bind-rewrite regexes are cached;
   delegates are built LAZILY per schema key, so transaction/fork clients over a large schema no
   longer rebuild every delegate (and its ~26 closures) per attempt.
+- **surrealdb:** the row decoder compiles a per-table fast path: primitive leaves/arrays
+  (`string`/`number`/`int`/`boolean`, `array(<primitive>)`) skip Zod's parse machinery with exact
+  `typeof` checks and fall back to the full Zod decode on ANY mismatch (identical errors/output).
+  Synthetic findMany: projected reads ~300µs → ~240µs, full-`*` reads ~545µs → ~400µs per op.
 - **surrealdb:** `introspectStructured` batches every per-table `INFO … STRUCTURE` into ONE
   round-trip (removes the N+1 across `diff --live`/`push`/`pull`/`check`); shadow-database
   introspections are memoized per `(namespace, DDL)` for watch runs; `access` bindings resolve
   concurrently; a schema-build failure during `createBetterSchemic` now closes the connection.
+- **surrealdb:** the ephemeral `check`/live server waits for the raw TCP listener before the WS
+  handshake (the SDK's connect to a closed port never settles, so every boot burned a 2s timeout):
+  spawn-to-ready ~2.2s → ~0.43s.
 - **cli:** `check`/`doctor`/`diff --ts` load the schema once (the loader now returns duplicates +
-  the file map), and `pull` feeds its secret guard AND table→file map from ONE load, instead of
-  importing every module two-to-three times.
+  the file map), and `pull` feeds its secret guard, table→file map AND per-file entity scan from ONE
+  load, instead of importing every module three times.
+- **core:** `jiti` (~60ms) and `magicast` (~115ms) load lazily on first use instead of at barrel
+  import, and `makeJiti` shares ONE instance per process — `sc --help` ~255ms → ~105ms (the core
+  barrel itself ~212ms → ~44ms); every schema-less command benefits.
+- **core:** `orderObjects` uses per-owner min-heaps + memoized node keys instead of a full
+  filter+sort per round (2000-object schemas: ~300ms → ~40ms), and `buildKindDiff` classifies the
+  two schema states ONCE (was classify+canonical-emit twice); `KindRegistry` caches kind ordinals
+  and display metadata.
 - **core:** the LCS line/token diffs are capped and fall back to a prefix/suffix diff, so a large
   generated file can no longer allocate an O(n²) matrix (OOM risk on `pull` previews/patches).
 

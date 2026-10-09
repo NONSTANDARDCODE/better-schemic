@@ -1,8 +1,14 @@
 import { existsSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { basename, dirname, resolve } from "node:path";
 import type { BetterSchemicConfig } from "@better-schemic/core/config";
-import { createJiti } from "jiti";
 import type { ConnectionConfigBase, ResolveContext } from "../connection";
+
+// `jiti` (its transpiler + babel) is ~60ms of module init that `sc --help`, `sc snapshot` and other
+// schema-less commands never need. Load it on FIRST config/schema read (createRequire keeps
+// `makeJiti` synchronous, so no call site changes) instead of at barrel import.
+const require_ = createRequire(import.meta.url);
+let jitiModule: typeof import("jiti") | undefined;
 
 // `better-schemic.ts` is the scaffolded name (the config IS the app's DB module — `betterSchemic.connect()`);
 // the legacy `schemic.config.*` / `schemic.ts` spellings keep working. Checked LAST + shape-guarded, so an unrelated
@@ -82,12 +88,19 @@ export interface ResolvedConfig {
  * edited schema files. (Bare deps like `@better-schemic/core` are native-imported, so registries stay shared.)
  */
 export function makeJiti() {
-  return createJiti(import.meta.url, {
-    interopDefault: true,
-    fsCache: false,
-    moduleCache: false,
-  });
+  if (!jitiModule) jitiModule = require_("jiti") as typeof import("jiti");
+  const { createJiti } = jitiModule;
+  // ONE instance per process (its caches are off, so `--watch` still re-reads edited files).
+  if (!sharedJiti)
+    sharedJiti = createJiti(import.meta.url, {
+      interopDefault: true,
+      fsCache: false,
+      moduleCache: false,
+    });
+  return sharedJiti;
 }
+
+let sharedJiti: ReturnType<typeof import("jiti").createJiti> | undefined;
 
 /** Find + load `better-schemic.ts` / `better-schemic.config.ts` (legacy `schemic.*` aliases included) into the dialect-neutral {@link BetterSchemicConfig}. */
 export async function loadProject(opts?: {

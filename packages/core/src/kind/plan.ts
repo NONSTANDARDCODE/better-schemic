@@ -38,6 +38,62 @@ export interface OrderNode {
 }
 
 /**
+ * A tiny binary min-heap over on-demand comparators. `orderObjects` keeps one "all ready" heap plus
+ * one per owner, so picking the next node is O(log n) instead of a full sort per step (the old
+ * `ready.sort(...)` made a 2000-object schema ~300ms of ordering alone). Stale entries are skipped
+ * by the caller with a `done` set (lazy deletion).
+ */
+class MinHeap<T> {
+  private readonly items: T[] = [];
+  constructor(private readonly compare: (a: T, b: T) => number) {}
+
+  get size(): number {
+    return this.items.length;
+  }
+
+  push(value: T): void {
+    const items = this.items;
+    items.push(value);
+    let i = items.length - 1;
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (this.compare(items[i] as T, items[parent] as T) >= 0) break;
+      [items[i], items[parent]] = [items[parent] as T, items[i] as T];
+      i = parent;
+    }
+  }
+
+  pop(): T | undefined {
+    const items = this.items;
+    if (items.length === 0) return undefined;
+    const top = items[0] as T;
+    const last = items.pop() as T;
+    if (items.length === 0) return top;
+    items[0] = last;
+    let i = 0;
+    for (;;) {
+      const left = i * 2 + 1;
+      const right = left + 1;
+      let smallest = i;
+      if (
+        left < items.length &&
+        this.compare(items[left] as T, items[smallest] as T) < 0
+      )
+        smallest = left;
+      if (
+        right < items.length &&
+        this.compare(items[right] as T, items[smallest] as T) < 0
+      )
+        smallest = right;
+      if (smallest === i) break;
+      [items[i], items[smallest]] = [items[smallest] as T, items[i] as T];
+      i = smallest;
+    }
+    return top;
+  }
+}
+
+/**
  * Kahn's topological sort with two presentation tweaks among the nodes whose deps are all satisfied:
  * prefer one OWNED by the currently-open cluster (so a table's children follow it), then lowest
  * (kind-ordinal, then name). Correctness (deps) always wins — an owned/low-ordinal node can't jump a
@@ -48,47 +104,84 @@ export function orderObjects<T extends OrderNode>(
   nodes: T[],
   ordinalOf: (kind: string) => number,
 ): T[] {
-  const byKey = new Map(nodes.map((n) => [refKey(n), n]));
-  const indeg = new Map<string, number>(nodes.map((n) => [refKey(n), 0]));
-  const dependents = new Map<string, string[]>();
-  for (const n of nodes)
-    for (const d of n.deps) {
-      if (!byKey.has(refKey(d))) continue; // external dep -> not a constraint within this set
-      indeg.set(refKey(n), (indeg.get(refKey(n)) ?? 0) + 1);
-      const list = dependents.get(refKey(d)) ?? [];
-      list.push(refKey(n));
-      dependents.set(refKey(d), list);
+  // Identity is computed ONCE per node: `orderObjects` runs inside every diff/gen/push, and the
+  // old loop re-derived `refKey` (a string concat) in the map build, the filter, the sort...
+  const keys = new Map<T, string>();
+  const key = (n: T): string => {
+    let k = keys.get(n);
+    if (k === undefined) {
+      k = refKey(n);
+      keys.set(n, k);
     }
+    return k;
+  };
+  const byKey = new Map<string, T>();
+  for (const n of nodes) byKey.set(key(n), n);
+  const indeg = new Map<string, number>();
+  const dependents = new Map<string, string[]>();
+  for (const n of nodes) {
+    indeg.set(key(n), 0);
+    dependents.set(key(n), []);
+  }
+  for (const n of nodes) {
+    const nk = key(n);
+    for (const d of n.deps) {
+      const dk = refKey(d);
+      if (!byKey.has(dk)) continue; // external dep -> not a constraint within this set
+      indeg.set(nk, (indeg.get(nk) ?? 0) + 1);
+      (dependents.get(dk) as string[]).push(nk);
+    }
+  }
 
-  const out: T[] = [];
+  const compare = (a: T, b: T): number =>
+    ordinalOf(a.kind) - ordinalOf(b.kind) || key(a).localeCompare(key(b));
+  const ready = new MinHeap<T>(compare);
+  const byOwner = new Map<string, MinHeap<T>>();
+  const pushReady = (n: T): void => {
+    ready.push(n);
+    if (n.owner) {
+      const ok = refKey(n.owner);
+      let heap = byOwner.get(ok);
+      if (!heap) {
+        heap = new MinHeap<T>(compare);
+        byOwner.set(ok, heap);
+      }
+      heap.push(n);
+    }
+  };
+  for (const n of nodes) if (indeg.get(key(n)) === 0) pushReady(n);
+
   const done = new Set<string>();
+  const out: T[] = [];
   let group: string | undefined; // the last unowned node emitted == the open cluster
+  const drain = (heap: MinHeap<T> | undefined): T | undefined => {
+    while (heap && heap.size > 0) {
+      const top = heap.pop() as T;
+      if (!done.has(key(top))) return top;
+    }
+    return undefined;
+  };
   while (out.length < nodes.length) {
-    const ready = nodes.filter(
-      (n) => !done.has(refKey(n)) && indeg.get(refKey(n)) === 0,
-    );
-    if (ready.length === 0)
+    // Prefer a child of the open cluster (readability), else the best-ranked ready node.
+    const next =
+      (group !== undefined ? drain(byOwner.get(group)) : undefined) ??
+      drain(ready);
+    if (!next) {
       throw new Error(
         `dependency cycle among: ${nodes
-          .filter((n) => !done.has(refKey(n)))
-          .map(refKey)
+          .filter((n) => !done.has(key(n)))
+          .map((n) => key(n))
           .join(", ")}`,
       );
-    ready.sort((a, b) => {
-      const ao = a.owner && refKey(a.owner) === group ? 0 : 1; // prefer the open cluster
-      const bo = b.owner && refKey(b.owner) === group ? 0 : 1;
-      return (
-        ao - bo ||
-        ordinalOf(a.kind) - ordinalOf(b.kind) ||
-        refKey(a).localeCompare(refKey(b))
-      );
-    });
-    const next = ready[0];
+    }
     out.push(next);
-    done.add(refKey(next));
-    if (!next.owner) group = refKey(next); // a top-level object opens a new cluster
-    for (const dep of dependents.get(refKey(next)) ?? [])
-      indeg.set(dep, (indeg.get(dep) ?? 1) - 1);
+    done.add(key(next));
+    if (!next.owner) group = key(next); // a top-level object opens a new cluster
+    for (const dep of dependents.get(key(next)) ?? []) {
+      const left = (indeg.get(dep) ?? 1) - 1;
+      indeg.set(dep, left);
+      if (left === 0) pushReady(byKey.get(dep) as T);
+    }
   }
   return out;
 }
@@ -179,7 +272,6 @@ const orderNodeOf = (
 /** Display identity: `kind:owner:name` (owner blank for a top-level object) + the display owner. */
 const itemKey = (n: OrderNode) => `${n.kind}:${n.owner?.name ?? ""}:${n.name}`;
 const itemTable = (n: OrderNode) => n.owner?.name ?? n.name;
-
 const byKey = (schema: PortableObject[]) =>
   new Map(schema.map((o) => [refKey(o), o]));
 
@@ -247,6 +339,15 @@ export function planKinds(
   next: PortableObject[],
 ): KindPlan {
   const { nonRemoves, removes } = orderedChanges(registry, prev, next);
+  return planFromChanges(registry, nonRemoves, removes);
+}
+
+/** Emit the up/down program from an ALREADY-classified change set (shared with `buildKindDiff`). */
+function planFromChanges(
+  registry: KindRegistry,
+  nonRemoves: Change[],
+  removes: Change[],
+): KindPlan {
   const up: string[] = [];
   const down: string[] = [];
   for (const c of nonRemoves) {
@@ -327,7 +428,9 @@ export function buildKindDiff(
   next: PortableObject[],
 ): Diff {
   const { nonRemoves, removes } = orderedChanges(registry, prev, next);
-  const { up, down } = planKinds(registry, prev, next);
+  // ONE classify pass feeds up/down, display items AND `full` (the old code re-ran the match +
+  // canonical-emit pass inside `planKinds`, doubling the work on every diff).
+  const { up, down } = planFromChanges(registry, nonRemoves, removes);
   // `full` mirrors the items' granularity: a kind with `displayItems` projects its object as per-
   // sub-object adds (displayItems(undefined, portable)); otherwise one whole-object entry.
   const full = orderedSchema(registry, next).flatMap(

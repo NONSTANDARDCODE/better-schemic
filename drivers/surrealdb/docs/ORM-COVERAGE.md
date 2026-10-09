@@ -68,7 +68,7 @@ Entry: `createReadOperations` (`reads.ts`); compiler `compiler/{select,aggregate
 | `include` — links, edges, `_count` (see §3) | `[x]` | `test/unit/orm-include.test.ts` |
 | `explain: true` / `.explain()` — plan only, never executes; reads only | `[x]` | `test/unit/orm-reads.test.ts:822`; `test/live/orm-reads.test.ts:362` |
 | Result shape dispatch (`ResultOf` on select/omit/value/split + include overlay) | `[x]` | `test/types/orm-reads.assert.ts` |
-| Row decoding (`decodeRows`/`decodeRow`) — full/omit/leaf/value/include hydration | `[x]` | `test/unit/orm-decode.test.ts` |
+| Row decoding (`decodeRows`/`decodeRow`) — full/omit/leaf/value/include hydration; compiled fast path skips Zod for primitive leaves/arrays (falls back to the full decode on mismatch, so errors are identical) | `[x]` | `test/unit/orm-decode.test.ts` (incl. a pure-Zod parity fuzz) |
 | `meta` (hook metadata) on reads | `[x]` | `test/unit/orm-hooks.test.ts:83` |
 | `context` per-call override | `[x]` | `test/unit/orm-context.test.ts:37` |
 

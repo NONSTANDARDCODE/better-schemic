@@ -100,6 +100,9 @@ export async function loadDefs(schemaPath: string): Promise<{
   /** Table names defined in more than one file (same-name defs collapse; this is how `check`/
    *  `doctor` surface the conflict). A file repeats when it defines the same name twice. */
   duplicates: Map<string, string[]>;
+  /** Per-file exported entities (see {@link LocalFileEntities}) — collected in the SAME pass so
+   *  `pull` never re-imports every module to scan exports. */
+  localEntities: Map<string, LocalFileEntities>;
 }> {
   if (!existsSync(schemaPath)) {
     throw new Error(`Schema path not found: ${schemaPath}`);
@@ -109,23 +112,32 @@ export async function loadDefs(schemaPath: string): Promise<{
   const defs: AuthoredDef[] = [];
   const fileOf = new Map<AnyTable | AuthoredDef, string>();
   const seen = new Map<string, string[]>();
+  const localEntities = new Map<string, LocalFileEntities>();
   for (const file of schemaFiles(schemaPath)) {
-    const mod = (await importSchemaModule(jiti, file)) as Record<
-      string,
-      unknown
-    >;
-    for (const value of Object.values(mod)) {
+    const entries = Object.entries(
+      (await importSchemaModule(jiti, file)) as Record<string, unknown>,
+    );
+    const entities: LocalFileEntities["entities"] = [];
+    for (const [exportName, value] of entries) {
       if (isTableDef(value)) {
         const files = seen.get(value.name);
         if (files) files.push(file);
         else seen.set(value.name, [file]);
         tables.set(value.name, value); // last def of a name wins
         fileOf.set(value, file);
+        entities.push({ exportName, name: value.name, kind: "table" });
       } else if (isStandaloneDef(value)) {
         defs.push(value);
         fileOf.set(value, file);
+        if (value.kind === "function" || value.kind === "access")
+          entities.push({ exportName, name: value.name, kind: "def" });
       }
     }
+    if (entities.length)
+      localEntities.set(file, {
+        entities,
+        pureSchema: entities.length === entries.length,
+      });
   }
   const rank = (t: AnyTable) => (t.config.relation ? 1 : 0);
   const sorted = [...tables.values()].sort(
@@ -136,6 +148,7 @@ export async function loadDefs(schemaPath: string): Promise<{
     defs,
     fileOf,
     duplicates: new Map([...seen].filter(([, files]) => files.length > 1)),
+    localEntities,
   };
 }
 

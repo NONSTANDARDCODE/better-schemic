@@ -1,6 +1,6 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { createServer } from "node:net";
+import { createServer, connect as netConnect } from "node:net";
 import { escapeIdent, Surreal } from "surrealdb";
 import type { SurrealZodCheckEmbedded } from "../config";
 
@@ -55,6 +55,48 @@ export interface EphemeralServer {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Poll a raw TCP port until it ACCEPTS. The SDK's WS `connect` to a closed port never settles (it is
+ * raced against a timeout below), so connecting only after the listener is up removes a full ~2s
+ * timeout from every ephemeral boot — TCP accepts ~400ms after spawn, the WS handshake ~100ms more.
+ */
+async function waitForPort(
+  url: string,
+  child: ChildProcess,
+  deadline: number,
+  stderr: () => string,
+): Promise<void> {
+  const parsed = new URL(url);
+  const host = parsed.hostname.replace(/^\[|\]$/g, "");
+  const port = Number(
+    parsed.port ||
+      (parsed.protocol === "wss:" || parsed.protocol === "https:" ? 443 : 80),
+  );
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error(
+        `surreal exited (${child.exitCode}): ${stderr().split("\n").filter(Boolean).pop() ?? "no output"}`,
+      );
+    }
+    const accepted = await new Promise<boolean>((resolve) => {
+      const socket = netConnect({ host, port });
+      const done = (v: boolean) => {
+        socket.destroy();
+        resolve(v);
+      };
+      socket.setTimeout(250, () => done(false));
+      socket.once("connect", () => done(true));
+      socket.once("error", () => done(false));
+    });
+    if (accepted) return;
+    await sleep(10);
+  }
+  const tail = stderr().split("\n").filter(Boolean).slice(-3).join(" | ");
+  throw new Error(
+    `surreal did not open ${host}:${port} within 30s${tail ? ` — server stderr: ${tail}` : ""}`,
+  );
+}
+
 /** Poll a Surreal connection until it succeeds, the process dies, or we time out. */
 async function waitUntilReady(
   url: string,
@@ -64,6 +106,7 @@ async function waitUntilReady(
   stderr: () => string,
 ): Promise<void> {
   const deadline = Date.now() + 30_000;
+  await waitForPort(url, child, deadline, stderr);
   const attempts: string[] = [];
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
