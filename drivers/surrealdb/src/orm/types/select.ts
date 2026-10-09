@@ -423,9 +423,11 @@ export interface PaginateArgs<TD extends AnyTableDef, S = SchemaInput>
  * `select` does NOT need to include the `orderBy` fields: the compiler appends reserved
  * `_keyset_<n>` aliases for the missing keyset columns and reads the cursors from them (stripping
  * them afterwards), so `data` is exactly the selection. Cursor values carry the **raw stored
- * value** (`DateTime` for `s.datetime()`, `RecordId` for `id`) — not the codec-decoded app value —
- * so `after`/`before` round-trip without precision loss (a `Date` would truncate ns to ms and the
- * keyset predicate would skip rows created in the same millisecond).
+ * value** (`DateTime` for `s.datetime()`, `RecordId` for `id` — a BARE string when the column is in
+ * string-id mode) — not the codec-decoded app value — so `after`/`before` round-trip without
+ * precision loss (a `Date` would truncate ns to ms and the keyset predicate would skip rows created
+ * in the same millisecond). `after`/`before` also accept the app forms: a bare/`table:id` string or
+ * a `Date`/ISO string, coerced to the column's wire type before the bind.
  */
 export interface CursorArgs<TD extends AnyTableDef, S = SchemaInput>
   extends Omit<

@@ -33,6 +33,7 @@ import {
   peelNullish,
 } from "./checks";
 import { FN_NAME } from "./fn-name";
+import { splitRecordId, unescapeIdPart } from "./ident";
 import type { FieldRefBase } from "./surql/ref";
 
 // Re-exported here (the authoring surface): `pull` reverses a baked format ASSERT to `s.<format>()`.
@@ -75,6 +76,21 @@ export const surrealTypeRegistry = globalSingleton(
 export const objectFieldsRegistry = globalSingleton(
   Symbol.for("@better-schemic/surrealdb.objectFieldsRegistry"),
   () => new WeakMap<z.ZodType, Record<string, AnyField>>(),
+);
+
+/**
+ * Maps a record-id field's CURRENT schema (wrappers included) back to its {@link RecordIdField}, so
+ * `TableDef.stringIds()` can deep-map record links nested in `s.object`/`s.array` without re-parsing
+ * type strings, and the ORM can read a column's id mode. Same `Symbol.for` singleton as the other
+ * registries (cross-instance safe).
+ */
+export const recordIdFieldRegistry = globalSingleton(
+  Symbol.for("@better-schemic/surrealdb.recordIdFieldRegistry"),
+  () =>
+    new WeakMap<
+      z.ZodType,
+      RecordIdField<string, RecordIdValue, RecordIdMode>
+    >(),
 );
 
 /**
@@ -1275,7 +1291,6 @@ function recordIdSchema<
   return schema as unknown as z.ZodType<RecordId<T, V>, RecordId<T, V>>;
 }
 
-/** A `record<…>` field: table restriction (+ optional id-value type) and construction helpers. */
 /** A lazy table reference — `() => User` — resolved to its name at first use (post-module-eval),
  *  so mutually-linked tables in separate modules never hit an import-cycle TDZ. */
 type LazyTableRef = () => { name: string };
@@ -1288,40 +1303,394 @@ function resolveTableNames<T extends string>(
   return entries.map((e) => (typeof e === "function" ? (e().name as T) : e));
 }
 
+/** The id mode of a record field: `record` (app `RecordId`) or `string` (app bare string). */
+export type RecordIdMode = "record" | "string";
+
+declare const RECORD_ID_TABLE: unique symbol;
+/**
+ * A string-id APP value: a bare id string (`01M…`) phantom-branded with its target table. The
+ * runtime value is a PLAIN string — the optional brand is type-only, so ordinary strings stay
+ * assignable, while the relation type helpers (`RecordIdName`) can still recover the target table,
+ * exactly as they do from `RecordId<T>`.
+ */
+export type BareId<T extends string = string> = string & {
+  readonly [RECORD_ID_TABLE]?: T;
+};
+
+/**
+ * The target-table name carried by a `BareId<T>` (the phantom brand), or `never` for anything else
+ * — including a PLAIN string (which is assignable to `BareId` but has no brand property).
+ */
+export type RecordIdTable<T> = T extends {
+  readonly [RECORD_ID_TABLE]?: infer N;
+}
+  ? N
+  : never;
+
+/**
+ * The Zod schema type of a record field in a given mode. `record` is the classic symmetric
+ * `RecordId` schema; `string` is the string-id codec (wire `string | RecordId`, app `BareId<T>`).
+ */
+export type RecordIdSchemaOf<
+  T extends string,
+  V extends RecordIdValue,
+  M extends RecordIdMode,
+> = z.ZodType<
+  M extends "string" ? BareId<T> : RecordId<T, V>,
+  M extends "string" ? string | RecordId<T, V> : RecordId<T, V>
+>;
+
+/** Split an id string into its optional table and its RAW (unescaped) id part. */
+function parseIdString(text: string): { table?: string; id: string } {
+  const parts = splitRecordId(text);
+  return parts
+    ? { table: parts.table, id: unescapeIdPart(parts.id) }
+    : { id: unescapeIdPart(text) };
+}
+
+/** The bare-string app form of a `RecordId`'s id value (`string`/`number`/`bigint`/`uuid`). */
+export function bareIdValue(id: RecordIdValue): string {
+  if (typeof id === "string") return id;
+  if (typeof id === "number" || typeof id === "bigint") return String(id);
+  if (id instanceof Uuid) return id.toString();
+  throw new Error(
+    "stringIds(): this record id has a composite (array/object) value, which a bare string can't represent — keep the field in RecordId mode.",
+  );
+}
+
+/**
+ * Parse a raw id text against the field's declared value type (`s.recordId(t).type(s.int())`):
+ * the declared type first, then the number/bigint coercions a bare string implies. `undefined`
+ * when nothing fits. The ONE rule shared by the codec's wire refinement and its encode.
+ */
+function parseIdValue<V extends RecordIdValue>(
+  raw: string,
+  valueType: z.ZodType<V>,
+): V | undefined {
+  const candidates: unknown[] = [raw];
+  const asNumber = Number(raw);
+  if (Number.isFinite(asNumber)) candidates.push(asNumber);
+  if (/^-?\d+$/.test(raw)) candidates.push(BigInt(raw));
+  for (const candidate of candidates) {
+    const parsed = valueType.safeParse(candidate);
+    if (parsed.success) return parsed.data;
+  }
+  return undefined;
+}
+
+/** Coerce a raw id text to the field's declared value type, or throw a teaching error. */
+function idValueFromText<V extends RecordIdValue>(
+  raw: string,
+  valueType?: z.ZodType<V>,
+): V {
+  if (valueType === undefined) return raw as V;
+  const value = parseIdValue(raw, valueType);
+  if (value !== undefined) return value;
+  throw new Error(
+    `stringIds(): ${JSON.stringify(raw)} is not a valid id value for this field's declared type.`,
+  );
+}
+
+/**
+ * The string-id codec of a record field: wire `string | RecordId` (accepts bare ids, `table:id`,
+ * `table:⟨id⟩` and `RecordId`), app `BareId<T>` (a bare string). Its DDL type is registered as
+ * `record<…>`, so `emitTable`/`sc diff` stay byte-identical to record mode.
+ *
+ * Only single-table fields qualify: a bare app string can't name the table on encode, so multi-table
+ * (`s.recordId([A, B])`) and open (`s.recordId()`) links throw a teaching error.
+ */
+function stringIdCodec<T extends string, V extends RecordIdValue>(
+  tables: T[],
+  valueType?: z.ZodType<V>,
+): z.ZodType<BareId<T>, string | RecordId<T, V>> {
+  if (tables.length !== 1)
+    throw new Error(
+      `stringIds() needs a record field with exactly ONE target table — this field targets ${
+        tables.length === 0 ? "any table (s.recordId())" : tables.join(" | ")
+      }. A bare app string can't name the table on encode; use a single-table link (e.g. User.record().stringIds()) or keep the field in RecordId mode.`,
+    );
+  const table = tables[0] as T;
+  const record = recordIdSchema<T, V>(tables, valueType);
+  const stringMember = z.string().superRefine((text, ctx) => {
+    const parsed = parseIdString(text);
+    if (parsed.table !== undefined && parsed.table !== table) {
+      ctx.addIssue({
+        code: "custom",
+        message: `Expected record<${table}> — ${JSON.stringify(text)} names table "${parsed.table}".`,
+      });
+      return;
+    }
+    if (valueType && parseIdValue(parsed.id, valueType) === undefined)
+      ctx.addIssue({
+        code: "custom",
+        message: `Expected an id value of the declared type for record<${table}> (got ${JSON.stringify(parsed.id)}).`,
+      });
+  });
+  const wire = z.union([stringMember, record]);
+  const app = z.union([z.string(), record]);
+  const codec = z.codec(wire, app, {
+    decode: (value) =>
+      value instanceof RecordId
+        ? bareIdValue(value.id)
+        : parseIdString(value).id,
+    encode: (value) => {
+      if (value instanceof RecordId) return value as RecordId<T, V>;
+      const parsed = parseIdString(value);
+      if (parsed.table !== undefined && parsed.table !== table)
+        throw new Error(
+          `stringIds(): ${JSON.stringify(value)} is a "${parsed.table}" record id, but this field targets "${table}".`,
+        );
+      return new RecordId(
+        table,
+        idValueFromText(parsed.id, valueType),
+      ) as RecordId<T, V>;
+    },
+  });
+  surrealTypeRegistry.set(codec, `record<${table}>`);
+  return codec as unknown as z.ZodType<BareId<T>, string | RecordId<T, V>>;
+}
+
+/**
+ * The BASE schema of a record field in a mode: a `record<…>` schema, or the string-id codec. A
+ * LAZY table ref defers construction via `z.lazy` (inferField unwraps it), so the thunk runs
+ * post-module-eval; names-only entries keep the schema + its registry entry immediate.
+ */
+function recordIdBaseSchema<T extends string, V extends RecordIdValue>(
+  entries: readonly (T | LazyTableRef)[],
+  valueType: z.ZodType<V> | undefined,
+  mode: RecordIdMode,
+): z.ZodType {
+  const build = (): z.ZodType =>
+    mode === "string"
+      ? stringIdCodec<T, V>(resolveTableNames(entries), valueType)
+      : recordIdSchema<T, V>(resolveTableNames(entries), valueType);
+  return entries.some((t) => typeof t === "function") ? z.lazy(build) : build();
+}
+
+/**
+ * The Zod wrapper types a record mode survives for DETECTION (`findRecordIdField`): their inner
+ * schema is still the record core, even when they carry an app fallback value.
+ */
+const RECORD_WRAPPERS = new Set([
+  "optional",
+  "nullable",
+  "default",
+  "prefault",
+  "catch",
+  "readonly",
+  "nonoptional",
+]);
+
+/**
+ * The subset the FLIP can clone through. `default`/`prefault`/`catch` carry an APP fallback value
+ * (a `RecordId` pre-flip) that can't be remapped, so the flip refuses them with a teaching error —
+ * call `.stringIds()` BEFORE them and author the fallback as a bare string.
+ */
+const FLIP_WRAPPERS = new Set([
+  "optional",
+  "nullable",
+  "readonly",
+  "nonoptional",
+]);
+
+/**
+ * The inner schema of a container — a wrapper in `wrappers`, an `array`, or a `set` — plus the
+ * `def` key a clone must patch. `undefined` for anything else.
+ * NOTE: Zod's `array` holds its element under `element`, the `set` under `valueType`.
+ */
+function innerContainer(
+  schema: z.ZodType,
+  wrappers: ReadonlySet<string> = RECORD_WRAPPERS,
+):
+  | { inner: z.ZodType; key: "innerType" | "element" | "valueType" }
+  | undefined {
+  const def = schema._zod.def as {
+    type: string;
+    innerType?: z.ZodType;
+    element?: z.ZodType;
+    valueType?: z.ZodType;
+  };
+  if (wrappers.has(def.type))
+    return def.innerType
+      ? { inner: def.innerType, key: "innerType" }
+      : undefined;
+  if (def.type === "array")
+    return def.element ? { inner: def.element, key: "element" } : undefined;
+  if (def.type === "set")
+    return def.valueType
+      ? { inner: def.valueType, key: "valueType" }
+      : undefined;
+  return undefined;
+}
+
+/**
+ * Walk a record schema's tree, mapping the CORE `record<…>` schema at the leaves. Containers the
+ * flip can carry are cloned through; a union/intersection maps its members; an `s.object` shape
+ * recurses and re-registers its nested field metadata. One walker for BOTH flips — the identity
+ * swap (`RecordIdField.stringIds()`) and the registry-driven deep map (`TableDef.stringIds()`) — so
+ * the traversable set lives in ONE place. Anything else (`.refine()`/`.transform()`/`.default()`/…)
+ * stays unchanged, which the identity flip turns into a teaching error.
+ */
+function mapRecordSchemaTree(
+  schema: z.ZodType,
+  mapCore: (schema: z.ZodType) => { schema: z.ZodType; changed: boolean },
+): { schema: z.ZodType; changed: boolean } {
+  const core = mapCore(schema);
+  if (core.changed) return core;
+  const container = innerContainer(schema, FLIP_WRAPPERS);
+  if (container) {
+    const mapped = mapRecordSchemaTree(container.inner, mapCore);
+    if (!mapped.changed) return { schema, changed: false };
+    return {
+      schema: cloneDef(schema, { [container.key]: mapped.schema }),
+      changed: true,
+    };
+  }
+  const def = schema._zod.def as { type: string; [k: string]: unknown };
+  if (def.type === "union") {
+    const mapped = (def.options as z.ZodType[]).map((option) =>
+      mapRecordSchemaTree(option, mapCore),
+    );
+    if (!mapped.some((entry) => entry.changed))
+      return { schema, changed: false };
+    return {
+      schema: cloneDef(schema, {
+        options: mapped.map((entry) => entry.schema),
+      }),
+      changed: true,
+    };
+  }
+  if (def.type === "intersection") {
+    const left = mapRecordSchemaTree(def.left as z.ZodType, mapCore);
+    const right = mapRecordSchemaTree(def.right as z.ZodType, mapCore);
+    if (!left.changed && !right.changed) return { schema, changed: false };
+    return {
+      schema: cloneDef(schema, { left: left.schema, right: right.schema }),
+      changed: true,
+    };
+  }
+  if (def.type === "object") {
+    const fields = objectFieldsRegistry.get(schema);
+    const shape = (def.shape ?? {}) as Record<string, z.ZodType>;
+    const nextShape: Record<string, z.ZodType> = {};
+    const nextFields: Record<string, AnyField> = {};
+    let changed = false;
+    for (const [key, child] of Object.entries(shape)) {
+      const childField = fields?.[key];
+      const mapped = mapRecordSchemaTree(childField?.schema ?? child, mapCore);
+      // A nested field's DDL metadata ($default/$assert/…) rides along with its mapped schema.
+      if (childField)
+        nextFields[key] = mapped.changed
+          ? new SField(mapped.schema, childField.surreal)
+          : childField;
+      nextShape[key] = mapped.schema;
+      if (mapped.changed) changed = true;
+    }
+    if (!changed) return { schema, changed: false };
+    const next = cloneDef(schema, { shape: nextShape });
+    if (fields) {
+      const registered: Record<string, AnyField> = {};
+      for (const [key, child] of Object.entries(nextShape))
+        registered[key] = nextFields[key] ?? fields[key] ?? new SField(child);
+      objectFieldsRegistry.set(next, registered);
+    }
+    return { schema: next, changed: true };
+  }
+  return { schema, changed: false };
+}
+
+/** The {@link RecordIdField} behind a schema (identity wrappers/arrays included), if any. */
+function findRecordIdField(
+  schema: z.ZodType,
+): RecordIdField<string, RecordIdValue, RecordIdMode> | undefined {
+  const field = recordIdFieldRegistry.get(schema);
+  if (field) return field;
+  const container = innerContainer(schema);
+  return container ? findRecordIdField(container.inner) : undefined;
+}
+
+/** The init of a {@link RecordIdField} — the plumbing `s.recordId()`/`TableDef.record()` fill in. */
+export interface RecordIdFieldInit<
+  T extends string,
+  V extends RecordIdValue,
+  M extends RecordIdMode,
+> {
+  /** The declared id VALUE type (`s.recordId(t).type(s.int())`). */
+  readonly valueType?: z.ZodType<V>;
+  readonly surreal?: SurrealMeta;
+  /** The wrapped schema a rebuild carries (refine/optional/…); defaults to the mode's base. */
+  readonly schema?: RecordIdSchemaOf<T, V, M>;
+  /** `record` (app `RecordId`) or `string` (app bare string). */
+  readonly mode?: M;
+  /** The CORE schema carried across rebuilds, so `stringIds()` can swap it by identity. */
+  readonly base?: z.ZodType;
+}
+
+/** A `record<…>` field: table restriction (+ optional id-value type) and construction helpers. */
 export class RecordIdField<
   T extends string,
   V extends RecordIdValue = RecordIdValue,
-> extends SField<z.ZodType<RecordId<T, V>, RecordId<T, V>>> {
+  M extends RecordIdMode = "record",
+> extends SField<RecordIdSchemaOf<T, V, M>> {
   /** The raw entries (names and/or lazy refs) — kept unresolved so laziness survives `rebuild`. */
   private readonly entries: readonly (T | LazyTableRef)[];
+  /** The CORE schema the wrappers wrap — `stringIds()` swaps it by identity. */
+  private readonly baseSchema: z.ZodType;
+  /** The id mode: `record` (app `RecordId`) or `string` (app bare string). */
+  readonly mode: M;
+  /** The declared id VALUE type, when the field narrowed it via `.type()`. */
+  readonly valueType?: z.ZodType<V>;
 
   constructor(
     tables: readonly (T | LazyTableRef)[],
-    readonly valueType?: z.ZodType<V>,
-    surreal: SurrealMeta = {},
-    // The `this`-returning Zod passthroughs (refine/check/…) wrap the schema and rebuild via the hook
-    // below; this lets such a rebuild carry the wrapped schema instead of rebuilding the bare record
-    // schema. Defaults to the record schema for the normal `s.recordId(...)` construction.
-    schemaOverride?: z.ZodType<RecordId<T, V>, RecordId<T, V>>,
+    init: RecordIdFieldInit<T, V, M> = {},
   ) {
-    // Eager path (names only) keeps the schema + its registry entry immediate; a lazy ref defers
-    // schema construction via z.lazy (inferField unwraps it), so the thunk runs post-module-eval.
-    const hasLazy = tables.some((t) => typeof t === "function");
-    super(
-      schemaOverride ??
-        (hasLazy
-          ? (z.lazy(() =>
-              recordIdSchema<T, V>(resolveTableNames(tables), valueType),
-            ) as unknown as z.ZodType<RecordId<T, V>, RecordId<T, V>>)
-          : recordIdSchema<T, V>(tables as T[], valueType)),
-      surreal,
-    );
+    const base =
+      init.base ??
+      recordIdBaseSchema(tables, init.valueType, init.mode ?? "record");
+    super((init.schema ?? base) as RecordIdSchemaOf<T, V, M>, init.surreal);
     this.entries = tables;
+    this.baseSchema = base;
+    // `M` may be a broad `RecordIdMode` (AnyTable); the default is `record`.
+    this.mode = (init.mode ?? "record") as M;
+    this.valueType = init.valueType;
+    recordIdFieldRegistry.set(this.schema, this);
   }
 
   /** The restricted table names — lazy refs resolve here (post-module-eval). */
   get tables(): T[] {
     return resolveTableNames(this.entries);
+  }
+
+  /**
+   * Switch this record field to string-id mode: the APP value becomes a bare string (`01M…`) and
+   * the wire/input accepts `string | RecordId`; the emitted DDL is unchanged (`record<…>`). Only
+   * single-table fields qualify — a multi-table/open link throws (a bare string can't name the
+   * table on encode). Idempotent.
+   */
+  stringIds(): RecordIdField<T, V, "string"> {
+    if (this.mode === "string")
+      return this as unknown as RecordIdField<T, V, "string">;
+    const nextBase = recordIdBaseSchema(this.entries, this.valueType, "string");
+    const flipped = mapRecordSchemaTree(this.schema, (schema) =>
+      schema === this.baseSchema
+        ? { schema: nextBase, changed: true }
+        : { schema, changed: false },
+    );
+    // An unchanged tree means a wrapper the flip can't carry — `.refine()`/`.transform()`/
+    // `.pipe()` (behavior) or `.default()`/`.catch()` (fallback values) — teaching error instead
+    // of a silent record-mode field.
+    if (!flipped.changed)
+      throw new Error(
+        "stringIds() must be called before app-side schema wrappers (.refine()/.check()/.transform()/.pipe()/.default()/.catch()/…): they carry behavior or fallback values tied to the RecordId form — author them after .stringIds() with bare-string values.",
+      );
+    return new RecordIdField<T, V, "string">(this.entries, {
+      valueType: this.valueType,
+      surreal: this.surreal,
+      schema: flipped.schema as RecordIdSchemaOf<T, V, "string">,
+      mode: "string",
+      base: nextBase,
+    });
   }
 
   // The base `this`-returning wrappers (refine/superRefine/check/…) construct via `rebuild`. SField's
@@ -1332,17 +1701,24 @@ export class RecordIdField<
     schema: S2,
     native: SurrealMeta,
   ): SField<S2, F2> {
-    return new RecordIdField<T, V>(
-      this.entries,
-      this.valueType,
-      native,
-      schema as unknown as z.ZodType<RecordId<T, V>, RecordId<T, V>>,
-    ) as unknown as SField<S2, F2>;
+    return new RecordIdField<T, V, M>(this.entries, {
+      valueType: this.valueType,
+      surreal: native,
+      schema: schema as unknown as RecordIdSchemaOf<T, V, M>,
+      mode: this.mode,
+      base: this.baseSchema,
+    }) as unknown as SField<S2, F2>;
   }
 
-  /** Restrict the id value's type — reflected as `RecordId<T, V>` and validated at runtime. */
-  type<V2 extends RecordIdValue>(schema: z.ZodType<V2>): RecordIdField<T, V2> {
-    return new RecordIdField<T, V2>(this.entries, schema, this.surreal);
+  /** Restrict the id value's type — reflected as `RecordId<T, V>`/`BareId<T>` and validated at runtime. */
+  type<V2 extends RecordIdValue>(
+    schema: z.ZodType<V2>,
+  ): RecordIdField<T, V2, M> {
+    return new RecordIdField<T, V2, M>(this.entries, {
+      valueType: schema,
+      surreal: this.surreal,
+      mode: this.mode,
+    });
   }
 
   /** Build a RecordId from LOCAL DATA (the Zod-side value helper). Single-table: `for(id)`;
@@ -1720,10 +2096,14 @@ export const s = {
    * (`() => User` — resolved post-module-eval, so mutually-linked tables in separate modules never
    * import-cycle), or an array mixing any of those for a multi-table union — `s.recordId(User)`,
    * `s.recordId(() => User)`, `s.recordId([User, () => Service])`. (For a single-table link
-   * `User.record()` is preferred: it also carries the id value type.)
+   * `User.record()` is preferred: it also carries the id value type AND the string-id mode.)
    *
    * Called with NO argument — `s.recordId()` — it emits a bare `record` (a link to ANY table), since a
    * record id's table is optional in SurrealDB.
+   *
+   * `.stringIds()` switches the field to string-id mode: the APP value is a bare string (`01M…`),
+   * the wire accepts `string | RecordId`, and the emitted DDL is unchanged. Single-table links only
+   * (a bare string can't name the table on encode); see {@link RecordIdField.stringIds}.
    */
   recordId: <T extends string | AnyTable | (() => AnyTable) = string>(
     table?: T | readonly T[],
@@ -3310,14 +3690,44 @@ export class TableDef<Name extends string, S extends Shape> {
     );
   }
 
-  /** Derive a `record<name>` link to this table (carrying its id value type). */
-  record(): S extends { id: RecordIdField<Name, infer V> }
-    ? RecordIdField<Name, V>
-    : RecordIdField<Name> {
+  /** Derive a `record<name>` link to this table (carrying its id value type AND mode, so a
+   *  string-id table's links are string-id links too). */
+  record(): S extends { id: RecordIdField<Name, infer V, infer M> }
+    ? RecordIdField<Name, V, M>
+    : RecordIdField<Name, RecordIdValue, RecordIdMode> {
     const idField = (this.fields as unknown as Record<string, AnyField>).id as
-      | RecordIdField<Name>
+      | RecordIdField<Name, RecordIdValue, RecordIdMode>
       | undefined;
-    return new RecordIdField([this.name], idField?.valueType) as never;
+    return new RecordIdField([this.name], {
+      valueType: idField?.valueType,
+      mode: idField?.mode ?? "record",
+    }) as never;
+  }
+
+  /**
+   * Switch the whole table to **string-id mode**: the `id` and every record-link field (nested in
+   * `s.object`/`s.array` included) decode to bare app strings (`01M…`) and accept
+   * `string | RecordId` on write/filter/where/cursor. The emitted DDL is UNCHANGED (`record<…>`),
+   * so `sc diff`/migrations stay empty; `sc pull` cannot recover the mode (like `idStrategy`).
+   *
+   * Multi-table (`s.recordId([A, B])`) and open (`s.recordId()`) links throw: a bare app string
+   * can't name the table on encode. Immutable — returns a new table.
+   */
+  stringIds(): TableDef<Name, StringIdsShape<S>> {
+    const mapped: Record<string, AnyField> = {};
+    let changed = false;
+    for (const [key, field] of Object.entries(
+      this.fields as unknown as Record<string, AnyField>,
+    )) {
+      const next = stringIdsField(field);
+      mapped[key] = next;
+      if (next !== field) changed = true;
+    }
+    return new TableDef(
+      this.name,
+      (changed ? mapped : this.fields) as unknown as Fields<StringIdsShape<S>>,
+      this.config,
+    );
   }
 }
 
@@ -3442,7 +3852,7 @@ export class SystemView<Name extends string, S extends Shape> {
 
 // --- Smart id: the `id` field describes the id value type; wrapped as record<thisTable, V>. ---
 type IdValue<Id> =
-  Id extends RecordIdField<string, infer V>
+  Id extends RecordIdField<string, infer V, infer _M>
     ? V
     : Id extends SField<infer Sc, infer _>
       ? z.output<Sc> extends RecordIdValue
@@ -3453,10 +3863,21 @@ type IdValue<Id> =
           ? z.output<Id>
           : RecordIdValue
         : RecordIdValue;
+/** The id MODE an authored `id` field carries (`record` when absent/not a record field). */
+type IdMode<Id> =
+  Id extends RecordIdField<string, RecordIdValue, infer M> ? M : "record";
+/** Is `S` a BROAD shape (an index signature, e.g. `AnyTable`'s)? Broad tables carry BOTH modes, so a
+ *  concrete string-id table stays assignable to them. */
+type IsBroadShape<S> = string extends keyof S ? true : false;
 type WithSmartId<Name extends string, S extends Shape> = Omit<S, "id"> & {
   id: RecordIdField<
     Name,
-    "id" extends keyof S ? IdValue<S["id"]> : RecordIdValue
+    "id" extends keyof S ? IdValue<S["id"]> : RecordIdValue,
+    IsBroadShape<S> extends true
+      ? RecordIdMode
+      : "id" extends keyof S
+        ? IdMode<S["id"]>
+        : "record"
   >;
 };
 
@@ -3467,9 +3888,14 @@ function buildIdField(
 ): RecordIdField<string> {
   if (given === undefined) return new RecordIdField([name]);
   if (given instanceof RecordIdField)
-    return new RecordIdField([name], given.valueType);
+    return new RecordIdField([name], {
+      valueType: given.valueType,
+      mode: given.mode,
+    });
   const valueSchema = given instanceof SField ? given.schema : given;
-  return new RecordIdField([name], valueSchema as z.ZodType<RecordIdValue>);
+  return new RecordIdField([name], {
+    valueType: valueSchema as z.ZodType<RecordIdValue>,
+  });
 }
 
 /** Normalize a shape, replacing/adding the special `id` field via buildIdField. */
@@ -3484,6 +3910,123 @@ function applySmartId(name: string, shape: Shape): Record<string, AnyField> {
     (shape as Record<string, AnyField | z.ZodType>).id,
   );
   return out;
+}
+
+// --- string-id mode: deep-map a table's record fields to bare app strings -------------------------
+
+/**
+ * The shape `TableDef.stringIds()` produces: every `RecordIdField` (top-level or nested inside
+ * `s.object`/`s.array`) becomes its string-mode sibling, so the schema's APP side is a bare string.
+ * Identity-preserving wrappers are mapped through; the `~szShape` brand recurses into objects.
+ */
+type StringIdsSchema<Sc> =
+  Sc extends z.ZodOptional<infer I>
+    ? z.ZodOptional<StringIdsSchema<I>>
+    : Sc extends z.ZodNullable<infer I>
+      ? z.ZodNullable<StringIdsSchema<I>>
+      : Sc extends z.ZodReadonly<infer I>
+        ? z.ZodReadonly<StringIdsSchema<I>>
+        : Sc extends z.ZodNonOptional<infer I>
+          ? z.ZodNonOptional<StringIdsSchema<I>>
+          : Sc extends z.ZodArray<infer E>
+            ? z.ZodArray<StringIdsSchema<E>>
+            : Sc extends z.ZodSet<infer E>
+              ? z.ZodSet<StringIdsSchema<E>>
+              : Sc extends z.ZodUnion<infer O>
+                ? UnionHasRecord<O> extends true
+                  ? z.ZodUnion<{
+                      [K in keyof O]: O[K] extends z.ZodType
+                        ? StringIdsSchema<O[K]>
+                        : O[K];
+                    }>
+                  : Sc
+                : Sc extends z.ZodIntersection<infer A, infer B>
+                  ? z.ZodIntersection<StringIdsSchema<A>, StringIdsSchema<B>>
+                  : Sc extends {
+                        readonly "~szShape"?: infer NS extends Shape;
+                      }
+                    ? SZObject<StringIdsShape<NS>>
+                    : Sc extends z.ZodType<RecordId<infer T, infer V>, infer _I>
+                      ? z.ZodType<BareId<T>, string | RecordId<T, V>>
+                      : Sc;
+
+/** Does ONE union option carry a record id — directly, in an array, or as an `s.object` brand?
+ *  Deliberately tuple-wrapped (NO distribution): it must not expand the recursive `s.json()` union. */
+type OptionHasRecord<O> =
+  O extends z.ZodType<infer Out, infer _I>
+    ? [Out] extends [RecordId]
+      ? true
+      : [Out] extends [readonly (infer E)[]]
+        ? [E] extends [RecordId]
+          ? true
+          : false
+        : O extends { readonly "~szShape"?: unknown }
+          ? true
+          : false
+    : false;
+/**
+ * Does any union option carry a record id? SHALLOW on purpose: it must terminate on the recursive
+ * `s.json()` union (whose array option re-enters the same union), which a full walk would not.
+ */
+type UnionHasRecord<O> = O extends readonly [infer H, ...infer R]
+  ? OptionHasRecord<H> extends true
+    ? true
+    : UnionHasRecord<R>
+  : false;
+/** One field of {@link StringIdsShape}: a record field flips mode, everything else maps its schema. */
+type StringIdsField<F> =
+  IsAny<F> extends true
+    ? RecordIdField<string, RecordIdValue, "string">
+    : F extends RecordIdField<infer T, infer V, infer _M>
+      ? RecordIdField<T, V, "string">
+      : F extends SField<infer Sc, infer Flags>
+        ? SField<StringIdsSchema<Sc>, Flags>
+        : F extends z.ZodType
+          ? StringIdsSchema<F>
+          : F;
+/** The whole shape of a string-id table. A BROAD shape (index signature, e.g. `AnyTable`'s) stays
+ *  `Shape` so `TableDef<string, any>` remains a structural supertype of every concrete table. */
+export type StringIdsShape<S extends Shape> = string extends keyof S
+  ? Shape
+  : { [K in keyof S]: StringIdsField<S[K]> };
+
+/** Swap the record core(s) inside one schema for their string-mode sibling (deep). */
+function stringIdsSchema(schema: z.ZodType): {
+  schema: z.ZodType;
+  changed: boolean;
+} {
+  return mapRecordSchemaTree(schema, (current) => {
+    const field = recordIdFieldRegistry.get(current);
+    if (!field || field.mode === "string")
+      return { schema: current, changed: false };
+    return { schema: field.stringIds().schema, changed: true };
+  });
+}
+
+/** Map one field (top-level or nested) to string mode, preserving its DDL metadata. */
+function stringIdsField(field: AnyField): AnyField {
+  if (field instanceof RecordIdField) return field.stringIds();
+  const mapped = stringIdsSchema(field.schema);
+  if (!mapped.changed) return field;
+  return new SField(mapped.schema, field.surreal);
+}
+
+/** Deep-map a whole shape's record fields to string mode. */
+function stringIdsShape<S extends Shape>(shape: S): StringIdsShape<S> {
+  const out: Record<string, AnyField> = {};
+  let changed = false;
+  for (const [key, value] of Object.entries(shape)) {
+    const field = value instanceof SField ? value : new SField(value);
+    const mapped = stringIdsField(field);
+    out[key] = mapped;
+    if (mapped !== field) changed = true;
+  }
+  return (changed ? out : shape) as StringIdsShape<S>;
+}
+
+/** Does this schema (or a wrapper/array around it) carry string-id mode? */
+export function stringIdsOf(schema: z.ZodType): boolean {
+  return findRecordIdField(schema)?.mode === "string";
 }
 
 /**
@@ -3511,7 +4054,7 @@ type RejectNoDdl<S extends Shape> = {
 // The output (id value) type of an authored `id` field — WITHOUT the widen-to-RecordIdValue fallback
 // `IdValue` does, so `RejectBadId` can see whether it's actually a valid record-id value type.
 type IdOutput<Id> =
-  Id extends RecordIdField<string, infer V>
+  Id extends RecordIdField<string, infer V, infer _M>
     ? V
     : Id extends SField<infer Sc, infer _>
       ? z.output<Sc>
@@ -3573,7 +4116,7 @@ type WithSingletonId<
  *  table (whose id value type is broad). Drives the id-optional client/query overloads. */
 export type SingletonIdOf<TD> =
   TD extends TableDef<string, infer S>
-    ? S extends { id: RecordIdField<string, infer V> }
+    ? S extends { id: RecordIdField<string, infer V, infer _M> }
       ? string extends V
         ? never
         : V extends string
@@ -3625,10 +4168,9 @@ export function defineSingleton<
   const fields = applySmartId(name, resolved);
   // The smart id's VALUE schema is the literal key — decode/encode stay the plain smart-id
   // codec; the literal is the type-level marker + what the emitted DDL enforces.
-  fields.id = new RecordIdField(
-    [name],
-    z.literal(id) as unknown as z.ZodType<RecordIdValue>,
-  );
+  fields.id = new RecordIdField([name], {
+    valueType: z.literal(id) as unknown as z.ZodType<RecordIdValue>,
+  });
   return new TableDef(
     name,
     fields as unknown as Fields<WithSingletonId<Name, S, Id>>,
@@ -3669,15 +4211,42 @@ type RecordRefName<T> = T extends string
     ? NamesOf<TD>
     : NamesOf<T>;
 
+/** The id mode a `TableRef` implies: `string` only for a SINGLE string-id `TableDef`. */
+type RecordModeOf<F> = F extends readonly unknown[]
+  ? "record"
+  : F extends TableDef<string, infer S>
+    ? S extends { id: infer Id }
+      ? IdMode<Id>
+      : "record"
+    : "record";
+
+/** The id mode a relation's OWN id carries: `string` only when BOTH endpoints are string-mode; a
+ *  BROAD mode (e.g. `AnyRelationDef`) stays `RecordIdMode` so concrete string ids fit. */
+type RelationIdMode<
+  InMode extends RecordIdMode,
+  OutMode extends RecordIdMode,
+> = RecordIdMode extends InMode | OutMode
+  ? RecordIdMode
+  : [InMode, OutMode] extends ["string", "string"]
+    ? "string"
+    : "record";
+
 /** A relation's full shape: the edge fields plus the `in`/`out` record endpoints. */
 type RelationShape<
   Name extends string,
   S extends Shape,
   In extends string,
   Out extends string,
-> = Omit<WithSmartId<Name, S>, "in" | "out"> & {
-  in: RecordIdField<In>;
-  out: RecordIdField<Out>;
+  InMode extends RecordIdMode = "record",
+  OutMode extends RecordIdMode = "record",
+> = Omit<WithSmartId<Name, S>, "in" | "out" | "id"> & {
+  id: RecordIdField<
+    Name,
+    "id" extends keyof S ? IdValue<S["id"]> : RecordIdValue,
+    RelationIdMode<InMode, OutMode>
+  >;
+  in: RecordIdField<In, RecordIdValue, InMode>;
+  out: RecordIdField<Out, RecordIdValue, OutMode>;
 };
 
 function tableNames(ref: TableRef): string[] {
@@ -3689,17 +4258,45 @@ function refArray(ref: TableRef): readonly TableLike[] {
   return (Array.isArray(ref) ? ref : [ref]) as readonly TableLike[];
 }
 
+/**
+ * The endpoint id mode a ref implies: `string` only when it is a SINGLE `TableDef` whose id is in
+ * string mode (a multi-table/`Table`/bare-name endpoint stays `record` — a bare string can't name
+ * the table). Mirrors {@link RecordModeOf}.
+ */
+function endpointMode(ref: TableRef): RecordIdMode {
+  const refs = refArray(ref);
+  if (refs.length !== 1) return "record";
+  const only = refs[0];
+  if (only instanceof TableDef) {
+    const id = (only.fields as unknown as Record<string, AnyField>).id;
+    if (id instanceof RecordIdField) return id.mode;
+  }
+  return "record";
+}
+
 /** Build a relation's runtime fields: the edge fields + `in`/`out` (empty endpoints = any record). */
 function relationFields(
   name: string,
   edge: Shape,
   fromNames: string[],
   toNames: string[],
+  fromMode: RecordIdMode,
+  toMode: RecordIdMode,
 ): Record<string, AnyField> {
+  const fields = applySmartId(name, edge);
+  // The relation's OWN id is string-mode only when BOTH endpoints are (a fully string-id edge);
+  // `RelationDef.stringIds()` forces this by passing "string" for both.
+  if (fromMode === "string" && toMode === "string") {
+    const id = fields.id as RecordIdField<string, RecordIdValue, RecordIdMode>;
+    fields.id = new RecordIdField([name], {
+      valueType: id.valueType,
+      mode: "string",
+    });
+  }
   return {
-    ...applySmartId(name, edge),
-    in: new RecordIdField(fromNames),
-    out: new RecordIdField(toNames),
+    ...fields,
+    in: new RecordIdField(fromNames, { mode: fromMode }),
+    out: new RecordIdField(toNames, { mode: toMode }),
   };
 }
 
@@ -3707,6 +4304,10 @@ function relationFields(
  * A graph relation (edge table). It's a usable `TableDef` immediately — endpoints are OPTIONAL
  * (`TYPE RELATION` with no `FROM`/`TO` restricts nothing) — and `.from(X)` / `.to(Y)` narrow the
  * `in` / `out` record types. Both return a new `RelationDef` (immutable), chainable in any order.
+ *
+ * A `.from(User)`/`.to(User)` with a SINGLE string-id table inherits that table's id mode, so the
+ * `in`/`out` app values are bare strings too; `.stringIds()` flips the edge + both endpoints
+ * explicitly (and throws when an endpoint is multi-table/open — a bare string can't name the table).
  */
 export class RelationDef<
   Name extends string,
@@ -3718,7 +4319,12 @@ export class RelationDef<
   // carry the endpoint TableDef *types* so `.out(E)`/`.in(E)` can infer the target node type + fields.
   FromRef = unknown,
   ToRef = unknown,
-> extends TableDef<Name, RelationShape<Name, S, In, Out>> {
+  InMode extends RecordIdMode = "record",
+  OutMode extends RecordIdMode = "record",
+  // The COMPLETE shape (edge fields + `in`/`out`), tracked as a type parameter so an override like
+  // `stringIds()` stays structurally exact against the base `TableDef<Name, RS>`.
+  RS extends Shape = RelationShape<Name, S, In, Out, InMode, OutMode>,
+> extends TableDef<Name, RS> {
   constructor(
     name: Name,
     private readonly edge: S,
@@ -3729,12 +4335,19 @@ export class RelationDef<
     // `FromRef`/`ToRef` type captures, so the graph builder can recover a target's TableDef.
     private readonly fromRefs: readonly TableLike[] = [],
     private readonly toRefs: readonly TableLike[] = [],
+    private readonly fromMode: RecordIdMode = "record",
+    private readonly toMode: RecordIdMode = "record",
   ) {
     super(
       name,
-      relationFields(name, edge, fromNames, toNames) as unknown as Fields<
-        RelationShape<Name, S, In, Out>
-      >,
+      relationFields(
+        name,
+        edge,
+        fromNames,
+        toNames,
+        fromMode,
+        toMode,
+      ) as unknown as Fields<RS>,
       {
         schemafull: true,
         relation: {
@@ -3755,7 +4368,7 @@ export class RelationDef<
    *  an array mixing them for a `FROM a | b` union. Endpoint names flow into the typed `in` record link. */
   from<F extends TableRef>(
     ref: F,
-  ): RelationDef<Name, S, NamesOf<F>, Out, F, ToRef> {
+  ): RelationDef<Name, S, NamesOf<F>, Out, F, ToRef, RecordModeOf<F>, OutMode> {
     return new RelationDef(
       this.name,
       this.edge,
@@ -3764,13 +4377,24 @@ export class RelationDef<
       this.isEnforced,
       refArray(ref),
       this.toRefs,
-    ) as unknown as RelationDef<Name, S, NamesOf<F>, Out, F, ToRef>;
+      endpointMode(ref),
+      this.toMode,
+    ) as unknown as RelationDef<
+      Name,
+      S,
+      NamesOf<F>,
+      Out,
+      F,
+      ToRef,
+      RecordModeOf<F>,
+      OutMode
+    >;
   }
   /** Restrict the target endpoint(s) (`out`) — a `TableDef`, a SurrealDB `Table`, a bare name string, or
    *  an array mixing them for a `TO a | b` union. Endpoint names flow into the typed `out` record link. */
   to<T extends TableRef>(
     ref: T,
-  ): RelationDef<Name, S, In, NamesOf<T>, FromRef, T> {
+  ): RelationDef<Name, S, In, NamesOf<T>, FromRef, T, InMode, RecordModeOf<T>> {
     return new RelationDef(
       this.name,
       this.edge,
@@ -3779,10 +4403,21 @@ export class RelationDef<
       this.isEnforced,
       this.fromRefs,
       refArray(ref),
-    ) as unknown as RelationDef<Name, S, In, NamesOf<T>, FromRef, T>;
+      this.fromMode,
+      endpointMode(ref),
+    ) as unknown as RelationDef<
+      Name,
+      S,
+      In,
+      NamesOf<T>,
+      FromRef,
+      T,
+      InMode,
+      RecordModeOf<T>
+    >;
   }
   /** Require both endpoints to exist on RELATE (`TYPE RELATION … ENFORCED`). */
-  enforced(): RelationDef<Name, S, In, Out, FromRef, ToRef> {
+  enforced(): RelationDef<Name, S, In, Out, FromRef, ToRef, InMode, OutMode> {
     return new RelationDef(
       this.name,
       this.edge,
@@ -3791,7 +4426,67 @@ export class RelationDef<
       true,
       this.fromRefs,
       this.toRefs,
-    ) as unknown as RelationDef<Name, S, In, Out, FromRef, ToRef>;
+      this.fromMode,
+      this.toMode,
+    ) as unknown as RelationDef<
+      Name,
+      S,
+      In,
+      Out,
+      FromRef,
+      ToRef,
+      InMode,
+      OutMode
+    >;
+  }
+  /**
+   * Flip the edge shape + both endpoints to string-id mode. Needs exactly one `FROM` and one `TO`
+   * endpoint: a bare app string can't name the table on encode.
+   */
+  override stringIds(): RelationDef<
+    Name,
+    StringIdsShape<S>,
+    In,
+    Out,
+    FromRef,
+    ToRef,
+    "string",
+    "string",
+    StringIdsShape<RS>
+  > {
+    if (this.fromNames.length !== 1)
+      throw new Error(
+        `RelationDef.stringIds() needs exactly ONE FROM endpoint — this relation has ${
+          this.fromNames.length === 0 ? "none" : this.fromNames.join(" | ")
+        }. A bare app string can't name the table on encode; call .from(User) with a single string-id table, or keep the endpoints in RecordId mode.`,
+      );
+    if (this.toNames.length !== 1)
+      throw new Error(
+        `RelationDef.stringIds() needs exactly ONE TO endpoint — this relation has ${
+          this.toNames.length === 0 ? "none" : this.toNames.join(" | ")
+        }. A bare app string can't name the table on encode; call .to(User) with a single string-id table, or keep the endpoints in RecordId mode.`,
+      );
+    return new RelationDef(
+      this.name,
+      stringIdsShape(this.edge),
+      this.fromNames,
+      this.toNames,
+      this.isEnforced,
+      this.fromRefs,
+      this.toRefs,
+      "string",
+      "string",
+    ) as unknown as RelationDef<
+      Name,
+      StringIdsShape<S>,
+      In,
+      Out,
+      FromRef,
+      ToRef,
+      "string",
+      "string",
+      StringIdsShape<RS>
+    >;
   }
 }
 

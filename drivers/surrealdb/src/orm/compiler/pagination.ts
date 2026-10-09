@@ -7,7 +7,7 @@
  * `(a < $x) OR (a = $x AND b > $y)` — the tiebreaker is always the unique field (`id`).
  */
 
-import { BoundQuery } from "surrealdb";
+import { BoundQuery, DateTime } from "surrealdb";
 import type { ModelMeta, SchemaIndex } from "../meta";
 import { compileCount } from "./aggregate";
 import { type CursorKey, keysetProjection } from "./keyset";
@@ -15,10 +15,13 @@ import type { ProjectionSpec } from "./projection";
 import { compileRead } from "./select";
 import {
   type Binds,
+  baseColumn,
+  coerceRecordValue,
   compileError,
   createBinds,
   describeValue,
   isPlainObject,
+  isTableMeta,
   nonNegativeInt,
   paren,
   pathList,
@@ -245,7 +248,10 @@ export function compileCursor(
   const predicate =
     cursor === undefined
       ? undefined
-      : cursorComparison(effective, cursorValues(order, cursor, operation));
+      : cursorComparison(
+          effective,
+          cursorValues(meta, order, cursor, operation),
+        );
   const where =
     predicate === undefined
       ? args.where
@@ -369,15 +375,17 @@ function isUniqueField(meta: ModelMeta, field: string): boolean {
   return field === "id" || uniqueFields(meta).includes(field);
 }
 
-/** Normalize the cursor value to one value per order field. */
+/** Normalize the cursor value to one value per order field, coerced to the column's WIRE value. */
 function cursorValues(
+  meta: ModelMeta,
   order: readonly CursorOrder[],
   cursor: unknown,
   operation: string,
 ): readonly unknown[] {
   const singleId =
     order.length === 1 && (order[0] as CursorOrder).field === "id";
-  if (singleId && !isPlainObject(cursor)) return [cursor];
+  if (singleId && !isPlainObject(cursor))
+    return [coerceCursorValue(meta, "id", cursor, operation)];
   if (!isPlainObject(cursor))
     throw compileError(
       "ValidationError",
@@ -393,8 +401,53 @@ function cursorValues(
         `${operation}: the cursor is missing "${entry.field}" — every orderBy field needs a value.`,
         { operation },
       );
-    return (cursor as Record<string, unknown>)[entry.field];
+    return coerceCursorValue(
+      meta,
+      entry.field,
+      (cursor as Record<string, unknown>)[entry.field],
+      operation,
+    );
   });
+}
+
+/**
+ * Coerce a cursor value to the column's WIRE value before binding: a record column takes a
+ * `RecordId` (bare/`table:id` strings and numbers included), a datetime takes a `DateTime`
+ * (string/`Date` accepted). The keyset compares type-vs-type, so a raw string would silently
+ * not filter.
+ */
+function coerceCursorValue(
+  meta: ModelMeta,
+  field: string,
+  value: unknown,
+  operation: string,
+): unknown {
+  if (value === undefined || !isTableMeta(meta)) return value;
+  const column = meta.columns.get(baseColumn(field));
+  if (!column) return value;
+  if (column.family === "record" || column.record)
+    return coerceRecordValue(
+      value,
+      column.record?.targets,
+      operation,
+      `cursor "${field}"`,
+    );
+  if (column.family === "date") {
+    if (value instanceof DateTime) return value;
+    if (value instanceof Date) return new DateTime(value);
+    if (typeof value === "string") {
+      try {
+        return new DateTime(value);
+      } catch {
+        throw compileError(
+          "ValidationError",
+          `${operation}: the cursor for "${field}" must be a Date, DateTime or ISO-8601 string (got ${describeValue(value)}).`,
+          { operation, field },
+        );
+      }
+    }
+  }
+  return value;
 }
 
 /**

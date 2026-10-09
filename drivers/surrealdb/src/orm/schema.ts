@@ -8,7 +8,7 @@
  * cannot disagree with the DDL emitter about a field's type, family, optionality or link targets.
  */
 import type { z } from "zod";
-import type { IdStrategy } from "../pure";
+import { type IdStrategy, stringIdsOf } from "../pure";
 import { type FieldInfo, inferField, zodDef } from "../wire";
 import { BetterSchemicError } from "./errors";
 import type {
@@ -146,6 +146,7 @@ function columnMeta(name: string, field: unknown, table: string): ColumnMeta {
         ...(info.record.targets ? { targets: info.record.targets } : {}),
         list: info.family === "array" || info.family === "set",
         optional: info.optional,
+        ...(stringIdsOf(schemaOf(field)) ? { stringIds: true } : {}),
       }
     : undefined;
   return {

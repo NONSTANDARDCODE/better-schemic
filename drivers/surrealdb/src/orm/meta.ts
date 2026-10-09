@@ -28,6 +28,8 @@ export interface RecordLinkMeta {
   /** True when the link lives inside an `array<…>`/`set<…>`. */
   readonly list: boolean;
   readonly optional: boolean;
+  /** True when the field is in string-id mode: the APP value is a bare string (`01M…`). */
+  readonly stringIds?: boolean;
 }
 
 /** One public column of a table/edge — wire type + family + link metadata, no Zod leaking out. */

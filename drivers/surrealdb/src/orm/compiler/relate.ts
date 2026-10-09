@@ -4,7 +4,7 @@
  * validated against the relation's declared FROM/TO tables; edge data is codec-validated with
  * expression splice (`SET f = $p` per field).
  */
-import { escapeIdentSafe as escapeIdent } from "../../ident";
+import { escapeIdentSafe as escapeIdent, unescapeIdPart } from "../../ident";
 import { hasRefDeep } from "../../pure";
 import type { ModelMeta, SchemaIndex } from "../meta";
 import {
@@ -231,25 +231,30 @@ function endpointText(
       { operation },
     );
   if (hasRefDeep(value)) return renderValue(value, binds, binds.ctx());
+  const declared =
+    meta !== undefined && isTableMeta(meta)
+      ? (meta.endpoints?.[direction] ?? [])
+      : [];
   const text = String(value);
   const parts = splitRecordId(text);
-  if (!parts)
+  if (!parts) {
+    // A BARE endpoint is unambiguous only when the relation declares exactly one table for this
+    // direction (string-id mode's app representation).
+    if (declared.length === 1)
+      return `${escapeIdent(declared[0] as string)}:${escapeRecordIdPart(unescapeIdPart(text))}`;
     throw compileError(
       "ValidationError",
       `${operation}: endpoint "${text}" is not a record id — pass "table:id" (or a surql expression).`,
       { operation },
     );
-  const declared =
-    meta !== undefined && isTableMeta(meta)
-      ? (meta.endpoints?.[direction] ?? [])
-      : [];
+  }
   if (declared.length > 0 && !declared.includes(parts.table))
     throw compileError(
       "ValidationError",
       `${operation}: "${parts.table}" is not a declared ${direction === "from" ? "FROM" : "TO"} endpoint of "${meta?.name}" (declared: ${declared.join(", ")}).`,
       { operation, table: meta?.name, field: direction },
     );
-  return `${escapeIdent(parts.table)}:${escapeRecordIdPart(parts.id)}`;
+  return `${escapeIdent(parts.table)}:${escapeRecordIdPart(unescapeIdPart(parts.id))}`;
 }
 
 /** `edge` / `edge:<id>` (the edge table is the delegate itself). */
@@ -266,7 +271,7 @@ function relateEdgeName(
       `${operation}: "id" must be a non-empty string (got ${describeValue(id)}).`,
       { operation, table: meta.name },
     );
-  const suffix = splitRecordId(id)?.id ?? id;
+  const suffix = unescapeIdPart(splitRecordId(id)?.id ?? id);
   return `${table}:${escapeRecordIdPart(suffix)}`;
 }
 

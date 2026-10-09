@@ -6,7 +6,7 @@
  * Everything here reads the authored schema `S`; nothing is code-generated.
  */
 import type { RecordId } from "surrealdb";
-import type { App } from "../../pure";
+import type { App, RecordIdTable } from "../../pure";
 import type {
   AnyRelationDef,
   AnyTableDef,
@@ -18,8 +18,17 @@ import type {
 
 type NonNullish<T> = T extends null | undefined ? never : T;
 
-/** The table-name type a record value carries (`RecordId<"user">` -> `"user"`). */
-type RecordIdName<T> = T extends RecordId<infer N, infer _V> ? N : never;
+/**
+ * The table-name type a record value carries: `RecordId<"user">` -> `"user"`, and the string-id
+ * mode's phantom-branded `BareId<"user">` -> `"user"` (so relation typing survives both modes).
+ * A PLAIN string resolves to `never` — `RecordIdTable` reads the brand property, never assignability.
+ */
+export type RecordIdName<T> =
+  T extends RecordId<infer N, infer _V>
+    ? N
+    : [RecordIdTable<T>] extends [string]
+      ? RecordIdTable<T>
+      : never;
 
 // --- links (record-id FIELDS) --------------------------------------------------------------------
 

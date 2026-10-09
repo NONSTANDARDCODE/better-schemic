@@ -15,9 +15,9 @@
 import { describe, expect, test } from "bun:test";
 import fc from "fast-check";
 import { escapeIdent } from "surrealdb";
-import { escapeIdentSafe } from "../../src/ident";
 import { formatAssert, formatForAssert } from "../../src/checks";
 import { emitSurqlType, parseSurqlType } from "../../src/driver/surql-type";
+import { escapeIdentSafe, unescapeIdPart } from "../../src/ident";
 import {
   createBinds,
   datetimeLiteral,
@@ -77,12 +77,11 @@ const SPECIAL_KEYS = new Set([
 ]);
 
 /** A non-empty field-name candidate with no `.`/`[`/`]` (so `renderPath` treats it as one segment). */
-const weirdField = fc.string({ minLength: 1, maxLength: 14 }).filter(
-  (s) =>
-    !/[.[\]]/.test(s) &&
-    !SPECIAL_KEYS.has(s) &&
-    !s.startsWith("$"),
-);
+const weirdField = fc
+  .string({ minLength: 1, maxLength: 14 })
+  .filter(
+    (s) => !/[.[\]]/.test(s) && !SPECIAL_KEYS.has(s) && !s.startsWith("$"),
+  );
 
 /** A scalar/array value that `renderValue` BINDS (never a fragment/ref/range). */
 const bindableValue = fc.oneof(
@@ -108,7 +107,8 @@ describe("compileWhere — pure compiler invariants", () => {
           const angle = rendered.startsWith("⟨") && rendered.endsWith("⟩");
           const tick = rendered.startsWith("`") && rendered.endsWith("`");
           expect(angle || tick).toBe(true);
-          if (field.includes("⟩") || field.includes("\\")) expect(tick).toBe(true);
+          if (field.includes("⟩") || field.includes("\\"))
+            expect(tick).toBe(true);
         }
         expect(sql).toBe(`${rendered} = $p0`);
         expect(binds.vars).toEqual({ p0: value });
@@ -279,6 +279,25 @@ describe("record ids", () => {
     // Sanity: the SDK's output for the same name really is ambiguous.
     expect(escapeIdent(hostile)).toContain("⟩ OR true OR ⟨");
   });
+
+  test("unescapeIdPart reverses the three spellings and passes partial/plain text through", () => {
+    expect(unescapeIdPart("⟨a b⟩")).toBe("a b");
+    expect(unescapeIdPart("⟨a\\⟩b⟩")).toBe("a⟩b");
+    expect(unescapeIdPart("`a\\`b`")).toBe("a`b");
+    expect(unescapeIdPart('u"0190f5b2"')).toBe("0190f5b2");
+    // A matching START without the closing delimiter stays untouched.
+    expect(unescapeIdPart("⟨abc")).toBe("⟨abc");
+    expect(unescapeIdPart("`abc")).toBe("`abc");
+    expect(unescapeIdPart('u"abc')).toBe('u"abc');
+    expect(unescapeIdPart("plain")).toBe("plain");
+    expect(unescapeIdPart("")).toBe("");
+  });
+
+  test("escapeIdentSafe stringifies non-strings; splitRecordId handles nullish values", () => {
+    expect(escapeIdentSafe(5 as never)).toBe(escapeIdent("5"));
+    expect(splitRecordId(null)).toBeUndefined();
+    expect(splitRecordId(undefined)).toBeUndefined();
+  });
 });
 
 // --- surql type bridge --------------------------------------------------------------------------
@@ -320,9 +339,7 @@ describe("parseSurqlType / emitSurqlType", () => {
       s("atom"),
       s("expr").map((x) => `array<${x}>`),
       s("expr").map((x) => `set<${x}>`),
-      fc
-        .tuple(s("expr"), fc.nat(8))
-        .map(([x, n]) => `array<${x}, ${n}>`),
+      fc.tuple(s("expr"), fc.nat(8)).map(([x, n]) => `array<${x}, ${n}>`),
       fc.tuple(s("expr"), fc.nat(8)).map(([x, n]) => `set<${x}, ${n}>`),
     );
     const inner: fc.Arbitrary<string> = fc.oneof(

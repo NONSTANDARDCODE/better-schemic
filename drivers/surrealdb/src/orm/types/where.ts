@@ -33,6 +33,7 @@ import type {
   LinkKeys,
   LinkTargetDefs,
   ManyLinkKeys,
+  RecordIdName,
   SingleLinkKeys,
 } from "./relations";
 import type { AnyTableDef, ElementOf, SchemaInput } from "./schema";
@@ -44,10 +45,12 @@ export type EdgeDirection = "out" | "in" | "both";
 export type Fragment = BoundQuery<unknown[]>;
 
 /**
- * The input type a field accepts: the decoded value, plus a record-id STRING for link fields
- * (`where: { author: 'user:aeon' }` — the server coerces the string to a record id).
+ * The input type a field accepts: the decoded value, plus record-id STRING/`RecordId` forms for
+ * record links (string-id mode's bare strings included — a bare string is assignable to `BareId`).
  */
-export type FamilyInput<T> = T extends RecordId ? T | string : T;
+export type FamilyInput<T> = [RecordIdName<NonNullish<T>>] extends [never]
+  ? T
+  : T | string | RecordId;
 
 /** A value a filter operator accepts: the app value, a fragment, or a `$param` ref. */
 export type FilterInput<T> =
@@ -171,16 +174,18 @@ export type ValueShorthand<T> =
       ? NonNullish<T>
       : NonNullish<T> extends RecordId
         ? NonNullish<T> | string
-        : NonNullish<T> extends
+        : [RecordIdName<NonNullish<T>>] extends [never]
+          ? NonNullish<T> extends
               | Date
               | Uint8Array
               | Decimal
               | Duration
               | Geometry
-          ? NonNullish<T>
-          : NonNullish<T> extends string | number | bigint | boolean
             ? NonNullish<T>
-            : never);
+            : NonNullish<T> extends string | number | bigint | boolean
+              ? NonNullish<T>
+              : never
+          : NonNullish<T> | RecordId);
 
 /** A scalar value usable as a path shorthand (the path's family is unknown at authoring time). */
 export type ScalarShorthand =
@@ -227,18 +232,17 @@ type NonNullish<T> = T extends null | undefined ? never : T;
 /** The TS family of a decoded value — the type-level mirror of `FieldFamily`. */
 export type FamilyOf<T> = [NonNullish<T>] extends [never]
   ? "any"
-  : [NonNullish<T>] extends [string]
-    ? "string"
-    : [NonNullish<T>] extends [number | bigint | Decimal]
-      ? "number"
-      : [NonNullish<T>] extends [boolean]
-        ? "bool"
-        : [NonNullish<T>] extends [Date]
-          ? "date"
-          : [NonNullish<T>] extends [Duration]
-            ? "duration"
-            : [NonNullish<T>] extends [RecordId]
-              ? "record"
+  : [RecordIdName<NonNullish<T>>] extends [never]
+    ? [NonNullish<T>] extends [string]
+      ? "string"
+      : [NonNullish<T>] extends [number | bigint | Decimal]
+        ? "number"
+        : [NonNullish<T>] extends [boolean]
+          ? "bool"
+          : [NonNullish<T>] extends [Date]
+            ? "date"
+            : [NonNullish<T>] extends [Duration]
+              ? "duration"
               : [NonNullish<T>] extends [Geometry]
                 ? "geometry"
                 : [NonNullish<T>] extends [readonly unknown[]]
@@ -247,7 +251,8 @@ export type FamilyOf<T> = [NonNullish<T>] extends [never]
                     ? "bytes"
                     : [NonNullish<T>] extends [object]
                       ? "object"
-                      : "any";
+                      : "any"
+    : "record";
 
 /** Dotted paths (`address.city`) and bracketed paths (`contacts[*].type`) are always accepted. */
 export type WherePaths = {
@@ -324,11 +329,7 @@ type EdgeRelationFilters<TD extends AnyTableDef, S, D extends number> = {
   [K in AdjacentEdgeAliases<S, TD>]?:
     | EdgeRelationFilter<
         EdgeDefAt<S, K>,
-        EdgeTargetDefs<
-          S,
-          EdgeDefAt<S, K>,
-          App<TD>["id"] extends RecordId<infer N, infer _V> ? N : never
-        >,
+        EdgeTargetDefs<S, EdgeDefAt<S, K>, RecordIdName<App<TD>["id"]>>,
         S,
         D
       >

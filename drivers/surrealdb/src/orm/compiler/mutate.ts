@@ -12,9 +12,11 @@ import type { ModelMeta, SchemaIndex } from "../meta";
 import { compileProjection } from "./projection";
 import {
   type Binds,
+  coerceRecordValue,
   compileError,
   describeValue,
   isPlainObject,
+  recordTargets,
   renderPath,
 } from "./shared";
 import { requireUniqueField, type UniqueTarget, uniqueTarget } from "./unique";
@@ -433,17 +435,28 @@ function compileStrictUpsert(
 }
 
 /** The LET/IF `WHERE` for a resolved unique target (`id = $record` / `uniq = $value`), ANDed with
- *  the plugin `scope` (see `Operation.scope`) when present. */
+ *  the plugin `scope` (see `Operation.scope`) when present. A unique RECORD column's value is
+ *  coerced to `RecordId` (a bare app string needs the column's single target table). */
 function upsertWhere(
   meta: ModelMeta,
   target: ReturnType<typeof uniqueTarget>,
   binds: Binds,
   scope?: unknown,
+  operation = "upsert",
 ): string {
   const base =
     target.kind === "id"
       ? `id = ${binds.add(new RecordId(meta.name, target.id))}`
-      : `${renderPath(target.field)} = ${binds.add(target.value)}`;
+      : `${renderPath(target.field)} = ${binds.add(
+          isRecordColumn(meta, target.field)
+            ? coerceRecordValue(
+                target.value,
+                recordTargets(meta, target.field),
+                operation,
+                target.field,
+              )
+            : target.value,
+        )}`;
   const scoped = scopePredicate(scope, binds, meta);
   return scoped ? `${base} AND ${scoped}` : base;
 }
@@ -1185,7 +1198,7 @@ function buildEachRows(
         { operation, table: meta.name, field: "id" },
       );
     const normalizedBy = isRecordColumn(meta, by)
-      ? toRecord(byValue, operation)
+      ? toRecord(byValue, operation, recordTargets(meta, by))
       : byValue;
     if (mode === "patch")
       return {

@@ -483,3 +483,38 @@ client-side fail-fast para sessões privilegiadas e `updatedAt` suprimido pelo `
   (evento round-trip; `what` do INFO normalizado de `Table` → string, corrigindo um phantom-diff
   pré-existente em QUALQUER tabela com evento); README, `ORM-COVERAGE.md` §7/§8, `COVERAGE.md`,
   `orm-syntax-map.md` §2.5, CHANGELOG.
+
+## M15 — string ids: a superfície do ORM fala string bare (RecordId só no wire)
+
+A fricção do `apps/core`: `extractId`/`toBareRecordId`/codecs locais em todo call site. O modo
+string-id faz o APP ler/gravar strings bare (`01M…`), mantendo `RecordId` apenas no wire/DB —
+**DDL inalterado** (zero migração).
+
+- ✅ **M15.1 modo por campo (`RecordIdField.stringIds()`)** — o schema vira um codec
+  (wire `string | RecordId`, app `BareId<T>` phantom-branded com a tabela alvo); decode normaliza
+  `table:id`/`table:⟨id⟩`/`RecordId` com `splitRecordId` + unescape (corrigindo o double-escape
+  latente de ids escapados em `recordTarget`/RELATE), encode sempre `RecordId(table, bare)`;
+  validação de `targets` e `valueType` mantida; `.type()`/`rebuild` preservam o modo.
+- ✅ **M15.2 açúcar por tabela (`TableDef.stringIds()`)** — flipa o id + todos os campos record do
+  shape (objetos/arrays aninhados, wrappers, unions com record), preservando o DDL byte-idêntico;
+  multi-alvo (`s.recordId([A,B])`) e alvo aberto lançam erro ensinando (string bare não nomeia a
+  tabela no encode); `.default()`/`.catch()` (que carregam valor de fallback) são autorados DEPOIS de
+  `.stringIds()`; `TableDef.record()` herda o modo (e o preset `tenant()` com ele);
+  `RelationDef.stringIds()` flipa edge + in/out + id, e `.from(User)`/`.to(Post)` herdam endpoint
+  único string-id; RELATE aceita endpoint bare quando a direção declara UMA tabela.
+- ✅ **M15.3 ORM runtime** — binds de `where` (equals/in/contains/not/any/all e scope de plugins)
+  coerciona string→`RecordId` pelo target da coluna; writes (create/update/upsert/upsertDelta/
+  updateEach/relate) normalizam data aninhada via codec + fallback de alvo; cursor coage por coluna
+  do keyset (`record` → `RecordId`, `datetime` → `DateTime`) e devolve `nextCursor`/`previousCursor`
+  na representação app (id bare no modo string; `DateTime` cru mantém ns); includes/FETCH decodificam
+  refs bare; `ColumnMeta.record.stringIds` expõe o modo ao runtime.
+- ✅ **M15.4 tipos** — `BareId<T>`/`RecordIdTable<T>` phantom (string comum continua atribuível),
+  `RecordIdName` resolve a tabela alvo no brand (relações `is`/`some`/`every`/`none` preservadas),
+  `CreateData`/`UpdateData` aceitam `string | RecordId` (aninhado), `CursorInput` idem,
+  `TenantField` segue o modo do principal.
+- ✅ **M15.5 testes + docs** — unit (codec/DDL identity/deep map/relações/tenant; where/write/cursor
+  goldens), live (create/where/cursor/tuple/upsertDelta/include/RELATE + probes em
+  `orm-syntax.test.ts`), tipos (`orm-string-ids.assert.ts`), cookbook `examples/orm/string-ids.ts` +
+  manifests, README, `ORM-COVERAGE.md` §11, `COVERAGE.md`, `orm-syntax-map.md` §12, CHANGELOG.
+  Documentado: `db.query()` cru, `live` e `changes` continuam devolvendo `RecordId`; `sc pull` não
+  recupera o modo (como `idStrategy`).

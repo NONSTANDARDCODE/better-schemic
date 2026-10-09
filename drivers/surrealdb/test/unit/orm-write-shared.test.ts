@@ -6,6 +6,7 @@ import { RecordId } from "surrealdb";
 import { surql } from "../../src/index";
 import { betterSchemic } from "../../src/orm/client";
 import { createBinds } from "../../src/orm/compiler/shared";
+import { mergeScope, scopePredicate } from "../../src/orm/compiler/where";
 import {
   assignmentList,
   encodeData,
@@ -23,7 +24,6 @@ import {
   updatableFields,
   updateMode,
 } from "../../src/orm/compiler/write-shared";
-import { mergeScope, scopePredicate } from "../../src/orm/compiler/where";
 import { defineSchema } from "../../src/orm/schema";
 import { fakeConn, ok } from "../orm-fixtures";
 import { schema } from "./orm-writes-fixtures";
@@ -147,6 +147,9 @@ describe("readReturn / updateMode / pure helpers", () => {
     expect(recordIdText("user:1")).toBe("1");
     expect(recordIdText(5)).toBe("5");
     expect(recordIdText({})).toBe("[object Object]");
+    // The id part is UNESCAPED — comparing ids must not re-escape an already-escaped part.
+    expect(recordIdText("user:⟨a b⟩")).toBe("a b");
+    expect(recordIdText('user:u"0190f5b2"')).toBe("0190f5b2");
     expect(updatableFields({ id: 1, in: 2, out: 3, name: 4 })).toEqual([
       "name",
     ]);

@@ -669,3 +669,24 @@ entre versões** — o renderer degrada para `JSON.stringify` em vez de lançar)
 O logger observa o **executor** (`runScript`), não os hooks: cobre reads/writes/`$raw`/`fn`/admin/
 changes/live e `.explain()` **sem** violar o contrato "explain não dispara hooks". O auto-`EXPLAIN`
 (`explain: "slow" | "all" | "analyze"`) reusa as formas acima e nunca loga a si mesmo.
+
+---
+
+## 12. String ids — codec e comparações (M15)
+
+O modo string-id muda só o APP: o schema vira um codec cujo **wire** é `string | RecordId` e o
+**app** é uma string bare. Nada novo é emitido no DDL (`record<…>` inalterado), mas a codificação de
+valores tem fatos live-probed que a justificam:
+
+| Fato (server 3.2.0) | Resultado | Consequência no lowering |
+| --- | --- | --- |
+| `CREATE t:01MABCDEFGHJKMNPQRSTVWXYZ` (ULID-like sem escape) | aceito; o id é a STRING `01M…` e o servidor o renderiza `t:⟨01M…⟩` | o codec pode emitir `new RecordId(t, bare)` (o SDK não escapa ULIDs) |
+| `WHERE ref = $p` com `$p` string (`"o1"`) | **não casa** (comparação tipo-vs-tipo) | `where`/cursor SEMPRE coagem para `RecordId` antes do bind |
+| `WHERE ref = $p` com `$p = new RecordId(t, bare)` | casa | direção de encode do codec (`RecordId(table, bare)`) |
+| `WHERE id > $p` com `$p = RecordId(t, bare)` | filtra corretamente (ULIDs ordenam como strings; numéricos ordenam antes) | keyset do cursor com `after` bare |
+| `WHERE id > $p` com `$p` string cru | **não** é o keyset (não filtra / filtra errado) | `cursorValues` coage por coluna (`record` → `RecordId`, `datetime` → `DateTime`) |
+| `ORDER BY id` | ints antes de strings; ULIDs cronológicos entre si | cursor id-only cronológico com o default `rand::ulid()` |
+| `record::id(id)` | a parte do id crua (string/int/uuid) | decode do codec usa `RecordId.id` + `bareIdValue` (nunca re-parse) |
+| `u"…"` no id part | uuid | unescape aceita `u"…"` (string-id wire) |
+
+Probes executáveis: `test/live/orm-syntax.test.ts` §"string ids" e `test/live/string-ids.test.ts`.

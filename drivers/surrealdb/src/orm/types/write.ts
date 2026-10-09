@@ -9,9 +9,9 @@
  * every batch returns a `BatchResult` whose `count` is `undefined` when `return:'none'` hides it,
  * and a flat JSON Patch list with `return:'diff'`.
  */
-import type { RecordId } from "surrealdb";
+import type { Decimal, Duration, Geometry, RecordId } from "surrealdb";
 import type { Surql } from "../../frag";
-import type { App, Create, Update } from "../../pure";
+import type { App, BareId, Create, Update } from "../../pure";
 import type { BatchResult, ThrowingResult } from "../results";
 import type { CallContext } from "./context";
 import type { AnyRelationDef, AnyTableDef, SchemaInput } from "./schema";
@@ -25,13 +25,31 @@ export type WriteValue<T> = T | Surql<[T]> | Surql;
 export type RecordIdInput = RecordId | string | number;
 
 /**
- * A write payload: every provided field keeps its app type OR accepts a fragment. Deep nested
- * expressions inside one field are rendered too (the field bypasses the codec and the server
- * enforces it); literal fields are codec-validated fail-fast. `id` additionally accepts the
- * string/number forms the compiler coerces to a `RecordId`.
+ * Add the `RecordId` form wherever the app value is a string-id `BareId<N>` (nested objects/arrays
+ * included) — the string-id codec's wire side accepts `string | RecordId`, so writes do too.
+ * Class values (Date/Decimal/…) are left untouched.
+ */
+export type RecordIdInputs<T> =
+  T extends BareId<infer N>
+    ? T | RecordId<N>
+    : T extends readonly (infer E)[]
+      ? readonly RecordIdInputs<E>[]
+      : T extends Date | Uint8Array | Decimal | Duration | Geometry | RecordId
+        ? T
+        : T extends object
+          ? { [K in keyof T]: RecordIdInputs<T[K]> }
+          : T;
+
+/**
+ * A write payload: every provided field keeps its app type (plus its `RecordId` form in string-id
+ * mode) OR accepts a fragment. Deep nested expressions inside one field are rendered too (the field
+ * bypasses the codec and the server enforces it); literal fields are codec-validated fail-fast.
+ * `id` additionally accepts the string/number forms the compiler coerces to a `RecordId`.
  */
 export type WriteData<T> = {
-  [K in keyof T]: K extends "id" ? RecordIdInput : WriteValue<T[K]>;
+  [K in keyof T]: K extends "id"
+    ? RecordIdInput
+    : WriteValue<RecordIdInputs<T[K]>>;
 };
 
 /** The create payload (`DB-filled` / optional fields optional, `id` allowed). */
@@ -394,7 +412,9 @@ export type UpdateEachItem<
   TD extends AnyTableDef,
   By extends keyof App<TD> & string = "id",
 > = UpdateData<TD> & {
-  readonly [K in By]-?: K extends "id" ? RecordIdInput : App<TD>[K];
+  readonly [K in By]-?: K extends "id"
+    ? RecordIdInput
+    : RecordIdInputs<App<TD>[K]>;
 };
 
 /** `updateEach` — one `UPDATE … WHERE by = $item.by` statement per item (ONE round-trip). */

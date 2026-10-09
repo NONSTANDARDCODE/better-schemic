@@ -9,7 +9,6 @@
  * Verified forms live in `docs/orm-syntax-map.md` §4; unverified spellings (`~`/`?~`/`*~`) are
  * rejected with a teaching `UnsupportedCapability` instead of being emitted.
  */
-import { RecordId } from "surrealdb";
 import type {
   EdgeRef,
   FieldFamily,
@@ -28,6 +27,8 @@ import {
 } from "./relations";
 import {
   type Binds,
+  baseColumn,
+  coerceRecordValue,
   compileError,
   describeValue,
   isArrayPath,
@@ -38,7 +39,6 @@ import {
   paren,
   renderPath,
   renderValue,
-  splitRecordId,
 } from "./shared";
 
 /** Options shared by every clause compiler. */
@@ -861,31 +861,27 @@ function equality(context: FieldFilterContext, value: unknown): string {
 }
 
 /**
- * Coerce string record values (`user:aeon`) to `RecordId` when the filter targets a record column
- * itself (not a path THROUGH a record). A bare `"a:b"` string on a record field would otherwise
- * bind as a string and silently match nothing.
+ * Coerce string/numeric record values to `RecordId` when the filter targets a record column itself
+ * (not a path THROUGH a record). A bare app string (`01M…`) needs the column's single target table;
+ * `table:id` validates the target. Without this a record column would bind a plain string and
+ * silently match nothing.
  */
 function coerceRecord(context: FieldFilterContext, value: unknown): unknown {
   if (context.field.includes(".")) return value;
-  const base = context.field.replace(/\[.*$/, "");
-  const column = context.options.meta?.columns.get(base);
+  const column = context.options.meta?.columns.get(baseColumn(context.field));
   if (!column?.record) return value;
-  return Array.isArray(value)
-    ? value.map((entry) => coerceRecordId(entry))
-    : coerceRecordId(value);
-}
-
-/** `"user:aeon"` -> `RecordId` (strings without a table stay untouched). */
-function coerceRecordId(value: unknown): unknown {
-  if (typeof value !== "string") return value;
-  const parts = splitRecordId(value);
-  return parts ? new RecordId(parts.table, parts.id) : value;
+  return coerceRecordValue(
+    value,
+    column.record.targets,
+    context.options.operation ?? "where",
+    context.field,
+  );
 }
 
 /** The base column's family (from `wire.ts` classification), when the table is typed. */
 function familyOf(path: string, meta?: TableMeta): FieldFamily | undefined {
   const first = path.split(".")[0] ?? "";
-  return meta?.columns.get(first.replace(/\[.*$/, ""))?.family;
+  return meta?.columns.get(baseColumn(first))?.family;
 }
 
 /** Number/date/duration fields treat `outside: [a, b]` as the interval complement. */

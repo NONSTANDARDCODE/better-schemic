@@ -334,6 +334,24 @@ Every guard below is intentional (a strongly-typed alternative to a silently-wro
 
 ---
 
+## 11. String ids (M15)
+
+The APP surface speaks **bare id strings** (`01M…`); `RecordId` exists only on the wire/DB. The
+emitted DDL is UNCHANGED (`record<…>`) — `sc diff`/migrations stay empty. `sc pull` cannot recover
+the mode (like `idStrategy`); raw `db.query()`, `live` and `changes` still return `RecordId`.
+
+| Feature | Status | Proving tests |
+|---|---|---|
+| `s.recordId('customer').stringIds()` / `Table.record().stringIds()` — per-field mode (wire `string \| RecordId`, app `BareId<T>`); decode normalizes `bare`/`table:id`/`table:⟨id⟩`/`RecordId`; encode always `RecordId(table, bare)`; target + valueType validation kept | `[x]` | `test/unit/string-ids.test.ts`; `test/live/string-ids.test.ts` |
+| `TableDef.stringIds()` — id + every record field (nested objects/arrays/wrappers/unions) flips; DDL byte-identical; multi-target/open links throw; a value-carrying `.default()`/`.catch()` is authored AFTER `.stringIds()` (bare-string fallback) | `[x]` | `test/unit/string-ids.test.ts` ("emits byte-identical DDL") |
+| `TableDef.record()` inherits the id mode; `tenant()` follows the principal; `RelationDef.stringIds()` flips edge + in/out + id; `.from()/.to()` inherit a single string-id endpoint; RELATE accepts a bare endpoint when the direction declares ONE table | `[x]` | `test/unit/string-ids.test.ts`; `test/live/string-ids.test.ts` |
+| `where` binds (equals/in/contains/not/any/all + plugin scope) coerce bare strings via the column target; writes (create/update/upsert/updateEach/relate) normalize nested data; `upsertDelta` before/after are bare | `[x]` | `test/unit/string-ids.test.ts`; `test/live/string-ids.test.ts` |
+| `cursor` coerces per keyset column (`record` → `RecordId`, `datetime` → `DateTime`) and returns `nextCursor`/`previousCursor` in the APP representation (bare id; raw `DateTime` keeps ns) | `[x]` | `test/unit/string-ids.test.ts`; `test/live/string-ids.test.ts` |
+| Types: `BareId<T>` phantom brand, `RecordIdName` resolves targets (relational filters survive), `CreateData`/`UpdateData`/`CursorInput` accept `string \| RecordId` (nested), `TenantField` follows the principal mode | `[x]` | `test/types/orm-string-ids.assert.ts` |
+| Cookbook: `examples/orm/string-ids.ts` (capture golden) | `[x]` | `test/examples/orm-reference.test.ts` |
+
+---
+
 ## At a glance
 
 | Area | Status |
@@ -346,6 +364,7 @@ Every guard below is intentional (a strongly-typed alternative to a silently-wro
 | Context/multi-connection (`$withContext`, `meta`, `forkSession`, `extends`) | `[x]` |
 | Hooks/plugins (families, `definePlugin`, F1 `rules`/`zod`, F2 `timestamps`/`soft-delete`, F3 `tenant`) | `[x]` |
 | Logger (`logger: true`/presets, `EXPLAIN` plan rendering, auto-explain, `@better-schemic/surrealdb/logger`) | `[x]` |
+| String ids (`TableDef.stringIds()` / `s.recordId(…).stringIds()`, bare app strings; DDL unchanged) | `[x]` — raw `db.query`/`live`/`changes` keep `RecordId` |
 | Types/errors/results (28 codes, predicates, throwing/lazy results, explain) | `[x]` |
 
 > **Not in this document:** DDL/schema authoring → [`COVERAGE.md`](./COVERAGE.md); the raw SurrealQL

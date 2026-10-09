@@ -213,6 +213,21 @@ const removed = await client.users.delete({ where: { id: created.id } });
 // `sc pull` cannot recover it. A pinned uuid v4/v6 `id` field is explicit-only: creates without
 // an `id` fail at compile time (no strategy can generate that format).
 
+// String ids (M15) — opt a table into BARE app id strings (`01M…`); `RecordId` stays on the wire.
+// The emitted DDL is UNCHANGED (`record<…>` — zero migration), and raw `db.query()`, `live` and
+// `changes` still return `RecordId`:
+//   const Customer = defineTable("customer", { name: s.string(), owner: s.recordId(User) })
+//     .stringIds();                                 // or per field: s.recordId(User).stringIds()
+//   const row = await client.customers.create({ data: { name: "A", owner: "aeon" } });
+//   row.owner;                                      // "aeon" — the bare id, not a RecordId
+//   const byOwner = await client.customers.findMany({ where: { owner: "aeon" } });
+//   const page = await client.customers.cursor({
+//     orderBy: [{ id: "asc" }], limit: 20, after: "01M…",   // bare cursor; nextCursor bare too
+//   });
+// `stringIds()` covers the id + every record link (nested objects/arrays included); a link to
+// MULTIPLE tables throws (a bare string can't name the table on encode). `User.record()` inherits
+// the mode and `tenant(User)` follows the principal.
+
 // Edges live on the relation delegate (`defineRelation`):
 // const like = await client.likes.relate({ from: "user:1", to: "post:1", data: { score: 5 } });
 // await client.likes.unrelate({ from: "user:1", to: "post:1" });

@@ -14,8 +14,18 @@
  * The bind map is SHARED across every statement of one operation, so names never collide when the
  * executor merges a batch (`paginate` compiles its two statements into one round-trip).
  */
-import { BoundQuery, RecordId } from "surrealdb";
-import { escapeIdentSafe as escapeIdent } from "../../ident";
+import { BoundQuery, RecordId, type RecordIdValue } from "surrealdb";
+import {
+  escapeIdentSafe as escapeIdent,
+  type RecordIdParts,
+  splitRecordId,
+  unescapeIdPart,
+} from "../../ident";
+
+// The record-id parser lives in the neutral `ident` module (shared with the authoring codec);
+// re-exported here so the compiler modules keep their single import site.
+export { type RecordIdParts, splitRecordId };
+
 import {
   type Ctx,
   fragOf,
@@ -255,6 +265,12 @@ export function pathSegments(path: string): readonly string[] {
   );
 }
 
+/** The base COLUMN of a field path — brackets and nested segments stripped (`products[*].ref` ->
+ *  `products`, `ref` -> `ref`). The ONE place a path resolves to its `TableMeta.columns` key. */
+export function baseColumn(path: string): string {
+  return path.replace(/\[.*$/, "");
+}
+
 /** Normalize a single-or-list field-path arg (`groupBy`, `split`-adjacent lists). */
 export function pathList(
   value: unknown,
@@ -461,23 +477,6 @@ export function escapeRecordIdPart(id: string): string {
 
 // --- record ids — ONE parser per rule ------------------------------------------------------------
 
-/** A record-id value split into its table and id parts. */
-export interface RecordIdParts {
-  readonly table: string;
-  readonly id: string;
-}
-
-/**
- * Non-throwing record-id split: `"user:aeon"` / `RecordId` -> `{ table, id }`; anything without a
- * table prefix (bare ids, non-strings) resolves `undefined`. The ONE place `table:id` is parsed.
- */
-export function splitRecordId(value: unknown): RecordIdParts | undefined {
-  const text = String(value ?? "");
-  const colon = text.indexOf(":");
-  if (colon === -1) return undefined;
-  return { table: text.slice(0, colon), id: text.slice(colon + 1) };
-}
-
 /**
  * Parse a record-id VALUE with teaching errors: `fallbackTable` accepts a bare id for that table,
  * `table` rejects a record id naming a different table, and `field`/`what` shape the message.
@@ -515,7 +514,7 @@ export function recordIdParts(
         `${operation}: a ${what} must be "table:id" (got ${describeValue(value)}).`,
         context,
       );
-    return { table: options.fallbackTable, id: text };
+    return { table: options.fallbackTable, id: unescapeIdPart(text) };
   }
   if (options.table !== undefined && parts.table !== options.table)
     throw compileError(
@@ -523,7 +522,122 @@ export function recordIdParts(
       `${operation}: "${text}" is a "${parts.table}" record id, but this delegate targets "${options.table}".`,
       context,
     );
-  return parts;
+  return { table: parts.table, id: unescapeIdPart(parts.id) };
+}
+
+/**
+ * Coerce an app record value to the SDK `RecordId`: a `RecordId` passes, `table:id`/`table:⟨id⟩`
+ * strings parse (table validated against `table`), a BARE string uses `fallbackTable`, and a
+ * number/bigint/uuid id value wraps in `fallbackTable`. Anything without a table is a teaching error.
+ */
+export function coerceRecordId(
+  value: unknown,
+  operation: string,
+  options: {
+    /** Reject a record id naming another table. */
+    readonly table?: string;
+    /** Accept a bare id value as this table's. */
+    readonly fallbackTable?: string;
+    readonly field?: string;
+    readonly what?: string;
+  } = {},
+): RecordId {
+  if (value instanceof RecordId) return value;
+  const what = options.what ?? "record id";
+  const context = {
+    operation,
+    ...(options.table ? { table: options.table } : {}),
+    ...(options.field ? { field: options.field } : {}),
+  };
+  if (typeof value === "string") {
+    const parts = splitRecordId(value);
+    if (parts) {
+      if (options.table !== undefined && parts.table !== options.table)
+        throw compileError(
+          "ValidationError",
+          `${operation}: "${value}" is a "${parts.table}" record id, but this field targets "${options.table}".`,
+          context,
+        );
+      return new RecordId(parts.table, unescapeIdPart(parts.id));
+    }
+    const table = options.fallbackTable ?? options.table;
+    if (table === undefined)
+      throw compileError(
+        "ValidationError",
+        `${operation}: a ${what} must be "table:id" (got ${describeValue(value)}).`,
+        context,
+      );
+    return new RecordId(table, unescapeIdPart(value));
+  }
+  const table = options.fallbackTable ?? options.table;
+  if (table === undefined)
+    throw compileError(
+      "ValidationError",
+      `${operation}: a ${what} must be "table:id" (got ${describeValue(value)}).`,
+      context,
+    );
+  return new RecordId(table, value as RecordIdValue);
+}
+
+/**
+ * Coerce a value bound against a RECORD column (`where`/cursor): strings (`bare`, `table:id`,
+ * `table:⟨id⟩`) and number/bigint/uuid ids become `RecordId`; arrays map element-wise; `RecordId`,
+ * fragments, ranges and null pass through. A BARE id needs a SINGLE target table.
+ */
+export function coerceRecordValue(
+  value: unknown,
+  targets: readonly string[] | undefined,
+  operation: string,
+  field: string,
+): unknown {
+  if (Array.isArray(value))
+    return value.map((entry) =>
+      coerceRecordValue(entry, targets, operation, field),
+    );
+  if (value instanceof RecordId) return value;
+  if (typeof value === "string") {
+    const parts = splitRecordId(value);
+    if (parts) {
+      if (targets && targets.length > 0 && !targets.includes(parts.table))
+        throw compileError(
+          "ValidationError",
+          `${operation}: "${value}" is a "${parts.table}" record id, but "${field}" targets ${targets.join(" | ")}.`,
+          { field },
+        );
+      return new RecordId(parts.table, unescapeIdPart(parts.id));
+    }
+    if (targets?.length === 1)
+      return new RecordId(targets[0] as string, unescapeIdPart(value));
+    throw compileError(
+      "ValidationError",
+      `${operation}: "${value}" is a bare id, but "${field}" ${
+        targets === undefined || targets.length === 0
+          ? 'targets any table — pass "table:id"'
+          : `targets multiple tables (${targets.join(" | ")}) — pass "table:id"`
+      }.`,
+      { field },
+    );
+  }
+  if (typeof value === "number" || typeof value === "bigint") {
+    if (targets?.length === 1) return new RecordId(targets[0] as string, value);
+    throw compileError(
+      "ValidationError",
+      `${operation}: a numeric id on "${field}" needs a single target table.`,
+      { field },
+    );
+  }
+  return value;
+}
+
+/** The target tables of a record column (`id` included); `undefined` = any/not a record column. */
+export function recordTargets(
+  meta: ModelMeta,
+  field: string,
+): readonly string[] | undefined {
+  if (field === "id") return [meta.name];
+  return isTableMeta(meta)
+    ? meta.columns.get(field)?.record?.targets
+    : undefined;
 }
 
 /** A plain data object (not a class instance). */

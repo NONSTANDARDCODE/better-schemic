@@ -33,8 +33,7 @@
  * permission (or the explicit admin escape) is the boundary there. Audit those call sites.
  */
 
-import type { RecordId, RecordIdValue } from "surrealdb";
-import type { z } from "zod";
+import type { RecordIdValue } from "surrealdb";
 import { surql } from "../index";
 import { BetterSchemicError } from "../orm/errors";
 import type { AnyTableDef } from "../orm/types/schema";
@@ -44,6 +43,7 @@ import {
   type PresetIndex,
   paramProxy,
   type RecordIdField,
+  type RecordIdSchemaOf,
   type SField,
   type TableDef,
   type TablePermissions,
@@ -107,18 +107,22 @@ type PrincipalName<P> =
 /** The principal's id VALUE type (`userTable` declared `id: s.uuid()` -> the tenant column keeps it). */
 type PrincipalValue<P> =
   P extends TableDef<string, infer S>
-    ? S extends { id: RecordIdField<string, infer V> }
+    ? S extends { id: RecordIdField<string, infer V, infer _M> }
       ? V
       : RecordIdValue
     : RecordIdValue;
+/** The principal's id MODE — a string-id principal gets a string-id tenant column. */
+type PrincipalMode<P> =
+  P extends TableDef<string, infer S>
+    ? S extends { id: RecordIdField<string, RecordIdValue, infer M> }
+      ? M
+      : "record"
+    : "record";
 
-/** The tenant column as it lands on the table: `record<principal, V>`, create-optional (`$default`)
- *  and non-updatable (`$readonly`). */
+/** The tenant column as it lands on the table: `record<principal, V>` (same id mode as the
+ *  principal), create-optional (`$default`) and non-updatable (`$readonly`). */
 export type TenantField<P extends AnyTableDef> = SField<
-  z.ZodType<
-    RecordId<PrincipalName<P>, PrincipalValue<P>>,
-    RecordId<PrincipalName<P>, PrincipalValue<P>>
-  >,
+  RecordIdSchemaOf<PrincipalName<P>, PrincipalValue<P>, PrincipalMode<P>>,
   "create" | "readonly"
 >;
 

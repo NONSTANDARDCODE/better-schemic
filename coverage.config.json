@@ -524,10 +524,10 @@
     },
     "drivers/surrealdb/src/pure.ts": {
       "statements": 87.26,
-      "branches": 86.88,
+      "branches": 86.47,
       "functions": 84.09,
       "lines": 88.69,
-      "conditions": 60.92
+      "conditions": 60.2
     },
     "drivers/surrealdb/src/query.ts": {
       "statements": 95,

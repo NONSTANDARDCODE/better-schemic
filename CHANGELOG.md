@@ -18,6 +18,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+### Added
+- **surrealdb:** **string ids** — the ORM app surface can speak bare id strings (`01M…`) while
+  `RecordId` stays on the wire. `TableDef.stringIds()` flips the `id` + every record-link field
+  (nested objects/arrays/wrappers/unions included); `s.recordId('customer').stringIds()` does it per
+  field; `User.record()` inherits the mode and the `tenant()` preset follows the principal.
+  `RelationDef.stringIds()` flips the edge + `in`/`out` + id, `.from(User)`/`.to(Post)` inherit a
+  single string-id endpoint, and RELATE accepts a bare endpoint when the direction declares ONE
+  table. Decode normalizes `bare`/`table:id`/`table:⟨id⟩`/`RecordId` to the bare string; encode
+  always builds `RecordId(table, bare)`; target + `valueType` validation are kept (numeric/bigint
+  id strings coerce on BOTH the wire validation and the encode). `where`, writes (nested included),
+  `updateEach`, cursor keysets (with `record` → `RecordId` and `datetime` → `DateTime` coercion) and
+  `include`/FETCH all round-trip bare strings; `nextCursor` comes back bare. A value-carrying
+  `.default()`/`.catch()` must be authored AFTER `.stringIds()` (the fallback is a bare string).
+  The emitted DDL is UNCHANGED (`record<…>` — zero migration) and multi-target/open links throw a
+  teaching error (a bare string can't name the table on encode). Raw `db.query()`, `live` and
+  `changes` still return `RecordId`; `sc pull` cannot recover the mode (like `idStrategy`).
+- **surrealdb:** `splitRecordId`/`recordIdParts` now UNESCAPE the id part (`⟨…⟩`, backticks, `u"…"`),
+  fixing a latent double-escape for ids containing `⟩`/spaces in `recordTarget`/RELATE/`recordIdText`.
+- **surrealdb:** `coerceRecordId`/`coerceRecordValue` shared helpers; cursor values are coerced to
+  the keyset column's wire type before binding (raw strings previously matched nothing).
+
 ## [0.1.0-alpha.11] - 2026-10-08
 
 ### Security

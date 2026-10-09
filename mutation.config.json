@@ -11,6 +11,7 @@
       "drivers/surrealdb/test/unit/orm-where.test.ts",
       "drivers/surrealdb/test/unit/orm-write-shared.test.ts",
       "drivers/surrealdb/test/unit/orm-pagination.test.ts",
+      "drivers/surrealdb/test/unit/orm-cursor.test.ts",
       "drivers/surrealdb/test/property/compilers.pbt.test.ts"
     ],
     "drivers/surrealdb/src/orm/compiler/where.ts": [
@@ -29,7 +30,8 @@
       "drivers/surrealdb/test/unit/orm-aggregate-compiler.test.ts"
     ],
     "drivers/surrealdb/src/orm/compiler/pagination.ts": [
-      "drivers/surrealdb/test/unit/orm-pagination.test.ts"
+      "drivers/surrealdb/test/unit/orm-pagination.test.ts",
+      "drivers/surrealdb/test/unit/orm-cursor.test.ts"
     ],
     "drivers/surrealdb/src/orm/compiler/unique.ts": [
       "drivers/surrealdb/test/unit/orm-reads.test.ts",
@@ -86,13 +88,13 @@
     "drivers/surrealdb/src/orm/compiler/include/links.ts": 74.23,
     "drivers/surrealdb/src/orm/compiler/include/projection.ts": 78.91,
     "drivers/surrealdb/src/orm/compiler/include/specs.ts": 66.66,
-    "drivers/surrealdb/src/orm/compiler/pagination.ts": 81.86,
-    "drivers/surrealdb/src/orm/compiler/projection.ts": 67.88,
-    "drivers/surrealdb/src/orm/compiler/relations.ts": 77.04,
-    "drivers/surrealdb/src/orm/compiler/select.ts": 57.75,
-    "drivers/surrealdb/src/orm/compiler/shared.ts": 74.66,
+    "drivers/surrealdb/src/orm/compiler/pagination.ts": 71.37,
+    "drivers/surrealdb/src/orm/compiler/projection.ts": 66.8,
+    "drivers/surrealdb/src/orm/compiler/relations.ts": 76.92,
+    "drivers/surrealdb/src/orm/compiler/select.ts": 57.56,
+    "drivers/surrealdb/src/orm/compiler/shared.ts": 70.68,
     "drivers/surrealdb/src/orm/compiler/unique.ts": 66.66,
-    "drivers/surrealdb/src/orm/compiler/where.ts": 51.42,
+    "drivers/surrealdb/src/orm/compiler/where.ts": 49.93,
     "drivers/surrealdb/src/surql-type-expr.ts": 72.22,
     "packages/core/src/cli-kit/filter.ts": 63.2
   }

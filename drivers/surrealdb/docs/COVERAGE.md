@@ -83,6 +83,10 @@ live parity suites (`test/parity/{struct,live,canonical}-parity.test.ts`) and th
 ### Record links
 - [x] `record<table>`, `record<a | b | …>`, `array<record<…>>` — `s.recordId(table | [tables])`
 - [x] `REFERENCE [ON DELETE REJECT | CASCADE | UNSET | IGNORE | THEN <expr>]` — `.reference({ onDelete })`
+- [x] String-id app mode (`TableDef.stringIds()` / `s.recordId(t).stringIds()`) — the app speaks bare
+  strings (`01M…`), the wire accepts `string | RecordId`; **DDL unchanged** (`record<…>`), single-table
+  only (multi/open links throw), `.record()`/`tenant()` inherit the mode — ORM metadata only (no DDL,
+  `sc pull` can't recover it, like `idStrategy`)
 
 ### Geometry
 - [x] `geometry` (bare) and `geometry<point|line|polygon|multipoint|multiline|multipolygon|collection>`

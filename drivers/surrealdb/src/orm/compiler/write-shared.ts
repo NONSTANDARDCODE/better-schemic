@@ -5,13 +5,14 @@
  * modes, patch/unset validation and the small arg guards. One place per rule, like `./shared`.
  */
 import { BoundQuery, RecordId, toSurqlString } from "surrealdb";
-import { escapeIdentSafe as escapeIdent } from "../../ident";
+import { escapeIdentSafe as escapeIdent, unescapeIdPart } from "../../ident";
 import { hasRefDeep, type IdStrategy } from "../../pure";
 import { normalizeError } from "../errors";
 import type { ModelMeta, ResolvedIdStrategy, SchemaIndex } from "../meta";
 import type { ProjectionSpec } from "./projection";
 import {
   type Binds,
+  coerceRecordId,
   compileError,
   describeValue,
   durationLiteral,
@@ -238,9 +239,9 @@ export function recordTarget(
   return `${escapeIdent(meta.name)}:${escapeRecordIdPart(parts.id)}`;
 }
 
-/** The bare id text (`users:aeon` -> `aeon`) for comparing two record ids. */
+/** The RAW bare id text (`users:⟨a b⟩` -> `a b`) for comparing two record ids. */
 export function recordIdText(id: unknown): string {
-  return splitRecordId(id)?.id ?? String(id);
+  return unescapeIdPart(splitRecordId(id)?.id ?? String(id));
 }
 
 // --- generated ids (per-table `idStrategy`) ------------------------------------------------------
@@ -347,20 +348,25 @@ function toRecordId(
   value: unknown,
   operation: string,
 ): RecordId {
-  if (value instanceof RecordId) return value;
-  const parts = recordIdParts(value, operation, {
+  return coerceRecordId(value, operation, {
     table: meta.name,
     fallbackTable: meta.name,
     field: "id",
+    what: "id",
   });
-  return new RecordId(parts.table, parts.id);
 }
 
-/** Coerce a record-link value to the SDK `RecordId` (the table must be part of the id). */
-export function toRecord(value: unknown, operation: string): RecordId {
-  if (value instanceof RecordId) return value;
-  const parts = recordIdParts(value, operation, { what: "record link" });
-  return new RecordId(parts.table, parts.id);
+/** Coerce a record-link value to the SDK `RecordId`; a bare id needs a SINGLE target table. */
+export function toRecord(
+  value: unknown,
+  operation: string,
+  targets?: readonly string[],
+): RecordId {
+  const single = targets?.length === 1 ? (targets[0] as string) : undefined;
+  return coerceRecordId(value, operation, {
+    ...(single === undefined ? {} : { table: single, fallbackTable: single }),
+    what: "record link",
+  });
 }
 
 /** The singular write target (id or single-field UNIQUE) + its optional WHERE. */

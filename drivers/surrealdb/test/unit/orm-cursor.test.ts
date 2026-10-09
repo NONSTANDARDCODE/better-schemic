@@ -1082,3 +1082,99 @@ describe("cursor — raw keyset values (datetime precision)", () => {
     expect(cursor.at.toISOString()).toBe("2026-08-01T10:00:00.123000006Z");
   });
 });
+
+describe("cursor — app-form coercion (bare strings / Date / record lists)", () => {
+  const Ref = defineTable("ref", { name: s.string() });
+  const Trip = defineTable("trip", {
+    at: s.datetime(),
+    driver: s.recordId(Ref),
+    stops: s.array(s.recordId(Ref)),
+    seats: s.int(),
+  });
+  const tripMeta = buildSchemaIndex({ trips: Trip, refs: Ref }).tables.get(
+    "trips",
+  ) as TableMeta;
+
+  const compile = (args: Record<string, unknown>) => {
+    const binds = createBinds();
+    const plan = compileCursor(tripMeta, args, binds);
+    return { ...plan, vars: binds.vars };
+  };
+
+  test("a datetime cursor accepts Date, DateTime and ISO strings; garbage throws", () => {
+    const tuple = (value: unknown) => ({
+      limit: 5,
+      orderBy: [{ at: "asc" }, { id: "asc" }],
+      after: { at: value, id: "t1" },
+    });
+    expect(
+      compile(tuple(new Date("2024-01-01T00:00:00Z"))).vars.c0,
+    ).toBeInstanceOf(DateTime);
+    expect(
+      compile(tuple(new DateTime("2024-01-01T00:00:00Z"))).vars.c0,
+    ).toBeInstanceOf(DateTime);
+    expect(String(compile(tuple("2024-01-01T00:00:00Z")).vars.c0)).toBe(
+      "2024-01-01T00:00:00.000Z",
+    );
+    expect(codeOf(() => compile(tuple("not-a-date")))).toBe("ValidationError");
+    // A non-date, non-string value on a date column passes through (the server validates).
+    expect(compile(tuple(5)).vars.c0).toBe(5);
+  });
+
+  test("record cursors accept bare ids, RecordId and record lists", () => {
+    const byBare = compile({
+      limit: 5,
+      orderBy: [{ driver: "asc" }, { id: "asc" }],
+      after: { driver: "r1", id: "t1" },
+    });
+    expect(String(byBare.vars.c0)).toBe("ref:r1");
+    const byRid = compile({
+      limit: 5,
+      orderBy: [{ driver: "asc" }, { id: "asc" }],
+      after: { driver: new RecordId("ref", "r1"), id: "t1" },
+    });
+    expect(String(byRid.vars.c0)).toBe("ref:r1");
+    // An array-of-record column (family "array" + record meta) takes the bare element.
+    const byList = compile({
+      limit: 5,
+      orderBy: [{ stops: "asc" }, { id: "asc" }],
+      after: { stops: "r2", id: "t1" },
+    });
+    expect(String(byList.vars.c0)).toBe("ref:r2");
+  });
+
+  test("an undefined value, a schemaless meta and an unknown column pass through", () => {
+    const undef = compile({
+      limit: 5,
+      orderBy: [{ at: "asc" }, { id: "asc" }],
+      after: { at: undefined, id: "t1" },
+    });
+    expect(undef.vars.c0).toBeUndefined();
+
+    const sm = buildSchemaIndex({ audit: "audit_log" }).schemaless.get("audit");
+    if (!sm) throw new Error("missing schemaless meta");
+    const binds = createBinds();
+    compileCursor(sm, { limit: 5, after: "a1" }, binds);
+    expect(binds.vars.c0).toBe("a1");
+
+    // An order field that isn't a known column skips the coercion (defensive path).
+    const unknown = compile({
+      limit: 5,
+      orderBy: [{ nope: "asc" }, { id: "asc" }],
+      after: { nope: 1, id: "t1" },
+    });
+    expect(unknown.vars.c0).toBe(1);
+  });
+
+  test("a schemaless cursor passes raw RecordId values through the decode path", async () => {
+    const rows = [
+      { id: new RecordId("audit_log", "a2"), kind: "x" },
+      { id: new RecordId("audit_log", "a1"), kind: "y" },
+    ];
+    const { conn } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
+    const client = betterSchemic(conn, { schema: { audit: "audit_log" } });
+    const page = await client.audit.cursor({ limit: 1 });
+    expect(page.data).toHaveLength(1);
+    expect(page.pagination.nextCursor).toBeInstanceOf(RecordId);
+  });
+});

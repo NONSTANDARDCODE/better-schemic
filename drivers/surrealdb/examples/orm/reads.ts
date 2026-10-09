@@ -76,7 +76,7 @@ export const reads = group(
       title: "cursor — keyset after (orderBy keys auto-projected)",
       note: "The probe fetches limit+1 rows; `name` is the only selected column, so `id` rides along as the reserved `_keyset_0` alias — read for the cursor, stripped from `data`.",
       sql: "SELECT name, id AS _keyset_0 FROM user WHERE (id > $c0) ORDER BY id ASC LIMIT $p0;",
-      vars: { c0: "user:10", p0: 21 },
+      vars: { c0: "user:⟨10⟩", p0: 21 },
       def: (client) =>
         client.users.cursor({
           select: { name: true },

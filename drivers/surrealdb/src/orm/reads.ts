@@ -4,7 +4,9 @@
  * site), runs LAZILY (nothing touches the connection until awaited), and decodes its rows through
  * `./decode`. `./delegate` owns the public surface; this module owns the runtime.
  */
+import { RecordId } from "surrealdb";
 import { escapeIdentSafe as escapeIdent } from "../ident";
+import { bareIdValue } from "../pure";
 import type {
   AggregateArgs as AggregateRuntimeArgs,
   CountArgs as CountRuntimeArgs,
@@ -24,8 +26,10 @@ import type { CompileReadOptions, ReadArgs } from "./compiler/select";
 import { compileRead } from "./compiler/select";
 import {
   type Binds,
+  baseColumn,
   compileError,
   createBinds,
+  isTableMeta,
   pathSegments,
 } from "./compiler/shared";
 import { uniqueTarget } from "./compiler/unique";
@@ -316,9 +320,11 @@ function cursorPlan(
       : args.after !== undefined || args.before !== undefined;
     const hasNext = plan.backward ? true : hasMore;
     const nextCursor = hasNext
-      ? cursorOf(raw[raw.length - 1], plan.keyset)
+      ? cursorOf(meta, raw[raw.length - 1], plan.keyset)
       : null;
-    const previousCursor = hasPrevious ? cursorOf(raw[0], plan.keyset) : null;
+    const previousCursor = hasPrevious
+      ? cursorOf(meta, raw[0], plan.keyset)
+      : null;
     for (const row of data) stripKeyset(row, plan.keyset);
     return {
       data,
@@ -347,13 +353,17 @@ function cursorPlan(
 }
 
 /** Extract a row's cursor value (the id for a single-id order, a tuple otherwise). */
-function cursorOf(row: unknown, keyset: readonly CursorKey[]): unknown {
+function cursorOf(
+  meta: ModelMeta,
+  row: unknown,
+  keyset: readonly CursorKey[],
+): unknown {
   if (row === undefined || row === null) return null;
   if (keyset.length === 1 && keyset[0]?.field === "id")
-    return keysetValue(row, keyset[0]);
+    return cursorValueOf(meta, keyset[0], keysetValue(row, keyset[0]));
   const tuple: Record<string, unknown> = {};
   for (const key of keyset) {
-    const value = keysetValue(row, key);
+    const value = cursorValueOf(meta, key, keysetValue(row, key));
     if (value === undefined)
       throw compileError(
         "ValidationError",
@@ -363,6 +373,21 @@ function cursorOf(row: unknown, keyset: readonly CursorKey[]): unknown {
     tuple[key.field] = value;
   }
   return tuple;
+}
+
+/**
+ * The cursor's APP representation of a keyset value: a string-id record column returns the bare
+ * string (`01M…`); everything else keeps the raw stored value (a `DateTime` keeps its nanoseconds).
+ */
+function cursorValueOf(
+  meta: ModelMeta,
+  key: CursorKey,
+  value: unknown,
+): unknown {
+  if (!(value instanceof RecordId) || !isTableMeta(meta)) return value;
+  const column = meta.columns.get(baseColumn(key.field));
+  if (!column?.record?.stringIds) return value;
+  return bareIdValue(value.id);
 }
 
 /**

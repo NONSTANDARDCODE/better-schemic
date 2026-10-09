@@ -3,10 +3,11 @@
 // Return semantics + eager guards live in `orm-writes-returns.test.ts`; fixtures are shared there.
 import { describe, expect, test } from "bun:test";
 import { RecordId } from "surrealdb";
-import { surql } from "../../src/index";
+import { defineRelation, s, surql } from "../../src/index";
 import type { Client } from "../../src/orm/client";
 import { betterSchemic } from "../../src/orm/client";
 import type { BetterSchemicError } from "../../src/orm/errors";
+import { defineSchema } from "../../src/orm/schema";
 import { caught, fakeConn, ok } from "../orm-fixtures";
 import {
   codeOf,
@@ -14,9 +15,11 @@ import {
   LIKE_ROW,
   lastCall,
   makeClient,
+  Post,
   ROW,
   schema,
   stable,
+  User,
 } from "./orm-writes-fixtures";
 
 describe("create", () => {
@@ -557,9 +560,7 @@ describe("upsert", () => {
       us({ where: { id: "user:1" }, data: { ...data, id: "user:1" } }),
     ).toBeUndefined();
     expect(us({ where: { age: 1 }, data })).toBe("UniqueTargetRequired");
-    expect(us({ where: { id: undefined }, data })).toBe(
-      "UniqueTargetRequired",
-    );
+    expect(us({ where: { id: undefined }, data })).toBe("UniqueTargetRequired");
   });
 
   test("target-less: the created row comes back; a filtered create rejects, never null", async () => {
@@ -642,9 +643,9 @@ describe("update/upsert — mode & data guards", () => {
         update: { age: 2 },
       }),
     ).toBe("ValidationError");
-    expect(
-      us({ where: { id: "user:1" }, mode: "patch", patches: [] }),
-    ).toBe("ValidationError");
+    expect(us({ where: { id: "user:1" }, mode: "patch", patches: [] })).toBe(
+      "ValidationError",
+    );
   });
 
   test("upsert create/update: create needs the id, it must match, update needs a field", () => {
@@ -808,6 +809,16 @@ describe("relate / unrelate (edge delegate)", () => {
     });
     expect(lastCall(calls).sql).toBe("RELATE user:1->likes:first->post:1;");
 
+    // An ALREADY-escaped id round-trips (unescaped once, escaped once — no double escape).
+    await client.likes.relate({
+      from: "user:1",
+      to: "post:1",
+      id: "likes:⟨first id⟩",
+    } as never);
+    expect(lastCall(calls).sql).toBe(
+      "RELATE user:1->likes:⟨first id⟩->post:1;",
+    );
+
     await client.likes.relateMany({
       data: [
         { from: "user:1", to: "post:1", data: { score: 5 } },
@@ -858,12 +869,12 @@ describe("relate / unrelate (edge delegate)", () => {
 describe("relate / unrelate — guards and expressions", () => {
   test("relate requires both endpoints", () => {
     const { client } = makeClient();
-    expect(
-      codeOf(() => client.likes.relate({ from: "user:1" } as never)),
-    ).toBe("ValidationError");
-    expect(
-      codeOf(() => client.likes.relate({ to: "post:1" } as never)),
-    ).toBe("ValidationError");
+    expect(codeOf(() => client.likes.relate({ from: "user:1" } as never))).toBe(
+      "ValidationError",
+    );
+    expect(codeOf(() => client.likes.relate({ to: "post:1" } as never))).toBe(
+      "ValidationError",
+    );
   });
 
   test("a surql expression endpoint splices", async () => {
@@ -879,11 +890,28 @@ describe("relate / unrelate — guards and expressions", () => {
     ).toBe("ValidationError");
   });
 
-  test("a non-record-id endpoint is rejected", () => {
-    const { client } = makeClient();
+  test("a bare endpoint adopts the single declared table (string-id convenience)", async () => {
+    const { client, calls } = makeClient([LIKE_ROW]);
+    await client.likes.relate({ from: "abc", to: "post:1" } as never);
+    expect(lastCall(calls).sql).toBe("RELATE user:abc->likes->post:1;");
+  });
+
+  test("a bare endpoint is rejected when the direction has multiple tables", () => {
+    const Multi = defineRelation("multi", { score: s.int() })
+      .from([User, Post])
+      .to(Post);
+    const multiSchema = defineSchema({
+      multi: Multi,
+      users: User,
+      posts: Post,
+    });
+    const { conn } = fakeConn();
+    const client = betterSchemic(conn, { schema: multiSchema });
     expect(
       codeOf(() =>
-        client.likes.relate({ from: "notarecord", to: "post:1" } as never),
+        (client.multi as unknown as { relate: (a: unknown) => unknown }).relate(
+          { from: "abc", to: "post:1" },
+        ),
       ),
     ).toBe("ValidationError");
   });
@@ -903,7 +931,9 @@ describe("relate / unrelate — guards and expressions", () => {
       "ValidationError",
     );
     expect(
-      codeOf(() => client.likes.relateMany({ data: [{ from: "user:1" }] } as never)),
+      codeOf(() =>
+        client.likes.relateMany({ data: [{ from: "user:1" }] } as never),
+      ),
     ).toBe("ValidationError");
     expect(
       codeOf(() =>
@@ -929,13 +959,12 @@ describe("relate / unrelate — guards and expressions", () => {
 });
 
 describe("create.relate sugar — guards", () => {
-  const rel = (entry: unknown) =>
-    codeOf(() => client_create(entry));
+  const rel = (entry: unknown) => codeOf(() => client_create(entry));
   const { client } = makeClient();
   function client_create(entry: unknown): unknown {
-    return (client.users as unknown as { create: (a: unknown) => unknown }).create(
-      { data, relate: [entry] },
-    );
+    return (
+      client.users as unknown as { create: (a: unknown) => unknown }
+    ).create({ data, relate: [entry] });
   }
 
   test("a non-object entry is rejected", () => {

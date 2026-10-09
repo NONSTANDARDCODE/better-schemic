@@ -33,9 +33,15 @@ export const UuidUser = defineTable("uuid_user", {
   .index("uq_uuid_email", ["email"], { unique: true });
 
 /** A table opting back into the server default (`rand::id()`, 20 chars). */
-export const RandUser = defineTable("rand_user", { name: s.string() }).idStrategy(
-  "rand",
-);
+export const RandUser = defineTable("rand_user", {
+  name: s.string(),
+}).idStrategy("rand");
+
+/** A string-id table: the app speaks bare ids (`owner: "u1"`), the wire gets `RecordId`s. */
+export const Customer = defineTable("customer", {
+  name: s.string(),
+  owner: s.recordId(User),
+}).stringIds();
 
 export const schema = defineSchema({
   users: User,
@@ -43,4 +49,5 @@ export const schema = defineSchema({
   likes: Likes,
   uuidUsers: UuidUser,
   randUsers: RandUser,
+  customers: Customer,
 });

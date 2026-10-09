@@ -15,13 +15,20 @@
  * Everything the delegates expose (keys, row types, link/edge metadata, function signatures) is
  * extracted from this one object at the type level — there is no parallel schema and no codegen.
  */
-import type { App, FunctionDef, RelationDef, TableDef } from "../../pure";
+import type {
+  App,
+  FunctionDef,
+  RecordIdMode,
+  RelationDef,
+  TableDef,
+} from "../../pure";
 
 /** A typed table/edge def with its shape erased — the structural upper bound for schema entries. */
 // biome-ignore lint/suspicious/noExplicitAny: TableDef's Shape varies per call site.
 export type AnyTableDef = TableDef<string, any>;
 
-/** A relation (edge) def with shape + endpoint captures erased. */
+/** A relation (edge) def with shape + endpoint captures erased. The endpoint ID MODES stay broad
+ *  (`RecordIdMode`), so a string-id relation is still an `AnyRelationDef`. */
 export type AnyRelationDef = RelationDef<
   string,
   // biome-ignore lint/suspicious/noExplicitAny: RelationDef's Shape varies per call site.
@@ -29,7 +36,9 @@ export type AnyRelationDef = RelationDef<
   string,
   string,
   unknown,
-  unknown
+  unknown,
+  RecordIdMode,
+  RecordIdMode
 >;
 
 /** A user-defined DB function def with its arg shape/return erased. */

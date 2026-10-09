@@ -10,13 +10,13 @@ import { setDefaultTimeout } from "bun:test";
 setDefaultTimeout(120_000);
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { RecordId, Surreal, Uuid, escapeIdent } from "surrealdb";
-import { escapeIdentSafe } from "../../src/ident";
+import { escapeIdent, RecordId, Surreal, Uuid } from "surrealdb";
 import {
   type EphemeralServer,
   spawnEphemeralServer,
   surrealBinaryAvailable,
 } from "../../src/cli/engine";
+import { escapeIdentSafe, unescapeIdPart } from "../../src/ident";
 
 /** Normalize SDK values (RecordId/Uuid/Date/arrays/objects) to plain JSON-comparable values. */
 const plain = (v: unknown): unknown => {
@@ -2239,7 +2239,9 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
       expect(await last(`RETURN ${escapeIdent(hostile)};`)).toBe(true);
       // The hardened escaper wraps it in ONE backtick identifier; `= NONE` proves it evaluated as a
       // single (undefined) identifier, not as an expression.
-      expect(await last(`RETURN ${escapeIdentSafe(hostile)} = NONE;`)).toBe(true);
+      expect(await last(`RETURN ${escapeIdentSafe(hostile)} = NONE;`)).toBe(
+        true,
+      );
       // Real names round-trip through DDL + reads (including `⟩`, `\`, backtick and space).
       for (const [i, name] of ["a⟩b", "a\\b", "a`b", "a b"].entries()) {
         const ident = escapeIdentSafe(name);
@@ -2251,6 +2253,76 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
         ]);
         await run(`REMOVE TABLE ${table};`);
       }
+    });
+  });
+
+  describe("string ids — bare app strings vs wire RecordId", () => {
+    test("a raw string bind never matches a record column; the RecordId encode does", async () => {
+      await run(
+        "DEFINE TABLE sid_target SCHEMAFULL; DEFINE TABLE sid_probe SCHEMAFULL; DEFINE FIELD ref ON sid_probe TYPE record<sid_target>;",
+      );
+      await run(
+        "CREATE sid_target:o1; CREATE sid_probe:r1 SET ref = sid_target:o1;",
+      );
+      // The string-id codec's WIRE accepts a bare string, but the BIND must be a RecordId — a raw
+      // string compares type-vs-type and silently matches nothing.
+      expect(
+        await last("SELECT VALUE ref FROM sid_probe WHERE ref = $p;", {
+          p: "o1",
+        }),
+      ).toEqual([]);
+      expect(
+        await last("SELECT VALUE ref FROM sid_probe WHERE ref = $p;", {
+          p: new RecordId("sid_target", "o1"),
+        }),
+      ).toEqual(["sid_target:o1"]);
+    });
+
+    test("keyset cursor: id > $RecordId filters; id > $rawString does not", async () => {
+      await run("CREATE sid_probe:r2 SET ref = sid_target:o1;");
+      expect(
+        await last(
+          "SELECT VALUE id FROM sid_probe WHERE id > $p ORDER BY id;",
+          { p: new RecordId("sid_probe", "r1") },
+        ),
+      ).toEqual(["sid_probe:r2"]);
+      // The raw-string comparison is NOT the keyset semantics — the cursor compiler coerces.
+      expect(
+        await last(
+          "SELECT VALUE id FROM sid_probe WHERE id > $p ORDER BY id;",
+          { p: "r1" },
+        ),
+      ).not.toEqual(["sid_probe:r2"]);
+    });
+
+    test("an unescaped ULID-like literal is accepted and normalized to ⟨…⟩", async () => {
+      const ulid = "01MABCDEFGHJKMNPQRSTVWXYZ";
+      await run(`CREATE sid_ulid:${ulid};`);
+      expect(
+        await last("SELECT VALUE type::string(id) FROM sid_ulid;"),
+      ).toEqual([`sid_ulid:${ulid}`]);
+      const rid = new RecordId("sid_ulid", ulid);
+      expect(
+        await last("SELECT VALUE id = $p FROM sid_ulid;", { p: rid }),
+      ).toEqual([true]);
+      expect(
+        await last("SELECT VALUE id FROM sid_ulid WHERE id > $p;", { p: rid }),
+      ).toEqual([]);
+      // The raw id part comes back bare from `record::id` (the codec uses `RecordId.id`).
+      expect(await last("RETURN record::id($p);", { p: rid })).toBe(ulid);
+      // The SDK renders a UUID value part as `u"…"`; the shared unescape recovers the raw text.
+      const uuidRid = new RecordId(
+        "sid_ulid",
+        new Uuid("0190f5b2-7c1e-7c3a-8f4b-2b6a1c9d8e7f"),
+      );
+      const rendered = String(uuidRid).split(":")[1] ?? "";
+      expect(rendered).toMatch(/^u"/);
+      expect(unescapeIdPart(rendered)).toBe(
+        "0190f5b2-7c1e-7c3a-8f4b-2b6a1c9d8e7f",
+      );
+      await run(
+        "REMOVE TABLE sid_probe; REMOVE TABLE sid_target; REMOVE TABLE sid_ulid;",
+      );
     });
   });
 });
