@@ -19,7 +19,7 @@
     },
     "drivers/surrealdb": {
       "name": "@better-schemic/surrealdb",
-      "version": "0.1.0-alpha.11",
+      "version": "0.1.0-alpha.12",
       "dependencies": {
         "@better-schemic/core": "workspace:*",
       },
@@ -42,7 +42,7 @@
     },
     "packages/better-schemic": {
       "name": "better-schemic",
-      "version": "0.1.0-alpha.11",
+      "version": "0.1.0-alpha.12",
       "bin": {
         "better-schemic": "bin.mjs",
         "sc": "bin.mjs",
@@ -53,7 +53,7 @@
     },
     "packages/cli": {
       "name": "@better-schemic/cli",
-      "version": "0.1.0-alpha.11",
+      "version": "0.1.0-alpha.12",
       "bin": {
         "better-schemic": "lib/cli/index.js",
         "sc": "lib/cli/index.js",
@@ -72,7 +72,7 @@
     },
     "packages/core": {
       "name": "@better-schemic/core",
-      "version": "0.1.0-alpha.11",
+      "version": "0.1.0-alpha.12",
       "dependencies": {
         "commander": "^14.0.2",
         "jiti": "^2.4.2",
@@ -92,7 +92,7 @@
     },
     "packages/create-better-schemic": {
       "name": "create-better-schemic",
-      "version": "0.1.0-alpha.11",
+      "version": "0.1.0-alpha.12",
       "bin": {
         "create-better-schemic": "lib/index.js",
       },
@@ -401,7 +401,7 @@
 
     "dunder-proto": ["dunder-proto@1.0.1", "", { "dependencies": { "call-bind-apply-helpers": "^1.0.1", "es-errors": "^1.3.0", "gopd": "^1.2.0" } }, "sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A=="],
 
-    "electron-to-chromium": ["electron-to-chromium@1.5.451", "", {}, "sha512-vUNKPrUzw8ByEMOxloq0a71iD/mPuPxVkbDm3G5YhnxTzOw/I6qAg2MUS0cYj/c267lWmw26yW4Vv7foxTxPLg=="],
+    "electron-to-chromium": ["electron-to-chromium@1.5.452", "", {}, "sha512-cVvk1YBSj6571VmV6hdJTqj94Y79xSu8cj6Y9t6ae4Y4431z8/7EJFvu3rVp90xhfuv9BpPKUmaLfTo4+FOGBg=="],
 
     "emoji-regex": ["emoji-regex@10.6.0", "", {}, "sha512-toUI84YS5YmxW219erniWD0CIVOo46xGKColeNQRgOzDorgBi1v4D71/OFzgD9GO2UGKIv1C3Sp8DAn0+j5w7A=="],
 

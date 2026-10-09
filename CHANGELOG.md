@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+## [0.1.0-alpha.12] - 2026-10-09
+
 ### Added
 - **surrealdb:** **string ids** — the ORM app surface can speak bare id strings (`01M…`) while
   `RecordId` stays on the wire. `TableDef.stringIds()` flips the `id` + every record-link field
