@@ -64,12 +64,15 @@ calling private predicates — which is the point.
 
 Tier 1 tells you how a decision *scored*; the inventory tells you every decision *exists* and how it
 is proven. `scripts/mcdc/{inventory,reconcile}.ts` enumerate every MC/DC-relevant decision in the
-in-scope sources with the **TypeScript compiler API** (already a devDependency) and classify each:
+in-scope sources with **`oxc-parser`** (the same Rust parser the coverage instrumenter uses) and
+classify each:
 
 - **auto** — the current coverage run proves it (Tier-1 `bT` condition coverage for a compound
   decision; both-arms-hit for a guard);
 - **table** — listed in `mcdc-manifest.json`, mapped to a `describeMcdc` label that a real test
-  declares (Tier-2 unique-cause proof);
+  declares (Tier-2 unique-cause proof). The gate also fails on a **stale key** (the decision moved —
+  e.g. predicates inserted above it) and on a label no test declares: re-point the key at the new
+  location instead of dropping the proof;
 - **unknown** — neither. These are the backlog; `mcdc.config.json` ratchets the **per-file** unknown
   count so a NEW unclassified decision fails the gate (and a pruned one must drop the floor).
 
@@ -195,7 +198,7 @@ time-bounded corpus asserts each call finishes well under budget. Budget is `FUZ
 | `scripts/coverage/report.ts` | merge + HTML/LCOV/JSON + text table |
 | `scripts/coverage/check.ts` | per-file ratchet gate |
 | `scripts/coverage/gaps.ts` | print uncovered lines/arms/conditions with snippets |
-| `scripts/mcdc/inventory.ts` | enumerate MC/DC decisions via the TypeScript compiler API |
+| `scripts/mcdc/inventory.ts` | enumerate MC/DC decisions via `oxc-parser` |
 | `scripts/mcdc/reconcile.ts` | classify decisions auto/table/unknown + per-file ratchet |
 | `mcdc-manifest.json` | decisions proven by a `describeMcdc` table test |
 | `mcdc.config.json` | per-file unknown-decision floor (ratchet) |

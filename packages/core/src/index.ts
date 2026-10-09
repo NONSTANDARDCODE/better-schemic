@@ -69,11 +69,7 @@ export { pipeThroughPager, resolvePager } from "./cli-kit/pager";
 // --- jiti schema loader (loads a project's authored schema files agnostically) ----------------
 export {
   type AnyTable,
-  duplicateTables,
-  existingTables,
   loadDefs,
-  loadSchemas,
-  scanLocalEntities,
 } from "./cli-kit/schema";
 export { colorEnabled, fail, ok, plural, style } from "./cli-kit/style";
 // --- ORM client foundation (managed connections + disposable bound client) ---------------------

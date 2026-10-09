@@ -475,8 +475,7 @@ kindFlags(
         const once = async () => {
           // TypeScript view: render both sides PER FILE (matching `pull`'s layout) and diff each.
           if (opts.ts) {
-            // ONE schema load feeds the file map (offline, also the desired side) — replacing the
-            // separate `existingTables` pass over the same modules.
+            // ONE schema load feeds the file map (offline, also the desired side).
             const loaded = await loadDefs(config.schemaPath);
             const loc = new Map<string, string>();
             for (const t of loaded.tables) {

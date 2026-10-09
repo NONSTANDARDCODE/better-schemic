@@ -6,7 +6,9 @@
  *   • **auto**  — the current coverage run proves it (Tier-1 `bT` condition coverage for compound
  *                 decisions, both-arms-hit for guards);
  *   • **table** — listed in `mcdc-manifest.json`, mapped to a `describeMcdc` label that a real test
- *                 exercises (Tier-2 unique-cause proof);
+ *                 exercises (Tier-2 unique-cause proof). Every manifest key must still point at an
+ *                 enumerated decision and an existing label — a decision that MOVED leaves a stale
+ *                 key, which fails the gate instead of silently dropping to `auto`/`unknown`;
  *   • **unknown** — neither. These are the backlog; `mcdc.config.json` ratchets the per-file count so
  *                 a NEW unclassified decision fails the gate (and a pruned one must drop the floor).
  *
@@ -99,6 +101,8 @@ interface Row {
 }
 const rows: Row[] = [];
 const manifestFailures: string[] = [];
+/** Decision keys enumerated for every file this run could read coverage for (`rel` → `line:col`). */
+const enumerated = new Map<string, Set<string>>();
 
 for (const file of files) {
   let fc: ReturnType<typeof map.fileCoverageFor>;
@@ -111,24 +115,41 @@ for (const file of files) {
   const autos = coveredDecisionKeys(fc as never, source);
   const rel = file.replace(`${root}/`, "");
   const row: Row = { rel, total: 0, auto: 0, table: 0, unknown: [] };
+  const keys = new Set<string>();
   for (const d of inventoryFile(file)) {
     row.total++;
     const key = `${d.line}:${d.column}`;
+    keys.add(key);
     const manifestKey = `${rel}:${key}`;
     const label = manifest.table?.[manifestKey];
-    if (label !== undefined) {
-      if (!labels.has(label))
-        manifestFailures.push(
-          `${manifestKey} → describeMcdc "${label}" — no test declares that label`,
-        );
-      row.table++;
-    } else if (autos.get(key) === true) {
-      row.auto++;
-    } else {
-      row.unknown.push({ key, kind: d.kind });
-    }
+    if (label !== undefined) row.table++;
+    else if (autos.get(key) === true) row.auto++;
+    else row.unknown.push({ key, kind: d.kind });
   }
+  enumerated.set(rel, keys);
   if (row.total > 0) rows.push(row);
+}
+
+// Manifest keys are a live contract: every entry must point at an enumerated decision (a decision
+// that MOVED leaves a stale key, silently dropping its Tier-2 proof to auto/unknown) and name a
+// label a test actually declares.
+for (const [manifestKey, label] of Object.entries(manifest.table ?? {})) {
+  if (!labels.has(label))
+    manifestFailures.push(
+      `${manifestKey} → describeMcdc "${label}" — no test declares that label`,
+    );
+  const at = /^(.*):(\d+):(\d+)$/.exec(manifestKey);
+  if (!at) {
+    manifestFailures.push(
+      `${manifestKey} — malformed key (want <path>:<line>:<column>)`,
+    );
+    continue;
+  }
+  const keys = enumerated.get(at[1] as string);
+  if (keys && !keys.has(`${at[2]}:${at[3]}`))
+    manifestFailures.push(
+      `${manifestKey} — no decision at that location (stale key: re-point it after the decision moved)`,
+    );
 }
 
 rows.sort(

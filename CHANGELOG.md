@@ -18,6 +18,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+### Removed
+- **core:** the orphaned schema-loader helpers `scanLocalEntities`, `existingTables`,
+  `duplicateTables` (plus the internal `tablesIn` generator only they used) and the redundant
+  `loadSchemas` one-liner. `loadDefs` already returns the per-file entity map (`localEntities`) and
+  the duplicate-name map (`duplicates`) from its single pass, so these were dead exports left behind
+  by the one-load rework — and misleading DX (their doc comments still described the old multi-pass
+  `pull` contract).
+
 ## [0.1.0-alpha.12] - 2026-10-09
 
 ### Added
