@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+## [0.1.0-alpha.11] - 2026-10-08
+
 ### Security
 - **surrealdb:** `escapeIdentSafe` (`src/ident.ts`) — the SDK's `escapeIdent` emits `\⟩`, which
   SurrealDB 3.2 rejects, and a name like `x\⟩ OR true OR ⟨y` becomes `⟨x\\⟩ OR true OR ⟨y⟩` (the
@@ -74,7 +76,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   and display metadata.
 - **core:** the LCS line/token diffs are capped and fall back to a prefix/suffix diff, so a large
   generated file can no longer allocate an O(n²) matrix (OOM risk on `pull` previews/patches).
-
 
 ## [0.1.0-alpha.10] - 2026-10-08
 
