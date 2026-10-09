@@ -7,7 +7,7 @@
  * session-bound; `import` replays the dump through `query()` (context-aware, and the only form that
  * works over WS).
  */
-import { escapeIdent } from "surrealdb";
+import { escapeIdentSafe as escapeIdent } from "../ident";
 import { compileError } from "./compiler/shared";
 import { assertSessionBound, contextOption } from "./context";
 import type { DelegateContext } from "./delegate";

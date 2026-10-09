@@ -4,7 +4,7 @@
  * site), runs LAZILY (nothing touches the connection until awaited), and decodes its rows through
  * `./decode`. `./delegate` owns the public surface; this module owns the runtime.
  */
-import { escapeIdent } from "surrealdb";
+import { escapeIdentSafe as escapeIdent } from "../ident";
 import type {
   AggregateArgs as AggregateRuntimeArgs,
   CountArgs as CountRuntimeArgs,

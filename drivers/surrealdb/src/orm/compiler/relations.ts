@@ -8,7 +8,7 @@
  * Direction is AUTO (outgoing `->` when the table is in `from`; incoming `<-` when only in `to`)
  * with an explicit `direction: "out" | "in" | "both"` override on the edge surfaces.
  */
-import { escapeIdent } from "surrealdb";
+import { escapeIdentSafe as escapeIdent } from "../../ident";
 import { BetterSchemicError } from "../errors";
 import type { EdgeRef, SchemaIndex, TableMeta } from "../meta";
 import { describeValue, isLowerableValue, isPlainObject } from "./shared";
@@ -30,12 +30,9 @@ export function findEdge(meta: TableMeta, name: string): EdgeRef | undefined {
   return edgesOf(meta).find((edge) => edge.name === name || edge.key === name);
 }
 
-/** The relation edges adjacent to a table, outgoing + incoming (deduped by physical name). */
+/** The relation edges adjacent to a table, outgoing + incoming (deduped at index build). */
 export function edgesOf(meta: TableMeta): readonly EdgeRef[] {
-  const seen = new Map<string, EdgeRef>();
-  for (const edge of [...meta.outgoing, ...meta.incoming])
-    if (!seen.has(edge.name)) seen.set(edge.name, edge);
-  return [...seen.values()];
+  return meta.edges;
 }
 
 /** The record-link fields + edge names a table exposes (for teaching "valid include keys" errors). */

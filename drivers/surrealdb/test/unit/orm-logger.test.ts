@@ -373,6 +373,18 @@ describe("pretty rendering", () => {
     expect(out).toContain("[circular]");
   });
 
+  test("redact masks bound values (pretty + json)", () => {
+    const pretty = capture({ colors: false, redact: true });
+    pretty.logger.emit(event());
+    expect(pretty.out()).toContain("[redacted]");
+    expect(pretty.out()).not.toContain("18");
+
+    const json = capture({ format: "json", redact: true });
+    json.logger.emit(event());
+    expect(json.out()).toContain('"[redacted]"');
+    expect(json.out()).not.toContain(":18");
+  });
+
   test("errors render with code, message and an optional stack", () => {
     const err = Object.assign(new Error("boom"), { code: "ParseError" });
     const bare = capture({ colors: false });

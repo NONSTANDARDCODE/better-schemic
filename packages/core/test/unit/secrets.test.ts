@@ -21,11 +21,28 @@ describe("secret refs", () => {
 
   test("envSecretProvider resolves from process.env, throws when unset", () => {
     process.env.__SCHEMIC_SECRET_TEST__ = "shh";
-    expect(envSecretProvider.resolve(env("__SCHEMIC_SECRET_TEST__"))).toBe("shh");
+    expect(envSecretProvider.resolve(env("__SCHEMIC_SECRET_TEST__"))).toBe(
+      "shh",
+    );
     expect(envSecretProvider.resolve(secret("__SCHEMIC_SECRET_TEST__"))).toBe(
       "shh",
     );
-    expect(() => envSecretProvider.resolve(env("__SCHEMIC_MISSING__"))).toThrow();
+    expect(() =>
+      envSecretProvider.resolve(env("__SCHEMIC_MISSING__")),
+    ).toThrow();
     delete process.env.__SCHEMIC_SECRET_TEST__;
+  });
+
+  test("inherited Object members never resolve as secrets (hasOwn + string check)", () => {
+    for (const name of [
+      "constructor",
+      "toString",
+      "__proto__",
+      "hasOwnProperty",
+    ])
+      expect(() => envSecretProvider.resolve(env(name))).toThrow(
+        /not set in the environment/,
+      );
+    expect(isSecretRef(env(""))).toBe(false);
   });
 });

@@ -4,8 +4,8 @@
 // object/field it defines; the only thing at risk is LOCAL-ONLY content (a field or whole const
 // that exists in your files but not in the DB), which the caller resolves via keep/drop.
 
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { lstatSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { generateCode, parseModule } from "magicast";
 import { colorEnabled, style } from "./style";
 
@@ -64,7 +64,31 @@ export interface PullFilePlan {
 
 /** A driver's introspection rendered into a per-file write plan (see a driver's `planPull`). */
 export interface PullPlan {
-  files: PullFilePlan[];
+  /** Absolute schema root the plan must stay inside (defense-in-depth against DB-controlled names). */
+  readonly root?: string;
+  readonly files: PullFilePlan[];
+}
+
+/** Refuse a plan target outside `root` (a hostile DB object name must never escape the schema dir). */
+function assertInsideRoot(root: string, abs: string): void {
+  const rel = relative(resolve(root), resolve(abs));
+  if (rel.startsWith("..") || isAbsolute(rel))
+    throw new Error(
+      `pull: refusing to write outside the schema root — "${abs}" escapes "${root}".`,
+    );
+}
+
+/** Refuse to write/delete THROUGH a symlink (a planted link would redirect the write outside root). */
+function assertNotSymlink(abs: string): void {
+  try {
+    if (lstatSync(abs).isSymbolicLink())
+      throw new Error(
+        `pull: refusing to write through the symlink "${abs}" — remove it and re-run.`,
+      );
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith("pull: refusing")) throw e;
+    // ENOENT (new file) is fine; anything else (permissions) surfaces on the write itself.
+  }
 }
 
 /** Apply a plan: write created/updated files, delete local-only files. Returns the paths touched. */
@@ -72,6 +96,8 @@ export function applyPull(plan: PullPlan): string[] {
   const touched: string[] = [];
   for (const f of plan.files) {
     if (f.action === "unchanged") continue;
+    if (plan.root !== undefined) assertInsideRoot(plan.root, f.abs);
+    assertNotSymlink(f.abs);
     if (f.action === "delete") {
       rmSync(f.abs, { force: true });
     } else {
@@ -277,6 +303,9 @@ const splitLines = (s: string): string[] =>
 function lineOps(before: string, after: string): LineOp[] {
   const a = splitLines(before);
   const b = splitLines(after);
+  // A full LCS matrix is O(m*n) cells — a 10k-line file would allocate ~100M cells. Above the cap,
+  // fall back to a prefix/suffix diff (still a VALID op sequence, just coarser).
+  if (a.length * b.length > LCS_CELL_LIMIT) return coarseLineOps(a, b);
   const m = a.length;
   const n = b.length;
   const dp: number[][] = Array.from({ length: m + 1 }, () =>
@@ -304,6 +333,28 @@ function lineOps(before: string, after: string): LineOp[] {
   }
   while (i < m) ops.push({ tag: "-", line: a[i++] });
   while (j < n) ops.push({ tag: "+", line: b[j++] });
+  return ops;
+}
+
+/** The O(1)-memory fallback: keep the common prefix/suffix, mark the middle removed + added. */
+const LCS_CELL_LIMIT = 4_000_000;
+function coarseLineOps(a: string[], b: string[]): LineOp[] {
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA--;
+    endB--;
+  }
+  const ops: LineOp[] = [];
+  for (let i = 0; i < start; i++) ops.push({ tag: " ", line: a[i] as string });
+  for (let i = start; i < endA; i++)
+    ops.push({ tag: "-", line: a[i] as string });
+  for (let j = start; j < endB; j++)
+    ops.push({ tag: "+", line: b[j] as string });
+  for (let i = endA; i < a.length; i++)
+    ops.push({ tag: " ", line: a[i] as string });
   return ops;
 }
 

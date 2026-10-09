@@ -8,7 +8,7 @@
  *   bypasses the codec and is spliced (the server enforces it); literal fields are validated.
  * - Batches (`createMany`) set `transactional: true` and roll back together on failure.
  */
-import { escapeIdent } from "surrealdb";
+import { escapeIdentSafe as escapeIdent } from "../../ident";
 import type { ModelMeta } from "../meta";
 import { relateStatement, relateSugar } from "./relate";
 import {

@@ -10,7 +10,7 @@
  * Session-bound operations (`api`/`auth`/`export`/`live`) cannot be scoped by a prefix, so a context
  * clone rejects them with a teaching {@link assertSessionBound} instead of hitting the wrong DB.
  */
-import { escapeIdent } from "surrealdb";
+import { escapeIdentSafe as escapeIdent } from "../ident";
 import { compileError } from "./compiler/shared";
 import type { DelegateContext } from "./delegate";
 import type {

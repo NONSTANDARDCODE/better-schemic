@@ -74,9 +74,16 @@ async function resolveBindings(
 ): Promise<Record<string, string>> {
   const bindings = accessBindings(def);
   const resolved: Record<string, string> = {};
-  if (bindings)
-    for (const [param, ref] of Object.entries(bindings))
-      resolved[param] = await ctx.secrets.resolve(ref);
+  if (bindings) {
+    // Independent resolutions (env/vault reads) — resolve them concurrently, not one by one.
+    const entries = Object.entries(bindings);
+    const values = await Promise.all(
+      entries.map(([, ref]) => ctx.secrets.resolve(ref)),
+    );
+    entries.forEach(([param], i) => {
+      resolved[param] = values[i] as string;
+    });
+  }
   return resolved;
 }
 
@@ -141,7 +148,11 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
         },
       ],
       flags: [
-        { name: "value", value: true, help: "an explicit value (declared params)" },
+        {
+          name: "value",
+          value: true,
+          help: "an explicit value (declared params)",
+        },
         {
           name: "env",
           value: true,
@@ -163,8 +174,8 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
             : undefined;
       if (typeof a.flags.env === "string" && flagValue === undefined)
         throw new Error(`environment variable ${a.flags.env} is not set`);
-      const params = (await loadParamDefs(ctx)).filter(
-        (d) => (only ? d.name === only : d.config.mode !== "value"),
+      const params = (await loadParamDefs(ctx)).filter((d) =>
+        only ? d.name === only : d.config.mode !== "value",
       );
       if (!params.length)
         throw new Error(
@@ -203,23 +214,33 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
     args: { positionals: [], flags: [] },
     async run(ctx: Ctx) {
       const authored = await loadParamDefs(ctx);
-      if (!authored.length) throw new Error("no defineParam definitions in the schema");
+      if (!authored.length)
+        throw new Error("no defineParam definitions in the schema");
       const live = await liveParams(ctx);
       let bad = 0;
       for (const def of authored) {
         const liveValue = live.get(def.name);
         if (liveValue === undefined) {
-          ctx.io.fail(`missing  $${def.name} — not defined live (sc param push${def.config.mode === "value" ? " or sc push" : ""})`);
+          ctx.io.fail(
+            `missing  $${def.name} — not defined live (sc param push${def.config.mode === "value" ? " or sc push" : ""})`,
+          );
           bad++;
           continue;
         }
         if (def.config.mode === "secret" && def.config.secret) {
           // Compare quietly: the live value is readable to root, but never printed here.
           const want = await ctx.secrets.resolve(def.config.secret);
-          const ok = liveValue === `'${want.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
-          if (ok) ctx.io.ok(`ok       $${def.name} (secret, matches ${def.config.secret.kind}:${def.config.secret.name})`);
+          const ok =
+            liveValue ===
+            `'${want.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+          if (ok)
+            ctx.io.ok(
+              `ok       $${def.name} (secret, matches ${def.config.secret.kind}:${def.config.secret.name})`,
+            );
           else {
-            ctx.io.fail(`stale    $${def.name} — live value differs from ${def.config.secret.kind}:${def.config.secret.name} (sc param push ${def.name})`);
+            ctx.io.fail(
+              `stale    $${def.name} — live value differs from ${def.config.secret.kind}:${def.config.secret.name} (sc param push ${def.name})`,
+            );
             bad++;
           }
         } else {
@@ -244,7 +265,9 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
       if (!db.params.length) return ctx.io.info("no params defined");
       for (const p of db.params) {
         const value = secretNames.has(p.name) ? "<redacted>" : p.value;
-        ctx.io.info(`$${p.name} = ${value}${p.permissions === false ? "  [PERMISSIONS NONE]" : ""}`);
+        ctx.io.info(
+          `$${p.name} = ${value}${p.permissions === false ? "  [PERMISSIONS NONE]" : ""}`,
+        );
       }
     },
   },

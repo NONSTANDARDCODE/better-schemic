@@ -4,8 +4,9 @@
  * on these, so parameterization and identifier escaping are enforced in a single spot:
  *
  * - VALUES always bind (`$p0`, `$p1`, …) — a user value is never concatenated into the statement.
- * - NAMES are escaped (`⟨…⟩` when needed) and their bracket suffixes (`[*]`, `[0]`) validated, so a
- *   hostile key can't inject syntax either.
+ * - NAMES are escaped (`⟨…⟩` when needed — backtick-quoted when they contain `⟩`/`\`, which the SDK
+ *   escaping mishandles) and their bracket suffixes (`[*]`, `[0]`) validated, so a hostile key can't
+ *   inject syntax either.
  * - FRAGMENTS (`surql`/`BoundQuery`), refs and `$param` refs keep the lowering semantics the rest
  *   of the codebase already uses (`mergeRaw`/`renderData`/`renderRef`), so a fragment behaves the
  *   same inside a `where` as it does in a DDL position.
@@ -13,7 +14,8 @@
  * The bind map is SHARED across every statement of one operation, so names never collide when the
  * executor merges a batch (`paginate` compiles its two statements into one round-trip).
  */
-import { BoundQuery, escapeIdent, RecordId } from "surrealdb";
+import { BoundQuery, RecordId } from "surrealdb";
+import { escapeIdentSafe as escapeIdent } from "../../ident";
 import {
   type Ctx,
   fragOf,
@@ -217,12 +219,10 @@ export function isTableMeta(meta: ModelMeta): meta is TableMeta {
   return !("schemaless" in meta);
 }
 
-/** The single-field UNIQUE indexes of a table (empty for schemaless entries). */
+/** The single-field UNIQUE indexes of a table (precomputed at index build; empty for schemaless). */
 export function uniqueFields(meta: ModelMeta): readonly string[] {
   if (!isTableMeta(meta)) return [];
-  return (meta.def.config.indexes ?? [])
-    .filter((index) => index.unique === true && index.fields.length === 1)
-    .map((index) => index.fields[0] as string);
+  return meta.uniqueFields;
 }
 
 /** A path string -> its segments, brackets stripped (`contacts[*].type` -> `contacts.type`). */

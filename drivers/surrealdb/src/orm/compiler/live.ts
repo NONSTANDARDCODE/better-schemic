@@ -9,7 +9,7 @@
  * NO projection; `FROM ONLY`/record targets are errors; `ORDER BY`/`LIMIT`/`GROUP`/`SPLIT` do not
  * exist in a LIVE SELECT; a record leaving the `WHERE` filter emits nothing.
  */
-import { escapeIdent } from "surrealdb";
+import { escapeIdentSafe as escapeIdent } from "../../ident";
 import type { ModelMeta, SchemaIndex } from "../meta";
 import { compileIncludes, type IncludeCompiled } from "./include";
 import { compileProjection, type ProjectionSpec } from "./projection";

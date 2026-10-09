@@ -52,6 +52,15 @@ describe("fn.call", () => {
     const error = await caught(() => client.fn.call("fn::x", 1 as never));
     expect(isBetterSchemicError(error) && error.code).toBe("ValidationError");
   });
+
+  test("defineFunction validates the name at authoring time", () => {
+    expect(() => defineFunction("bad name")).toThrow(/invalid function name/);
+    expect(() => defineFunction("x; DROP TABLE user")).toThrow(
+      /invalid function name/,
+    );
+    expect(() => defineFunction("math_add")).not.toThrow();
+    expect(() => defineFunction("math::add")).not.toThrow();
+  });
 });
 
 describe("fn — typed shortcuts", () => {

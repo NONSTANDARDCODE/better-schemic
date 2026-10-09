@@ -345,9 +345,20 @@ export abstract class SFieldBase<
   }
 }
 
+/** Is `v` an `s.*` field wrapper? Duck-typed (NOT `instanceof`): user code and the CLI can load
+ *  different copies of core, and a field from the other copy must still unwrap. */
+function isFieldWrapper(v: unknown): v is { schema: z.ZodType } {
+  const schema = (v as { schema?: { safeParse?: unknown } } | null)?.schema;
+  return (
+    typeof schema === "object" &&
+    schema !== null &&
+    typeof schema.safeParse === "function"
+  );
+}
+
 /** Unwrap a field to its Zod schema (raw Zod schemas pass through). */
 export const toZod = (v: AnyField | z.ZodType): z.ZodType =>
-  v instanceof SFieldBase ? v.schema : v;
+  isFieldWrapper(v) ? v.schema : (v as z.ZodType);
 
 // Secret-ref authoring helpers (env/secret) live here on the SIDE-EFFECT-FREE authoring subpath, so a
 // driver's authoring index can re-export them without dragging the engine. (Also on the main index.)

@@ -74,7 +74,7 @@ describe.skipIf(!URL)("call-ref-args live", () => {
 
     const c = new Surreal();
     await c.connect(URL as string);
-    await c.signin({ username: "root", password: "root" });
+    await c.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
     await c.use({ namespace: "cra", database: "cra" });
     await c.query(
       "REMOVE TABLE IF EXISTS cra_user; REMOVE TABLE IF EXISTS cra_audit; REMOVE FUNCTION IF EXISTS fn::cra_stamp;",

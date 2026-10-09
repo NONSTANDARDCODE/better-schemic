@@ -25,7 +25,7 @@ import { createFnOperations } from "./fn";
 import { createHookDispatcher, type HookDispatcher } from "./hooks";
 import { killLive, reattachLive } from "./live";
 import { resolveLogger } from "./logger";
-import { resolveModel, type SchemaIndex } from "./meta";
+import { type ModelMeta, resolveModel, type SchemaIndex } from "./meta";
 import { createPluginPipeline, type PluginPipeline } from "./plugins";
 import { createRawOperations, type RawOperations } from "./raw";
 import { buildSchemaIndex } from "./schema";
@@ -175,9 +175,13 @@ export class ClientRuntime<C extends Queryable = Queryable>
     Object.assign(this, createAdminOperations(this.delegateContext));
     for (const [key, meta] of [...$index.tables, ...$index.schemaless]) {
       this.assertMemberAvailable(key, "schema key");
-      const delegate = createDelegate(meta, this.delegateContext);
-      this.delegates.set(key, delegate);
-      (this as Record<string, unknown>)[key] = delegate;
+      // Lazy: the delegate (and its ~26 operation closures) is built on FIRST access, so
+      // transaction/fork clients over a large schema don't rebuild every delegate per attempt.
+      Object.defineProperty(this, key, {
+        enumerable: true,
+        configurable: false,
+        get: () => this.delegateFor(key, meta),
+      });
     }
     // Plugins: run `setup` once (fail-fast) and graft `extendClient` methods (collision = error).
     if (scope.pipeline) {
@@ -231,20 +235,26 @@ export class ClientRuntime<C extends Queryable = Queryable>
 
   /** The schema keys exposed as delegates, in schema order. */
   get tables(): readonly string[] {
-    return [...this.delegates.keys()];
+    return [...this.$index.tables.keys(), ...this.$index.schemaless.keys()];
+  }
+
+  /** Build (once) and cache a delegate for a schema key. */
+  private delegateFor(key: string, meta: ModelMeta): Delegate {
+    const existing = this.delegates.get(key);
+    if (existing) return existing;
+    const delegate = createDelegate(meta, this.delegateContext);
+    this.delegates.set(key, delegate);
+    return delegate;
   }
 
   /** Resolve a delegate by schema key OR physical table name. */
   repository(name: string): Delegate {
-    const byKey = this.delegates.get(name);
-    if (byKey) return byKey;
     const meta = resolveModel(this.$index, name);
-    const byName = meta ? this.delegates.get(meta.key) : undefined;
-    if (byName) return byName;
+    if (meta) return this.delegateFor(meta.key, meta);
     throw new BetterSchemicError(
       "RepositoryNotFound",
-      `repository("${name}"): no schema entry has that key or physical name. Known: ${[...this.delegates.keys()].join(", ") || "(none)"}.`,
-      { details: { known: [...this.delegates.keys()] } },
+      `repository("${name}"): no schema entry has that key or physical name. Known: ${this.tables.join(", ") || "(none)"}.`,
+      { details: { known: this.tables } },
     );
   }
 

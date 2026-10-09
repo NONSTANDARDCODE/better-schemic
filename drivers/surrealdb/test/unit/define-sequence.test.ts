@@ -194,7 +194,7 @@ describe.skipIf(!URL)("defineSequence live", () => {
 
     const c = new Surreal();
     await c.connect(URL as string);
-    await c.signin({ username: "root", password: "root" });
+    await c.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
     await c.use({ namespace: "dsq", database: "dsq" });
     await c.query(
       "REMOVE SEQUENCE IF EXISTS dsq_bare; REMOVE SEQUENCE IF EXISTS dsq_tuned;",

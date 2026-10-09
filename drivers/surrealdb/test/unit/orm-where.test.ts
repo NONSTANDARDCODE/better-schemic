@@ -177,6 +177,17 @@ describe("where — strings", () => {
     );
   });
 
+  test("matches escapes `/` inside the source (a class slash would close the literal)", () => {
+    // JS leaves a slash UNESCAPED inside a character class: `[a/]`. In a SurrealQL regex literal
+    // that would terminate it and splice the tail as SQL — every `/` is escaped.
+    expect(compile({ name: { matches: /[a/]/ } }).sql).toBe(
+      "string::matches(name, /[a\\/]/)",
+    );
+    expect(compile({ name: { matches: /a\/b/ } }).sql).toBe(
+      "string::matches(name, /a\\/b/)",
+    );
+  });
+
   test("case-insensitive operators lowercase both sides", () => {
     expect(compile({ name: { eqInsensitive: "A" } }).sql).toBe(
       "string::lowercase(name) = string::lowercase($p0)",
@@ -492,7 +503,9 @@ describe("where — any/all, full-text and metric guards", () => {
   test("near.distance must be a bare metric name", () => {
     expect(
       codeOf(() =>
-        compile({ embedding: { near: { vector: [0.1], k: 3, distance: "co sine" } } }),
+        compile({
+          embedding: { near: { vector: [0.1], k: 3, distance: "co sine" } },
+        }),
       ),
     ).toBe("ValidationError");
   });

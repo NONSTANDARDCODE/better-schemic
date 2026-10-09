@@ -39,7 +39,8 @@ import { fmtDiff, renderMigration } from "../cli/surreal-diff";
 import { filterStructured } from "../cli/surreal-filter";
 import { surrealCommands } from "../commands";
 import type { SurrealParams } from "../config";
-import { connect as surrealConnect } from "../connect";
+import { redactUrl, connect as surrealConnect } from "../connect";
+import { FN_NAME } from "../fn-name";
 import {
   explodeSchema,
   fromStructured,
@@ -233,9 +234,17 @@ export const surrealDriver: Driver<
       const values = Object.values(args);
       const placeholders = values.map((_, i) => `$a${i}`).join(", ");
       const vars = Object.fromEntries(values.map((v, i) => [`a${i}`, v]));
-      const fn = name.replace(/^fn::/, "");
+      // The name is SPLICED, not bound — validate with the shared grammar (a name like
+      // `x; REMOVE TABLE user` must never reach the query text). Preserve the historical
+      // `fn::` prefixing (`math::add` -> `fn::math::add`).
+      const bare = name.replace(/^fn::/, "");
+      if (!FN_NAME.test(bare))
+        throw new Error(
+          `fn: "${name}" is not a valid function name — use letters, digits, _ and :: segments.`,
+        );
+      const fn = `fn::${bare}`;
       const out = (await conn.query(
-        `RETURN fn::${fn}(${placeholders})`,
+        `RETURN ${fn}(${placeholders})`,
         vars,
       )) as unknown[];
       return out[0];
@@ -368,7 +377,7 @@ export const surrealDriver: Driver<
         await db.close().catch(() => {});
       };
       log(
-        `  replaying on ${remote.url} (${remote.namespace}) — isolated scratch databases; your data is untouched`,
+        `  replaying on ${redactUrl(remote.url)} (${remote.namespace}) — isolated scratch databases; your data is untouched`,
       );
     }
 

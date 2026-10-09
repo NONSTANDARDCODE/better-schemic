@@ -95,6 +95,8 @@ export interface ResolvedLoggerOptions {
   readonly prettySql: boolean;
   readonly explain: ExplainPolicy;
   readonly stack: boolean;
+  /** Mask bound values in the output (`$p0 = [redacted]`). */
+  readonly redact: boolean;
   readonly write: (line: string) => void;
 }
 
@@ -130,6 +132,12 @@ export interface LoggerOptions {
   readonly explain?: ExplainPolicy;
   /** Include the error stack. Default `false`. */
   readonly stack?: boolean;
+  /**
+   * Mask every bound VALUE in the emitted log (`$p0 = [redacted]`). Default `false`: the logger
+   * prints binds verbatim, which is what makes it useful for debugging — but a password/token
+   * written through the ORM would appear in the output, so turn this on for shared/CI logs.
+   */
+  readonly redact?: boolean;
   /** Sink for each rendered line. Default `console.log`. */
   readonly write?: (line: string) => void;
 }

@@ -6,7 +6,8 @@
  * {@link ChangeSet}s and each row is decoded through the model codec (by the record's table when
  * `table` is omitted, so a DATABASE-level read still gets typed rows for known models).
  */
-import { escapeIdent, RecordId } from "surrealdb";
+import { RecordId } from "surrealdb";
+import { escapeIdentSafe as escapeIdent } from "../ident";
 import { fullProjectionSpec } from "./compiler/projection";
 import { compileError, describeValue, isPlainObject } from "./compiler/shared";
 import { contextOption } from "./context";

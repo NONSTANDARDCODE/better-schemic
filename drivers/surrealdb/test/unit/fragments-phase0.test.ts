@@ -203,7 +203,7 @@ describe.skipIf(!URL)(
 
       const db = new Surreal();
       await db.connect(URL as string);
-      await db.signin({ username: "root", password: "root" });
+      await db.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
       await db.use({ namespace: "frag_p0", database: "frag_p0" });
       await db.query(
         "REMOVE TABLE IF EXISTS frag_user; REMOVE TABLE IF EXISTS frag_verification; REMOVE FUNCTION IF EXISTS fn::frag_send_mail;",

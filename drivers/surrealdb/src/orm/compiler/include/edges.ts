@@ -4,7 +4,7 @@
  * remount (`out.*`/`in.*`) and wildcard traversals (`->?`). The filter split (edge vs target) and
  * the traversal syntax come from `../where` + `../relations` — never re-implemented here.
  */
-import { escapeIdent } from "surrealdb";
+import { escapeIdentSafe as escapeIdent } from "../../../ident";
 import type { EdgeRef, TableMeta } from "../../meta";
 import {
   type EdgeDirection,

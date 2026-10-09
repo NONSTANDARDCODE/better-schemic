@@ -285,6 +285,10 @@ async function main(): Promise<void> {
         )
       : true;
   let pm: Pm = (opts.pm as Pm) ?? detected;
+  if (!PMS.includes(pm)) {
+    p.cancel(`Unknown package manager "${pm}". Known: ${PMS.join(", ")}.`);
+    process.exit(1);
+  }
   if (install && !opts.pm && tty) {
     pm = abortIfCancel(
       await p.select({

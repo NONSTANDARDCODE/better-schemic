@@ -28,9 +28,9 @@
  * await client.customers.$forTenant("user:abc").findMany({});
  * ```
  *
- * Boundaries (documented, deliberate): edges (`relate`/`unrelate`), `live`, raw SQL
- * (`$raw`/`$query`/`$unsafe`) and `$withoutPlugins()` bypass the runtime scope — the DB permission
- * (or the explicit admin escape) is the boundary there. Audit those call sites.
+ * Boundaries (documented, deliberate): edges (`relate`/`unrelate`), `live`, `changes` (changefeed),
+ * raw SQL (`$raw`/`$query`/`$unsafe`) and `$withoutPlugins()` bypass the runtime scope — the DB
+ * permission (or the explicit admin escape) is the boundary there. Audit those call sites.
  */
 
 import type { RecordId, RecordIdValue } from "surrealdb";

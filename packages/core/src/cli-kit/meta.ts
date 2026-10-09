@@ -62,10 +62,50 @@ export const EMPTY_STORED: StoredSnapshot = emptyStored();
 export function readSnapshot(metaDir: string): StoredSnapshot {
   const path = join(metaDir, SNAPSHOT_FILE);
   if (!existsSync(path)) return emptyStored();
-  const raw = JSON.parse(readFileSync(path, "utf8")) as Partial<StoredSnapshot>;
-  if (raw.version === 3 && raw.driver && raw.schema)
-    return { files: {}, ...(raw as StoredSnapshot) };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(path, "utf8"));
+  } catch (e) {
+    throw new Error(
+      `better-schemic: ${SNAPSHOT_FILE} is not valid JSON (${(e as Error).message}). Restore it or regenerate with \`better-schemic gen --baseline\`.`,
+    );
+  }
+  if (isValidStoredSnapshot(raw)) return { files: {}, ...raw };
   return emptyStored();
+}
+
+const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+/** Runtime validation of a stored snapshot — a doctored file must not reach the diff/plan walkers. */
+function isValidStoredSnapshot(v: unknown): v is StoredSnapshot {
+  if (typeof v !== "object" || v === null) return false;
+  const snap = v as Partial<StoredSnapshot>;
+  if (snap.version !== 3 || typeof snap.driver !== "string") return false;
+  const schema = snap.schema as { kinds?: unknown } | undefined;
+  if (typeof schema !== "object" || schema === null) return false;
+  const kinds = schema.kinds;
+  if (typeof kinds !== "object" || kinds === null || Array.isArray(kinds))
+    return false;
+  for (const [kind, items] of Object.entries(kinds)) {
+    if (UNSAFE_KEYS.has(kind) || !Array.isArray(items)) return false;
+    for (const item of items) {
+      if (typeof item !== "object" || item === null) return false;
+      const obj = item as { kind?: unknown; name?: unknown };
+      if (typeof obj.kind !== "string" || typeof obj.name !== "string")
+        return false;
+    }
+  }
+  if (snap.files !== undefined) {
+    if (
+      typeof snap.files !== "object" ||
+      snap.files === null ||
+      Array.isArray(snap.files)
+    )
+      return false;
+    for (const value of Object.values(snap.files))
+      if (typeof value !== "string") return false;
+  }
+  return true;
 }
 
 export function writeSnapshot(metaDir: string, snapshot: StoredSnapshot): void {

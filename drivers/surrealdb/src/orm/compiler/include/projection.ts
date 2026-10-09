@@ -7,7 +7,7 @@
  * forms: flat `<link>_<path>` aliases for links, `out.<path>` for wildcard targets, and the
  * per-target `ProjectionSpec`s the decoder consumes.
  */
-import { escapeIdent } from "surrealdb";
+import { escapeIdentSafe as escapeIdent } from "../../../ident";
 import type { SchemalessMeta, TableMeta } from "../../meta";
 import { compileProjection, type ProjectionSpec } from "../projection";
 import {

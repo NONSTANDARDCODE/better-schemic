@@ -4,8 +4,9 @@
  * decoded can't drift apart. The codec resolution walks the table's Zod shape (`wire.ts` is the only
  * classifier) — it never re-parses a type string.
  */
-import { escapeIdent } from "surrealdb";
+
 import { z } from "zod";
+import { escapeIdentSafe as escapeIdent } from "../../ident";
 import type { ModelMeta, TableMeta } from "../meta";
 import type { IncludeSpec } from "./include";
 import {
@@ -253,6 +254,15 @@ function buildStarSchema(
 ): z.ZodType | undefined {
   if (!isTableMeta(meta) || (!omit.length && !split && !passthrough.length))
     return undefined;
+  // Memoized per (table, omit/split/passthrough shape): a `*` read with include/omit otherwise
+  // rebuilds the Zod object on every query. Failures (invalid split) are never cached.
+  const key = `${omit.join(",")}|${split ? split.join(".") : ""}|${passthrough.join(",")}`;
+  let byKey = STAR_CACHE.get(meta);
+  if (!byKey) {
+    byKey = new Map();
+    STAR_CACHE.set(meta, byKey);
+  }
+  if (byKey.has(key)) return byKey.get(key);
   if (split && split.length > 1)
     throw compileError(
       "ValidationError",
@@ -278,8 +288,12 @@ function buildStarSchema(
   let schema: z.ZodType = zObject(shape);
   if (omit.length)
     schema = (schema as unknown as { partial(): z.ZodType }).partial();
+  byKey.set(key, schema);
   return schema;
 }
+
+/** Built `*` schemas per table, keyed by the omit/split/passthrough shape. */
+const STAR_CACHE = new WeakMap<TableMeta, Map<string, z.ZodType | undefined>>();
 
 /** The element schema of an array/set field (`undefined` when it isn't one). */
 function elementSchema(schema: z.ZodType | undefined): z.ZodType | undefined {
@@ -433,8 +447,25 @@ export function resolveLeafCodec(
   meta: TableMeta,
   schemaPath: readonly string[],
 ): { schema?: z.ZodType; each: boolean } {
-  return leafSchema(meta, parsePath(schemaPath));
+  // Memoized per (table, path): the walker is read once per select/include leaf per query.
+  const key = schemaPath.join(".");
+  let byKey = LEAF_CACHE.get(meta);
+  if (!byKey) {
+    byKey = new Map();
+    LEAF_CACHE.set(meta, byKey);
+  }
+  const cached = byKey.get(key);
+  if (cached) return cached;
+  const resolved = leafSchema(meta, parsePath(schemaPath));
+  byKey.set(key, resolved);
+  return resolved;
 }
+
+/** Resolved leaf codecs per table, keyed by the dotted schema path. */
+const LEAF_CACHE = new WeakMap<
+  TableMeta,
+  Map<string, { schema?: z.ZodType; each: boolean }>
+>();
 
 // --- codec resolution (walks the Zod shape; never re-parses type strings) -------------------------
 

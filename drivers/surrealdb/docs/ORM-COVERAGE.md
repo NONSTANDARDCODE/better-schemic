@@ -265,7 +265,7 @@ Runtime `hooks.ts`, `plugins.ts`; built-ins `src/plugins/*` (subpaths `plugins/{
 | `soft-delete` filtering on `findUnique` | `[x]` by design | `where` is the unique target — filtering would break `uniqueTarget`; documented in-code |
 | `soft-delete` `deletedBy` from `meta.actor` | `[x]` | `test/unit/orm-plugins-soft-delete.test.ts` |
 | `restore`/`restoreById` via `UNSET` (not `SET null`) | `[x]` | codec `date().optional()` rejects `null`; documented in-code |
-| `tenant` runtime scope on `relate*`/`unrelate*`, `live`, `$raw`/`$query`/`$unsafe` | `[x]` by design | the DB permission (or `$withoutPlugins()`) is the boundary; documented in-code |
+| `tenant` runtime scope on `relate*`/`unrelate*`, `live`, `changes`, `$raw`/`$query`/`$unsafe` | `[x]` by design | the DB permission (or `$withoutPlugins()`) is the boundary; documented in-code |
 | `tenant` runtime on `insert({ onDuplicate: "update" \| map })` and `upsertMany` by ids | `[x]` fail-closed | `INSERT … ON DUPLICATE KEY UPDATE` has no `WHERE` (cross-tenant write) → `TenantViolation`; use `upsert({ data })`/`conflict` |
 | `tenant` runtime on `upsert({ create, update })` by id | `[x]` fail-closed | the `INSERT … ON DUPLICATE` lowering has no scoped form → teaching `UnsupportedCapability`; use `upsert({ data })` |
 | `create-only` guard on raw SQL (`$raw`/`$query`/`$unsafe`), `$sdk`, `relate*`/`unrelate*` | `[x]` by design | the preset's DB permission (record users) and the opt-in `hard` event (every session, raw included) are the boundary; documented in-code |

@@ -33,7 +33,9 @@ export function isSecretRef(v: unknown): v is SecretRef {
   if (typeof v !== "object" || v === null) return false;
   const r = v as Partial<SecretRef>;
   return (
-    (r.kind === "env" || r.kind === "secret") && typeof r.name === "string"
+    (r.kind === "env" || r.kind === "secret") &&
+    typeof r.name === "string" &&
+    r.name.length > 0
   );
 }
 
@@ -50,12 +52,17 @@ export interface SecretProvider {
 /** Default provider: resolves every {@link SecretRef} from `process.env[ref.name]`; throws if unset. */
 export const envSecretProvider: SecretProvider = {
   resolve(ref: SecretRef): string {
-    const value = process.env[ref.name];
-    if (value === undefined) {
+    // `Object.hasOwn` (not `in`/direct index): inherited members like `constructor`/`toString`
+    // would otherwise resolve to non-string functions despite the `string` return type.
+    if (
+      ref.name.length === 0 ||
+      !Object.hasOwn(process.env, ref.name) ||
+      typeof process.env[ref.name] !== "string"
+    ) {
       throw new Error(
         `better-schemic: secret ${ref.kind}(${JSON.stringify(ref.name)}) is not set in the environment`,
       );
     }
-    return value;
+    return process.env[ref.name] as string;
   },
 };

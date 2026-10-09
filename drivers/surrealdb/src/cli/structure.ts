@@ -772,12 +772,21 @@ export async function introspectStructured(
   exclude: Set<string> = new Set(),
 ): Promise<DbStructured> {
   const [dbInfo] = await db.query<[DbStructure]>("INFO FOR DB STRUCTURE");
+  const heads = (dbInfo.tables ?? []).filter((t) => !exclude.has(t.name));
+  // ONE round-trip for every per-table `INFO … STRUCTURE` (N+1 removed): the statements are
+  // independent and the server answers them in order, so the response array zips with `heads`.
+  const tableInfos =
+    heads.length === 0
+      ? []
+      : await db.query<TableStructure[]>(
+          heads
+            .map((t) => `INFO FOR TABLE ${escapeIdent(t.name)} STRUCTURE;`)
+            .join("\n"),
+        );
   const tables: StructTable[] = [];
-  for (const t of dbInfo.tables ?? []) {
-    if (exclude.has(t.name)) continue;
-    const [tinfo] = await db.query<[TableStructure]>(
-      `INFO FOR TABLE ${escapeIdent(t.name)} STRUCTURE`,
-    );
+  for (let i = 0; i < heads.length; i++) {
+    const t = heads[i] as (typeof heads)[number];
+    const tinfo = tableInfos[i] as TableStructure;
     tables.push({
       name: t.name,
       kind: {

@@ -1,4 +1,5 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { createServer } from "node:net";
 import { escapeIdent, Surreal } from "surrealdb";
 import type { SurrealZodCheckEmbedded } from "../config";
@@ -109,7 +110,9 @@ export async function spawnEphemeralServer(
 ): Promise<EphemeralServer> {
   const port = await freePort();
   const username = "root";
-  const password = "root";
+  // A RANDOM per-run password: the instance is loopback-bound, but a fixed root/root would let any
+  // local process sign in (and `--allow-all` runs scripted functions) while a replay is in flight.
+  const password = randomBytes(16).toString("hex");
   const child = spawn(
     bin,
     [

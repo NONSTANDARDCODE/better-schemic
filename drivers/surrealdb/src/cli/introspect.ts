@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Diff, ResolvedConfig } from "@better-schemic/core";
@@ -22,6 +23,28 @@ import { filterSnapshot, filterStructured } from "./surreal-filter";
 
 const SHADOW_DB = "__surreal_zod_shadow";
 const SHADOW_MIG_DB = "__surreal_zod_shadow_mig";
+
+/**
+ * Process-lifetime memo for shadow applies. The introspected result is derived ONLY from
+ * `(namespace, shadowDb, ddl)` — never from live data — so a watch tick with an unchanged schema
+ * skips the scratch database entirely. Bounded (cleared when full) and failure-evicting (a bad DDL
+ * must be re-tried, never cached).
+ */
+const SHADOW_CACHE = new Map<string, Promise<unknown>>();
+const SHADOW_CACHE_MAX = 8;
+function cachedShadow<T>(key: string, produce: () => Promise<T>): Promise<T> {
+  const hit = SHADOW_CACHE.get(key) as Promise<T> | undefined;
+  if (hit) return hit;
+  if (SHADOW_CACHE.size >= SHADOW_CACHE_MAX) SHADOW_CACHE.clear();
+  const run = produce().catch((e) => {
+    SHADOW_CACHE.delete(key);
+    throw e;
+  });
+  SHADOW_CACHE.set(key, run);
+  return run;
+}
+const shadowKey = (namespace: string, shadowDb: string, ddl: string): string =>
+  `${namespace}\u0000${shadowDb}\u0000${createHash("sha256").update(ddl).digest("hex")}`;
 
 // Apply order: tables, then fields, then indexes.
 const RANK: Record<DefineStatement["kind"], number> = {
@@ -62,16 +85,18 @@ async function applyToShadow(
   ddl: string,
 ): Promise<Snapshot> {
   const { namespace, database } = config.params as unknown as SurrealParams;
-  await db.query(`REMOVE DATABASE IF EXISTS ${escapeIdent(shadowDb)};`);
-  await db.query(`DEFINE DATABASE ${escapeIdent(shadowDb)};`);
-  try {
-    await db.use({ namespace, database: shadowDb });
-    if (ddl) await db.query(`BEGIN;\n${ddl}\nCOMMIT;`);
-    return await introspect(db);
-  } finally {
-    await db.use({ namespace, database });
+  return cachedShadow(shadowKey(namespace, shadowDb, ddl), async () => {
     await db.query(`REMOVE DATABASE IF EXISTS ${escapeIdent(shadowDb)};`);
-  }
+    await db.query(`DEFINE DATABASE ${escapeIdent(shadowDb)};`);
+    try {
+      await db.use({ namespace, database: shadowDb });
+      if (ddl) await db.query(`BEGIN;\n${ddl}\nCOMMIT;`);
+      return await introspect(db);
+    } finally {
+      await db.use({ namespace, database });
+      await db.query(`REMOVE DATABASE IF EXISTS ${escapeIdent(shadowDb)};`);
+    }
+  });
 }
 
 /**
@@ -85,16 +110,18 @@ export async function shadowStructured(
   ddl: string,
 ): Promise<DbStructured> {
   const { namespace, database } = config.params as unknown as SurrealParams;
-  await db.query(`REMOVE DATABASE IF EXISTS ${escapeIdent(SHADOW_DB)};`);
-  await db.query(`DEFINE DATABASE ${escapeIdent(SHADOW_DB)};`);
-  try {
-    await db.use({ namespace, database: SHADOW_DB });
-    if (ddl) await db.query(`BEGIN;\n${ddl}\nCOMMIT;`);
-    return await introspectStructured(db);
-  } finally {
-    await db.use({ namespace, database });
+  return cachedShadow(shadowKey(namespace, SHADOW_DB, ddl), async () => {
     await db.query(`REMOVE DATABASE IF EXISTS ${escapeIdent(SHADOW_DB)};`);
-  }
+    await db.query(`DEFINE DATABASE ${escapeIdent(SHADOW_DB)};`);
+    try {
+      await db.use({ namespace, database: SHADOW_DB });
+      if (ddl) await db.query(`BEGIN;\n${ddl}\nCOMMIT;`);
+      return await introspectStructured(db);
+    } finally {
+      await db.use({ namespace, database });
+      await db.query(`REMOVE DATABASE IF EXISTS ${escapeIdent(SHADOW_DB)};`);
+    }
+  });
 }
 
 /**

@@ -142,23 +142,37 @@ export function collectArg(value: string, prev: string[]): string[] {
   return [...prev, value];
 }
 
-/** Parse `["k=v", ...]` into `{ k: v }`; rejects an entry without `=`. */
-function parseArgs(
+/** `--args`/`--arg` keys that must never be written onto the resolver-args object. */
+const UNSAFE_ARG_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+/** Parse `["k=v", ...]` into `{ k: v }`; rejects an entry without `=` and reserved keys. */
+export function parseArgs(
   arg: string[] | undefined,
   argsJson?: string,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (argsJson) {
+    let parsed: unknown;
     try {
-      Object.assign(out, JSON.parse(argsJson) as Record<string, unknown>);
+      parsed = JSON.parse(argsJson);
     } catch {
       throw new Error(`--args must be a JSON object (got "${argsJson}").`);
+    }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+      throw new Error(`--args must be a JSON object (got "${argsJson}").`);
+    for (const [key, value] of Object.entries(parsed)) {
+      if (UNSAFE_ARG_KEYS.has(key))
+        throw new Error(`--args key "${key}" is reserved.`);
+      out[key] = value;
     }
   }
   for (const a of arg ?? []) {
     const i = a.indexOf("=");
     if (i < 0) throw new Error(`--arg must be key=value (got "${a}").`);
-    out[a.slice(0, i)] = a.slice(i + 1);
+    const key = a.slice(0, i);
+    if (UNSAFE_ARG_KEYS.has(key))
+      throw new Error(`--arg key "${key}" is reserved.`);
+    out[key] = a.slice(i + 1);
   }
   return out;
 }
@@ -194,7 +208,9 @@ export async function resolveTargets(
   const resolving = new Set<string>();
 
   const entryOf = (name: string): AnyConnectionEntry => {
-    const entry = config.connections[name];
+    const entry = Object.hasOwn(config.connections, name)
+      ? config.connections[name]
+      : undefined;
     if (!isConnectionEntry(entry))
       throw new Error(
         `No connection named "${name}". Known: ${names.join(", ") || "(none)"}.`,

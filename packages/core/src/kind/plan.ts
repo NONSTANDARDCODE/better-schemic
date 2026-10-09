@@ -133,9 +133,11 @@ export function snapshotKinds(
   const kinds: Record<string, PortableObject[]> = {};
   for (const o of schema) {
     if (registry?.isExcludedFromMigrations(o)) continue;
-    const bucket = kinds[o.kind] ?? [];
-    bucket.push(o);
-    kinds[o.kind] = bucket;
+    // `Object.hasOwn` (not `?? []`): a kind named `__proto__`/`constructor` must not read an
+    // inherited member as its bucket.
+    const bucket = Object.hasOwn(kinds, o.kind) ? kinds[o.kind] : undefined;
+    if (bucket) bucket.push(o);
+    else kinds[o.kind] = [o];
   }
   return { kinds };
 }
@@ -380,9 +382,7 @@ export function emitKinds(
 ): string[] {
   // Skip migration-unmanaged kinds/objects (e.g. key-bearing access) — they're applied out-of-band
   // by driver commands.
-  const managed = schema.filter(
-    (o) => !registry.isExcludedFromMigrations(o),
-  );
+  const managed = schema.filter((o) => !registry.isExcludedFromMigrations(o));
   return orderedSchema(registry, managed).flatMap(({ engine, portable }) =>
     engine.emit(portable),
   );

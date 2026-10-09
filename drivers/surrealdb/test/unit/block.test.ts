@@ -233,7 +233,7 @@ describe.skipIf(!URL)("block live", () => {
 
     const c = new Surreal();
     await c.connect(URL as string);
-    await c.signin({ username: "root", password: "root" });
+    await c.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
     await c.use({ namespace: "blk", database: "blk" });
     await c.query(
       "REMOVE TABLE IF EXISTS blk_post; REMOVE TABLE IF EXISTS blk_tally; REMOVE FUNCTION IF EXISTS fn::blk_bump_live;",
@@ -324,7 +324,7 @@ describe.skipIf(!EMPTY_URL)("empty block live", () => {
     const F = defineFunction("blk_noop").body(block());
     const c = new Surreal();
     await c.connect(EMPTY_URL as string);
-    await c.signin({ username: "root", password: "root" });
+    await c.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
     await c.use({ namespace: "blk_e", database: "blk_e" });
     await c.query("REMOVE FUNCTION IF EXISTS fn::blk_noop;");
     await c.query(emitDefStatement(F, { exists: "overwrite" }).ddl);

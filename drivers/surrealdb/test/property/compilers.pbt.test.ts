@@ -15,6 +15,7 @@
 import { describe, expect, test } from "bun:test";
 import fc from "fast-check";
 import { escapeIdent } from "surrealdb";
+import { escapeIdentSafe } from "../../src/ident";
 import { formatAssert, formatForAssert } from "../../src/checks";
 import { emitSurqlType, parseSurqlType } from "../../src/driver/surql-type";
 import {
@@ -46,6 +47,7 @@ const check = (prop: fc.IProperty<unknown>): void => {
 const stripEscaped = (sql: string): string =>
   sql
     .replace(/⟨(?:\\.|[^⟩])*⟩/g, "⟨⟩")
+    .replace(/`(?:\\.|[^`])*`/g, "``")
     .replace(/'(?:\\.|[^'\\])*'/g, "''")
     .replace(/"(?:\\.|[^"\\])*"/g, '""');
 
@@ -78,9 +80,6 @@ const SPECIAL_KEYS = new Set([
 const weirdField = fc.string({ minLength: 1, maxLength: 14 }).filter(
   (s) =>
     !/[.[\]]/.test(s) &&
-    // Exclude a trailing backslash: the SDK's `escapeIdent` does not escape `\`, so `…\⟩` is
-    // ambiguous (its output can't be reliably re-parsed). That is outside this compiler's contract.
-    !s.includes("\\") &&
     !SPECIAL_KEYS.has(s) &&
     !s.startsWith("$"),
 );
@@ -103,10 +102,13 @@ describe("compileWhere — pure compiler invariants", () => {
         const binds = createBinds();
         const sql = compileWhere({ [field]: value }, binds);
         const rendered = renderPath(field);
-        // Anything `escapeIdent` leaves bare is injection-safe; anything else MUST be wrapped.
+        // Anything `escapeIdentSafe` leaves bare is injection-safe; anything else MUST be wrapped —
+        // `⟨…⟩` normally, backticks when the name contains `⟩`/`\` (the SDK escaping mishandles both).
         if (rendered !== field) {
-          expect(rendered.startsWith("⟨")).toBe(true);
-          expect(rendered.endsWith("⟩")).toBe(true);
+          const angle = rendered.startsWith("⟨") && rendered.endsWith("⟩");
+          const tick = rendered.startsWith("`") && rendered.endsWith("`");
+          expect(angle || tick).toBe(true);
+          if (field.includes("⟩") || field.includes("\\")) expect(tick).toBe(true);
         }
         expect(sql).toBe(`${rendered} = $p0`);
         expect(binds.vars).toEqual({ p0: value });
@@ -259,9 +261,23 @@ describe("record ids", () => {
     check(
       fc.property(fc.string(), (id) => {
         const escaped = escapeRecordIdPart(id);
-        expect(escaped).toBe(bare.test(id) ? id : escapeIdent(id));
+        expect(escaped).toBe(bare.test(id) ? id : escapeIdentSafe(id));
       }),
     );
+  });
+
+  test("a hostile id/field cannot escape the identifier barrier", () => {
+    // Live-verified attack: the SDK's `escapeIdent` emits `⟨x\\⟩ OR true OR ⟨y⟩` for this name,
+    // which SurrealDB parses as `<ident> OR true OR <ident>` — injection. `escapeIdentSafe`
+    // backtick-quotes it into ONE inert identifier.
+    const hostile = "x\\⟩ OR true OR ⟨y";
+    const quoted = escapeIdentSafe(hostile);
+    expect(quoted.startsWith("`")).toBe(true);
+    expect(quoted.endsWith("`")).toBe(true);
+    expect(quoted.slice(1, -1)).not.toContain("`");
+    expect(renderPath(hostile)).toBe(quoted);
+    // Sanity: the SDK's output for the same name really is ambiguous.
+    expect(escapeIdent(hostile)).toContain("⟩ OR true OR ⟨");
   });
 });
 

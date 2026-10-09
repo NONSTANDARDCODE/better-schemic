@@ -113,7 +113,7 @@ describe.skipIf(!URL)("defineParam live", () => {
 
     const c = new Surreal();
     await c.connect(URL as string);
-    await c.signin({ username: "root", password: "root" });
+    await c.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
     await c.use({ namespace: "dp", database: "dp" });
     await c.query(
       "REMOVE PARAM IF EXISTS $dp_page_size; REMOVE PARAM IF EXISTS $dp_api_base; REMOVE PARAM IF EXISTS $dp_secret;",

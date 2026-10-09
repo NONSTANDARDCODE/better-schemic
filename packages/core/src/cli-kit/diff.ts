@@ -58,6 +58,30 @@ export function tokenDiff(before: string, after: string): string {
   const b = after.split(" ");
   const m = a.length;
   const n = b.length;
+  // With color: red/green/dim. Without (pipe / CI / NO_COLOR): git `--word-diff=plain` markers
+  // `[-removed-]`/`{+added+}` so removed-vs-added is unambiguous and assertable.
+  const colored = colorEnabled();
+  const del = (t: string) => (colored ? style.red(t) : `[-${t}-]`);
+  const ins = (t: string) => (colored ? style.green(t) : `{+${t}+}`);
+  const eq = (t: string) => (colored ? style.dim(t) : t);
+  // A full LCS matrix is O(m*n) cells; above the cap, keep the common prefix/suffix and mark the
+  // middle removed + added (a valid, coarser word diff — never an OOM).
+  if (m * n > TOKEN_LCS_LIMIT) {
+    let start = 0;
+    while (start < m && start < n && a[start] === b[start]) start++;
+    let endA = m;
+    let endB = n;
+    while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+      endA--;
+      endB--;
+    }
+    const out: string[] = [];
+    for (let i = 0; i < start; i++) out.push(eq(a[i] as string));
+    for (let i = start; i < endA; i++) out.push(del(a[i] as string));
+    for (let j = start; j < endB; j++) out.push(ins(b[j] as string));
+    for (let i = endA; i < m; i++) out.push(eq(a[i] as string));
+    return out.join(" ");
+  }
   const dp: number[][] = Array.from({ length: m + 1 }, () =>
     new Array(n + 1).fill(0),
   );
@@ -69,36 +93,37 @@ export function tokenDiff(before: string, after: string): string {
           : Math.max(dp[i + 1][j], dp[i][j + 1]);
     }
   }
-  // With color: red/green/dim. Without (pipe / CI / NO_COLOR): git `--word-diff=plain` markers
-  // `[-removed-]`/`{+added+}` so removed-vs-added is unambiguous and assertable.
-  const colored = colorEnabled();
-  const del = (t: string) => (colored ? style.red(t) : `[-${t}-]`);
-  const ins = (t: string) => (colored ? style.green(t) : `{+${t}+}`);
-  const eq = (t: string) => (colored ? style.dim(t) : t);
   const out: string[] = [];
   let i = 0;
   let j = 0;
   while (i < m && j < n) {
     if (a[i] === b[j]) {
-      out.push(eq(a[i]));
+      out.push(eq(a[i] as string));
       i++;
       j++;
     } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-      out.push(del(a[i++]));
+      out.push(del(a[i++] as string));
     } else {
-      out.push(ins(b[j++]));
+      out.push(ins(b[j++] as string));
     }
   }
-  while (i < m) out.push(del(a[i++]));
-  while (j < n) out.push(ins(b[j++]));
+  while (i < m) out.push(del(a[i++] as string));
+  while (j < n) out.push(ins(b[j++] as string));
   return out.join(" ");
 }
+
+/** Cell cap for the token LCS (~1M cells ≈ a few MB); above it the coarse prefix/suffix path runs. */
+const TOKEN_LCS_LIMIT = 1_000_000;
 
 /**
  * Prefix EVERY line of `text` with the diff indicator — statements are multi-line now that drivers
  * pretty-print display DDL, and a bare continuation line would read as context, not change.
  */
-function mark(text: string, sign: string, color: (s: string) => string): string {
+function mark(
+  text: string,
+  sign: string,
+  color: (s: string) => string,
+): string {
   return text
     .split("\n")
     .map((l) => color(`  ${sign} ${l}`))

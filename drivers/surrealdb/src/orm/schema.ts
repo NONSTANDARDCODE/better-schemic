@@ -241,6 +241,15 @@ function tableMeta(
 
   const relation = isRelationLike(def) ? def.config.relation : undefined;
 
+  // Dedupe the adjacency ONCE (outgoing wins) — `findEdge`/`edgesOf` are per-query reads.
+  const edges: EdgeRef[] = [];
+  const seenEdges = new Set<string>();
+  for (const edge of [...adjacency.outgoing, ...adjacency.incoming])
+    if (!seenEdges.has(edge.name)) {
+      seenEdges.add(edge.name);
+      edges.push(edge);
+    }
+
   return {
     key,
     name: def.name,
@@ -252,6 +261,10 @@ function tableMeta(
     links,
     outgoing: adjacency.outgoing,
     incoming: adjacency.incoming,
+    edges,
+    uniqueFields: (def.config.indexes ?? [])
+      .filter((index) => index.unique === true && index.fields.length === 1)
+      .map((index) => index.fields[0] as string),
     ...(relation
       ? {
           endpoints: {
@@ -329,6 +342,8 @@ function build(entries: SchemaInput): SchemaIndex {
         links: new Map(),
         outgoing: [],
         incoming: [],
+        edges: [],
+        uniqueFields: [],
       });
       tableDefs.push({ key, def: entry });
       if (isRelationLike(entry)) relationDefs.push({ key, def: entry });

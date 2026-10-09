@@ -2,7 +2,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { ResolvedConfig } from "@better-schemic/core";
 import {
-  existingTables,
   type Filter,
   type LocalOnly,
   loadDefs,
@@ -114,6 +113,44 @@ const pascal = (name: string) =>
   name
     .replace(/(^|[_-])([a-z])/g, (_, __, c) => c.toUpperCase())
     .replace(/[^A-Za-z0-9]/g, "");
+
+/**
+ * SECURITY: DB-controlled names are untrusted (a hostile/compromised database can contain any
+ * character inside `⟨…⟩`). These helpers keep generated code + file paths inert:
+ *
+ * - `safeFileName` — a filesystem-safe stem: no separators, no `..`, no leading dot, no control
+ *   chars. `pull` file planning uses it so a table named `../../evil` can't escape the schema dir.
+ * - `safeConst` — an identifier stem that always starts with a letter/`_`/`$`, so a const name can
+ *   never inject statements into the generated module.
+ * - `surqlBody` — escapes text embedded inside a generated `surql\`…\`` template literal, so a
+ *   backtick/`${` in a DB expression can't terminate the template and execute as TS.
+ * - `commentText` — collapses newlines in `//` comments (a newline would turn the rest into code).
+ */
+function safeFileName(name: string): string {
+  let out = "";
+  for (const ch of name) {
+    const code = ch.codePointAt(0) ?? 0;
+    out += ch === "/" || ch === "\\" || code < 0x20 || code === 0x7f ? "_" : ch;
+  }
+  const cleaned = out.replace(/^\.+/, "_");
+  return cleaned || "_";
+}
+
+function safeConst(name: string): string {
+  const id = pascal(name) || name.replace(/[^A-Za-z0-9_$]/g, "_");
+  return /^[A-Za-z_$]/.test(id) ? id : `T_${id || "unnamed"}`;
+}
+
+function surqlBody(text: string): string {
+  return text
+    .replace(/\\/g, "\\\\")
+    .replace(/`/g, "\\`")
+    .replace(/\$\{/g, "\\${");
+}
+
+function commentText(text: string): string {
+  return text.replace(/[\r\n\u2028\u2029]+/g, " ").slice(0, 500);
+}
 
 /** All `record<…>` target table names in a type expression (handles option/array/union nesting). */
 function recordTargets(kind: string): string[] {
@@ -450,7 +487,7 @@ function renderField(node: FieldNode, indent: string, ctx?: RenderCtx): string {
       } else if (/^(REJECT|CASCADE|UNSET)$/i.test(od)) {
         expr += `.$reference({ onDelete: ${JSON.stringify(od.toLowerCase())} })`;
       } else {
-        expr += `.$reference({ onDelete: surql\`${od}\` })`;
+        expr += `.$reference({ onDelete: surql\`${surqlBody(od)}\` })`;
       }
     }
     if (p.default !== undefined) {
@@ -459,19 +496,20 @@ function renderField(node: FieldNode, indent: string, ctx?: RenderCtx): string {
       // `surql` would churn hand-authored `.$default(false)` into `.$default(surql\`false\`)`.
       const method = p.defaultAlways ? "$defaultAlways" : "$default";
       const lit = parseLiteral(p.default);
-      expr += `.${method}(${lit ? JSON.stringify(lit.value) : `surql\`${p.default}\``})`;
+      expr += `.${method}(${lit ? JSON.stringify(lit.value) : `surql\`${surqlBody(p.default)}\``})`;
     }
     if (p.value !== undefined) {
       // A VALUE that reads `$value` consumes client input; DDL cannot say whether the field is
       // required on create, so pull declares the permissive side EXPLICITLY — the `$value`
       // authoring guard demands a choice, and create-optional is the honest DDL-only reading.
       const opt = readsClientValue(p.value) ? ", { optional: true }" : "";
-      expr += `.$value(surql\`${p.value}\`${opt})`;
+      expr += `.$value(surql\`${surqlBody(p.value)}\`${opt})`;
     }
-    if (p.computed !== undefined) expr += `.$computed(surql\`${p.computed}\`)`;
+    if (p.computed !== undefined)
+      expr += `.$computed(surql\`${surqlBody(p.computed)}\`)`;
     // The format builder re-bakes its `string::is_<fmt>` assert, so drop it when we reversed one.
     if (assertText !== undefined && assertText !== "" && !fmt)
-      expr += `.$assert(surql\`${assertText}\`)`;
+      expr += `.$assert(surql\`${surqlBody(assertText)}\`)`;
     if (p.readonly) expr += ".$readonly()";
     if (p.comment) expr += `.$comment(${JSON.stringify(p.comment)})`;
     const perm = renderPerms(
@@ -553,7 +591,7 @@ function renderTableConst(
   // aren't in INFO), then the common table config (comment / permissions / changefeed); TYPE ANY +
   // SCHEMALESS are implied by defineView.
   if (t.view !== undefined) {
-    let code = `export const ${ctx.constOf(t.name)} = defineView(${JSON.stringify(t.name)}).as(surql\`${t.view}\`)`;
+    let code = `export const ${ctx.constOf(t.name)} = defineView(${JSON.stringify(t.name)}).as(surql\`${surqlBody(t.view)}\`)`;
     if (t.comment) code += `\n  .comment(${JSON.stringify(t.comment)})`;
     const vperm = renderPerms(
       t.permissions,
@@ -704,7 +742,9 @@ function tableUnit(t: StructTable, ctx: RenderCtx): RenderedUnit {
   ];
   // Cross-table value imports (one per referenced table, sorted, self excluded).
   for (const dep of [...ctx.imports].filter((d) => d !== t.name).sort()) {
-    imports.push(`import { ${ctx.constOf(dep)} } from "./${dep}";`);
+    imports.push(
+      `import { ${ctx.constOf(dep)} } from "./${safeFileName(dep)}";`,
+    );
   }
   // `surql` lives in surrealdb (where hand-authored files import it from) — a separate line, never
   // folded into the @better-schemic/surrealdb import (which would reprint/reorder that import on every pull).
@@ -724,12 +764,12 @@ function tableUnit(t: StructTable, ctx: RenderCtx): RenderedUnit {
  *  the generated chain. Single-line results are unchanged. */
 function tpl(text: string, base: string): string {
   const fmt = formatSurql(text);
-  if (!fmt.includes("\n")) return `surql\`${fmt}\``;
+  if (!fmt.includes("\n")) return `surql\`${surqlBody(fmt)}\``;
   const body = fmt
     .split("\n")
     .map((l, i) => (i === 0 ? l : base + l))
     .join("\n");
-  return `surql\`${body}\``;
+  return `surql\`${surqlBody(body)}\``;
 }
 
 /** A const name for a function — `fn.name` sanitized to an identifier (`math::add` → `math_add`). */
@@ -840,12 +880,33 @@ export async function planPull(
     opts.filter ?? parseFilter({}),
   );
   const { tables, functions, accesses, analyzers, sequences = [] } = filtered;
-  // SECRET GUARD: SurrealDB returns param values READABLY — rendering a live param that the
-  // schema authors as secret/declared (out-of-band) would write its VALUE into source. Drop
-  // those from the pull; their defs stay as authored. (Best effort: an unloadable schema —
-  // e.g. first scaffold — skips the filter.)
-  const oob = await outOfBandParamNames(config.schemaPath);
-  const params = filtered.params.filter((p) => !oob.has(p.name));
+  // ONE schema load feeds the SECRET GUARD and the table→file map (previously two full passes).
+  // SurrealDB returns param values READABLY — rendering a live param that the schema authors as
+  // secret/declared (out-of-band) would write its VALUE into source. Drop those from the pull;
+  // their defs stay as authored. FAIL CLOSED: when the schema can't be loaded we can't tell which
+  // params are secret-bearing, so NO param is pulled (never leak a live value).
+  let oob: Set<string> | undefined;
+  const tableLoc = new Map<string, string>();
+  try {
+    const loaded = await loadDefs(config.schemaPath);
+    oob = new Set(
+      loaded.defs
+        .filter(
+          (d) =>
+            (d as { kind?: string }).kind === "param" &&
+            (d as { config?: { mode?: string } }).config?.mode !== "value",
+        )
+        .map((d) => (d as { name: string }).name),
+    );
+    for (const t of loaded.tables) {
+      const file = loaded.fileOf.get(t);
+      if (file) tableLoc.set(t.name, file);
+    }
+  } catch {
+    oob = undefined;
+  }
+  const params =
+    oob === undefined ? [] : filtered.params.filter((p) => !oob.has(p.name));
 
   const makeCtx = ctxFactory(tables);
   const keepLocal = opts.keepLocal ?? false;
@@ -861,6 +922,7 @@ export async function planPull(
       ...sequences.map(sequenceUnit),
     ];
     return {
+      root: config.root,
       files: [
         planFile(config.schemaPath, units, keepLocal, config, () =>
           assembleCombined(
@@ -875,7 +937,6 @@ export async function planPull(
   // Directory layout: one file per object, merged into wherever the object already lives (falling
   // back to its kind folder). A table the user keeps in some other file is updated there, in place.
   const dir = config.schemaPath;
-  const tableLoc = await existingTables(dir);
   const groups = new Map<string, RenderedUnit[]>();
   const add = (abs: string, u: RenderedUnit) => {
     const arr = groups.get(abs);
@@ -884,19 +945,28 @@ export async function planPull(
   };
   for (const t of tables)
     add(
-      tableLoc.get(t.name) ?? join(dir, "tables", `${t.name}.ts`),
+      tableLoc.get(t.name) ?? join(dir, "tables", `${safeFileName(t.name)}.ts`),
       tableUnit(t, makeCtx(t)),
     );
   for (const fn of functions)
-    add(join(dir, "functions", `${fn.name}.ts`), functionUnit(fn));
+    add(
+      join(dir, "functions", `${safeFileName(fn.name)}.ts`),
+      functionUnit(fn),
+    );
   for (const a of accesses)
-    add(join(dir, "access", `${a.name}.ts`), accessUnit(a));
+    add(join(dir, "access", `${safeFileName(a.name)}.ts`), accessUnit(a));
   for (const an of analyzers)
-    add(join(dir, "analyzers", `${an.name}.ts`), analyzerUnit(an));
+    add(
+      join(dir, "analyzers", `${safeFileName(an.name)}.ts`),
+      analyzerUnit(an),
+    );
   for (const pm of params)
-    add(join(dir, "params", `${pm.name}.ts`), paramUnit(pm));
+    add(join(dir, "params", `${safeFileName(pm.name)}.ts`), paramUnit(pm));
   for (const sq of sequences)
-    add(join(dir, "sequences", `${sq.name}.ts`), sequenceUnit(sq));
+    add(
+      join(dir, "sequences", `${safeFileName(sq.name)}.ts`),
+      sequenceUnit(sq),
+    );
 
   const files = [...groups].map(([abs, units]) =>
     planFile(abs, units, keepLocal, config, () =>
@@ -942,7 +1012,7 @@ export async function planPull(
     });
   }
   files.sort((a, b) => a.rel.localeCompare(b.rel));
-  return { files };
+  return { root: config.root, files };
 }
 
 /** Plan one file: create it from `fresh()` if absent, else merge the units into it. */
@@ -1067,25 +1137,6 @@ function analyzerUnit(a: StructAnalyzer): RenderedUnit {
   };
 }
 
-/** The names of authored OUT-OF-BAND params (secret/declared — no inline literal value): their
- *  live values must never be rendered by pull. Empty when the schema can't load. */
-async function outOfBandParamNames(schemaPath: string): Promise<Set<string>> {
-  try {
-    const { defs } = await loadDefs(schemaPath);
-    return new Set(
-      defs
-        .filter(
-          (d) =>
-            (d as { kind?: string }).kind === "param" &&
-            (d as { config?: { mode?: string } }).config?.mode !== "value",
-        )
-        .map((d) => (d as { name: string }).name),
-    );
-  } catch {
-    return new Set();
-  }
-}
-
 /** A canonical param VALUE text as a TS literal, when representable: `'x'` -> "x", `25` -> 25,
  *  true/false. Unrepresentable values regenerate as a DECLARED param with the text in a comment. */
 function paramValueTS(text: string): string | undefined {
@@ -1107,7 +1158,7 @@ function renderParamConst(p: StructParam): string {
   if (p.comment) expr += `.comment(${JSON.stringify(p.comment)})`;
   const note =
     value === undefined
-      ? `// live value \`${p.value}\` isn't a plain literal — declared-only; manage via \`sc param push\`\n`
+      ? `// live value \`${commentText(p.value)}\` isn't a plain literal — declared-only; manage via \`sc param push\`\n`
       : "";
   return `${note}export const ${fnConst(p.name)} = ${expr};`;
 }
@@ -1150,7 +1201,7 @@ function ctxFactory(tables: StructTable[]): (t: StructTable) => RenderCtx {
   const pulled = new Set(tables.map((t) => t.name));
   const graph = new Map(tables.map((t) => [t.name, tableRefs(t, pulled)]));
   const resolve = makeResolver(graph, pulled);
-  const constOf = (n: string) => pascal(n) || n;
+  const constOf = (n: string) => safeConst(n);
   return (t) => ({
     table: t.name,
     imports: new Set(),
@@ -1240,7 +1291,14 @@ export function renderPerFile(
 
 /** Assemble the single-file combined module (tables ordered so same-file refs resolve). */
 function assembleCombined(
-  { tables, functions, accesses, analyzers, params, sequences = [] }: DbStructured,
+  {
+    tables,
+    functions,
+    accesses,
+    analyzers,
+    params,
+    sequences = [],
+  }: DbStructured,
   makeCtx: (t: StructTable) => RenderCtx,
 ): string {
   // Render each const (collecting its same-file direct deps via ctx.imports), then order so deps

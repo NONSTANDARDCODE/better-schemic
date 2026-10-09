@@ -5,7 +5,8 @@
  * creates when a target is absent and creates outright when there is none. Batches set
  * `transactional: true` for atomicity.
  */
-import { escapeIdent, RecordId } from "surrealdb";
+import { RecordId } from "surrealdb";
+import { escapeIdentSafe as escapeIdent } from "../../ident";
 import { hasRefDeep } from "../../pure";
 import type { ModelMeta, SchemaIndex } from "../meta";
 import { compileProjection } from "./projection";

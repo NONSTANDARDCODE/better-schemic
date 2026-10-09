@@ -18,6 +18,7 @@ import {
   rejectDefValue,
   renderData,
   renderRef,
+  rewriteBind,
 } from "../pure";
 
 // The lowering PRIMITIVES live in ../pure (the authoring base needs them — e.g.
@@ -53,10 +54,7 @@ export function toFragment(
   let text = lowered.sql;
   const binds: Record<string, unknown> = {};
   for (const [name, value] of Object.entries(lowered.vars)) {
-    text = text.replace(
-      new RegExp(`\\$${name}(?![A-Za-z0-9_])`, "g"),
-      `$${prefix}${name}`,
-    );
+    text = rewriteBind(text, name, `${prefix}${name}`);
     binds[`${prefix}${name}`] = value;
   }
   return new BoundQuery(wrap(text), binds);

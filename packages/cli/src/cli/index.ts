@@ -13,9 +13,7 @@ import {
   type Diff,
   type DiffItem,
   type Driver,
-  duplicateTables,
   EMPTY_STORED,
-  existingTables,
   type FilterOpts,
   fail,
   formatDiff,
@@ -28,7 +26,6 @@ import {
   lineDiff,
   listMigrations,
   loadDefs,
-  loadSchemas,
   lowerSchema,
   ok,
   type PullFilePlan,
@@ -478,9 +475,16 @@ kindFlags(
         const once = async () => {
           // TypeScript view: render both sides PER FILE (matching `pull`'s layout) and diff each.
           if (opts.ts) {
+            // ONE schema load feeds the file map (offline, also the desired side) — replacing the
+            // separate `existingTables` pass over the same modules.
+            const loaded = await loadDefs(config.schemaPath);
+            const loc = new Map<string, string>();
+            for (const t of loaded.tables) {
+              const file = loaded.fileOf.get(t);
+              if (file) loc.set(t.name, file);
+            }
             // Map each object to its source file (where it lives in the schema, else its kind folder
             // — the driver names the folder per kind via the registry's display metadata).
-            const loc = await existingTables(config.schemaPath);
             const fileFor = (kind: string, name: string): string => {
               const abs = kind === "table" ? loc.get(name) : undefined;
               return abs
@@ -573,10 +577,9 @@ kindFlags(
               // then diff per file.
               const prev = readSnapshot(config.metaDir);
               const prevObjects = snapshotObjects(prev.schema);
-              const { tables, defs } = await loadDefs(config.schemaPath);
               const desiredObjects = lowerSchema(
                 driver.registry,
-                driver.explode(tables, defs),
+                driver.explode(loaded.tables, loaded.defs),
               );
               // No snapshot? Render against an empty current side — the whole schema shows as added
               // TS, the same as plain `diff` does against an empty snapshot.
@@ -871,13 +874,17 @@ dbFlags(
     const config = await resolveOne(opts);
     const driver = activeDriver(config);
 
-    // 1. Static validation (no connection): no duplicate tables, schemas parse.
-    const dups = await duplicateTables(config.schemaPath);
+    // 1. Static validation (no connection): no duplicate tables, schemas parse. ONE load feeds both
+    //    (the loader records duplicates while collapsing same-name defs).
+    const {
+      tables,
+      defs,
+      duplicates: dups,
+    } = await loadDefs(config.schemaPath);
     if (dups.size) {
       const lines = formatDuplicates(dups, config.root).map((l) => `  ${l}`);
       throw new Error(`${duplicateHeader(dups.size)}\n${lines.join("\n")}`);
     }
-    const { tables, defs } = await loadDefs(config.schemaPath);
     const kinds = summarizeKinds(
       driver.registry,
       lowerSchema(driver.registry, driver.explode(tables, defs)),
@@ -930,14 +937,13 @@ dbFlags(
       `${relative(config.root, config.schemaPath)} (${config.schemaIsFile ? "file" : "directory"})`,
     );
     try {
-      const defs = await loadSchemas(config.schemaPath);
+      const { tables, duplicates: dups } = await loadDefs(config.schemaPath);
       row(
         "tables",
-        defs.length
-          ? `${plural(defs.length, "table")} — ${defs.map((t) => t.name).join(", ")}`
+        tables.length
+          ? `${plural(tables.length, "table")} — ${tables.map((t) => t.name).join(", ")}`
           : "(none found)",
       );
-      const dups = await duplicateTables(config.schemaPath);
       if (dups.size) {
         console.log(`  ${fail(duplicateHeader(dups.size))}`);
         for (const line of formatDuplicates(dups, config.root))
@@ -948,13 +954,16 @@ dbFlags(
       console.log(`  ${fail(e instanceof Error ? e.message : String(e))}`);
     }
     // The connection params are driver-specific + opaque to the CLI — print them generically,
-    // redacting anything secret-looking (password/secret/token/key). The driver names the params.
+    // redacting anything secret-looking (password/secret/token/key) and any URL userinfo.
     console.log(style.bold("\nConnection"));
     const secret = /pass|secret|token|key/i;
+    const redactValue = (k: string, v: unknown): string => {
+      if (secret.test(k)) return "***";
+      return String(v ?? "").replace(/\/\/[^/@\s]+@/, "//***@");
+    };
     const params = Object.entries(config.params);
     if (params.length) {
-      for (const [k, v] of params)
-        row(k, secret.test(k) ? "***" : String(v ?? ""));
+      for (const [k, v] of params) row(k, redactValue(k, v));
     } else {
       row("params", "(none)");
     }
@@ -1023,6 +1032,10 @@ configFlag(
       );
     // The driver authors the file (throws for a kind it can't); it lands under the kind's folder.
     const content = driver.scaffoldEntity(kind, name);
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+      throw new Error(
+        `new: "${name}" is not a valid entity name — use letters, digits and underscores (starting with a letter).`,
+      );
     const target = join(
       config.schemaPath,
       driver.registry.display(kind).folder,
@@ -1031,7 +1044,14 @@ configFlag(
     if (existsSync(target))
       throw new Error(`${relative(config.root, target)} already exists.`);
     mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, content);
+    try {
+      // `wx`: create-or-fail atomically (no TOCTOU between the check and the write).
+      writeFileSync(target, content, { flag: "wx" });
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "EEXIST")
+        throw new Error(`${relative(config.root, target)} already exists.`);
+      throw e;
+    }
     console.log(
       `${ok(relative(config.root, target))}  ${style.dim("— author its fields, then `better-schemic gen`")}`,
     );

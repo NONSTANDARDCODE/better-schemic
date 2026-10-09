@@ -7,7 +7,7 @@
  * before `WHERE`, `SPLIT` after it, `VERSION` before `TIMEOUT`, and that parenthesized expressions
  * are a parse error in `ORDER BY`. The compiler emits the one accepted order.
  */
-import { escapeIdent } from "surrealdb";
+import { escapeIdentSafe as escapeIdent } from "../../ident";
 import type { ModelMeta, SchemaIndex } from "../meta";
 import { compileIncludes } from "./include";
 import {

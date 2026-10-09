@@ -18,7 +18,7 @@ const cmd = (k: string, v: string) =>
 async function ctxWith(ns: string, schemaPath = "") {
   const conn = new Surreal();
   await conn.connect(URL as string);
-  await conn.signin({ username: "root", password: "root" });
+  await conn.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
   await conn.use({ namespace: ns, database: ns });
   const out: string[] = [];
   const io = {

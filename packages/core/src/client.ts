@@ -63,7 +63,9 @@ function makeRuntimeContext(config: BetterSchemicConfig, root: string) {
         `cyclic connection resolution: "${name}" is already resolving (a resolver reached back into itself via ctx.connections)`,
       );
     }
-    const entry = config.connections[name];
+    const entry = Object.hasOwn(config.connections, name)
+      ? config.connections[name]
+      : undefined;
     if (!entry) throw new Error(`ctx.connections.${name}: no such connection`);
     if (!entry.client) {
       throw new Error(
@@ -180,7 +182,9 @@ export async function resolveFromConfig(
     opts.name ??
     config.defaultConnection ??
     (names.length === 1 ? names[0] : "default");
-  const entry = config.connections[name];
+  const entry = Object.hasOwn(config.connections, name as string)
+    ? config.connections[name as string]
+    : undefined;
   if (!entry) {
     throw new Error(
       `connection "${name}" is not defined in the config (have: ${names.join(", ") || "none"})`,

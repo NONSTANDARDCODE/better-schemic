@@ -18,6 +18,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+### Security
+- **surrealdb:** `escapeIdentSafe` (`src/ident.ts`) — the SDK's `escapeIdent` emits `\⟩`, which
+  SurrealDB 3.2 rejects, and a name like `x\⟩ OR true OR ⟨y` becomes `⟨x\\⟩ OR true OR ⟨y⟩` (the
+  identifier closes early; the rest executes as SQL — live-probed). Names containing `⟩`/`\` are now
+  backtick-quoted (backslash/backtick escaped) across the ORM compiler; everything else keeps the
+  SDK's canonical output. Probe: `test/live/orm-syntax.test.ts` ("identifier escaping — hardened").
+- **surrealdb:** `matches` escapes `/` inside regex sources — JS leaves a slash UNESCAPED inside a
+  character class (`[a/]`), which terminated the SurrealQL regex literal and spliced the tail as SQL.
+- **surrealdb:** function names are validated against the shared grammar at `defineFunction` AND in
+  the engine's `callable.invoke` (the name is spliced into `fn::…`, never bound).
+- **surrealdb:** `pull` treats a hostile/compromised database as untrusted: DB-controlled object
+  names are slugged for filenames, DB text embedded in generated TS is escaped (backticks/`${` in
+  `surql` templates, newlines in comments, safe const identifiers), the plan carries its schema root
+  and `applyPull` refuses paths outside it or through symlinks. `pull` also FAILS CLOSED on an
+  unloadable schema (no param values are rendered), and `sc new` validates the entity name and
+  writes with `wx` (create-or-fail).
+- **surrealdb:** credentials in URLs are redacted from connect/timeout/replay messages; `doctor`
+  redacts URL userinfo too; the query logger gains `redact` to mask bound values in shared/CI logs.
+- **surrealdb:** the ephemeral `check` server gets a random per-run password (was `root`/`root` with
+  `--allow-all` on a loopback port).
+- **core:** the pager is spawned shell-free (argv tokenizer; known shells refused) — a
+  repo-controlled `.env`/git config can no longer execute a shell script through `PAGER`/`GIT_PAGER`.
+- **core:** `envSecretProvider` uses `Object.hasOwn` + a string check (`constructor`/`toString` no
+  longer resolve as secrets); `isSecretRef` rejects empty names; `_snapshot.json` is shape-validated
+  (malformed → teaching error; unsafe kind buckets → empty) and `--args`/`--arg` reject
+  `__proto__`/`constructor`/`prototype`; connection lookups use `Object.hasOwn`.
+- **setup:** `create-better-schemic --pm` is validated against the known package managers.
+
+### Performance
+- **surrealdb:** `TableMeta` precomputes `edges` + `uniqueFields`; decode passthrough schemas,
+  `*`-projection schemas and leaf codecs are memoized per table; bind-rewrite regexes are cached;
+  delegates are built LAZILY per schema key, so transaction/fork clients over a large schema no
+  longer rebuild every delegate (and its ~26 closures) per attempt.
+- **surrealdb:** `introspectStructured` batches every per-table `INFO … STRUCTURE` into ONE
+  round-trip (removes the N+1 across `diff --live`/`push`/`pull`/`check`); shadow-database
+  introspections are memoized per `(namespace, DDL)` for watch runs; `access` bindings resolve
+  concurrently; a schema-build failure during `createBetterSchemic` now closes the connection.
+- **cli:** `check`/`doctor`/`diff --ts` load the schema once (the loader now returns duplicates +
+  the file map), and `pull` feeds its secret guard AND table→file map from ONE load, instead of
+  importing every module two-to-three times.
+- **core:** the LCS line/token diffs are capped and fall back to a prefix/suffix diff, so a large
+  generated file can no longer allocate an O(n²) matrix (OOM risk on `pull` previews/patches).
+
+
 ## [0.1.0-alpha.10] - 2026-10-08
 
 ### Added

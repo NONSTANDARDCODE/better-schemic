@@ -19,8 +19,8 @@ const URL = process.env.SURREAL_URL;
 const base = {
   schema: "./x",
   url: URL ?? "ws://127.0.0.1:8000/rpc",
-  username: "root",
-  password: "root",
+  username: process.env.SURREAL_USER ?? "root",
+  password: process.env.SURREAL_PASS ?? "root",
   authLevel: "root" as const,
 };
 

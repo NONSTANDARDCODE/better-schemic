@@ -912,6 +912,26 @@ function requireFlag(op: string, operand: unknown): void {
     );
 }
 
+/**
+ * Escape only UNESCAPED `/` in a regex source. JS already escapes a slash in most positions
+ * (`a/b` -> `a\/b`) but leaves it raw inside a character class (`[a/]`), which would terminate the
+ * SurrealQL regex literal. A slash preceded by an ODD number of backslashes is already escaped.
+ */
+function escapeRegexSlashes(source: string): string {
+  let out = "";
+  let backslashes = 0;
+  for (const ch of source) {
+    if (ch === "\\") {
+      backslashes++;
+      out += ch;
+      continue;
+    }
+    out += ch === "/" && backslashes % 2 === 0 ? "\\/" : ch;
+    backslashes = 0;
+  }
+  return out;
+}
+
 /** Compile a RegExp to a SurrealQL regex literal (Rust syntax: inline flags, no trailing flags). */
 function regexLiteral(re: RegExp, field: string): string {
   const flags = re.flags.replace(/[gyd]/g, "");
@@ -921,7 +941,10 @@ function regexLiteral(re: RegExp, field: string): string {
       `"matches" on "${field}" uses unsupported RegExp flags "${flags}" — use i/m/s/x, or a surql fragment.`,
       { field },
     );
-  return `/${flags ? `(?${flags})` : ""}${re.source}/`;
+  // JS leaves `/` UNESCAPED inside a character class (`[a/]`), which would terminate the SurrealQL
+  // regex literal and splice the rest as SQL. Escape every unescaped `/` (valid Rust-regex syntax).
+  const source = escapeRegexSlashes(re.source);
+  return `/${flags ? `(?${flags})` : ""}${source}/`;
 }
 
 /** A plain object that isn't a lowerable fragment/ref/range. */

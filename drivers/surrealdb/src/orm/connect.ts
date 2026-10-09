@@ -8,8 +8,9 @@
  * connection-boot policies live in one place.
  */
 import type { ResolvedConfig } from "@better-schemic/core";
-import { escapeIdent, Surreal } from "surrealdb";
-import { connect as surrealConnect } from "../connect";
+import { Surreal } from "surrealdb";
+import { redactUrl, connect as surrealConnect } from "../connect";
+import { escapeIdentSafe as escapeIdent } from "../ident";
 import {
   type BetterSchemicOptions,
   buildClient,
@@ -85,7 +86,7 @@ export async function createBetterSchemic<
       : withTimeout(
           connecting,
           options.connectTimeoutMs,
-          `createBetterSchemic: connect to ${options.url} timed out after ${options.connectTimeoutMs}ms.`,
+          `createBetterSchemic: connect to ${redactUrl(options.url)} timed out after ${options.connectTimeoutMs}ms.`,
         ));
     if (options.auth) {
       if ("access" in options.auth)
@@ -118,15 +119,16 @@ export async function createBetterSchemic<
       // insufficient privileges — assume the namespace/database already exist
     }
     if (namespace || database) await conn.use({ namespace, database });
+    return buildClient(
+      conn,
+      options.schema,
+      true,
+      options,
+    ) as unknown as Client<S, Surreal, P>;
   } catch (e) {
     await conn.close().catch(() => {});
     throw normalizeError(e, { operation: "connect" });
   }
-  return buildClient(conn, options.schema, true, options) as unknown as Client<
-    S,
-    Surreal,
-    P
-  >;
 }
 
 /**

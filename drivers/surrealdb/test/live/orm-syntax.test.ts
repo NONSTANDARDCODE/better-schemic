@@ -10,7 +10,8 @@ import { setDefaultTimeout } from "bun:test";
 setDefaultTimeout(120_000);
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { RecordId, Surreal, Uuid } from "surrealdb";
+import { RecordId, Surreal, Uuid, escapeIdent } from "surrealdb";
+import { escapeIdentSafe } from "../../src/ident";
 import {
   type EphemeralServer,
   spawnEphemeralServer,
@@ -2227,6 +2228,29 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
       });
       // `health()` is an HTTP-endpoint concept — over WebSocket the server has no such method.
       expect(await caught(db.health())).not.toBeNull();
+    });
+  });
+
+  describe("identifier escaping — hardened", () => {
+    test("names containing `⟩`/`\\` are backtick-quoted and round-trip (never inject)", async () => {
+      const hostile = "x\\⟩ OR true OR ⟨y";
+      // The SDK's `escapeIdent` output is ambiguous: the server parses the tail as SQL (the
+      // vulnerability — `<ident> OR true OR <ident>` evaluates truthy).
+      expect(await last(`RETURN ${escapeIdent(hostile)};`)).toBe(true);
+      // The hardened escaper wraps it in ONE backtick identifier; `= NONE` proves it evaluated as a
+      // single (undefined) identifier, not as an expression.
+      expect(await last(`RETURN ${escapeIdentSafe(hostile)} = NONE;`)).toBe(true);
+      // Real names round-trip through DDL + reads (including `⟩`, `\`, backtick and space).
+      for (const [i, name] of ["a⟩b", "a\\b", "a`b", "a b"].entries()) {
+        const ident = escapeIdentSafe(name);
+        const table = `esc_probe_${i}`;
+        await run(`DEFINE TABLE ${table};`);
+        await run(`CREATE ${table}:1 SET ${ident} = ${JSON.stringify(name)};`);
+        expect(await last(`SELECT VALUE ${ident} FROM ${table};`)).toEqual([
+          name,
+        ]);
+        await run(`REMOVE TABLE ${table};`);
+      }
     });
   });
 });

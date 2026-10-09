@@ -7,6 +7,7 @@
  * `$withContext` clone (`USE NS … DB …;`) and rides an open transaction. Argument values are lowered
  * by the shared compiler primitives, so a `surql` fragment composes and a plain value binds.
  */
+import { normalizeFnName } from "../fn-name";
 import {
   compileError,
   createBinds,
@@ -18,9 +19,6 @@ import { resolveContext } from "./context";
 import type { DelegateContext } from "./delegate";
 import { execute } from "./execute";
 import type { FnSurface } from "./types/fn";
-
-/** A function name: `name` or `ns::name` segments (validated — it is spliced, not bound). */
-const FN_NAME = /^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$/;
 
 /** Build `client.fn` over one client context (dynamic `call` + the schema shortcuts). */
 export function createFnOperations(ctx: DelegateContext): FnSurface {
@@ -77,11 +75,12 @@ export function createFnOperations(ctx: DelegateContext): FnSurface {
 
 /** `x` -> `fn::x`; `mod::x`/`fn::x` stay as written (validated against the segment grammar). */
 function normalizeName(name: string): string {
-  if (typeof name !== "string" || !FN_NAME.test(name))
+  const normalized = normalizeFnName(name);
+  if (normalized === undefined)
     throw compileError(
       "ValidationError",
       `fn.call: "${String(name)}" is not a valid function name — use fn::<name> or <name> (letters, digits, _ and :: segments).`,
       { operation: "fn.call" },
     );
-  return name.includes("::") ? name : `fn::${name}`;
+  return normalized;
 }

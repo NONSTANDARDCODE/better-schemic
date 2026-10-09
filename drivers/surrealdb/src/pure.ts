@@ -32,6 +32,7 @@ import {
   isUnionSchema,
   peelNullish,
 } from "./checks";
+import { FN_NAME } from "./fn-name";
 import type { FieldRefBase } from "./surql/ref";
 
 // Re-exported here (the authoring surface): `pull` reverses a baked format ASSERT to `s.<format>()`.
@@ -4316,7 +4317,13 @@ export class FunctionDef<A extends Shape = Shape, R = unknown> {
     /** Ordered named args, each an s schema. */
     readonly args: Record<string, AnyField>,
     readonly config: FunctionConfig = {},
-  ) {}
+  ) {
+    // The name is SPLICED into DDL/calls, never bound — validate the grammar at authoring time.
+    if (!FN_NAME.test(name))
+      throw new Error(
+        `defineFunction(${JSON.stringify(name)}): invalid function name — use letters, digits, _ and :: segments (starting with a letter/_).`,
+      );
+  }
   private withConfig<R2 = R>(c: Partial<FunctionConfig>): FunctionDef<A, R2> {
     return new FunctionDef<A, R2>(this.name, this.args, {
       ...this.config,
@@ -5183,6 +5190,30 @@ export function fragOf(v: unknown): BoundQuery | undefined {
   return typeof make === "function" ? (make.call(v) as BoundQuery) : undefined;
 }
 
+/** Regex-escape a literal string for use inside a `RegExp` source. */
+export function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Boundary-aware bind matcher (`$name`, never the prefix of `$name10`) — cached per bind name,
+ *  because fragment lowering rewrites the same names on every query. */
+const BIND_PATTERN_CACHE = new Map<string, RegExp>();
+export function bindPattern(name: string): RegExp {
+  let re = BIND_PATTERN_CACHE.get(name);
+  if (!re) {
+    if (BIND_PATTERN_CACHE.size >= 1000) BIND_PATTERN_CACHE.clear();
+    re = new RegExp(`\\$${escapeRegExp(name)}(?![A-Za-z0-9_])`, "g");
+    BIND_PATTERN_CACHE.set(name, re);
+  }
+  return re;
+}
+
+/** Rename one bind in a fragment's text, boundary-aware and replacement-safe (`$` in `to` never
+ *  expands as a `String.replace` pattern). */
+export function rewriteBind(text: string, name: string, to: string): string {
+  return text.replace(bindPattern(name), () => `$${to}`);
+}
+
 /** Merge a raw fragment's bindings into the pass's vars, renaming on collision (boundary-aware
  *  rewrite in the fragment text — `$b1` must not touch `$b10`). SDK-tagged fragments use globally
  *  countered names, so renames only fire for hand-built BoundQuery bindings. */
@@ -5194,10 +5225,7 @@ export function mergeRaw(q: BoundQuery, vars: Record<string, unknown>): string {
       let n = 2;
       while (`${name}_${n}` in vars) n++;
       use = `${name}_${n}`;
-      text = text.replace(
-        new RegExp(`\\$${name}(?![A-Za-z0-9_])`, "g"),
-        `$${use}`,
-      );
+      text = rewriteBind(text, name, use);
     }
     vars[use] = value;
   }

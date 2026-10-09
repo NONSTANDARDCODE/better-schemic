@@ -160,6 +160,7 @@ function resolveOptions(options: LoggerOptions = {}): ResolvedLoggerOptions {
     prettySql: options.prettySql ?? true,
     explain: options.explain ?? false,
     stack: options.stack ?? false,
+    redact: options.redact ?? false,
     write: options.write ?? ((line: string) => console.log(line)),
   };
 }
@@ -197,7 +198,7 @@ export function createQueryLogger(options: LoggerOptions = {}): QueryLogger {
       counter++;
       const lines =
         resolved.format === "json"
-          ? [renderJson(event, severity(event))]
+          ? [renderJson(event, severity(event), resolved)]
           : resolved.format === "compact"
             ? [renderCompact(event, resolved, palette, counter)]
             : renderPretty(event, resolved, palette, counter);
@@ -367,17 +368,24 @@ function valueText(value: unknown): string {
   return JSON.stringify(jsonSafe(value)) ?? String(value);
 }
 
+/** `[redacted]` — the placeholder bound values are masked with when `redact` is on. */
+const REDACTED = "[redacted]";
+
 /** The `$p0 = 18  $p1 = "abc"` line of a statement's binds. */
 function bindsLine(
   vars: Record<string, unknown>,
   palette: Palette,
-  maxLen: number,
+  opts: ResolvedLoggerOptions,
 ): string | undefined {
   const keys = Object.keys(vars);
   if (keys.length === 0) return undefined;
   const parts = keys.map(
     (key) =>
-      `${palette.paint("\x1b[90m", `$${key} =`)} ${renderValue(vars[key], palette, maxLen)}`,
+      `${palette.paint("\x1b[90m", `$${key} =`)} ${
+        opts.redact
+          ? palette.paint("\x1b[2m", REDACTED)
+          : renderValue(vars[key], palette, opts.maxValueLength)
+      }`,
   );
   return parts.join("  ");
 }
@@ -403,7 +411,7 @@ function renderPretty(
         opts.prettySql,
       ),
     );
-    const binds = bindsLine(statement.vars, palette, opts.maxValueLength);
+    const binds = bindsLine(statement.vars, palette, opts);
     if (binds) body.push(binds);
   });
   if (event.context)
@@ -521,7 +529,11 @@ function renderCompact(
 }
 
 /** The JSON output (one line per event). */
-function renderJson(event: QueryLogEvent, level: string): string {
+function renderJson(
+  event: QueryLogEvent,
+  level: string,
+  opts: ResolvedLoggerOptions,
+): string {
   const rows = rowLabel(event);
   return JSON.stringify({
     level,
@@ -542,7 +554,9 @@ function renderJson(event: QueryLogEvent, level: string): string {
       : {}),
     statements: event.statements.map((s) => ({
       sql: s.sql,
-      vars: jsonSafe(s.vars),
+      vars: opts.redact
+        ? Object.fromEntries(Object.keys(s.vars).map((k) => [k, REDACTED]))
+        : jsonSafe(s.vars),
     })),
     results: event.results.map((r) => ({
       status: r.status,

@@ -424,6 +424,7 @@ const client = betterSchemic(db, {
     explain: "slow",     // auto-EXPLAIN reads >= slowMs ("all" | "analyze" available)
     verbose: true,       // preview the first rows
     colors: "auto",      // honours NO_COLOR / FORCE_COLOR / TTY
+    redact: true,        // mask bound values (`$p0 = [redacted]`) for shared/CI logs
   },
 });
 

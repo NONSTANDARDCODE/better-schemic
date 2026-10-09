@@ -367,7 +367,7 @@ describe.skipIf(!URL)("catalog live sweep", () => {
     const { Surreal } = await import("surrealdb");
     const c = new Surreal();
     await c.connect(URL as string);
-    await c.signin({ username: "root", password: "root" });
+    await c.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
     await c.use({ namespace: "fnc", database: "fnc" });
     // record:: probes need the table to exist.
     await c.query("DEFINE TABLE OVERWRITE fnc_probe SCHEMALESS");

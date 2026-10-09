@@ -5,13 +5,14 @@ import {
   type AnalyzerDef,
   type AnyField,
   assertCompleteDef,
+  bindPattern,
   type Expr,
   type FieldPermissions,
   type FunctionDef,
   type PermOp,
   requireFunctionBody,
-  type SField,
   type SequenceDef,
+  type SField,
   type Shape,
   type StandaloneDef,
   type SurrealMeta,
@@ -30,9 +31,7 @@ export function inline(query: BoundQuery): string {
   let out = query.query;
   for (const [name, value] of Object.entries(query.bindings ?? {})) {
     // Boundary-aware: `$b1` must not rewrite the prefix of `$b10`.
-    out = out.replace(new RegExp(`\\$${name}(?![A-Za-z0-9_])`, "g"), () =>
-      toSurqlString(value),
-    );
+    out = out.replace(bindPattern(name), () => toSurqlString(value));
   }
   return out.trim();
 }

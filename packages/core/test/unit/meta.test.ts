@@ -68,6 +68,39 @@ describe("readSnapshot / writeSnapshot", () => {
     );
     expect(readSnapshot(meta).schema).toEqual({ kinds: {} });
   });
+
+  test("a malformed snapshot throws a teaching error (never a raw SyntaxError)", () => {
+    const meta = join(dir, "malformed");
+    mkdirSync(meta, { recursive: true });
+    writeFileSync(join(meta, "_snapshot.json"), "{ not json");
+    expect(() => readSnapshot(meta)).toThrow(/not valid JSON/);
+  });
+
+  test("a doctored snapshot never reaches the walkers (unsafe kinds / bad shapes read as EMPTY)", () => {
+    const meta = join(dir, "doctored");
+    mkdirSync(meta, { recursive: true });
+    for (const schema of [
+      { kinds: { __proto__: [] } },
+      { kinds: { table: "not-an-array" } },
+      { kinds: { table: [{ kind: 1, name: "x" }] } },
+    ]) {
+      writeFileSync(
+        join(meta, "_snapshot.json"),
+        JSON.stringify({ version: 3, driver: "surrealdb", schema }),
+      );
+      expect(readSnapshot(meta).schema).toEqual({ kinds: {} });
+    }
+    writeFileSync(
+      join(meta, "_snapshot.json"),
+      JSON.stringify({
+        version: 3,
+        driver: "surrealdb",
+        schema: { kinds: {} },
+        files: { t: 42 },
+      }),
+    );
+    expect(readSnapshot(meta).files).toEqual({});
+  });
 });
 
 describe("listMigrations", () => {

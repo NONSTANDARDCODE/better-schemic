@@ -144,7 +144,7 @@ describe.skipIf(!URL || !ECHO)("full-TS body live", () => {
 
     const c = new Surreal();
     await c.connect(URL as string);
-    await c.signin({ username: "root", password: "root" });
+    await c.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
     await c.use({ namespace: "fts", database: "fts" });
     await c.query("REMOVE FUNCTION IF EXISTS fn::fts_send_live;");
     await c.query("DEFINE PARAM OVERWRITE $resend_api_key VALUE 're_dummy';");

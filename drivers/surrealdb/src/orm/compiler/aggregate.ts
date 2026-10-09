@@ -9,7 +9,7 @@
  * - `SELECT VALUE id … LIMIT n` is the exists probe;
  * - `math::avg` does not exist in 3.x — the API's `avg` emits `math::mean`.
  */
-import { escapeIdent } from "surrealdb";
+import { escapeIdentSafe as escapeIdent } from "../../ident";
 import type { ModelMeta, SchemaIndex } from "../meta";
 import {
   type ProjectedField,

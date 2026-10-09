@@ -8,6 +8,20 @@ import type { AuthLevel, SurrealParams } from "./config";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** Strip credentials from a URL before it reaches a message/log (`wss://user:pass@host`). */
+export function redactUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    if (u.username || u.password) {
+      u.username = u.username ? "***" : "";
+      u.password = u.password ? "***" : "";
+    }
+    return u.toString();
+  } catch {
+    return url.replace(/\/\/[^/@]*@/, "//***@");
+  }
+}
+
 const envMs = (name: string, fallback: number): number => {
   // Legacy `SCHEMIC_*` spellings still work; the `BETTER_SCHEMIC_*` spelling wins when both are set.
   const raw =
@@ -122,7 +136,7 @@ export async function connect(
       );
     } catch (e) {
       throw new Error(
-        `Can't reach SurrealDB at ${url} — is the server running? (${errMsg(e)})`,
+        `Can't reach SurrealDB at ${redactUrl(url)} — is the server running? (${errMsg(e)})`,
       );
     }
     if (username && password) {

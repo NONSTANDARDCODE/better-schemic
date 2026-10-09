@@ -83,10 +83,7 @@ async function* tablesIn(
   jiti: ReturnType<typeof makeJiti>,
   file: string,
 ): AsyncGenerator<AnyTable> {
-  const mod = (await importSchemaModule(jiti, file)) as Record<
-    string,
-    unknown
-  >;
+  const mod = (await importSchemaModule(jiti, file)) as Record<string, unknown>;
   for (const value of Object.values(mod)) if (isTableDef(value)) yield value;
 }
 
@@ -100,6 +97,9 @@ export async function loadDefs(schemaPath: string): Promise<{
   defs: AuthoredDef[];
   /** Absolute source file each table/def was loaded from (for `diff`'s file annotations). */
   fileOf: Map<AnyTable | AuthoredDef, string>;
+  /** Table names defined in more than one file (same-name defs collapse; this is how `check`/
+   *  `doctor` surface the conflict). A file repeats when it defines the same name twice. */
+  duplicates: Map<string, string[]>;
 }> {
   if (!existsSync(schemaPath)) {
     throw new Error(`Schema path not found: ${schemaPath}`);
@@ -108,13 +108,17 @@ export async function loadDefs(schemaPath: string): Promise<{
   const tables = new Map<string, AnyTable>();
   const defs: AuthoredDef[] = [];
   const fileOf = new Map<AnyTable | AuthoredDef, string>();
+  const seen = new Map<string, string[]>();
   for (const file of schemaFiles(schemaPath)) {
     const mod = (await importSchemaModule(jiti, file)) as Record<
-    string,
-    unknown
-  >;
+      string,
+      unknown
+    >;
     for (const value of Object.values(mod)) {
       if (isTableDef(value)) {
+        const files = seen.get(value.name);
+        if (files) files.push(file);
+        else seen.set(value.name, [file]);
         tables.set(value.name, value); // last def of a name wins
         fileOf.set(value, file);
       } else if (isStandaloneDef(value)) {
@@ -127,7 +131,12 @@ export async function loadDefs(schemaPath: string): Promise<{
   const sorted = [...tables.values()].sort(
     (a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name),
   );
-  return { tables: sorted, defs, fileOf };
+  return {
+    tables: sorted,
+    defs,
+    fileOf,
+    duplicates: new Map([...seen].filter(([, files]) => files.length > 1)),
+  };
 }
 
 /** The tables/relations from `schemaPath` (standalone events excluded — see {@link loadDefs}). */

@@ -70,7 +70,7 @@ describe.skipIf(!URL)("normalize-ws live", () => {
 
     const c = new Surreal();
     await c.connect(URL as string);
-    await c.signin({ username: "root", password: "root" });
+    await c.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
     await c.use({ namespace: "nws", database: "nws" });
     await c.query(
       "REMOVE TABLE IF EXISTS nws_t; REMOVE FUNCTION IF EXISTS fn::nws_fn;",

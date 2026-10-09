@@ -3,7 +3,7 @@
  * `count(arrayLink[WHERE …])` (NONE-safe, unlike `array::len`), remounted by the decoder as one
  * `_count` object.
  */
-import { escapeIdent } from "surrealdb";
+import { escapeIdentSafe as escapeIdent } from "../../../ident";
 import { BetterSchemicError } from "../../errors";
 import type { TableMeta } from "../../meta";
 import {

@@ -4,7 +4,8 @@
  * codec-validated `data` with expression splice, record targets/ids, RETURN mapping, update
  * modes, patch/unset validation and the small arg guards. One place per rule, like `./shared`.
  */
-import { BoundQuery, escapeIdent, RecordId, toSurqlString } from "surrealdb";
+import { BoundQuery, RecordId, toSurqlString } from "surrealdb";
+import { escapeIdentSafe as escapeIdent } from "../../ident";
 import { hasRefDeep, type IdStrategy } from "../../pure";
 import { normalizeError } from "../errors";
 import type { ModelMeta, ResolvedIdStrategy, SchemaIndex } from "../meta";

@@ -4,7 +4,7 @@
  * validated against the relation's declared FROM/TO tables; edge data is codec-validated with
  * expression splice (`SET f = $p` per field).
  */
-import { escapeIdent } from "surrealdb";
+import { escapeIdentSafe as escapeIdent } from "../../ident";
 import { hasRefDeep } from "../../pure";
 import type { ModelMeta, SchemaIndex } from "../meta";
 import {

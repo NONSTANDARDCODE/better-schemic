@@ -358,13 +358,28 @@ function passthroughSchema(
   meta: TableMeta,
   fields: readonly string[],
 ): z.ZodType {
+  // Memoized per (table, field set): a nested FETCH include otherwise rebuilds the Zod object
+  // for EVERY decoded row.
+  const key = fields.join("\u0000");
+  let byKey = PASSTHROUGH_CACHE.get(meta);
+  if (!byKey) {
+    byKey = new Map();
+    PASSTHROUGH_CACHE.set(meta, byKey);
+  }
+  const cached = byKey.get(key);
+  if (cached) return cached;
   const shape = {
     ...(meta.def.object as unknown as { shape: Record<string, z.ZodType> })
       .shape,
   };
   for (const field of fields) shape[field] = z.unknown().optional();
-  return z.object(shape);
+  const schema = z.object(shape);
+  byKey.set(key, schema);
+  return schema;
 }
+
+/** Built passthrough schemas per table, keyed by the NUL-joined field list. */
+const PASSTHROUGH_CACHE = new WeakMap<TableMeta, Map<string, z.ZodType>>();
 
 /** The full row through the table codec. */
 function decodeFull(meta: TableMeta, row: unknown): unknown {

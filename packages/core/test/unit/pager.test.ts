@@ -1,6 +1,10 @@
-// The diff pager resolution (git-style precedence) and the pipe-through helper.
+// The diff pager resolution (git-style precedence) and the shell-free pipe-through helper.
 import { afterEach, describe, expect, test } from "bun:test";
-import { pipeThroughPager, resolvePager } from "../../src/cli-kit/pager";
+import {
+  parsePagerCommand,
+  pipeThroughPager,
+  resolvePager,
+} from "../../src/cli-kit/pager";
 
 const KEYS = [
   "GIT_PAGER",
@@ -9,10 +13,9 @@ const KEYS = [
   "GIT_CONFIG_SYSTEM",
   "GIT_CONFIG_NOSYSTEM",
 ] as const;
-const saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]])) as Record<
-  string,
-  string | undefined
->;
+const saved = Object.fromEntries(
+  KEYS.map((k) => [k, process.env[k]]),
+) as Record<string, string | undefined>;
 
 afterEach(() => {
   for (const k of KEYS) {
@@ -40,7 +43,30 @@ describe("resolvePager", () => {
 });
 
 describe("pipeThroughPager", () => {
-  test("pipes text through a shell command and resolves", async () => {
-    await pipeThroughPager("cat > /dev/null", "hello\nworld");
+  test("pipes text through a program + args, shell-free", async () => {
+    await pipeThroughPager("true", "hello\nworld");
+  });
+
+  test("parses quotes/escapes into argv (no shell expansion)", () => {
+    expect(parsePagerCommand("delta --side-by-side")).toEqual([
+      "delta",
+      "--side-by-side",
+    ]);
+    expect(parsePagerCommand('less -R -P "hello world"')).toEqual([
+      "less",
+      "-R",
+      "-P",
+      "hello world",
+    ]);
+    expect(parsePagerCommand("")).toEqual([]);
+  });
+
+  test("refuses to run a shell as the pager (the diff would become its script)", async () => {
+    await expect(pipeThroughPager("sh -c 'cat'", "x")).rejects.toThrow(
+      /refusing to run/,
+    );
+    await expect(pipeThroughPager("/bin/bash", "x")).rejects.toThrow(
+      /refusing to run/,
+    );
   });
 });

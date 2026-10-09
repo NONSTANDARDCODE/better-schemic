@@ -88,6 +88,16 @@ export interface TableMeta {
   readonly outgoing: readonly EdgeRef[];
   /** Edges whose `TO` includes this table. */
   readonly incoming: readonly EdgeRef[];
+  /**
+   * `outgoing` + `incoming`, deduped by physical name (outgoing wins) — precomputed once at index
+   * build so relation lookups (`findEdge`/`edgesOf`) never allocate per query.
+   */
+  readonly edges: readonly EdgeRef[];
+  /**
+   * The table's single-field `UNIQUE` index fields, precomputed once at index build (read by
+   * `findUnique`/`upsert`/`cursor` keyset compilation).
+   */
+  readonly uniqueFields: readonly string[];
   /** Only for `kind: "relation"`. */
   readonly endpoints?: RelationEndpoints;
 }
