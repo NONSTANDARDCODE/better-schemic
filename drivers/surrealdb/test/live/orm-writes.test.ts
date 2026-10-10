@@ -606,6 +606,84 @@ live("orm writes — live", () => {
     });
   });
 
+  test("write projections: server RETURN, client BEFORE/omit and counters", async () => {
+    const row = await client.users.create({ data: base("Proj") });
+
+    // Server-side projection rides the statement's own RETURN clause.
+    const projected = await client.users
+      .update({
+        where: { id: row.id },
+        data: { age: 31 },
+        select: { id: true, age: true, city: "address.city" },
+      })
+      .throw();
+    expect(projected).toEqual({ id: row.id, age: 31, city: "SP" });
+
+    // BEFORE state is projected client-side (RETURN BEFORE <proj> is a parse error).
+    const before = await client.users
+      .update({
+        where: { id: row.id },
+        data: { age: 32 },
+        return: "before",
+        select: { age: true },
+      })
+      .throw();
+    expect(before).toEqual({ age: 31 });
+
+    // omit is client-side too.
+    const omitted = await client.users
+      .update({
+        where: { id: row.id },
+        data: { age: 33 },
+        omit: ["email", "tags"],
+      })
+      .throw();
+    expect(omitted).not.toHaveProperty("email");
+    expect(omitted).not.toHaveProperty("tags");
+    expect(omitted).toMatchObject({ age: 33, address: { city: "SP" } });
+
+    // delete projects the removed row client-side.
+    const deleted = await client.users.delete({
+      where: { id: row.id },
+      select: { name: true },
+    });
+    expect(deleted).toEqual({ name: "Proj" });
+
+    // Counters: one server-side read-modify-write per call.
+    const post = await client.posts.create({
+      data: { title: "Counter", views: 10 },
+    });
+    const incremented = await client.posts.upsert({
+      where: { id: post.id },
+      data: { views: { increment: 5 } },
+      select: { views: true },
+    });
+    expect(incremented).toEqual({ views: 15 });
+    const previous = await client.posts
+      .update({
+        where: { id: post.id },
+        data: { views: { decrement: 3 } },
+        return: "before",
+        select: { views: true },
+      })
+      .throw();
+    expect(previous).toEqual({ views: 15 });
+    const after = await client.posts.findUnique({
+      where: { id: post.id },
+      select: { views: true },
+    });
+    expect(after).toEqual({ views: 12 });
+
+    await client.posts.updateEach({
+      data: [{ id: post.id, views: { increment: 1 } }],
+    });
+    const final = await client.posts.findUnique({
+      where: { id: post.id },
+      select: { views: true },
+    });
+    expect(final).toEqual({ views: 13 });
+  });
+
   test("create + relate return:'none' resolves null but creates the edge", async () => {
     await client.users.create({
       data: { ...base("RelNone"), id: "wr_user:relnone" },

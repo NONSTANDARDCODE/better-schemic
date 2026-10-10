@@ -27,12 +27,19 @@ export interface ProjectedField {
   readonly out: readonly string[];
   /** Key path in the raw row (`["address", "city"]`, or `[alias]` for an aliased entry). */
   readonly source: readonly string[];
+  /**
+   * The SCHEMA path a client-side projection reads from an already-decoded app row — set only for
+   * alias entries, whose raw `source` is the server output alias (`{ city: "address.city" }`).
+   */
+  readonly from?: readonly string[];
   /** The SQL expression (used for `SELECT VALUE`). */
   readonly expr: string;
   /** The field's codec, when the table is typed. */
   readonly schema?: z.ZodType;
   /** The raw value is an ARRAY of leaves (an array ancestor or a `[*]` path). */
   readonly each: boolean;
+  /** An expression entry — only the server can compute it (a client-side projection rejects it). */
+  readonly computed?: true;
 }
 
 /** How to turn raw rows into decoded values. */
@@ -336,7 +343,10 @@ function compileEntry(
         { operation },
       );
     parts.push(`${renderPath(entry)} AS ${escapeIdent(key)}`);
-    fields.push(projectedFieldFor(meta, [key], [key], entry.split("."), split));
+    fields.push({
+      ...projectedFieldFor(meta, [key], [key], entry.split("."), split),
+      from: pathSegments(entry),
+    });
     return;
   }
   if (isPlainObject(entry)) {
@@ -366,7 +376,13 @@ function compileEntry(
       );
     const expr = renderValue(entry, binds, binds.ctx());
     parts.push(`${expr} AS ${escapeIdent(key)}`);
-    fields.push({ out: [key], source: [key], expr, each: false });
+    fields.push({
+      out: [key],
+      source: [key],
+      expr,
+      each: false,
+      computed: true,
+    });
     return;
   }
   throw compileError(

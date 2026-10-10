@@ -52,11 +52,59 @@ export type WriteData<T> = {
     : WriteValue<RecordIdInputs<T[K]>>;
 };
 
+/** The numeric part of a field's app type — the only values an adjustment can carry. */
+type NumericOf<T> = Extract<T, number | bigint | Decimal>;
+
+/** `unknown`/`any` fields (schemaless models) accept any numeric adjustment. */
+type IsWide<T> = unknown extends T ? true : false;
+
+/** The adjustment markers a field accepts (numeric fields only). */
+type AdjustmentFor<T> = [NumericOf<T>] extends [never]
+  ? IsWide<T> extends true
+    ? ArithmeticAdjustment<number | bigint | Decimal>
+    : never
+  : ArithmeticAdjustment<NumericOf<T>>;
+
+/**
+ * The update payload: like {@link WriteData}, plus server-side adjustments on numeric fields
+ * (`{ increment: 10 }` → `SET balance += $p`, `{ decrement: 10 }` → `SET balance -= $p`) — one
+ * read-modify-write server-side, so concurrent writers can't lose an update.
+ */
+export type UpdateWriteData<T> = {
+  [K in keyof T]: K extends "id"
+    ? RecordIdInput
+    : WriteValue<RecordIdInputs<T[K]>> | AdjustmentFor<T[K]>;
+};
+
 /** The create payload (`DB-filled` / optional fields optional, `id` allowed). */
 export type CreateData<TD extends AnyTableDef> = WriteData<Create<TD>>;
 
 /** The update payload (partial; `id`/readonly excluded by the codec shape). */
-export type UpdateData<TD extends AnyTableDef> = WriteData<Update<TD>>;
+export type UpdateData<TD extends AnyTableDef> = UpdateWriteData<Update<TD>>;
+
+// --- arithmetic adjustments ----------------------------------------------------------------------
+
+/** The operand an adjustment accepts: a number/bigint/Decimal, or an expression fragment. */
+export type ArithmeticValue<T> = T | Surql<[T]> | Surql;
+
+/** `balance: { increment: 10 }` — `SET balance += $p`. */
+export interface Increment<T = number> {
+  readonly increment: ArithmeticValue<T>;
+}
+
+/** `balance: { decrement: 10 }` — `SET balance -= $p`. */
+export interface Decrement<T = number> {
+  readonly decrement: ArithmeticValue<T>;
+}
+
+/**
+ * A server-side adjustment of a numeric field. The wrapper shape is reserved in write payloads:
+ * an object with exactly one `increment`/`decrement` key is always an adjustment (wrap a literal
+ * object with that shape in a `surql` fragment). Adjustments need an EXISTING value — they are
+ * accepted by `update`/`updateMany`/`updateEach` and by the update branch of a strict `upsert`,
+ * never by a create/insert.
+ */
+export type ArithmeticAdjustment<T = number> = Increment<T> | Decrement<T>;
 
 /** How a write hands its result back. `after` is the default where the server supports it. */
 export type WriteReturn = "after" | "before" | "diff" | "none";
@@ -87,13 +135,25 @@ export interface WriteMeta {
 /** The `return` a write resolved to (`after` when absent). */
 type ReturnOf<A> = A extends { return: infer R } ? R : "after";
 
+/**
+ * The row type a write resolves to — the args literal drives it exactly like reads: `select` →
+ * the projected shape, `omit` → the row minus keys, neither → the whole `App<TD>`. The server
+ * projects when it can (`RETURN <projection>`); the BEFORE state, `delete`, `upsertDelta`, OMIT
+ * and the `create.relate` sugar are projected client-side after decoding.
+ */
+export type WriteResultOf<
+  TD extends AnyTableDef,
+  A,
+  S = SchemaInput,
+> = ResultOf<TD, A, S>;
+
 /** What `create` resolves to (the record did not exist before — `before` is always `null`). */
-export type CreatedResult<TD extends AnyTableDef, A> =
+export type CreatedResult<TD extends AnyTableDef, A, S = SchemaInput> =
   ReturnOf<A> extends "none" | "before"
     ? Promise<null>
     : ReturnOf<A> extends "diff"
       ? Promise<unknown[]>
-      : Promise<App<TD>>;
+      : Promise<WriteResultOf<TD, A, S>>;
 
 /**
  * What `insert`/`upsert` resolve to. `RETURN BEFORE` exposes the PREVIOUS row on a conflict
@@ -102,33 +162,28 @@ export type CreatedResult<TD extends AnyTableDef, A> =
  * contract-breaking `null`; a target-less `upsert` is a plain create, and a create filtered by a
  * permission/scope rejects the same way.
  */
-export type WrittenResult<TD extends AnyTableDef, A> =
+export type WrittenResult<TD extends AnyTableDef, A, S = SchemaInput> =
   ReturnOf<A> extends "none"
     ? Promise<null>
     : ReturnOf<A> extends "diff"
       ? Promise<unknown[]>
       : ReturnOf<A> extends "before"
-        ? Promise<App<TD> | null>
-        : Promise<App<TD>>;
+        ? Promise<WriteResultOf<TD, A, S> | null>
+        : Promise<WriteResultOf<TD, A, S>>;
 
 /** What `update`/`patch` resolve to (the target may not exist). */
-export type UpdatedResult<TD extends AnyTableDef, A> =
+export type UpdatedResult<TD extends AnyTableDef, A, S = SchemaInput> =
   ReturnOf<A> extends "none"
     ? Promise<null>
     : ReturnOf<A> extends "diff"
       ? Promise<unknown[]>
-      : ThrowingResult<App<TD>>;
+      : ThrowingResult<WriteResultOf<TD, A, S>>;
 
 /** What `delete` resolves to (`return` is `before` | `none`). */
-export type DeletedResult<TD extends AnyTableDef, A> =
-  ReturnOf<A> extends "none" ? Promise<null> : ThrowingResult<App<TD>>;
-
-/** The row type a batch resolves to (honoring `updateEach`'s `select` projection). */
-type BatchRow<TD extends AnyTableDef, A, S = SchemaInput> = A extends {
-  select: infer Sel;
-}
-  ? ResultOf<TD, { select: Sel }, S>
-  : App<TD>;
+export type DeletedResult<TD extends AnyTableDef, A, S = SchemaInput> =
+  ReturnOf<A> extends "none"
+    ? Promise<null>
+    : ThrowingResult<WriteResultOf<TD, A, S>>;
 
 /** What a batch write resolves to — a patch list for `diff`, the envelope otherwise. */
 export type BatchWriteResult<
@@ -138,7 +193,23 @@ export type BatchWriteResult<
 > =
   ReturnOf<A> extends "diff"
     ? Promise<unknown[]>
-    : Promise<BatchResult<BatchRow<TD, A, S>>>;
+    : Promise<BatchResult<WriteResultOf<TD, A, S>>>;
+
+// --- projections on the returned rows ------------------------------------------------------------
+
+/**
+ * The `select`/`omit` a write accepts for its returned rows — the SAME projection surface as reads
+ * (`select: { id: true, name: true, city: "address.city" }`, expressions, `*`, `omit`). The server
+ * carries it in the `RETURN` clause when possible; the BEFORE state, `delete`, `upsertDelta`, OMIT
+ * and `create.relate` are decoded whole and projected client-side (expression entries are rejected
+ * there — only the server can compute them).
+ */
+export interface WriteProjection<TD extends AnyTableDef> {
+  /** Project the returned record(s) (`select` parity with reads). */
+  readonly select?: SelectArg<TD>;
+  /** Remove top-level fields from the returned record(s) (client-side; `RETURN … OMIT` is a parse error). */
+  readonly omit?: readonly (keyof App<TD> & string)[];
+}
 
 // --- create --------------------------------------------------------------------------------------
 
@@ -154,7 +225,9 @@ export interface CreateRelateArg<TD extends AnyTableDef = AnyTableDef> {
 }
 
 /** A `create` payload without `relate` — every `return` the server supports. */
-export interface CreatePlainArgs<TD extends AnyTableDef> extends WriteMeta {
+export interface CreatePlainArgs<TD extends AnyTableDef>
+  extends WriteMeta,
+    WriteProjection<TD> {
   data: CreateData<TD>;
   /** `CREATE ONLY t` — one object back instead of an array. */
   readonly only?: boolean;
@@ -163,7 +236,9 @@ export interface CreatePlainArgs<TD extends AnyTableDef> extends WriteMeta {
 }
 
 /** A `create` payload with `relate` sugar — the batch can't express `RETURN DIFF`. */
-export interface CreateRelateArgs<TD extends AnyTableDef> extends WriteMeta {
+export interface CreateRelateArgs<TD extends AnyTableDef>
+  extends WriteMeta,
+    WriteProjection<TD> {
   data: CreateData<TD>;
   /** `CREATE ONLY t` — one object back instead of an array. */
   readonly only?: boolean;
@@ -178,7 +253,9 @@ export type CreateArgs<TD extends AnyTableDef> =
   | CreateRelateArgs<TD>;
 
 /** `createMany` — one `CREATE` per row in ONE round-trip (implicit transaction). */
-export interface CreateManyArgs<TD extends AnyTableDef> extends WriteMeta {
+export interface CreateManyArgs<TD extends AnyTableDef>
+  extends WriteMeta,
+    WriteProjection<TD> {
   data: readonly CreateData<TD>[];
   /**
    * Skip rows whose explicit `id` already exists (one `INSERT IGNORE` per row). Every item must
@@ -197,7 +274,9 @@ export type OnDuplicate<TD extends AnyTableDef> =
 // --- insert --------------------------------------------------------------------------------------
 
 /** `insert` — one row, keeping the payload's ids. */
-export interface InsertArgs<TD extends AnyTableDef> extends WriteMeta {
+export interface InsertArgs<TD extends AnyTableDef>
+  extends WriteMeta,
+    WriteProjection<TD> {
   data: CreateData<TD>;
   /** `ignore` → `INSERT IGNORE`; `update` → `ON DUPLICATE KEY UPDATE` from the payload; a map for explicit expressions. */
   readonly onDuplicate?: OnDuplicate<TD>;
@@ -205,7 +284,9 @@ export interface InsertArgs<TD extends AnyTableDef> extends WriteMeta {
 }
 
 /** `insertMany` — an array payload in a SINGLE statement (implicit transaction not needed). */
-export interface InsertManyArgs<TD extends AnyTableDef> extends WriteMeta {
+export interface InsertManyArgs<TD extends AnyTableDef>
+  extends WriteMeta,
+    WriteProjection<TD> {
   data: readonly CreateData<TD>[];
   readonly onDuplicate?: OnDuplicate<TD>;
   readonly return?: WriteReturn;
@@ -214,7 +295,9 @@ export interface InsertManyArgs<TD extends AnyTableDef> extends WriteMeta {
 // --- update --------------------------------------------------------------------------------------
 
 /** The clauses shared by every update-shaped op. */
-export interface UpdateClauses extends WriteMeta {
+export interface UpdateClauses<TD extends AnyTableDef = AnyTableDef>
+  extends WriteMeta,
+    WriteProjection<TD> {
   /** `merge` (default) | `set` | `content` | `replace` | `patch`. */
   readonly mode?: UpdateMode;
   /** JSON Patch ops (required when `mode: 'patch'`, and `patch()` needs them directly). */
@@ -228,7 +311,7 @@ export interface UpdateClauses extends WriteMeta {
 
 /** `update` — targets the id or a single-field UNIQUE index (a miss resolves `null`). */
 export interface UpdateArgs<TD extends AnyTableDef, S = SchemaInput>
-  extends UpdateClauses {
+  extends UpdateClauses<TD> {
   where: WhereInput<TD, S>;
   data?: UpdateData<TD>;
   /** `UPDATE ONLY t:id …` — one object back (id targets only). */
@@ -237,14 +320,15 @@ export interface UpdateArgs<TD extends AnyTableDef, S = SchemaInput>
 
 /** `updateMany` — every matching row (no `where` = the whole table; `rules` guards land in M6). */
 export interface UpdateManyArgs<TD extends AnyTableDef, S = SchemaInput>
-  extends UpdateClauses {
+  extends UpdateClauses<TD> {
   where?: WhereInput<TD, S>;
   data?: UpdateData<TD>;
 }
 
 /** `patch` — JSON Patch by unique target. */
 export interface PatchArgs<TD extends AnyTableDef, S = SchemaInput>
-  extends WriteMeta {
+  extends WriteMeta,
+    WriteProjection<TD> {
   where: WhereInput<TD, S>;
   patches: readonly PatchOp[];
   readonly return?: WriteReturn;
@@ -258,7 +342,8 @@ export interface PatchArgs<TD extends AnyTableDef, S = SchemaInput>
  *  `data.id`; `onMissing: "create"` restores create-or-update. With NO target at all the call is
  *  a plain `CREATE` (mirroring `create()`). */
 export interface UpsertArgs<TD extends AnyTableDef, S = SchemaInput>
-  extends WriteMeta {
+  extends WriteMeta,
+    WriteProjection<TD> {
   /**
    * The target: `{ id }` or a single-field UNIQUE index (same rules as `upsertDelta`). Omit it to
    * infer the target from `data.id`, or to CREATE when neither is present (a generated id per the
@@ -320,7 +405,8 @@ export type DeltaKey<T> = keyof T & string;
  * ```
  */
 export interface UpsertDeltaArgs<TD extends AnyTableDef, S = SchemaInput>
-  extends WriteMeta {
+  extends WriteMeta,
+    WriteProjection<TD> {
   /**
    * The target: `{ id }` or a single-field UNIQUE index (same rules as `upsert`). Omit it to get
    * a plain create (a generated id per the table's `idStrategy`), or let `data.id` infer it.
@@ -347,11 +433,17 @@ export interface UpsertDeltaArgs<TD extends AnyTableDef, S = SchemaInput>
 /**
  * What `upsertDelta` resolves to. `created` discriminates the branches, so `before`/`delta` narrow
  * automatically: a create has no previous state (`before: null`, `delta: null`, `changed: []`).
+ * A `select`/`omit` shapes `record`/`before` (and therefore `delta`/`changed`, which only cover the
+ * projected fields).
  */
-export type UpsertDeltaResult<TD extends AnyTableDef> =
+export type UpsertDeltaResult<
+  TD extends AnyTableDef,
+  A = unknown,
+  S = SchemaInput,
+> =
   | {
       /** The row AFTER the write, codec-decoded (same shape every other write returns). */
-      readonly record: App<TD>;
+      readonly record: WriteResultOf<TD, A, S>;
       /** `true` when the target did not exist and the create branch ran. */
       readonly created: true;
       /** Always `null` on create — there was no previous state. */
@@ -362,18 +454,20 @@ export type UpsertDeltaResult<TD extends AnyTableDef> =
       readonly changed: readonly [];
     }
   | {
-      readonly record: App<TD>;
+      readonly record: WriteResultOf<TD, A, S>;
       readonly created: false;
       /** The row BEFORE the update, codec-decoded. */
-      readonly before: App<TD>;
+      readonly before: WriteResultOf<TD, A, S>;
       /** `null` when the update changed nothing. Keys are exactly `changed`. */
-      readonly delta: FieldDelta<App<TD>> | null;
+      readonly delta: FieldDelta<WriteResultOf<TD, A, S>> | null;
       /** Names of the changed fields, in stable order; `[]` when nothing changed. */
-      readonly changed: readonly DeltaKey<App<TD>>[];
+      readonly changed: readonly DeltaKey<WriteResultOf<TD, A, S>>[];
     };
 
 /** `upsertMany` — with ids, one `INSERT … ON DUPLICATE`; without, `conflict` resolves each row. */
-export interface UpsertManyArgs<TD extends AnyTableDef> extends WriteMeta {
+export interface UpsertManyArgs<TD extends AnyTableDef>
+  extends WriteMeta,
+    WriteProjection<TD> {
   data: readonly CreateData<TD>[];
   /** `all` (default) updates every payload field; a map updates explicit fields/expressions. */
   readonly update?: "all" | UpdateData<TD>;
@@ -389,7 +483,8 @@ export interface UpsertManyArgs<TD extends AnyTableDef> extends WriteMeta {
 
 /** `delete` — id or single-field UNIQUE target; `before` (default) or `none`. */
 export interface DeleteArgs<TD extends AnyTableDef, S = SchemaInput>
-  extends WriteMeta {
+  extends WriteMeta,
+    WriteProjection<TD> {
   where: WhereInput<TD, S>;
   readonly return?: "before" | "none";
   readonly timeout?: number | string;
@@ -421,7 +516,8 @@ export type UpdateEachItem<
 export interface UpdateEachArgs<
   TD extends AnyTableDef,
   By extends keyof App<TD> & string = "id",
-> extends WriteMeta {
+> extends WriteMeta,
+    WriteProjection<TD> {
   data: readonly UpdateEachItem<TD, By>[];
   /** The matching field (default `id`). Every item must carry it; duplicates are rejected. */
   readonly by?: By;
@@ -432,8 +528,6 @@ export interface UpdateEachArgs<
   /** `return` (default) puts misses in `skipped`; `throw` raises `ResultNotFound`. */
   readonly onEmpty?: "return" | "throw";
   readonly return?: "after" | "none";
-  /** Project the returned rows (decoded client-side; compiled before the write runs). */
-  readonly select?: SelectArg<TD>;
   readonly timeout?: number | string;
 }
 
@@ -447,7 +541,9 @@ export type EndpointInput =
   | Surql;
 
 /** `relate` on an edge delegate — `RELATE from->edge->to`. */
-export interface RelateArgs<TD extends AnyTableDef> extends WriteMeta {
+export interface RelateArgs<TD extends AnyTableDef>
+  extends WriteMeta,
+    WriteProjection<TD> {
   from: EndpointInput;
   to: EndpointInput;
   /** A named edge id (`RELATE a->edge:named->b`). */
@@ -458,9 +554,11 @@ export interface RelateArgs<TD extends AnyTableDef> extends WriteMeta {
 }
 
 /** `relateMany` — one `RELATE` per item in ONE round-trip (implicit transaction). */
-export interface RelateManyArgs<TD extends AnyTableDef> extends WriteMeta {
-  /** Every statement returns its created edge — per-item `return` is not part of the surface. */
-  data: readonly Omit<RelateArgs<TD>, "return">[];
+export interface RelateManyArgs<TD extends AnyTableDef>
+  extends WriteMeta,
+    WriteProjection<TD> {
+  /** Every statement returns its created edge — per-item `return`/`select` are not part of the surface. */
+  data: readonly Omit<RelateArgs<TD>, "return" | "select" | "omit">[];
 }
 
 /** `unrelate` — delete the edges between two endpoints. */

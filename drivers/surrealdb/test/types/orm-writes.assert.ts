@@ -25,7 +25,6 @@ import type {
 } from "../../src/orm/types/write";
 import type { App } from "../../src/pure";
 
-
 const User = defineTable("user", {
   name: s.string(),
   email: s.string(),
@@ -250,6 +249,105 @@ function typeProbes(): void {
   void client.likes.unrelateMany({ where: { score: { lt: 3 } } });
   // @ts-expect-error — an endpoint can not be null
   void client.likes.relate({ from: null, to: "post:p" });
+
+  // --- projections on the returned rows (`select`/`omit`) ----------------------------------------
+  const selected = client.users.update({
+    where: { id: "user:a" },
+    data: { age: 2 },
+    select: { id: true, name: true },
+  });
+  assertType<
+    ThrowingResult<{ id: Row["id"]; name: string }>,
+    typeof selected
+  >();
+
+  const aliased = client.users.update({
+    where: { id: "user:a" },
+    data: { age: 2 },
+    select: { city: "address.city" },
+  });
+  assertType<ThrowingResult<{ city: string }>, typeof aliased>();
+
+  const beforeSelected = client.users.update({
+    where: { id: "user:a" },
+    data: { age: 2 },
+    return: "before",
+    select: { name: true },
+  });
+  assertType<ThrowingResult<{ name: string }>, typeof beforeSelected>();
+
+  const deleted = client.users.delete({
+    where: { id: "user:a" },
+    omit: ["email"],
+  });
+  assertType<ThrowingResult<Omit<Row, "email">>, typeof deleted>();
+
+  const createdProjected = client.users.create({
+    data: {
+      name: "A",
+      email: "a@x",
+      age: 1,
+      active: true,
+      tags: [],
+      address: { city: "X", country: "Y" },
+    },
+    select: { name: true },
+  });
+  assertType<Promise<{ name: string }>, typeof createdProjected>();
+
+  const batchSelected = client.users.updateMany({
+    where: { active: true },
+    data: { age: 2 },
+    select: { age: true },
+  });
+  assertType<Promise<BatchResult<{ age: number }>>, typeof batchSelected>();
+
+  void client.users.updateEach({
+    data: [{ id: "user:a", age: 1 }],
+    select: { name: true },
+  });
+
+  // --- numeric adjustments (`increment`/`decrement`) ---------------------------------------------
+  void client.users.update({
+    where: { id: "user:a" },
+    data: { age: { increment: 1 }, name: "B" },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: { age: { decrement: surql`2`.as<number>() } },
+  });
+  void client.users.updateEach({
+    data: [{ id: "user:a", age: { increment: 1 } }],
+  });
+  void client.users.upsert({
+    where: { id: "user:a" },
+    data: { age: { decrement: 1 } },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: {
+      // @ts-expect-error — increment needs a numeric field
+      name: { increment: 1 },
+    },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: {
+      // @ts-expect-error — the operand must be numeric
+      age: { increment: "x" },
+    },
+  });
+  void client.users.create({
+    data: {
+      name: "A",
+      email: "a@x",
+      // @ts-expect-error — create payloads don't take adjustments
+      age: { increment: 1 },
+      active: true,
+      tags: [],
+      address: { city: "X", country: "Y" },
+    },
+  });
 }
 void typeProbes;
 

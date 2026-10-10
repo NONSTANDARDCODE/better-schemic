@@ -4,7 +4,7 @@ Every row below was **live-probed** against SurrealDB **3.2.0** (local `surreal`
 in-memory server), never inferred. This is the ground truth the `/orm` compiler must emit: where the
 original design prototype disagreed, the server wins.
 
-- Executable half: `test/live/orm-syntax.test.ts` (117 probes, skips without the `surreal` binary).
+- Executable half: `test/live/orm-syntax.test.ts` (125 probes, skips without the `surreal` binary).
   A server upgrade that changes any behaviour here fails that suite first.
 - Related: [`graph-syntax-map.md`](./graph-syntax-map.md) (graph traversal detail, probed on 3.1.4).
 - How to re-run: `cd drivers/surrealdb && bun test test/live/orm-syntax.test.ts`.
@@ -165,6 +165,29 @@ original design prototype disagreed, the server wins.
 | `BEFORE` | estado anterior (array) |
 | `AFTER` | estado resultante (array) |
 | `DIFF` | `[[ { op: "replace", path: "/age", value } ]]` (JSON Patch) |
+
+#### 2.4.1 `RETURN <projeção>` nas mutations (probe 3.2.0)
+
+| Forma | Resultado |
+| --- | --- |
+| `UPDATE … SET … RETURN name, age` | `[{ name, age }]` — projeção por lista; paths aninhados (`address.city`) aninham como no `SELECT` |
+| `UPDATE ONLY … RETURN name` | objeto (não array) |
+| `RETURN <expr> AS alias` | avaliado pelo servidor (`string::uppercase(name) AS upper`) |
+| `RETURN *` / `RETURN *, name` | linha completa (+ entradas extras) |
+| `RETURN <proj> TIMEOUT 5s` | ok — `RETURN` **antes** de `TIMEOUT` |
+| `RETURN * OMIT age` | **parse error** — `OMIT` não existe em mutations; o ORM aplica `omit` client-side |
+| `CREATE`/`INSERT`/`UPSERT`/`RELATE` e os branches `THEN`/`ELSE` do `LET`+`IF` aceitam `RETURN <proj>` | um objeto por linha (ou array na forma de tabela) |
+| `DELETE … RETURN name` | a projeção avalia **após** a remoção → campos `NONE`; o ORM usa `RETURN BEFORE` + projeção client-side |
+| `RETURN $before.name AS nome` | avalia o estado anterior no RETURN (`RETURN VALUE $before` devolve a linha inteira; `$before.name` sem alias imprime `{}`) |
+
+#### 2.4.2 Atribuição composta `SET f ±= $p` (probe 3.2.0)
+
+| Forma | Resultado |
+| --- | --- |
+| `UPDATE ONLY t:id SET n -= $d RETURN BEFORE` | um read-modify-write; `RETURN BEFORE` devolve o estado anterior |
+| `SET meta.a += $d` | path aninhado ajusta em profundidade; objetos ausentes (`prefs.theme`) são criados |
+| `SET f += $x` em campo ausente | `NONE + n` = `n` no UPDATE (o `ON DUPLICATE` erra no branch de create — §2.2) |
+| `SET s += '!'` / `SET arr += ['y']` | `+=` é atribuição composta geral (string concat, array append); o TIPO do ORM restringe `increment`/`decrement` a campos numéricos e o runtime valida a coluna |
 
 ### 2.5 `DELETE`
 

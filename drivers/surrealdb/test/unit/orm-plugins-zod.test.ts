@@ -3,6 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import { RecordId } from "surrealdb";
 import { z } from "zod";
+import { surql } from "../../src/index";
 import { betterSchemic } from "../../src/orm/client";
 import { defineSchema } from "../../src/orm/schema";
 import { zod } from "../../src/plugins/zod";
@@ -138,6 +139,61 @@ describe("zod — write validation", () => {
           where: { id: "user:1" },
           data: { name: "Aeon" },
           onMissing: "create",
+        }),
+      ),
+    ).toBeUndefined();
+  });
+});
+
+describe("zod — numeric adjustments", () => {
+  const Acct = defineTable("acct", { balance: s.int(), name: s.string() });
+  const acctSchema = defineSchema({ accounts: Acct });
+  const rules = {
+    acct: z.object({
+      balance: z.number().min(0).optional(),
+      name: z.string().optional(),
+    }),
+  };
+  const acctClient = () => {
+    const { conn } = fakeConn((sql) =>
+      lines(sql).map(() =>
+        ok([{ id: new RecordId("acct", 1), balance: 10, name: "A" }]),
+      ),
+    );
+    return betterSchemic(conn, {
+      schema: acctSchema,
+      plugins: [zod({ schemas: rules })],
+    });
+  };
+
+  test("the marker wrapper is substituted by its OPERAND for validation", async () => {
+    const client = acctClient();
+    expect(
+      await codeOf(() =>
+        client.accounts.update({
+          where: { id: "acct:1" },
+          data: { balance: { increment: 5 } },
+        }),
+      ),
+    ).toBeUndefined();
+    // The operand itself is what the app schema checks (`min(0)` rejects -5).
+    expect(
+      await codeOf(() =>
+        client.accounts.update({
+          where: { id: "acct:1" },
+          data: { balance: { increment: -5 } },
+        }),
+      ),
+    ).toBe("ValidationError");
+  });
+
+  test("expression operands are dropped from validation (the server enforces them)", async () => {
+    const client = acctClient();
+    expect(
+      await codeOf(() =>
+        client.accounts.update({
+          where: { id: "acct:1" },
+          data: { balance: { increment: surql`1`.as<number>() } },
         }),
       ),
     ).toBeUndefined();

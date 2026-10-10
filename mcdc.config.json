@@ -175,6 +175,12 @@
       "table": 0,
       "unknown": 13
     },
+    "drivers/surrealdb/src/orm/compiler/write-shared.ts": {
+      "total": 113,
+      "auto": 100,
+      "table": 0,
+      "unknown": 13
+    },
     "packages/core/src/cli-kit/config.ts": {
       "total": 21,
       "auto": 8,
@@ -193,6 +199,12 @@
       "table": 0,
       "unknown": 11
     },
+    "drivers/surrealdb/src/orm/compiler/mutate.ts": {
+      "total": 158,
+      "auto": 147,
+      "table": 0,
+      "unknown": 11
+    },
     "drivers/surrealdb/src/orm/schema.ts": {
       "total": 58,
       "auto": 47,
@@ -200,8 +212,8 @@
       "unknown": 11
     },
     "drivers/surrealdb/src/orm/writes.ts": {
-      "total": 47,
-      "auto": 36,
+      "total": 50,
+      "auto": 39,
       "table": 0,
       "unknown": 11
     },
@@ -228,12 +240,6 @@
       "auto": 72,
       "table": 0,
       "unknown": 10
-    },
-    "drivers/surrealdb/src/orm/compiler/mutate.ts": {
-      "total": 143,
-      "auto": 134,
-      "table": 0,
-      "unknown": 9
     },
     "drivers/surrealdb/src/orm/compiler/relations.ts": {
       "total": 58,
@@ -283,12 +289,6 @@
       "table": 0,
       "unknown": 8
     },
-    "drivers/surrealdb/src/orm/compiler/write-shared.ts": {
-      "total": 79,
-      "auto": 72,
-      "table": 0,
-      "unknown": 7
-    },
     "drivers/surrealdb/src/orm/api.ts": {
       "total": 11,
       "auto": 5,
@@ -296,8 +296,8 @@
       "unknown": 6
     },
     "drivers/surrealdb/src/orm/compiler/relate.ts": {
-      "total": 47,
-      "auto": 41,
+      "total": 53,
+      "auto": 47,
       "table": 0,
       "unknown": 6
     },
@@ -499,6 +499,12 @@
       "table": 0,
       "unknown": 0
     },
+    "drivers/surrealdb/src/orm/arithmetic.ts": {
+      "total": 16,
+      "auto": 16,
+      "table": 0,
+      "unknown": 0
+    },
     "drivers/surrealdb/src/orm/auth.ts": {
       "total": 3,
       "auto": 3,
@@ -530,8 +536,8 @@
       "unknown": 0
     },
     "drivers/surrealdb/src/orm/compiler/write.ts": {
-      "total": 17,
-      "auto": 17,
+      "total": 34,
+      "auto": 34,
       "table": 0,
       "unknown": 0
     },

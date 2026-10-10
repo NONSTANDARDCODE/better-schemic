@@ -484,7 +484,7 @@ client-side fail-fast para sessões privilegiadas e `updatedAt` suprimido pelo `
   pré-existente em QUALQUER tabela com evento); README, `ORM-COVERAGE.md` §7/§8, `COVERAGE.md`,
   `orm-syntax-map.md` §2.5, CHANGELOG.
 
-## M15 — string ids: a superfície do ORM fala string bare (RecordId só no wire)
+## M15 — string ids: a superfície do ORM fala string bare (RecordId só no wire) ✅ *(complete)*
 
 A fricção do `apps/core`: `extractId`/`toBareRecordId`/codecs locais em todo call site. O modo
 string-id faz o APP ler/gravar strings bare (`01M…`), mantendo `RecordId` apenas no wire/DB —
@@ -518,3 +518,31 @@ string-id faz o APP ler/gravar strings bare (`01M…`), mantendo `RecordId` apen
   manifests, README, `ORM-COVERAGE.md` §11, `COVERAGE.md`, `orm-syntax-map.md` §12, CHANGELOG.
   Documentado: `db.query()` cru, `live` e `changes` continuam devolvendo `RecordId`; `sc pull` não
   recupera o modo (como `idStrategy`).
+
+## M16 — write projections (`select`/`omit`) + ajustes numéricos (`{ increment }`/`{ decrement }`) ✅ *(complete)*
+
+Uma passada de DX/performance sobre o RETORNO das escritas: toda op que devolve linha aceita a MESMA
+projeção das leituras, e contadores ajustam num read-modify-write do servidor (sem lost update).
+
+- ✅ **M16.1 superfície** — `select`/`omit` em `create`/`createMany`/`insert`/`insertMany`/`update`/
+  `updateMany`/`patch`/`upsert`/`upsertDelta`/`upsertMany`/`delete`/`updateEach`/`relate`/
+  `relateMany` (`WriteProjection`); `select`+`return:"diff"` → `ReturnNotSupported`.
+- ✅ **M16.2 lowering** — o servidor carrega a projeção no próprio `RETURN <proj>` (paths aninhados,
+  aliases, expressões, `*`; `RETURN … OMIT` é parse error — omit vai client-side); BEFORE/`delete`/
+  `upsertDelta`/`create.relate` decodificam a linha inteira e projetam no cliente (entradas de
+  expressão → `ReturnNotSupported`); `updateEach.select` agora também usa o RETURN do servidor.
+- ✅ **M16.3 `increment`/`decrement`** — `data: { balance: { decrement: 10 } }` → `SET balance -= $p`
+  (uma ida); merge achata objetos aninhados em leaves (`SET address.city = $p`) para preservar o
+  merge profundo; `set` mantém atribuições top-level; operandos number/bigint/`Decimal`/expressão;
+  alvo validado (campo numérico conhecido, nunca `id`); payloads de create (create/insert/relate/
+  `onDuplicate`/`upsertMany.update`/branch de create) → `ValidationError` teaching; o plugin `zod`
+  valida o OPERANDO (substitui o wrapper).
+- ✅ **M16.4 tipos** — resultados dirigidos pelo literal dos args como nas leituras
+  (`ResultOf`/`WriteResultOf` em `CreatedResult`/`WrittenResult`/`UpdatedResult`/`DeletedResult`/
+  `BatchWriteResult`/`UpsertDeltaResult`, incluindo `record`/`before`/`delta`/`changed`);
+  `UpdateWriteData` aceita `Increment`/`Decrement` só em campos numéricos; `CreateData` segue sem
+  marcadores.
+- ✅ **M16.5 testes + docs** — unit (`test/unit/orm-writes-projection.test.ts`), live (probes
+  `WRITE PROJECTIONS` em `test/live/orm-syntax.test.ts`), tipos (`orm-writes.assert.ts`); README,
+  `ORM-COVERAGE.md` §2, `orm-syntax-map.md` §2.4.1/§2.4.2 (125 probes), CHANGELOG, cookbook
+  `examples/orm/writes.ts` + manifest regenerado.

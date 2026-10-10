@@ -45,6 +45,14 @@ bench("UpdatedResult<TD> — ThrowingResult dispatch", () => {
   return {} as UpdatedResult<U, { return: "before" }>;
 });
 
+bench("CreatedResult<TD> — a projected selection", () => {
+  return {} as CreatedResult<U, { select: { name: true; age: true } }>;
+});
+
+bench("UpdateData<TD> with a numeric adjustment", () => {
+  return {} as UpdateData<U> & { age: { increment: number } };
+});
+
 bench("BatchWriteResult<TD> — the batch envelope", () => {
   return {} as BatchWriteResult<U, Record<string, never>>;
 });

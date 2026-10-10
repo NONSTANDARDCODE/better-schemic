@@ -24,7 +24,8 @@
     ],
     "drivers/surrealdb/src/orm/compiler/projection.ts": [
       "drivers/surrealdb/test/unit/orm-projection-compiler.test.ts",
-      "drivers/surrealdb/test/unit/orm-reads.test.ts"
+      "drivers/surrealdb/test/unit/orm-reads.test.ts",
+      "drivers/surrealdb/test/unit/orm-writes-projection.test.ts"
     ],
     "drivers/surrealdb/src/orm/compiler/aggregate.ts": [
       "drivers/surrealdb/test/unit/orm-aggregate-compiler.test.ts"

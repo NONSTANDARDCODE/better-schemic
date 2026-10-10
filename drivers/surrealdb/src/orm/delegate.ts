@@ -239,7 +239,7 @@ export interface Delegate<
    */
   create<const A extends WithPluginArgs<CreateArgs<TD>, P, "create">>(
     args: A,
-  ): CreatedResult<TD, A>;
+  ): CreatedResult<TD, A, S>;
   /** Create many in ONE round-trip (implicit transaction); `skipDuplicates` needs explicit ids. */
   createMany<
     const A extends WithPluginArgs<CreateManyArgs<TD>, P, "createMany">,
@@ -247,7 +247,7 @@ export interface Delegate<
   /** Insert one row keeping its id (`INSERT [IGNORE] … [ON DUPLICATE KEY UPDATE]`). */
   insert<const A extends WithPluginArgs<InsertArgs<TD>, P, "insert">>(
     args: A,
-  ): WrittenResult<TD, A>;
+  ): WrittenResult<TD, A, S>;
   /** Insert an array in a SINGLE statement; `onDuplicate` decides the conflict policy. */
   insertMany<
     const A extends WithPluginArgs<InsertManyArgs<TD>, P, "insertMany">,
@@ -260,7 +260,7 @@ export interface Delegate<
    */
   update<const A extends WithPluginArgs<UpdateArgs<TD, S>, P, "update">>(
     args: A,
-  ): UpdatedResult<TD, A>;
+  ): UpdatedResult<TD, A, S>;
   /** Update every matching row (`where` optional — the whole table; `rules` guards land in M6). */
   updateMany<
     const A extends WithPluginArgs<UpdateManyArgs<TD, S>, P, "updateMany">,
@@ -268,7 +268,7 @@ export interface Delegate<
   /** JSON Patch by unique target (`UPDATE … PATCH $ops`). */
   patch<const A extends WithPluginArgs<PatchArgs<TD, S>, P, "patch">>(
     args: A,
-  ): UpdatedResult<TD, A>;
+  ): UpdatedResult<TD, A, S>;
   /**
    * Update by id, a single-field UNIQUE index or an inferred `data.id` — STRICT by default: a
    * target that matches nothing (or is filtered out by a permission/plugin scope) rejects
@@ -278,7 +278,7 @@ export interface Delegate<
    */
   upsert<const A extends WithPluginArgs<UpsertArgs<TD, S>, P, "upsert">>(
     args: A,
-  ): WrittenResult<TD, A>;
+  ): WrittenResult<TD, A, S>;
   /**
    * STRICT update by id or a single-field UNIQUE index in ONE round-trip by default, returning
    * the resulting row, the previous row and the field-level delta of DECODED app values
@@ -298,7 +298,7 @@ export interface Delegate<
    */
   upsertDelta<
     const A extends WithPluginArgs<UpsertDeltaArgs<TD, S>, P, "upsertDelta">,
-  >(args: A): Promise<UpsertDeltaResult<TD>>;
+  >(args: A): Promise<UpsertDeltaResult<TD, A, S>>;
   /** Upsert many: with ids one `INSERT … ON DUPLICATE`; without, `conflict` resolves each row. */
   upsertMany<
     const A extends WithPluginArgs<UpsertManyArgs<TD>, P, "upsertMany">,
@@ -306,7 +306,7 @@ export interface Delegate<
   /** Delete the uniquely-targeted record (`RETURN BEFORE` default / `NONE`). */
   delete<const A extends WithPluginArgs<DeleteArgs<TD, S>, P, "delete">>(
     args: A,
-  ): DeletedResult<TD, A>;
+  ): DeletedResult<TD, A, S>;
   /** Delete every matching row; without `where`, `all: true` is required. */
   deleteMany<
     const A extends WithPluginArgs<DeleteManyArgs<TD, S>, P, "deleteMany">,
@@ -349,7 +349,7 @@ export interface RelationDelegate<
   /** Create an edge — `RELATE from->edge[:id]->to [SET …]`. */
   relate<const A extends WithPluginArgs<RelateArgs<TD>, P, "relate">>(
     args: A,
-  ): CreatedResult<TD, A>;
+  ): CreatedResult<TD, A, S>;
   /** Create many edges in ONE transactional round-trip. */
   relateMany<
     const A extends WithPluginArgs<RelateManyArgs<TD>, P, "relateMany">,

@@ -111,6 +111,8 @@ Writes are **eager** (run immediately, no `.explain()`).
 | `relateMany` — one `RELATE` per item, transactional | `[x]` | `test/unit/orm-writes.test.ts:561`; `test/live/orm-writes.test.ts:424` |
 | `unrelate` / `unrelateMany` — `DELETE edge WHERE in/out` / `where`+`all` | `[x]` | `test/unit/orm-writes.test.ts:588`; `test/live/orm-writes.test.ts:424` |
 | `return` semantics — `after`/`before`/`diff`/`none`, diff flattening | `[x]` | `test/unit/orm-writes-returns.test.ts`; `test/live/orm-writes.test.ts:483` |
+| `select`/`omit` no retorno de toda escrita — o servidor carrega a projeção no próprio `RETURN <proj>` (paths aninhados, aliases, expressões, `*`; `OMIT` é parse error no servidor); BEFORE/`delete`/`upsertDelta`/`create.relate`/omit são decodificados inteiros e projetados no cliente (entradas de expressão → `ReturnNotSupported`); resultado tipado pelo `ResultOf` das leituras | `[x]` | `test/unit/orm-writes-projection.test.ts`; probes `test/live/orm-syntax.test.ts` (`WRITE PROJECTIONS`); `test/types/orm-writes.assert.ts` |
+| Ajustes `{ increment: n }` / `{ decrement: n }` em `data` — `SET f ±= $p` (merge achata objetos aninhados em leaves para preservar o merge profundo; `set` mantém atribuições top-level); operandos number/bigint/Decimal/expressão; alvo validado (campo numérico, não-`id`) | `[x]` | `test/unit/orm-writes-projection.test.ts`; probe `test/live/orm-syntax.test.ts` (`SET ±=`) |
 | Batch atomicity — transactional batches wrap `BEGIN/COMMIT` | `[x]` | `test/unit/orm-execute.test.ts:39`; `test/live/orm-execute.test.ts:69` |
 | Write identity — `id`/`in`/`out` never updatable; expressions bypass codec | `[x]` | `test/unit/orm-writes.test.ts:31`/`:52`; `test/live/orm-syntax.test.ts:1270` |
 
@@ -130,6 +132,9 @@ Writes are **eager** (run immediately, no `.explain()`).
 | `insert` with array `data` | `[ ]` | use `insertMany`. `test/unit/orm-writes.test.ts:154` |
 | `upsertMany` without ids and no `conflict` | `[ ]` | → `ValidationError`. `test/unit/orm-writes.test.ts:424` |
 | `relate`/`unrelate` on a plain (non-relation) table | `[ ]` | → `ValidationError`. `test/unit/orm-writes.test.ts:581` |
+| `select`/`omit` + `return:"diff"` | `[ ]` | diff is a patch list, not rows → `ReturnNotSupported`. `test/unit/orm-writes-projection.test.ts` |
+| expression entries in a client-projected state (BEFORE/`delete`/`upsertDelta`/`create.relate`) | `[ ]` | only the server computes expressions → `ReturnNotSupported`. `test/unit/orm-writes-projection.test.ts` |
+| `{ increment/decrement }` on create-shaped payloads (`create`/`insert`/`relate` data/`onDuplicate` maps/`upsertMany.update`/the create branch of upserts) | `[ ]` | no previous value → `ValidationError`; `update`/`updateMany`/`updateEach`/strict `upsert` and the update branch of `create`+`update` adjust. `test/unit/orm-writes-projection.test.ts` |
 
 ## 3. Relations & graph
 
@@ -321,7 +326,7 @@ Every guard below is intentional (a strongly-typed alternative to a silently-wro
 | `UnknownField` | unknown include option / where key |
 | `ValidationError` | arg shape errors (`take`/`skip`, mixed relational ops, invalid patch, missing `by`); cursor `orderBy` field redefined by a select alias/expression (ORDER BY would bind the alias) |
 | `UniqueTargetRequired` | `findUnique`/`update`/`delete` `where` not `id`/single-field UNIQUE |
-| `ReturnNotSupported` | unsupported `return` for the op (`after`/`diff` on delete, `diff` on expression upsert) |
+| `ReturnNotSupported` | unsupported `return` for the op (`after`/`diff` on delete, `diff` on expression upsert) or a projection the lowering can't serve (`select`/`omit` + `diff`; expression entries in a client-projected state) |
 | `HavingUnsupported` | `aggregate.having` |
 | `ClauseNotSupported` | `aggregate`+`split`, `include`+`value`/`split`/`groupBy`, cursor with group/split/`value`/`only`/`start` |
 | `ClauseNotSupportedInLive` | disallowed clause in `live` |
@@ -358,6 +363,7 @@ the mode (like `idStrategy`); raw `db.query()`, `live` and `changes` still retur
 |---|---|
 | Reads (`find*`, projection, where, order/limit/range, groups, paginate, cursor) | `[x]` — `parallel`/fuzzy/having intentionally `[ ]` |
 | Writes (`create`/`insert`/`update`/`upsert`/`delete`/`each`/`relate` + modes + returns) | `[x]` — per-op `return` caps documented |
+| Write projections (`select`/`omit` on the returned rows) + `{increment/decrement}` adjustments | `[x]` — server `RETURN <proj>`; client fallback for BEFORE/delete/delta/omit |
 | Relations/graph (links, edges, `_count`, relational where, recursion) | `[x]` — nested projected include `[~]` |
 | Live/changefeeds (live, DIFF, FETCH, reconnect, `SHOW CHANGES`) | `[x]` |
 | Raw/admin/auth/api/fn/session | `[x]` — `$unsafe` gated |

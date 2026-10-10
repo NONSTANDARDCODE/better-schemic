@@ -18,6 +18,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+### Added
+- **surrealdb:** **write projections** — every row-returning write (`create`/`createMany`/`insert`/
+  `insertMany`/`update`/`updateMany`/`patch`/`upsert`/`upsertDelta`/`upsertMany`/`delete`/
+  `updateEach`/`relate`/`relateMany`) accepts the same `select`/`omit` as reads. The server carries
+  the projection in its own `RETURN <proj>` clause (`RETURN id, age`, nested paths, aliases,
+  expressions, `RETURN *`) when it can — the rows arrive already projected, so fewer bytes cross the
+  wire; the BEFORE state, `delete`, `upsertDelta`, OMIT (a parse error in mutations) and the
+  `create.relate` sugar decode the whole row and project client-side (expression entries are
+  rejected there — only the server can compute them: `ReturnNotSupported`). Result types follow the
+  projection exactly like reads (`{ id: true, age: true }` → `{ id, age }`; `omit` → the row minus
+  keys), for singular rows, batches and `upsertDelta`'s `record`/`before`/`delta`/`changed`.
+  `return: "diff"` + `select`/`omit` is rejected (a patch list has no fields). Live-probed on 3.2.0
+  (`docs/orm-syntax-map.md` §2.4.1) and covered by `test/unit/orm-writes-projection.test.ts`,
+  `test/live/orm-syntax.test.ts`, `test/types/orm-writes.assert.ts`.
+- **surrealdb:** **numeric adjustments** — `data: { balance: { increment: 10 } }` /
+  `{ decrement: 10 }` lower to `SET balance += $p` / `balance -= $p`: ONE server-side
+  read-modify-write, so a concurrent writer can't slip between the read and the write (no lost
+  update). Accepted by `update`/`updateMany`/`updateEach`, a strict `upsert` and the update branch
+  of `create`+`update`; `merge` flattens nested plain objects to leaf assignments
+  (`SET address.city = $p`) so deep-merge semantics survive the mode switch, and `mode: "set"`
+  keeps top-level assignments. Operands accept number/bigint/`Decimal`/expression fragments; the
+  target must be a known numeric column (never `id`); create-shaped payloads
+  (`create`/`insert`/`relate` data, `onDuplicate` maps, `upsertMany.update`, the create branch of an
+  upsert) reject markers with a teaching `ValidationError` — a create has no previous value. Types
+  only admit markers on numeric fields (`Increment`/`Decrement`/`ArithmeticAdjustment` exported).
+  The `zod` plugin validates the OPERAND (the marker wrapper is substituted). Live-probed on 3.2.0
+  (`docs/orm-syntax-map.md` §2.4.2).
+
 ### Removed
 - **core:** the orphaned schema-loader helpers `scanLocalEntities`, `existingTables`,
   `duplicateTables` (plus the internal `tablesIn` generator only they used) and the redundant

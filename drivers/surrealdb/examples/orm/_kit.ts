@@ -83,6 +83,10 @@ function skipString(src: string, i: number, quote: string): number {
   return i;
 }
 
+/** Escape a string for use inside a RegExp. */
+const escapeRe = (s: string): string =>
+  s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 /**
  * Extract the verbatim source of the `def:` property of ONE `ormExample(import.meta.url, { … })` call
  * — the one anchored by `title: "<title>"`, so every entry renders ITS OWN snippet (a first-match
@@ -92,11 +96,15 @@ function skipString(src: string, i: number, quote: string): number {
  * is authored LAST so the scan ends cleanly at the object's close.
  */
 function extractDefSource(src: string, title: string): string {
-  const anchor = src.indexOf(`title: ${JSON.stringify(title)}`);
-  if (anchor === -1)
+  // Whitespace-tolerant: a formatter may wrap `title:` and its string onto separate lines.
+  const anchorMatch = new RegExp(
+    `title:\\s*${escapeRe(JSON.stringify(title))}`,
+  ).exec(src);
+  if (!anchorMatch)
     throw new Error(
       `orm example file has no \`title: ${JSON.stringify(title)}\` to anchor its \`def:\` snippet`,
     );
+  const anchor = anchorMatch.index;
   const m = /\bdef:\s*/.exec(src.slice(anchor));
   if (!m)
     throw new Error(

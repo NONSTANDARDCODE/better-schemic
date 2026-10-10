@@ -18,12 +18,14 @@ import {
   splitRecordId,
 } from "./shared";
 import {
+  compileWriteProjection,
   type DeleteManyRuntimeArgs,
   encodeData,
   mutationTail,
   readReturn,
   requireArray,
   resultOf,
+  selectMode,
   setAssignments,
   type WritePlan,
   type WriteRet,
@@ -38,6 +40,8 @@ export interface RelateRuntimeArgs {
   id?: unknown;
   data?: unknown;
   return?: unknown;
+  select?: unknown;
+  omit?: unknown;
   timeout?: unknown;
   meta?: Record<string, unknown>;
 }
@@ -73,6 +77,14 @@ export function compileRelate(
       `${operation}: "from" and "to" are required endpoints (record ids or expressions).`,
       { operation, table: meta.name },
     );
+  const proj = compileWriteProjection(meta, args, binds, operation);
+  if (proj && ret === "diff")
+    throw compileError(
+      "ReturnNotSupported",
+      `${operation}: RETURN DIFF returns a JSON Patch list, not rows — drop select/omit, or use return: "after"/"before".`,
+      { operation, table: meta.name },
+    );
+  const sel = selectMode(proj, ret, operation, meta);
   const entry: RelateEntry = {
     from: args.from,
     edge: relateEdgeName(meta, args.id, operation),
@@ -82,21 +94,37 @@ export function compileRelate(
     meta,
   };
   return {
-    statements: [relateStatement(entry, binds, operation)],
+    statements: [
+      relateStatement(
+        entry,
+        binds,
+        operation,
+        sel?.mode === "server" ? sel.proj.text : undefined,
+      ),
+    ],
     transactional: false,
     resultIndexes: [0],
     result: resultOf(ret, "row"),
+    ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
   };
 }
 
 /** Compile `relateMany` — one `RELATE` per item in ONE transactional round-trip. */
 export function compileRelateMany(
   meta: ModelMeta,
-  args: { data?: unknown; meta?: Record<string, unknown> },
+  args: {
+    data?: unknown;
+    select?: unknown;
+    omit?: unknown;
+    meta?: Record<string, unknown>;
+  },
   binds: Binds,
   operation = "relateMany",
 ): WritePlan {
   requireRelation(meta, operation);
+  const proj = compileWriteProjection(meta, args, binds, operation);
+  const sel = selectMode(proj, "after", operation, meta);
+  const projText = sel?.mode === "server" ? sel.proj.text : undefined;
   const items = requireArray(args.data, "data", operation);
   const entries = items.map((item) => {
     if (!isPlainObject(item))
@@ -128,10 +156,11 @@ export function compileRelateMany(
   });
   return {
     statements: entries.map((entry) =>
-      relateStatement(entry, binds, operation),
+      relateStatement(entry, binds, operation, projText),
     ),
     transactional: entries.length > 1,
     result: resultOf("after", "many"),
+    ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
   };
 }
 
@@ -140,6 +169,7 @@ export function relateStatement(
   entry: RelateEntry,
   binds: Binds,
   operation: string,
+  projText?: string,
 ): string {
   const from = endpointText(entry.from, binds, operation, entry.meta, "from");
   const to =
@@ -153,7 +183,7 @@ export function relateStatement(
       : entry.data;
     sql += ` SET ${setAssignments(encoded, binds)}`;
   }
-  return `${sql}${mutationTail(entry.ret, undefined, operation)}`;
+  return `${sql}${mutationTail(entry.ret, undefined, operation, projText)}`;
 }
 
 /** Compile `unrelate` — `DELETE edge WHERE in = $a AND out = $b RETURN BEFORE`. */

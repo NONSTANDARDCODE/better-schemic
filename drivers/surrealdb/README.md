@@ -204,6 +204,29 @@ void changed;
 void strict;
 const removed = await client.users.delete({ where: { id: created.id } });
 
+// Write projections + counters — every write accepts the same `select`/`omit` as reads. The
+// server carries the projection in its own RETURN clause when it can (`RETURN id, age`,
+// `RETURN *, upper`); BEFORE/`delete`/`upsertDelta`/`omit` rows are decoded whole and projected
+// client-side (expression entries only exist server-side, so those states reject them). Types
+// follow the projection exactly like reads (`{ id: true, age: true }` → `{ id, age }`).
+// `{ increment }`/`{ decrement }` adjust a numeric field in ONE read-modify-write — no lost update
+// between a client read and write:
+const aged = await client.users.update({
+  where: { id: created.id },
+  data: { age: { increment: 1 } },     // → UPDATE user:… SET age += $p0
+  select: { id: true, age: true },     // → … RETURN id, age
+});
+const previous = await client.users
+  .update({
+    where: { id: created.id },
+    data: { age: { decrement: 2 } },   // → SET age -= $p0
+    return: "before",                  // → RETURN BEFORE (projected client-side)
+    select: { age: true },
+  })
+  .throw();
+void aged;
+void previous;
+
 // Created ids: every ORM create without an explicit `id` generates a ULID by default
 // (`rand::ulid()` — 26 chars, time-sortable). Pick another strategy per table in authoring:
 //   defineTable("user", { … }).idStrategy("uuid")   // rand::uuid() — UUID v7

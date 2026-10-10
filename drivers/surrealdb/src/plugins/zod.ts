@@ -12,6 +12,7 @@
  * ```
  */
 import type { z } from "zod";
+import { stripAdjustments } from "../orm/arithmetic";
 import { BetterSchemicError } from "../orm/errors";
 import { isCreateOperation, isUpdateOperation } from "../orm/hooks";
 import { definePlugin } from "../orm/plugins";
@@ -69,7 +70,9 @@ export function zod(options: ZodPluginOptions): Plugin {
       if (isUpdate && !validate.update) return;
       const schema = options.schemas[op.table];
       if (!schema) return;
-      const data = op.args.data;
+      // `{ increment/decrement: n }` wrappers become their operand so the app schema validates
+      // the numeric value, not the marker object (the compiler lowers them to `SET f ±= $p`).
+      const data = stripAdjustments(op.args.data);
       if (data === undefined) return;
       validateData(schema, data, op.kind, op.table);
     },

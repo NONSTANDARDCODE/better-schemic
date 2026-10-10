@@ -217,6 +217,115 @@ live("ORM syntax map — live probes (server 3.x)", () => {
     });
   });
 
+  describe("WRITE PROJECTIONS — RETURN <projection> and SET ±= adjustments", () => {
+    test("UPDATE RETURN field/list/nested/alias/expression/star forms", async () => {
+      await run(
+        "DEFINE TABLE wproj SCHEMALESS; CREATE ONLY wproj:1 CONTENT { name: 'P', age: 40, tags: ['x'], meta: { a: 1 } };",
+      );
+      expect(
+        await last("UPDATE ONLY wproj:1 SET age = 41 RETURN age;"),
+      ).toEqual({ age: 41 });
+      expect(
+        await last("UPDATE wproj:1 SET age = 42 RETURN name, age;"),
+      ).toEqual([{ name: "P", age: 42 }]);
+      expect(await last("UPDATE wproj:1 SET age = 43 RETURN tags;")).toEqual([
+        { tags: ["x"] },
+      ]);
+      expect(
+        await last("UPDATE wproj:1 SET age = 44 RETURN meta.a, meta;"),
+      ).toEqual([{ meta: { a: 1 } }]);
+      expect(
+        await last(
+          "UPDATE ONLY wproj:1 SET name = 'p2' RETURN string::uppercase(name) AS upper;",
+        ),
+      ).toEqual({ upper: "P2" });
+      // `*` and `* + extra`; `RETURN <proj> TIMEOUT …` (RETURN precedes TIMEOUT).
+      expect(await last("UPDATE ONLY wproj:1 SET age = 45 RETURN *;")).toEqual(
+        expect.objectContaining({ age: 45, name: "p2" }),
+      );
+      expect(
+        await last("UPDATE ONLY wproj:1 SET age = 46 RETURN *, name;"),
+      ).toEqual(expect.objectContaining({ age: 46, name: "p2" }));
+      expect(
+        await last("UPDATE ONLY wproj:1 SET age = 47 RETURN age TIMEOUT 5s;"),
+      ).toEqual({ age: 47 });
+      // `RETURN … OMIT` is a PARSE ERROR — why the ORM applies omit client-side.
+      expect(
+        await caught(
+          last("UPDATE ONLY wproj:1 SET age = 48 RETURN * OMIT age;"),
+        ),
+      ).toBeTruthy();
+    });
+
+    test("CREATE / INSERT / UPSERT / RELATE / LET-IF / DELETE tail projections", async () => {
+      expect(
+        await last("CREATE wproj:pc CONTENT { name: 'C' } RETURN name;"),
+      ).toEqual([{ name: "C" }]);
+      expect(
+        await last(
+          "INSERT INTO wproj { id: wproj:pi, name: 'I' } RETURN name;",
+        ),
+      ).toEqual([{ name: "I" }]);
+      expect(await last("UPSERT wproj:1 SET age = 49 RETURN age;")).toEqual([
+        { age: 49 },
+      ]);
+      await run("DEFINE TABLE wedge TYPE RELATION IN wproj OUT wproj;");
+      expect(
+        await last(
+          "RELATE wproj:1->wedge->wproj:pi SET score = 7 RETURN score;",
+        ),
+      ).toEqual([{ score: 7 }]);
+      // DELETE evaluates the projection on the REMOVED row (fields are NONE) — the ORM lowers
+      // `select` on delete as `RETURN BEFORE` + client-side projection.
+      expect(await last("DELETE wproj:pi RETURN name;")).toEqual([
+        { name: undefined },
+      ]);
+      expect(await last("DELETE wproj:pc RETURN BEFORE;")).toEqual([
+        expect.objectContaining({ name: "C" }),
+      ]);
+      const branch = await last(
+        "LET $__e = (SELECT VALUE id FROM wproj WHERE id = wproj:ghost LIMIT 1); IF array::len($__e) = 0 THEN CREATE wproj:ghost CONTENT { name: 'N' } RETURN name ELSE UPDATE $__e[0] SET age += 1 RETURN age END;",
+      );
+      expect(branch).toEqual([{ name: "N" }]);
+    });
+
+    test("SET ±= adjusts an existing numeric value (bound operand, BEFORE/AFTER)", async () => {
+      await run("CREATE ONLY wproj:arith CONTENT { name: 'A', age: 100 };");
+      expect(
+        await last("UPDATE ONLY wproj:arith SET age -= $d RETURN BEFORE;", {
+          d: 7,
+        }),
+      ).toEqual(expect.objectContaining({ age: 100 }));
+      expect(await last("SELECT VALUE age FROM ONLY wproj:arith;")).toBe(93);
+      expect(
+        await last("UPDATE ONLY wproj:arith SET age += $d RETURN AFTER;", {
+          d: 3,
+        }),
+      ).toEqual(expect.objectContaining({ age: 96 }));
+      // Nested object paths adjust in place; missing objects are created.
+      await run("UPDATE ONLY wproj:arith SET meta = { a: 1, b: 2 };");
+      expect(
+        await last("UPDATE ONLY wproj:arith SET meta.a += 5 RETURN meta;"),
+      ).toEqual({ meta: { a: 6, b: 2 } });
+      await run("UPDATE ONLY wproj:arith SET fresh = { deep: { n: 1 } };");
+      expect(
+        await last(
+          "UPDATE ONLY wproj:arith SET fresh.deep.n += 4 RETURN fresh;",
+        ),
+      ).toEqual({ fresh: { deep: { n: 5 } } });
+      // Compound assignment is general: strings concat, arrays append.
+      expect(
+        await last("UPDATE ONLY wproj:arith SET name += '!' RETURN name;"),
+      ).toEqual({ name: "A!" });
+      expect(
+        await last("UPDATE ONLY wproj:arith SET tags = ['x'] RETURN tags;"),
+      ).toEqual({ tags: ["x"] });
+      expect(
+        await last("UPDATE ONLY wproj:arith SET tags += ['y'] RETURN tags;"),
+      ).toEqual({ tags: ["x", "y"] });
+    });
+  });
+
   describe("INSERT — arrays, IGNORE, ON DUPLICATE KEY UPDATE", () => {
     test("INSERT INTO t $rows inserts and returns rows; duplicate errors", async () => {
       const out = await last(

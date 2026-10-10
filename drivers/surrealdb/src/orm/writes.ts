@@ -68,8 +68,25 @@ import {
 import type { OperationContext } from "./types/context";
 import type { OperationKind } from "./types/hooks";
 
-/** The full-row decode every write returns (writes have no projections — except `updateEach.select`). */
+/** The full-row decode every write returns (writes have no projections — except `select`). */
 const FULL: ProjectionSpec = fullProjectionSpec();
+
+/**
+ * The decode spec of a prepared write: the full row when no `select`/`omit` was given, else the
+ * compiled projection. A CLIENT-applied projection (BEFORE state, `delete`, `upsertDelta`, OMIT)
+ * reads aliases from their schema path (`from`) instead of the server's output key (`source`) —
+ * the rows were not projected by the server, so the alias simply doesn't exist.
+ */
+function writeSpec(plan: WritePlan): ProjectionSpec {
+  const spec = plan.select;
+  if (!spec || plan.selectMode !== "client") return spec ?? FULL;
+  return {
+    ...spec,
+    fields: spec.fields.map((field) =>
+      field.from ? { ...field, source: field.from } : field,
+    ),
+  };
+}
 
 /** One prepared write: statements + how to interpret the executor's rows. */
 interface PreparedWrite {
@@ -455,7 +472,7 @@ function decodeResult(
 ): unknown {
   if (plan.result === "none") return null;
   if (plan.result === "diff") return payloadDiff(plan, rows);
-  const data = decodeRows(payloadRows(plan, rows), meta, FULL);
+  const data = decodeRows(payloadRows(plan, rows), meta, writeSpec(plan));
   return plan.result === "row" ? (data[0] ?? null) : data;
 }
 
@@ -515,7 +532,8 @@ function decodeDeltaResult(
   const envelope = payloadRows(plan, rows)[0];
   if (!isRecord(envelope)) throw deltaMiss(plan, meta, args);
   if (!isRecord(envelope.after)) throw deltaMiss(plan, meta, args);
-  const after = decodeRows([envelope.after], meta, FULL)[0] as Record<
+  const spec = writeSpec(plan);
+  const after = decodeRows([envelope.after], meta, spec)[0] as Record<
     string,
     unknown
   >;
@@ -528,7 +546,7 @@ function decodeDeltaResult(
       delta: null,
       changed: [],
     };
-  const before = decodeRows([rawBefore], meta, FULL)[0] as Record<
+  const before = decodeRows([rawBefore], meta, spec)[0] as Record<
     string,
     unknown
   >;
@@ -574,7 +592,7 @@ function decodeBatch(
 ): unknown {
   if (plan.result === "diff") return payloadDiff(plan, rows);
   if (plan.result === "none") return batch(plan, undefined);
-  const data = decodeRows(payloadRows(plan, rows), meta, FULL);
+  const data = decodeRows(payloadRows(plan, rows), meta, writeSpec(plan));
   if (extras.countOnly === true)
     return batch(plan, undefined, undefined, data.length);
   return batch(plan, data, extras.skipped?.(data.length));
@@ -604,7 +622,7 @@ function decodeUpdateEach(
   meta: ModelMeta,
 ): unknown {
   if (plan.result === "none") return batch(plan, undefined);
-  const spec = plan.select ?? FULL;
+  const spec = writeSpec(plan);
   const items = payloadIndexes(plan, rows).map((index) => {
     const raw = rows[index];
     return Array.isArray(raw) ? decodeRows(raw, meta, spec) : [];

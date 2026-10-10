@@ -4,12 +4,13 @@
  * codec-validated `data` with expression splice, record targets/ids, RETURN mapping, update
  * modes, patch/unset validation and the small arg guards. One place per rule, like `./shared`.
  */
-import { BoundQuery, RecordId, toSurqlString } from "surrealdb";
+import { BoundQuery, Decimal, RecordId, toSurqlString } from "surrealdb";
 import { escapeIdentSafe as escapeIdent, unescapeIdPart } from "../../ident";
 import { hasRefDeep, type IdStrategy } from "../../pure";
+import { type Adjustment, adjustmentOf } from "../arithmetic";
 import { normalizeError } from "../errors";
 import type { ModelMeta, ResolvedIdStrategy, SchemaIndex } from "../meta";
-import type { ProjectionSpec } from "./projection";
+import { compileProjection, type ProjectionSpec } from "./projection";
 import {
   type Binds,
   coerceRecordId,
@@ -17,6 +18,7 @@ import {
   describeValue,
   durationLiteral,
   escapeRecordIdPart,
+  isLowerableValue,
   isPlainObject,
   isTableMeta,
   recordIdParts,
@@ -56,8 +58,15 @@ export interface WritePlan {
    *  teaching message from THIS, not from `args.onMissing` (a target-less create has no explicit
    *  `onMissing: "throw"` even though the arg is absent and the default is `"throw"`). */
   readonly strictMiss?: boolean;
-  /** `updateEach`'s eager `select` decode spec (the rows come back whole from the server). */
+  /** A compiled `select`/`omit` decode spec (writes always return whole records otherwise). */
   readonly select?: ProjectionSpec;
+  /**
+   * How {@link select} applies: `server` (the statement's RETURN clause already carries the
+   * projection) or `client` (rows come back whole and are projected after decoding — the
+   * before-state, `delete`, `upsertDelta` and OMIT paths; `updateEach`'s select used to be the
+   * only client projector).
+   */
+  readonly selectMode?: "server" | "client";
 }
 // --- runtime arg shapes (types live in `../types/write`) -----------------------------------------
 
@@ -66,6 +75,8 @@ export interface CreateRuntimeArgs {
   only?: unknown;
   return?: unknown;
   relate?: unknown;
+  select?: unknown;
+  omit?: unknown;
   meta?: Record<string, unknown>;
 }
 
@@ -73,6 +84,8 @@ export interface CreateManyRuntimeArgs {
   data?: unknown;
   skipDuplicates?: unknown;
   return?: unknown;
+  select?: unknown;
+  omit?: unknown;
   meta?: Record<string, unknown>;
 }
 
@@ -80,6 +93,8 @@ export interface InsertRuntimeArgs {
   data?: unknown;
   onDuplicate?: unknown;
   return?: unknown;
+  select?: unknown;
+  omit?: unknown;
   meta?: Record<string, unknown>;
 }
 
@@ -91,6 +106,8 @@ export interface UpdateRuntimeArgs {
   unset?: unknown;
   only?: unknown;
   return?: unknown;
+  select?: unknown;
+  omit?: unknown;
   timeout?: unknown;
   /** Plugin scope (see `Operation.scope`) — AND-combined into the WHERE, never a unique target. */
   scope?: unknown;
@@ -104,6 +121,8 @@ export interface UpdateManyRuntimeArgs {
   patches?: unknown;
   unset?: unknown;
   return?: unknown;
+  select?: unknown;
+  omit?: unknown;
   timeout?: unknown;
   scope?: unknown;
   meta?: Record<string, unknown>;
@@ -118,6 +137,8 @@ export interface UpsertRuntimeArgs {
   onMissing?: unknown;
   only?: unknown;
   return?: unknown;
+  select?: unknown;
+  omit?: unknown;
   timeout?: unknown;
   scope?: unknown;
   meta?: Record<string, unknown>;
@@ -130,6 +151,8 @@ export interface UpsertDeltaRuntimeArgs {
   update?: unknown;
   mode?: unknown;
   onMissing?: unknown;
+  select?: unknown;
+  omit?: unknown;
   timeout?: unknown;
   scope?: unknown;
   meta?: Record<string, unknown>;
@@ -140,6 +163,8 @@ export interface UpsertManyRuntimeArgs {
   update?: unknown;
   conflict?: unknown;
   return?: unknown;
+  select?: unknown;
+  omit?: unknown;
   scope?: unknown;
   meta?: Record<string, unknown>;
 }
@@ -147,6 +172,8 @@ export interface UpsertManyRuntimeArgs {
 export interface DeleteRuntimeArgs {
   where?: unknown;
   return?: unknown;
+  select?: unknown;
+  omit?: unknown;
   timeout?: unknown;
   scope?: unknown;
   meta?: Record<string, unknown>;
@@ -169,6 +196,7 @@ export interface UpdateEachRuntimeArgs {
   onEmpty?: unknown;
   return?: unknown;
   select?: unknown;
+  omit?: unknown;
   timeout?: unknown;
   scope?: unknown;
   meta?: Record<string, unknown>;
@@ -193,6 +221,18 @@ export function encodeData(
       `${operation}: data must be a plain object (got ${describeValue(data)}). Use a surql fragment inside a field for expressions.`,
       { operation, table: meta.name },
     );
+  // BACKSTOP: adjustments are extracted (and lowered) BEFORE encoding on every update path; any
+  // payload that still carries one here is a create-shaped write (create/insert/relate/ON
+  // DUPLICATE map), which has no previous value to adjust.
+  for (const [key, value] of Object.entries(data)) {
+    const marker = adjustmentOf(value);
+    if (marker)
+      throw compileError(
+        "ValidationError",
+        `${operation}: "${key}" uses { ${marker.kind}: … } — an adjustment needs an EXISTING value, so it can't be written by a create/insert/relate or an ON DUPLICATE map. Use update/updateMany/updateEach (or pass a plain value here).`,
+        { operation, table: meta.name, field: key },
+      );
+  }
   if (!isTableMeta(meta)) return data;
   const normalized: Record<string, unknown> = { ...data };
   if (normalized.id !== undefined && !(normalized.id instanceof RecordId))
@@ -420,13 +460,21 @@ export function readReturn(
   return value as WriteRet;
 }
 
-/** ` RETURN AFTER|BEFORE|DIFF|NONE` + ` TIMEOUT …` (AFTER is the server default — omitted). */
+/** ` RETURN AFTER|BEFORE|DIFF|NONE` + ` TIMEOUT …` (AFTER is the server default — omitted). When
+ *  `projText` is given (a server-side `select`), the default AFTER form is replaced by the
+ *  projection itself: ` RETURN name, balance` / ` RETURN *, author.id AS author_id`. */
 export function mutationTail(
   ret: WriteRet,
   timeout: unknown,
   operation: string,
+  projText?: string,
 ): string {
-  const returnClause = ret === "after" ? "" : ` RETURN ${ret.toUpperCase()}`;
+  const returnClause =
+    ret === "after"
+      ? projText === undefined
+        ? ""
+        : ` RETURN ${projText}`
+      : ` RETURN ${ret.toUpperCase()}`;
   const timeoutClause =
     timeout === undefined
       ? ""
@@ -445,6 +493,263 @@ export function deltaTail(timeout: unknown, operation: string): string {
       ? ""
       : ` TIMEOUT ${durationLiteral(timeout, operation)}`;
   return `${DELTA_ENVELOPE}${timeoutClause}`;
+}
+
+// --- write projections (`select`/`omit` on the returned rows) ------------------------------------
+
+/** A compiled write projection: the server text + the decode spec + where it can apply. */
+export interface CompiledWriteProjection {
+  /** The projection list (`name, address.city`, `*`, an expression alias) for `RETURN <text>`. */
+  readonly text: string;
+  readonly spec: ProjectionSpec;
+  /** The RETURN clause can carry it (no OMIT — `RETURN … OMIT` is a parse error, live-probed). */
+  readonly server: boolean;
+}
+
+/** Compile `select`/`omit` for a write — `undefined` when neither was passed (zero overhead). */
+export function compileWriteProjection(
+  meta: ModelMeta,
+  args: { select?: unknown; omit?: unknown },
+  binds: Binds,
+  operation: string,
+): CompiledWriteProjection | undefined {
+  if (args.select === undefined && args.omit === undefined) return undefined;
+  const { text, spec } = compileProjection(
+    meta,
+    args.select,
+    args.omit,
+    false,
+    binds,
+    operation,
+  );
+  // `select: { "*": true }` / `omit: []` project nothing — skip the clause (and the client decode).
+  if (spec.star && spec.omit.length === 0 && spec.fields.length === 0)
+    return undefined;
+  return { text, spec, server: spec.omit.length === 0 };
+}
+
+/** A resolved write projection: how it applies + the compiled pieces. */
+export interface ProjectionPlan {
+  readonly mode: "server" | "client";
+  readonly proj: CompiledWriteProjection;
+}
+
+/**
+ * Resolve how a projection applies (and validate it): `server` when the RETURN clause can carry it
+ * (AFTER state, no OMIT), `client` when the rows must come back whole and be projected on the
+ * decoded app rows (BEFORE state, `delete`, `upsertDelta`, OMIT and the `create.relate` sugar).
+ * A client-side projection can't compute expressions — those are rejected with a teaching error.
+ * `undefined` = no projection, or a state that returns no rows (`none`/`diff`).
+ */
+export function selectMode(
+  proj: CompiledWriteProjection | undefined,
+  ret: WriteRet,
+  operation: string,
+  meta: ModelMeta,
+  options: { readonly clientOnly?: boolean } = {},
+): ProjectionPlan | undefined {
+  if (!proj || ret === "none" || ret === "diff") return undefined;
+  if (options.clientOnly === true || !proj.server || ret === "before") {
+    if (proj.spec.fields.some((field) => field.computed === true))
+      throw compileError(
+        "ReturnNotSupported",
+        `${operation}: a projection with an expression entry can't shape the ${
+          ret === "before" ? "BEFORE state" : "rows this lowering returns"
+        } client-side — use return: "after" with plain paths/aliases, or drop the expression.`,
+        { operation, table: meta.name },
+      );
+    return { mode: "client", proj };
+  }
+  return { mode: "server", proj };
+}
+
+/** Reject a `select`/`omit` on a `RETURN DIFF` lowering (a patch list has no fields to project). */
+export function assertProjectable(
+  proj: CompiledWriteProjection | undefined,
+  ret: WriteRet,
+  operation: string,
+  meta: ModelMeta,
+): void {
+  if (!proj || ret !== "diff") return;
+  throw compileError(
+    "ReturnNotSupported",
+    `${operation}: RETURN DIFF returns a JSON Patch list, not rows — drop select/omit, or use return: "after"/"before".`,
+    { operation, table: meta.name },
+  );
+}
+
+// --- arithmetic adjustments (`{ increment }` / `{ decrement }`) ----------------------------------
+
+/** One field adjustment to lower as `SET <field> ±= <value>`. */
+export interface ArithmeticStep {
+  /** The top-level field (raw app name; `updateBody` escapes it). */
+  readonly field: string;
+  readonly op: "+" | "-";
+  readonly value: unknown;
+}
+
+const NO_STEPS: readonly ArithmeticStep[] = [];
+
+/**
+ * Split a write payload into its adjustment STEPS and the CLEAN payload the codec validates.
+ * Adjustments are a TOP-LEVEL concern (each operand substitutes its field in the clean copy).
+ * `allow: false` (create-shaped writes) rejects any marker with a teaching error; every
+ * adjustment is validated against the schema (numeric field, known name, non-id) at THIS point,
+ * so a typo fails before any query runs.
+ */
+export function extractArithmetic(
+  meta: ModelMeta,
+  data: unknown,
+  operation: string,
+  allow: boolean,
+): { clean: unknown; steps: readonly ArithmeticStep[] } {
+  if (!isPlainObject(data)) return { clean: data, steps: NO_STEPS };
+  let steps: ArithmeticStep[] | undefined;
+  let clean: Record<string, unknown> | undefined;
+  for (const [field, value] of Object.entries(data)) {
+    const marker = adjustmentOf(value);
+    if (!marker) continue;
+    if (!allow)
+      throw compileError(
+        "ValidationError",
+        `${operation}: "${field}" uses { ${marker.kind}: … } — an adjustment changes an EXISTING value, so it can't run in a create/insert (or the create branch of an upsert). Use update/updateMany/updateEach, or pass a plain value here.`,
+        { operation, table: meta.name, field },
+      );
+    assertAdjustment(meta, field, marker, operation);
+    steps ??= [];
+    steps.push({ field, op: marker.op, value: marker.value });
+    clean ??= { ...data };
+    delete clean[field];
+  }
+  return { clean: clean ?? data, steps: steps ?? NO_STEPS };
+}
+
+/** Validate one adjustment's target field + operand (numeric column, known name, never `id`). */
+function assertAdjustment(
+  meta: ModelMeta,
+  field: string,
+  marker: Adjustment,
+  operation: string,
+): void {
+  if (field === "id")
+    throw compileError(
+      "ValidationError",
+      `${operation}: "id" can't be adjusted — it is the record identity.`,
+      { operation, table: meta.name, field },
+    );
+  const operand = marker.value;
+  if (
+    typeof operand !== "number" &&
+    typeof operand !== "bigint" &&
+    !(operand instanceof Decimal) &&
+    !isLowerableValue(operand)
+  )
+    throw compileError(
+      "ValidationError",
+      `${operation}: { ${marker.kind}: … } needs a number, bigint, Decimal or expression operand (got ${describeValue(operand)}).`,
+      { operation, table: meta.name, field },
+    );
+  if (!isTableMeta(meta)) return;
+  const column = meta.columns.get(field);
+  if (!column)
+    throw compileError(
+      "ValidationError",
+      `${operation}: "${field}" is not a field of "${meta.name}". Known fields: ${[...meta.columns.keys()].join(", ")}.`,
+      { operation, table: meta.name, field },
+    );
+  if (column.family !== "number")
+    throw compileError(
+      "ValidationError",
+      `${operation}: "${field}" is a ${column.family} field — { ${marker.kind}: … } needs a numeric field (int/float/decimal). Use a plain value or a surql fragment for other sweeps.`,
+      { operation, table: meta.name, field },
+    );
+}
+
+/** `f = $p, g += $q` — the SET clause of an update body (`deep` flattens nested plain objects to
+ *  leaf paths so merge semantics survive the mode switch, e.g. `address.city = $p`). */
+export function setBody(
+  encoded: unknown,
+  steps: readonly ArithmeticStep[],
+  binds: Binds,
+  deep: boolean,
+): string {
+  const parts: string[] = [];
+  if (isPlainObject(encoded)) {
+    for (const [field, value] of Object.entries(encoded)) {
+      if (value === undefined) continue;
+      if (deep && isPlainObject(value)) {
+        flattenAssignments(value, [field], parts, binds);
+        continue;
+      }
+      parts.push(
+        `${renderPath(field)} = ${renderValue(value, binds, binds.ctx())}`,
+      );
+    }
+  }
+  for (const step of steps)
+    parts.push(
+      `${renderPath(step.field)} ${step.op}= ${renderValue(step.value, binds, binds.ctx())}`,
+    );
+  return `SET ${parts.join(", ")}`;
+}
+
+/** Flatten a nested plain object into `a.b.c = $p` assignments; empty objects contribute none
+ *  (a deep `MERGE` of `{ a: {} }` is a no-op). */
+function flattenAssignments(
+  value: unknown,
+  path: readonly string[],
+  out: string[],
+  binds: Binds,
+): void {
+  if (isPlainObject(value)) {
+    for (const [key, child] of Object.entries(value))
+      flattenAssignments(child, [...path, key], out, binds);
+    return;
+  }
+  out.push(
+    `${path.map(renderPath).join(".")} = ${renderValue(value, binds, binds.ctx())}`,
+  );
+}
+
+/**
+ * The `data` clause of an update-shaped write, adjustment-aware:
+ * - no adjustments → the plain mode body (`MERGE $p` / `SET …` / `CONTENT $p` / …);
+ * - adjustments → a `SET` clause combining the clean fields with `f ±= $p` steps (merge flattens
+ *   nested objects to leaves — a `SET f = $p` would replace them, where `MERGE` deep-merges).
+ * `content`/`replace` reject adjustments (they rewrite the whole record, so there is no
+ * "existing value" contract to add to).
+ */
+export function updateBody(
+  meta: ModelMeta,
+  mode: WriteMode,
+  data: unknown,
+  binds: Binds,
+  operation: string,
+): string {
+  const { clean, steps } = extractArithmetic(meta, data, operation, true);
+  if (steps.length === 0)
+    return encodedBody(
+      mode,
+      encodeData(
+        meta,
+        clean,
+        mode === "content" || mode === "replace" ? "create" : "update",
+        operation,
+      ),
+      binds,
+    );
+  if (mode !== "merge" && mode !== "set")
+    throw compileError(
+      "ValidationError",
+      `${operation}: { increment/decrement: … } needs an EXISTING value — mode "${mode}" rewrites the whole record. Use the default merge (or mode: "set").`,
+      { operation, table: meta.name },
+    );
+  return setBody(
+    encodeData(meta, clean, "update", operation),
+    steps,
+    binds,
+    mode === "merge",
+  );
 }
 
 /** Map a `return` + cardinality to the plan's result interpretation. */

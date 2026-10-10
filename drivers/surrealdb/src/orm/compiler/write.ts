@@ -22,6 +22,7 @@ import {
 import {
   type CreateManyRuntimeArgs,
   type CreateRuntimeArgs,
+  compileWriteProjection,
   createTarget,
   encodeData,
   type InsertRuntimeArgs,
@@ -30,10 +31,11 @@ import {
   readReturn,
   requireArray,
   resultOf,
+  selectMode,
   updatableFields,
-  withGeneratedId,
   type WritePlan,
   type WriteRet,
+  withGeneratedId,
 } from "./write-shared";
 
 // --- create --------------------------------------------------------------------------------------
@@ -61,16 +63,21 @@ export function compileCreate(
   const encoded = encodeData(meta, args.data, "create", operation);
   const target = createTarget(meta, args.data, args.only === true, operation);
   const relate = relateSugar(args.relate, operation, meta, resolveEdge);
+  const proj = compileWriteProjection(meta, args, binds, operation);
+  assertCreateProjectable(proj, ret, operation, meta);
 
-  if (relate.length === 0)
+  if (relate.length === 0) {
+    const sel = selectMode(proj, ret, operation, meta);
     return {
       statements: [
-        `CREATE ${target} CONTENT ${payload(encoded, binds)}${mutationTail(ret, undefined, operation)}`,
+        `CREATE ${target} CONTENT ${payload(encoded, binds)}${mutationTail(ret, undefined, operation, sel?.mode === "server" ? sel.proj.text : undefined)}`,
       ],
       transactional: false,
       resultIndexes: [0],
       result: resultOf(ret, "row"),
+      ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
     };
+  }
 
   if (ret === "diff")
     throw compileError(
@@ -78,6 +85,9 @@ export function compileCreate(
       `${operation}: RETURN DIFF is not supported with "relate" — the sugar runs several statements. Use after/before/none, or relate separately.`,
       { operation, table: meta.name },
     );
+  // The sugar ends with `RETURN $__created` — the server can't project a bound value, so a
+  // projection here is always client-applied.
+  const sel = selectMode(proj, ret, operation, meta, { clientOnly: true });
   const statements = [
     `LET $__created = (CREATE ${createTarget(meta, args.data, true, operation)} CONTENT ${payload(encoded, binds)});`,
     ...relate.map((entry) => relateStatement(entry, binds, operation)),
@@ -88,7 +98,23 @@ export function compileCreate(
     transactional: true,
     resultIndexes: [statements.length - 1],
     result: ret === "after" ? "row" : "none",
+    ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
   };
+}
+
+/** `RETURN DIFF` has no rows to project. */
+function assertCreateProjectable(
+  proj: ReturnType<typeof compileWriteProjection>,
+  ret: WriteRet,
+  operation: string,
+  meta: ModelMeta,
+): void {
+  if (proj && ret === "diff")
+    throw compileError(
+      "ReturnNotSupported",
+      `${operation}: RETURN DIFF returns a JSON Patch list, not rows — drop select/omit, or use return: "after"/"before".`,
+      { operation, table: meta.name },
+    );
 }
 
 /** Compile `createMany` — N `CREATE`s (or one `FOR` with `skipDuplicates`) in ONE round-trip. */
@@ -104,18 +130,28 @@ export function compileCreateMany(
     ["after", "before", "diff", "none"],
     "after",
   );
+  const proj = compileWriteProjection(meta, args, binds, operation);
+  if (proj && ret === "diff")
+    throw compileError(
+      "ReturnNotSupported",
+      `${operation}: RETURN DIFF returns a JSON Patch list, not rows — drop select/omit, or use return: "after"/"before".`,
+      { operation, table: meta.name },
+    );
+  const sel = selectMode(proj, ret, operation, meta);
   const data = requireArray(args.data, "data", operation);
   if (args.skipDuplicates === true)
-    return compileSkipDuplicates(meta, data, ret, binds, operation);
+    return compileSkipDuplicates(meta, data, ret, binds, operation, sel);
+  const projText = sel?.mode === "server" ? sel.proj.text : undefined;
 
   const statements = data.map(
     (item) =>
-      `CREATE ${createTarget(meta, item, false, operation)} CONTENT ${payload(encodeData(meta, item, "create", operation), binds)}${mutationTail(ret, undefined, operation)}`,
+      `CREATE ${createTarget(meta, item, false, operation)} CONTENT ${payload(encodeData(meta, item, "create", operation), binds)}${mutationTail(ret, undefined, operation, projText)}`,
   );
   return {
     statements,
     transactional: statements.length > 1,
     result: resultOf(ret, "many"),
+    ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
   };
 }
 
@@ -126,14 +162,17 @@ function compileSkipDuplicates(
   ret: WriteRet,
   binds: Binds,
   operation: string,
+  sel: ReturnType<typeof selectMode>,
 ): WritePlan {
+  const projText = sel?.mode === "server" ? sel.proj.text : undefined;
   const statements = data.map((item) =>
-    insertStatement(meta, item, "ignore", ret, binds, operation),
+    insertStatement(meta, item, "ignore", ret, binds, operation, projText),
   );
   return {
     statements,
     transactional: statements.length > 1,
     result: resultOf(ret, "many"),
+    ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
   };
 }
 
@@ -163,13 +202,25 @@ export function compileInsert(
       operation,
       table: meta.name,
     });
+  const proj = compileWriteProjection(meta, args, binds, operation);
+  assertInsertProjectable(proj, ret, operation, meta);
+  const sel = selectMode(proj, ret, operation, meta);
   return {
     statements: [
-      insertStatement(meta, args.data, args.onDuplicate, ret, binds, operation),
+      insertStatement(
+        meta,
+        args.data,
+        args.onDuplicate,
+        ret,
+        binds,
+        operation,
+        sel?.mode === "server" ? sel.proj.text : undefined,
+      ),
     ],
     transactional: false,
     resultIndexes: [0],
     result: resultOf(ret, "row"),
+    ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
   };
 }
 
@@ -193,13 +244,40 @@ export function compileInsertMany(
       { operation, table: meta.name },
     );
   const data = requireArray(args.data, "data", operation);
+  const proj = compileWriteProjection(meta, args, binds, operation);
+  assertInsertProjectable(proj, ret, operation, meta);
+  const sel = selectMode(proj, ret, operation, meta);
   return {
     statements: [
-      insertStatement(meta, data, args.onDuplicate, ret, binds, operation),
+      insertStatement(
+        meta,
+        data,
+        args.onDuplicate,
+        ret,
+        binds,
+        operation,
+        sel?.mode === "server" ? sel.proj.text : undefined,
+      ),
     ],
     transactional: false,
     result: resultOf(ret, "many"),
+    ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
   };
+}
+
+/** `INSERT` RETURN DIFF is a paged/nested diff — projecting it makes no sense. */
+function assertInsertProjectable(
+  proj: ReturnType<typeof compileWriteProjection>,
+  ret: WriteRet,
+  operation: string,
+  meta: ModelMeta,
+): void {
+  if (proj && ret === "diff")
+    throw compileError(
+      "ReturnNotSupported",
+      `${operation}: RETURN DIFF returns a JSON Patch list, not rows — drop select/omit, or use return: "after"/"before".`,
+      { operation, table: meta.name },
+    );
 }
 
 /** `INSERT [IGNORE] INTO t $p [ON DUPLICATE KEY UPDATE …] [RETURN …]`. */
@@ -210,6 +288,7 @@ function insertStatement(
   ret: WriteRet,
   binds: Binds,
   operation: string,
+  projText?: string,
 ): string {
   const table = escapeIdent(meta.name);
   const encoded = Array.isArray(data)
@@ -256,5 +335,5 @@ function insertStatement(
       { operation, table: meta.name },
     );
 
-  return `${sql}${mutationTail(ret, undefined, operation)}`;
+  return `${sql}${mutationTail(ret, undefined, operation, projText)}`;
 }
