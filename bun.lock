@@ -19,7 +19,7 @@
     },
     "drivers/surrealdb": {
       "name": "@better-schemic/surrealdb",
-      "version": "0.1.0-alpha.12",
+      "version": "0.1.0-alpha.13",
       "dependencies": {
         "@better-schemic/core": "workspace:*",
       },
@@ -42,7 +42,7 @@
     },
     "packages/better-schemic": {
       "name": "better-schemic",
-      "version": "0.1.0-alpha.12",
+      "version": "0.1.0-alpha.13",
       "bin": {
         "better-schemic": "bin.mjs",
         "sc": "bin.mjs",
@@ -53,7 +53,7 @@
     },
     "packages/cli": {
       "name": "@better-schemic/cli",
-      "version": "0.1.0-alpha.12",
+      "version": "0.1.0-alpha.13",
       "bin": {
         "better-schemic": "lib/cli/index.js",
         "sc": "lib/cli/index.js",
@@ -72,7 +72,7 @@
     },
     "packages/core": {
       "name": "@better-schemic/core",
-      "version": "0.1.0-alpha.12",
+      "version": "0.1.0-alpha.13",
       "dependencies": {
         "commander": "^14.0.2",
         "jiti": "^2.4.2",
@@ -92,7 +92,7 @@
     },
     "packages/create-better-schemic": {
       "name": "create-better-schemic",
-      "version": "0.1.0-alpha.12",
+      "version": "0.1.0-alpha.13",
       "bin": {
         "create-better-schemic": "lib/index.js",
       },
@@ -339,7 +339,7 @@
 
     "@types/jsesc": ["@types/jsesc@2.5.1", "", {}, "sha512-9VN+6yxLOPLOav+7PwjZbxiID2bVaeq0ED4qSQmdQTdjnXJSaCVKTR58t15oqH1H5t8Ng2ZX1SabJVoN9Q34bw=="],
 
-    "@types/node": ["@types/node@26.6.4", "", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-ldVPDCzj7fsaGZrLB0NuHuTvJcsNasysBAqMolr/cgxrLd1xbqxIr3XJiPnHHJUCxj5sNF1vnRj9aWnrVh5Jcg=="],
+    "@types/node": ["@types/node@26.6.5", "", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-uMzsv9stDdofIZBx4UGh4Z9ZgXnGC9seRDscilBcTHAeOFk67MZg/k9bWVfO+bk4qZmG+l52hRnLwUiH2LnJTg=="],
 
     "@typescript/native-preview": ["@typescript/native-preview@7.0.0-dev.20260707.2", "", { "optionalDependencies": { "@typescript/native-preview-darwin-arm64": "7.0.0-dev.20260707.2", "@typescript/native-preview-darwin-x64": "7.0.0-dev.20260707.2", "@typescript/native-preview-linux-arm": "7.0.0-dev.20260707.2", "@typescript/native-preview-linux-arm64": "7.0.0-dev.20260707.2", "@typescript/native-preview-linux-x64": "7.0.0-dev.20260707.2", "@typescript/native-preview-win32-arm64": "7.0.0-dev.20260707.2", "@typescript/native-preview-win32-x64": "7.0.0-dev.20260707.2" }, "bin": { "tsgo": "bin/tsgo" } }, "sha512-oUGp+Rep/hqMhPunyinsALUwSlzHINSxitifPiSaeqoKOKD2OlR9NE3TaPqwsl4NlGslsOSUXI1JotWQzpYCPg=="],
 
@@ -565,7 +565,7 @@
 
     "sisteransi": ["sisteransi@1.0.5", "", {}, "sha512-bLGGlR1QxBcynn2d5YmDX4MGjlZvy2MRBDRNHLJ8VI6l6+9FUiyTFNJ0IveOSP0bcXgVDPRcfGqA0pjaqUpfVg=="],
 
-    "skills": ["skills@1.7.1", "", { "dependencies": { "tar": "^7.5.20", "yaml": "^2.8.3" }, "bin": { "skills": "bin/cli.mjs", "add-skill": "bin/cli.mjs" } }, "sha512-LUHR/+3D3evhwejiMfBStH7ndqJkV9UlwkjH1LpQ8j1g1cJO1yrXs+R+xS0AuV6E7iX0uZt44xEMAPZC+o40nA=="],
+    "skills": ["skills@1.7.2", "", { "dependencies": { "tar": "^7.5.20", "yaml": "^2.8.3" }, "bin": { "skills": "bin/cli.mjs", "add-skill": "bin/cli.mjs" } }, "sha512-j+GzyF/oNahsjjjup6y3lJpFkC1lQjIkf4kAMXICA1hboBqi0fAGXAGoE4x9FRZiP1br/YE9+L3/Tqq6PIAe0A=="],
 
     "source-map": ["source-map@0.7.6", "", {}, "sha512-i5uvt8C3ikiWeNZSVZNWcfZPItFQOsYTUAOkcUPGd8DqDy1uOUikjt5dG+uRlwyvR108Fb9DOd4GvXfT0N2/uQ=="],
 

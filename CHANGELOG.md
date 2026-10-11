@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+## [0.1.0-alpha.13] - 2026-10-10
+
 ### Added
 - **surrealdb:** **write projections** — every row-returning write (`create`/`createMany`/`insert`/
   `insertMany`/`update`/`updateMany`/`patch`/`upsert`/`upsertDelta`/`upsertMany`/`delete`/
