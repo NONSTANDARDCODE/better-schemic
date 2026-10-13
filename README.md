@@ -4,23 +4,22 @@
 
 ## Your SurrealDB schema, in the Zod you already know.
 
-**One `defineTable`. Real validation, real types, real DDL, real migrations, a real ORM.**
+One `defineTable` becomes your validator, your types, your DDL, your migrations and your queries.
 
-[Docs](https://github.com/NONSTANDARDCODE/better-schemic) &nbsp;•&nbsp; [GitHub](https://github.com/NONSTANDARDCODE/better-schemic) &nbsp;•&nbsp; [Examples](drivers/surrealdb/examples)
+[Docs](https://github.com/NONSTANDARDCODE/better-schemic) &nbsp;•&nbsp; [Examples](drivers/surrealdb/examples) &nbsp;•&nbsp; [GitHub](https://github.com/NONSTANDARDCODE/better-schemic)
 
 [![npm](https://img.shields.io/npm/v/@better-schemic/cli)](https://www.npmjs.com/package/@better-schemic/cli) &nbsp; [![CI](https://github.com/NONSTANDARDCODE/better-schemic/actions/workflows/ci.yml/badge.svg)](https://github.com/NONSTANDARDCODE/better-schemic/actions/workflows/ci.yml) &nbsp; [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-TypeScript-first · Zod-compatible · Standard Schema · Typed queries
+**54** DDL features round-tripped &nbsp;·&nbsp; **125** SurrealQL facts live-probed on 3.2.0 &nbsp;·&nbsp; **106** verified examples
 
 </div>
 
 ---
 
 > [!NOTE]
-> **This is a fork of [schemichq/schemic](https://github.com/schemichq/schemic), which stopped being
-> maintained.** We picked it up and kept shipping: bug fixes, and — the piece upstream still listed
-> as *"Typed queries — in progress"* — **a fully typed query ORM**. One schema, now an end-to-end
-> stack. SurrealDB only. Pre-fork history stays frozen in [`CHANGELOG_OLD.md`](./CHANGELOG_OLD.md).
+> **Fork of [schemichq/schemic](https://github.com/schemichq/schemic), which stopped being maintained.**
+> We kept it shipping: bug fixes, and — the piece upstream still listed as *"Typed queries — in
+> progress"* — **a fully typed query ORM**. One schema, now an end-to-end stack.
 
 ## Your schema lives in four places. None of them agree.
 
@@ -33,7 +32,9 @@ TypeScript-first · Zod-compatible · Standard Schema · Typed queries
 
 But you already describe your data in TypeScript.
 
-## `schema.ts` → `user.surql`
+## The whole chain
+
+Nine lines in. Everything out. **Nothing below is hand-written or maintained twice.**
 
 ```ts
 // database/schema/tables/user.ts
@@ -50,6 +51,8 @@ export const User = defineTable("user", {
   .schemafull();
 ```
 
+**→ the database**
+
 ```surql
 DEFINE TABLE user TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD name ON TABLE user TYPE string ASSERT string::len($value) >= 1 AND string::len($value) <= 80;
@@ -60,45 +63,33 @@ DEFINE FIELD createdAt ON TABLE user TYPE datetime DEFAULT time::now() READONLY;
 DEFINE INDEX user_email ON TABLE user FIELDS email UNIQUE;
 ```
 
-`s.*` is a drop-in for `z.*` — same builders, same chaining, same validators. The difference is
-that every one of them also knows how to become SurrealQL. One `.$unique()` compiles to a typed
-`FIELD` **and** a `UNIQUE INDEX`.
+`$min`/`$max` are not app-side sugar — they bake into a server-side `ASSERT` that every write, from
+every client, obeys.
 
-## Those 9 lines give you four things
+**→ your types**
 
-### 🛡️ Validation
+```ts
+import type { App, Create, Update } from "@better-schemic/surrealdb";
 
-`s.*` **is** a Zod schema, so the whole Zod API works — edge, tests, seeds, anywhere.
+type Row = App<typeof User>;      // { id: RecordId<"user">; name: string; email: string;
+                                   //   role: string; tags: string[]; createdAt: Date }  ← Date, not a string
+type NewUser = Create<typeof User>;   // $readonly excluded · $default fields optional · rest required
+type UserPatch = Update<typeof User>;  // createdAt is READONLY, id is immutable
+```
+
+Not a cast — `App<>` is the codec's own output type. Refactor the schema and the whole app follows.
+No codegen, nothing to remember.
+
+**→ validation, anywhere**
+
+`s.*` **is** a Zod schema. The API you already know works at the edge, in tests, in seeds:
 
 ```ts
 User.fields.email.safeParse("aeon@nonstandard.dev");   // { success: true,  data: "aeon@nonstandard.dev" }
 User.fields.email.safeParse("not-an-email");           // { success: false, error: ZodError }
 ```
 
-And the database enforces it too: `$min`/`$max` aren't app-side sugar, they bake into a server-side
-`ASSERT` that every write, from every client, obeys. The ORM runs the same codec before the statement
-leaves the process — a bad payload never reaches the wire.
-
-### 📐 Types
-
-```ts
-import type { App, Create, Update } from "@better-schemic/surrealdb";
-
-type Row = App<typeof User>;
-// { id: RecordId<"user", string>; name: string; email: string;
-//   role: string; tags: string[]; createdAt: Date }      ← Date, not a string
-
-type NewUser = Create<typeof User>;
-// id + $readonly excluded · $default fields optional · everything else required
-
-type UserPatch = Update<typeof User>;
-// { name?; email?; role?; tags? } — createdAt is READONLY, id is immutable
-```
-
-Not a cast: `App<>` is the codec's own output type. Refactor the schema and the whole app follows —
-no codegen, nothing to remember.
-
-### 🗃️ Migrations you can read
+**→ a reviewable, reversible migration**
 
 ```bash
 sc gen add_users
@@ -119,20 +110,30 @@ IF $direction = "up" {
 };
 ```
 
-Reversible, idempotent, reviewable. And when someone hand-writes a `DEFINE` at 2am, `sc pull` walks
-the live database back into TypeScript — the source of truth can always be restored.
+Someone hand-writes a `DEFINE` at 2am? `sc pull` walks the live database back into TypeScript. The
+source of truth can always be restored.
 
-### 🔌 Typed queries
-
-The piece this fork exists for. A delegate per table, typed from the schema, compiling to **one
-parameterized statement** — no N+1, no string concatenation.
+**→ your queries**
 
 ```ts
-import { betterSchemic, createBetterSchemic, defineSchema } from "@better-schemic/surrealdb/orm";
+import { betterSchemic, defineSchema } from "@better-schemic/surrealdb/orm";
 
 const client = betterSchemic(db, { schema: defineSchema({ users: User }) });
-// or: await createBetterSchemic({ url, namespace, database, schema })
+
+await client.users.update({ where: { email: "aeon@nonstandard.dev" }, data: { tags: ["db"] } });
 ```
+
+```surql
+UPDATE user MERGE $p1 WHERE email = $p0;
+```
+
+That `where` resolved through the `user_email` index declared three sections above. One round-trip,
+parameterized, typed. This is the part upstream never finished.
+
+## Typed queries
+
+One delegate per table, typed from the schema, compiling to **one statement** — no N+1, no string
+concatenation, no drift.
 
 ```ts
 await client.users.create({ data: { name: "Aeon", email: "aeon@nonstandard.dev", tags: ["graph"] } });
@@ -146,15 +147,23 @@ await client.users.findMany({
 });
 // SELECT id, name FROM user WHERE role = $p0 ORDER BY createdAt DESC LIMIT $p1;
 
-await client.users.update({ where: { email: "aeon@nonstandard.dev" }, data: { tags: ["db"] } });
-// UPDATE user MERGE $p1 WHERE email = $p0;      ← the UNIQUE index is the target
+await client.users.upsert({ where: { email }, data: { tags: ["db"] }, onMissing: "create" });
+// UPSERT ((SELECT VALUE id FROM user WHERE email = $p0 LIMIT 1)[0] ?? …) MERGE $p1;
 
 await client.users.live({ where: { role: "member" }, diff: true }, onChange);
 // LIVE SELECT DIFF FROM user WHERE role = $p0;
 ```
 
-Every call is checked against the schema: `select` projects the result type, `where` only accepts
-real columns and real operators. A typo is a red squiggle, not a 500.
+`select` projects the result type. `where` only accepts real columns and real operators. A typo is a
+red squiggle, not a 500. And a bad payload never reaches the wire — the codec rejects it first:
+
+```ts
+await client.users.create({ data: { name: "Aeon", email: "nope", tags: [] } });
+// BetterSchemicError: Validation failed at "email"  (code: "ValidationError")
+```
+
+Reads, writes, `upsert`/`upsertDelta`, relations, transactions with `afterCommit`, live queries,
+changefeeds, multi-tenant scoping, plugins — [all mapped, with goldens](drivers/surrealdb/docs/ORM-COVERAGE.md).
 
 > The ORM resolves unique targets from **table-level** `.index(…, { unique: true })` — the inline
 > `s.email().$unique()` emits the same DDL index but isn't a write target.
@@ -198,7 +207,7 @@ DEFINE INDEX ft ON TABLE doc FIELDS content FULLTEXT ANALYZER english HIGHLIGHTS
 DEFINE INDEX vec ON TABLE doc FIELDS embedding HNSW DIMENSION 1536 DIST COSINE;
 ```
 
-**Permissions, views and access are schema — not a README you forget.**
+**Permissions and views are schema — not a README you forget.**
 
 ```ts
 defineTable("doc", { id: s.string() }).permissions({
@@ -218,14 +227,14 @@ defineView("adults", { name: s.string(), age: s.number() })
 betterSchemic(db, {
   schema,
   plugins: [
-    recommended({ maxLimit: 100 }),      // no raw-unsafe, no unfiltered writes
-    timestamps(), softDelete(),          // audited, reversible soft delete
-    tenantRls({ tenant: () => ctx.tenantId }),   // fail-closed multi-tenant scope
+    recommended({ maxLimit: 100 }),                 // no raw-unsafe, no unfiltered writes
+    timestamps(), softDelete(),                     // audited, reversible soft delete
+    tenantRls({ tenant: () => ctx.tenantId }),      // fail-closed multi-tenant scope
   ],
 });
 
-await client.customers.findMany({});                         // ✗ TenantRequired
-await client.customers.$forTenant("user:abc").findMany({}); // ✓ scoped
+await client.customers.findMany({});                          // ✗ TenantRequired
+await client.customers.$forTenant("user:abc").findMany({});  // ✓ scoped
 ```
 
 **A query log you'd actually keep on.**
@@ -272,7 +281,7 @@ export default defineConfig({
 ```bash
 sc diff      # what's changed          sc check   # replay migrations in a throwaway engine
 sc gen       # write a migration       sc migrate # apply pending
-sc rollback  # revert                 sc pull    # introspect the live DB back into TypeScript
+sc rollback  # revert                  sc pull    # introspect the live DB back into TypeScript
 ```
 
 ## Packages
@@ -285,9 +294,8 @@ sc rollback  # revert                 sc pull    # introspect the live DB back i
 | [`better-schemic`](packages/better-schemic#readme) | Alias package, so `bunx better-schemic` just works. |
 | [`create-better-schemic`](packages/create-better-schemic#readme) | The scaffolder behind `sc init`. |
 
-The engine is dialect-neutral by construction — a driver is an implementation of the `Driver`
-contract plus an authoring surface. The CLI contains **zero** dialect code.
+## One schema. Every layer it touches.
 
-## License
+Generate the DDL, run the migrations, keep the types — all from the file you already wrote.
 
 [MIT](LICENSE) © NONSTANDARDCODE
