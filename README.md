@@ -21,7 +21,8 @@ One `defineTable` becomes your validator, your types, your DDL, your migrations 
 > [!NOTE]
 > **Fork of [schemichq/schemic](https://github.com/schemichq/schemic), which stopped being maintained.**
 > We kept it shipping: bug fixes, and — the piece upstream still listed as *"Typed queries — in
-> progress"* — **a fully typed query ORM**. One schema, now an end-to-end stack.
+> progress"* — **a fully typed query ORM**, inspired by [better-drizzle](https://github.com/almeidazs/better-drizzle):
+> its `.throw()` result wrapper, `select`/`omit` projection typing, and repository-style delegates.
 
 ## Your schema lives in four places. None of them agree.
 
@@ -136,10 +137,6 @@ parameterized, typed. This is the part upstream never finished.
 
 One delegate per table, typed from the schema, compiling to **one statement** — no N+1, no string
 concatenation, no drift.
-
-> Inspired by [better-drizzle](https://github.com/almeidazs/better-drizzle) — its `.throw()` on a
-> possibly-missing result, its `select`/`omit` projection typing, and its repository-style delegates
-> are the model here, retargeted at SurrealQL.
 
 ```ts
 await client.users.create({ data: { name: "Aeon", email: "aeon@nonstandard.dev", tags: ["graph"] } });
