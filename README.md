@@ -12,6 +12,8 @@ One `defineTable` becomes your validator, your types, your DDL, your migrations 
 
 **54** DDL features round-tripped &nbsp;·&nbsp; **125** SurrealQL facts live-probed on 3.2.0 &nbsp;·&nbsp; **106** verified examples
 
+*Site and full docs are coming soon — until then, the repo is the documentation.*
+
 </div>
 
 ---

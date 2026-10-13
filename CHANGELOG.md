@@ -30,7 +30,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   the DDL and the runtime SurrealQL quoted are verbatim tool output, not hand-written. It also credits
   [better-drizzle](https://github.com/almeidazs/better-drizzle) as the design model for the typed
   query ORM — matching the attribution already carried in `src/orm/results.ts` and
-  `src/orm/types/select.ts`.
+  `src/orm/types/select.ts`. The hero notes that a site and full docs are on the way, so the current
+  `Docs` nav link resolving to the repo is intentional rather than a placeholder.
 
 ## [0.1.0-alpha.13] - 2026-10-10
 
