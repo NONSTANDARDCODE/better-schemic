@@ -30,8 +30,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   the DDL and the runtime SurrealQL quoted are verbatim tool output, not hand-written. It also credits
   [better-drizzle](https://github.com/almeidazs/better-drizzle) as the design model for the typed
   query ORM — inside the fork note, next to the claim it qualifies — matching the attribution
-  already carried in `src/orm/results.ts` and `src/orm/types/select.ts`. The hero notes that a site and full docs are on the way, so the current
-  `Docs` nav link resolving to the repo is intentional rather than a placeholder.
+  already carried in `src/orm/results.ts` and `src/orm/types/select.ts`. The hero notes that a site
+  and full docs are on the way, so the current `Docs` nav link resolving to the repo is intentional
+  rather than a placeholder.
+  Conversion-shaped, without losing the technical register: the hero now carries the *why now*
+  (upstream stopped shipping; this fork finished the ORM) instead of leaving it buried in the fork
+  note; liveness moved from a hardcoded date to a `release-date` badge so it cannot go stale; the
+  install CTA gained click-trigger microcopy (what `init` writes, no account, nothing to undo); the
+  ORM section answers the product-aware objection directly (typed query layers stop at Postgres —
+  here the `.ts` *is* the server schema); and the closer breaks the lock-in objection (`sc pull`,
+  `$raw`, MIT — leaving is a command, not a migration).
 
 ## [0.1.0-alpha.13] - 2026-10-10
 

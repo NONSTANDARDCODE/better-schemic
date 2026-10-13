@@ -4,13 +4,15 @@
 
 ## Your SurrealDB schema, in the Zod you already know.
 
-One `defineTable` becomes your validator, your types, your DDL, your migrations and your queries.
+One `defineTable` becomes your validator, your types, your DDL, your migrations **and your queries**.
+
+Upstream stopped shipping. This fork finished the part they left open — a fully typed query ORM.
 
 [Docs](https://github.com/NONSTANDARDCODE/better-schemic) &nbsp;•&nbsp; [Examples](drivers/surrealdb/examples) &nbsp;•&nbsp; [GitHub](https://github.com/NONSTANDARDCODE/better-schemic)
 
-[![npm](https://img.shields.io/npm/v/@better-schemic/cli)](https://www.npmjs.com/package/@better-schemic/cli) &nbsp; [![CI](https://github.com/NONSTANDARDCODE/better-schemic/actions/workflows/ci.yml/badge.svg)](https://github.com/NONSTANDARDCODE/better-schemic/actions/workflows/ci.yml) &nbsp; [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![npm](https://img.shields.io/npm/v/@better-schemic/cli)](https://www.npmjs.com/package/@better-schemic/cli) &nbsp; [![release](https://img.shields.io/github/release-date/NONSTANDARDCODE/better-schemic)](https://github.com/NONSTANDARDCODE/better-schemic/releases) &nbsp; [![CI](https://github.com/NONSTANDARDCODE/better-schemic/actions/workflows/ci.yml/badge.svg)](https://github.com/NONSTANDARDCODE/better-schemic/actions/workflows/ci.yml) &nbsp; [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-**54** DDL features round-tripped &nbsp;·&nbsp; **125** SurrealQL facts live-probed on 3.2.0 &nbsp;·&nbsp; **106** verified examples
+**54** DDL features round-tripped &nbsp;·&nbsp; **125** SurrealQL facts live-probed &nbsp;·&nbsp; **106** verified examples
 
 *Site and full docs are coming soon — until then, the repo is the documentation.*
 
@@ -138,6 +140,10 @@ parameterized, typed. This is the part upstream never finished.
 One delegate per table, typed from the schema, compiling to **one statement** — no N+1, no string
 concatenation, no drift.
 
+Typed query layers usually stop at Postgres. Here the TypeScript file **is** the server schema — that
+`DEFINE FIELD` came out of the same nine lines this delegate came out of, not out of a translation
+layer.
+
 ```ts
 await client.users.create({ data: { name: "Aeon", email: "aeon@nonstandard.dev", tags: ["graph"] } });
 // CREATE type::record(s"user", rand::ulid()) CONTENT $p0;
@@ -261,6 +267,9 @@ bun add @better-schemic/cli @better-schemic/surrealdb zod
 bunx better-schemic init        # or `sc init`
 ```
 
+Two commands. `init` writes the config, a sample schema, a seed stub and `.env.example` — no account,
+no cloud, nothing to undo.
+
 ```ts
 // better-schemic.config.ts
 import { defineConfig } from "@better-schemic/core/config";
@@ -300,5 +309,8 @@ sc rollback  # revert                  sc pull    # introspect the live DB back 
 ## One schema. Every layer it touches.
 
 Generate the DDL, run the migrations, keep the types — all from the file you already wrote.
+
+**No lock-in.** MIT. `sc pull` takes a live database back into TypeScript at any time, and `$raw`
+covers anything the delegates don't. Leaving is a command, not a migration.
 
 [MIT](LICENSE) © NONSTANDARDCODE
