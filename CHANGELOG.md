@@ -18,6 +18,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+### Changed
+- **repo:** copyright holder is now **NONSTANDARDCODE** (was Vertio Solutions) across every
+  `LICENSE`, `package.json` `author` field and README footer.
+- **docs:** the root `README.md` now leads with a single end-to-end example — one `defineTable`
+  walkthrough that yields validation, `App<>`/`Create<>`/`Update<>` types, the generated SurrealQL,
+  a reversible `.surql` migration and the typed ORM delegates — plus a fork notice linking the
+  SurrealDB-only fork back to [Schemic](https://github.com/schemichq/schemic). Every snippet in it
+  was executed against the current surface (authoring emit + a recording ORM connection); the DDL
+  and the runtime SurrealQL quoted are verbatim tool output, not hand-written.
+
 ## [0.1.0-alpha.13] - 2026-10-10
 
 ### Added

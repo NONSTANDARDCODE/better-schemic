@@ -3,7 +3,7 @@
   "version": "0.1.0-alpha.13",
   "description": "The Better-schemic CLI — driver-agnostic schema migrations (gen/migrate/diff/push/pull/check).",
   "license": "MIT",
-  "author": "Vertio Solutions",
+  "author": "NONSTANDARDCODE",
   "homepage": "https://github.com/NONSTANDARDCODE/better-schemic",
   "repository": {
     "type": "git",

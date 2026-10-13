@@ -37,4 +37,4 @@ the [Better-schemic](https://github.com/NONSTANDARDCODE/better-schemic) toolkit.
 
 ## License
 
-[MIT](./LICENSE) © Vertio Solutions
+[MIT](./LICENSE) © NONSTANDARDCODE

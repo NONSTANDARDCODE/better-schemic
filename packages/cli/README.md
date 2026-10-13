@@ -62,4 +62,4 @@ Full guides, concepts, and reference live at
 
 ## License
 
-[MIT](./LICENSE) © Vertio Solutions
+[MIT](./LICENSE) © NONSTANDARDCODE

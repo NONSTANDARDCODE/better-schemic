@@ -520,4 +520,4 @@ ORM emits is [docs/orm-syntax-map.md](docs/orm-syntax-map.md), and the milestone
 
 ## License
 
-[MIT](./LICENSE) © Vertio Solutions
+[MIT](./LICENSE) © NONSTANDARDCODE
