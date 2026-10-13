@@ -288,19 +288,6 @@ sc rollback  # revert                 sc pull    # introspect the live DB back i
 The engine is dialect-neutral by construction — a driver is an implementation of the `Driver`
 contract plus an authoring surface. The CLI contains **zero** dialect code.
 
-## Status
-
-**Alpha (`0.x`).** APIs may still change. SurrealDB only.
-
-- [x] Schema → DDL, migrations, introspection, typed queries, plugins
-- [ ] More drivers — the contract is there, nobody has needed one yet
-
-```bash
-bun install
-bun --filter '@better-schemic/*' test
-bun --filter '@better-schemic/*' typecheck
-```
-
 ## License
 
 [MIT](LICENSE) © NONSTANDARDCODE
