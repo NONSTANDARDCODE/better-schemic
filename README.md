@@ -135,6 +135,10 @@ parameterized, typed. This is the part upstream never finished.
 One delegate per table, typed from the schema, compiling to **one statement** — no N+1, no string
 concatenation, no drift.
 
+> Inspired by [better-drizzle](https://github.com/almeidazs/better-drizzle) — its `.throw()` on a
+> possibly-missing result, its `select`/`omit` projection typing, and its repository-style delegates
+> are the model here, retargeted at SurrealQL.
+
 ```ts
 await client.users.create({ data: { name: "Aeon", email: "aeon@nonstandard.dev", tags: ["graph"] } });
 // CREATE type::record(s"user", rand::ulid()) CONTENT $p0;
