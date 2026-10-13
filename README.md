@@ -10,7 +10,7 @@ Upstream stopped shipping. This fork finished the part they left open — a full
 
 [Docs](https://github.com/NONSTANDARDCODE/better-schemic) &nbsp;•&nbsp; [Examples](drivers/surrealdb/examples) &nbsp;•&nbsp; [GitHub](https://github.com/NONSTANDARDCODE/better-schemic)
 
-[![npm](https://img.shields.io/npm/v/@better-schemic/cli)](https://www.npmjs.com/package/@better-schemic/cli) &nbsp; [![release](https://img.shields.io/github/release-date/NONSTANDARDCODE/better-schemic)](https://github.com/NONSTANDARDCODE/better-schemic/releases) &nbsp; [![CI](https://github.com/NONSTANDARDCODE/better-schemic/actions/workflows/ci.yml/badge.svg)](https://github.com/NONSTANDARDCODE/better-schemic/actions/workflows/ci.yml) &nbsp; [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![npm](https://img.shields.io/npm/v/@better-schemic/cli)](https://www.npmjs.com/package/@better-schemic/cli) &nbsp; [![published](https://img.shields.io/npm/last-update/@better-schemic/cli)](https://www.npmjs.com/package/@better-schemic/cli?activeTab=versions) &nbsp; [![downloads](https://img.shields.io/npm/dm/@better-schemic/cli)](https://www.npmjs.com/package/@better-schemic/cli) &nbsp; [![CI](https://github.com/NONSTANDARDCODE/better-schemic/actions/workflows/ci.yml/badge.svg)](https://github.com/NONSTANDARDCODE/better-schemic/actions/workflows/ci.yml) &nbsp; [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **54** DDL features round-tripped &nbsp;·&nbsp; **125** SurrealQL facts live-probed &nbsp;·&nbsp; **106** verified examples
 

@@ -40,6 +40,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   ORM section answers the product-aware objection directly (typed query layers stop at Postgres —
   here the `.ts` *is* the server schema); and the closer breaks the lock-in objection (`sc pull`,
   `$raw`, MIT — leaving is a command, not a migration).
+- **docs:** fixed a broken badge in the README hero. The liveness badge pointed at
+  `github/release-date`, but this repo cuts releases straight to npm and has **no GitHub Releases** —
+  so the badge was rendering *"no releases or repo not found"* on a live README. Replaced with the npm
+  endpoints that match where the packages actually ship: `npm/last-update/@better-schemic/cli`
+  (verified: 2026-10-11, a Sunday — the badge reads "last sunday") plus `npm/dm` for downloads.
+  All five packages (`better-schemic`, `@better-schemic/{core,cli,surrealdb}`,
+  `create-better-schemic`) verified published at `0.1.0-alpha.13` on npm.
 
 ## [0.1.0-alpha.13] - 2026-10-10
 
