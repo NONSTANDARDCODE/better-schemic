@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+## [0.1.0-alpha.14] - 2026-10-14
+
 ### Changed
 - **repo:** copyright holder is now **NONSTANDARDCODE** (was Vertio Solutions) across every
   `LICENSE`, `package.json` `author` field and README footer.
