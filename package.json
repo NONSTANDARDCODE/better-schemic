@@ -23,16 +23,16 @@
     "surrealdb": "2.0.3"
   },
   "dependencies": {
-    "skills": "^1.5.26"
+    "skills": "^1.7.2"
   },
   "devDependencies": {
-    "@stryker-mutator/api": "^10",
-    "@stryker-mutator/core": "^10",
+    "@stryker-mutator/api": "^10.0.0",
+    "@stryker-mutator/core": "^10.0.0",
     "fast-check": "^4.10.2",
     "istanbul-lib-coverage": "^3.2.2",
     "istanbul-lib-report": "^3.0.1",
     "istanbul-reports": "^3.2.0",
-    "oxc-coverage-instrument": "^0.12.0",
-    "oxc-parser": "^0.153.0"
+    "oxc-coverage-instrument": "^0.13.0",
+    "oxc-parser": "^0.154.0"
   }
 }

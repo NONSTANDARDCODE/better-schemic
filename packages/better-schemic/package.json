@@ -23,6 +23,6 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@better-schemic/cli": "^0.1.0-alpha.0"
+    "@better-schemic/cli": "^0.1.0-alpha.13"
   }
 }

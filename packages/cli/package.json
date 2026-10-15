@@ -36,13 +36,13 @@
   },
   "dependencies": {
     "@better-schemic/core": "workspace:*",
-    "commander": "^14.0.2"
+    "commander": "^15.0.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.3.11",
+    "@biomejs/biome": "^2.5.15",
     "@better-schemic/surrealdb": "workspace:*",
-    "@types/bun": "latest",
+    "@types/bun": "^1.4.3",
     "surrealdb": "^2.0.3",
-    "zod": "^4.3.5"
+    "zod": "^4.6.7"
   }
 }
