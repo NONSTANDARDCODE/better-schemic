@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+## [0.1.0-alpha.15] - 2026-10-16
+
 ### Added
 - **surrealdb (ORM):** **`aggregate({ split })` — UNWIND + GROUP.** O servidor avalia `SPLIT` antes
   de `GROUP`, então `SELECT … SPLIT f GROUP ALL` é erro e `math::*` sobre o grupo não alcança o
