@@ -28,6 +28,12 @@ export interface SoftDeleteOptions {
   readonly deletedBy?: string;
   /** The `meta` key carrying the actor for {@link SoftDeleteOptions.deletedBy} (default `"actor"`). */
   readonly actorMeta?: string;
+  /**
+   * The tables this plugin owns. Omitted = every table. Scoping is what lets a schema mix
+   * tombstoned rows with physically-deleted ones (pair it with the `hard-delete` plugin): a `delete`
+   * on a table outside this list compiles as a real `DELETE`.
+   */
+  readonly tables?: readonly string[];
 }
 
 /** The `deleted:` read arg values. */
@@ -42,11 +48,17 @@ type Model = {
 export function softDelete(options: SoftDeleteOptions = {}) {
   const column = options.column ?? "deletedAt";
   const actorMeta = options.actorMeta ?? "actor";
+  const owned = options.tables ? new Set(options.tables) : undefined;
   return definePlugin({
     id: "@better-schemic/surrealdb/soft-delete",
     name: "Soft delete",
     description: "Turn delete into a reversible soft delete.",
-    config: { column, deletedBy: options.deletedBy, actorMeta },
+    config: {
+      column,
+      deletedBy: options.deletedBy,
+      actorMeta,
+      tables: options.tables ?? [],
+    },
     operationArgs: {
       findMany: { deleted: "without" as DeletedFilter },
       findFirst: { deleted: "without" as DeletedFilter },
@@ -58,6 +70,7 @@ export function softDelete(options: SoftDeleteOptions = {}) {
       cursor: { deleted: "without" as DeletedFilter },
     },
     transform(op) {
+      if (owned && !owned.has(op.table)) return;
       if (op.kind === "delete" || op.kind === "deleteMany") {
         op.kind = op.kind === "delete" ? "update" : "updateMany";
         op.data[column] = surql`time::now()`;

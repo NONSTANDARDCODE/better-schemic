@@ -128,7 +128,26 @@ const User = defineTable("user", {
   tags: s.array(s.string()),
 }).index("user_email", ["email"], { unique: true });
 
-export const schema = defineSchema({ users: User, audit: "audit_log" });
+// A cart whose lines are the rows the UNWIND+GROUP aggregate below walks.
+const Line = defineTable("line", { label: s.string(), quantity: s.int() });
+const Cart = defineTable("cart", {
+  name: s.string(),
+  lines: s.array(s.recordId(() => Line)),
+});
+// Multi-tenant: `email` is unique only WITHIN a tenant, so the index is the pair.
+const Account = defineTable("account", {
+  tenant: s.string(),
+  email: s.string(),
+  name: s.string(),
+}).index("account_tenant_email", ["tenant", "email"], { unique: true });
+
+export const schema = defineSchema({
+  users: User,
+  carts: Cart,
+  lines: Line,
+  accounts: Account,
+  audit: "audit_log",
+});
 
 const client = betterSchemic(existingSurreal, { schema });     // BYO: close() is a no-op
 // or: const client = await createBetterSchemic({ url, namespace, database, auth, schema });
@@ -145,13 +164,21 @@ const user = await client.users.findUnique({ where: { email } }).throw();
 const total = await client.users.count({ where: { age: { gte: 18 } } });
 const byTag = await client.users.aggregate({
   select: { tags: "tags", _count: true, avgAge: { avg: "age" } },
-  groupBy: ["tags"],
+  groupBy: ["tags"],                      // the alias OR the path — both are valid group keys
+});
+// `math::*` only aggregates NUMBERS and answers 0/null/{}/silently for anything else, so the
+// operand is checked against the schema: a wrong path is a compile error, not a R$ 0,00 report.
+// Aggregating PER ELEMENT of an array is `split` (UNWIND in a subquery + GROUP outside):
+const perUser = await client.carts.aggregate({
+  split: "lines",
+  select: { name: "name", total: { sum: "lines[*].quantity" } },
+  groupBy: ["name"],                      // where filters the PARENT rows
 });
 const page = await client.users.paginate({ orderBy: [{ id: "asc" }], limit: 20, start: 0 });
 const next = await client.users.cursor({
   select: { name: true },                      // keyset fields ride reserved `_keyset_<n>` aliases
-  orderBy: [{ age: "desc" }, { id: "asc" }],   // ...read for the cursors and stripped from `data`
-  limit: 20,
+  orderBy: [{ age: "desc" }, { id: "asc" }],   // the LAST field must be unique — a type error now
+  limit: 20,                                   // (`id`, or a field with a single-field UNIQUE index)
   after: { age: 30, id: "user:42" },
 });
 // Cursor values carry the STORED value (`s.datetime()` round-trips a `DateTime` with nanoseconds;
@@ -173,9 +200,15 @@ const patched = await client.users.patch({
   patches: [{ op: "replace", path: "/age", value: 32 }],
 });
 const upserted = await client.users.upsert({
-  where: { email: "aeon@x.dev" },               // id, a single-field UNIQUE index — or infer from `data.id`
-  data: { email: "aeon@x.dev", age: 33 },
+  where: { email: "aeon@x.dev" },               // id, a UNIQUE index (single field, or the fields
+  data: { email: "aeon@x.dev", age: 33 },       // of a COMPOSITE one) — or infer from `data.id`
   onMissing: "create",                          // STRICT by default: a miss rejects ResultNotFound
+});
+// The multi-tenant shape: `email` is unique only WITHIN a tenant, so the `[tenant, email]` index IS
+// the unique key — pass every field of the group (a partial `where` would match many rows):
+const tenantUpserted = await client.accounts.upsert({
+  where: { tenant: "acme", email: "aeon@x.dev" },
+  data: { name: "Aeon" },
 });
 const saved = await client.users.upsert({
   data: { id: created.id, age: 33 },            // `data.id` infers the target — strict UPDATE ONLY
@@ -224,8 +257,25 @@ const previous = await client.users
     select: { age: true },
   })
   .throw();
+// Array fields have their own markers, each ONE server-side write (so a UNIQUE index over the
+// whole array stays correct — the server is what swaps the key):
+const tagged = await client.users.update({
+  where: { id: created.id },
+  data: { tags: { append: "vip" } },   // → SET tags += $p0   (append, NO dedup)
+});
+const deduped = await client.users.update({
+  where: { id: created.id },
+  data: { tags: { union: ["vip", "beta"] } },  // → SET tags = array::union(tags, $p0) (dedups)
+});
+const without = await client.users.update({
+  where: { id: created.id },
+  data: { tags: { remove: "beta" } },  // → SET tags -= $p0   (removes EVERY occurrence)
+});
 void aged;
 void previous;
+void tagged;
+void deduped;
+void without;
 
 // Created ids: every ORM create without an explicit `id` generates a ULID by default
 // (`rand::ulid()` — 26 chars, time-sortable). Pick another strategy per table in authoring:

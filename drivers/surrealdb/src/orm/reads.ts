@@ -439,7 +439,15 @@ function prepareUnique(
   return prepare(
     meta,
     ctx,
-    { ...args, where: { [target.field]: target.value } },
+    {
+      ...args,
+      // A single-field target narrows to that equality; a composite one keeps the whole conjunction
+      // (its fields ARE the unique key).
+      where:
+        target.kind === "field"
+          ? { [target.field]: target.value }
+          : Object.fromEntries(target.entries),
+    },
     "findUnique",
     { one: true },
   );

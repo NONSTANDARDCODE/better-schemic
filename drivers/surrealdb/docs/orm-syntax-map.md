@@ -25,7 +25,7 @@ original design prototype disagreed, the server wins.
 | `search::highlight('<b>', '</b>', field)` | aridade é `search::highlight(prefix, suffix, indexRef, field)` | emitir com o `indexRef` |
 | Range `FROM users:1..users:100` | **parse error**; a forma válida é `FROM t:1..100` (fim exclusivo) e `FROM t:1..=100` (inclusivo) | `range: { start, end, inclusive? }` → `t:<start>..<end>` / `..=<end>` |
 | `where: { 'contacts[*].type': 'email' }` compara igualdade | `contacts[*].type` devolve **array**; `= 'email'` é `false` | igualdade em path-array → `CONTAINS`; scalar membership → `INSIDE` |
-| `aggregate({ split, groupBy })` | **`SPLIT` e `GROUP` são mutuamente exclusivos** | `aggregate` rejeita a combinação (`ClauseNotSupported`) |
+| `aggregate({ split, groupBy })` | **`SPLIT` e `GROUP` são mutuamente exclusivos** num `SELECT` | DIVERGE resolvido (M17): o `aggregate` faz o UNWIND numa subquery e agrupa por fora (§3.1) |
 | `logins = logins + 1` no `ON DUPLICATE KEY UPDATE` | campos nus, `$before`/`$after` são `NONE`; só `$input.*` funciona | incremento contra o estado anterior = subquery correlacionada por id (`(SELECT VALUE f FROM ONLY t:id) + 1`) — e o branch de criação a avalia também, então upsert com expressão usa `LET`/`IF` |
 | `SET $obj` (objeto bindado) em `UPDATE`/`UPSERT` | **parse error** (`Unexpected token 'a parameter'`) | emitir `SET f = $p` por campo |
 | `FOR $row IN $rows { … }` devolve o resultado de cada iteração | devolve **`NONE`** (live 3.2.4) | `updateEach`/`skipDuplicates` compilam 1 statement por item (mesmo round-trip) |
@@ -188,6 +188,33 @@ original design prototype disagreed, the server wins.
 | `SET meta.a += $d` | path aninhado ajusta em profundidade; objetos ausentes (`prefs.theme`) são criados |
 | `SET f += $x` em campo ausente | `NONE + n` = `n` no UPDATE (o `ON DUPLICATE` erra no branch de create — §2.2) |
 | `SET s += '!'` / `SET arr += ['y']` | `+=` é atribuição composta geral (string concat, array append); o TIPO do ORM restringe `increment`/`decrement` a campos numéricos e o runtime valida a coluna |
+| `SET arr += ['a']` com `arr = ['a']` | **`['a','a']`** — `+=` faz APPEND, **sem dedup** (probe 3.3.4): por isso `{ append }` ≠ `{ union }` |
+| `SET arr -= 'a'` com `arr = ['a','b','a']` | `['b']` — `-=` remove **TODAS** as ocorrências (probe 3.3.4) |
+| `SET arr = array::union(arr, ['b'])` | a **única** forma que deduplica: `['a','b']` (probe 3.3.4) |
+| `SET arr[0] = $v` | atribui um índice (índice fora do range é erro do servidor) |
+| `SET f += $p` com `p` string e `f` decimal | **erro**: `Cannot perform addition with 'decimal' and 'string'` — o operando numérico é number/bigint/`Decimal`, nunca string |
+
+**Marcadores de array (M17).** `{ append }` / `{ remove }` / `{ union }` / `{ at: { index, value } }`
+são a superfície tipada das quatro formas acima; o alvo é validado contra o schema (família
+`array`/`set`, nunca `id`) e cada marcador é UMA escrita server-side — o que mantém correto o índice
+UNIQUE do array inteiro, já que é o servidor quem troca a chave.
+
+#### 2.4.3 `math::*` só agrega NÚMEROS (probe 3.3.4) — a validação de operando
+
+| Forma | Resultado |
+| --- | --- |
+| `SELECT math::sum(campo_inexistente) … GROUP ALL` | `0` — **sem erro** |
+| `SELECT math::sum(campo_string) … GROUP ALL` | `0` — **sem erro** |
+| `SELECT math::sum(link.name)` / `math::sum(arr.quantity)` | `0` — **sem erro** (cada linha do grupo tem 1 campo) |
+| `SELECT math::median(campo_string)` | `{}` — objeto vazio, **sem erro** |
+| `SELECT math::min/max(campo_string \| datetime \| bool)` | `null` — **sem erro** |
+| `SELECT array::min(array::group(campo))` | o extremum correto de um não-número (probe 3.3.4) |
+
+O `aggregate` valida o operando contra o schema e recusa cada um desses casos, apontando a
+alternativa que funciona (`array::min(array::group(…))` para extremum de não-número, `split` para
+percorrer link/array): um relatório que mostra `R$ 0,00` sem nenhum sinal é pior que um erro de
+compilação. O que o schema NÃO sabe (entrada schemaless, tabela não-SCHEMAFULL, objeto flexível,
+operando de elemento no `split`) continua permissivo — é o servidor a última palavra.
 
 ### 2.5 `DELETE`
 
@@ -262,7 +289,32 @@ round-trip; o executor reporta a falha **raiz** (pula `NotExecuted`/`Cancelled`,
 | `SELECT math::sum/avg/min/max(…)` | agregadores | `math::median`/`stddev`/`variance` também; **`math::avg` não existe em 3.x → `math::mean`** (DIVERGE) |
 | `SELECT array::group(f), array::distinct(f)` | arrays | `collect`/`distinct` do `aggregate` |
 | `SELECT … SPLIT f` | desdobra arrays (1 linha por elemento) | `count()` por linha split = 1 → agregar exige outra forma |
-| `SELECT … SPLIT f GROUP BY f` / `GROUP ALL` | **erro** (`mutually exclusive`) | DIVERGE |
+| `SELECT … SPLIT f GROUP BY f` / `GROUP ALL` | **erro** (`mutually exclusive` / `Missing split idiom`) | DIVERGE — ver §3.1: o ORM faz o UNWIND numa subquery e agrupa por fora |
+| `SELECT name FROM t SPLIT f` (f fora da seleção) | **erro** `Missing split idiom "f" in statement selection` (3.3.4) | o compilador injeta `f AS _split_f` e o decoder descarta a coluna (ver §3.1) |
+| `SELECT name, f AS _split_f FROM t SPLIT f` | **ok** — o *alias* satisfaz o idioma tanto quanto o path cru | é a base do idioma automático |
+| `SELECT *, f AS _split_f FROM t SPLIT f` | ok (com `*`) |idem |
+| `SPLIT a.b` (path aninhado) com `SELECT x, a.b AS _split_ab` | ok — o idioma aceita path aninhado **sob alias** | o idioma automático cobre path aninhado |
+| `SELECT … SPLIT f WHERE <elem>` | o `WHERE` filtra o **PAI** (`WHERE f[*].q > 2` não remove o elemento; a expressão é avaliada por elemento) | filtro por elemento continua sendo receita `surql` com `array::flatten` |
+
+#### 3.1 UNWIND + GROUP: `aggregate({ split })` (M17, probe 3.3.4)
+
+`SPLIT` é avaliado **antes** de `GROUP` dentro de um `SELECT`, então `SELECT … SPLIT f GROUP ALL`
+é erro. O lowering empurra o split para uma subquery e agrupa por fora:
+
+```surql
+SELECT name, math::sum(_split_lines_quantity) AS total
+FROM (SELECT lines AS _split_lines, name AS name, lines[*].quantity AS _split_lines_quantity
+      FROM cart SPLIT lines)
+GROUP BY name
+```
+
+| Fato verificado | Consequência no lowering |
+| --- | --- |
+| a subquery interna precisa do **campo do split como idioma** (alias serve) | o `_split_lines` é sempre projetado |
+| `SELECT *` interno **não** expõe os campos do elemento (`math::sum(quantity)` → `0`) | a projeção interna é sempre explícita, derivada do `select` do chamador |
+| `products[*].quantity` e `products.quantity` dão o mesmo campo do elemento | qualquer das duas grafias é aceita no `select` |
+| `array::group`, `count()`, `math::*`, `ORDER BY`, `LIMIT` funcionam sobre a subquery | o agregador externo é o `aggregate` normal |
+| o `WHERE` interno filtra o pai | `where` do `aggregate({ split })` é escopo de PAI (filtro por elemento = `surql`) |
 | `SELECT id, (expr) AS alias … ORDER BY alias DESC` | ordena por alias/expressão | |
 | `SELECT … ORDER BY (expr)` | **parse error** | só identificador/alias; use `AS alias` |
 | `SELECT … ORDER BY a DESC, b ASC` | ok | |
@@ -630,10 +682,10 @@ Nota: em scripts multi-statement, o SDK pode **lançar** (não só responder por
 3. **Remover `parallel`** da superfície de leitura (ou marcar `UnsupportedCapability`).
 4. **Remover fuzzy `~`/`?~`/`*~`**; expor `string::similarity::*` via `fn.*`/fragments.
 5. **Full-text**: usar `FULLTEXT ANALYZER`; `search::highlight` com 4 args; `matchesFullText` aceita `index`/`indexes`.
-6. **`aggregate`**: `SPLIT` e `groupBy` exclusivos (`ClauseNotSupported`); `count` de grupos via subquery.
+6. **`aggregate`**: `count` de grupos via subquery. `SPLIT` + `GROUP` é mutual-exclusivo no servidor, então `aggregate({ split })` (M17) faz o UNWIND numa subquery interna e agrupa por fora (§3.1) — `where` filtra o PAI. O **operando** de cada agregador é validado contra o schema (§2.4.3): `math::*` é number-only e o servidor responde `0`/`null`/`{}` para o resto sem erro algum.
 7. **Path-array igualdade** vira `CONTAINS` (ou `INSIDE` para scalar membership) — não `=`.
 8. **`range`** → `t:<start>..<end>` / `t:<start>..=<end>`.
-9. **Cursor** por tupla confirmado; `before` reordena no client.
+9. **Cursor** por tupla confirmado; `before` reordena no client. O **tiebreaker** (último campo do `orderBy`) tem de ser único: no runtime é `CursorTiebreakerRequired`, e no TIPO desde M17 — `.index(name, [field], { unique: true })` registra o campo no terceiro parâmetro de `TableDef`, e `CursorArgs.orderBy` aceita só ordenações cujo último campo ∈ `id ∪ únicos` (índice composto não conta: os campos são únicos só em conjunto).
 10. **`ON DUPLICATE`**: `$input` apenas para valores do payload; incremento via subquery (avaliada também no branch de criação → upsert com expressão usa `LET`/`IF`); `RETURN BEFORE` devolve o estado anterior (3.2.4) e `RETURN DIFF` tem shape aninhado próprio.
 11. **Live**: `LIVE SELECT DIFF FROM …` sem projeção; `kill(uuid)` com bind; uuid é string/Uuid do SDK.
 12. **`.explain()`** só em leitura; `VERSION` e `PARALLEL` sujeitos a capability/backend.
@@ -648,8 +700,8 @@ Nota: em scripts multi-statement, o SDK pode **lançar** (não só responder por
 21. **`SELECT *` + `GROUP`**: inválido ("cannot be aggregated") — `groupBy`/`groupAll` exigem projeção explícita (o compiler falha com `ValidationError` apontando `aggregate()`).
 22. **Ranges de record**: `t:1..=2` / `t:abc..=xyz` (sufixo de id, nunca `t:1..t:2`); ids não-identificadores são escapados (`⟨a-b⟩`).
 23. **`math::avg` não existe em 3.x** (parse error; a sugestão do servidor é `math::log`) — o ORM mantém a API `{ avg: 'campo' }` e emite `math::mean(campo)`. `math::median/stddev/variance` existem.
-24. **`GROUP BY` exige a chave na projeção** (`Missing group idiom … in statement selection`): `aggregate` valida que cada `groupBy` aparece no `select` (quando a projeção é estaticamente analisável) e ensina a corrigir.
-25. **Writes (M2)**: alvos singulares = `id` ou índice UNIQUE (`UniqueTargetRequired`); `update` nunca cria (`[]` → `null`); `delete` só `before`/`none`; `deleteMany` exige `all: true` sem `where`; `updateEach`/`skipDuplicates` = 1 statement por item (e `skipDuplicates` gera id por linha quando o item não tem `id`); `upsertMany.conflict` exige índice UNIQUE; `RETURN DIFF` é achatado no decode (`[[ops]]` → `ops`) e **somado entre os statements** do batch (`update` data+unset, `createMany`, …); `INSERT/upsert RETURN BEFORE` devolve o estado anterior — o tipo é `App | null`; `id` string vira `RecordId` no payload. `upsert` é **ESTRITO por padrão** (`onMissing:"throw"`): `UPDATE ONLY t:id` / `UPDATE t … WHERE uniq`, miss → `ResultNotFound` (nunca cria, nunca resolve `null`); `onMissing:"create"` restaura o create-or-update. Alvo: `where` (id/UNIQUE) > `data.id` inferido > **sem alvo = `CREATE` puro** (id por `idStrategy`); `onMissing:"throw"` explícito sem alvo, branches distintos sem alvo e `mode` sem alvo são `ValidationError` (guardas compartilhadas com o `upsertDelta`, `resolveUpsertTarget` + `assertTargetlessCreate`).
+24. **`GROUP BY` exige a chave na projeção** (`Missing group idiom … in statement selection`): `aggregate` valida que cada `groupBy` aparece no `select` (quando a projeção é estaticamente analisável) e ensina a corrigir. A chave pode ser **o alias de saída OU o path projetado** — o servidor aceita as duas grafias (3.3.4: `SELECT tenant AS t … GROUP BY t` e `… GROUP BY tenant`), então `select: { customerName: "customer.name" }` + `groupBy: ["customerName"]` é válido e não é mais recusado.
+25. **Writes (M2)**: alvos singulares = `id`, índice UNIQUE de campo único, **ou um índice UNIQUE COMPOSTO cujos campos TODOS estão no `where`** (M17 — `[tenant_id, email]` é o alvo único do multi-tenant; um `where` parcial continua recusado porque casa várias linhas, e a mensagem nomeia o grupo); `update` nunca cria (`[]` → `null`); `delete` só `before`/`none`; `deleteMany` exige `all: true` sem `where`; `updateEach`/`skipDuplicates` = 1 statement por item (e `skipDuplicates` gera id por linha quando o item não tem `id`); `upsertMany.conflict` exige índice UNIQUE; `RETURN DIFF` é achatado no decode (`[[ops]]` → `ops`) e **somado entre os statements** do batch (`update` data+unset, `createMany`, …); `INSERT/upsert RETURN BEFORE` devolve o estado anterior — o tipo é `App | null`; `id` string vira `RecordId` no payload. `upsert` é **ESTRITO por padrão** (`onMissing:"throw"`): `UPDATE ONLY t:id` / `UPDATE t … WHERE uniq`, miss → `ResultNotFound` (nunca cria, nunca resolve `null`); `onMissing:"create"` restaura o create-or-update. Alvo: `where` (id/UNIQUE) > `data.id` inferido > **sem alvo = `CREATE` puro** (id por `idStrategy`); `onMissing:"throw"` explícito sem alvo, branches distintos sem alvo e `mode` sem alvo são `ValidationError` (guardas compartilhadas com o `upsertDelta`, `resolveUpsertTarget` + `assertTargetlessCreate`).
 26. **Records no `where`**: string `"tabela:id"` em coluna de record (inclusive `id`) é convertida para `RecordId` pelo compiler — sem isso o valor viraria string e não casaria nada (silent no-match).
 27. **`include` de link**: `FETCH` é a última cláusula, o link precisa estar na seleção (o compiler o adiciona quando necessário), alias projetado sobrevive ao FETCH, e o filtro do include é o split edge/target (`->(edge WHERE …)->(target WHERE …)`).
 28. **`include` de aresta**: registros do alvo só via subquery; direção `in` inverte as duas setas (`<-edge<-target`) e materializa `in.*`; `edge`+`target` usa `out.*`+`WHERE out.<campo>` e é remontado como `{ edge, target }` no client. Direção `both`: `<->edge<->target` funciona para o alvo e `<->edge` para as arestas, mas `edge`+`target` é recusado (não existe um alias único de alvo; `?.*` é parse error).
@@ -666,8 +718,8 @@ Nota: em scripts multi-statement, o SDK pode **lançar** (não só responder por
 39. **Transações**: só `mode: 'sdk'` (`beginTransaction`/`commit`/`cancel` do SDK) — `mode: 'sql'` falha rápido com `UnsupportedCapability` (BEGIN não sobrevive entre RPCs); batch wrappers pulam o `BEGIN` implícito dentro da tx; aninhada = mesma tx; reentrada pelo client raiz → `TransactionAlreadyActive`; write conflict é retryável (`WriteConflict`); `timeout` é deadline client-side com `cancel`.
 40. **HTTP vs WebSocket**: live e transação exigem o engine WebSocket; sobre HTTP os erros normalizam para `LiveQueryUnsupported`/`UnsupportedCapability`.
 41. **Contexto (`$withContext`)**: `USE NS … DB …;` prefixado na MESMA operação escopa sem tocar a sessão; o lado faltante (NS ou DB) herda da sessão (`conn.namespace`/`database`) e a ausência de ambos é `ValidationError`; o override por chamada (`context: { database }`) vence o clone. Operações presas à sessão (`api`/`auth`/`export`/`live`) falham rápido com `UnsupportedCapability` num clone por prefixo; `$withContext({ auth })` forka uma sessão (Promise) para escopar essas operações.
-42. **Raw**: `$raw` (1 statement) e `$query` (N) parametrizam `${…}` via `renderValue` (fragmento compõe, valor binda); `$query({ throwOnError: false })` devolve `StatementResult[]`; `$unsafe` exige `raw.unsafe: true` (`UnsafeDisabled`); `raw.requireComment` exige `meta.comment` em script de escrita; `raw.timeoutMs` só aplica a statement única com verbo compatível.
-43. **`fn`/`api`/`auth`/admin**: `fn.call` compila `RETURN fn::x($p…)` (nome validado, nunca spliced) + atalho tipado por `defineFunction` (args NOMEADOS → posicionais); `api.*` desembrulha `body` e lança `DatabaseError` com `status`/`details` em `>= 400`; `auth.*` é passthrough da sessão (`record()` sem record access → `NotAuthenticated`); `info` compila `INFO FOR …`, `ping` faz `RETURN true`, `import` reexecuta o dump por `query()`.
+42. **Raw**: `$raw` (1 statement — um script com N statements é **recusado** com `ValidationError` apontando o `$query`, em vez de devolver o primeiro resultado e descartar o resto em silêncio; um `LET` inicial virava `null` sem erro) e `$query` (N) parametrizam `${…}` via `renderValue` (fragmento compõe, valor binda); `$query({ throwOnError: false })` devolve `StatementResult[]`; `$unsafe` exige `raw.unsafe: true` (`UnsafeDisabled`); `raw.requireComment` exige `meta.comment` em script de escrita; `raw.timeoutMs` só aplica a statement única com verbo compatível.
+43. **`fn`/`api`/`auth`/admin**: `fn.call` compila `RETURN fn::x($p…)` (nome validado, nunca spliced) + atalho tipado por `defineFunction` (args NOMEADOS → posicionais) + `fn.expr` (M17), a **forma fragmento** do mesmo catálogo (`fn::<name>($p0, …)` como `Surql`, com os binds fundidos no statement que a compõe) — é o que faz uma `fn::` do próprio repo (`fn::jw`, `search::rrf`) entrar num `where`/`select`/`orderBy` tipado em vez de `$query`; `search::rrf` entrou no catálogo `fn.ts` (a metade RRF de uma busca híbrida, cuja outra metade já é `where: { name: { matchesFullText } }`); `api.*` desembrulha `body` e lança `DatabaseError` com `status`/`details` em `>= 400`; `auth.*` é passthrough da sessão (`record()` sem record access → `NotAuthenticated`); `info` compila `INFO FOR …`, `ping` faz `RETURN true`, `import` reexecuta o dump por `query()`.
 44. **`extends`**: helpers são reaplicados em clones (`$withContext`/`forkSession`) e no client de transação; colisão de nome com a superfície do client = `PluginError` fail-fast.
 45. **Estratégia de id por tabela (`idStrategy`)**: o ORM gera o id no SERVIDOR — `create`/`createMany`/`create.relate` via target `type::record(s"t", rand::ulid()|rand::uuid())` (ou tabela simples para `rand`, o default do servidor); `insert`/`insertMany`/`skipDuplicates` via campo de expressão `id`; `upsert`/`upsertMany` por campo único via target-expression (subquery `?? type::record(…)`). Default `ulid`; `id` explícito e singleton sempre vencem; `id: s.uuid()/s.ulid()` infere a estratégia e um `.idStrategy` incompatível é `SchemaInvalid` no `defineSchema`; um `id` uuid v4/v6 resolvido vira `"none"` (explicit-only) e um create sem id falha no compile com erro ensinado. **Sem DDL** (migrations nunca divergem) e SQL cru/`sc pull` continuam/voltam ao default do servidor.
 46. **`upsertDelta` (update estrito por padrão, com delta)**: alvo pela MESMA resolução do `upsert` (`resolveUpsertTarget`: `where` id/UNIQUE, inferido de `data.id`, ou sem alvo = `CREATE` com id por `idStrategy`); o envelope `RETURN VALUE { before: $before, after: $after }` acompanha TODA lowering (`UPSERT` id/campo único/subquery gerada, `UPDATE` estrito, `CREATE`, e por branch no `LET`/`IF` — com `TIMEOUT` por branch); `onMissing: "throw"` (o DEFAULT) compila `UPDATE ONLY t:id` ou `UPDATE t … WHERE uniq` e um resultado sem envelope vira `ResultNotFound`, com a mensagem classificada pelo PLANO (`strictMiss` — um create sem alvo filtrado por permission NÃO afirma `onMissing:"throw"`); `onMissing: "create"` restaura o create-or-update; o delta compara valores **decodificados** (`Date`/`RecordId`/`Decimal`/… via `.equals()`, nunca strings de wire), só campos alterados, na ordem das chaves do `after`; branches distintos (`create`+`update`) sempre usam `LET`/`IF`, nunca `INSERT … ON DUPLICATE` (e exigem `onMissing:"create"`).

@@ -151,6 +151,12 @@
       "table": 0,
       "unknown": 16
     },
+    "drivers/surrealdb/src/orm/compiler/aggregate.ts": {
+      "total": 108,
+      "auto": 92,
+      "table": 0,
+      "unknown": 16
+    },
     "drivers/surrealdb/src/orm/logger/logger.ts": {
       "total": 139,
       "auto": 124,
@@ -163,6 +169,12 @@
       "table": 0,
       "unknown": 14
     },
+    "drivers/surrealdb/src/orm/compiler/write-shared.ts": {
+      "total": 128,
+      "auto": 114,
+      "table": 0,
+      "unknown": 14
+    },
     "packages/core/src/cli-kit/schema.ts": {
       "total": 20,
       "auto": 6,
@@ -172,12 +184,6 @@
     "drivers/surrealdb/src/cli/introspect.ts": {
       "total": 15,
       "auto": 2,
-      "table": 0,
-      "unknown": 13
-    },
-    "drivers/surrealdb/src/orm/compiler/write-shared.ts": {
-      "total": 113,
-      "auto": 100,
       "table": 0,
       "unknown": 13
     },
@@ -201,9 +207,9 @@
     },
     "drivers/surrealdb/src/orm/compiler/mutate.ts": {
       "total": 158,
-      "auto": 147,
+      "auto": 146,
       "table": 0,
-      "unknown": 11
+      "unknown": 12
     },
     "drivers/surrealdb/src/orm/schema.ts": {
       "total": 58,
@@ -236,10 +242,10 @@
       "unknown": 11
     },
     "drivers/surrealdb/src/orm/compiler/projection.ts": {
-      "total": 82,
-      "auto": 72,
+      "total": 79,
+      "auto": 70,
       "table": 0,
-      "unknown": 10
+      "unknown": 9
     },
     "drivers/surrealdb/src/orm/compiler/relations.ts": {
       "total": 58,
@@ -277,9 +283,9 @@
       "table": 0,
       "unknown": 8
     },
-    "drivers/surrealdb/src/orm/reads.ts": {
-      "total": 52,
-      "auto": 44,
+    "drivers/surrealdb/src/orm/compiler/select.ts": {
+      "total": 67,
+      "auto": 59,
       "table": 0,
       "unknown": 8
     },
@@ -288,6 +294,12 @@
       "auto": 19,
       "table": 0,
       "unknown": 8
+    },
+    "drivers/surrealdb/src/orm/reads.ts": {
+      "total": 61,
+      "auto": 54,
+      "table": 0,
+      "unknown": 7
     },
     "drivers/surrealdb/src/orm/api.ts": {
       "total": 11,
@@ -355,12 +367,6 @@
       "table": 0,
       "unknown": 3
     },
-    "drivers/surrealdb/src/orm/compiler/select.ts": {
-      "total": 57,
-      "auto": 54,
-      "table": 0,
-      "unknown": 3
-    },
     "drivers/surrealdb/src/orm/connect.ts": {
       "total": 7,
       "auto": 4,
@@ -388,6 +394,12 @@
     "drivers/surrealdb/src/orm/compiler/include/links.ts": {
       "total": 22,
       "auto": 20,
+      "table": 0,
+      "unknown": 2
+    },
+    "drivers/surrealdb/src/orm/compiler/unique.ts": {
+      "total": 21,
+      "auto": 19,
       "table": 0,
       "unknown": 2
     },
@@ -457,9 +469,21 @@
       "table": 0,
       "unknown": 1
     },
+    "drivers/surrealdb/src/orm/arithmetic.ts": {
+      "total": 16,
+      "auto": 15,
+      "table": 0,
+      "unknown": 1
+    },
     "drivers/surrealdb/src/orm/meta.ts": {
       "total": 1,
       "auto": 0,
+      "table": 0,
+      "unknown": 1
+    },
+    "drivers/surrealdb/src/plugins/hard-delete.ts": {
+      "total": 8,
+      "auto": 7,
       "table": 0,
       "unknown": 1
     },
@@ -499,39 +523,21 @@
       "table": 0,
       "unknown": 0
     },
-    "drivers/surrealdb/src/orm/arithmetic.ts": {
-      "total": 16,
-      "auto": 16,
-      "table": 0,
-      "unknown": 0
-    },
     "drivers/surrealdb/src/orm/auth.ts": {
       "total": 3,
       "auto": 3,
       "table": 0,
       "unknown": 0
     },
-    "drivers/surrealdb/src/orm/compiler/aggregate.ts": {
-      "total": 46,
-      "auto": 46,
-      "table": 0,
-      "unknown": 0
-    },
     "drivers/surrealdb/src/orm/compiler/keyset.ts": {
-      "total": 37,
-      "auto": 37,
+      "total": 22,
+      "auto": 22,
       "table": 0,
       "unknown": 0
     },
     "drivers/surrealdb/src/orm/compiler/pagination.ts": {
       "total": 46,
       "auto": 46,
-      "table": 0,
-      "unknown": 0
-    },
-    "drivers/surrealdb/src/orm/compiler/unique.ts": {
-      "total": 11,
-      "auto": 11,
       "table": 0,
       "unknown": 0
     },

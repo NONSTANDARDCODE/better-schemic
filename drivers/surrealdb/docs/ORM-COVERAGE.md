@@ -46,12 +46,13 @@ Entry: `createReadOperations` (`reads.ts`); compiler `compiler/{select,aggregate
 |---|---|---|
 | `findMany` — lazy thenable array, eager compile | `[x]` | `test/unit/orm-reads.test.ts`; `test/live/orm-reads.test.ts:76` |
 | `findFirst` / `findOne` — forces `limit:1`, miss ⇒ `null` | `[x]` | `test/unit/orm-reads.test.ts:471`; `test/live/orm-reads.test.ts:191` |
-| `findUnique({ where })` — `id` or **single-field UNIQUE**; else `UniqueTargetRequired` | `[x]` | `test/unit/orm-reads.test.ts:534`/`:590`; `test/live/orm-reads.test.ts:386` |
+| `findUnique({ where })` — `id`, **single-field UNIQUE**, or **every field of a composite UNIQUE**; else `UniqueTargetRequired` (a mensagem nomeia o grupo composto) | `[x]` | `test/unit/orm-reads.test.ts:534`/`:590`; `test/live/orm-reads.test.ts:386` |
 | `count` — `SELECT count() … GROUP ALL` | `[x]` | `test/unit/orm-reads.test.ts:623`; `test/live/orm-reads.test.ts:200` |
 | `exists` — `SELECT VALUE id … LIMIT 1` | `[x]` | `test/unit/orm-reads.test.ts:645`; `test/live/orm-reads.test.ts:200` |
-| `aggregate` — `_count`, path, `{sum,avg,min,max,median,stddev,variance,collect,distinct}`, fragment | `[x]` | `test/unit/orm-reads.test.ts:683`; `test/live/orm-reads.test.ts:214` |
+| `aggregate` — `_count`, path, `{sum,avg,min,max,median,stddev,variance,collect,distinct}`, fragment; `groupBy` aceita o **alias** de saída ou o path projetado; **operando validado contra o schema** (`math::*` é number-only — o servidor responderia `0`/`null`/`{}` sem erro) | `[x]` | `test/unit/orm-reads.test.ts:683`; `test/live/orm-reads.test.ts:214` |
+| `aggregate({ split })` — UNWIND+GROUP (o split vai para uma subquery interna; `where` filtra o PAI) | `[x]` | M17. `test/unit/orm-reads.test.ts` ("aggregate over split"); `test/live/orm-reads.test.ts` |
 | `paginate` — data+count in ONE round-trip, offset envelope | `[x]` | `test/unit/orm-pagination.test.ts:47`; `test/live/orm-reads.test.ts:268` |
-| `cursor` — keyset tuple, unique tiebreaker, before/after; ordered fields the `select` misses ride reserved `_keyset_<n>` aliases (read for the cursors, stripped from `data`); cursor values are the RAW stored values (`DateTime` keeps ns — never the codec-decoded app value) | `[x]` | `test/unit/orm-cursor.test.ts:62`/`:992`; `test/live/orm-reads.test.ts:307`/`:403` |
+| `cursor` — keyset tuple, unique tiebreaker (**tipado** desde M17: o último `orderBy` precisa ser `id` ou um campo com índice UNIQUE simples), before/after; ordered fields the `select` misses ride reserved `_keyset_<n>` aliases (read for the cursors, stripped from `data`); cursor values are the RAW stored values (`DateTime` keeps ns — never the codec-decoded app value) | `[x]` | `test/unit/orm-cursor.test.ts:62`/`:992`; `test/live/orm-reads.test.ts:307`/`:403` |
 | `where` — full operator vocabulary | `[x]` | `test/unit/orm-where.test.ts`; `test/live/orm-reads.test.ts:414` |
 | `select` — array / projection object, paths, aliases, `*`, nested, expressions | `[x]` | `test/unit/orm-reads.test.ts:63`/`:80`/`:92` |
 | `omit` — `(keyof App)[]` | `[x]` | `test/unit/orm-reads.test.ts:101` |
@@ -60,7 +61,7 @@ Entry: `createReadOperations` (`reads.ts`); compiler `compiler/{select,aggregate
 | `orderBy` — fields/aliases + bare fragments (parenthesized expr rejected) | `[x]` | `test/unit/orm-reads.test.ts:192`/`:347` |
 | `limit` / `start` — bound params | `[x]` | `test/unit/orm-reads.test.ts:119` |
 | `range` — `{ start, end, inclusive? }` → `t:a..b` / `..=b` | `[x]` | `test/unit/orm-reads.test.ts:178`; `test/live/orm-reads.test.ts:138` |
-| `split` — array unfold (exclusive with group) | `[x]` | `test/unit/orm-reads.test.ts:141`; `test/live/orm-reads.test.ts:146` |
+| `split` — array unfold (exclusive with group) + **o idioma é projetado automaticamente** (`_split_<field>`, descartado no decode) quando o campo não está no `select` | `[x]` | `test/unit/orm-reads.test.ts:141`; `test/live/orm-reads.test.ts:146` (idioma automático) |
 | `groupBy` / `groupAll` — require explicit projection | `[x]` | `test/unit/orm-reads.test.ts:148`; `test/live/orm-reads.test.ts:160` |
 | `with` — `WITH INDEX` / `WITH NOINDEX` | `[x]` | `test/unit/orm-reads.test.ts:129`/`:310`; `test/live/orm-reads.test.ts:181` |
 | `timeout` — `TIMEOUT` | `[x]` | `test/unit/orm-reads.test.ts:163` |
@@ -80,7 +81,7 @@ Entry: `createReadOperations` (`reads.ts`); compiler `compiler/{select,aggregate
 | `take` / `skip` aliases | `[ ]` | renamed to `limit`/`start`; → `ValidationError`. `test/unit/orm-reads.test.ts:238` |
 | `fuzzy` / `anyFuzzy` / `allFuzzy` | `[ ]` | 3.x operators are parse errors; use `string::similarity::*` fragments. `test/unit/orm-where.test.ts:415` |
 | `having` (aggregate) | `[ ]` | → `HavingUnsupported`. `test/unit/orm-reads.test.ts:756` |
-| `aggregate` + `split` | `[ ]` | mutually exclusive → `ClauseNotSupported`. `test/unit/orm-reads.test.ts:774` |
+| filtro **por elemento** em `aggregate({ split })` (`where` de elemento) | `[ ]` | o `WHERE` filtra o PAI e a expressão do `SPLIT` é avaliada por elemento (3.3.4) — receita `surql` com `array::flatten` |
 | `orderBy` parenthesized expression | `[ ]` | server parse error; fragments must be bare. `test/live/orm-syntax.test.ts:1212` |
 
 ## 2. Writes
@@ -101,7 +102,7 @@ Writes are **eager** (run immediately, no `.explain()`).
 | `update` `unset` (extra statement with data) | `[x]` | `test/unit/orm-writes.test.ts:236`; `test/live/orm-writes.test.ts:194` |
 | `updateMany` — optional `where` (whole table) | `[x]` | `test/unit/orm-writes.test.ts:296`; `test/live/orm-writes.test.ts:240` |
 | `patch` — JSON Patch (`add/remove/replace/move/copy/test`, validated) | `[x]` | `test/unit/orm-writes.test.ts:304`; `test/live/orm-writes.test.ts:261` |
-| `upsert` — alvo `where` id/UNIQUE, inferido de `data.id` ou **sem alvo = `CREATE` puro** (id por `idStrategy`); **STRICT by default** (`UPDATE ONLY t:id` / `UPDATE … WHERE uniq`, miss → `ResultNotFound`); `onMissing:"create"` = create-or-update (`data` ou `create`+`update`); a mensagem do miss vem do plano (`strictMiss`) | `[x]` | `test/unit/orm-writes.test.ts:359`; `test/live/orm-writes.test.ts:285`/`:338`; guardas target-less `:531`; tenant `test/unit/orm-plugins-tenant.test.ts` |
+| `upsert` — alvo `where` id/UNIQUE (campo único **ou grupo composto completo**), inferido de `data.id` ou **sem alvo = `CREATE` puro** (id por `idStrategy`); **STRICT by default** (`UPDATE ONLY t:id` / `UPDATE … WHERE uniq`, miss → `ResultNotFound`); `onMissing:"create"` = create-or-update (`data` ou `create`+`update`); a mensagem do miss vem do plano (`strictMiss`) | `[x]` | `test/unit/orm-writes.test.ts:359`; `test/live/orm-writes.test.ts:285`/`:338`; guardas target-less `:531`; tenant `test/unit/orm-plugins-tenant.test.ts` |
 | `upsertDelta` — **STRICT update by default** (`onMissing:"throw"`) em UMA ida, devolvendo `record`/`before`/`delta`/`changed` **decodificados** (`RETURN VALUE { before: $before, after: $after }`); alvo por `where`, `data.id` ou create sem alvo; `onMissing:"create"` = create-or-update | `[x]` | `test/unit/orm-mutate-delta.test.ts`; `test/live/orm-writes-delta.test.ts`; probes `test/live/orm-syntax.test.ts` (`UPSERT DELTA` + `STRICT upsert lowering`) |
 | `upsertMany` — ids ⇒ `ON DUPLICATE`; else `conflict` (single UNIQUE) required | `[x]` | `test/unit/orm-writes.test.ts:416`; `test/live/orm-writes.test.ts:321` |
 | `delete` — unique `where`, `return` `before`/`none` | `[x]` | `test/unit/orm-writes.test.ts:436`; `test/live/orm-writes.test.ts:347` |
@@ -113,6 +114,7 @@ Writes are **eager** (run immediately, no `.explain()`).
 | `return` semantics — `after`/`before`/`diff`/`none`, diff flattening | `[x]` | `test/unit/orm-writes-returns.test.ts`; `test/live/orm-writes.test.ts:483` |
 | `select`/`omit` no retorno de toda escrita — o servidor carrega a projeção no próprio `RETURN <proj>` (paths aninhados, aliases, expressões, `*`; `OMIT` é parse error no servidor); BEFORE/`delete`/`upsertDelta`/`create.relate`/omit são decodificados inteiros e projetados no cliente (entradas de expressão → `ReturnNotSupported`); resultado tipado pelo `ResultOf` das leituras | `[x]` | `test/unit/orm-writes-projection.test.ts`; probes `test/live/orm-syntax.test.ts` (`WRITE PROJECTIONS`); `test/types/orm-writes.assert.ts` |
 | Ajustes `{ increment: n }` / `{ decrement: n }` em `data` — `SET f ±= $p` (merge achata objetos aninhados em leaves para preservar o merge profundo; `set` mantém atribuições top-level); operandos number/bigint/Decimal/expressão; alvo validado (campo numérico, não-`id`) | `[x]` | `test/unit/orm-writes-projection.test.ts`; probe `test/live/orm-syntax.test.ts` (`SET ±=`) |
+| Ajustes de **array** `{ append }` / `{ remove }` / `{ union }` / `{ at: { index, value } }` — `+=` (append **sem dedup**), `-=` (remove **todas** as ocorrências), `array::union` (a única forma que deduplica), `f[n] =`; alvo validado (família `array`/`set`); uma escrita server-side cada, o que mantém o índice UNIQUE do array | `[x]` | M17. `test/unit/orm-writes-projection.test.ts` ("array adjustments"); `test/live/orm-writes.test.ts` |
 | Batch atomicity — transactional batches wrap `BEGIN/COMMIT` | `[x]` | `test/unit/orm-execute.test.ts:39`; `test/live/orm-execute.test.ts:69` |
 | Write identity — `id`/`in`/`out` never updatable; expressions bypass codec | `[x]` | `test/unit/orm-writes.test.ts:31`/`:52`; `test/live/orm-syntax.test.ts:1270` |
 
@@ -198,7 +200,7 @@ Runtime `raw.ts`, `execute.ts`, `admin.ts`, `auth.ts`, `api.ts`, `fn.ts`.
 
 | Feature | Status | Surface / test |
 |---|---|---|
-| `$raw` tagged template / `$raw(options)` curried — first statement, throwOnError on | `[x]` | `test/unit/orm-raw.test.ts:20`; `test/live/orm-raw.test.ts:80` |
+| `$raw` tagged template / `$raw(options)` curried — ONE statement (an N-statement script is refused, pointing at `$query`, instead of silently resolving the first result); throwOnError on | `[x]` | `test/unit/orm-raw.test.ts:20`; `test/live/orm-raw.test.ts:80` |
 | `$query` — many statements/one round-trip; `throwOnError:false` → per-statement results | `[x]` | `test/unit/orm-raw.test.ts:69`; `test/live/orm-raw.test.ts:80` |
 | `$unsafe(sql, params?)` — gated by `raw.unsafe`; else `UnsafeDisabled` | `[x]` | `test/unit/orm-raw.test.ts:102` |
 | `RawOptions`/`RawDefaults` — timeout injection, `raw.requireComment` | `[x]` | `test/unit/orm-raw.test.ts:119`; `test/live/orm-syntax.test.ts:1778` |
@@ -210,6 +212,7 @@ Runtime `raw.ts`, `execute.ts`, `admin.ts`, `auth.ts`, `api.ts`, `fn.ts`.
 | `client.auth` — `signin`/`signup`/`authenticate`/`invalidate`/`record<T>()` | `[x]` | `test/unit/orm-admin.test.ts:94`; `test/live/orm-raw.test.ts:242` |
 | `client.api` — `get/post/put/patch/delete` (+query/headers/body) | `[x]` | `test/unit/orm-admin.test.ts:44`; `test/live/orm-raw.test.ts:194` |
 | `client.fn` — `fn.call<R>(name, args)` + typed shortcut per `defineFunction` | `[x]` | `test/unit/orm-fn.test.ts`; `test/live/orm-syntax.test.ts:1763` |
+| `client.fn.expr` — the same catalog as a **fragment** (composes in `where`/`select`/`orderBy`, zero round-trips) + `fn.search.rrf` | `[x]` | M17. `test/unit/orm-fn.test.ts`; `test/unit/fn-catalog.test.ts` (live sample) |
 | Session-bound ops rejected on a prefix clone (`api`/`auth`/`export`/`live`) | `[x]` | `test/unit/orm-context.test.ts:84`; `test/live/orm-raw.test.ts:141` |
 
 ## 6. Context & multi-connection
@@ -236,7 +239,7 @@ Runtime `context.ts`; `$withContext`, `forkSession`, `extends`.
 
 ## 7. Hooks & plugins
 
-Runtime `hooks.ts`, `plugins.ts`; built-ins `src/plugins/*` (subpaths `plugins/{rules,zod,timestamps,soft-delete,create-only,tenant}`).
+Runtime `hooks.ts`, `plugins.ts`; built-ins `src/plugins/*` (subpaths `plugins/{rules,zod,timestamps,soft-delete,hard-delete,create-only,tenant}`).
 
 | Feature | Status | Surface / test |
 |---|---|---|
@@ -253,6 +256,8 @@ Runtime `hooks.ts`, `plugins.ts`; built-ins `src/plugins/*` (subpaths `plugins/{
 | F1 `plugins/zod` — `{ schemas, validate? }` | `[x]` | `test/unit/orm-plugins-zod.test.ts` |
 | F2 `plugins/timestamps` — `app` stamp / `database` strip | `[x]` | `test/unit/orm-plugins-timestamps.test.ts`; `test/live/orm-plugins.test.ts:78` |
 | F2 `plugins/soft-delete` — soft `delete`/`deleteMany`, `deleted` filter, `restore`/`restoreById` | `[x]` | `test/unit/orm-plugins-soft-delete.test.ts`; `test/live/orm-plugins.test.ts:49` |
+| M17 `plugins/hard-delete` — keeps `delete` a physical DELETE, marks the intent on the op (`meta.hardDelete`), optional `tables`/`reason`; composes with a scoped `soft-delete` | `[x]` | `test/unit/orm-plugins-hard-delete.test.ts` |
+| M17 `soft-delete({ tables })` — scoping, so a schema can mix tombstoned and physically-deleted rows | `[x]` | `test/unit/orm-plugins-soft-delete.test.ts`; `test/unit/orm-plugins-hard-delete.test.ts` |
 | `Operation.scope` — plugin scope channel ANDed by EVERY compiler (reads: `findMany`/`findUnique`/`count`/`exists`/`aggregate`/`paginate`/`cursor`; writes incl. singular targets `update`/`patch`/`delete`/`upsert`/`updateEach`; never joins `uniqueTarget`) | `[x]` | `test/unit/orm-reads.test.ts` (plugin scope); `test/unit/orm-mutate-compiler.test.ts` (plugin scope); `test/unit/orm-plugins-tenant.test.ts` |
 | Preset `{table}` placeholders + opaque `meta` (A1/A2) | `[x]` | `test/unit/table-preset.test.ts` |
 | `surql.ident(name)` — escaped identifier fragment for presets/plugins | `[x]` | `test/unit/surql-ident.test.ts` |

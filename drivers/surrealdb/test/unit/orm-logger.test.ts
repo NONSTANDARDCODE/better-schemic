@@ -1002,7 +1002,9 @@ describe("rendering edge cases", () => {
       schema,
       logger: { write: sinkOf(sink), colors: false },
     }) as unknown as C;
-    await client.$raw(
+    // A multi-statement script is $query's job now ($raw refuses one — it resolves a single
+    // result), so the logger assertion runs on the surface that actually takes N statements.
+    await client.$query(
       "BEGIN TRANSACTION;\nSELECT * FROM user;\nCOMMIT TRANSACTION;",
     );
     const out = sink.out();

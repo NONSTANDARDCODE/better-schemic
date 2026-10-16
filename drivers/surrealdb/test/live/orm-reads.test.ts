@@ -34,7 +34,22 @@ const Event = defineTable("rd_event", {
   name: s.string(),
   at: s.datetime(),
 });
-const schema = defineSchema({ users: User, events: Event });
+const Line = defineTable("rd_line", {
+  label: s.string(),
+  quantity: s.int(),
+  price: s.decimal(),
+});
+const Cart = defineTable("rd_cart", {
+  name: s.string(),
+  tenant: s.string(),
+  lines: s.array(s.recordId(() => Line)),
+});
+const schema = defineSchema({
+  users: User,
+  events: Event,
+  carts: Cart,
+  lines: Line,
+});
 
 live("orm reads — live", () => {
   let server: EphemeralServer;
@@ -73,6 +88,21 @@ live("orm reads — live", () => {
       CREATE rd_user:1 CONTENT { name: "Alice", age: 30, at: d'2025-01-01T00:00:00Z', tags: ["db", "graph"], address: { city: "SP" }, contacts: [{ type: "email", value: "a@x" }] };
       CREATE rd_user:2 CONTENT { name: "Bob", age: 25, active: false, at: d'2025-02-01T00:00:00Z', tags: ["db"], address: { city: "RJ" }, contacts: [{ type: "phone", value: "555" }] };
       CREATE rd_user:3 CONTENT { name: "Carol", age: 35, at: d'2025-03-01T00:00:00Z', tags: [], address: { city: "SP" }, contacts: [] };
+
+      REMOVE TABLE IF EXISTS rd_cart; REMOVE TABLE IF EXISTS rd_line;
+      DEFINE TABLE rd_line SCHEMAFULL;
+      DEFINE FIELD label ON rd_line TYPE string;
+      DEFINE FIELD quantity ON rd_line TYPE int;
+      DEFINE FIELD price ON rd_line TYPE decimal;
+      DEFINE TABLE rd_cart SCHEMAFULL;
+      DEFINE FIELD name ON rd_cart TYPE string;
+      DEFINE FIELD tenant ON rd_cart TYPE string;
+      DEFINE FIELD lines ON rd_cart TYPE array<record<rd_line>>;
+      CREATE rd_line:l1 SET label = "Widget", quantity = 2, price = 10.50dec;
+      CREATE rd_line:l2 SET label = "Gadget", quantity = 5, price = 3.25dec;
+      CREATE rd_line:l3 SET label = "Widget", quantity = 7, price = 1.00dec;
+      CREATE rd_cart:c1 SET name = "Ana", tenant = "t1", lines = [rd_line:l1, rd_line:l2];
+      CREATE rd_cart:c2 SET name = "Bo", tenant = "t1", lines = [rd_line:l3];
     `);
     client = betterSchemic(db, { schema });
   });
@@ -164,6 +194,30 @@ live("orm reads — live", () => {
       { name: "Alice", tags: "graph" },
       { name: "Bob", tags: "db" },
     ]);
+  });
+
+  test("split projects the idiom itself when the select omits the field", async () => {
+    // The server rejects `SELECT name FROM rd_user SPLIT tags` ("Missing split idiom"), so the
+    // compiler appends a reserved `_split_tags` column and the decoder drops it — `data` stays
+    // exactly the selection, with NO hand-projected `tags: true` at the call site.
+    const rows = await client.users.findMany({
+      select: { name: true },
+      split: "tags",
+      where: { age: { lt: 31 } },
+      orderBy: [{ name: "asc" }],
+    });
+    expect(rows.map((row) => row.name)).toEqual(["Alice", "Alice", "Bob"]);
+  });
+
+  test("split with `*` needs no hand-projected field either", async () => {
+    const rows = await client.users.findMany({
+      omit: ["contacts"],
+      split: "tags",
+      where: { name: "Alice" },
+      orderBy: [{ tags: "asc" }],
+    });
+    expect(rows.map((row) => row.tags)).toEqual(["db", "graph"]);
+    expect(Object.keys(rows[0] ?? {})).not.toContain("_split_tags");
   });
 
   test("groupBy/groupAll with an aggregate expression", async () => {
@@ -272,6 +326,42 @@ live("orm reads — live", () => {
       }
     })();
     expect(thrown?.code).toBe("HavingUnsupported");
+  });
+
+  test("aggregate over split: UNWIND + GROUP in one round-trip", async () => {
+    // `SELECT … SPLIT lines GROUP BY …` is a server parse error (SPLIT is evaluated before GROUP),
+    // so the ORM splits in an inner subquery and groups outside — the per-parent totals that
+    // otherwise forced a findMany({ split }) + JS aggregation (which pulls the whole history).
+    const perParent = await client.carts.aggregate({
+      split: "lines",
+      select: {
+        name: "name",
+        _count: true,
+        total: { sum: "lines[*].quantity" },
+        labels: { collect: "lines[*].label" },
+      },
+      groupBy: ["name"],
+      orderBy: [{ name: "asc" }],
+    });
+    expect(perParent).toEqual([
+      { name: "Ana", _count: 2, total: 7, labels: ["Widget", "Gadget"] },
+      { name: "Bo", _count: 1, total: 7, labels: ["Widget"] },
+    ]);
+
+    const overall = await client.carts.aggregate({
+      split: "lines",
+      select: { _count: true, total: { sum: "lines[*].quantity" } },
+    });
+    expect(overall).toEqual([{ _count: 3, total: 14 }]);
+
+    // `where` filters the PARENT rows (SurrealDB evaluates it before the split).
+    const scoped = await client.carts.aggregate({
+      split: "lines",
+      where: { tenant: "t1" },
+      select: { name: "name", total: { sum: "lines[*].quantity" } },
+      groupBy: ["name"],
+    });
+    expect(scoped.map((row) => row.name)).toEqual(["Ana", "Bo"]);
   });
 
   test("paginate: offset pages with total and the count:false probe", async () => {

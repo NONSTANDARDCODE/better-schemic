@@ -7,6 +7,7 @@
  * lowers it to the positional call the server expects (`fn::customer_tier($p0, …)`).
  */
 import type { App, FunctionDef } from "../../pure";
+import type { Surql } from "../../frag";
 import type {
   AnyFunctionDef,
   EntriesOf,
@@ -36,9 +37,36 @@ export type FnCall = <R = unknown>(
   args?: readonly unknown[],
 ) => Promise<R>;
 
+/**
+ * The FRAGMENT form of a function: the same call, lowered to a `surql` expression instead of a
+ * round-trip, so it composes anywhere a value fits (`where`, `select`, `orderBy`, another `data`).
+ * This is what makes a repo's own `fn::…` (or `search::…`) usable inside a typed read instead of a
+ * hand-written `$query`.
+ */
+export type FnFragment<F> = FnArgs<F> extends Record<string, never>
+  ? () => Surql
+  : (args: { [K in keyof FnArgs<F>]: FnArgInput<FnArgs<F>[K]> }) => Surql;
+
+/** A fragment argument: the app value, a `surql` fragment, or the `RecordId` form of a link. */
+type FnArgInput<T> = T | Surql | (T extends string ? string | number : never);
+
+/** Dynamic fragment for any function (`fn::` prefix optional). */
+export type FnFragmentCall = (name: string, args?: readonly unknown[]) => Surql;
+
+/** `client.fn.expr`: the expression form — one method per schema function, zero round-trips. */
+export type FnExprSurface<S = SchemaInput> = {
+  readonly call: FnFragmentCall;
+} & {
+  readonly [K in FunctionKeys<S>]: FnFragment<
+    EntriesOf<S>[K] extends AnyFunctionDef ? EntriesOf<S>[K] : AnyFunctionDef
+  >;
+};
+
 /** `client.fn`: the dynamic `call` plus one typed method per schema function. */
 export type FnSurface<S = SchemaInput> = {
   readonly call: FnCall;
+  /** The expression form of the same catalog — usable inside a statement, not as a round-trip. */
+  readonly expr: FnExprSurface<S>;
 } & {
   readonly [K in FunctionKeys<S>]: FnMethod<
     EntriesOf<S>[K] extends AnyFunctionDef ? EntriesOf<S>[K] : AnyFunctionDef

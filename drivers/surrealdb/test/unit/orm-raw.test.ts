@@ -64,6 +64,34 @@ describe("raw — $raw", () => {
     await client.$raw({ timeout: 500 })`SELECT * FROM user`;
     expect(calls[0]?.sql).toBe("SELECT * FROM user TIMEOUT 500ms;");
   });
+
+  test("a multi-statement script is refused instead of silently dropping the rest", async () => {
+    const { conn, calls } = fakeConn(() => [ok([null]), ok([1])]);
+    const client = betterSchemic(conn, { schema });
+    // A leading `LET` used to resolve `null` with no error: $raw returned the FIRST result only.
+    const error = await caught(() => client.$raw`LET $a = 1; SELECT * FROM user;`);
+    expect(isBetterSchemicError(error) && error.code).toBe("ValidationError");
+    const text = (error as Error | undefined)?.message ?? "";
+    expect(text).toContain("2 statements");
+    expect(text).toContain("$query");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("a `;` inside a string literal is not a second statement", async () => {
+    const { conn, calls } = fakeConn(rawResult("a;b"));
+    const client = betterSchemic(conn, { schema });
+    const out = await client.$raw`RETURN ${"a;b"}`;
+    expect(out).toBe("a;b");
+    expect(calls).toHaveLength(1);
+  });
+
+  test("comments and a trailing `;` do not count as statements", async () => {
+    const { conn } = fakeConn(rawResult(1));
+    const client = betterSchemic(conn, { schema });
+    await expect(client.$raw`-- pick the user\nSELECT * FROM user;`).resolves.toBe(
+      1,
+    );
+  });
 });
 
 describe("raw — $query", () => {

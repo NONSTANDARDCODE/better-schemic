@@ -51,6 +51,8 @@ export function decodeRow(
   index?: SchemaIndex,
 ): unknown {
   const decoded = decodeBase(row, meta, spec);
+  if (isRecord(decoded) && spec.hidden !== undefined)
+    for (const alias of spec.hidden) delete decoded[alias];
   if (spec.includes.length === 0 || !index || !isRecord(decoded))
     return decoded;
   for (const include of spec.includes)

@@ -1,7 +1,7 @@
 // M5.2 — database functions: `fn.call` compilation (RETURN fn::name($p0, …)), name validation and
 // the typed per-schema shortcut (named args → positional binds). Offline.
 import { describe, expect, test } from "bun:test";
-import { defineFunction, defineTable, s } from "../../src/index";
+import { defineFunction, defineTable, s, surql } from "../../src/index";
 import { betterSchemic } from "../../src/orm/client";
 import { isBetterSchemicError } from "../../src/orm/errors";
 import { defineSchema } from "../../src/orm/schema";
@@ -85,5 +85,91 @@ describe("fn — typed shortcuts", () => {
     const client = betterSchemic(conn, { schema });
     const error = await caught(() => client.fn.customerTier(1 as never));
     expect(isBetterSchemicError(error) && error.code).toBe("ValidationError");
+  });
+});
+
+describe("fn.expr — the fragment form (composes inside a statement)", () => {
+  test("a schema function lowers to a fragment that rides a typed read", async () => {
+    const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok([])));
+    const client = betterSchemic(conn, { schema });
+    await client.users.findMany({
+      where: { name: { equals: client.fn.expr.customerTier({ total: 15000 }) } },
+    });
+    // The fragment's own binds are merged into the statement's — no extra round-trip, no $query.
+    expect(calls[0]?.sql).toBe(
+      "SELECT * FROM user WHERE name = (fn::customer_tier($p0));",
+    );
+    expect(calls[0]?.vars).toEqual({ p0: 15000 });
+  });
+
+  test("it also composes in select and orderBy", async () => {
+    const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok([])));
+    const client = betterSchemic(conn, { schema });
+    await client.users.findMany({
+      select: { name: true, tier: client.fn.expr.customerTier({ total: 1 }) },
+      orderBy: [{ tier: "desc" }],
+    });
+    expect(calls[0]?.sql).toBe(
+      "SELECT name, (fn::customer_tier($p0)) AS tier FROM user ORDER BY tier DESC;",
+    );
+  });
+
+  test("the dynamic form takes any fn:: (a repo's own function)", async () => {
+    const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok([])));
+    const client = betterSchemic(conn, { schema });
+    await client.users.findMany({
+      where: { name: { equals: client.fn.expr.call("fn::jw", ["ana"]) } },
+    });
+    expect(calls[0]?.sql).toBe("SELECT * FROM user WHERE name = (fn::jw($p0));");
+    expect(calls[0]?.vars).toEqual({ p0: "ana" });
+  });
+
+  test("a zero-arg schema function takes no argument object", async () => {
+    const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok([])));
+    const client = betterSchemic(conn, { schema });
+    await client.users.findMany({
+      where: { name: { equals: client.fn.expr.ping() } },
+    });
+    expect(calls[0]?.sql).toBe("SELECT * FROM user WHERE name = (fn::ping());");
+  });
+
+  test("a fragment with NO arguments composes too (the dynamic zero-arg form)", async () => {
+    const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok([])));
+    const client = betterSchemic(conn, { schema });
+    await client.users.findMany({
+      where: { name: { equals: client.fn.expr.call("fn::now") } },
+    });
+    expect(calls[0]?.sql).toBe("SELECT * FROM user WHERE name = (fn::now());");
+  });
+
+  test("a fragment argument can itself be a fragment (they compose)", async () => {
+    const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok([])));
+    const client = betterSchemic(conn, { schema });
+    const inner = surql`RETURN "a"`;
+    await client.users.findMany({
+      where: { name: { equals: client.fn.expr.call("fn::jw", [inner]) } },
+    });
+    expect(calls[0]?.sql).toContain("fn::jw((");
+    expect(calls[0]?.sql).toContain('RETURN "a"');
+  });
+
+  test("a schema key that would shadow `expr` cannot claim it", () => {
+    const shadow = defineSchema({
+      users: User,
+      expr: defineFunction("expr"),
+    });
+    const { conn } = fakeConn((sql) => sql.split("\n").map(() => ok([])));
+    expect(() => betterSchemic(conn, { schema: shadow })).toThrow(/shadow/);
+  });
+
+  test("name validation and the named-arg guard hold on the fragment form", async () => {
+    const { conn } = fakeConn((sql) => sql.split("\n").map(() => ok([])));
+    const client = betterSchemic(conn, { schema });
+    expect(() => client.fn.expr.call("fn::x; DROP TABLE user")).toThrow(
+      /not a valid function name/,
+    );
+    expect(() => client.fn.expr.customerTier(1 as never)).toThrow(
+      /fn\.expr\.customerTier/,
+    );
   });
 });

@@ -2,7 +2,10 @@
 // (`{ increment }`/`{ decrement }` → `SET f ±= $p`): the server-vs-client lowering, the decode,
 // and the teaching guards. Core write goldens live in `orm-writes.test.ts`.
 import { describe, expect, test } from "bun:test";
-import { Decimal } from "surrealdb";
+import { buildSchemaIndex } from "../../src/orm/schema";
+import type { BetterSchemicError } from "../../src/orm/errors";
+import type { TableMeta } from "../../src/orm/meta";
+import { Decimal, RecordId } from "surrealdb";
 import { surql } from "../../src/index";
 import { adjustmentOf, stripAdjustments } from "../../src/orm/arithmetic";
 import { betterSchemic, type Client } from "../../src/orm/client";
@@ -756,13 +759,34 @@ describe("adjustment markers — parsing and stripping", () => {
   test("adjustmentOf recognizes exactly-one-key plain markers", () => {
     expect(adjustmentOf({ increment: 1 })).toEqual({
       op: "+",
+      family: "number",
       value: 1,
       kind: "increment",
     });
     expect(adjustmentOf({ decrement: 0 })).toEqual({
       op: "-",
+      family: "number",
       value: 0,
       kind: "decrement",
+    });
+    // The array family: same one-key reserved shape, a different target field.
+    expect(adjustmentOf({ append: "x" })).toEqual({
+      op: "+",
+      family: "array",
+      value: "x",
+      kind: "append",
+    });
+    expect(adjustmentOf({ remove: "x" })).toEqual({
+      op: "-",
+      family: "array",
+      value: "x",
+      kind: "remove",
+    });
+    expect(adjustmentOf({ union: ["x"] })).toEqual({
+      op: "+",
+      family: "array",
+      value: ["x"],
+      kind: "union",
     });
     expect(adjustmentOf({ increment: 1, other: 2 })).toBeUndefined();
     expect(adjustmentOf({ nope: 1 })).toBeUndefined();
@@ -774,6 +798,7 @@ describe("adjustment markers — parsing and stripping", () => {
     const bare = Object.assign(Object.create(null), { increment: 2 });
     expect(adjustmentOf(bare)).toEqual({
       op: "+",
+      family: "number",
       value: 2,
       kind: "increment",
     });
@@ -803,5 +828,198 @@ describe("adjustment markers — parsing and stripping", () => {
     });
     // A payload that IS a marker is passed through untouched (nonsensical as a table payload).
     expect(stripAdjustments({ increment: 5 })).toEqual({ increment: 5 });
+  });
+});
+
+describe("array adjustments — append/remove/union/at", () => {
+  const Tag = defineTable("tagged", {
+    name: s.string(),
+    score: s.int(),
+    labels: s.array(s.string()),
+  });
+  const tagSchema = defineSchema({ tagged: Tag });
+
+  const tagClient = (
+    result: unknown = [
+      { id: new RecordId("tagged", "1"), name: "x", score: 0, labels: ["a"] },
+    ],
+  ) => {
+    const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok(result)));
+    return { client: betterSchemic(conn, { schema: tagSchema }), calls };
+  };
+
+  test("append/remove lower to the compound assignment forms", async () => {
+    const { client, calls } = tagClient();
+    await client.tagged.update({
+      where: { id: "tagged:1" },
+      data: { labels: { append: "b" } },
+    });
+    expect(lastCall(calls).sql).toBe("UPDATE tagged:1 SET labels += $p0;");
+    expect(lastCall(calls).vars).toEqual({ p0: "b" });
+
+    await client.tagged.update({
+      where: { id: "tagged:1" },
+      data: { labels: { append: ["b", "c"] } },
+    });
+    expect(lastCall(calls).sql).toBe("UPDATE tagged:1 SET labels += $p0;");
+
+    await client.tagged.update({
+      where: { id: "tagged:1" },
+      data: { labels: { remove: "b" } },
+    });
+    expect(lastCall(calls).sql).toBe("UPDATE tagged:1 SET labels -= $p0;");
+  });
+
+  test("union uses array::union (the only DEDUPING merge) and at assigns an index", async () => {
+    const { client, calls } = tagClient();
+    await client.tagged.update({
+      where: { id: "tagged:1" },
+      data: { labels: { union: ["b"] } },
+    });
+    expect(lastCall(calls).sql).toBe(
+      "UPDATE tagged:1 SET labels = array::union(labels, $p0);",
+    );
+
+    await client.tagged.update({
+      where: { id: "tagged:1" },
+      data: { labels: { at: { index: 0, value: "z" } } },
+    });
+    expect(lastCall(calls).sql).toBe("UPDATE tagged:1 SET labels[0] = $p0;");
+    expect(lastCall(calls).vars).toEqual({ p0: "z" });
+  });
+
+  test("an array marker on a non-array field teaches the family", async () => {
+    const { client, calls } = tagClient();
+    const code = codeOf(() =>
+      client.tagged.update({
+        where: { id: "tagged:1" },
+        data: { name: { append: "b" } },
+      } as never),
+    );
+    expect(code).toBe("ValidationError");
+    expect(calls).toHaveLength(0);
+    // A numeric marker on an array field is the mirror-image error.
+    expect(
+      codeOf(() =>
+        client.tagged.update({
+          where: { id: "tagged:1" },
+          data: { labels: { increment: 1 } },
+        } as never),
+      ),
+    ).toBe("ValidationError");
+  });
+
+  test("a malformed `at` operand is refused before the round-trip", () => {
+    const { client, calls } = tagClient();
+    expect(
+      codeOf(() =>
+        client.tagged.update({
+          where: { id: "tagged:1" },
+          data: { labels: { at: { index: -1, value: "z" } } },
+        } as never),
+      ),
+    ).toBe("ValidationError");
+    expect(
+      codeOf(() =>
+        client.tagged.update({
+          where: { id: "tagged:1" },
+          data: { labels: { at: "z" } },
+        } as never),
+      ),
+    ).toBe("ValidationError");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("an array marker on a create-shaped payload is refused like a numeric one", () => {
+    const { client, calls } = tagClient();
+    expect(
+      codeOf(() =>
+        client.tagged.create({
+          data: { name: "x", labels: { append: "b" } },
+        } as never),
+      ),
+    ).toBe("ValidationError");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("stripAdjustments substitutes the array operand for the zod plugin", () => {
+    expect(
+      stripAdjustments({
+        name: "x",
+        labels: { append: "b" },
+        tags: { union: ["a"] },
+        note: surql`"kept"`,
+      }),
+    ).toEqual({ name: "x", labels: "b", tags: ["a"], note: surql`"kept"` });
+  });
+});
+
+describe("adjustment operand classification — the decision table", () => {
+  const T = defineTable("operand", {
+    name: s.string(),
+    score: s.int(),
+    labels: s.array(s.string()),
+  });
+  const meta = buildSchemaIndex({ t: T }).tables.get("t") as TableMeta;
+  const row = { id: new RecordId("operand", 1), name: "n", score: 1, labels: [] };
+
+  const code = (field: string, marker: unknown) => {
+    const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok([row])));
+    const client = betterSchemic(conn, { schema: defineSchema({ t: T }) });
+    try {
+      void client.t.update({ where: { id: "operand:1" }, data: { [field]: marker } as never });
+      calls.length;
+      return "OK";
+    } catch (e) {
+      return (e as BetterSchemicError).code;
+    }
+  };
+
+  test("the numeric family accepts number/bigint/Decimal/fragment and nothing else", () => {
+    expect(code("score", { increment: 1 })).toBe("OK");
+    expect(code("score", { increment: 1n })).toBe("OK");
+    expect(code("score", { increment: new Decimal(1) })).toBe("OK");
+    expect(code("score", { increment: surql`1` })).toBe("OK");
+    expect(code("score", { increment: "1" })).toBe("ValidationError");
+    expect(code("score", { increment: true })).toBe("ValidationError");
+    expect(code("score", { increment: null })).toBe("ValidationError");
+  });
+
+  test("the array family accepts a plain value, an array, a record and a date", () => {
+    expect(code("labels", { append: "x" })).toBe("OK");
+    expect(code("labels", { append: ["x"] })).toBe("OK");
+    expect(code("labels", { append: { a: 1 } })).toBe("OK");
+    expect(code("labels", { append: new Date() })).toBe("OK");
+    expect(code("labels", { append: surql`[]` })).toBe("OK");
+    expect(code("labels", { append: null })).toBe("OK");
+    // a function is not a value the server can bind
+    expect(code("labels", { append: () => 1 })).toBe("ValidationError");
+  });
+
+  test("`at` needs a non-negative integer index and a value", () => {
+    expect(code("labels", { at: { index: 0, value: "x" } })).toBe("OK");
+    expect(code("labels", { at: { index: -1, value: "x" } })).toBe(
+      "ValidationError",
+    );
+    expect(code("labels", { at: { index: 1.5, value: "x" } })).toBe(
+      "ValidationError",
+    );
+    expect(code("labels", { at: { index: 0 } })).toBe("ValidationError");
+    expect(code("labels", { at: "x" })).toBe("ValidationError");
+    expect(code("labels", { at: 0 })).toBe("ValidationError");
+  });
+
+  test("the wrong family for the field is a teaching error, not a wrong write", () => {
+    expect(code("name", { increment: 1 })).toBe("ValidationError");
+    expect(code("score", { append: "x" })).toBe("ValidationError");
+    expect(code("id", { increment: 1 })).toBe("ValidationError");
+    expect(code("nope", { increment: 1 })).toBe("ValidationError");
+  });
+
+  test("a schemaless delegate adjusts any field (no column metadata to check)", () => {
+    const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok([row])));
+    const client = betterSchemic(conn, { schema: defineSchema({ t: "t" }) });
+    void client.t.update({ where: { id: "t:1" }, data: { anything: { increment: 1 } } });
+    expect(calls[0]?.sql).toContain("anything += $p0");
   });
 });

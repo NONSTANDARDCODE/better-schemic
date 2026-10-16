@@ -483,16 +483,32 @@ function upsertWhere(
   const base =
     target.kind === "id"
       ? `id = ${binds.add(new RecordId(meta.name, target.id))}`
-      : `${renderPath(target.field)} = ${binds.add(
-          isRecordColumn(meta, target.field)
-            ? coerceRecordValue(
-                target.value,
-                recordTargets(meta, target.field),
-                operation,
-                target.field,
-              )
-            : target.value,
-        )}`;
+      : target.kind === "index"
+        ? // A composite unique target: every field of the index, ANDed — the conjunction IS the key.
+          target.entries
+            .map(([field, value]) =>
+              `${renderPath(field)} = ${binds.add(
+                isRecordColumn(meta, field)
+                  ? coerceRecordValue(
+                      value,
+                      recordTargets(meta, field),
+                      operation,
+                      field,
+                    )
+                  : value,
+              )}`,
+            )
+            .join(" AND ")
+        : `${renderPath(target.field)} = ${binds.add(
+            isRecordColumn(meta, target.field)
+              ? coerceRecordValue(
+                  target.value,
+                  recordTargets(meta, target.field),
+                  operation,
+                  target.field,
+                )
+              : target.value,
+          )}`;
   const scoped = scopePredicate(scope, binds, meta);
   return scoped ? `${base} AND ${scoped}` : base;
 }

@@ -289,11 +289,19 @@ export const fn = {
     id: f1<unknown, unknown>("record::id"),
     table: f1<unknown, string>("record::tb"),
   },
-  /** `search::*` — fulltext scoring (valid only in a fulltext `SELECT`). */
+  /** `search::*` — fulltext/hybrid scoring (valid only in a fulltext `SELECT`). */
   search: {
     score: f1<number, number>("search::score"),
     highlight: f3<string, string, number, string>("search::highlight"),
     offsets: f1<number, unknown>("search::offsets"),
+    /**
+     * Reciprocal Rank Fusion — the half of a hybrid search that has no FTS operator: it merges the
+     * RANK LISTS of two scorers (`search::score` for FTS, a KNN rank list for vectors) into one
+     * ranking, with `k` the ranking-constant (an `int`; default 60 in SurrealDB). A
+     * fragment, so it composes into a typed read's `select`/`orderBy` instead of being
+     * hand-assembled in a `$query`.
+     */
+    rrf: f2o<unknown, number, number, number>("search::rrf"),
   },
   /** `session::*` — the current session's context. */
   session: {

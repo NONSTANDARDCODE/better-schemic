@@ -229,6 +229,60 @@ export const writes = group(
         }),
     }),
     ormExample(import.meta.url, {
+      title: "update — append on an array field (SET tags += $p, one server write)",
+      note: "`{ append }` is the compound assignment: it APPENDS without dedup, and the server keeps a UNIQUE index over the whole array correct. Use `{ union }` when you want dedup.",
+      sql: "UPDATE user:aeon SET tags += $p0;",
+      vars: { p0: "vip" },
+      def: (client) =>
+        client.users.update({
+          where: { id: "user:aeon" },
+          data: { tags: { append: "vip" } },
+        }),
+    }),
+    ormExample(import.meta.url, {
+      title: "update — remove from an array field (SET tags -= $p)",
+      note: "`{ remove }` removes EVERY occurrence of the value in one server-side write.",
+      sql: "UPDATE user:aeon SET tags -= $p0;",
+      vars: { p0: "vip" },
+      def: (client) =>
+        client.users.update({
+          where: { id: "user:aeon" },
+          data: { tags: { remove: "vip" } },
+        }),
+    }),
+    ormExample(import.meta.url, {
+      title: "update — union on an array field (array::union — the DEDUPING merge)",
+      note: "`+=` never dedups, so the deduping merge is `array::union(field, $p)`, computed by the server.",
+      sql: "UPDATE user:aeon SET tags = array::union(tags, $p0);",
+      vars: { p0: ["vip", "beta"] },
+      def: (client) =>
+        client.users.update({
+          where: { id: "user:aeon" },
+          data: { tags: { union: ["vip", "beta"] } },
+        }),
+    }),
+    ormExample(import.meta.url, {
+      title: "update — assign one array index (SET tags[0] = $p)",
+      sql: "UPDATE user:aeon SET tags[0] = $p0;",
+      vars: { p0: "first" },
+      def: (client) =>
+        client.users.update({
+          where: { id: "user:aeon" },
+          data: { tags: { at: { index: 0, value: "first" } } },
+        }),
+    }),
+    ormExample(import.meta.url, {
+      title: "upsert — a COMPOSITE unique index is a valid target (multi-tenant)",
+      note: "`email` is unique only within a tenant, so `[tenant, email]` IS the unique key — pass every field of the group; a partial `where` would match many rows and is refused.",
+      sql: "UPDATE account MERGE $p0 WHERE tenant = $p1 AND email = $p2;",
+      vars: { p0: { name: "Aeon" }, p1: "acme", p2: "aeon@x.dev" },
+      def: (client) =>
+        client.accounts.upsert({
+          where: { tenant: "acme", email: "aeon@x.dev" },
+          data: { name: "Aeon" },
+        }),
+    }),
+    ormExample(import.meta.url, {
       title: "update — decrement + return before (SET age -= $p RETURN BEFORE)",
       sql: "UPDATE user:aeon SET age -= $p0 RETURN BEFORE;",
       vars: { p0: 2 },

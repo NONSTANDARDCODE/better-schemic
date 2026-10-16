@@ -179,6 +179,12 @@ const SAMPLES: Record<string, unknown[] | null> = {
   "search.score": null,
   "search.highlight": null,
   "search.offsets": null,
+  // `search::rrf` needs real rank lists from a fulltext/knn SELECT; the sample below is the
+  // smallest shape the server accepts (two rank lists + the ranking constant k).
+  "search.rrf": [
+    [[1, 2], [2, 3]],
+    2,
+  ],
   "session.db": [],
   "session.id": [],
   "session.ip": [],

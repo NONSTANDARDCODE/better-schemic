@@ -141,6 +141,7 @@ export function createRawOperations(
     const sql = terminate(
       applyTimeout(script, options?.timeout ?? defaults?.timeoutMs),
     );
+    if (operation === "$raw") assertSingleStatement(sql, operation);
     assertComment(sql, options?.meta, defaults, operation);
     const meta = ctx.hooks
       ? resolveMeta(ctx, undefined, options?.meta)
@@ -344,13 +345,42 @@ function assertComment(
 
 /** Does the script contain a statement whose verb is a write/DDL verb? */
 function isWriteScript(sql: string): boolean {
-  for (const raw of sql.split(";")) {
-    const statement = stripLeadingComments(raw).trim();
-    if (!statement) continue;
+  for (const statement of scriptStatements(sql)) {
     const verb = /^([A-Za-z]+)/.exec(statement)?.[1]?.toUpperCase();
     if (verb && WRITE_VERBS.has(verb)) return true;
   }
   return false;
+}
+
+/**
+ * The non-empty statements of a script, in order, minus the leading comment lines — the ONE
+ * splitter `raw` uses (write-script detection, `$raw`'s single-statement guard). A `;` inside a
+ * string literal cannot survive this split as a separate statement, because such a fragment never
+ * parses as a statement verb, and `$raw`'s guard only fires on MORE THAN ONE parseable statement.
+ */
+function scriptStatements(sql: string): string[] {
+  const out: string[] = [];
+  for (const raw of sql.split(";")) {
+    const statement = stripLeadingComments(raw).trim();
+    if (statement) out.push(statement);
+  }
+  return out;
+}
+
+/**
+ * `$raw` resolves ONE result; a multi-statement script would silently drop everything after the
+ * first (a leading `LET` makes the whole answer `null`, with no error anywhere). Rather than
+ * returning the first value of a N-statement script, say so and point at `$query` — which returns the
+ * per-statement TUPLE, exactly like `db.query()`.
+ */
+function assertSingleStatement(sql: string, operation: string): void {
+  const count = scriptStatements(sql).length;
+  if (count <= 1) return;
+  throw compileError(
+    "ValidationError",
+    `${operation}: this script has ${count} statements and ${operation} resolves a single result — the rest would be dropped without an error. Use $query (it returns one result per statement, like db.query), or split the script.`,
+    { operation, surql: sql },
+  );
 }
 
 /** Drop leading `--`/`//` comment lines so the first keyword is the verb. */

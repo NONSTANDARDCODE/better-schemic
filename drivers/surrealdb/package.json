@@ -97,6 +97,13 @@
         "default": "./lib/plugins/soft-delete.js"
       }
     },
+    "./plugins/hard-delete": {
+      "bun": "./src/plugins/hard-delete.ts",
+      "import": {
+        "types": "./lib/plugins/hard-delete.d.ts",
+        "default": "./lib/plugins/hard-delete.js"
+      }
+    },
     "./plugins/create-only": {
       "bun": "./src/plugins/create-only.ts",
       "import": {

@@ -12,8 +12,11 @@ import type { ModelMeta, SchemaIndex } from "../meta";
 import { compileIncludes } from "./include";
 import {
   compileProjection,
+  omittedPaths,
   type ProjectionAlias,
   type ProjectionSpec,
+  projectedInPlace,
+  projectionForm,
 } from "./projection";
 import {
   type Binds,
@@ -148,6 +151,20 @@ export function compileRead(
     for (const link of compiled.passthrough)
       if (!selection.keys.has(link)) extraParts.unshift(renderPath(link));
 
+  // SPLIT is an idiom the SERVER requires in the selection ("Missing split idiom … in statement
+  // selection" — live-verified: rejecting `SELECT name FROM t SPLIT products` even though the rows
+  // are right). An ALIAS satisfies it (live-verified, including on a nested split path), so a read
+  // that splits a field it did not select gets a reserved `_split_<n>` column the decoder drops —
+  // `findMany({ select: { name: "products[*].product.name" }, split: "products" })` then works
+  // without the caller hand-projecting `products` into every `select`.
+  const splitAlias = splitIdiomAlias(
+    meta,
+    args,
+    splitPath,
+    options.aliases,
+    operation,
+  );
+
   const { text: projectionText, spec: baseSpec } = compileProjection(
     meta,
     args.select,
@@ -159,10 +176,17 @@ export function compileRead(
     {
       parts: extraParts,
       passthrough: compiled.passthrough,
-      ...(options.aliases ? { aliases: options.aliases } : {}),
+      aliases: [
+        ...(options.aliases ?? []),
+        ...(splitAlias ? [{ alias: splitAlias, path: args.split as string }] : []),
+      ],
     },
   );
-  const spec: ProjectionSpec = { ...baseSpec, includes: compiled.specs };
+  const spec: ProjectionSpec = {
+    ...baseSpec,
+    ...(splitAlias ? { hidden: [splitAlias] } : {}),
+    includes: compiled.specs,
+  };
 
   const groupBy = pathList(args.groupBy, "groupBy");
   const groupAll = args.groupAll === true;
@@ -353,3 +377,52 @@ export function compileOrderBy(
 }
 
 // --- literals & small helpers --------------------------------------------------------------------
+
+// --- split idiom ---------------------------------------------------------------------------------
+
+/** The reserved prefix for the column that satisfies the server's `SPLIT` idiom. */
+const SPLIT_ALIAS_PREFIX = "_split_";
+
+/**
+ * The reserved alias a read must append so the server accepts its `SPLIT` clause.
+ *
+ * SurrealDB rejects `SELECT name FROM t SPLIT products` with `Missing split idiom "products" in
+ * statement selection` — the split field must appear in the selection, even though the split row is
+ * already the element. Live-verified on 3.3.4: projecting it under an ALIAS (`products AS
+ * _split_products`) satisfies the idiom just as well, so the compiler appends that column and the
+ * decoder drops it — the caller's `select` never has to hand-project the split field.
+ *
+ * `undefined` when nothing must be appended: no split, a split that IS already returned in place, a
+ * fragment split (the server can't require an idiom for an expression) or a name collision (a real
+ * field is named `_split_products` — the caller's own column wins, and the server will say so if it
+ * is not enough).
+ */
+function splitIdiomAlias(
+  meta: ModelMeta,
+  args: ReadArgs,
+  splitPath: readonly string[] | undefined,
+  aliases: readonly ProjectionAlias[] | undefined,
+  operation: string,
+): string | undefined {
+  if (splitPath === undefined) return undefined;
+  const split = args.split as string;
+  // A `*` (with nothing omitted over the split path) or an explicit entry already returns it.
+  const form = projectionForm(args.select);
+  if (form && projectedInPlace(form, omittedPaths(args.omit), split))
+    return undefined;
+  const alias = `${SPLIT_ALIAS_PREFIX}${splitPath[0] as string}`;
+  if (aliasTaken(alias, meta, aliases)) return undefined;
+  return alias;
+}
+
+/** Is the reserved alias already spoken for — a cursor column, or a REAL field with that name? */
+function aliasTaken(
+  alias: string,
+  meta: ModelMeta,
+  aliases: readonly ProjectionAlias[] | undefined,
+): boolean {
+  if ((aliases ?? []).some((entry) => entry.alias === alias)) return true;
+  if (!isTableMeta(meta)) return false;
+  const shape = (meta.def.object as { shape?: Record<string, unknown> }).shape;
+  return alias in (shape ?? {});
+}

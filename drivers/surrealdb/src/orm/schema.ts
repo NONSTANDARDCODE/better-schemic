@@ -266,6 +266,9 @@ function tableMeta(
     uniqueFields: (def.config.indexes ?? [])
       .filter((index) => index.unique === true && index.fields.length === 1)
       .map((index) => index.fields[0] as string),
+    uniqueGroups: (def.config.indexes ?? [])
+      .filter((index) => index.unique === true && index.fields.length > 1)
+      .map((index) => index.fields as readonly string[]),
     ...(relation
       ? {
           endpoints: {
@@ -345,6 +348,7 @@ function build(entries: SchemaInput): SchemaIndex {
         incoming: [],
         edges: [],
         uniqueFields: [],
+        uniqueGroups: [],
       });
       tableDefs.push({ key, def: entry });
       if (isRelationLike(entry)) relationDefs.push({ key, def: entry });

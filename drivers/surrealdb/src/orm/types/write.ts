@@ -58,12 +58,18 @@ type NumericOf<T> = Extract<T, number | bigint | Decimal>;
 /** `unknown`/`any` fields (schemaless models) accept any numeric adjustment. */
 type IsWide<T> = unknown extends T ? true : false;
 
-/** The adjustment markers a field accepts (numeric fields only). */
+/** The adjustment markers a field accepts: numeric fields get `{increment|decrement}`, array/set
+ *  fields get `{append|remove|union|at}`. */
 type AdjustmentFor<T> = [NumericOf<T>] extends [never]
-  ? IsWide<T> extends true
-    ? ArithmeticAdjustment<number | bigint | Decimal>
-    : never
+  ? [ElementOf<T>] extends [never]
+    ? IsWide<T> extends true
+      ? ArithmeticAdjustment<number | bigint | Decimal> | ArrayAdjustment
+      : never
+    : ArrayAdjustment
   : ArithmeticAdjustment<NumericOf<T>>;
+
+/** The element type of an array/set field (`readonly E[]` / `E[]`). */
+type ElementOf<T> = T extends readonly (infer E)[] ? E : never;
 
 /**
  * The update payload: like {@link WriteData}, plus server-side adjustments on numeric fields
@@ -105,6 +111,36 @@ export interface Decrement<T = number> {
  * never by a create/insert.
  */
 export type ArithmeticAdjustment<T = number> = Increment<T> | Decrement<T>;
+
+/** `tags: { append: "new" }` — `SET tags += $p` (appends, WITHOUT dedup — use `union` for that). */
+export interface Append<E = unknown> {
+  readonly append: E | readonly E[] | Surql;
+}
+
+/** `tags: { remove: "old" }` — `SET tags -= $p` (removes EVERY occurrence). */
+export interface Remove<E = unknown> {
+  readonly remove: E | Surql;
+}
+
+/** `tags: { union: ["a"] }` — `SET tags = array::union(tags, $p)` (the DEDUPING merge). */
+export interface Union<E = unknown> {
+  readonly union: readonly E[] | Surql;
+}
+
+/** `tags: { at: { index: 0, value: "x" } }` — `SET tags[0] = $p`. */
+export interface At<E = unknown> {
+  readonly at: {
+    readonly index: number;
+    readonly value: E | Surql;
+  };
+}
+
+/**
+ * A server-side adjustment of an array/set field. Each form is a single server-side read-modify-write
+ * (so the field's UNIQUE index on the whole array is maintained by the database, not by a
+ * read-then-write in the process) and the wrapper shape is reserved exactly like the numeric one.
+ */
+export type ArrayAdjustment<E = unknown> = Append<E> | Remove<E> | Union<E> | At<E>;
 
 /** How a write hands its result back. `after` is the default where the server supports it. */
 export type WriteReturn = "after" | "before" | "diff" | "none";

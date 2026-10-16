@@ -348,6 +348,49 @@ function typeProbes(): void {
       address: { city: "X", country: "Y" },
     },
   });
+
+  // --- array adjustments (`append`/`remove`/`union`/`at`) ------------------------------------------
+  void client.users.update({
+    where: { id: "user:a" },
+    data: { tags: { append: "new" } },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: { tags: { append: ["a", "b"] } },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: { tags: { remove: "old" } },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: { tags: { union: ["a"] } },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: { tags: { at: { index: 0, value: "x" } } },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: {
+      // @ts-expect-error — a string field is not an array
+      name: { append: "x" },
+    },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: {
+      // @ts-expect-error — a numeric field takes the NUMERIC markers, not the array ones
+      age: { append: 1 },
+    },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: {
+      // @ts-expect-error — a numeric field takes the numeric markers
+      name: { remove: "x" },
+    },
+  });
 }
 void typeProbes;
 

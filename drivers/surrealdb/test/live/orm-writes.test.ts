@@ -30,12 +30,24 @@ const User = defineTable("wr_user", {
   active: s.boolean(),
   tags: s.array(s.string()).optional(),
   address: s.object({ city: s.string() }),
-}).index("wr_idx_email", ["email"], { unique: true });
+})
+  .index("wr_idx_email", ["email"], { unique: true });
+/** The multi-tenant shape: `email` is unique only WITHIN a tenant (a composite index). */
+const Account = defineTable("wr_acct", {
+  tenant: s.string(),
+  email: s.string(),
+  name: s.string(),
+}).index("wr_acct_idx_tenant_email", ["tenant", "email"], { unique: true });
 const Post = defineTable("wr_post", { title: s.string(), views: s.int() });
 const Likes = defineRelation("wr_likes", { score: s.int() })
   .from(User)
   .to(Post);
-const schema = defineSchema({ users: User, posts: Post, likes: Likes });
+const schema = defineSchema({
+  users: User,
+  accounts: Account,
+  posts: Post,
+  likes: Likes,
+});
 
 const base = (name: string) => ({
   name,
@@ -69,10 +81,17 @@ live("orm writes — live", () => {
       DEFINE FIELD tags ON wr_user TYPE option<array<string>>;
       DEFINE FIELD address ON wr_user TYPE object;
       DEFINE FIELD address.city ON wr_user TYPE string;
+
       DEFINE INDEX wr_idx_email ON wr_user FIELDS email UNIQUE;
       DEFINE TABLE wr_post SCHEMAFULL;
       DEFINE FIELD title ON wr_post TYPE string;
       DEFINE FIELD views ON wr_post TYPE int;
+      REMOVE TABLE IF EXISTS wr_acct;
+      DEFINE TABLE wr_acct SCHEMAFULL;
+      DEFINE FIELD tenant ON wr_acct TYPE string;
+      DEFINE FIELD email ON wr_acct TYPE string;
+      DEFINE FIELD name ON wr_acct TYPE string;
+      DEFINE INDEX wr_acct_idx_tenant_email ON wr_acct FIELDS tenant, email UNIQUE;
       DEFINE TABLE wr_likes TYPE RELATION IN wr_user OUT wr_post;
       DEFINE FIELD score ON wr_likes TYPE int;
     `);
@@ -682,6 +701,87 @@ live("orm writes — live", () => {
       select: { views: true },
     });
     expect(final).toEqual({ views: 13 });
+  });
+
+  test("array adjustments: append/remove/union/at are one server-side write each", async () => {
+    await client.users.create({
+      data: {
+        ...base("Tags"),
+        id: "wr_user:tags",
+        tags: ["a", "b", "b"],
+      },
+    });
+    const labels = () =>
+      client.users
+        .findUnique({ where: { id: "wr_user:tags" }, select: { tags: true } })
+        .then((row) => row?.tags);
+
+    // `+=` APPENDS without dedup (live: ["a"] += ["a"] is ["a", "a"]) — `union` is the deduping form.
+    expect(
+      await client.users.update({
+        where: { id: "wr_user:tags" },
+        data: { tags: { append: "a" } },
+        select: { tags: true },
+      }),
+    ).toEqual({ tags: ["a", "b", "b", "a"] });
+    expect(
+      await client.users.update({
+        where: { id: "wr_user:tags" },
+        data: { tags: { union: ["a", "c"] } },
+        select: { tags: true },
+      }),
+    ).toEqual({ tags: ["a", "b", "c"] });
+    // `-=` removes EVERY occurrence.
+    expect(
+      await client.users.update({
+        where: { id: "wr_user:tags" },
+        data: { tags: { remove: "b" } },
+        select: { tags: true },
+      }),
+    ).toEqual({ tags: ["a", "c"] });
+    expect(
+      await client.users.update({
+        where: { id: "wr_user:tags" },
+        data: { tags: { at: { index: 0, value: "z" } } },
+        select: { tags: true },
+      }),
+    ).toEqual({ tags: ["z", "c"] });
+    expect(await labels()).toEqual(["z", "c"]);
+  });
+
+  test("composite UNIQUE target: upsert by [tenant, email] hits exactly one row", async () => {
+    // The multi-tenant shape: `email` is unique only WITHIN a tenant, so NO single-field unique
+    // index can exist — the composite index IS the unique key, and the ORM resolves it.
+    await client.accounts.create({
+      data: { tenant: "t1", email: "shared@x.dev", name: "Ana" },
+    });
+    const other = await client.accounts.create({
+      data: { tenant: "t2", email: "shared@x.dev", name: "Bo" },
+    });
+    expect(other.email).toBe("shared@x.dev");
+
+    // The same email in t1 is ONE row; the t2 twin is untouched.
+    const hit = await client.accounts.upsert({
+      where: { tenant: "t1", email: "shared@x.dev" },
+      data: { name: "Renamed" },
+    });
+    expect(hit.name).toBe("Renamed");
+    const untouched = await client.accounts.findUnique({
+      where: { tenant: "t2", email: "shared@x.dev" },
+      select: { name: true },
+    });
+    expect(untouched).toEqual({ name: "Bo" });
+
+    // And a partial `where` is still refused (it would match both tenants).
+    const refused = (() => {
+      try {
+        client.accounts.findUnique({ where: { email: "shared@x.dev" } });
+        return undefined;
+      } catch (e) {
+        return (e as { code?: string }).code;
+      }
+    })();
+    expect(refused).toBe("UniqueTargetRequired");
   });
 
   test("create + relate return:'none' resolves null but creates the edge", async () => {

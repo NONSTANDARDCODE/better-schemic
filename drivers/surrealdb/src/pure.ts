@@ -1950,6 +1950,24 @@ export class SEnumField<
 }
 
 /** Field constructors — the authoring surface. */
+/**
+ * `s.recordId(table?)` — the `record<…>` link field. A standalone generic function (not an inline
+ * arrow in the `s` literal) so `RecordRefName<T>`'s inference never resolves through the very
+ * object literal it is being inferred for.
+ */
+function recordIdField<
+  T extends string | AnyTable | (() => AnyTable),
+>(table?: T | readonly T[]): RecordIdField<RecordRefName<T>> {
+  const targets = (
+    table === undefined ? [] : Array.isArray(table) ? table : [table]
+  ) as readonly (string | (() => unknown) | { readonly name: string })[];
+  return new RecordIdField<RecordRefName<T>>(
+    targets.map((t) =>
+      typeof t === "string" || typeof t === "function" ? t : t.name,
+    ) as (RecordRefName<T> | (() => AnyTable))[],
+  );
+}
+
 export const s = {
   string: () => new SField(z.string()),
   number: () => new SField(z.number()),
@@ -2105,17 +2123,7 @@ export const s = {
    * the wire accepts `string | RecordId`, and the emitted DDL is unchanged. Single-table links only
    * (a bare string can't name the table on encode); see {@link RecordIdField.stringIds}.
    */
-  recordId: <T extends string | AnyTable | (() => AnyTable) = string>(
-    table?: T | readonly T[],
-  ): RecordIdField<RecordRefName<T>> =>
-    new RecordIdField<RecordRefName<T>>(
-      (table === undefined ? [] : Array.isArray(table) ? table : [table]).map(
-        (t) =>
-          typeof t === "string" || typeof t === "function"
-            ? t
-            : (t as AnyTable).name,
-      ) as (RecordRefName<T> | (() => AnyTable))[],
-    ),
+  recordId: recordIdField,
   /**
    * A nested object whose fields keep their surreal metadata + native types. The returned
    * schema TYPE carries the original shape `S` via the `~szShape` brand (type-only — runtime
@@ -3249,7 +3257,23 @@ function combinePermissions(
 }
 
 /** A table (or relation) definition: shape + DDL config, with chainable builders. */
-export class TableDef<Name extends string, S extends Shape> {
+/**
+ * The unique column a `unique: true` index over `F` contributes to {@link TableDef}'s union — the
+ * field itself for a single-field index, and NOTHING for a composite one (a `[tenant_id, name]`
+ * index cannot be a cursor tiebreaker: its fields are unique only together).
+ */
+export type SingleUnique<F> = F extends readonly [infer Only]
+  ? Only extends string
+    ? Only
+    : never
+  : never;
+
+export class TableDef<
+  Name extends string,
+  S extends Shape,
+  /** Fields declared with a single-field UNIQUE index (a cursor tiebreaker). `never` when none. */
+  Unique = never,
+> {
   /** Zod object over the inner schemas — drives validation, encode/decode, types. */
   readonly object: z.ZodObject<ZShape<S>>;
 
@@ -3451,8 +3475,13 @@ export class TableDef<Name extends string, S extends Shape> {
   }
 
   // --- DDL config (chainable, immutable) ---
-  private withConfig(config: Partial<TableConfig>): TableDef<Name, S> {
-    return new TableDef(this.name, this.fields, { ...this.config, ...config });
+  private withConfig(
+    config: Partial<TableConfig>,
+  ): TableDef<Name, S, Unique> {
+    return new TableDef<Name, S, Unique>(this.name, this.fields, {
+      ...this.config,
+      ...config,
+    });
   }
   schemafull() {
     return this.withConfig({ schemafull: true });
@@ -3498,7 +3527,7 @@ export class TableDef<Name extends string, S extends Shape> {
    * dependency. It emits NO DDL: `sc diff`/migrations never see it, raw SQL and writes outside
    * the ORM keep the server default, and `sc pull` cannot recover it from the database.
    */
-  idStrategy(strategy: IdStrategy): TableDef<Name, S> {
+  idStrategy(strategy: IdStrategy): TableDef<Name, S, Unique> {
     if (strategy !== "ulid" && strategy !== "uuid" && strategy !== "rand")
       throw new Error(
         `idStrategy(${JSON.stringify(strategy)}) — expected "ulid" | "uuid" | "rand".`,
@@ -3517,23 +3546,23 @@ export class TableDef<Name extends string, S extends Shape> {
    * (`(t) => [t.a, t.b]`). Prefer the callback: each `t.<field>` is a real property reference the LSP
    * can rename and go-to-definition, so an index survives a field rename — a string array can't.
    */
-  index(
+  index<const F extends readonly (keyof S & string)[]>(
     name: string,
-    fields: readonly (keyof S & string)[],
+    fields: F,
     opts?: IndexOptions,
-  ): TableDef<Name, S>;
+  ): TableDef<Name, S, Unique | SingleUnique<F>>;
   index(
     name: string,
     fields: (t: FieldRefs<S>) => readonly (keyof S & string)[],
     opts?: IndexOptions,
-  ): TableDef<Name, S>;
+  ): TableDef<Name, S, Unique>;
   index(
     name: string,
     fields:
       | readonly (keyof S & string)[]
       | ((t: FieldRefs<S>) => readonly (keyof S & string)[]),
     opts: IndexOptions = {},
-  ): TableDef<Name, S> {
+  ): TableDef<Name, S, Unique> {
     const cols =
       typeof fields === "function" ? fields(fieldRefs(this.fields)) : fields;
     const index: TableIndex = {
@@ -4187,8 +4216,13 @@ defineTable.preset = <Cols extends Shape = {}>(
   preset: TablePreset<Cols>,
 ): TablePreset<Cols> => preset;
 
+/**
+ * A table def erased for a schema-agnostic REFERENCE (a relation endpoint, a `recordId` target).
+ * `Unique` is pinned to `never`: a reference carries no unique-field union, and pinning it keeps
+ * `RecordRefName<T>`'s inference from resolving through this type's own shape.
+ */
 // biome-ignore lint/suspicious/noExplicitAny: shape-agnostic table reference for relation endpoints
-type AnyTable = TableDef<string, any>;
+type AnyTable = TableDef<string, any, never>;
 /** A single relation endpoint: a table def, a SurrealDB `Table` instance, or a bare table name. */
 type TableLike = AnyTable | Table<string> | string;
 /** A relation endpoint reference — one table, or an array (a `|`-union of `in`/`out` tables); mix freely. */

@@ -26,12 +26,16 @@ import type { App } from "../../src/pure";
 
 const User = defineTable("user", {
   name: s.string(),
+  email: s.string(),
   age: s.int(),
   active: s.boolean(),
   at: s.datetime(),
+  createdAt: s.datetime(),
   tags: s.array(s.string()),
   address: s.object({ city: s.string(), country: s.string() }),
-});
+})
+  .index("user_idx_email", ["email"], { unique: true })
+  .index("user_idx_tenant_email", ["name", "email"], { unique: true });
 const schema = defineSchema({ users: User });
 type U = typeof User;
 type Row = App<U>;
@@ -218,6 +222,34 @@ describe("read envelopes", () => {
     void withValue;
     void withOnly;
     void withStart;
+  });
+
+  it("cursor: the LAST orderBy field must be unique (typed from the schema)", () => {
+    // `id` is unique by construction — the portable tiebreaker.
+    const byId: CursorArgs<U> = { limit: 2, orderBy: [{ age: "desc" }, { id: "asc" }] };
+    const idOnly: CursorArgs<U> = { limit: 2, orderBy: [{ id: "desc" }] };
+    // `email` carries a single-field UNIQUE index, so it is a valid tiebreaker too.
+    const byEmail: CursorArgs<U> = {
+      limit: 2,
+      orderBy: [{ createdAt: "desc" }, { email: "asc" }],
+    };
+    // @ts-expect-error — `createdAt` is not unique: a keyset page could skip/duplicate a row
+    const nonUnique: CursorArgs<U> = { limit: 2, orderBy: [{ createdAt: "desc" }] };
+    // The tiebreaker must come LAST: a trailing non-unique field is refused too.
+    const wrongPosition = [
+      { id: "asc" },
+      { age: "desc" },
+    ] as const;
+    const badOrder: CursorArgs<U> = {
+      limit: 2,
+      // @ts-expect-error — `age` is not unique, so it cannot close the keyset
+      orderBy: wrongPosition,
+    };
+    void byId;
+    void idOnly;
+    void byEmail;
+    void nonUnique;
+    void badOrder;
   });
 
   it("aggregate shapes dispatch per operator", () => {

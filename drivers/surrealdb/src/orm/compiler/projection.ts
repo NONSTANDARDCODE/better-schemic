@@ -59,6 +59,11 @@ export interface ProjectionSpec {
    * (`undefined` = use the table's own codec untouched).
    */
   readonly starSchema?: z.ZodType;
+  /**
+   * Reserved aliases the read APPENDED (`_split_<field>`): decoded like any leaf, then dropped from
+   * the result, so `data` stays exactly the user's selection.
+   */
+  readonly hidden?: readonly string[];
   /** Relation hydration specs (`include`/`_count`) applied AFTER the base decode. */
   readonly includes: readonly IncludeSpec[];
 }
@@ -309,6 +314,152 @@ function elementSchema(schema: z.ZodType | undefined): z.ZodType | undefined {
   const def = zdef(inner);
   if (def.type !== "array" && def.type !== "set") return undefined;
   return (def.element ?? def.valueType) as z.ZodType;
+}
+
+/**
+ * Projection ANALYSIS — what a user `select`/`omit` actually returns, in the normalized shape the
+ * read compilers need (the cursor keyset and the SPLIT idiom both ask "does this projection already
+ * carry that field?"). Pure, allocation-light and shared so the two can never disagree.
+ */
+
+/** The analyzed shape of a VALID user projection (`undefined` = malformed; `compileRead` teaches). */
+export type ProjectionForm =
+  | { readonly kind: "star"; readonly entries: Record<string, unknown> }
+  | { readonly kind: "list"; readonly fields: readonly string[] }
+  | { readonly kind: "object"; readonly entries: Record<string, unknown> };
+/** Normalize a user projection for analysis; `undefined` when it is malformed. */
+export function projectionForm(select: unknown): ProjectionForm | undefined {
+  if (select === undefined || select === null)
+    return { kind: "star", entries: {} };
+  if (Array.isArray(select)) {
+    const fields = select as readonly unknown[];
+    if (
+      fields.length === 0 ||
+      fields.some((entry) => typeof entry !== "string" || entry.length === 0)
+    )
+      return undefined;
+    return { kind: "list", fields: fields as readonly string[] };
+  }
+  if (!isPlainObject(select)) return undefined;
+  const entries = select as Record<string, unknown>;
+  const contributes = Object.values(entries).some(
+    (entry) => entry !== undefined && entry !== false,
+  );
+  if (!contributes) return undefined;
+  return entries["*"] === true
+    ? { kind: "star", entries }
+    : { kind: "object", entries };
+}
+
+/** Does the projection already return `field` in the decoded row? */
+export function projectedInPlace(
+  form: ProjectionForm,
+  omitted: readonly (readonly string[])[],
+  field: string,
+): boolean {
+  const target = pathSegments(field);
+  if (form.kind === "star")
+    return !omitted.some((entry) => covers(entry, target));
+  if (form.kind === "list")
+    return form.fields.some((entry) => covers(pathSegments(entry), target));
+  return coveredByEntries(form.entries, target);
+}
+
+/**
+ * Does an object projection descend to `segments` through `true` entries and same-path aliases?
+ * The longest key that prefixes the path decides (a dotted key wins over its parent), mirroring
+ * how `compileEntry` lays the leaves out.
+ */
+function coveredByEntries(
+  entries: Record<string, unknown>,
+  segments: readonly string[],
+): boolean {
+  const match = longestKey(entries, segments);
+  if (!match) return false;
+  const entry = entries[match.key];
+  if (entry === undefined || entry === false) return false;
+  if (entry === true) return true;
+  // A string entry is an alias: it returns the field only when it re-projects its own key
+  // (`{ address: "address" }`, or the flat `{ "address.city": "address.city" }`).
+  if (typeof entry === "string") return entry === match.key;
+  if (isPlainObject(entry))
+    return (
+      match.end < segments.length &&
+      coveredByEntries(entry, segments.slice(match.end))
+    );
+  return false;
+}
+
+/** The longest entry key matching a prefix of `segments` (`"address.city"` before `"address"`). */
+function longestKey(
+  entries: Record<string, unknown>,
+  segments: readonly string[],
+): { readonly key: string; readonly end: number } | undefined {
+  for (let end = segments.length; end > 0; end--) {
+    const key = segments.slice(0, end).join(".");
+    if (key in entries) return { key, end };
+  }
+  return undefined;
+}
+
+/** Is `path` the same as, or a descendant of, `ancestor`? */
+function covers(ancestor: readonly string[], path: readonly string[]): boolean {
+  return (
+    ancestor.length <= path.length &&
+    ancestor.every((segment, index) => segment === path[index])
+  );
+}
+
+/** Are two paths the same, segment by segment? */
+function samePath(a: readonly string[], b: readonly string[]): boolean {
+  return (
+    a.length === b.length && a.every((segment, index) => segment === b[index])
+  );
+}
+
+/**
+ * The select key that REDEFINES the ordered path (`{ age: "id" }`, `{ age: surql\`…\` }`) — the
+ * emitted `ORDER BY age` would bind that alias, while the keyset `WHERE age > $c` binds the stored
+ * field. A `true` entry, a same-path alias and a nested sub-select (which creates no alias of that
+ * name) are not redefinitions.
+ */
+export function redefinedPath(
+  entries: Record<string, unknown>,
+  segments: readonly string[],
+): string | undefined {
+  const key = segments.join(".");
+  if (!(key in entries)) return undefined;
+  const entry = entries[key];
+  if (entry === undefined || entry === false || entry === true)
+    return undefined;
+  if (isPlainObject(entry)) return undefined;
+  if (typeof entry === "string" && samePath(pathSegments(entry), segments))
+    return undefined;
+  return key;
+}
+
+/** The omit entries that can hide a `*`-projected path (malformed ones are `compileRead`'s error). */
+export function omittedPaths(omit: unknown): readonly (readonly string[])[] {
+  if (!Array.isArray(omit)) return [];
+  return omit
+    .filter(
+      (entry): entry is string => typeof entry === "string" && entry.length > 0,
+    )
+    .map(pathSegments);
+}
+
+
+/** The top-level output keys a valid projection can emit. */
+export function projectionKeys(form: ProjectionForm): ReadonlySet<string> {
+  const keys = new Set<string>();
+  if (form.kind === "list") {
+    for (const field of form.fields) keys.add(pathSegments(field)[0] as string);
+    return keys;
+  }
+  for (const key of Object.keys(form.entries)) {
+    keys.add(pathSegments(key)[0] as string);
+  }
+  return keys;
 }
 
 /** `z.object` with a loose shape (the runtime schema, not the branded generic). */

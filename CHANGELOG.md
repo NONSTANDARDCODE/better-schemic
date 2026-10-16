@@ -18,6 +18,90 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+### Added
+- **surrealdb (ORM):** **`aggregate({ split })` — UNWIND + GROUP.** O servidor avalia `SPLIT` antes
+  de `GROUP`, então `SELECT … SPLIT f GROUP ALL` é erro e `math::*` sobre o grupo não alcança o
+  elemento. O `aggregate` empurra o split para uma subquery interna e agrupa por fora — cada
+  entrada do `select` é re-mapeada para a coluna reservada que a subquery projetou:
+
+  ```ts
+  const perCart = await client.carts.aggregate({
+    split: "lines",
+    select: { name: "name", total: { sum: "lines[*].quantity" }, _count: true },
+    groupBy: ["name"],
+  });
+  // SELECT name, math::sum(_split_lines_quantity) AS total, count() AS _count
+  // FROM (SELECT lines AS _split_lines, name, lines[*].quantity AS _split_lines_quantity
+  //       FROM cart SPLIT lines) GROUP BY name
+  ```
+
+  `where` filtra as linhas **pai** (o filtro por elemento continua sendo receita `surql` com
+  `array::flatten` — `SPLIT <expr>` é avaliado por elemento, live 3.3.4). Acaba com o
+  `findMany({ split })` + agregação em JS, que puxava o histórico inteiro para o processo.
+- **surrealdb (ORM):** marcadores de **array** em `data`, um por forma live-verificada de escrita
+  server-side: `{ append: v }` → `SET f += $p` (**append sem dedup**), `{ remove: v }` →
+  `SET f -= $p` (remove **todas** as ocorrências), `{ union: arr }` → `SET f = array::union(f, $p)`
+  (a **única** forma que deduplica) e `{ at: { index, value } }` → `SET f[n] = $p`. Alvo validado
+  contra o schema (família `array`/`set`, nunca `id`) e recusa em payload de create, como os
+  marcadores numéricos. Como cada marcador é UMA escrita do servidor, o índice UNIQUE do array
+  inteiro continua correto (é o servidor que troca a chave).
+- **surrealdb (ORM):** **alvo UNIQUE composto** — um `where` que cobre *todos* os campos de um
+  índice UNIQUE composto é um alvo válido de `findUnique`/`upsert`/`upsertDelta`. É o shape do
+  multi-tenant (`email` único *dentro* do tenant), que antes falhava com
+  `"name" is not unique. Available unique targets: id`. Um `where` **parcial** continua recusado
+  (casa várias linhas) e a mensagem agora nomeia o grupo composto e mostra como usá-lo.
+- **surrealdb (ORM):** `plugins/hard-delete` (`@better-schemic/surrealdb/plugins/hard-delete`) —
+  mantém `delete`/`deleteMany` como DELETE **físico** e marca a intenção destrutiva na operação
+  (`meta.hardDelete`, com `reason` opcional), para as tabelas em que um tombstone é a forma errada
+  (estado de máquina reescrito a cada evento, chave de sessão). Aceita `tables` para escopo, e o
+  `soft-delete` ganhou o mesmo `tables` — os dois plugins compõem num schema misto.
+- **surrealdb (ORM):** `client.fn.expr` — a **forma fragmento** do catálogo de `defineFunction`:
+  `fn.expr.minhaFuncao({ arg })`/`fn.expr.call("fn::jw", […])` devolvem um `Surql` em vez de executar,
+  então a função do próprio repo entra num `where`/`select`/`orderBy` **tipado** (binds fundidos no
+  statement que a compõe) em vez de um `$query` montado à mão.
+- **surrealdb:** `search::rrf` no catálogo `fn.ts` (a metade RRF de uma busca híbrida, cuja outra
+  metade já é `where: { name: { matchesFullText } }`), com amostra live no sweep do catálogo —
+  `k` é `int` (o servidor recusa float).
+
+### Fixed
+- **surrealdb (ORM):** `aggregate` **não recusa mais o alias que ele mesmo criou no `groupBy`**. A
+  checagem guardava o *caminho* do select em vez da *chave de saída*, então
+  `select: { customerName: "customer.name" }` + `groupBy: ["customerName"]` era recusado por um erro
+  que mandava adicionar `customerName: "customerName"` (campo inexistente) — e a checagem só era
+  pulada por acidente quando o select continha alguma expressão. O servidor aceita as duas
+  grafias da chave de grupo (o output key do alias **ou** o path projetado — live 3.3.4), e o
+  compilador agora aceita as duas.
+- **surrealdb (ORM):** `aggregate` **recusa o operando que o servidor somaria em silêncio**.
+  `math::*` é number-only e nunca falha no entrada errada: `0` para campo inexistente, para
+  `string` e para link/array; `{}` para `median(string)`; `null` para `min`/`max` de string, datetime
+  ou bool (tudo live-probed em 3.3.4). O `aggregate` valida o operando contra o schema e aponta a
+  forma que funciona (`array::min(array::group(…))`, `split`, ou `{ collect }` + redução em JS) —
+  um relatório com `{ sum: "x.y" }` errado parou de exibir R$ 0,00 sem nenhum sinal. Continua
+  permissivo onde o schema não tem opinião (entrada schemaless, tabela não-SCHEMAFULL, objeto
+  flexível, operando de elemento no `split`).
+- **surrealdb (ORM):** `split` deixa de exigir que o campo split esteja no `select`. O servidor
+  recusa `SELECT name FROM t SPLIT products` (`Missing split idiom "products" in statement
+  selection`) mesmo quando as linhas estão certas; um **alias** satisfaz o idioma, então o compiler
+  passa a injetar a coluna reservada `_split_<field>` quando o `select` não traz o campo, e o decoder
+  a descarta — `data` continua sendo exatamente a seleção e o `include` deixa de colidir com um
+  `select: { field: true }` que o chamador não precisou escrever.
+- **surrealdb (ORM):** `$raw` **não descarta statements em silêncio**. Ele resolve o primeiro
+  resultado, então um script com `LET $a = 1; SELECT …` devolvia `null` sem erro nenhum. Um script
+  com N statements agora é recusado com `ValidationError` apontando o `$query`, que devolve a tupla
+  por statement (igual ao `db.query()`). Um `;` dentro de literal de string não conta como statement.
+- **surrealdb (ORM):** o tiebreaker do `cursor` (último campo do `orderBy` precisa ser único) sai
+  do runtime para o **tipo**: `.index(name, [field], { unique: true })` registra o campo no terceiro
+  parâmetro de `TableDef`, e `CursorArgs.orderBy` só aceita ordenações cujo último campo ∈ `id ∪
+  únicos`. Índice composto não conta (os campos são únicos só em conjunto) e o guard runtime
+  (`CursorTiebreakerRequired`) continua como rede para índice declarado fora da cadeia de builders.
+
+### Changed
+- **surrealdb (ORM):** a análise de projeção (`projectionForm`/`projectedInPlace`/…) saiu de
+  `compiler/keyset.ts` para `compiler/projection.ts`, agora compartilhada entre o keyset do cursor e
+  o idioma automático do `split` — uma só implementação, para os dois não poderem divergir.
+- **surrealdb (ORM):** `ProjectionSpec` ganhou `hidden`: as colunas reservadas que o read anexa
+  (`_split_<field>`) são decodificadas como leaf e removidas do resultado.
+
 ## [0.1.0-alpha.14] - 2026-10-14
 
 ### Changed

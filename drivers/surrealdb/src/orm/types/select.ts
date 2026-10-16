@@ -15,7 +15,7 @@
  * ```
  */
 import type { Surql } from "../../frag";
-import type { App } from "../../pure";
+import type { App, TableDef } from "../../pure";
 import type { ExplainResult, ThrowingResult } from "../results";
 import type { CallContext } from "./context";
 import type { IncludeArg, WithIncludes } from "./include";
@@ -432,14 +432,62 @@ export interface PaginateArgs<TD extends AnyTableDef, S = SchemaInput>
 export interface CursorArgs<TD extends AnyTableDef, S = SchemaInput>
   extends Omit<
     ReadArgs<TD, S>,
-    "limit" | "groupBy" | "groupAll" | "split" | "value" | "only" | "start"
+    | "limit"
+    | "groupBy"
+    | "groupAll"
+    | "split"
+    | "value"
+    | "only"
+    | "start"
+    | "orderBy"
   > {
   limit: number;
+  /**
+   * The ordering, whose LAST field must be unique — a keyset page needs a tiebreaker, and the
+   * table's `id` is the only one that is unique by construction.
+   *
+   * Typed from the schema: `.index(name, [field], { unique: true })` records the field in the
+   * table's `U` parameter, so the compiler rejects an ordering that ends on a non-unique field
+   * (`{ createdAt }, { id }` is the portable fix) instead of failing at runtime. A table with NO
+   * declared unique index keeps the broad form, and a composite UNIQUE index does not count — its
+   * fields are unique only together, which a single tiebreaker field cannot express.
+   */
+  orderBy?: CursorOrderBy<TD, S>;
   /** Rows after this cursor. */
   after?: CursorInput;
   /** Rows before this cursor. */
   before?: CursorInput;
 }
+
+/** One `orderBy` entry of a cursor: a field plus its direction. */
+export type CursorOrderEntry<F extends string = string> = { [K in F]?: "asc" | "desc" };
+
+/**
+ * The `orderBy` of a `cursor`, restricted to orderings whose LAST field is unique.
+ *
+ * `U` is the table's single-field-UNIQUE union (`""` when none was declared, so a table without a
+ * unique index keeps accepting any ordering and the runtime guard stays the backstop).
+ */
+export type CursorOrderBy<TD extends AnyTableDef, S = SchemaInput> =
+  | readonly [
+      order: ReadArgs<TD, S>["orderBy"] extends infer O ? CursorOrderEntries<O> : never,
+      tiebreaker: CursorOrderEntry<UniqueTiebreaker<TD>>,
+    ]
+  | readonly [tiebreaker: CursorOrderEntry<UniqueTiebreaker<TD>>];
+
+/** Normalize a read's `orderBy` into single-field entries (a fragment list widens to `{ [k] }`). */
+type CursorOrderEntries<O> = O extends readonly (infer E)[]
+  ? E extends Record<string, unknown>
+    ? E
+    : CursorOrderEntry
+  : O extends Record<string, unknown>
+    ? O
+    : CursorOrderEntry;
+
+/** `id` plus every field declared with a single-field UNIQUE index. */
+export type UniqueTiebreaker<TD extends AnyTableDef> =
+  | "id"
+  | (TD extends TableDef<string, infer _S, infer U> ? (U & string) : never);
 
 /** What `findUnique` resolves to (a thenable that may miss). */
 export type FindUniqueResult<
@@ -447,6 +495,15 @@ export type FindUniqueResult<
   A,
   S = SchemaInput,
 > = ThrowingReadResult<ResultOf<TD, A, S>, A>;
+
+/** The field an `aggregate({ split })` unfolds: an array/set column of the table. */
+export type SplitPath<TD extends AnyTableDef> = ArrayFieldNames<App<TD>>;
+
+/** The array/set column names of a table's app shape. */
+type ArrayFieldNames<A> = {
+  [K in keyof A]-?: NonNullable<A[K]> extends readonly unknown[] ? K & string : never;
+}[keyof A] &
+  string;
 
 /** A field usable by an aggregator: a known column or a dotted/bracketed path. */
 export type AggField<TD extends AnyTableDef> =
@@ -457,8 +514,23 @@ export type AggField<TD extends AnyTableDef> =
 type AggValue<TD extends AnyTableDef, F> = F extends keyof App<TD>
   ? App<TD>[F]
   : F extends string
-    ? PathValue<App<TD>, F>
+    ? // With `split`, an operand names a field of the split ELEMENT (`lines[*].label`): the
+      // bracketed segment indexes the array, so the value is the element's field — resolvable
+      // from this table's own app shape, and `unknown` when the element is a bare record link.
+      SplitElementValue<App<TD>, F>
     : unknown;
+
+/** The value of a split operand path (`lines[*].label`) against the table's app shape. */
+type SplitElementValue<A, F extends string> = F extends
+  `${infer Head}[*].${infer Rest}`
+  ? Head extends keyof A
+    ? ElementOf<NonNullable<A[Head]>> extends infer Elem
+      ? Elem extends { [K in Rest]: infer V }
+        ? V
+        : unknown
+      : unknown
+    : unknown
+  : PathValue<A, F>;
 
 /** One aggregator object (`{ sum: 'age' }`, `{ collect: 'email' }`). */
 export interface Aggregator<TD extends AnyTableDef> {
@@ -490,6 +562,14 @@ export type AggregateSelect<TD extends AnyTableDef> = {
 export interface AggregateArgs<TD extends AnyTableDef, S = SchemaInput> {
   where?: WhereInput<TD, S>;
   select: AggregateSelect<TD>;
+  /**
+   * UNWIND the rows by this array/set field before grouping (UNWIND + GROUP). SurrealDB evaluates
+   * `SPLIT` before `GROUP`, so the split runs in an inner subquery and the grouping happens over its
+   * rows; an aggregator operand then names a field of the split **ELEMENT**
+   * (`{ sum: "lines[*].quantity" }`). `where` filters the PARENT rows — filtering ELEMENTS is a
+   * `surql` recipe (`array::flatten`), because `SPLIT <expr>` is evaluated per element.
+   */
+  split?: SplitPath<TD>;
   groupBy?: readonly GroupByKey<TD>[];
   groupAll?: boolean;
   orderBy?: OrderByArg<TD>;
@@ -508,11 +588,7 @@ export interface AggregateArgs<TD extends AnyTableDef, S = SchemaInput> {
 }
 
 /** The shape one aggregate entry contributes. */
-type AggEntryShape<
-  TD extends AnyTableDef,
-  K extends PropertyKey,
-  V,
-> = V extends true
+type AggEntryShape<TD extends AnyTableDef, K extends PropertyKey, V> = V extends true
   ? { [P in K]: K extends "_count" ? number : unknown }
   : V extends string
     ? { [P in K]: PathValue<App<TD>, V> }

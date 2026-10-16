@@ -3,7 +3,7 @@
 // Return semantics + eager guards live in `orm-writes-returns.test.ts`; fixtures are shared there.
 import { describe, expect, test } from "bun:test";
 import { RecordId } from "surrealdb";
-import { defineRelation, s, surql } from "../../src/index";
+import { defineRelation, defineTable, s, surql } from "../../src/index";
 import type { Client } from "../../src/orm/client";
 import { betterSchemic } from "../../src/orm/client";
 import type { BetterSchemicError } from "../../src/orm/errors";
@@ -1056,5 +1056,131 @@ describe("runtime envelopes + eager execution", () => {
     const { client } = makeClient();
     const result = await client.users.createMany({ data: [data, data, data] });
     expect(result.statements).toBe(3);
+  });
+});
+
+describe("composite UNIQUE target — every upsert lowering", () => {
+  const Acct = defineTable("w_acct", {
+    tenant: s.string(),
+    owner: s.recordId(() => User),
+    email: s.string(),
+    name: s.string(),
+  }).index("w_acct_idx", ["tenant", "email"], { unique: true });
+  const multi = defineSchema({ users: User, accts: Acct });
+  const row = [ {
+    id: new RecordId("w_acct", "1"),
+    tenant: "t1",
+    owner: new RecordId("user", "aeon"),
+    email: "a@x",
+    name: "A",
+  } ];
+
+  const clientOver = (result: unknown = row) => {
+    const { conn, calls } = fakeConn((sql) =>
+      sql.split("\n").map(() => ok(result)),
+    );
+    return { client: betterSchemic(conn, { schema: multi }), calls };
+  };
+
+  const where = { tenant: "t1", email: "a@x" };
+
+  test("upsert (create-or-update) targets the composite", async () => {
+    const { client, calls } = clientOver();
+    await client.accts.upsert({ where, data: { name: "B" }, onMissing: "create" });
+    expect(lastCall(calls).sql).toMatch(/WHERE tenant = \$p\d+ AND email = \$p\d+/);
+  });
+
+  test("the STRICT upsert (the default) targets the composite too", async () => {
+    const { client, calls } = clientOver();
+    await client.accts.upsert({ where, data: { name: "B" } });
+    expect(lastCall(calls).sql).toMatch(/WHERE tenant = \$p\d+ AND email = \$p\d+/);
+  });
+
+  test("a record column inside the group is coerced to RecordId", async () => {
+    const Link = defineTable("w_link", {
+      tenant: s.string(),
+      owner: s.recordId(() => User),
+    }).index("w_link_idx", ["tenant", "owner"], { unique: true });
+    const schema = defineSchema({ users: User, links: Link });
+    const { conn, calls } = fakeConn((sql) =>
+      sql.split("\n").map(() =>
+        ok([
+          {
+            id: new RecordId("w_link", "1"),
+            tenant: "t1",
+            owner: new RecordId("user", "aeon"),
+          },
+        ]),
+      ),
+    );
+    const client = betterSchemic(conn, { schema });
+    await client.links.update({
+      where: { tenant: "t1", owner: "user:aeon" },
+      data: { tenant: "t2" },
+    });
+    const call = lastCall(calls);
+    expect(call.sql).toContain("owner = $p");
+    expect(call.vars).toMatchObject({ p0: "t1" });
+    expect(Object.values(call.vars)).toContainEqual(
+      new RecordId("user", "aeon"),
+    );
+  });
+
+  test("update/delete/patch on the same composite target", async () => {
+    for (const op of ["update", "delete"] as const) {
+      const { client, calls } = clientOver();
+      await (client.accts as never as Record<string, (a: unknown) => Promise<unknown>>)[op](
+        op === "update"
+          ? { where, data: { name: "B" } }
+          : { where, return: "none" },
+      );
+      expect(lastCall(calls).sql).toMatch(
+        /WHERE tenant = \$p\d+ AND email = \$p\d+/,
+      );
+    }
+  });
+});
+
+describe("composite UNIQUE target — the branch/scope arms", () => {
+  const Stock = defineTable("w_stock", {
+    tenant: s.string(),
+    sku: s.string(),
+    qty: s.int(),
+  }).index("w_stock_idx", ["tenant", "sku"], { unique: true });
+  const schema = defineSchema({ users: User, stock: Stock });
+  const where = { tenant: "t1", sku: "x" };
+  const row = [
+    {
+      id: new RecordId("w_stock", "1"),
+      tenant: "t1",
+      sku: "x",
+      qty: 1,
+    },
+  ];
+
+  const clientOver = () => {
+    const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok(row)));
+    return { client: betterSchemic(conn, { schema }), calls };
+  };
+
+  test("an adjustment on a composite target lowers to the compound assignment", async () => {
+    const { client, calls } = clientOver();
+    await client.stock.update({ where, data: { qty: { increment: 1 } } });
+    expect(lastCall(calls).sql).toBe(
+      "UPDATE w_stock SET qty += $p2 WHERE tenant = $p0 AND sku = $p1;",
+    );
+  });
+
+  test("a scoped composite target ANDs the scope after the key", async () => {
+    const { client, calls } = clientOver();
+    await client.stock.update({
+      where,
+      data: { qty: 2 },
+      scope: { tenant: "t1" },
+    } as never);
+    const call = lastCall(calls);
+    expect(call.sql).toMatch(
+      /WHERE \(tenant = \$p\d+ AND sku = \$p\d+ AND tenant = \$p\d+\)/,
+    );
   });
 });

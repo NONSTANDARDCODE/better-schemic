@@ -578,13 +578,27 @@ export function assertProjectable(
   );
 }
 
-// --- arithmetic adjustments (`{ increment }` / `{ decrement }`) ----------------------------------
+// --- write adjustments (`{ increment }` / `{ append }` / …) ---------------------------------------
 
-/** One field adjustment to lower as `SET <field> ±= <value>`. */
+/** How an adjustment lowers into the `SET` clause. */
+export type AdjustmentLowering =
+  /** `SET f += $p` / `SET f -= $p` (numeric compound assignment, array append/remove). */
+  | "+="
+  | "-="
+  /** `SET f = array::union(f, $p)` (the only deduping array form). */
+  | "union"
+  /** `SET f[n] = $p` (a single index). */
+  | "at"
+  /** `SET f = $p` (a whole-array replacement the server computes — `{ at: [i, v] }` style). */
+  | "=";
+
+/** One field adjustment to lower inside the `SET` clause. */
 export interface ArithmeticStep {
   /** The top-level field (raw app name; `updateBody` escapes it). */
   readonly field: string;
-  readonly op: "+" | "-";
+  /** The operator (`+=`, `-=`, `union`, `at`, `=`). */
+  readonly op: AdjustmentLowering;
+  /** The operand(s) to bind (`at` carries `[index, value]`). */
   readonly value: unknown;
 }
 
@@ -617,14 +631,29 @@ export function extractArithmetic(
       );
     assertAdjustment(meta, field, marker, operation);
     steps ??= [];
-    steps.push({ field, op: marker.op, value: marker.value });
+    steps.push(loweringOf(marker, field));
     clean ??= { ...data };
     delete clean[field];
   }
   return { clean: clean ?? data, steps: steps ?? NO_STEPS };
 }
 
-/** Validate one adjustment's target field + operand (numeric column, known name, never `id`). */
+/** The `SET` lowering of one marker (`field` is filled by the caller). */
+function loweringOf(marker: Adjustment, field: string): ArithmeticStep {
+  switch (marker.kind) {
+    case "decrement":
+    case "remove":
+      return { field, op: "-=", value: marker.value };
+    case "union":
+      return { field, op: "union", value: marker.value };
+    case "at":
+      return { field, op: "at", value: marker.value };
+    default:
+      return { field, op: "+=", value: marker.value };
+  }
+}
+
+/** Validate one adjustment's target field + operand (known column of the right family, never `id`). */
 function assertAdjustment(
   meta: ModelMeta,
   field: string,
@@ -637,18 +666,7 @@ function assertAdjustment(
       `${operation}: "id" can't be adjusted — it is the record identity.`,
       { operation, table: meta.name, field },
     );
-  const operand = marker.value;
-  if (
-    typeof operand !== "number" &&
-    typeof operand !== "bigint" &&
-    !(operand instanceof Decimal) &&
-    !isLowerableValue(operand)
-  )
-    throw compileError(
-      "ValidationError",
-      `${operation}: { ${marker.kind}: … } needs a number, bigint, Decimal or expression operand (got ${describeValue(operand)}).`,
-      { operation, table: meta.name, field },
-    );
+  assertAdjustmentOperand(marker, operation, field);
   if (!isTableMeta(meta)) return;
   const column = meta.columns.get(field);
   if (!column)
@@ -657,12 +675,74 @@ function assertAdjustment(
       `${operation}: "${field}" is not a field of "${meta.name}". Known fields: ${[...meta.columns.keys()].join(", ")}.`,
       { operation, table: meta.name, field },
     );
-  if (column.family !== "number")
+  const wantsArray = marker.family === "array";
+  const right = wantsArray
+    ? column.family === "array" || column.family === "set"
+    : column.family === "number";
+  if (right) return;
+  throw compileError(
+    "ValidationError",
+    wantsArray
+      ? `${operation}: "${field}" is a ${column.family} field — { ${marker.kind}: … } adjusts an array field (array/set). Use a plain value, a numeric { increment }/{ decrement }, or a surql fragment.`
+      : `${operation}: "${field}" is a ${column.family} field — { ${marker.kind}: … } needs a numeric field (int/float/decimal). Use a plain value or a surql fragment for other sweeps.`,
+    { operation, table: meta.name, field },
+  );
+}
+
+/** The operand shape each marker family accepts (a literal or a server-side expression). */
+function assertAdjustmentOperand(
+  marker: Adjustment,
+  operation: string,
+  field: string,
+): void {
+  const operand = marker.value;
+  if (isLowerableValue(operand)) return;
+  if (marker.kind === "at") {
+    const pair = operand as { index?: unknown; value?: unknown };
+    if (
+      isPlainObject(operand) &&
+      Number.isInteger(pair.index) &&
+      (pair.index as number) >= 0 &&
+      pair.value !== undefined
+    )
+      return;
     throw compileError(
       "ValidationError",
-      `${operation}: "${field}" is a ${column.family} field — { ${marker.kind}: … } needs a numeric field (int/float/decimal). Use a plain value or a surql fragment for other sweeps.`,
-      { operation, table: meta.name, field },
+      `${operation}: { at: … } on "${field}" must be { index: <non-negative int>, value: <the new element> } (got ${describeValue(operand)}).`,
+      { operation, field },
     );
+  }
+  if (isLiteralOperand(marker.family, operand)) return;
+  throw compileError(
+    "ValidationError",
+    marker.family === "number"
+      ? `${operation}: { ${marker.kind}: … } needs a number, bigint, Decimal or expression operand (got ${describeValue(operand)}).`
+      : `${operation}: { ${marker.kind}: … } needs a value or an array operand (the element, or an array to append/union) or an expression (got ${describeValue(operand)}).`,
+    { operation, field },
+  );
+}
+
+/**
+ * A NUMERIC marker takes a number/bigint/Decimal; an ARRAY marker takes any plain value (the
+ * element, the whole array, a record, a date) — the element type is the SCHEMA's business, so the
+ * marker parser only rejects what the server could never bind.
+ */
+function isLiteralOperand(family: Adjustment["family"], value: unknown): boolean {
+  if (family === "number")
+    return (
+      typeof value === "number" ||
+      typeof value === "bigint" ||
+      value instanceof Decimal
+    );
+  if (typeof value === "function") return false;
+  if (value === null || typeof value !== "object") return true;
+  return (
+    Array.isArray(value) ||
+    isPlainObject(value) ||
+    value instanceof Date ||
+    value instanceof RecordId ||
+    value instanceof Decimal
+  );
 }
 
 /** `f = $p, g += $q` — the SET clause of an update body (`deep` flattens nested plain objects to
@@ -686,11 +766,30 @@ export function setBody(
       );
     }
   }
-  for (const step of steps)
-    parts.push(
-      `${renderPath(step.field)} ${step.op}= ${renderValue(step.value, binds, binds.ctx())}`,
-    );
+  for (const step of steps) parts.push(renderStep(step, binds));
   return `SET ${parts.join(", ")}`;
+}
+
+/**
+ * One adjustment assignment. `+=`/`-=` are the compound-assignment forms (numeric arithmetic, array
+ * append and array remove — the server keeps the field's UNIQUE index correct on both). `union` is
+ * the only DEDUPING array merge (`array::union` — `+=` appends blindly, live-verified:
+ * `["a"] += ["a"]` is `["a","a"]`), and `at` assigns a single index.
+ */
+function renderStep(step: ArithmeticStep, binds: Binds): string {
+  const field = renderPath(step.field);
+  if (step.op === "union")
+    return `${field} = array::union(${field}, ${renderValue(step.value, binds, binds.ctx())})`;
+  if (step.op === "at") {
+    const pair = step.value as { index: number; value: unknown };
+    return `${field}[${nonNegativeIndex(pair.index)}] = ${renderValue(pair.value, binds, binds.ctx())}`;
+  }
+  return `${field} ${step.op} ${renderValue(step.value, binds, binds.ctx())}`;
+}
+
+/** An array index in a `SET f[n]` assignment (the compiler already validated it as an integer). */
+function nonNegativeIndex(index: number): number {
+  return index;
 }
 
 /** Flatten a nested plain object into `a.b.c = $p` assignments; empty objects contribute none

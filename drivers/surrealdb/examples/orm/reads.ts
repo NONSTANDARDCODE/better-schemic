@@ -65,6 +65,37 @@ export const reads = group(
         }),
     }),
     ormExample(import.meta.url, {
+      title: "aggregate — groupBy an ALIAS (the key may be the output name)",
+      note: "SurrealDB accepts the alias OR the projected path as a group key; both spellings work.",
+      sql: "SELECT cartName, count() AS _count, math::sum(_split_lines_quantity) AS total " +
+        "FROM (SELECT lines AS _split_lines, name AS cartName, lines[*].quantity AS _split_lines_quantity FROM cart SPLIT lines) " +
+        "GROUP BY cartName;",
+      def: (client) =>
+        client.carts.aggregate({
+          split: "lines",
+          select: {
+            cartName: "name",
+            _count: true,
+            total: { sum: "lines[*].quantity" },
+          },
+          groupBy: ["cartName"],
+        }),
+    }),
+    ormExample(import.meta.url, {
+      title: "aggregate — groupAll over a split (UNWIND then GROUP)",
+      note: "SPLIT and GROUP cannot share a SELECT: the split goes to an inner subquery. `where` filters the PARENT rows.",
+      sql: "SELECT count() AS _count, math::sum(_split_lines_quantity) AS total " +
+        "FROM (SELECT lines AS _split_lines, lines[*].quantity AS _split_lines_quantity FROM cart WHERE name = $p0 SPLIT lines) " +
+        "GROUP ALL;",
+      vars: { p0: "Ana" },
+      def: (client) =>
+        client.carts.aggregate({
+          split: "lines",
+          where: { name: "Ana" },
+          select: { _count: true, total: { sum: "lines[*].quantity" } },
+        }),
+    }),
+    ormExample(import.meta.url, {
       title: "paginate — offset page with total",
       note: "Data and count ride ONE round-trip; the count is a second statement.",
       sql: "SELECT * FROM user WHERE active = $p0 LIMIT $p1;\nSELECT count() FROM user WHERE active = $p2 GROUP ALL;",

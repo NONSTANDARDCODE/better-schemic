@@ -100,6 +100,13 @@ export interface TableMeta {
    * `findUnique`/`upsert`/`cursor` keyset compilation).
    */
   readonly uniqueFields: readonly string[];
+  /**
+   * The table's MULTI-field (`UNIQUE`) index field groups, precomputed once at index build. A
+   * composite index is just as unique as a single-field one — a `where` covering ALL of its fields
+   * resolves to exactly one record, which is what a unique TARGET needs (`[tenant_id, name]`
+   * is unique-within-tenant, the shape every multi-tenant schema uses).
+   */
+  readonly uniqueGroups: readonly (readonly string[])[];
   /** Only for `kind: "relation"`. */
   readonly endpoints?: RelationEndpoints;
 }

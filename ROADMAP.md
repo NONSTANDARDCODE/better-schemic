@@ -519,6 +519,57 @@ string-id faz o APP ler/gravar strings bare (`01M…`), mantendo `RecordId` apen
   Documentado: `db.query()` cru, `live` e `changes` continuam devolvendo `RecordId`; `sc pull` não
   recupera o modo (como `idStrategy`).
 
+## M17 — fechar os gaps de completude do ORM ✅ *(complete)*
+
+Onze lacunas da superfície mapeadas contra o servidor real (3.3.4) e fechadas — cada uma com
+probe live, porque três delas eram **respostas silenciosamente erradas** (o mais caro que existe
+numa API de relatório).
+
+- ✅ **M17.1 `aggregate` aceita o próprio alias** — `groupBy` valida o output key **ou** o path
+  projetado (o servidor aceita as duas grafias, live 3.3.4); `select: { customerName: "customer.name" }`
+  + `groupBy: ["customerName"]` deixa de ser recusado por um erro que mandava adicionar
+  `customerName: "customerName"`.
+- ✅ **M17.2 operando de agregado validado contra o schema** — `math::*` é **number-only** e o
+  servidor responde `0` (sum/avg), `{}` (median) ou `null` (min/max) para string/link/array/
+  inexistente **sem erro algum**; o `aggregate` recusa com a alternativa que funciona
+  (`array::min(array::group(…))`, `split`, ou `{ collect }`). Um relatório com `{ sum: "x.y" }`
+  errado parou de mostrar R$ 0,00 e virou erro de compilação.
+- ✅ **M17.3 `aggregate({ split })` — UNWIND + GROUP** — o split vai para uma subquery interna
+  (o servidor avalia `SPLIT` antes de `GROUP`, e `SELECT *` não expõe os campos do elemento), a
+ grupagem por fora; cada entrada do `select` é re-mapeada para a coluna reservada que a subquery
+  projetou. `where` filtra o **pai** (filtro por elemento continua receita `surql` com
+  `array::flatten` — `SPLIT <expr>` é avaliado por elemento, live 3.3.4).
+- ✅ **M17.4 idioma de `SPLIT` automático** — o campo split vira uma coluna reservada
+  (`_split_<field>`) quando o `select` não o traz; um **alias** satisfaz o idioma do servidor
+  (live 3.3.4), então `findMany({ select: { … }, split })` funciona sem projetar o campo à mão.
+- ✅ **M17.5 marcadores de array no `data`** — `{ append }` (`+=`, append **sem dedup**), `{ remove }`
+  (`-=`, remove **todas** as ocorrências), `{ union }` (`array::union`, a única forma que
+  deduplica) e `{ at: { index, value } }` (`f[n] =`), cada um UMA escrita server-side — o que
+  mantém correto o índice UNIQUE do array. Alvo validado (família `array`/`set`, nunca `id`).
+- ✅ **M17.6 alvo UNIQUE composto** — um `where` que cobre **todos** os campos de um índice
+  UNIQUE composto é um alvo válido (`findUnique`/`upsert`/`upsertDelta`); um `where` parcial
+  continua recusado (casa várias linhas) e a mensagem nomeia o grupo — que é o near-miss do
+  multi-tenant (`email` único *dentro* do tenant).
+- ✅ **M17.7 `plugins/hard-delete`** — `delete` segue DELETE físico, com a intenção destrutiva
+  explícita na operação (`meta.hardDelete`), `tables`/`reason` opcionais; `soft-delete` ganhou
+  `tables` para os dois comporemem num schema misto.
+- ✅ **M17.8 `fn.expr` + `search::rrf`** — a **forma fragmento** do catálogo de `defineFunction`
+  (`fn::jw($p0, …)` como `Surql`, binds fundidos no statement que a compõe) entra num
+  `where`/`select`/`orderBy` tipado sem `$query`; `search::rrf` (a metade RRF de uma busca
+  híbrida, cuja outra metade já é `matchesFullText`) entrou no catálogo `fn.ts` com probe live.
+- ✅ **M17.9 `$raw` não engole statements** — um script de N statements é recusado com erro
+  apontando o `$query` (que devolve a tupla), em vez de resolver o primeiro resultado e descartar
+  o resto em silêncio (um `LET` inicial virava `null` sem erro).
+- ✅ **M17.10 tiebreaker de `cursor` no TIPO** — `.index(name, [field], { unique: true })` registra o
+  campo no terceiro parâmetro de `TableDef`, e `CursorArgs.orderBy` só aceita ordenações cujo
+  último campo ∈ `id ∪ únicos` (índice composto não conta: os campos são únicos só em conjunto).
+  O guard runtime (`CursorTiebreakerRequired`) continua como rede para índice vindo de `config`.
+- ✅ **M17.11 testes + docs** — unit (goldens em `orm-reads`/`orm-writes-projection`/`orm-raw`/
+  `orm-fn`/`orm-plugins-hard-delete`), tipos (`@ark/attest`: markers de array e tiebreaker),
+  live (split idiom, UNWIND+GROUP, markers de array, alvo composto, `fn.expr`, `search::rrf`),
+  `orm-syntax-map.md` §2.4.2/§2.4.3/§3.1/§9, `ORM-COVERAGE.md`, README, cookbook
+  `examples/orm/{reads,writes}.ts` + manifest (55 entradas), CHANGELOG.
+
 ## M16 — write projections (`select`/`omit`) + ajustes numéricos (`{ increment }`/`{ decrement }`) ✅ *(complete)*
 
 Uma passada de DX/performance sobre o RETORNO das escritas: toda op que devolve linha aceita a MESMA
