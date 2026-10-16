@@ -93,6 +93,33 @@ export type UpdateData<TD extends AnyTableDef> = UpdateWriteData<Update<TD>>;
 /** The operand an adjustment accepts: a number/bigint/Decimal, or an expression fragment. */
 export type ArithmeticValue<T> = T | Surql<[T]> | Surql;
 
+/**
+ * How each marker lowers to SurrealQL — declared HERE, beside the markers, so the two cannot drift.
+ *
+ * `+=` appends to an array WITHOUT dedup and increments a number; `-=` removes EVERY occurrence
+ * from an array and decrements a number; `array::union` is the only form that dedups; `f[n] =` is a
+ * single index. The compiler reaches its rows by indexed access
+ * (`AdjustmentLowering[K]`), so a new marker with no row here is a TYPE error rather than a runtime
+ * hole that silently falls through to a default.
+ */
+export interface AdjustmentLowering {
+  /** `SET f += $p` */
+  increment: "+=";
+  /** `SET f -= $p` */
+  decrement: "-=";
+  /** `SET f += $p` (array append — NO dedup) */
+  append: "+=";
+  /** `SET f -= $p` (array remove — EVERY occurrence) */
+  remove: "-=";
+  /** `SET f = array::union(f, $p)` (the only deduping merge) */
+  union: "union";
+  /** `SET f[n] = $p` */
+  at: "at";
+}
+
+/** The marker keys `AdjustmentLowering` covers — `union` of the rows above. */
+export type AdjustmentKind = keyof AdjustmentLowering;
+
 /** `balance: { increment: 10 }` — `SET balance += $p`. */
 export interface Increment<T = number> {
   readonly increment: ArithmeticValue<T>;

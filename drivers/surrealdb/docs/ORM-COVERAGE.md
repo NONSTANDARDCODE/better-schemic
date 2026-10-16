@@ -86,7 +86,7 @@ Entry: `createReadOperations` (`reads.ts`); compiler `compiler/{select,aggregate
 
 ## 2. Writes
 
-Entry: `createWriteOperations` (`writes.ts`); compiler `compiler/{write,mutate,relate,write-shared}.ts`; runtime delta helpers `delta.ts`.
+Entry: `createWriteOperations` (`writes.ts`); compiler `compiler/{write,mutate,relate,write-shared}.ts` plus the adjustment layer in `compiler/adjustment.ts` (the marker→operator map lives with the markers in `types/write.ts`); runtime delta helpers `delta.ts`.
 Writes are **eager** (run immediately, no `.explain()`).
 
 | Feature | Status | Surface / test |

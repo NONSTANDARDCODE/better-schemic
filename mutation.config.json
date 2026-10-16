@@ -20,7 +20,8 @@
     ],
     "drivers/surrealdb/src/orm/compiler/select.ts": [
       "drivers/surrealdb/test/unit/orm-reads.test.ts",
-      "drivers/surrealdb/test/unit/orm-decode.test.ts"
+      "drivers/surrealdb/test/unit/orm-decode.test.ts",
+      "drivers/surrealdb/test/unit/orm-aggregate-guards.test.ts"
     ],
     "drivers/surrealdb/src/orm/compiler/projection.ts": [
       "drivers/surrealdb/test/unit/orm-projection-compiler.test.ts",

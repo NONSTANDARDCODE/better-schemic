@@ -10,8 +10,13 @@
  * - `delete`/`deleteMany` stay real `DELETE` statements (the server removes the row, edges included);
  * - reads are UNTOUCHED — no `deleted:` filter is injected, because there is no tombstone to hide;
  * - `purge` is NOT added: that is what `delete` already is. The plugin's whole job is to make the
- *   destructive intent EXPLICIT in code review and to be a no-op that documents itself, so it only
- *   marks the tables it is scoped to and refuses to coexist with `soft-delete` on the same table.
+ *   destructive intent EXPLICIT in code review and to be a no-op that documents itself, so it marks
+ *   only the tables it is scoped to.
+ *
+ * Composing with `soft-delete`: give each plugin a `tables` list and they partition the schema —
+ * a tombstoned table keeps its tombstones, a rewritten-state table loses its row. Without scoping,
+ * whichever plugin runs first on a delete wins, so scoping is the intended composition, not an
+ * error to be caught.
  *
  * ```ts
  * import { hardDelete } from "@better-schemic/surrealdb/plugins/hard-delete";

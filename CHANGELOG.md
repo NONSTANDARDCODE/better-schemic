@@ -98,6 +98,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   (`CursorTiebreakerRequired`) continua como rede para índice declarado fora da cadeia de builders.
 
 ### Changed
+- **surrealdb (ORM):** o compilador de `aggregate` foi decomposto em `aggregate.ts` (count/exists/`aggregate`),
+  `aggregate-entries.ts` (o loop de `select`, os operadores e as guardas compartilhadas),
+  `aggregate-operand.ts` (a política do operando) e `aggregate-split.ts` (o lowering UNWIND+GROUP).
+  Havia DOIS loops de dispatch de `select` — um em cada lowering — que precisavam ser editados em
+  par; agora há UM, parametrizado pelo `ColumnResolver` que diz como um caminho vira coluna. Um
+  agregador novo, ou uma mudança na tabela de operadores, não pode mais entrar só numa metade e
+  divergir da outra em silêncio.
+- **surrealdb (ORM):** os marcadores de escrita e o operador SurrealQL de cada um (`AdjustmentLowering`)
+  foram para `types/write.ts`, ao lado dos próprios marcadores, e o lowering saiu de
+  `compiler/write-shared.ts` para `compiler/adjustment.ts`.
+- **surrealdb (ORM):** `client.fn` constrói as duas superfícies (execução e fragmento) num único passo
+  sobre o catálogo, com o mapeamento de argumentos nomeados em um helper só.
 - **surrealdb (ORM):** a análise de projeção (`projectionForm`/`projectedInPlace`/…) saiu de
   `compiler/keyset.ts` para `compiler/projection.ts`, agora compartilhada entre o keyset do cursor e
   o idioma automático do `split` — uma só implementação, para os dois não poderem divergir.

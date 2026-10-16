@@ -193,6 +193,12 @@
       "table": 0,
       "unknown": 13
     },
+    "drivers/surrealdb/src/orm/compiler/mutate.ts": {
+      "total": 158,
+      "auto": 146,
+      "table": 0,
+      "unknown": 12
+    },
     "drivers/surrealdb/src/orm/logger/emit.ts": {
       "total": 31,
       "auto": 19,
@@ -204,12 +210,6 @@
       "auto": 14,
       "table": 0,
       "unknown": 11
-    },
-    "drivers/surrealdb/src/orm/compiler/mutate.ts": {
-      "total": 158,
-      "auto": 146,
-      "table": 0,
-      "unknown": 12
     },
     "drivers/surrealdb/src/orm/schema.ts": {
       "total": 58,
@@ -475,6 +475,12 @@
       "table": 0,
       "unknown": 1
     },
+    "drivers/surrealdb/src/orm/compiler/aggregate-entries.ts": {
+      "total": 35,
+      "auto": 34,
+      "table": 0,
+      "unknown": 1
+    },
     "drivers/surrealdb/src/orm/meta.ts": {
       "total": 1,
       "auto": 0,
@@ -526,6 +532,24 @@
     "drivers/surrealdb/src/orm/auth.ts": {
       "total": 3,
       "auto": 3,
+      "table": 0,
+      "unknown": 0
+    },
+    "drivers/surrealdb/src/orm/compiler/adjustment.ts": {
+      "total": 29,
+      "auto": 29,
+      "table": 0,
+      "unknown": 0
+    },
+    "drivers/surrealdb/src/orm/compiler/aggregate-operand.ts": {
+      "total": 22,
+      "auto": 22,
+      "table": 0,
+      "unknown": 0
+    },
+    "drivers/surrealdb/src/orm/compiler/aggregate-split.ts": {
+      "total": 5,
+      "auto": 5,
       "table": 0,
       "unknown": 0
     },

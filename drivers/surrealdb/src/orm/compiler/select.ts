@@ -411,18 +411,13 @@ function splitIdiomAlias(
   if (form && projectedInPlace(form, omittedPaths(args.omit), split))
     return undefined;
   const alias = `${SPLIT_ALIAS_PREFIX}${splitPath[0] as string}`;
-  if (aliasTaken(alias, meta, aliases)) return undefined;
+  // Reserved name already spoken for — by a caller-supplied column (the cursor keyset aliases) or by
+  // a REAL field that happens to be named like the reservation. Injecting a second copy would either
+  // duplicate a column or shadow a field the caller owns.
+  if ((aliases ?? []).some((entry) => entry.alias === alias)) return undefined;
+  if (isTableMeta(meta)) {
+    const shape = (meta.def.object as { shape?: Record<string, unknown> }).shape;
+    if (alias in (shape ?? {})) return undefined;
+  }
   return alias;
-}
-
-/** Is the reserved alias already spoken for — a cursor column, or a REAL field with that name? */
-function aliasTaken(
-  alias: string,
-  meta: ModelMeta,
-  aliases: readonly ProjectionAlias[] | undefined,
-): boolean {
-  if ((aliases ?? []).some((entry) => entry.alias === alias)) return true;
-  if (!isTableMeta(meta)) return false;
-  const shape = (meta.def.object as { shape?: Record<string, unknown> }).shape;
-  return alias in (shape ?? {});
 }

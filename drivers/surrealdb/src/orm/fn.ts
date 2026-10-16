@@ -49,31 +49,6 @@ export function createFnOperations(ctx: DelegateContext): FnSurface {
     return out.rows[0];
   };
 
-  const surface: Record<string, unknown> = { call };
-  for (const [key, meta] of ctx.index.functions) {
-    // `call`/`expr` are the surface's own entry points; a schema entry with either key would be
-    // shadowed (or would shadow) them.
-    if (key === "call" || key === "expr")
-      throw compileError(
-        "SchemaInvalid",
-        `fn: a schema function key "${key}" would shadow client.fn.${key} — rename the function entry.`,
-        { operation: "fn.call" },
-      );
-    const names = [...meta.args.keys()];
-    surface[key] = (args?: unknown): Promise<unknown> => {
-      if (names.length > 0 && !isPlainObject(args))
-        throw compileError(
-          "ValidationError",
-          `fn.${key}: pass the arguments as an object, e.g. { ${names.join(", ")} } (got ${describeValue(args)}).`,
-          { operation: "fn.call" },
-        );
-      const positional = names.map(
-        (name) => (args as Record<string, unknown> | undefined)?.[name],
-      );
-      return call(`fn::${meta.name}`, positional);
-    };
-  }
-
   // The EXPRESSION form: the same catalog, lowered to a fragment instead of executed — so a repo's
   // own `fn::…` (or anything `fn.call` can name) composes INSIDE a typed read, with no round-trip
   // and no hand-written `$query`: `where: { name: { equals: client.fn.expr.normalize({ name: "…" }) } }`.
@@ -85,25 +60,68 @@ export function createFnOperations(ctx: DelegateContext): FnSurface {
       .join(", ")})`;
     return new Surql<unknown[]>(sql, local.vars);
   };
+
+  // ONE walk over the catalog builds BOTH surfaces. They differ only in what a call resolves to — a
+  // round-trip or a fragment — so the named-arg mapping, the object guard and the error text live
+  // here once (`shortcut`), and adding a function cannot land on one surface but not the other.
+  const surface: Record<string, unknown> = { call };
   const expr: Record<string, unknown> = { call: exprCall };
+  /** The `fn::<name>` a schema entry lowers to, plus its declared argument names. */
+  const shortcut = (
+    key: string,
+    meta: { name: string; args: ReadonlyMap<string, unknown> },
+  ) => ({
+    name: `fn::${meta.name}`,
+    args: [...meta.args.keys()],
+    key,
+  });
   for (const [key, meta] of ctx.index.functions) {
-    const names = [...meta.args.keys()];
-    expr[key] = (args?: unknown): Surql => {
-      if (names.length > 0 && !isPlainObject(args))
-        throw compileError(
-          "ValidationError",
-          `fn.expr.${key}: pass the arguments as an object, e.g. { ${names.join(", ")} } (got ${describeValue(args)}).`,
-          { operation: "fn.expr" },
-        );
-      const positional = names.map(
-        (name) => (args as Record<string, unknown> | undefined)?.[name],
+    // `call`/`expr` are the surface's own entry points; a schema entry with either key would be
+    // shadowed (or would shadow) them.
+    if (key === "call" || key === "expr")
+      throw compileError(
+        "SchemaInvalid",
+        `fn: a schema function key "${key}" would shadow client.fn.${key} — rename the function entry.`,
+        { operation: "fn.call" },
       );
-      return exprCall(`fn::${meta.name}`, positional);
-    };
+    const entry = shortcut(key, meta);
+    surface[key] = (args?: unknown): Promise<unknown> =>
+      call(entry.name, positionalArgs(entry, args, `fn.${key}`));
+    expr[key] = (args?: unknown): Surql =>
+      exprCall(entry.name, positionalArgs(entry, args, `fn.expr.${key}`));
   }
   surface.expr = expr;
 
   return surface as unknown as FnSurface;
+}
+
+/** One schema entry, as the typed shortcut needs it. */
+interface Shortcut {
+  readonly key: string;
+  readonly name: string;
+  readonly args: readonly string[];
+}
+
+/**
+ * A typed shortcut's arguments: NAMED (the schema declares them) in declaration order, so
+ * `fn.customerTier({ total })` lowers to `fn::customer_tier($p0)`. `label` names the surface in the
+ * error, so the call and expression forms point at the one the caller actually used.
+ */
+function positionalArgs(
+  entry: Shortcut,
+  args: unknown,
+  label: string,
+): unknown[] {
+  if (entry.args.length === 0) return [];
+  if (!isPlainObject(args))
+    throw compileError(
+      "ValidationError",
+      `${label}: pass the arguments as an object, e.g. { ${entry.args.join(", ")} } (got ${describeValue(args)}).`,
+      { operation: label.startsWith("fn.expr") ? "fn.expr" : "fn.call" },
+    );
+  return entry.args.map(
+    (name) => (args as Record<string, unknown>)[name],
+  );
 }
 
 /** `x` -> `fn::x`; `mod::x`/`fn::x` stay as written (validated against the segment grammar). */

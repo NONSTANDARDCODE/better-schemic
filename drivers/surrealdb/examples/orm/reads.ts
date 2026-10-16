@@ -56,8 +56,8 @@ export const reads = group(
     }),
     ormExample(import.meta.url, {
       title: "aggregate — groupBy + _count + avg",
-      note: 'SurrealDB requires every groupBy key in the projection, so `active: "active"` is explicit.',
-      sql: "SELECT active AS active, count() AS _count, math::mean(age) AS avgAge FROM user GROUP BY active;",
+      note: 'SurrealDB requires every groupBy key in the projection — the key is also the alias, so the compiler drops the redundant `AS active`.',
+      sql: "SELECT active, count() AS _count, math::mean(age) AS avgAge FROM user GROUP BY active;",
       def: (client) =>
         client.users.aggregate({
           select: { active: "active", _count: true, avgAge: { avg: "age" } },
