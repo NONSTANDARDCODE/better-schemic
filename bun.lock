@@ -20,6 +20,10 @@
     "packages/better-schemic": {
       "name": "better-schemic",
       "version": "0.1.0-alpha.15",
+      "bin": {
+        "better-schemic": "lib/cli/index.js",
+        "sc": "lib/cli/index.js",
+      },
       "dependencies": {
         "commander": "^15.0.0",
         "jiti": "^2.7.0",
