@@ -9,12 +9,12 @@
  * staleness and re-sync deliberately.
  *
  * Run: `bun run scripts/gen-examples-manifest.ts` (or `bun run gen:examples`).
- * See packages/core/docs/EXAMPLE-COOKBOOK-CONVENTION.md.
+ * See packages/better-schemic/docs/engine/EXAMPLE-COOKBOOK-CONVENTION.md.
  */
 import {
   emit as surrealEmit,
   allGroups as surrealGroups,
-} from "../drivers/surrealdb/examples/index";
+} from "../packages/better-schemic/examples";
 import { writeManifest } from "./manifest";
 
 /** A driver's cookbook + how its DDL is emitted + the language tag for that DDL. */

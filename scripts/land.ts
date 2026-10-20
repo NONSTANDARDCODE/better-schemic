@@ -131,11 +131,7 @@ if (!flag("--no-test")) {
     // Tests run SEQUENTIALLY per package: --filter '*' runs them in parallel, and CPU contention
     // (surreal's live-server e2e boots) starves the e2e beforeAll
     // hooks into timeouts — repeated false gate failures. Sequential costs wall-clock, never truth.
-    for (const dir of [
-      "packages/core",
-      "packages/cli",
-      "drivers/surrealdb",
-    ]) {
+    for (const dir of ["packages/better-schemic", "packages/create-better-schemic"]) {
       run("bun", ["run", "--cwd", dir, "test"]);
     }
   } catch {
@@ -172,13 +168,12 @@ if (!flag("--deploy")) {
 console.log("deploying (release next)...");
 run("bun", ["scripts/release.ts", "next"]);
 const newVer = JSON.parse(
-  readFileSync(join(ROOT, "packages/core/package.json"), "utf8"),
+  readFileSync(join(ROOT, "packages/better-schemic/package.json"), "utf8"),
 ).version as string;
-const driverDirs = new Set(["surrealdb"]); // these live under drivers/, the rest packages/
 gitIO(
   "add",
-  ...["core", "cli", "surrealdb", "create-better-schemic", "better-schemic"].map(
-    (p) => `${driverDirs.has(p) ? "drivers" : "packages"}/${p}/package.json`,
+  ...["better-schemic", "create-better-schemic"].map(
+    (p) => `packages/${p}/package.json`,
   ),
   "bun.lock",
 );

@@ -1,0 +1,165 @@
+# Building a Better-schemic driver — onboarding index
+
+The authoritative starting point for a NEW driver package (`@better-schemic/<driver>`). Owned by `core-dev`.
+It ties together the contract you implement, the package skeleton you mirror, and the ratified
+cross-driver conventions that are NON-negotiable. Read this first, then the linked docs for depth.
+
+The reference driver was **`drivers/surrealdb`** (now `src/surreal` inside the single package) (document/graph — the richest feature surface).
+Use it as the structural template for a new driver package.
+
+## 1. What core owns vs what you own
+
+- **Core owns** (`better-schemic/core`): the dialect-neutral engine (kind registry, diff, snapshot,
+  migration spine), the `Driver` contract, the neutral authoring substrate (`SFieldBase`, the Zod
+  `s.*` field base, `PortableType`, codecs), and the CLI. You implement AGAINST these; you never edit
+  them. Contract changes are proposed to `core-dev` (DM).
+- **You own** (`@better-schemic/<driver>`): the dialect's `s.*` authoring surface, the `lower`/`emit`/
+  `introspect` behavior of each kind, the connection factory, and the driver's ORM/query surface.
+
+## 2. The Driver contract
+
+`packages/better-schemic/src/core/driver/driver.ts` — `interface Driver<Conn, Tbl, Def>`. Import everything from the
+neutral SDK entry **`better-schemic/core/driver`** (`packages/better-schemic/src/core/driver/sdk.ts`) — never reach into
+core internals. The contract splits into:
+
+**Required (the spine):**
+- `name` — the string `config.driver` resolves to.
+- `registry: KindRegistry` — your registered KINDS (§4). Core runs lower/diff/emit/order generically
+  over it and never names a kind.
+- `explode(tables, defs) => Definable[]` — fan one authored `defineTable` out into its kinded pieces
+  (`[table, ...index, ...event/constraint]`), each tagged with `kind`. Core then lowers via
+  `lowerSchema(registry, explode(...))`.
+- `introspectAll(conn, exclude?) => Promise<PortableObject[]>` — live DB -> ALL portable objects from
+  ONE read. MUST canonicalize IDENTICALLY to lowering (a clean apply round-trips to a zero diff) and
+  be COMPLETE (every diffable kind, or presence phantom-diffs).
+- `connect(config, over?) / apply(conn, statements, opts?) / close(conn)` — execution lifecycle. The
+  orchestration owns the lifecycle; `close` tears down what `connect` opened.
+
+**Optional capabilities (a driver that omits one makes that CLI command unavailable — the CLI never
+hardcodes `if surreal`):**
+- `migrations?: MigrationStore<Conn>` — apply-time bookkeeping; ABSENT means diff/gen still work but
+  the driver can't run migrations.
+- `shadow?: ShadowCapability<Conn>` — a throwaway engine for `check`/replay/shadow-diff.
+- `diffLive?` / `syncPlan?` — live diff to up/down DDL, and its reduction for `push`.
+- `commands?: readonly DriverCommand<Conn>[]` — dialect CLI commands as `sc <kind> <verb> [args]`
+  (§6). Core discovers + dispatches; it never names a kind/verb.
+- `renderSchema?` / `diffTsLive?` / `planPull?` — codegen behind `diff --ts` and `pull`.
+- `checkReplay?` — replay migrations into a shadow engine and diff (`check`).
+- `serverInfo?` — a human server identity for `doctor`.
+- `query?` — raw READ for connection resolvers + `seed`.
+- `callable?: CallableFunctions<Conn>` — the `.call()` surface for user-defined DB functions.
+- `initScaffold?` / `scaffoldEntity?` — the files `better-schemic init` / `better-schemic new` write.
+
+**The one round-trip invariant that governs everything:**
+`author -> lower -> explode -> emit -> introspect -> buildKindDiff` MUST be a ZERO diff for a clean,
+in-sync schema. Every design decision (normalization, canonical form, introspection completeness)
+serves this.
+
+## 3. Registration + the dual-instance rule (READ THIS)
+
+Ship `registerDriver(myDriver)` as a SIDE-EFFECT of the `@better-schemic/<driver>/driver` subpath ONLY. The
+registry is a `globalThis` `Symbol.for("better-schemic/core.driverRegistry")` singleton so the CLI's core
+and the project's core share ONE map. Two consequences:
+- Any module-level registry YOU keep (field registries, kind maps) must ALSO be a `globalThis`
+  `Symbol.for` singleton — the subpath split duplicates plain module-level state, and a bundled `lib/`
+  only reveals it in e2e. (See `packages/better-schemic/docs/engine/AUTHORING-SPLIT.md`.)
+- If your DB SDK has nominal `#private` classes (most do), make it a PEER dependency and re-export its
+  value surface from your authoring index, so an app resolves ONE copy — dual instances break
+  `instanceof` and cross-instance assignability. (The SurrealDB driver hit this live.)
+
+## 4. The kind registry
+
+`packages/better-schemic/docs/engine/kind-registry-contract.md` (+ `kind-registry.md`). Each schema object type is a
+KIND you register into your `KindRegistry`. A kind binds an authoring object (`A extends Definable`)
+to a `KindEngine<A, P>`:
+- `lower(A) => P` — authored -> normalized portable object.
+- `emit(P) => string[]` / `remove(P) => string[]` / `overwrite?(prev, next) => string[]`.
+- `canonical?(P) => string` — the change-detection key. `canonical(a) === canonical(b)` MUST mean
+  "no migration needed". This is where phantom-diff prevention lives: keep `emit` faithful, but
+  EXCLUDE from the canonical key any clause the DB rewrites on read (`'x'::text`, `(a>0)`) or never
+  introspects. Also normalize FORMATTING (whitespace/quoting) into canonical form so multi-line
+  bodies don't phantom-diff against the DB's single-line printing — normalize on BOTH compare sides
+  from day one (the single most common trap).
+- `deps?/owner?` — cross-kind dependency edges for apply ordering.
+- `introspect?` — live -> portable for this kind.
+- `excludeFromMigrations?` — the kind opts OUT of the migration pipeline; it is managed out-of-band by
+  your own `sc <kind>` commands (worked example: surreal key-bearing `DEFINE ACCESS`, `DEFINE PARAM`
+  secrets). Accepts `boolean | ((portable) => boolean)`: the PREDICATE form decides PER OBJECT, for a
+  kind whose objects are manageable only when they round-trip cleanly (surreal access: key-free defs
+  ride migrations, redacted-key ones don't). `isExcludedFromMigrations(portable)` requires the object;
+  only a boolean `true` also skips introspection (`skipsIntrospection(kind)`) — a predicate is decided
+  later, at the snapshot/diff/emit choke points.
+
+Fields/types are NOT a kind — they are the shared core substrate every kind composes.
+
+## 5. Package skeleton (mirror a reference driver)
+
+Purpose-based subpaths, so app code only bundles what it imports (`package.json#exports`):
+
+| Subpath | Contents | Side effects |
+|---|---|---|
+| `@better-schemic/<driver>` | authoring: `s.*`, `define*`, the raw-body tag; SDK value re-exports | **NONE** (pure) |
+| `@better-schemic/<driver>/connection` | the `<driver>Connection(...)` factory | none |
+| `@better-schemic/<driver>/query` | fragments & procedural SurrealQL (`block()`) | none |
+| `@better-schemic/<driver>/orm` | the repository-style ORM client (`betterSchemic`/`createBetterSchemic`, delegates, `repository`) | none |
+| `@better-schemic/<driver>/driver` | the `Driver` impl + `lower`/`emit*`/`introspect` + `registerDriver` | registers |
+
+The CLI loader REQUIRES the `/driver` entry (every `@better-schemic` driver ships it since
+`0.1.0-alpha.1`). Keep `emit*`/`lower`/`introspect` OUT of the authoring index so importing `s.*` never
+drags the engine into an app bundle. The SurrealDB source layout is the clean template.
+
+## 6. Must-mirror conventions (all ratified cross-driver — NON-negotiable)
+
+- **Subpath split** (§5) + **`/driver`-only registerDriver** (§3).
+- **Connections v2**: `<driver>Connection(config | (ctx, args) => config | config[])` — typed
+  resolver args (2nd param), array = bulk-only fleet, `key`/`label` display labels; chained
+  `defineConfig().connection(name, factory, ...)` with accumulated typed `ctx.connections`.
+  (`packages/better-schemic/docs/engine/MULTI-CONNECTION.md`.)
+- **Config-as-factory**: `defineConfig` returns the typed `connect(name, args?)`; accept default OR
+  named `betterSchemic` export (legacy: `schemic`); `better-schemic.ts` discovered (`schemic.ts` legacy).
+- **ORM client** at `/orm` (see the repo's [`ROADMAP.md`](../../../ROADMAP.md) for the milestone plan and
+  the driver's [`docs/ORM-COVERAGE.md`](../../../packages/better-schemic/docs/ORM-COVERAGE.md) for the surface):
+  `betterSchemic(conn, { schema })` BYO / `createBetterSchemic({ url, … })` managed (BYO `close` is a
+  NO-OP, hard rule), AsyncDisposable, one delegate per schema entry, `repository(name)` by schema key or
+  physical name, `defineSchema` as the single metadata source, `$sdk` as the raw escape hatch.
+- **Fragments** at `/query`: `block()` (typed statement blocks) + the `surql` tag from authoring;
+  the fluent builder and `better-schemic/core/query` were retired (M0.5).
+- **Table composition + presets**: `s.object().fields`, `TableDef.extend`, derived `.create`/`.update`
+  input schemas; `defineTable.preset(...)` applied via chained single-arg `TableDef.use(a).use(b)` —
+  presets MUST preserve the declared id value type (don't re-derive it and drop tuple/literal ids).
+- **`defineSingleton`**: DB-enforced one-record tables with id-optional client sugar.
+- **Secrets**: `env()`/`secret()` -> value never in schema/snapshot/migration; resolved at apply as a
+  bound param; secret-bearing kinds go `excludeFromMigrations` + out-of-band `sc <kind> push/check`.
+  The honest framing: OUT of committed source, NOT at-rest encryption.
+- **`s.*` = Zod 4 drop-in + Standard Schema** on every field; live-verify every DDL/builtin spelling
+  against the REAL engine (the fn-catalog exhaustive-sweep pattern), and keep an exhaustive
+  `docs/COVERAGE.md` from day one (author -> emit -> introspect -> diff status per feature; template:
+  `packages/better-schemic/docs/engine/DRIVER-COVERAGE.md`). Back it with the machine-checked reconcile
+  (`describeCoverageReconcile` from `better-schemic/testing` + a `coverage-manifest.ts`) so the
+  done-vs-todo list can't silently drift from the registered kinds — see the template's reconcile
+  section.
+- **DB-backed tests must raise bun's default timeout.** `bun test`'s per-test timeout is **5s**, which a
+  real database round-trip (an ephemeral SurrealDB, a live handshake) blows past under load —
+  the whole workspace's suites run sequentially in the land gate, so "under load" is the normal case.
+  Prefer your package's `test` **script** (`bun test --timeout=30000`): one line, and a new test file
+  can't forget it. Explicit `setDefaultTimeout(30_000)` at the top of *every* DB-backed file also works,
+  but drifts — the next file added silently reverts to 5s. What does NOT work is a shared harness calling
+  `setDefaultTimeout()`: it only takes effect for the FIRST file that imports the harness. A test that
+  times out only under load produces spurious gate failures, rolls `main` back, and blames an innocent PR.
+- **But investigate a load-only timeout before you raise it.** It may be masking a real slow path, not a
+  slow test. The `three-state` e2e "flake" turned out to be a **5s connect ceiling in `sc` itself**,
+  aborting against a healthy-but-slow server — a bug every remote/cloud user would have hit. Raise the
+  TEST timeout to stop spurious failures; never raise a PRODUCT timeout to make a test pass.
+
+## 7. Process
+
+- Work on a branch (never commit directly on `main`). Keep changes additive + green +
+  backward-compatible; a BREAKING change needs maintainer approval.
+- Land via `bun scripts/land.ts <branch>` (gate = build + typecheck + per-package tests; a
+  red gate rolls `main` back). Landing ACCUMULATES; releases are cut lockstep on the maintainer's word.
+
+## 8. Deeper reading
+
+`kind-registry-contract.md` · `kind-registry.md` · `AUTHORING-SPLIT.md` · `MULTI-CONNECTION.md` ·
+`STRUCT-IR.md` · `PARITY.md` · `ESCAPE-HATCH-CONVENTION.md` · `query-builder-design.md` ·
+`DRIVER-COVERAGE.md` (template) · `proposals/` (ratified designs) · each driver's `docs/COVERAGE.md`.

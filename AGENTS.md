@@ -1,29 +1,45 @@
 # better-schemic — repo guide for agents
 
 better-schemic is a **schema-as-code** toolkit for **SurrealDB**: author your database schema in TypeScript,
-generate SurrealQL DDL, and manage migrations. Monorepo (bun workspaces, `packages/*` + `drivers/*`).
+generate SurrealQL DDL, and manage migrations. Monorepo (bun workspaces, `packages/*`).
 A SurrealDB-only fork of [Better-schemic](https://github.com/NONSTANDARDCODE/better-schemic) — see `CHANGELOG.md` for the
 fork notice and `CHANGELOG_OLD.md` for the pre-fork history.
 
-Architecture: `@better-schemic/core` (dialect-neutral engine: the `Driver` contract + portable schema IR +
-the migration/diff/snapshot engine) ← `@better-schemic/cli` (the `better-schemic`/`sc` bin, ZERO dialect code,
-dynamic driver loading by `config.driver`) + the SurrealDB driver package (`@better-schemic/surrealdb`)
-that owns connection + authoring (`s.*`) + DDL.
+**ONE runtime package.** `better-schemic` (in `packages/better-schemic`) holds everything the app
+and the CLI need:
 
-**Package surface (purpose-based subpaths).** Each driver splits its surface so app code only bundles
-what it imports:
-- `@better-schemic/<driver>` — **authoring** (`s.*`, `define*`, raw-body tag) — must be **side-effect-free**.
-- `@better-schemic/<driver>/connection` — the connection factory.
-- `@better-schemic/<driver>/query` — fragments & procedural SurrealQL (`block()`).
-- `@better-schemic/<driver>/orm` — the repository-style ORM client (`betterSchemic`/`createBetterSchemic`,
+```
+packages/better-schemic/src/
+  core/      the dialect-neutral engine (the `Driver` contract + the portable schema IR + the
+             migration/diff/snapshot engine) — an INTERNAL seam, not a package boundary
+  cli/       the `better-schemic`/`sc` bin
+  surreal/   the SurrealDB half: authoring (`s.*`), DDL emit, introspection, the ORM
+```
+
+`create-better-schemic` is the second package — the scaffolder (`npm create better-schemic`). It
+stays separate because npm resolves `create-*` by name and it must run BEFORE the project has
+better-schemic installed.
+
+**Package surface (purpose-based subpaths).** One package, so the boundaries are `exports` entries —
+app code still bundles only what it imports:
+- `better-schemic` — **authoring** (`s.*`, `define*`, the `surql` tag) — must be **side-effect-free**.
+- `better-schemic/connection` — the `surrealConnection` factory.
+- `better-schemic/query` — fragments & procedural SurrealQL (`block()`).
+- `better-schemic/orm` — the repository-style ORM client (`betterSchemic`/`createBetterSchemic`,
   one delegate per schema entry, `repository`, `$sdk`).
-- `@better-schemic/<driver>/driver` — the `Driver` impl + `emit*`/`lower`/`introspect` + the **`registerDriver`
+- `better-schemic/config` — `defineConfig` (the project config).
+- `better-schemic/plugins/*` — the authoring plugins.
+- `better-schemic/driver` — the `Driver` impl + `emit*`/`lower`/`introspect` + the **`registerDriver`
   side-effect** (CLI/engine-only; keep `emit*` etc. OUT of the authoring index).
+- `better-schemic/core` — the neutral engine barrel (internal seam; the CLI + driver build on it).
 
-The CLI loader imports `/driver` to register (it **requires** the `/driver` entry — drivers >= alpha.21),
-so importing `s.*` never drags the diff/emit engine into an app bundle. The neutral query toolkit
-(`@better-schemic/core/query`) was retired with the fluent builder — the `/orm` layer is driver-owned
-and consumes the core client foundation (`OrmClientBase`, `asyncDisposable`) instead.
+The CLI imports `/driver` once to register the built-in driver, so importing `s.*` never drags the
+diff/emit engine into an app bundle. There is NO dynamic driver loading: the driver is built in and
+`config.driver` is only metadata (the snapshot's owner tag). Zod and the SurrealDB SDK are
+**dependencies** of the package (not peers) — `s.*` extends Zod's builders, so a second copy would
+break `instanceof`; import raw Zod from `better-schemic` (`import { z } from "better-schemic"`) if
+you need it. The neutral query toolkit was retired with the fluent builder — the `/orm` layer is
+driver-owned and consumes the core client foundation (`OrmClientBase`, `asyncDisposable`) instead.
 
 ## Developer experience IS the product — always analyze through a DevEx lens
 
@@ -51,22 +67,21 @@ them. Every milestone/PR must leave the docs it touches consistent **in the same
 "later", never a follow-up issue. Concretely:
 
 - `ROADMAP.md` — flip the milestone/sub-item status and list the deliverables.
-- `drivers/<driver>/docs/orm-syntax-map.md` — every live-verified SurrealQL fact the compiler emits
-  (add the probe to `test/live/orm-syntax.test.ts` at the same time).
-- `drivers/<driver>/README.md` — the user-facing example must compile against the CURRENT surface.
+- `packages/better-schemic/docs/orm-syntax-map.md` — every live-verified SurrealQL fact the compiler emits
+  (add the probe to `test/surreal/live/orm-syntax.test.ts` at the same time).
+- `packages/better-schemic/README.md` — the user-facing example must compile against the CURRENT surface.
 - `CHANGELOG.md` — an **Unreleased** entry (Added/Changed/Removed) for anything user-visible.
-- `drivers/<driver>/docs/ORM-COVERAGE.md` / `COVERAGE.md` — the feature matrix (author→emit→…).
-- `drivers/<driver>/examples/*` (authoring → DDL) and `examples/orm/*` (delegate call → runtime
+- `packages/better-schemic/docs/ORM-COVERAGE.md` / `COVERAGE.md` — the feature matrix (author→emit→…).
+- `packages/better-schemic/examples/*` (authoring → DDL) and `examples/orm/*` (delegate call → runtime
   SurrealQL) — the verified catalogs; regenerate `examples-manifest.json` (`bun run gen:examples`)
   and `examples-manifest-orm.json` (`bun run gen:examples:orm`) whenever a cookbook changes.
-- `packages/core/docs/*`, `MULTI-CONNECTION.md`, `AGENTS.md` — only when the surface they describe changes.
+- `packages/better-schemic/docs/engine/*`, `MULTI-CONNECTION.md`, `AGENTS.md` — only when the surface they describe changes.
 
 A change that alters behavior/API without the matching doc update is **incomplete**; call it out in
 review the same way a missing test would be.
 
 ## Driver coverage docs
 
-Each driver package keeps a **`docs/COVERAGE.md`** tracking **all** of its database's schema/DDL syntax
-and the implementation status of each (author → emit → introspect → diff). Template + worked example:
-**`packages/core/docs/DRIVER-COVERAGE.md`**. Keep it **exhaustive** — list features even when not yet
-implemented, so gaps stay visible rather than guessed.
+The package keeps a **`docs/COVERAGE.md`** tracking **all** of SurrealDB's schema/DDL syntax
+and the implementation status of each (author → emit → introspect → diff). Keep it **exhaustive** —
+list features even when not yet implemented, so gaps stay visible rather than guessed.

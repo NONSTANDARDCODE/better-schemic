@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const ENTRY = join(import.meta.dir, "../src/index.ts");
+const ENTRY = join(import.meta.dir, "../src");
 
 /** Run the scaffolder (always --no-install --no-git -y) into a temp dir; returns paths + exit code. */
 function scaffold(args: string[]) {
@@ -36,20 +36,19 @@ function scaffold(args: string[]) {
 }
 
 describe("create-better-schemic", () => {
-  it("scaffolds the project envelope for surrealdb", () => {
-    const s = scaffold(["--driver", "surrealdb"]);
+  it("scaffolds the project envelope", () => {
+    const s = scaffold([]);
     try {
       expect(s.status).toBe(0);
       expect(existsSync(join(s.app, "package.json"))).toBe(true);
       expect(existsSync(join(s.app, "tsconfig.json"))).toBe(true);
       expect(existsSync(join(s.app, ".gitignore"))).toBe(true);
       const deps = s.pkg().dependencies;
-      expect(deps["@better-schemic/cli"]).toBeDefined();
-      expect(deps["@better-schemic/surrealdb"]).toBeDefined();
-      expect(deps.surrealdb).toBeDefined();
-      expect(deps.zod).toBeDefined();
-      // bun/npm hoist core transitively — no direct @better-schemic/core dep
-      expect(deps["@better-schemic/core"]).toBeUndefined();
+      // ONE package: the authoring surface, the engine and the CLI. Zod and the SurrealDB SDK
+      // ship inside it, so the project never installs them itself.
+      expect(deps["better-schemic"]).toBeDefined();
+      expect(deps.surrealdb).toBeUndefined();
+      expect(deps.zod).toBeUndefined();
       // the type declaration for the `with { type: "text" }` seed imports needs resolveJsonModule
       expect(s.ts().compilerOptions.resolveJsonModule).toBe(true);
     } finally {
@@ -57,10 +56,11 @@ describe("create-better-schemic", () => {
     }
   });
 
-  it("adds a direct @better-schemic/core dep under pnpm (strict node_modules)", () => {
-    const s = scaffold(["--driver", "surrealdb", "--pm", "pnpm"]);
+  it("rejects an unknown option (a typo never scaffolds a folder named after it)", () => {
+    const s = scaffold(["--driver", "surrealdb"]);
     try {
-      expect(s.pkg().dependencies["@better-schemic/core"]).toBeDefined();
+      expect(s.status).not.toBe(0);
+      expect(s.out).toContain("Unknown option");
     } finally {
       rmSync(s.root, { recursive: true, force: true });
     }
@@ -82,7 +82,7 @@ describe("create-better-schemic", () => {
     try {
       const r = spawnSync(
         "bun",
-        [ENTRY, app, "--driver", "surrealdb", "--no-install", "--no-git", "-y"],
+        [ENTRY, app, "--no-install", "--no-git", "-y"],
         { encoding: "utf8" },
       );
       expect(r.status).toBe(0);
@@ -92,20 +92,9 @@ describe("create-better-schemic", () => {
       expect(pkg.scripts.dev).toBe("vite"); // their script kept
       expect(pkg.scripts.db).toBe("better-schemic"); // ours added
       expect(pkg.dependencies.zod).toBe("^4.0.0"); // their version kept, not overwritten
-      expect(pkg.dependencies["@better-schemic/cli"]).toBeDefined(); // added
-      expect(pkg.dependencies["@better-schemic/surrealdb"]).toBeDefined(); // added
+      expect(pkg.dependencies["better-schemic"]).toBeDefined(); // added
     } finally {
       rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it("rejects an unknown driver", () => {
-    const s = scaffold(["--driver", "mongodb"]);
-    try {
-      expect(s.status).not.toBe(0);
-      expect(s.out).toContain("Unknown driver");
-    } finally {
-      rmSync(s.root, { recursive: true, force: true });
     }
   });
 });

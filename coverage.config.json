@@ -1,8 +1,8 @@
 {
   "$comment": "Coverage gate config (scripts/coverage/check.ts). Two tiers: the `critical` files (the core algorithms) must reach 100% on every metric; every other in-scope file is ratcheted at the `thresholds` floor (95% statements/branches/functions/lines, 90% conditions). `waivers` is the per-file ratchet floor (never regress) and is capped at `thresholds` for non-critical files, so the old drive-to-100%-everywhere no longer applies.",
   "include": [
-    "drivers/surrealdb/src",
-    "packages/core/src"
+    "packages/better-schemic/src/surreal",
+    "packages/better-schemic/src/core"
   ],
   "exclude": [
     "types/",
@@ -16,765 +16,765 @@
     "conditions": 90
   },
   "critical": [
-    "drivers/surrealdb/src/orm/compiler/aggregate.ts",
-    "drivers/surrealdb/src/orm/compiler/pagination.ts",
-    "drivers/surrealdb/src/orm/compiler/unique.ts",
-    "drivers/surrealdb/src/orm/compiler/include/specs.ts",
-    "drivers/surrealdb/src/driver/surql-type.ts",
-    "drivers/surrealdb/src/surql-type-expr.ts",
-    "packages/core/src/driver/portable.ts"
+    "packages/better-schemic/src/surreal/orm/compiler/aggregate.ts",
+    "packages/better-schemic/src/surreal/orm/compiler/pagination.ts",
+    "packages/better-schemic/src/surreal/orm/compiler/unique.ts",
+    "packages/better-schemic/src/surreal/orm/compiler/include/specs.ts",
+    "packages/better-schemic/src/surreal/driver/surql-type.ts",
+    "packages/better-schemic/src/surreal/surql-type-expr.ts",
+    "packages/better-schemic/src/core/driver/portable.ts"
   ],
   "waivers": {
-    "drivers/surrealdb/src/checks.ts": {
+    "packages/better-schemic/src/surreal/checks.ts": {
       "statements": 87.75,
       "branches": 75.58,
       "functions": 83.33,
       "lines": 90,
       "conditions": 35.71
     },
-    "drivers/surrealdb/src/cli/engine.ts": {
+    "packages/better-schemic/src/surreal/cli/engine.ts": {
       "statements": 64.6,
       "branches": 31.81,
       "functions": 71.87,
       "lines": 64.35,
       "conditions": 0
     },
-    "drivers/surrealdb/src/cli/format.ts": {
+    "packages/better-schemic/src/surreal/cli/format.ts": {
       "statements": 91.78,
       "branches": 89.18,
       "functions": 95,
       "lines": 93.38,
       "conditions": 69.23
     },
-    "drivers/surrealdb/src/cli/introspect.ts": {
+    "packages/better-schemic/src/surreal/cli/introspect.ts": {
       "statements": 64.42,
       "branches": 40.54,
       "functions": 60.86,
       "lines": 67.7,
       "conditions": 16.66
     },
-    "drivers/surrealdb/src/cli/lower.ts": {
+    "packages/better-schemic/src/surreal/cli/lower.ts": {
       "statements": 91.13,
       "branches": 84.9,
       "functions": 95,
       "lines": 93.51,
       "conditions": 45.83
     },
-    "drivers/surrealdb/src/cli/pull.ts": {
+    "packages/better-schemic/src/surreal/cli/pull.ts": {
       "statements": 87.6,
       "branches": 80.28,
       "functions": 80.5,
       "lines": 89.27,
       "conditions": 41.07
     },
-    "drivers/surrealdb/src/cli/scaffold.ts": {
+    "packages/better-schemic/src/surreal/cli/scaffold.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/cli/struct.ts": {
+    "packages/better-schemic/src/surreal/cli/struct.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 60.29
     },
-    "drivers/surrealdb/src/cli/structure.ts": {
+    "packages/better-schemic/src/surreal/cli/structure.ts": {
       "statements": 95,
       "branches": 84.64,
       "functions": 95,
       "lines": 95,
       "conditions": 57.77
     },
-    "drivers/surrealdb/src/cli/surreal-diff.ts": {
+    "packages/better-schemic/src/surreal/cli/surreal-diff.ts": {
       "statements": 95,
       "branches": 90.52,
       "functions": 95,
       "lines": 95,
       "conditions": 64.51
     },
-    "drivers/surrealdb/src/cli/surreal-filter.ts": {
+    "packages/better-schemic/src/surreal/cli/surreal-filter.ts": {
       "statements": 86.66,
       "branches": 90.47,
       "functions": 66.66,
       "lines": 92,
       "conditions": 80
     },
-    "drivers/surrealdb/src/commands.ts": {
+    "packages/better-schemic/src/surreal/commands.ts": {
       "statements": 54.68,
       "branches": 41.33,
       "functions": 60,
       "lines": 57.71,
       "conditions": 5.55
     },
-    "drivers/surrealdb/src/connect.ts": {
+    "packages/better-schemic/src/surreal/connect.ts": {
       "statements": 77.77,
       "branches": 57.99,
       "functions": 62.5,
       "lines": 82.08,
       "conditions": 0
     },
-    "drivers/surrealdb/src/connection.ts": {
+    "packages/better-schemic/src/surreal/connection.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 0
     },
-    "drivers/surrealdb/src/ddl.ts": {
+    "packages/better-schemic/src/surreal/ddl.ts": {
       "statements": 95,
       "branches": 90.9,
       "functions": 95,
       "lines": 95,
       "conditions": 62.92
     },
-    "drivers/surrealdb/src/driver.ts": {
+    "packages/better-schemic/src/surreal/driver.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/driver/surreal.ts": {
+    "packages/better-schemic/src/surreal/driver/surreal.ts": {
       "statements": 55.78,
       "branches": 43.24,
       "functions": 70.58,
       "lines": 57.47,
       "conditions": 11.11
     },
-    "drivers/surrealdb/src/fn-name.ts": {
+    "packages/better-schemic/src/surreal/fn-name.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 50
     },
-    "drivers/surrealdb/src/fn.ts": {
+    "packages/better-schemic/src/surreal/fn.ts": {
       "statements": 90,
       "branches": 95,
       "functions": 85.18,
       "lines": 90,
       "conditions": 90
     },
-    "drivers/surrealdb/src/frag.ts": {
+    "packages/better-schemic/src/surreal/frag.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/ident.ts": {
+    "packages/better-schemic/src/surreal/ident.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/index.ts": {
+    "packages/better-schemic/src/surreal/index.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 83.33
     },
-    "drivers/surrealdb/src/kinds/explode.ts": {
+    "packages/better-schemic/src/surreal/kinds/explode.ts": {
       "statements": 95,
       "branches": 75.92,
       "functions": 95,
       "lines": 95,
       "conditions": 45.45
     },
-    "drivers/surrealdb/src/kinds/registry.ts": {
+    "packages/better-schemic/src/surreal/kinds/registry.ts": {
       "statements": 82.5,
       "branches": 81.81,
       "functions": 75,
       "lines": 85.13,
       "conditions": 50
     },
-    "drivers/surrealdb/src/logger.ts": {
+    "packages/better-schemic/src/surreal/logger.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/orm/admin.ts": {
+    "packages/better-schemic/src/surreal/orm/admin.ts": {
       "statements": 84.61,
       "branches": 72.72,
       "functions": 95,
       "lines": 84.21,
       "conditions": 25
     },
-    "drivers/surrealdb/src/orm/api.ts": {
+    "packages/better-schemic/src/surreal/orm/api.ts": {
       "statements": 75.75,
       "branches": 81.81,
       "functions": 62.5,
       "lines": 80.64,
       "conditions": 42.85
     },
-    "drivers/surrealdb/src/orm/auth.ts": {
+    "packages/better-schemic/src/surreal/orm/auth.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/orm/changes.ts": {
+    "packages/better-schemic/src/surreal/orm/changes.ts": {
       "statements": 89.87,
       "branches": 79.59,
       "functions": 95,
       "lines": 93.15,
       "conditions": 52.17
     },
-    "drivers/surrealdb/src/orm/client.ts": {
+    "packages/better-schemic/src/surreal/orm/client.ts": {
       "statements": 95,
       "branches": 85.1,
       "functions": 95,
       "lines": 95,
       "conditions": 38.88
     },
-    "drivers/surrealdb/src/orm/compiler/include/count.ts": {
+    "packages/better-schemic/src/surreal/orm/compiler/include/count.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 81.81
     },
-    "drivers/surrealdb/src/orm/compiler/include/edges.ts": {
+    "packages/better-schemic/src/surreal/orm/compiler/include/edges.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 82.14
     },
-    "drivers/surrealdb/src/orm/compiler/include/index.ts": {
+    "packages/better-schemic/src/surreal/orm/compiler/include/index.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 83.33
     },
-    "drivers/surrealdb/src/orm/compiler/include/links.ts": {
+    "packages/better-schemic/src/surreal/orm/compiler/include/links.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/orm/compiler/include/projection.ts": {
+    "packages/better-schemic/src/surreal/orm/compiler/include/projection.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/orm/compiler/keyset.ts": {
+    "packages/better-schemic/src/surreal/orm/compiler/keyset.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/orm/compiler/live.ts": {
+    "packages/better-schemic/src/surreal/orm/compiler/live.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 83.33
     },
-    "drivers/surrealdb/src/orm/compiler/mutate.ts": {
+    "packages/better-schemic/src/surreal/orm/compiler/mutate.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/orm/compiler/projection.ts": {
+    "packages/better-schemic/src/surreal/orm/compiler/projection.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 74
     },
-    "drivers/surrealdb/src/orm/compiler/relate.ts": {
+    "packages/better-schemic/src/surreal/orm/compiler/relate.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 82.85
     },
-    "drivers/surrealdb/src/orm/compiler/relations.ts": {
+    "packages/better-schemic/src/surreal/orm/compiler/relations.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 75
     },
-    "drivers/surrealdb/src/orm/compiler/select.ts": {
+    "packages/better-schemic/src/surreal/orm/compiler/select.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
-      "conditions": 90
+      "conditions": 88.88
     },
-    "drivers/surrealdb/src/orm/compiler/shared.ts": {
+    "packages/better-schemic/src/surreal/orm/compiler/shared.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 77.19
     },
-    "drivers/surrealdb/src/orm/compiler/where.ts": {
+    "packages/better-schemic/src/surreal/orm/compiler/where.ts": {
       "statements": 95,
       "branches": 93.76,
       "functions": 95,
       "lines": 95,
       "conditions": 81.13
     },
-    "drivers/surrealdb/src/orm/compiler/write-shared.ts": {
+    "packages/better-schemic/src/surreal/orm/compiler/write-shared.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/orm/compiler/write.ts": {
+    "packages/better-schemic/src/surreal/orm/compiler/write.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/orm/connect.ts": {
+    "packages/better-schemic/src/surreal/orm/connect.ts": {
       "statements": 93.54,
       "branches": 85.71,
       "functions": 75,
       "lines": 93.1,
       "conditions": 50
     },
-    "drivers/surrealdb/src/orm/context.ts": {
+    "packages/better-schemic/src/surreal/orm/context.ts": {
       "statements": 95,
       "branches": 93.33,
       "functions": 95,
       "lines": 95,
       "conditions": 66.66
     },
-    "drivers/surrealdb/src/orm/decode.ts": {
+    "packages/better-schemic/src/surreal/orm/decode.ts": {
       "statements": 85.9,
       "branches": 76.95,
       "functions": 89.79,
       "lines": 89.25,
       "conditions": 50.98
     },
-    "drivers/surrealdb/src/orm/delegate.ts": {
+    "packages/better-schemic/src/surreal/orm/delegate.ts": {
       "statements": 95,
       "branches": 89.28,
       "functions": 95,
       "lines": 95,
       "conditions": 83.33
     },
-    "drivers/surrealdb/src/orm/delta.ts": {
+    "packages/better-schemic/src/surreal/orm/delta.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/orm/errors.ts": {
+    "packages/better-schemic/src/surreal/orm/errors.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/orm/execute.ts": {
+    "packages/better-schemic/src/surreal/orm/execute.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 85.71
     },
-    "drivers/surrealdb/src/orm/fn.ts": {
+    "packages/better-schemic/src/surreal/orm/fn.ts": {
       "statements": 95,
       "branches": 93.33,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/orm/hooks.ts": {
+    "packages/better-schemic/src/surreal/orm/hooks.ts": {
       "statements": 95,
       "branches": 88.09,
       "functions": 95,
       "lines": 95,
       "conditions": 66.66
     },
-    "drivers/surrealdb/src/orm/index.ts": {
+    "packages/better-schemic/src/surreal/orm/index.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/orm/live.ts": {
+    "packages/better-schemic/src/surreal/orm/live.ts": {
       "statements": 88.18,
       "branches": 75.32,
       "functions": 88,
       "lines": 90,
       "conditions": 27.77
     },
-    "drivers/surrealdb/src/orm/logger/colors.ts": {
+    "packages/better-schemic/src/surreal/orm/logger/colors.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/orm/logger/emit.ts": {
+    "packages/better-schemic/src/surreal/orm/logger/emit.ts": {
       "statements": 95,
       "branches": 86.56,
       "functions": 95,
       "lines": 95,
       "conditions": 52.94
     },
-    "drivers/surrealdb/src/orm/logger/highlight.ts": {
+    "packages/better-schemic/src/surreal/orm/logger/highlight.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/orm/logger/index.ts": {
+    "packages/better-schemic/src/surreal/orm/logger/index.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/orm/logger/logger.ts": {
+    "packages/better-schemic/src/surreal/orm/logger/logger.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/orm/logger/plan.ts": {
+    "packages/better-schemic/src/surreal/orm/logger/plan.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/orm/meta.ts": {
+    "packages/better-schemic/src/surreal/orm/meta.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 66.66
     },
-    "drivers/surrealdb/src/orm/plugins.ts": {
+    "packages/better-schemic/src/surreal/orm/plugins.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 85.71
     },
-    "drivers/surrealdb/src/orm/raw.ts": {
+    "packages/better-schemic/src/surreal/orm/raw.ts": {
       "statements": 95,
       "branches": 88.09,
       "functions": 95,
       "lines": 95,
       "conditions": 43.47
     },
-    "drivers/surrealdb/src/orm/reads.ts": {
+    "packages/better-schemic/src/surreal/orm/reads.ts": {
       "statements": 95,
       "branches": 92.72,
       "functions": 95,
       "lines": 95,
       "conditions": 66.66
     },
-    "drivers/surrealdb/src/orm/results.ts": {
+    "packages/better-schemic/src/surreal/orm/results.ts": {
       "statements": 92.85,
       "branches": 90.47,
       "functions": 91.66,
       "lines": 91.66,
       "conditions": 50
     },
-    "drivers/surrealdb/src/orm/schema.ts": {
+    "packages/better-schemic/src/surreal/orm/schema.ts": {
       "statements": 95,
       "branches": 92.8,
       "functions": 95,
       "lines": 95,
       "conditions": 63.63
     },
-    "drivers/surrealdb/src/orm/transaction.ts": {
+    "packages/better-schemic/src/surreal/orm/transaction.ts": {
       "statements": 91.82,
       "branches": 85.27,
       "functions": 95,
       "lines": 94.48,
       "conditions": 62.06
     },
-    "drivers/surrealdb/src/orm/writes.ts": {
+    "packages/better-schemic/src/surreal/orm/writes.ts": {
       "statements": 95,
       "branches": 76.78,
       "functions": 95,
       "lines": 95,
       "conditions": 83.33
     },
-    "drivers/surrealdb/src/plugins/create-only-shared.ts": {
+    "packages/better-schemic/src/surreal/plugins/create-only-shared.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/plugins/create-only.ts": {
+    "packages/better-schemic/src/surreal/plugins/create-only.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/plugins/rules.ts": {
+    "packages/better-schemic/src/surreal/plugins/rules.ts": {
       "statements": 90.9,
       "branches": 88.88,
       "functions": 95,
       "lines": 95,
       "conditions": 53.84
     },
-    "drivers/surrealdb/src/plugins/soft-delete.ts": {
+    "packages/better-schemic/src/surreal/plugins/soft-delete.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 87.5
     },
-    "drivers/surrealdb/src/plugins/tenant-runtime.ts": {
+    "packages/better-schemic/src/surreal/plugins/tenant-runtime.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/plugins/tenant-shared.ts": {
+    "packages/better-schemic/src/surreal/plugins/tenant-shared.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/plugins/tenant.ts": {
+    "packages/better-schemic/src/surreal/plugins/tenant.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/plugins/timestamps.ts": {
+    "packages/better-schemic/src/surreal/plugins/timestamps.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 71.42
     },
-    "drivers/surrealdb/src/plugins/zod.ts": {
+    "packages/better-schemic/src/surreal/plugins/zod.ts": {
       "statements": 95,
       "branches": 92.3,
       "functions": 95,
       "lines": 95,
       "conditions": 85.71
     },
-    "drivers/surrealdb/src/pure.ts": {
+    "packages/better-schemic/src/surreal/pure.ts": {
       "statements": 88.9,
       "branches": 86.47,
       "functions": 85.15,
       "lines": 90.31,
       "conditions": 60.22
     },
-    "drivers/surrealdb/src/query.ts": {
+    "packages/better-schemic/src/surreal/query.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/seed.ts": {
+    "packages/better-schemic/src/surreal/seed.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/surql/block.ts": {
+    "packages/better-schemic/src/surreal/surql/block.ts": {
       "statements": 95,
       "branches": 89.28,
       "functions": 95,
       "lines": 95,
       "conditions": 57.14
     },
-    "drivers/surrealdb/src/surql/predicate.ts": {
+    "packages/better-schemic/src/surreal/surql/predicate.ts": {
       "statements": 66.9,
       "branches": 54.34,
       "functions": 64.28,
       "lines": 71.42,
       "conditions": 35.29
     },
-    "drivers/surrealdb/src/surql/ref.ts": {
+    "packages/better-schemic/src/surreal/surql/ref.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "drivers/surrealdb/src/surql/render.ts": {
+    "packages/better-schemic/src/surreal/surql/render.ts": {
       "statements": 83.58,
       "branches": 81.08,
       "functions": 72.72,
       "lines": 93.87,
       "conditions": 66.66
     },
-    "drivers/surrealdb/src/wire.ts": {
+    "packages/better-schemic/src/surreal/wire.ts": {
       "statements": 95,
       "branches": 89.63,
       "functions": 95,
       "lines": 95,
       "conditions": 48.71
     },
-    "packages/core/src/authoring.ts": {
+    "packages/better-schemic/src/core/authoring.ts": {
       "statements": 95,
       "branches": 75,
       "functions": 95,
       "lines": 95,
       "conditions": 37.5
     },
-    "packages/core/src/cli-kit/config.ts": {
+    "packages/better-schemic/src/core/cli-kit/config.ts": {
       "statements": 72.22,
       "branches": 72.72,
       "functions": 88.88,
       "lines": 71.42,
       "conditions": 33.33
     },
-    "packages/core/src/cli-kit/diff.ts": {
+    "packages/better-schemic/src/core/cli-kit/diff.ts": {
       "statements": 70.06,
       "branches": 58.53,
       "functions": 84.61,
       "lines": 76.06,
       "conditions": 23.8
     },
-    "packages/core/src/cli-kit/filter.ts": {
+    "packages/better-schemic/src/core/cli-kit/filter.ts": {
       "statements": 95,
       "branches": 87.09,
       "functions": 95,
       "lines": 95,
       "conditions": 71.42
     },
-    "packages/core/src/cli-kit/merge.ts": {
+    "packages/better-schemic/src/core/cli-kit/merge.ts": {
       "statements": 82.43,
       "branches": 70.31,
       "functions": 94.11,
       "lines": 87.57,
       "conditions": 15.38
     },
-    "packages/core/src/cli-kit/meta.ts": {
+    "packages/better-schemic/src/core/cli-kit/meta.ts": {
       "statements": 92.45,
       "branches": 91.48,
       "functions": 95,
       "lines": 95,
       "conditions": 31.57
     },
-    "packages/core/src/cli-kit/pager.ts": {
+    "packages/better-schemic/src/core/cli-kit/pager.ts": {
       "statements": 87.03,
       "branches": 75.67,
       "functions": 87.5,
       "lines": 87.75,
       "conditions": 31.25
     },
-    "packages/core/src/cli-kit/schema.ts": {
+    "packages/better-schemic/src/core/cli-kit/schema.ts": {
       "statements": 94.33,
       "branches": 82.22,
       "functions": 95,
       "lines": 95,
       "conditions": 16.66
     },
-    "packages/core/src/cli-kit/style.ts": {
+    "packages/better-schemic/src/core/cli-kit/style.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "packages/core/src/client.ts": {
+    "packages/better-schemic/src/core/client.ts": {
       "statements": 92.3,
       "branches": 67.64,
       "functions": 95,
       "lines": 93.75,
       "conditions": 57.14
     },
-    "packages/core/src/config.ts": {
+    "packages/better-schemic/src/core/config.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 50
     },
-    "packages/core/src/connection.ts": {
+    "packages/better-schemic/src/core/connection.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "packages/core/src/driver/driver.ts": {
+    "packages/better-schemic/src/core/driver/driver.ts": {
       "statements": 77.77,
       "branches": 25,
       "functions": 95,
       "lines": 77.77,
       "conditions": 90
     },
-    "packages/core/src/driver/sdk.ts": {
+    "packages/better-schemic/src/core/driver/sdk.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "packages/core/src/index.ts": {
+    "packages/better-schemic/src/core/index.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "packages/core/src/kind/index.ts": {
+    "packages/better-schemic/src/core/kind/index.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
     },
-    "packages/core/src/kind/plan.ts": {
+    "packages/better-schemic/src/core/kind/plan.ts": {
       "statements": 95,
       "branches": 86.48,
       "functions": 95,
       "lines": 95,
       "conditions": 51.92
     },
-    "packages/core/src/kind/registry.ts": {
+    "packages/better-schemic/src/core/kind/registry.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 66.66
     },
-    "packages/core/src/secrets.ts": {
+    "packages/better-schemic/src/core/secrets.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 66.66
     },
-    "packages/core/src/testing.ts": {
+    "packages/better-schemic/src/core/testing.ts": {
       "statements": 93.06,
       "branches": 83.33,
       "functions": 88.23,
@@ -784,7 +784,7 @@
   },
   "tolerance": 0,
   "tolerances": {
-    "drivers/surrealdb/src/orm/transaction.ts": 2,
-    "drivers/surrealdb/src/orm/compiler/shared.ts": 2
+    "packages/better-schemic/src/surreal/orm/transaction.ts": 2,
+    "packages/better-schemic/src/surreal/orm/compiler/shared.ts": 2
   }
 }

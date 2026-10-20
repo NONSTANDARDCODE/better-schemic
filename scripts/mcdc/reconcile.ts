@@ -73,7 +73,7 @@ function mcdcLabels(): Set<string> {
       }
     }
   };
-  for (const base of ["drivers/surrealdb/test", "packages/core/test"])
+  for (const base of ["packages/better-schemic/test/surreal", "packages/better-schemic/test/core"])
     scan(join(root, base));
   return labels;
 }

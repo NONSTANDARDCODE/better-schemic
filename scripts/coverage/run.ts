@@ -18,10 +18,10 @@ import { join, resolve } from "node:path";
 const root = resolve(import.meta.dir, "../..");
 const dir = join(root, ".coverage");
 
-// A built `lib/` makes the e2e CLI children resolve `@better-schematic/*` to `lib/…js` instead of the
+// A built `lib/` makes the e2e CLI children resolve `better-schemic` to `lib/…js` instead of the
 // instrumented `src/*.ts`, silently collapsing e2e coverage (introspect/pull/driver/surreal). The CI
 // coverage job never builds, so it's unaffected — but warn a local dev who did.
-for (const pkg of ["drivers/surrealdb", "packages/core"]) {
+for (const pkg of ["packages/better-schemic"]) {
   if (existsSync(join(root, pkg, "lib")))
     console.warn(
       `[coverage] WARNING: ${pkg}/lib exists — e2e child coverage will be undercounted. Run \`rm -rf ${pkg}/lib\` first (or use a clean checkout).`,
@@ -32,8 +32,8 @@ rmSync(dir, { recursive: true, force: true });
 mkdirSync(dir, { recursive: true });
 
 const include = [
-  join(root, "drivers/surrealdb/src"),
-  join(root, "packages/core/src"),
+  join(root, "packages/better-schemic/src/surreal"),
+  join(root, "packages/better-schemic/src/core"),
 ].join(":");
 
 const env = {

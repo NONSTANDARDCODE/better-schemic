@@ -1,0 +1,6079 @@
+// Type-only (erased at runtime, so the authoring index stays side-effect-free): a `DEFINE ACCESS` key
+// may be an env()/secret() reference instead of an inline literal.
+import type { SecretRef } from "../core";
+import { isSecretRef } from "../core/authoring";
+import {
+  type Bound,
+  BoundExcluded,
+  BoundIncluded,
+  BoundQuery,
+  DateTime,
+  Decimal,
+  Duration,
+  escapeIdent,
+  FileRef,
+  Geometry,
+  RecordId,
+  RecordIdRange,
+  type RecordIdValue,
+  type Surreal,
+  Range as SurrealRange,
+  surql,
+  Table,
+  Uuid,
+} from "surrealdb";
+import { z } from "zod";
+import {
+  boundedFamily,
+  type CheckMethod,
+  deriveAsserts,
+  formatAssert,
+  formatForAssert,
+  isUnionSchema,
+  peelNullish,
+} from "./checks";
+import { FN_NAME } from "./fn-name";
+import { splitRecordId, unescapeIdPart } from "./ident";
+import type { FieldRefBase } from "./surql/ref";
+
+// Re-exported here (the authoring surface): `pull` reverses a baked format ASSERT to `s.<format>()`.
+export { formatForAssert };
+
+/**
+ * The "pure" approach: a field is a stock Zod schema + SurrealQL DDL metadata.
+ * The JS<->DB mapping rides on Zod's two native channels via codecs:
+ *   - encoded side (`z.input`)  = DB wire type
+ *   - decoded side (`z.output`) = app type
+ * `z.decode` reads from the DB, `z.encode` writes to it.
+ */
+
+/**
+ * Maps a Surreal-native schema (datetime codec, recordId) to its SurrealQL type.
+ * Kept on the schema — not the field — so it composes through array()/optional()/nesting.
+ *
+ * These two registries are module-level mutable singletons read across the authoring index <-> the
+ * `better-schemic/driver` subpath, which can load as SEPARATE module instances (the CLI jiti-loads
+ * the user schema -> the index; the CLI loader imports /driver). A plain `new WeakMap()` would then be
+ * DUPLICATED — `s.*` registers codecs/shapes in one, the driver's lower()/inferField read the other,
+ * and gen fails ("s.custom() has no SurrealQL type"). So key each on a REGISTERED symbol (same key in
+ * every instance) so both halves share ONE map. Mirrors the engine's driver registry (driver.ts).
+ */
+function globalSingleton<T>(key: symbol, make: () => T): T {
+  const slots = globalThis as Record<symbol, T | undefined>;
+  if (slots[key] === undefined) slots[key] = make();
+  return slots[key] as T;
+}
+export const surrealTypeRegistry = globalSingleton(
+  Symbol.for("better-schemic.surrealTypeRegistry"),
+  () => new WeakMap<z.ZodType, string>(),
+);
+
+/**
+ * Maps an object schema built via `s.object` to its original SField shape, so
+ * nested fields keep their DDL metadata ($default/$assert/...) during generation. A `globalThis`
+ * `Symbol.for` singleton for the same cross-instance reason as {@link surrealTypeRegistry}.
+ */
+export const objectFieldsRegistry = globalSingleton(
+  Symbol.for("better-schemic.objectFieldsRegistry"),
+  () => new WeakMap<z.ZodType, Record<string, AnyField>>(),
+);
+
+/**
+ * Maps a record-id field's CURRENT schema (wrappers included) back to its {@link RecordIdField}, so
+ * `TableDef.stringIds()` can deep-map record links nested in `s.object`/`s.array` without re-parsing
+ * type strings, and the ORM can read a column's id mode. Same `Symbol.for` singleton as the other
+ * registries (cross-instance safe).
+ */
+export const recordIdFieldRegistry = globalSingleton(
+  Symbol.for("better-schemic.recordIdFieldRegistry"),
+  () =>
+    new WeakMap<
+      z.ZodType,
+      RecordIdField<string, RecordIdValue, RecordIdMode>
+    >(),
+);
+
+/**
+ * Per-table/field row-level permissions. A `PermOp` is one access operation; `Perm` is
+ * the rule for one op — `true` (FULL) / `false` (NONE) / a `BoundQuery` (a `WHERE` expr) /
+ * `` `same as X` `` to reuse another op's resolved rule. A `TablePermissions` is a blanket
+ * rule, a shared `WHERE`, or per-op rules. Fields have NO `delete` op (verified against
+ * the DB), so they use `FieldPerm` / `FieldPermissions`.
+ */
+export type PermOp = "select" | "create" | "update" | "delete";
+export type Perm = boolean | BoundQuery | `same as ${PermOp}`;
+export type TablePermissions =
+  | boolean
+  | BoundQuery
+  | Partial<Record<PermOp, Perm>>;
+export type FieldPerm =
+  | boolean
+  | BoundQuery
+  | "same as select"
+  | "same as create"
+  | "same as update";
+export type FieldPermissions =
+  | boolean
+  | BoundQuery
+  | Partial<Record<"select" | "create" | "update", FieldPerm>>;
+
+/** SurrealQL DDL metadata — the `$`-prefixed field options. */
+export interface SurrealMeta {
+  default?: BoundQuery;
+  defaultAlways?: boolean;
+  value?: BoundQuery;
+  /** `{ optional: false }` on `.$value(…)` — the field is create-REQUIRED (the `Create<>` type
+   *  and the `.create` schema agree). Absent = create-OPTIONAL (the default for VALUE fields). */
+  valueRequired?: true;
+  /** `{ computes: […] }` on `.$value(…)` — the nested keys the expression fills on an
+   *  `s.object`/`array<s.object>` field, so `Create<>` and `.create` make them optional per
+   *  item. ORM/type metadata only: emits NO DDL and `sc pull` cannot recover it. */
+  computes?: readonly string[];
+  /** `COMPUTED <expr>` — a derived, read-only column (computed on read; never written). */
+  computed?: BoundQuery;
+  /**
+   * `ASSERT` fragments that AND-combine into one clause. Computed checks (format
+   * builders, `$`-constraints, `.$assert()`-derived) are plain strings; a custom
+   * `.$assert(surql\`…\`)` is a `BoundQuery` (inlined during DDL generation).
+   */
+  asserts?: (string | BoundQuery)[];
+  readonly?: boolean;
+  comment?: string;
+  /** Field-level `PERMISSIONS` (no `delete` op). Omitted ops default to FULL in
+   * SurrealDB — the table is the gate; set an op `false` to lock it. See `.$permissions()`. */
+  permissions?: FieldPermissions;
+  /** DB-managed, client-hidden: still emits DEFINE FIELD (+ PERMISSIONS NONE) but is
+   * excluded from the public app/create/update surface. See `.$internal()` / `.system`. */
+  internal?: boolean;
+  /** Single-field index: `.$index()` (normal) / `.$unique()` (uniqueness) / `.$fulltext()` /
+   * `.$hnsw()` / `.$diskann()`, each with an optional custom name. `name` names the plain/spec index
+   * (`<table>_<field>_idx` fallback); `uniqueName` names the UNIQUE index (`<table>_<field>_uq` fallback
+   * when paired with a spec). When BOTH a `spec` and `unique` are set, two indexes are emitted — one per
+   * name slot — so each is independently nameable. */
+  index?: {
+    unique?: boolean;
+    name?: string;
+    uniqueName?: string;
+    spec?: string;
+  };
+  /** `REFERENCE [ON DELETE …]` on a record-link field. See `.$reference()`. */
+  reference?:
+    | true
+    | { onDelete?: "reject" | "cascade" | "ignore" | "unset" | BoundQuery };
+}
+
+/** Render a primitive as a clean SurrealQL literal; non-primitives return "". */
+function primitiveLiteral(value: unknown): string {
+  if (typeof value === "string") return JSON.stringify(value);
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  ) {
+    return String(value);
+  }
+  return "";
+}
+
+/** Coerce a `$default`/`$defaultAlways` argument (a value or a `surql` expr) to a BoundQuery. */
+function toExpr(value: unknown): BoundQuery {
+  if (value instanceof BoundQuery) return value;
+  const literal = primitiveLiteral(value);
+  return literal ? new BoundQuery(literal) : surql`${value}`;
+}
+
+/** Matches the reserved `$value` parameter in an expression — NOT `$values`/`$value_x`. */
+const CLIENT_VALUE_REF = /\$value(?![A-Za-z0-9_])/;
+
+/**
+ * Whether a VALUE/DEFAULT expression consumes the client input (`$value`). Shared by the
+ * `$value` authoring guard and `sc pull` (which must declare `{ optional: true }` when it
+ * round-trips such an expression — DDL alone cannot say the field is required on create).
+ */
+export function readsClientValue(expr: string | BoundQuery): boolean {
+  return CLIENT_VALUE_REF.test(typeof expr === "string" ? expr : expr.query);
+}
+
+/** Build an SField for a Zod string-format schema, baking `string::is_<fmt>($value)`
+ * when SurrealDB has that validator (else no assert). */
+function formatField<S extends z.ZodType>(
+  schema: S,
+  format: string,
+): SField<S> {
+  const frag = formatAssert(format);
+  return new SField(schema, frag ? { asserts: [frag] } : {});
+}
+
+/** The schema one wrapper down — what `unwrap()` returns. */
+type InnerOf<S extends z.ZodType> =
+  S extends z.ZodOptional<infer I extends z.ZodType>
+    ? I
+    : S extends z.ZodNullable<infer I extends z.ZodType>
+      ? I
+      : S extends z.ZodDefault<infer I extends z.ZodType>
+        ? I
+        : S extends z.ZodPrefault<infer I extends z.ZodType>
+          ? I
+          : S extends z.ZodCatch<infer I extends z.ZodType>
+            ? I
+            : S extends z.ZodReadonly<infer I extends z.ZodType>
+              ? I
+              : S extends z.ZodArray<infer I extends z.ZodType>
+                ? I
+                : S;
+
+/**
+ * A Zod schema paired with SurrealQL DDL metadata. `Flags` tracks input traits
+ * used by `Create<>`/`Update<>`: `"create"` (DB-filled -> optional on create) and
+ * `"readonly"` (excluded from updates). It only appears in method return types, so
+ * `SField` is covariant in it.
+ */
+/** Does the Zod schema `S` contain an `object` in its SurrealQL type — directly, as the element of an
+ *  `array`/`set`, as a member of a union, or under an `optional`/`nullable`/`default`/`readonly`
+ *  wrapper? `FLEXIBLE` is only valid on such types (e.g. `object`, `array<object>`, `object | string`),
+ *  so the `.flexible()`/`.loose()`/`.strict()` methods are gated on this. */
+export type ContainsObject<S> =
+  S extends z.ZodObject<z.ZodRawShape>
+    ? true
+    : S extends z.ZodArray<infer T>
+      ? ContainsObject<T>
+      : S extends z.ZodSet<infer T>
+        ? ContainsObject<T>
+        : S extends z.ZodUnion<infer O>
+          ? ContainsObjectInUnion<O>
+          : S extends z.ZodOptional<infer T>
+            ? ContainsObject<T>
+            : S extends z.ZodNullable<infer T>
+              ? ContainsObject<T>
+              : S extends z.ZodDefault<infer T>
+                ? ContainsObject<T>
+                : S extends z.ZodReadonly<infer T>
+                  ? ContainsObject<T>
+                  : false;
+/** True if ANY member of a union's option tuple contains an object. */
+type ContainsObjectInUnion<O> = O extends readonly [infer H, ...infer R]
+  ? ContainsObject<H> extends true
+    ? true
+    : ContainsObjectInUnion<R>
+  : false;
+/**
+ * The PORTABLE, dialect-agnostic field base (extraction phase B — see docs/AUTHORING-SPLIT.md).
+ * Holds the Zod schema, an opaque per-dialect `native` metadata slot, the field-level codecs, and
+ * the App-land Zod wrappers (which carry `native` forward via the `rebuild` hook so a chain keeps
+ * its concrete dialect type). It references NOTHING SurrealDB-specific. Each dialect subclasses it
+ * (see {@link SField} for SurrealDB) to add native authoring (`$`-methods) and re-type the wrappers.
+ */
+export abstract class SFieldBase<
+  S extends z.ZodType = z.ZodType,
+  Flags extends string = never,
+  N = unknown,
+> {
+  constructor(
+    readonly schema: S,
+    readonly native: N,
+  ) {}
+
+  /** Type-only brand read by `FlagsOf` — a direct property keeps the flags inference exact even
+   *  when method signatures mention a generic (e.g. `$value`'s `computes`). `declare` = zero
+   *  runtime emit, like `s.object`'s `~szShape`. */
+  declare readonly "~szFlags": Flags;
+
+  /** Standard Schema (v1) interop — delegates to the underlying Zod schema, so every `s.*` field is a
+   *  valid `StandardSchemaV1` (`field['~standard'].validate(input)`), matching the engine's base. */
+  get ["~standard"](): S["~standard"] {
+    return this.schema["~standard"];
+  }
+
+  /** Rebuild a sibling field of the SAME dialect with a new schema/flags. Each dialect overrides it. */
+  protected abstract rebuild<S2 extends z.ZodType, F2 extends string>(
+    schema: S2,
+    native: N,
+  ): SFieldBase<S2, F2, N>;
+  /** A fresh, empty native-metadata bag (for wrappers like `or`/`and` that reset it). */
+  protected abstract blank(): N;
+
+  // --- Field-level codec (raw, on `this.schema`): `decode` reads (wire -> app), `encode`
+  // writes (app -> wire). Create-shaping is a table concept, so these are NOT create-shaped —
+  // e.g. `s.datetime().decode(dbDateTime) -> Date`, `s.uuid().encode("…") -> Uuid`. ---
+  /** Decode a DB value to its app type (wire -> app). */
+  decode(value: unknown): z.output<S> {
+    return z.decode(this.schema, value as never);
+  }
+  /** Encode an app value to its DB wire type (app -> wire). */
+  encode(value: z.output<S>): z.input<S> {
+    return z.encode(this.schema, value);
+  }
+  decodeAsync(value: unknown): Promise<z.output<S>> {
+    return z.decodeAsync(this.schema, value as never);
+  }
+  encodeAsync(value: z.output<S>): Promise<z.input<S>> {
+    return z.encodeAsync(this.schema, value);
+  }
+  safeDecode(value: unknown) {
+    return z.safeDecode(this.schema, value as never);
+  }
+  safeEncode(value: z.output<S>) {
+    return z.safeEncode(this.schema, value);
+  }
+  safeDecodeAsync(value: unknown) {
+    return z.safeDecodeAsync(this.schema, value as never);
+  }
+  safeEncodeAsync(value: z.output<S>) {
+    return z.safeEncodeAsync(this.schema, value);
+  }
+  // Deprecated Zod-style aliases — `parse` runs the DECODE direction (wire -> app), so it's
+  // just `decode` under a misleading name. Kept for `z`-API familiarity (struck through).
+  /** @deprecated `parse` decodes a value (wire -> app). Use {@link SField.decode | decode}. */
+  parse(value: unknown): z.output<S> {
+    return this.decode(value);
+  }
+  /** @deprecated Use {@link SField.safeDecode | safeDecode}. */
+  safeParse(value: unknown) {
+    return this.safeDecode(value);
+  }
+  /** @deprecated Use {@link SField.decodeAsync | decodeAsync}. */
+  parseAsync(value: unknown): Promise<z.output<S>> {
+    return this.decodeAsync(value);
+  }
+  /** @deprecated Use {@link SField.safeDecodeAsync | safeDecodeAsync}. */
+  safeParseAsync(value: unknown) {
+    return this.safeDecodeAsync(value);
+  }
+
+  // --- Mirrored from the engine's SFieldBase. The full unification (extending core's base) is
+  // blocked by surreal's smart-id table covariance (see surrealdb-sfieldbase-unification-blocked), so
+  // shared-base methods are mirrored here instead — each delegates to the inner Zod schema exactly as
+  // core does. `test/unit/sfieldbase-parity.test.ts` reflects core's prototype and fails loudly if core
+  // adds a base method this copy hasn't mirrored. ---
+  /** Zod `.nonoptional()` — require a value (strips an `.optional()`). */
+  nonoptional(): SFieldBase<z.ZodNonOptional<S>, Flags, N> {
+    return this.rebuild(this.schema.nonoptional(), this.native);
+  }
+  /** Zod `.exactOptional()` — exact-optional semantics (absent vs explicit `undefined`). */
+  exactOptional(): SFieldBase<z.ZodExactOptional<S>, Flags, N> {
+    return this.rebuild(this.schema.exactOptional(), this.native);
+  }
+  /** Does this field accept `undefined`? (Zod reflection.) */
+  isOptional(): boolean {
+    return this.schema.isOptional();
+  }
+  /** Does this field accept `null`? (Zod reflection.) */
+  isNullable(): boolean {
+    return this.schema.isNullable();
+  }
+  /** Read back the description set via {@link describe} / {@link meta}. */
+  get description(): string | undefined {
+    return this.schema.description;
+  }
+  /** JSON Schema for this field's wire shape (delegates to `z.toJSONSchema`). */
+  toJSONSchema() {
+    return z.toJSONSchema(this.schema);
+  }
+  /** Register the wrapped schema in a Zod registry for metadata interop; returns the field. */
+  register(...args: Parameters<S["register"]>): this {
+    Reflect.apply(this.schema.register, this.schema, args);
+    return this;
+  }
+  /** Zod's `.spa` alias for {@link safeParseAsync} (drop-in). */
+  spa(value: unknown) {
+    return this.safeParseAsync(value);
+  }
+
+  // Zod wrappers — delegate to the inner schema, carry native metadata + flags forward.
+  optional(): SFieldBase<z.ZodOptional<S>, Flags, N> {
+    return this.rebuild(this.schema.optional(), this.native);
+  }
+  nullable(): SFieldBase<z.ZodNullable<S>, Flags, N> {
+    return this.rebuild(this.schema.nullable(), this.native);
+  }
+  default(value: z.input<S>): SFieldBase<z.ZodDefault<S>, Flags, N> {
+    return this.rebuild(this.schema.default(value as never), this.native);
+  }
+  /** Zod prefault: fill an absent value with `value`, then validate it (unlike `.default`). */
+  prefault(value: z.input<S>): SFieldBase<z.ZodPrefault<S>, Flags, N> {
+    return this.rebuild(z.prefault(this.schema, value as never), this.native);
+  }
+  /** Zod catch: fall back to `value` when parsing fails. */
+  catch(value: z.output<S>): SFieldBase<z.ZodCatch<S>, Flags, N> {
+    return this.rebuild(this.schema.catch(value as never), this.native);
+  }
+  array(): SFieldBase<z.ZodArray<S>, Flags, N> {
+    return this.rebuild(z.array(this.schema), this.native);
+  }
+  nullish(): SFieldBase<z.ZodOptional<z.ZodNullable<S>>, Flags, N> {
+    return this.rebuild(this.schema.nullish(), this.native);
+  }
+  /** Zod union — `a.or(b)` accepts either; SurrealQL `<a> | <b>`. Mirrors Zod's `.or()`. */
+  or<F extends AnyField | z.ZodType>(
+    other: F,
+  ): SFieldBase<z.ZodUnion<[S, SchemaOf<F>]>, never, N> {
+    return this.rebuild<z.ZodUnion<[S, SchemaOf<F>]>, never>(
+      z.union([this.schema, toZod(other)]) as z.ZodUnion<[S, SchemaOf<F>]>,
+      this.blank(),
+    );
+  }
+  /** Zod intersection — `a.and(b)`; merges object fields in DDL. Mirrors Zod's `.and()`. */
+  and<F extends AnyField | z.ZodType>(
+    other: F,
+  ): SFieldBase<z.ZodIntersection<S, SchemaOf<F>>, never, N> {
+    return this.rebuild<z.ZodIntersection<S, SchemaOf<F>>, never>(
+      z.intersection(this.schema, toZod(other) as SchemaOf<F>),
+      this.blank(),
+    );
+  }
+
+  // --- Native Zod passthrough (drop-in for `z.*`): app-side validation / transform / metadata,
+  // delegated to the inner schema. These mirror Zod exactly; the SurrealDB-DDL side stays under the
+  // `$`-prefixed methods (`$readonly`/`$comment`/…). A field's SurrealQL type is its WIRE/input
+  // type, so refine/check/brand/readonly/describe leave the DDL type untouched; transform/pipe keep
+  // the storable input type and change only the decoded `App<>`. A resulting type SurrealDB can't
+  // represent is rejected at emit — use `$surreal(type, codec)`. (Explicit method signatures, not
+  // `Parameters<…>`, so these stay method-bivariant and don't break table-name covariance.)
+  refine(
+    check: (arg: z.output<S>) => unknown,
+    params?: string | z.core.$ZodCustomParams,
+  ): this {
+    return this.rebuild(
+      this.schema.refine(check, params) as S,
+      this.native,
+    ) as unknown as this;
+  }
+  superRefine(
+    refinement: (
+      arg: z.output<S>,
+      ctx: z.core.$RefinementCtx<z.output<S>>,
+    ) => void,
+  ): this {
+    return this.rebuild(
+      this.schema.superRefine(refinement) as S,
+      this.native,
+    ) as unknown as this;
+  }
+  check(
+    ...checks: (z.core.CheckFn<z.output<S>> | z.core.$ZodCheck<z.output<S>>)[]
+  ): this {
+    return this.rebuild(
+      this.schema.check(...checks) as S,
+      this.native,
+    ) as unknown as this;
+  }
+  overwrite(fn: (x: z.output<S>) => z.output<S>): this {
+    return this.rebuild(
+      this.schema.overwrite(fn) as S,
+      this.native,
+    ) as unknown as this;
+  }
+  brand<B extends PropertyKey = PropertyKey>(value?: B): this {
+    return this.rebuild(
+      this.schema.brand(value) as unknown as S,
+      this.native,
+    ) as unknown as this;
+  }
+  /** Zod's app-side metadata (JSON-schema/docs) — distinct from `$comment()` (SurrealDB COMMENT). */
+  describe(description: string): this {
+    return this.rebuild(
+      this.schema.describe(description) as S,
+      this.native,
+    ) as unknown as this;
+  }
+  meta(data: z.core.GlobalMeta): this {
+    return this.rebuild(
+      this.schema.meta(data) as S,
+      this.native,
+    ) as unknown as this;
+  }
+  /** Zod's app-side readonly (TS-immutable output) — distinct from `$readonly()` (SurrealDB READONLY). */
+  readonly(): SFieldBase<z.ZodReadonly<S>, Flags, N> {
+    return this.rebuild(this.schema.readonly(), this.native);
+  }
+  /** Zod transform — changes the decoded `App<>` value; the stored (wire) type is unchanged. */
+  transform<NewOut>(
+    fn: (arg: z.output<S>, ctx: z.core.$RefinementCtx<z.output<S>>) => NewOut,
+  ): SFieldBase<
+    z.ZodPipe<S, z.ZodTransform<Awaited<NewOut>, z.output<S>>>,
+    Flags,
+    N
+  > {
+    return this.rebuild(this.schema.transform(fn), this.native);
+  }
+  /** Zod pipe — feed this field's output into `target`; the stored (wire) type stays `this`. */
+  pipe<T extends z.core.$ZodType<unknown, z.output<S>>>(
+    target: T,
+  ): SFieldBase<z.ZodPipe<S, T>, Flags, N> {
+    return this.rebuild(
+      this.schema.pipe(target) as z.ZodPipe<S, T>,
+      this.native,
+    );
+  }
+  /** Peel one wrapper (optional/nullable/default/prefault/catch/readonly/array) off the field. */
+  unwrap(): SFieldBase<InnerOf<S>, Flags, N> {
+    const def = this.schema._zod.def as {
+      innerType?: z.ZodType;
+      element?: z.ZodType;
+    };
+    const inner = def.innerType ?? def.element ?? this.schema;
+    return this.rebuild(inner, this.native) as unknown as SFieldBase<
+      InnerOf<S>,
+      Flags,
+      N
+    >;
+  }
+
+  // Unguarded (no `this:`-receiver type-guard) so an object-field SUBCLASS like SObjectField stays
+  // assignable to `AnyField` — a `this`-param guard makes object fields' `this` type diverge from
+  // `AnyField`'s and breaks structural assignability.
+  // On a non-object field `applyObjectMode` is a pass-through, so the call is a harmless no-op.
+  /** Allow arbitrary extra keys on the field's object(s) — `FLEXIBLE` in DDL. Mirrors Zod's `.loose()`,
+   *  and descends through `array`/`set`/union/wrapper layers so `s.array(s.object({…})).flexible()`
+   *  emits `array<object> FLEXIBLE`. A no-op on non-object fields. */
+  loose(): this {
+    return (this as SFieldBase<S, Flags, N>).objectMode("loose") as this;
+  }
+  /** Reject unknown keys on the field's object(s) — non-`FLEXIBLE` (the default). Mirrors Zod's
+   *  `.strict()`; descends like {@link loose}. A no-op on non-object fields. */
+  strict(): this {
+    return (this as SFieldBase<S, Flags, N>).objectMode("strict") as this;
+  }
+  /** Alias for {@link loose} — a `FLEXIBLE` object accepting arbitrary keys. */
+  flexible(): this {
+    return (this as SFieldBase<S, Flags, N>).objectMode("loose") as this;
+  }
+  private objectMode(mode: "loose" | "strict"): this {
+    const next = applyObjectMode(this.schema, mode) as S;
+    return this.rebuild(next, this.native) as unknown as this;
+  }
+}
+
+/** Recursively set the object-mode (`loose`/`strict`) on every object contained in a schema —
+ *  directly, or inside an `array`/`set` element, a union member, or an `optional`/`nullable`/
+ *  `default`/`prefault`/`readonly`/`catch` wrapper. Non-object leaves pass through unchanged. Uses
+ *  Zod's `.clone(def)` so element/wrapper CHECKS (e.g. array `.max()` -> `array<…, N>`) survive. */
+function applyObjectMode(
+  schema: z.ZodType,
+  mode: "loose" | "strict",
+): z.ZodType {
+  // biome-ignore lint/suspicious/noExplicitAny: walking Zod's internal def shape.
+  const def = (schema as any)._zod.def;
+  switch (def?.type) {
+    case "object": {
+      const obj = schema as unknown as {
+        loose: () => z.ZodType;
+        strict: () => z.ZodType;
+      };
+      const next = mode === "loose" ? obj.loose() : obj.strict();
+      // Carry the nested-field registry forward so DDL/create-shaping still see the subfields.
+      const fields = objectFieldsRegistry.get(schema);
+      if (fields) objectFieldsRegistry.set(next, fields);
+      return next;
+    }
+    case "array":
+    case "set": {
+      const key = "element" in def ? "element" : "valueType";
+      // biome-ignore lint/suspicious/noExplicitAny: .clone(def) is Zod-internal but check-preserving.
+      return (schema as any).clone({
+        ...def,
+        [key]: applyObjectMode(def[key], mode),
+      });
+    }
+    case "union":
+      // biome-ignore lint/suspicious/noExplicitAny: .clone(def) is Zod-internal.
+      return (schema as any).clone({
+        ...def,
+        options: (def.options as z.ZodType[]).map((o) =>
+          applyObjectMode(o, mode),
+        ),
+      });
+    case "optional":
+    case "nullable":
+    case "default":
+    case "prefault":
+    case "readonly":
+    case "catch":
+      // biome-ignore lint/suspicious/noExplicitAny: .clone(def) is Zod-internal.
+      return (schema as any).clone({
+        ...def,
+        innerType: applyObjectMode(def.innerType, mode),
+      });
+    default:
+      return schema; // not object-containing — no-op (the type guard rejects this at author time)
+  }
+}
+
+/**
+ * The SurrealDB field — the dialect extension of {@link SFieldBase}. Adds SurrealDB-native authoring
+ * (the `$`-methods over `SurrealMeta`: DEFAULT/VALUE/ASSERT/PERMISSIONS/REFERENCE/…) and re-types the
+ * inherited portable Zod wrappers so a chain stays a `SField`. `s.*` produces these. In the package
+ * split this class moves to `better-schemic` (see docs/AUTHORING-SPLIT.md).
+ */
+export class SField<
+  S extends z.ZodType = z.ZodType,
+  Flags extends string = never,
+> extends SFieldBase<S, Flags, SurrealMeta> {
+  constructor(schema: S, surreal: SurrealMeta = {}) {
+    super(schema, surreal);
+  }
+  /** The SurrealDB-native field metadata (DEFAULT/VALUE/ASSERT/PERMISSIONS/…). */
+  get surreal(): SurrealMeta {
+    return this.native;
+  }
+  protected rebuild<S2 extends z.ZodType, F2 extends string>(
+    schema: S2,
+    native: SurrealMeta,
+  ): SField<S2, F2> {
+    return new SField<S2, F2>(schema, native);
+  }
+  protected blank(): SurrealMeta {
+    return {};
+  }
+
+  // Re-type the inherited schema-changing portable wrappers so a chain keeps its `SField` type. These
+  // are real METHOD overrides (not `declare` properties) so they stay method-bivariant — a property
+  // would be param-contravariant and break table-name covariance / record-id `default` (see below).
+  // Each just delegates to the SFieldBase body (which rebuilds a SField via the `rebuild` hook).
+  override optional(): SField<z.ZodOptional<S>, Flags> {
+    return super.optional() as SField<z.ZodOptional<S>, Flags>;
+  }
+  override nonoptional(): SField<z.ZodNonOptional<S>, Flags> {
+    return super.nonoptional() as SField<z.ZodNonOptional<S>, Flags>;
+  }
+  override exactOptional(): SField<z.ZodExactOptional<S>, Flags> {
+    return super.exactOptional() as SField<z.ZodExactOptional<S>, Flags>;
+  }
+  override nullable(): SField<z.ZodNullable<S>, Flags> {
+    return super.nullable() as SField<z.ZodNullable<S>, Flags>;
+  }
+  override default(value: z.input<S>): SField<z.ZodDefault<S>, Flags> {
+    return super.default(value) as SField<z.ZodDefault<S>, Flags>;
+  }
+  override prefault(value: z.input<S>): SField<z.ZodPrefault<S>, Flags> {
+    return super.prefault(value) as SField<z.ZodPrefault<S>, Flags>;
+  }
+  override catch(value: z.output<S>): SField<z.ZodCatch<S>, Flags> {
+    return super.catch(value) as SField<z.ZodCatch<S>, Flags>;
+  }
+  override array(): SField<z.ZodArray<S>, Flags> {
+    return super.array() as SField<z.ZodArray<S>, Flags>;
+  }
+  override nullish(): SField<z.ZodOptional<z.ZodNullable<S>>, Flags> {
+    return super.nullish() as SField<z.ZodOptional<z.ZodNullable<S>>, Flags>;
+  }
+  override or<F extends AnyField | z.ZodType>(
+    other: F,
+  ): SField<z.ZodUnion<[S, SchemaOf<F>]>> {
+    return super.or(other) as SField<z.ZodUnion<[S, SchemaOf<F>]>>;
+  }
+  override and<F extends AnyField | z.ZodType>(
+    other: F,
+  ): SField<z.ZodIntersection<S, SchemaOf<F>>> {
+    return super.and(other) as SField<z.ZodIntersection<S, SchemaOf<F>>>;
+  }
+  override readonly(): SField<z.ZodReadonly<S>, Flags> {
+    return super.readonly() as SField<z.ZodReadonly<S>, Flags>;
+  }
+  override transform<NewOut>(
+    fn: (arg: z.output<S>, ctx: z.core.$RefinementCtx<z.output<S>>) => NewOut,
+  ): SField<z.ZodPipe<S, z.ZodTransform<Awaited<NewOut>, z.output<S>>>, Flags> {
+    return super.transform(fn) as SField<
+      z.ZodPipe<S, z.ZodTransform<Awaited<NewOut>, z.output<S>>>,
+      Flags
+    >;
+  }
+  override pipe<T extends z.core.$ZodType<unknown, z.output<S>>>(
+    target: T,
+  ): SField<z.ZodPipe<S, T>, Flags> {
+    return super.pipe(target) as SField<z.ZodPipe<S, T>, Flags>;
+  }
+  override unwrap(): SField<InnerOf<S>, Flags> {
+    return super.unwrap() as unknown as SField<InnerOf<S>, Flags>;
+  }
+
+  // SurrealQL DDL metadata. $default/$defaultAlways mark the field create-optional;
+  // $readonly marks it non-updatable (see Create<>/Update<>). The default accepts a
+  // plain value (rendered as a literal) or a `surql` expression.
+  $default(value: z.output<S> | FieldExpr): SField<S, Flags | "create"> {
+    return new SField(this.schema, {
+      ...this.surreal,
+      default: toExpr(resolveFieldExpr(value)),
+      defaultAlways: false,
+    });
+  }
+  $defaultAlways(value: z.output<S> | FieldExpr): SField<S, Flags | "create"> {
+    return new SField(this.schema, {
+      ...this.surreal,
+      default: toExpr(resolveFieldExpr(value)),
+      defaultAlways: true,
+    });
+  }
+  /**
+   * Set a DB-side `VALUE` clause. Create-optionality defaults to create-OPTIONAL and, when the
+   * runtime can see that the expression consumes client input (`$value`), the call must declare
+   * its intent — the TYPE system cannot read the expression text:
+   *   - `time::now()` (input-independent) -> create-optional automatically;
+   *   - `string::lowercase($value)` -> pass `{ optional: false }` (a transform that REQUIRES input);
+   *   - a parent mapping / a field that may be computed without input -> `{ optional: true }`.
+   * The guard is skipped when the field is already optional (`$default`/`.optional()`).
+   * `computes` names the nested keys the expression fills on an `s.object`/`array<s.object>` field,
+   * so `Create<>`/`.create` make them optional per item.
+   * Optionality is purely type-level (the `"create"` flag that `Create<>`/`.create` read); it does
+   * not touch the app type or DB nullability. There is no separate update option — every field is
+   * already optional in `Update<>`.
+   */
+  $value<
+    O extends boolean | undefined = undefined,
+    const C extends readonly ComputesKey<S>[] = readonly [],
+  >(
+    expr: FieldExpr,
+    opts?: { optional?: O; computes?: C },
+  ): SField<
+    S,
+    Flags | ComputedFlags<C> | (O extends false ? never : "create")
+  > {
+    const value = resolveFieldExpr(expr);
+    if (
+      opts?.optional === undefined &&
+      readsClientValue(value) &&
+      this.surreal.default === undefined &&
+      this.surreal.defaultAlways !== true &&
+      !this.isOptional()
+    )
+      throw new Error(
+        "$value: the expression reads `$value` (client input), so create-optionality can't be " +
+          "inferred — pass { optional: false } to REQUIRE the field on create (a transform of " +
+          "the input), or { optional: true } when the DB may compute it without input.",
+      );
+    const computes = normalizeComputes(this.schema, opts?.computes);
+    return new SField(this.schema, {
+      ...this.surreal,
+      value,
+      ...(computes ? { computes } : {}),
+      ...(opts?.optional === false ? { valueRequired: true as const } : {}),
+    });
+  }
+  /**
+   * `COMPUTED <expr>` — a derived, read-only column computed from other fields. Never written, so
+   * it's create-OPTIONAL: `s.string().$computed(surql\`string::concat(first, " ", last)\`)`.
+   */
+  $computed(expr: FieldExpr): SField<S, Flags | "create"> {
+    return new SField(this.schema, {
+      ...this.surreal,
+      computed: resolveFieldExpr(expr),
+    });
+  }
+  /**
+   * Add an `ASSERT` fragment (fragments AND-combine into one clause):
+   *   - `.$assert(surql\`…\`)` pushes a custom expression (inlined during DDL generation).
+   *   - `.$assert()` (no args) derives fragments from the field's existing Zod checks
+   *     (formats, string length/regex, number bounds) — best-effort; unknowns are skipped.
+   */
+  $assert(expr?: FieldExpr): SField<S, Flags> {
+    const frags = expr ? [resolveFieldExpr(expr)] : deriveAsserts(this.schema);
+    return this.pushAsserts(frags);
+  }
+
+  // --- $-constraints: apply the app-side Zod check AND push a type-aware DB ASSERT. ---
+  // The base type is read through `optional`/`nullable` wrappers (`schemaType`), and the Zod check is
+  // applied to the wrapped inner schema (`constrain`), so `s.string().optional().$min(3)` works.
+  // A UNION is bounded only when ALL its member types share one constraint family (string / number /
+  // array / set): `string::len` on a number member (or `array::len` on a string) would silently
+  // compare the wrong thing — SurrealDB casts across types — so a mixed union (e.g. `int | string`)
+  // no-ops; author an explicit `.$assert(surql`…`)` there. Unsupported combos no-op.
+
+  /** Min length (string/array/set) / minimum value (number). */
+  $min(n: number): SField<S, Flags> {
+    return this.bound("min", n);
+  }
+  /** Max length (string/array/set) / maximum value (number). */
+  $max(n: number): SField<S, Flags> {
+    return this.bound("max", n);
+  }
+  /** Exact length (string/array) — the `$`-channel source of the `array<T, N>` type size (Zod
+   *  `.length()`, so it also infers the type; applies through optional/nullable wrappers). Arrays get
+   *  the equality ASSERT alongside the type so EVERY `$`-bound shows up in the clause map — one
+   *  uniform surface for `sc diff`/migrations, and the only encoding for an all-array union. */
+  $length(n: number): SField<S, Flags> {
+    return this.bound("length", n);
+  }
+  /** Exact size (set) — the `$`-channel source of the `set<T, N>` type size (Zod `ZodSet.size`);
+   *  mirrors `$length`, ASSERT included, for the same uniformity. */
+  $size(n: number): SField<S, Flags> {
+    return this.bound("size", n);
+  }
+  /** Pattern match (string). */
+  $regex(re: RegExp): SField<S, Flags> {
+    if (this.schemaType === "string")
+      return this.constrain("regex", re, `$value = /${re.source}/`);
+    return this;
+  }
+  /** Greater than (number). */
+  $gt(n: number): SField<S, Flags> {
+    if (this.schemaType === "number")
+      return this.constrain("gt", n, `$value > ${n}`);
+    return this;
+  }
+  /** Greater than or equal (number). */
+  $gte(n: number): SField<S, Flags> {
+    if (this.schemaType === "number")
+      return this.constrain("gte", n, `$value >= ${n}`);
+    return this;
+  }
+  /** Less than (number). */
+  $lt(n: number): SField<S, Flags> {
+    if (this.schemaType === "number")
+      return this.constrain("lt", n, `$value < ${n}`);
+    return this;
+  }
+  /** Less than or equal (number). */
+  $lte(n: number): SField<S, Flags> {
+    if (this.schemaType === "number")
+      return this.constrain("lte", n, `$value <= ${n}`);
+    return this;
+  }
+  /**
+   * Apply a `$`-bound: the app-side Zod check AND the matching DB ASSERT, both derived from the
+   * field's single constraint family ({@link boundedFamily}). No-ops when the family is unsupported
+   * or the op doesn't apply to it (`$length` on a set, `$size` on an array, …). A union refines via
+   * the DB ASSERT only — Zod unions have no `.min/.max/.length/.size`.
+   */
+  private bound(
+    op: "min" | "max" | "length" | "size",
+    n: number,
+  ): SField<S, Flags> {
+    const family = boundedFamily(this.schema);
+    if (!family) return this;
+    if (op === "length" && family !== "string" && family !== "array")
+      return this;
+    if (op === "size" && family !== "set") return this;
+    const base =
+      family === "number"
+        ? "$value"
+        : family === "string"
+          ? "string::len($value)"
+          : "array::len($value)";
+    const frag = `${base} ${op === "min" ? ">=" : op === "max" ? "<=" : "=="} ${n}`;
+    return isUnionSchema(this.schema)
+      ? this.constrainAssert(frag)
+      : this.constrain(op, n, frag);
+  }
+
+  // --- Native Zod chain methods (APP-SIDE ONLY — the DDL is UNCHANGED). These forward to the inner Zod
+  // schema's same-named method so `s.string().email().min(3).trim()` is a true Zod drop-in (copy Zod
+  // code, identical behaviour on every driver). They do NOT emit a DB ASSERT: the $-prefixed forms
+  // ($min/$assert/…) are the explicit DDL channel. This is the deliberate two-channel split — non-$ =
+  // app validation, $ = DB constraint — Better-schemic's core mental model, identical across drivers. ---
+  // Runtime-dispatched: the method just calls the inner schema's same-named method, throwing the way
+  // Zod would if it doesn't apply to this field's base type (e.g. `.regex()` on a number).
+  private chain(method: string, ...args: unknown[]): SField<S, Flags> {
+    const inner = this.schema as unknown as Record<
+      string,
+      ((...a: unknown[]) => z.ZodType) | undefined
+    >;
+    const fn = inner[method];
+    if (typeof fn !== "function")
+      throw new Error(
+        `surrealdb: .${method}() is not available on this field's base type.`,
+      );
+    return this.rebuild(fn.apply(this.schema, args) as S, this.native);
+  }
+  // string/number length+bounds AND datetime bounds (app-side; use $min/$max/$length for the DB ASSERT).
+  // A `Date` value is CODEC-AWARE: a surreal datetime is a `z.codec(DateTime, z.date())`, so a naive
+  // `schema.min()` fails (the codec has no `.min`); instead the bound is piped onto the codec's decoded
+  // `Date` output (`codec -> z.date().min(d)`), validating decode + encode while the column stays
+  // `datetime`. A `number` forwards to the inner schema (string length / number value / array length).
+  min(value: number | Date, params?: unknown): SField<S, Flags> {
+    return value instanceof Date
+      ? this.dateBound("min", value, params)
+      : this.chain("min", value, params);
+  }
+  max(value: number | Date, params?: unknown): SField<S, Flags> {
+    return value instanceof Date
+      ? this.dateBound("max", value, params)
+      : this.chain("max", value, params);
+  }
+  private dateBound(
+    op: "min" | "max",
+    value: Date,
+    params?: unknown,
+  ): SField<S, Flags> {
+    const bound = z.date()[op](value, params as never);
+    return this.rebuild(
+      this.schema.pipe(bound as never) as unknown as S,
+      this.native,
+    );
+  }
+  length(value: number, params?: unknown): SField<S, Flags> {
+    return this.chain("length", value, params);
+  }
+  /** Exact set size (app-side; `ZodSet.size` -> `set<T, N>`). Use `.$size(n)` for the DB ASSERT too. */
+  size(value: number, params?: unknown): SField<S, Flags> {
+    return this.chain("size", value, params);
+  }
+  // string patterns / transforms
+  regex(re: RegExp, params?: unknown): SField<S, Flags> {
+    return this.chain("regex", re, params);
+  }
+  startsWith(value: string, params?: unknown): SField<S, Flags> {
+    return this.chain("startsWith", value, params);
+  }
+  endsWith(value: string, params?: unknown): SField<S, Flags> {
+    return this.chain("endsWith", value, params);
+  }
+  includes(value: string, params?: unknown): SField<S, Flags> {
+    return this.chain("includes", value, params);
+  }
+  nonempty(params?: unknown): SField<S, Flags> {
+    return this.chain("nonempty", params);
+  }
+  trim(): SField<S, Flags> {
+    return this.chain("trim");
+  }
+  toLowerCase(): SField<S, Flags> {
+    return this.chain("toLowerCase");
+  }
+  toUpperCase(): SField<S, Flags> {
+    return this.chain("toUpperCase");
+  }
+  lowercase(params?: unknown): SField<S, Flags> {
+    return this.chain("lowercase", params);
+  }
+  uppercase(params?: unknown): SField<S, Flags> {
+    return this.chain("uppercase", params);
+  }
+  normalize(form?: unknown): SField<S, Flags> {
+    return this.chain("normalize", form);
+  }
+  // number bounds + checks (app-side; use $gt/$gte/$lt/$lte for the DB ASSERT)
+  gt(value: number, params?: unknown): SField<S, Flags> {
+    return this.chain("gt", value, params);
+  }
+  gte(value: number, params?: unknown): SField<S, Flags> {
+    return this.chain("gte", value, params);
+  }
+  lt(value: number, params?: unknown): SField<S, Flags> {
+    return this.chain("lt", value, params);
+  }
+  lte(value: number, params?: unknown): SField<S, Flags> {
+    return this.chain("lte", value, params);
+  }
+  positive(params?: unknown): SField<S, Flags> {
+    return this.chain("positive", params);
+  }
+  negative(params?: unknown): SField<S, Flags> {
+    return this.chain("negative", params);
+  }
+  nonnegative(params?: unknown): SField<S, Flags> {
+    return this.chain("nonnegative", params);
+  }
+  nonpositive(params?: unknown): SField<S, Flags> {
+    return this.chain("nonpositive", params);
+  }
+  multipleOf(value: number, params?: unknown): SField<S, Flags> {
+    return this.chain("multipleOf", value, params);
+  }
+  // string FORMAT chain methods — `s.string().email()` is a Zod drop-in (validates app-side; the
+  // column type is unchanged). The prefer-native equivalents are the `s.email()` etc. FACTORIES, which
+  // additionally push a TYPE-level DB ASSERT (per-driver type capability, separate from these methods).
+  email(params?: unknown): SField<S, Flags> {
+    return this.chain("email", params);
+  }
+  url(params?: unknown): SField<S, Flags> {
+    return this.chain("url", params);
+  }
+  emoji(params?: unknown): SField<S, Flags> {
+    return this.chain("emoji", params);
+  }
+  uuid(params?: unknown): SField<S, Flags> {
+    return this.chain("uuid", params);
+  }
+  guid(params?: unknown): SField<S, Flags> {
+    return this.chain("guid", params);
+  }
+  nanoid(params?: unknown): SField<S, Flags> {
+    return this.chain("nanoid", params);
+  }
+  cuid(params?: unknown): SField<S, Flags> {
+    return this.chain("cuid", params);
+  }
+  cuid2(params?: unknown): SField<S, Flags> {
+    return this.chain("cuid2", params);
+  }
+  ulid(params?: unknown): SField<S, Flags> {
+    return this.chain("ulid", params);
+  }
+  xid(params?: unknown): SField<S, Flags> {
+    return this.chain("xid", params);
+  }
+  ksuid(params?: unknown): SField<S, Flags> {
+    return this.chain("ksuid", params);
+  }
+  jwt(params?: unknown): SField<S, Flags> {
+    return this.chain("jwt", params);
+  }
+
+  /** The underlying Zod schema's `def.type` ("string" / "number" / …), looking through
+   *  `optional`/`nullable` so a wrapped field still routes its `$`-constraints by base type. */
+  private get schemaType(): string {
+    return (peelNullish(this.schema).inner._zod.def as { type: string }).type;
+  }
+  /** Append ASSERT fragments, returning a new field (same type param + flags). */
+  private pushAsserts(frags: (string | BoundQuery)[]): SField<S, Flags> {
+    if (frags.length === 0) return this;
+    return new SField(this.schema, {
+      ...this.surreal,
+      asserts: [...(this.surreal.asserts ?? []), ...frags],
+    });
+  }
+  /** Push a DB-only ASSERT fragment, leaving the Zod schema untouched (for types whose Zod base has
+   *  no matching check — e.g. a `union`). */
+  private constrainAssert(frag: string): SField<S, Flags> {
+    return this.pushAsserts([frag]);
+  }
+  /** Apply a concrete-subtype Zod check (`min`/`max`/`length`/`regex`/`gt`/…) and push its
+   * matching DB fragment, returning a new field carrying the refined schema. The check is applied
+   * to the schema UNDER `optional`/`nullable` wrappers (which have no `.min`/`.max`/…), and the
+   * wrappers are re-applied in their original order so `nullish()` stays intact. */
+  private constrain(
+    method: CheckMethod,
+    arg: number | RegExp,
+    frag: string,
+  ): SField<S, Flags> {
+    const { inner, wraps } = peelNullish(this.schema);
+    const apply = (
+      inner as unknown as Record<string, (a: number | RegExp) => z.ZodType>
+    )[method];
+    let refined = apply.call(inner, arg);
+    for (const wrap of wraps.reverse()) refined = wrap(refined);
+    return new SField(refined as S, {
+      ...this.surreal,
+      asserts: [...(this.surreal.asserts ?? []), frag],
+    });
+  }
+  /** Set field-level `PERMISSIONS` (no `delete` op). Omitted ops default to FULL. */
+  $permissions(spec: FieldPermissions): SField<S, Flags> {
+    return new SField(this.schema, { ...this.surreal, permissions: spec });
+  }
+  $readonly(readonly = true): SField<S, Flags | "readonly"> {
+    return new SField(this.schema, { ...this.surreal, readonly });
+  }
+  $comment(comment: string): SField<S, Flags> {
+    return new SField(this.schema, { ...this.surreal, comment });
+  }
+  /**
+   * Index this field — `DEFINE INDEX <name> ON TABLE <table> FIELDS <field>`. `name` overrides the
+   * derived `<table>_<field>_idx` index name.
+   */
+  $index(name?: string): SField<S, Flags> {
+    return new SField(this.schema, {
+      ...this.surreal,
+      index: { ...this.surreal.index, ...(name !== undefined ? { name } : {}) },
+    });
+  }
+  /** Index this field with a uniqueness constraint (`… UNIQUE`). `name` overrides the derived name.
+   * Chaining `.$fulltext()`/`.$hnsw()`/`.$diskann()` after this emits TWO indexes on the same
+   *  field (UNIQUE + spec), each independently nameable — `name` here names the UNIQUE index. */
+  $unique(name?: string): SField<S, Flags> {
+    return new SField(this.schema, {
+      ...this.surreal,
+      index: {
+        ...this.surreal.index,
+        unique: true,
+        // The name lands on the UNIQUE index specifically, so it survives when a spec index
+        // (.$fulltext()/.$hnsw()/.$diskann()) is also chained on the same field.
+        ...(name !== undefined ? { uniqueName: name } : {}),
+      },
+    });
+  }
+  /**
+   * Full-text search index over this field — `… FIELDS <field> FULLTEXT [ANALYZER <analyzer>]
+   * [BM25[(k1,b)]] [HIGHLIGHTS]`. The analyzer is optional — omit it (`.$fulltext()`) and SurrealDB
+   * uses its built-in `like` analyzer; pass a {@link defineAnalyzer} name/def for real tokenizing:
+   *   `.$fulltext()` · `.$fulltext("english")` · `.$fulltext(english)` · `.$fulltext({ analyzer: english, highlights: true })`.
+   * `bm25: [k1, b]` tunes the (always-on) scoring; `highlights` enables `search::highlight`.
+   * The DEFAULT analyzer/bm25 are omitted from emitted DDL (SurrealDB always applies them) — see
+   * {@link FulltextOptions}. Chaining `.$unique()` emits TWO indexes (FULLTEXT + UNIQUE) on the same
+   * field, each independently nameable (this `name` names the FULLTEXT/vector index).
+   */
+  $fulltext(analyzer?: string | AnalyzerDef): SField<S, Flags>;
+  $fulltext(opts: FulltextFieldOptions): SField<S, Flags>;
+  $fulltext(
+    arg?: string | AnalyzerDef | FulltextFieldOptions,
+  ): SField<S, Flags> {
+    const opts: FulltextFieldOptions =
+      arg === undefined || typeof arg === "string" || arg instanceof AnalyzerDef
+        ? { analyzer: arg }
+        : arg;
+    const analyzer =
+      opts.analyzer instanceof AnalyzerDef ? opts.analyzer.name : opts.analyzer;
+    return this.withIndexSpec(
+      buildIndexSpec({
+        fulltext: { analyzer, bm25: opts.bm25, highlights: opts.highlights },
+      }),
+      opts.name,
+    );
+  }
+  /** HNSW vector index over this field (an `array<number>` embedding). `name` overrides the derived name. */
+  $hnsw(opts: HnswOptions & { name?: string }): SField<S, Flags> {
+    return this.withIndexSpec(buildIndexSpec({ hnsw: opts }), opts.name);
+  }
+  /** DISKANN vector index over this field (an `array<number>` embedding). `name` overrides the derived name. */
+  $diskann(opts: DiskannOptions & { name?: string }): SField<S, Flags> {
+    return this.withIndexSpec(buildIndexSpec({ diskann: opts }), opts.name);
+  }
+  /** Set a FULLTEXT/HNSW/DISKANN index `spec` (+ optional custom `name`) on this field. When `.$unique()`
+   *  is also set, the DDL layer emits TWO indexes (UNIQUE + spec) — this `name` names the spec index,
+   *  `.$unique(name)` names the UNIQUE one. */
+  private withIndexSpec(
+    spec: string | undefined,
+    name?: string,
+  ): SField<S, Flags> {
+    return new SField(this.schema, {
+      ...this.surreal,
+      index: {
+        ...this.surreal.index,
+        ...(spec !== undefined ? { spec } : {}),
+        ...(name !== undefined ? { name } : {}),
+      },
+    });
+  }
+  /**
+   * Mark a record-link field as a `REFERENCE` so the DB tracks back-links (`$`-prefixed like the other
+   * DDL clauses). `onDelete` sets the `ON DELETE` action — `"reject" | "cascade" | "ignore" | "unset"`,
+   * or a `surql` expression (emitted as `ON DELETE THEN …`). Omit it for a bare `REFERENCE`.
+   */
+  $reference(opts?: {
+    onDelete?: "reject" | "cascade" | "ignore" | "unset" | BoundQuery;
+  }): SField<S, Flags> {
+    return new SField(this.schema, {
+      ...this.surreal,
+      reference:
+        opts?.onDelete === undefined ? true : { onDelete: opts.onDelete },
+    });
+  }
+  /**
+   * Teach the engine how to store this value in SurrealDB: give the **wire type** as an `s.*`
+   * field (its SurrealQL DDL type and Zod schema are derived from it) plus a codec
+   * (`encode`: app -> wire, `decode`: wire -> app). This turns an otherwise-unmappable field
+   * (e.g. `s.custom`/`s.instanceof`) into a real table field and clears the no-mapping brand;
+   * `s.input<>` then reports the wire type. Omit the codec for an identity mapping (the app
+   * value is stored as-is). `$`-prefixed to avoid clashing with Zod.
+   */
+  $surreal<WF extends AnyField | z.ZodType, A = z.output<S>>(
+    wire: WF,
+    codec?: {
+      encode: (app: A) => z.output<SchemaOf<WF>>;
+      decode: (wire: z.output<SchemaOf<WF>>) => A;
+    },
+  ): SField<z.ZodCodec<SchemaOf<WF>, S>, Exclude<Flags, NoDdl>> {
+    const wireSchema = toZod(wire) as SchemaOf<WF>;
+    const c = z.codec(wireSchema, this.schema, {
+      decode: (w) => (codec ? codec.decode(w as never) : w) as never,
+      encode: (a) => (codec ? codec.encode(a as A) : a) as never,
+    });
+    return new SField(c, this.surreal) as SField<
+      z.ZodCodec<SchemaOf<WF>, S>,
+      Exclude<Flags, NoDdl>
+    >;
+  }
+  /**
+   * Mark the field DB-managed and client-hidden. It still emits its `DEFINE FIELD`
+   * (so SCHEMAFULL writes from a record-access SIGNUP block succeed) plus
+   * `PERMISSIONS NONE`, but is excluded from the public app/create/update surface.
+   * Reach internal fields via the `.system` view (server/system code).
+   */
+  $internal(): SField<S, Flags | "internal"> {
+    return new SField(this.schema, { ...this.surreal, internal: true });
+  }
+}
+
+/** A flag-agnostic SField, for internal storage where flags don't matter. */
+export type AnyField = SField<z.ZodType, string>;
+
+// --- Surreal-native field schemas ---
+
+/** Surreal `datetime` <-> JS `Date` (a real codec — the types differ). */
+function datetimeCodec() {
+  const codec = z.codec(z.instanceof(DateTime), z.date(), {
+    decode: (dt) => new Date(dt.toString()),
+    encode: (d) => new DateTime(d),
+  });
+  surrealTypeRegistry.set(codec, "datetime");
+  return codec;
+}
+
+/** Like `datetimeCodec`, but the app side coerces to `Date` (`s.coerce.date`). Same `datetime` DDL. */
+function coercedDatetimeCodec() {
+  const codec = z.codec(z.instanceof(DateTime), z.coerce.date(), {
+    decode: (dt): Date => new Date(dt.toString()),
+    // the schema coerces the value to a `Date` before `encode` runs (typed `unknown` by Zod).
+    encode: (d) => new DateTime(d as Date),
+  });
+  surrealTypeRegistry.set(codec, "datetime");
+  return codec;
+}
+
+/** Register a schema's SurrealQL type and return it (for instanceof-backed native types). */
+function native<T>(schema: z.ZodType<T>, surrealType: string): z.ZodType<T, T> {
+  surrealTypeRegistry.set(schema, surrealType);
+  return schema as z.ZodType<T, T>;
+}
+
+/** Surreal `uuid` <-> JS `string` (a codec: app `string`, DB `Uuid`). */
+function uuidCodec() {
+  const codec = z.codec(z.instanceof(Uuid), z.uuid(), {
+    decode: (u) => u.toString(),
+    encode: (s) => new Uuid(s),
+  });
+  surrealTypeRegistry.set(codec, "uuid");
+  return codec;
+}
+
+/** Surreal `int` (i64) <-> JS `bigint`. The SurrealDB SDK returns an `int` as a JS `number` when it fits
+ *  a safe integer and as a `bigint` when larger, so a `bigint`-app field must accept BOTH on decode and
+ *  normalize to `bigint` — else a normal-sized value (e.g. `42`) fails to decode. Wire is `int | bigint`
+ *  so a non-integer is rejected before `BigInt()` (which throws on floats). DDL stays `int`. */
+function bigintCodec(inner: z.ZodType<bigint, bigint>) {
+  const codec = z.codec(z.union([z.int(), z.bigint()]), inner, {
+    decode: (v: number | bigint): bigint =>
+      typeof v === "bigint" ? v : BigInt(v),
+    encode: (v: bigint) => v,
+  });
+  surrealTypeRegistry.set(codec, "int");
+  return codec;
+}
+
+/** Surreal `bytes` <-> JS `Uint8Array` (the DB may return an ArrayBuffer; normalize it). */
+function bytesCodec() {
+  const codec = z.codec(
+    z.union([z.instanceof(Uint8Array), z.instanceof(ArrayBuffer)]),
+    z.instanceof(Uint8Array),
+    {
+      decode: (b) => (b instanceof Uint8Array ? b : new Uint8Array(b)),
+      encode: (u) => u,
+    },
+  );
+  surrealTypeRegistry.set(codec, "bytes");
+  return codec;
+}
+
+type GeometryKind =
+  | "point"
+  | "line"
+  | "polygon"
+  | "multipoint"
+  | "multiline"
+  | "multipolygon"
+  | "collection";
+
+/** A `RecordId` restricted to `tables` (+ optional id-value type). Identity, so no codec. */
+function recordIdSchema<
+  T extends string,
+  V extends RecordIdValue = RecordIdValue,
+>(
+  tables: T[],
+  valueType?: z.ZodType<V>,
+): z.ZodType<RecordId<T, V>, RecordId<T, V>> {
+  // Empty `tables` = an unrestricted `record` (any table) — used for endpoint-less relations.
+  const anyTable = tables.length === 0;
+  const schema = z.instanceof(RecordId).refine(
+    // RecordId.table is a Table object; .name is the unescaped name.
+    (r) =>
+      (anyTable || (tables as readonly string[]).includes(r.table.name)) &&
+      (valueType ? valueType.safeParse(r.id).success : true),
+    {
+      error: anyTable
+        ? "Expected a record"
+        : `Expected record<${tables.join(" | ")}>`,
+    },
+  );
+  surrealTypeRegistry.set(
+    schema,
+    anyTable ? "record" : `record<${tables.join(" | ")}>`,
+  );
+  return schema as unknown as z.ZodType<RecordId<T, V>, RecordId<T, V>>;
+}
+
+/** A lazy table reference — `() => User` — resolved to its name at first use (post-module-eval),
+ *  so mutually-linked tables in separate modules never hit an import-cycle TDZ. */
+type LazyTableRef = () => { name: string };
+
+/** Resolve a mixed entries list (names + lazy refs) to table names. Called lazily: from the
+ *  `tables` getter, the `z.lazy` runtime schema, and DDL type inference — all post-eval. */
+function resolveTableNames<T extends string>(
+  entries: readonly (T | LazyTableRef)[],
+): T[] {
+  return entries.map((e) => (typeof e === "function" ? (e().name as T) : e));
+}
+
+/** The id mode of a record field: `record` (app `RecordId`) or `string` (app bare string). */
+export type RecordIdMode = "record" | "string";
+
+declare const RECORD_ID_TABLE: unique symbol;
+/**
+ * A string-id APP value: a bare id string (`01M…`) phantom-branded with its target table. The
+ * runtime value is a PLAIN string — the optional brand is type-only, so ordinary strings stay
+ * assignable, while the relation type helpers (`RecordIdName`) can still recover the target table,
+ * exactly as they do from `RecordId<T>`.
+ */
+export type BareId<T extends string = string> = string & {
+  readonly [RECORD_ID_TABLE]?: T;
+};
+
+/**
+ * The target-table name carried by a `BareId<T>` (the phantom brand), or `never` for anything else
+ * — including a PLAIN string (which is assignable to `BareId` but has no brand property).
+ */
+export type RecordIdTable<T> = T extends {
+  readonly [RECORD_ID_TABLE]?: infer N;
+}
+  ? N
+  : never;
+
+/**
+ * The Zod schema type of a record field in a given mode. `record` is the classic symmetric
+ * `RecordId` schema; `string` is the string-id codec (wire `string | RecordId`, app `BareId<T>`).
+ */
+export type RecordIdSchemaOf<
+  T extends string,
+  V extends RecordIdValue,
+  M extends RecordIdMode,
+> = z.ZodType<
+  M extends "string" ? BareId<T> : RecordId<T, V>,
+  M extends "string" ? string | RecordId<T, V> : RecordId<T, V>
+>;
+
+/** Split an id string into its optional table and its RAW (unescaped) id part. */
+function parseIdString(text: string): { table?: string; id: string } {
+  const parts = splitRecordId(text);
+  return parts
+    ? { table: parts.table, id: unescapeIdPart(parts.id) }
+    : { id: unescapeIdPart(text) };
+}
+
+/** The bare-string app form of a `RecordId`'s id value (`string`/`number`/`bigint`/`uuid`). */
+export function bareIdValue(id: RecordIdValue): string {
+  if (typeof id === "string") return id;
+  if (typeof id === "number" || typeof id === "bigint") return String(id);
+  if (id instanceof Uuid) return id.toString();
+  throw new Error(
+    "stringIds(): this record id has a composite (array/object) value, which a bare string can't represent — keep the field in RecordId mode.",
+  );
+}
+
+/**
+ * Parse a raw id text against the field's declared value type (`s.recordId(t).type(s.int())`):
+ * the declared type first, then the number/bigint coercions a bare string implies. `undefined`
+ * when nothing fits. The ONE rule shared by the codec's wire refinement and its encode.
+ */
+function parseIdValue<V extends RecordIdValue>(
+  raw: string,
+  valueType: z.ZodType<V>,
+): V | undefined {
+  const candidates: unknown[] = [raw];
+  const asNumber = Number(raw);
+  if (Number.isFinite(asNumber)) candidates.push(asNumber);
+  if (/^-?\d+$/.test(raw)) candidates.push(BigInt(raw));
+  for (const candidate of candidates) {
+    const parsed = valueType.safeParse(candidate);
+    if (parsed.success) return parsed.data;
+  }
+  return undefined;
+}
+
+/** Coerce a raw id text to the field's declared value type, or throw a teaching error. */
+function idValueFromText<V extends RecordIdValue>(
+  raw: string,
+  valueType?: z.ZodType<V>,
+): V {
+  if (valueType === undefined) return raw as V;
+  const value = parseIdValue(raw, valueType);
+  if (value !== undefined) return value;
+  throw new Error(
+    `stringIds(): ${JSON.stringify(raw)} is not a valid id value for this field's declared type.`,
+  );
+}
+
+/**
+ * The string-id codec of a record field: wire `string | RecordId` (accepts bare ids, `table:id`,
+ * `table:⟨id⟩` and `RecordId`), app `BareId<T>` (a bare string). Its DDL type is registered as
+ * `record<…>`, so `emitTable`/`sc diff` stay byte-identical to record mode.
+ *
+ * Only single-table fields qualify: a bare app string can't name the table on encode, so multi-table
+ * (`s.recordId([A, B])`) and open (`s.recordId()`) links throw a teaching error.
+ */
+function stringIdCodec<T extends string, V extends RecordIdValue>(
+  tables: T[],
+  valueType?: z.ZodType<V>,
+): z.ZodType<BareId<T>, string | RecordId<T, V>> {
+  if (tables.length !== 1)
+    throw new Error(
+      `stringIds() needs a record field with exactly ONE target table — this field targets ${
+        tables.length === 0 ? "any table (s.recordId())" : tables.join(" | ")
+      }. A bare app string can't name the table on encode; use a single-table link (e.g. User.record().stringIds()) or keep the field in RecordId mode.`,
+    );
+  const table = tables[0] as T;
+  const record = recordIdSchema<T, V>(tables, valueType);
+  const stringMember = z.string().superRefine((text, ctx) => {
+    const parsed = parseIdString(text);
+    if (parsed.table !== undefined && parsed.table !== table) {
+      ctx.addIssue({
+        code: "custom",
+        message: `Expected record<${table}> — ${JSON.stringify(text)} names table "${parsed.table}".`,
+      });
+      return;
+    }
+    if (valueType && parseIdValue(parsed.id, valueType) === undefined)
+      ctx.addIssue({
+        code: "custom",
+        message: `Expected an id value of the declared type for record<${table}> (got ${JSON.stringify(parsed.id)}).`,
+      });
+  });
+  const wire = z.union([stringMember, record]);
+  const app = z.union([z.string(), record]);
+  const codec = z.codec(wire, app, {
+    decode: (value) =>
+      value instanceof RecordId
+        ? bareIdValue(value.id)
+        : parseIdString(value).id,
+    encode: (value) => {
+      if (value instanceof RecordId) return value as RecordId<T, V>;
+      const parsed = parseIdString(value);
+      if (parsed.table !== undefined && parsed.table !== table)
+        throw new Error(
+          `stringIds(): ${JSON.stringify(value)} is a "${parsed.table}" record id, but this field targets "${table}".`,
+        );
+      return new RecordId(
+        table,
+        idValueFromText(parsed.id, valueType),
+      ) as RecordId<T, V>;
+    },
+  });
+  surrealTypeRegistry.set(codec, `record<${table}>`);
+  return codec as unknown as z.ZodType<BareId<T>, string | RecordId<T, V>>;
+}
+
+/**
+ * The BASE schema of a record field in a mode: a `record<…>` schema, or the string-id codec. A
+ * LAZY table ref defers construction via `z.lazy` (inferField unwraps it), so the thunk runs
+ * post-module-eval; names-only entries keep the schema + its registry entry immediate.
+ */
+function recordIdBaseSchema<T extends string, V extends RecordIdValue>(
+  entries: readonly (T | LazyTableRef)[],
+  valueType: z.ZodType<V> | undefined,
+  mode: RecordIdMode,
+): z.ZodType {
+  const build = (): z.ZodType =>
+    mode === "string"
+      ? stringIdCodec<T, V>(resolveTableNames(entries), valueType)
+      : recordIdSchema<T, V>(resolveTableNames(entries), valueType);
+  return entries.some((t) => typeof t === "function") ? z.lazy(build) : build();
+}
+
+/**
+ * The Zod wrapper types a record mode survives for DETECTION (`findRecordIdField`): their inner
+ * schema is still the record core, even when they carry an app fallback value.
+ */
+const RECORD_WRAPPERS = new Set([
+  "optional",
+  "nullable",
+  "default",
+  "prefault",
+  "catch",
+  "readonly",
+  "nonoptional",
+]);
+
+/**
+ * The subset the FLIP can clone through. `default`/`prefault`/`catch` carry an APP fallback value
+ * (a `RecordId` pre-flip) that can't be remapped, so the flip refuses them with a teaching error —
+ * call `.stringIds()` BEFORE them and author the fallback as a bare string.
+ */
+const FLIP_WRAPPERS = new Set([
+  "optional",
+  "nullable",
+  "readonly",
+  "nonoptional",
+]);
+
+/**
+ * The inner schema of a container — a wrapper in `wrappers`, an `array`, or a `set` — plus the
+ * `def` key a clone must patch. `undefined` for anything else.
+ * NOTE: Zod's `array` holds its element under `element`, the `set` under `valueType`.
+ */
+function innerContainer(
+  schema: z.ZodType,
+  wrappers: ReadonlySet<string> = RECORD_WRAPPERS,
+):
+  | { inner: z.ZodType; key: "innerType" | "element" | "valueType" }
+  | undefined {
+  const def = schema._zod.def as {
+    type: string;
+    innerType?: z.ZodType;
+    element?: z.ZodType;
+    valueType?: z.ZodType;
+  };
+  if (wrappers.has(def.type))
+    return def.innerType
+      ? { inner: def.innerType, key: "innerType" }
+      : undefined;
+  if (def.type === "array")
+    return def.element ? { inner: def.element, key: "element" } : undefined;
+  if (def.type === "set")
+    return def.valueType
+      ? { inner: def.valueType, key: "valueType" }
+      : undefined;
+  return undefined;
+}
+
+/**
+ * Walk a record schema's tree, mapping the CORE `record<…>` schema at the leaves. Containers the
+ * flip can carry are cloned through; a union/intersection maps its members; an `s.object` shape
+ * recurses and re-registers its nested field metadata. One walker for BOTH flips — the identity
+ * swap (`RecordIdField.stringIds()`) and the registry-driven deep map (`TableDef.stringIds()`) — so
+ * the traversable set lives in ONE place. Anything else (`.refine()`/`.transform()`/`.default()`/…)
+ * stays unchanged, which the identity flip turns into a teaching error.
+ */
+function mapRecordSchemaTree(
+  schema: z.ZodType,
+  mapCore: (schema: z.ZodType) => { schema: z.ZodType; changed: boolean },
+): { schema: z.ZodType; changed: boolean } {
+  const core = mapCore(schema);
+  if (core.changed) return core;
+  const container = innerContainer(schema, FLIP_WRAPPERS);
+  if (container) {
+    const mapped = mapRecordSchemaTree(container.inner, mapCore);
+    if (!mapped.changed) return { schema, changed: false };
+    return {
+      schema: cloneDef(schema, { [container.key]: mapped.schema }),
+      changed: true,
+    };
+  }
+  const def = schema._zod.def as { type: string; [k: string]: unknown };
+  if (def.type === "union") {
+    const mapped = (def.options as z.ZodType[]).map((option) =>
+      mapRecordSchemaTree(option, mapCore),
+    );
+    if (!mapped.some((entry) => entry.changed))
+      return { schema, changed: false };
+    return {
+      schema: cloneDef(schema, {
+        options: mapped.map((entry) => entry.schema),
+      }),
+      changed: true,
+    };
+  }
+  if (def.type === "intersection") {
+    const left = mapRecordSchemaTree(def.left as z.ZodType, mapCore);
+    const right = mapRecordSchemaTree(def.right as z.ZodType, mapCore);
+    if (!left.changed && !right.changed) return { schema, changed: false };
+    return {
+      schema: cloneDef(schema, { left: left.schema, right: right.schema }),
+      changed: true,
+    };
+  }
+  if (def.type === "object") {
+    const fields = objectFieldsRegistry.get(schema);
+    const shape = (def.shape ?? {}) as Record<string, z.ZodType>;
+    const nextShape: Record<string, z.ZodType> = {};
+    const nextFields: Record<string, AnyField> = {};
+    let changed = false;
+    for (const [key, child] of Object.entries(shape)) {
+      const childField = fields?.[key];
+      const mapped = mapRecordSchemaTree(childField?.schema ?? child, mapCore);
+      // A nested field's DDL metadata ($default/$assert/…) rides along with its mapped schema.
+      if (childField)
+        nextFields[key] = mapped.changed
+          ? new SField(mapped.schema, childField.surreal)
+          : childField;
+      nextShape[key] = mapped.schema;
+      if (mapped.changed) changed = true;
+    }
+    if (!changed) return { schema, changed: false };
+    const next = cloneDef(schema, { shape: nextShape });
+    if (fields) {
+      const registered: Record<string, AnyField> = {};
+      for (const [key, child] of Object.entries(nextShape))
+        registered[key] = nextFields[key] ?? fields[key] ?? new SField(child);
+      objectFieldsRegistry.set(next, registered);
+    }
+    return { schema: next, changed: true };
+  }
+  return { schema, changed: false };
+}
+
+/** The {@link RecordIdField} behind a schema (identity wrappers/arrays included), if any. */
+function findRecordIdField(
+  schema: z.ZodType,
+): RecordIdField<string, RecordIdValue, RecordIdMode> | undefined {
+  const field = recordIdFieldRegistry.get(schema);
+  if (field) return field;
+  const container = innerContainer(schema);
+  return container ? findRecordIdField(container.inner) : undefined;
+}
+
+/** The init of a {@link RecordIdField} — the plumbing `s.recordId()`/`TableDef.record()` fill in. */
+export interface RecordIdFieldInit<
+  T extends string,
+  V extends RecordIdValue,
+  M extends RecordIdMode,
+> {
+  /** The declared id VALUE type (`s.recordId(t).type(s.int())`). */
+  readonly valueType?: z.ZodType<V>;
+  readonly surreal?: SurrealMeta;
+  /** The wrapped schema a rebuild carries (refine/optional/…); defaults to the mode's base. */
+  readonly schema?: RecordIdSchemaOf<T, V, M>;
+  /** `record` (app `RecordId`) or `string` (app bare string). */
+  readonly mode?: M;
+  /** The CORE schema carried across rebuilds, so `stringIds()` can swap it by identity. */
+  readonly base?: z.ZodType;
+}
+
+/** A `record<…>` field: table restriction (+ optional id-value type) and construction helpers. */
+export class RecordIdField<
+  T extends string,
+  V extends RecordIdValue = RecordIdValue,
+  M extends RecordIdMode = "record",
+> extends SField<RecordIdSchemaOf<T, V, M>> {
+  /** The raw entries (names and/or lazy refs) — kept unresolved so laziness survives `rebuild`. */
+  private readonly entries: readonly (T | LazyTableRef)[];
+  /** The CORE schema the wrappers wrap — `stringIds()` swaps it by identity. */
+  private readonly baseSchema: z.ZodType;
+  /** The id mode: `record` (app `RecordId`) or `string` (app bare string). */
+  readonly mode: M;
+  /** The declared id VALUE type, when the field narrowed it via `.type()`. */
+  readonly valueType?: z.ZodType<V>;
+
+  constructor(
+    tables: readonly (T | LazyTableRef)[],
+    init: RecordIdFieldInit<T, V, M> = {},
+  ) {
+    const base =
+      init.base ??
+      recordIdBaseSchema(tables, init.valueType, init.mode ?? "record");
+    super((init.schema ?? base) as RecordIdSchemaOf<T, V, M>, init.surreal);
+    this.entries = tables;
+    this.baseSchema = base;
+    // `M` may be a broad `RecordIdMode` (AnyTable); the default is `record`.
+    this.mode = (init.mode ?? "record") as M;
+    this.valueType = init.valueType;
+    recordIdFieldRegistry.set(this.schema, this);
+  }
+
+  /** The restricted table names — lazy refs resolve here (post-module-eval). */
+  get tables(): T[] {
+    return resolveTableNames(this.entries);
+  }
+
+  /**
+   * Switch this record field to string-id mode: the APP value becomes a bare string (`01M…`) and
+   * the wire/input accepts `string | RecordId`; the emitted DDL is unchanged (`record<…>`). Only
+   * single-table fields qualify — a multi-table/open link throws (a bare string can't name the
+   * table on encode). Idempotent.
+   */
+  stringIds(): RecordIdField<T, V, "string"> {
+    if (this.mode === "string")
+      return this as unknown as RecordIdField<T, V, "string">;
+    const nextBase = recordIdBaseSchema(this.entries, this.valueType, "string");
+    const flipped = mapRecordSchemaTree(this.schema, (schema) =>
+      schema === this.baseSchema
+        ? { schema: nextBase, changed: true }
+        : { schema, changed: false },
+    );
+    // An unchanged tree means a wrapper the flip can't carry — `.refine()`/`.transform()`/
+    // `.pipe()` (behavior) or `.default()`/`.catch()` (fallback values) — teaching error instead
+    // of a silent record-mode field.
+    if (!flipped.changed)
+      throw new Error(
+        "stringIds() must be called before app-side schema wrappers (.refine()/.check()/.transform()/.pipe()/.default()/.catch()/…): they carry behavior or fallback values tied to the RecordId form — author them after .stringIds() with bare-string values.",
+      );
+    return new RecordIdField<T, V, "string">(this.entries, {
+      valueType: this.valueType,
+      surreal: this.surreal,
+      schema: flipped.schema as RecordIdSchemaOf<T, V, "string">,
+      mode: "string",
+      base: nextBase,
+    });
+  }
+
+  // The base `this`-returning wrappers (refine/superRefine/check/…) construct via `rebuild`. SField's
+  // rebuild makes a plain SField, which would make `this` (typed RecordIdField) a LIE at runtime —
+  // `s.recordId("x").refine(p).for(id)` would crash. Override so those chains stay a RecordIdField
+  // (the schema-CHANGING wrappers like `.optional()` still narrow to SField via SField's overrides).
+  protected override rebuild<S2 extends z.ZodType, F2 extends string>(
+    schema: S2,
+    native: SurrealMeta,
+  ): SField<S2, F2> {
+    return new RecordIdField<T, V, M>(this.entries, {
+      valueType: this.valueType,
+      surreal: native,
+      schema: schema as unknown as RecordIdSchemaOf<T, V, M>,
+      mode: this.mode,
+      base: this.baseSchema,
+    }) as unknown as SField<S2, F2>;
+  }
+
+  /** Restrict the id value's type — reflected as `RecordId<T, V>`/`BareId<T>` and validated at runtime. */
+  type<V2 extends RecordIdValue>(
+    schema: z.ZodType<V2>,
+  ): RecordIdField<T, V2, M> {
+    return new RecordIdField<T, V2, M>(this.entries, {
+      valueType: schema,
+      surreal: this.surreal,
+      mode: this.mode,
+    });
+  }
+
+  /** Build a RecordId from LOCAL DATA (the Zod-side value helper). Single-table: `for(id)`;
+   *  multi-table: `for(table, id)`. Query-time REFERENCES (`e.after.id`, block vars) are not
+   *  values — those throw guidance toward `surql.record(Table, [e.after.id])`, the fragment
+   *  spelling. */
+  for(idOrTable: V | T, id?: V): RecordId<T, V> {
+    if (hasRefDeep(id === undefined ? idOrTable : id))
+      throw new Error(
+        `${this.tables[0]}.record().for(...) builds a RecordId from LOCAL VALUES — a query-time reference can't be one. For a spliced record id in a query/event, use surql.record(Table, [e.after.id]).`,
+      );
+    return (
+      id === undefined
+        ? new RecordId(this.tables[0]!, idOrTable as V)
+        : new RecordId(idOrTable as T, id)
+    ) as RecordId<T, V>;
+  }
+
+  /** A record-id range for queries (default: inclusive start .. exclusive end). */
+  range(from?: V | Bound<V>, to?: V | Bound<V>): RecordIdRange<T, V> {
+    // `undefined` -> an open bound (`user:..x` / `user:x..`); otherwise wrap the value
+    // (default inclusive start, exclusive end). Pass a Bound to override inclusivity.
+    const bound = (b: V | Bound<V> | undefined, exclusive: boolean) =>
+      b === undefined
+        ? undefined
+        : b instanceof BoundIncluded || b instanceof BoundExcluded
+          ? b
+          : exclusive
+            ? new BoundExcluded(b)
+            : new BoundIncluded(b);
+    return new RecordIdRange(
+      this.tables[0]!,
+      bound(from, false) as Bound<RecordIdValue>,
+      bound(to, true) as Bound<RecordIdValue>,
+    ) as RecordIdRange<T, V>;
+  }
+}
+
+/** Unwrap an SField to its Zod schema (raw Zod schemas pass through). */
+const toZod = (v: AnyField | z.ZodType): z.ZodType =>
+  v instanceof SField ? v.schema : v;
+
+/**
+ * Internal `Flags` brand for a field with no SurrealQL mapping. It rides the `Flags` channel,
+ * so it survives every wrapper (`.optional()`/`.array()`/…); `defineTable`/`defineRelation`
+ * reject a branded field at compile time, and `.$surreal(...)` clears it. (Runtime `inferField`
+ * is the backstop for nested/dynamic shapes.)
+ */
+type NoDdl = "~no-ddl";
+const noDdl = <S extends z.ZodType>(f: SField<S>): SField<S, NoDdl> =>
+  f as SField<S, NoDdl>;
+type ZodsOf<T extends readonly (AnyField | z.ZodType)[]> = {
+  -readonly [K in keyof T]: SchemaOf<T[K]>;
+};
+
+/** Lift a `Shape` to its `{ zshape, fields }` — raw Zod values get a bare `SField`. Shared by
+ *  `s.object` and {@link SObjectField}'s composition methods so both register the same per-field map. */
+function liftShape(shape: Shape): {
+  zshape: Record<string, z.ZodType>;
+  fields: Record<string, AnyField>;
+} {
+  const zshape: Record<string, z.ZodType> = {};
+  const fields: Record<string, AnyField> = {};
+  for (const [k, v] of Object.entries(shape)) {
+    const f = v instanceof SField ? v : new SField(v);
+    fields[k] = f;
+    zshape[k] = f.schema;
+  }
+  return { zshape, fields };
+}
+
+/**
+ * The composable object field returned by {@link s.object}. Mirrors Zod's `ZodObject`:
+ * the composition methods (`.extend`/`.pick`/`.omit`/…) live on
+ * THIS subclass, not the base `SField`, so the base + `AnyField` stay free of the generic-return methods
+ * that would break structural assignability (see the SFieldBase-unification catch-22). Each method
+ * forwards to the inner `z.object`, re-registers the `objectFieldsRegistry` entry (so nested DDL keeps
+ * each field's `$default`/`$assert`/… clauses), and re-wraps as an `SObjectField` so the chain stays
+ * composable + precisely typed.
+ */
+export class SObjectField<
+  S extends Shape = Shape,
+  Flags extends string = never,
+> extends SField<SZObject<S>, Flags> {
+  // Object-producing ops (incl. the inherited .loose()/.strict()/.flexible()) stay an SObjectField;
+  // anything else (.optional()/.array()/…) degrades to a base SField, matching the wrapper's type.
+  protected rebuild<S2 extends z.ZodType, F2 extends string>(
+    schema: S2,
+    native: SurrealMeta,
+  ): SField<S2, F2> {
+    if (schema instanceof z.ZodObject) {
+      const fields = objectFieldsRegistry.get(this.schema);
+      if (fields) objectFieldsRegistry.set(schema, fields);
+      return new SObjectField(
+        schema as unknown as SZObject<Shape>,
+        native,
+      ) as unknown as SField<S2, F2>;
+    }
+    return new SField<S2, F2>(schema, native);
+  }
+
+  /** This object's native per-field SField map — the real fields (with their SurrealDB DDL metadata),
+   *  the inverse of {@link SObjectField.shape} (which returns the erased Zod shape). Stays in sync
+   *  through `.extend`/`.merge`/`.pick`/`.omit`/`.partial`, and can be fed straight into
+   *  {@link defineTable} (e.g. to compose base/meta columns). */
+  get fields(): S {
+    return this.sourceFields as unknown as S;
+  }
+
+  /** The strict-typed field map (values are `AnyField`) used by the composition methods below —
+   *  `.fields` is the same map, typed as the object's `S` for the public API. */
+  private get sourceFields(): Record<string, AnyField> {
+    return objectFieldsRegistry.get(this.schema) ?? {};
+  }
+
+  /** Re-register `fields` for `schema` and wrap it as a new `SObjectField`. */
+  private wrap<S2 extends Shape>(
+    schema: z.ZodObject<z.ZodRawShape>,
+    fields: Record<string, AnyField>,
+  ): SObjectField<S2, Flags> {
+    objectFieldsRegistry.set(schema, fields);
+    return new SObjectField<S2, Flags>(
+      schema as unknown as SZObject<S2>,
+      this.native,
+    );
+  }
+
+  /** Add/override fields. Accepts fields OR raw Zod, exactly like `s.object`. */
+  extend<T extends Shape>(shape: T): SObjectField<Omit<S, keyof T> & T, Flags> {
+    const { zshape, fields } = liftShape(shape);
+    return this.wrap(this.schema.extend(zshape), {
+      ...this.sourceFields,
+      ...fields,
+    });
+  }
+
+  /** Merge another object field's shape in (its fields win on conflict). */
+  merge<T extends Shape>(
+    other: SObjectField<T>,
+  ): SObjectField<Omit<S, keyof T> & T, Flags> {
+    return this.wrap(this.schema.extend(other.schema.shape), {
+      ...this.sourceFields,
+      ...other.sourceFields,
+    });
+  }
+
+  /** Keep only the masked keys. */
+  pick<M extends { readonly [K in keyof S]?: true }>(
+    mask: M,
+  ): SObjectField<Pick<S, keyof M & keyof S>, Flags> {
+    const keep = new Set(Object.keys(mask));
+    const fields = Object.fromEntries(
+      Object.entries(this.sourceFields).filter(([k]) => keep.has(k)),
+    );
+    return this.wrap(this.schema.pick(mask as never), fields);
+  }
+
+  /** Drop the masked keys. */
+  omit<M extends { readonly [K in keyof S]?: true }>(
+    mask: M,
+  ): SObjectField<Omit<S, keyof M>, Flags> {
+    const drop = new Set(Object.keys(mask));
+    const fields = Object.fromEntries(
+      Object.entries(this.sourceFields).filter(([k]) => !drop.has(k)),
+    );
+    return this.wrap(this.schema.omit(mask as never), fields);
+  }
+
+  /** Make all fields optional. */
+  partial(): SObjectField<PartialShape<S>, Flags> {
+    return this.wrap(this.schema.partial(), this.sourceFields);
+  }
+
+  /** Make all fields required. */
+  required(): SObjectField<RequiredShape<S>, Flags> {
+    return this.wrap(this.schema.required(), this.sourceFields);
+  }
+
+  /** Type unknown keys with a schema (field OR raw Zod) — an `unknown` catchall emits `FLEXIBLE`. */
+  catchall<C extends AnyField | z.ZodType>(schema: C): SObjectField<S, Flags> {
+    return this.wrap(this.schema.catchall(toZod(schema)), this.sourceFields);
+  }
+
+  /** Allow arbitrary extra keys (`FLEXIBLE`) — alias for the inherited {@link SField.flexible}. */
+  passthrough(): this {
+    return (this as SObjectField<S, Flags>).flexible() as this;
+  }
+
+  /** A `ZodEnum` of this object's keys (degrades to a base `SField`, mirroring Zod's `.keyof()`). */
+  keyof(): SField<ReturnType<z.ZodObject<ZShape<S>>["keyof"]>> {
+    return new SField(this.schema.keyof());
+  }
+
+  /** The object's Zod field shape (mirrors Zod's `.shape`). */
+  get shape(): ZShape<S> {
+    return this.schema.shape as ZShape<S>;
+  }
+}
+
+/**
+ * The enum field returned by {@link s.enum}. Adds Zod's `.exclude`/`.extract` to derive a narrower enum
+ * (the App type narrows; the column stays `string`). Methods live on this subclass (mirrors
+ * {@link SObjectField}), so the base `SField` + `AnyField` are untouched.
+ */
+export class SEnumField<
+  T extends Record<string, string> = Record<string, string>,
+  Flags extends string = never,
+> extends SField<z.ZodEnum<T>, Flags> {
+  /** Derive an enum without the given members. */
+  exclude<const U extends readonly (keyof T)[]>(
+    values: U,
+    params?: unknown,
+  ): SEnumField<Omit<T, U[number]>, Flags> {
+    return new SEnumField(
+      this.schema.exclude(values, params as never) as never,
+      this.native,
+    );
+  }
+  /** Derive an enum keeping only the given members. */
+  extract<const U extends readonly (keyof T)[]>(
+    values: U,
+    params?: unknown,
+  ): SEnumField<Pick<T, U[number]>, Flags> {
+    return new SEnumField(
+      this.schema.extract(values, params as never) as never,
+      this.native,
+    );
+  }
+}
+
+/** Field constructors — the authoring surface. */
+/**
+ * `s.recordId(table?)` — the `record<…>` link field. A standalone generic function (not an inline
+ * arrow in the `s` literal) so `RecordRefName<T>`'s inference never resolves through the very
+ * object literal it is being inferred for.
+ */
+function recordIdField<
+  T extends string | AnyTable | (() => AnyTable),
+>(table?: T | readonly T[]): RecordIdField<RecordRefName<T>> {
+  const targets = (
+    table === undefined ? [] : Array.isArray(table) ? table : [table]
+  ) as readonly (string | (() => unknown) | { readonly name: string })[];
+  return new RecordIdField<RecordRefName<T>>(
+    targets.map((t) =>
+      typeof t === "string" || typeof t === "function" ? t : t.name,
+    ) as (RecordRefName<T> | (() => AnyTable))[],
+  );
+}
+
+export const s = {
+  string: () => new SField(z.string()),
+  number: () => new SField(z.number()),
+  boolean: () => new SField(z.boolean()),
+  // String formats — all map to DDL `string` (their Zod def.type is "string"). Builders
+  // whose `string::is_<fmt>` validator exists on SurrealDB bake that ASSERT by default
+  // (see STRING_IS_FORMATS); the rest stay assert-free (no fabricated regex).
+  email: () => formatField(z.email(), "email"),
+  url: (params?: Parameters<typeof z.url>[0]) =>
+    formatField(z.url(params), "url"),
+  /** Surreal native `uuid`: a `string` app-side, stored as a `Uuid` (no ASSERT — native type). */
+  uuid: () => new SField(uuidCodec()),
+  guid: (params?: Parameters<typeof z.guid>[0]) =>
+    formatField(z.guid(params), "guid"),
+  nanoid: (params?: Parameters<typeof z.nanoid>[0]) =>
+    formatField(z.nanoid(params), "nanoid"),
+  cuid: (params?: Parameters<typeof z.cuid>[0]) =>
+    formatField(z.cuid(params), "cuid"),
+  cuid2: (params?: Parameters<typeof z.cuid2>[0]) =>
+    formatField(z.cuid2(params), "cuid2"),
+  ulid: (params?: Parameters<typeof z.ulid>[0]) =>
+    formatField(z.ulid(params), "ulid"),
+  xid: (params?: Parameters<typeof z.xid>[0]) =>
+    formatField(z.xid(params), "xid"),
+  ksuid: (params?: Parameters<typeof z.ksuid>[0]) =>
+    formatField(z.ksuid(params), "ksuid"),
+  ipv4: (params?: Parameters<typeof z.ipv4>[0]) =>
+    formatField(z.ipv4(params), "ipv4"),
+  ipv6: (params?: Parameters<typeof z.ipv6>[0]) =>
+    formatField(z.ipv6(params), "ipv6"),
+  cidrv4: (params?: Parameters<typeof z.cidrv4>[0]) =>
+    formatField(z.cidrv4(params), "cidrv4"),
+  cidrv6: (params?: Parameters<typeof z.cidrv6>[0]) =>
+    formatField(z.cidrv6(params), "cidrv6"),
+  base64: (params?: Parameters<typeof z.base64>[0]) =>
+    formatField(z.base64(params), "base64"),
+  base64url: (params?: Parameters<typeof z.base64url>[0]) =>
+    formatField(z.base64url(params), "base64url"),
+  e164: (params?: Parameters<typeof z.e164>[0]) =>
+    formatField(z.e164(params), "e164"),
+  jwt: (params?: Parameters<typeof z.jwt>[0]) =>
+    formatField(z.jwt(params), "jwt"),
+  emoji: (params?: Parameters<typeof z.emoji>[0]) =>
+    formatField(z.emoji(params), "emoji"),
+  /** A v7 UUID string (app-side format; no `string::is_*` validator for v7, so assert-free). */
+  uuidv7: (params?: Parameters<typeof z.uuidv7>[0]) =>
+    formatField(z.uuidv7(params), "uuidv7"),
+  /** An `http`/`https` URL string (stricter than {@link s.url}; app-side, assert-free). */
+  httpUrl: (params?: Parameters<typeof z.httpUrl>[0]) =>
+    formatField(z.httpUrl(params), "httpUrl"),
+  /** A v4 UUID string (app-side; assert-free). */
+  uuidv4: (params?: Parameters<typeof z.uuidv4>[0]) =>
+    formatField(z.uuidv4(params), "uuidv4"),
+  /** A v6 UUID string (app-side; assert-free). */
+  uuidv6: (params?: Parameters<typeof z.uuidv6>[0]) =>
+    formatField(z.uuidv6(params), "uuidv6"),
+  /** A hostname string (app-side; assert-free). */
+  hostname: (params?: Parameters<typeof z.hostname>[0]) =>
+    formatField(z.hostname(params), "hostname"),
+  /** A hex string (app-side; assert-free). */
+  hex: (params?: Parameters<typeof z.hex>[0]) =>
+    formatField(z.hex(params), "hex"),
+  /** A MAC-address string (app-side; assert-free). */
+  mac: (params?: Parameters<typeof z.mac>[0]) =>
+    formatField(z.mac(params), "mac"),
+  /** A hash string for the given algorithm, e.g. `s.hash("sha256")` (app-side; assert-free). */
+  hash: (
+    alg: Parameters<typeof z.hash>[0],
+    params?: Parameters<typeof z.hash>[1],
+  ) => formatField(z.hash(alg, params), "hash"),
+
+  // String fields validated by SurrealDB's `string::is_*` (no Zod format — plain string
+  // app-side, the baked ASSERT enforces the format in the DB).
+  alpha: () => formatField(z.string(), "alpha"),
+  alphanum: () => formatField(z.string(), "alphanum"),
+  ascii: () => formatField(z.string(), "ascii"),
+  numeric: () => formatField(z.string(), "numeric"),
+  semver: () => formatField(z.string(), "semver"),
+  hexadecimal: () => formatField(z.string(), "hexadecimal"),
+  latitude: () => formatField(z.string(), "latitude"),
+  longitude: () => formatField(z.string(), "longitude"),
+  ip: () => formatField(z.string(), "ip"),
+  domain: () => formatField(z.string(), "domain"),
+
+  // Numbers. int/int32/uint32 -> DDL `int`; float -> DDL `float` (def.format-driven).
+  int: (params?: Parameters<typeof z.int>[0]) => new SField(z.int(params)),
+  float: (params?: Parameters<typeof z.float64>[0]) =>
+    new SField(z.float64(params)),
+  int32: (params?: Parameters<typeof z.int32>[0]) =>
+    new SField(z.int32(params)),
+  uint32: (params?: Parameters<typeof z.uint32>[0]) =>
+    new SField(z.uint32(params)),
+  bigint: (params?: Parameters<typeof z.bigint>[0]) =>
+    new SField(bigintCodec(z.bigint(params))),
+  /** A 32-bit float (app-side range-checked) — DDL `float`. */
+  float32: (params?: Parameters<typeof z.float32>[0]) =>
+    new SField(z.float32(params)),
+  /** A 64-bit float — DDL `float` (synonym of {@link s.float}). */
+  float64: (params?: Parameters<typeof z.float64>[0]) =>
+    new SField(z.float64(params)),
+  /** A 64-bit signed integer (app `bigint`) — DDL `int`. */
+  int64: (params?: Parameters<typeof z.int64>[0]) =>
+    new SField(bigintCodec(z.int64(params))),
+  /** A 64-bit unsigned integer (app `bigint`, non-negative) — DDL `int`. */
+  uint64: (params?: Parameters<typeof z.uint64>[0]) =>
+    new SField(bigintCodec(z.uint64(params))),
+
+  datetime: () => new SField(datetimeCodec()),
+  /** Alias of `datetime` (Surreal stores a `datetime`; there is no plain date). */
+  date: () => new SField(datetimeCodec()),
+  /** Surreal `duration` (a `Duration` instance). */
+  duration: () => new SField(native(z.instanceof(Duration), "duration")),
+  /** ISO-8601 STRING formats (Zod `z.iso.*`) — app-side validated, stored as `string`. Distinct from
+   *  the native `s.datetime`/`s.duration` codecs, which use SurrealDB's `datetime`/`duration` types. */
+  iso: {
+    date: (params?: Parameters<typeof z.iso.date>[0]) =>
+      formatField(z.iso.date(params), "isoDate"),
+    time: (params?: Parameters<typeof z.iso.time>[0]) =>
+      formatField(z.iso.time(params), "isoTime"),
+    datetime: (params?: Parameters<typeof z.iso.datetime>[0]) =>
+      formatField(z.iso.datetime(params), "isoDatetime"),
+    duration: (params?: Parameters<typeof z.iso.duration>[0]) =>
+      formatField(z.iso.duration(params), "isoDuration"),
+  },
+  /** Surreal `decimal` (a `Decimal` instance — arbitrary precision). */
+  decimal: () => new SField(native(z.instanceof(Decimal), "decimal")),
+  /** Surreal `bytes` (a `Uint8Array`). */
+  bytes: () => new SField(bytesCodec()),
+  /** Surreal `file` (a `FileRef`). */
+  file: () => new SField(native(z.instanceof(FileRef), "file")),
+  /** Surreal `geometry` (a `Geometry`), optionally narrowed to a kind. */
+  geometry: (kind?: GeometryKind) =>
+    new SField(
+      native(z.instanceof(Geometry), kind ? `geometry<${kind}>` : "geometry"),
+    ),
+  /**
+   * Surreal `range` (a `Range`) — an interval value like `1..=10`. Build one with the SDK's
+   * `new Range(new BoundIncluded(1), new BoundExcluded(10))`. SurrealDB's `range` carries no element
+   * type (the grammar's `range<T>` does not parse on 3.x), so this takes no argument.
+   */
+  range: () => new SField(native(z.instanceof(SurrealRange), "range")),
+  /**
+   * A `record<…>` link. Pass a table name, the imported `TableDef`/`RelationDef`, a LAZY ref
+   * (`() => User` — resolved post-module-eval, so mutually-linked tables in separate modules never
+   * import-cycle), or an array mixing any of those for a multi-table union — `s.recordId(User)`,
+   * `s.recordId(() => User)`, `s.recordId([User, () => Service])`. (For a single-table link
+   * `User.record()` is preferred: it also carries the id value type AND the string-id mode.)
+   *
+   * Called with NO argument — `s.recordId()` — it emits a bare `record` (a link to ANY table), since a
+   * record id's table is optional in SurrealDB.
+   *
+   * `.stringIds()` switches the field to string-id mode: the APP value is a bare string (`01M…`),
+   * the wire accepts `string | RecordId`, and the emitted DDL is unchanged. Single-table links only
+   * (a bare string can't name the table on encode); see {@link RecordIdField.stringIds}.
+   */
+  recordId: recordIdField,
+  /**
+   * A nested object whose fields keep their surreal metadata + native types. The returned
+   * schema TYPE carries the original shape `S` via the `~szShape` brand (type-only — runtime
+   * is unchanged) so `CreateValue`/`ShapeOf` can recover the nested fields' create-flags
+   * (e.g. a nested `$default`) and make them create-optional. The brand survives every
+   * `$`-method and Zod wrapper (`.optional()`/`.array()`/`.$default()`), which all reuse
+   * `this.schema`.
+   */
+  object: <S extends Shape>(shape: S): SObjectField<S> => {
+    const { zshape, fields } = liftShape(shape);
+    const schema = z.object(zshape) as SZObject<S>;
+    objectFieldsRegistry.set(schema, fields);
+    return new SObjectField<S>(schema);
+  },
+  /** Like {@link s.object} but rejects unknown keys (the default already; Zod-parity factory). */
+  strictObject: <S extends Shape>(shape: S): SObjectField<S> => {
+    const { zshape, fields } = liftShape(shape);
+    const schema = z.object(zshape) as SZObject<S>;
+    objectFieldsRegistry.set(schema, fields);
+    return new SObjectField<S>(schema).strict();
+  },
+  /** Like {@link s.object} but allows arbitrary extra keys — emits `FLEXIBLE` (Zod-parity factory). */
+  looseObject: <S extends Shape>(shape: S): SObjectField<S> => {
+    const { zshape, fields } = liftShape(shape);
+    const schema = z.object(zshape) as SZObject<S>;
+    objectFieldsRegistry.set(schema, fields);
+    return new SObjectField<S>(schema).loose();
+  },
+  /** Any JSON value (recursive: string/number/bool/null/array/object) — the DDL is the JSON union. */
+  json: () => new SField(z.json()),
+  /** A CODEC: app-side `boolean`, wire/DB `string` (Zod `z.stringbool`). DDL is `string` (the DB form). */
+  stringbool: (params?: Parameters<typeof z.stringbool>[0]) =>
+    new SField(z.stringbool(params)),
+  /** The Zod-native general codec: app = `app` output, wire/DB = `wire` input; DDL from the WIRE schema. */
+  codec: <A extends z.ZodType, B extends z.ZodType>(
+    wire: A,
+    app: B,
+    params: Parameters<typeof z.codec<A, B>>[2],
+  ) => new SField(z.codec(wire, app, params)),
+  /** An array of `element`. `opts.max` bounds the length (`ASSERT array::len($value) <= N`); for an
+   *  EXACT `array<T, N>` use `.length(N)` / `.$length(N)`. */
+  array: <F extends AnyField | z.ZodType>(
+    element: F,
+    opts?: { max?: number },
+  ): SField<z.ZodArray<SchemaOf<F>>> => {
+    const base = (
+      element instanceof SField ? element : new SField(element)
+    ).array() as SField<z.ZodArray<SchemaOf<F>>>;
+    return opts?.max === undefined ? base : base.$max(opts.max);
+  },
+  /** A literal value type. */
+  literal: <const T extends string | number | boolean | bigint>(value: T) =>
+    new SField(z.literal(value)),
+  /** A string enum. */
+  enum: <const T extends readonly [string, ...string[]]>(values: T) =>
+    new SEnumField(z.enum(values)),
+  /** A union of fields/schemas. */
+  union: <
+    const T extends readonly [
+      AnyField | z.ZodType,
+      ...(AnyField | z.ZodType)[],
+    ],
+  >(
+    options: T,
+  ): SField<z.ZodUnion<ZodsOf<T>>> =>
+    new SField(z.union(options.map(toZod) as ZodsOf<T>)),
+  /** An EXCLUSIVE union (Zod `z.xor`) — exactly one option may match. DDL is the union of the options
+   *  (SurrealDB can't express "exactly one" in DDL; the exclusivity is enforced app-side). */
+  xor: <
+    const T extends readonly [
+      AnyField | z.ZodType,
+      ...(AnyField | z.ZodType)[],
+    ],
+  >(
+    options: T,
+  ) => new SField(z.xor(options.map(toZod) as ZodsOf<T>)),
+  /** A fixed-length tuple of fields/schemas. */
+  tuple: <
+    const T extends readonly [
+      AnyField | z.ZodType,
+      ...(AnyField | z.ZodType)[],
+    ],
+  >(
+    items: T,
+  ): SField<z.ZodTuple<ZodsOf<T>>> =>
+    new SField(z.tuple(items.map(toZod) as ZodsOf<T>)),
+
+  /** An open-keyed record `record<key, value>` -> SurrealQL `object` with a `.*` value field. */
+  record: <K extends z.core.$ZodRecordKey, V extends AnyField | z.ZodType>(
+    key: K,
+    value: V,
+  ): SField<z.ZodRecord<K, SchemaOf<V>>> =>
+    new SField(z.record(key, toZod(value) as SchemaOf<V>)),
+  /** A `Map<key, value>` -> SurrealQL `object` with a `.*` value field. */
+  map: <K extends AnyField | z.ZodType, V extends AnyField | z.ZodType>(
+    key: K,
+    value: V,
+  ): SField<z.ZodMap<SchemaOf<K>, SchemaOf<V>>> =>
+    new SField(z.map(toZod(key) as SchemaOf<K>, toZod(value) as SchemaOf<V>)),
+  /** A partial open-keyed record (all values optional; Zod `z.partialRecord`) -> SurrealQL `object`. */
+  partialRecord: <
+    K extends z.core.$ZodRecordKey,
+    V extends AnyField | z.ZodType,
+  >(
+    key: K,
+    value: V,
+  ) => new SField(z.partialRecord(key, toZod(value) as SchemaOf<V>)),
+  /** A loose open-keyed record (extra keys allowed; Zod `z.looseRecord`) -> SurrealQL `object`. */
+  looseRecord: <K extends z.core.$ZodRecordKey, V extends AnyField | z.ZodType>(
+    key: K,
+    value: V,
+  ) => new SField(z.looseRecord(key, toZod(value) as SchemaOf<V>)),
+  /** A `Set<element>` -> SurrealQL `set<element>`. `opts.max` bounds the size
+   *  (`ASSERT array::len($value) <= N`); for an EXACT `set<T, N>` use `.size(N)` / `.$size(N)`. */
+  set: <V extends AnyField | z.ZodType>(
+    element: V,
+    opts?: { max?: number },
+  ): SField<z.ZodSet<SchemaOf<V>>> => {
+    const base = new SField(z.set(toZod(element) as SchemaOf<V>)) as SField<
+      z.ZodSet<SchemaOf<V>>
+    >;
+    return opts?.max === undefined ? base : base.$max(opts.max);
+  },
+  /** The intersection of two schemas (object fields are merged in DDL). */
+  intersection: <
+    A extends AnyField | z.ZodType,
+    B extends AnyField | z.ZodType,
+  >(
+    a: A,
+    b: B,
+  ): SField<z.ZodIntersection<SchemaOf<A>, SchemaOf<B>>> =>
+    new SField(
+      z.intersection(toZod(a) as SchemaOf<A>, toZod(b) as SchemaOf<B>),
+    ),
+  /** A lazily-resolved schema/field (for recursive types). */
+  lazy: <V extends AnyField | z.ZodType>(
+    getter: () => V,
+  ): SField<z.ZodLazy<SchemaOf<V>>> =>
+    new SField(z.lazy(() => toZod(getter()) as SchemaOf<V>)),
+
+  /** A custom string format (Zod `z.stringFormat`) — app-side validated, DDL `string`. */
+  stringFormat: (...args: Parameters<typeof z.stringFormat>) =>
+    new SField(z.stringFormat(...args)),
+  /** A template-literal string (Zod `z.templateLiteral`) — app-side validated, DDL `string`. */
+  templateLiteral: (...args: Parameters<typeof z.templateLiteral>) =>
+    new SField(z.templateLiteral(...args)),
+  /** An enum of an object's keys (Zod `z.keyof`) — accepts an `s.object()` field or a raw `z.object`. */
+  keyof: (obj: SObjectField | z.ZodObject) =>
+    new SField(
+      z.keyof(obj instanceof SField ? (obj.schema as z.ZodObject) : obj),
+    ),
+  /** Preprocess the input before validation (Zod `z.preprocess`) — app-side only, no DDL constraint. */
+  preprocess: <V extends AnyField | z.ZodType>(
+    fn: (arg: unknown) => unknown,
+    schema: V,
+  ) => new SField(z.preprocess(fn, toZod(schema) as SchemaOf<V>)),
+
+  /** A native TS enum — string or numeric (numeric reverse-mappings are filtered out). */
+  nativeEnum: <const T extends Record<string, string | number>>(entries: T) =>
+    new SField(z.nativeEnum(entries)),
+  /** A discriminated union of object schemas/fields -> DDL `object`. */
+  discriminatedUnion: <
+    Disc extends string,
+    const T extends readonly [
+      AnyField | z.ZodType,
+      ...(AnyField | z.ZodType)[],
+    ],
+  >(
+    discriminator: Disc,
+    options: T,
+  ): SField<z.ZodDiscriminatedUnion<ZodsOf<T>, Disc>> =>
+    new SField(
+      z.discriminatedUnion(
+        discriminator,
+        options.map(toZod) as never,
+      ) as unknown as z.ZodDiscriminatedUnion<ZodsOf<T>, Disc>,
+    ),
+
+  /** Wrap a field/schema as optional (constructor form of `.optional()`). */
+  optional: <F extends AnyField | z.ZodType>(
+    field: F,
+  ): SField<z.ZodOptional<SchemaOf<F>>, FlagsOf<F>> =>
+    (field instanceof SField ? field : new SField(field)).optional() as SField<
+      z.ZodOptional<SchemaOf<F>>,
+      FlagsOf<F>
+    >,
+  /** Wrap a field/schema as nullable (constructor form of `.nullable()`). */
+  nullable: <F extends AnyField | z.ZodType>(
+    field: F,
+  ): SField<z.ZodNullable<SchemaOf<F>>, FlagsOf<F>> =>
+    (field instanceof SField ? field : new SField(field)).nullable() as SField<
+      z.ZodNullable<SchemaOf<F>>,
+      FlagsOf<F>
+    >,
+
+  /** Optional **and** nullable — Zod's `nullish`. */
+  nullish: <F extends AnyField | z.ZodType>(
+    field: F,
+  ): SField<z.ZodNullable<z.ZodOptional<SchemaOf<F>>>, FlagsOf<F>> => {
+    const f = field instanceof SField ? field : new SField(field);
+    return f.optional().nullable() as SField<
+      z.ZodNullable<z.ZodOptional<SchemaOf<F>>>,
+      FlagsOf<F>
+    >;
+  },
+
+  /**
+   * Zod-style coercion. Each maps to the **same** SurrealQL type as its non-coerced builder —
+   * coercion only loosens the app/input side; the DB/wire type is unchanged.
+   */
+  coerce: {
+    string: () => new SField(z.coerce.string()),
+    number: () => new SField(z.coerce.number()),
+    boolean: () => new SField(z.coerce.boolean()),
+    bigint: () => new SField(z.coerce.bigint()),
+    date: () => new SField(coercedDatetimeCodec()),
+  },
+
+  // Catch-alls.
+  any: () => new SField(z.any()),
+  unknown: () => new SField(z.unknown()),
+  null: () => new SField(z.null()),
+
+  // --- Non-Surreal types ---
+  // Present so a global `z.*` -> `s.*` swap never collides. They carry NO SurrealQL mapping,
+  // so they're rejected as a table field at compile time (and by `inferField` at runtime) —
+  // unless you teach them to serialize via `.$surreal(type, codec)`.
+  symbol: () => noDdl(new SField(z.symbol())),
+  undefined: () => noDdl(new SField(z.undefined())),
+  void: () => noDdl(new SField(z.void())),
+  never: () => noDdl(new SField(z.never())),
+  nan: () => noDdl(new SField(z.nan())),
+  custom: <T>(check?: (val: unknown) => boolean) =>
+    noDdl(new SField(z.custom<T>(check))),
+  instanceof: <T extends Parameters<typeof z.instanceof>[0]>(cls: T) =>
+    noDdl(new SField(z.instanceof(cls))),
+  promise: <F extends AnyField | z.ZodType>(schema: F) =>
+    noDdl(new SField(z.promise(toZod(schema)))),
+  /** Zod's function factory (not a schema/field — present for drop-in `z.*` parity). */
+  function: (...args: Parameters<typeof z.function>) => z.function(...args),
+};
+
+// --- Tables & relations ---
+
+export type Shape = Record<string, AnyField | z.ZodType>;
+type SchemaOf<F> =
+  F extends SField<infer S, infer _> ? S : F extends z.ZodType ? F : never;
+type FlagsOf<F> = F extends { readonly "~szFlags": infer Fl extends string }
+  ? Fl
+  : never;
+/**
+ * Whether a field carries the `"internal"` flag (set by `.$internal()`). The
+ * `string extends FlagsOf<F>` guard short-circuits the broad `Shape` case (where
+ * flags widen to `string`, and `"internal" extends string` would wrongly be true),
+ * so `ZShape<Shape>` keeps every key for shape-agnostic refs like `TableDef<string, Shape>`.
+ */
+type IsInternal<F> =
+  string extends FlagsOf<F>
+    ? false
+    : "internal" extends FlagsOf<F>
+      ? true
+      : false;
+/** The public zshape — internal fields are excluded (see `ZShapeAll` for the system view). */
+type ZShape<S extends Shape> = {
+  [K in keyof S as IsInternal<S[K]> extends true ? never : K]: SchemaOf<S[K]>;
+};
+/** Every field's zshape, including internal ones — backs the `.system` view. */
+type ZShapeAll<S extends Shape> = { [K in keyof S]: SchemaOf<S[K]> };
+/** The Zod raw shape of the create-input ({@link TableDef.create}): internal fields dropped, and each
+ *  create-optional key (`id`, `$default`/`$defaultAlways`/`$value`/`$computed`, or already
+ *  Zod-optional) wrapped in `ZodOptional` — mirrors {@link CreateShape}. A `$value({ computes })`
+ *  field re-shapes its nested object so the computed keys are optional per item. */
+//   The `string extends FlagsOf<S[K]>` guard (as in {@link IsInternal}) keeps `CreateZShape<Shape>` /
+//   `UpdateZShape<Shape>` shape-agnostic — mapping to a bare `z.ZodType` for the widened `Shape` case —
+//   so `TableDef<"t", concrete>` stays assignable to `TableDef<string, Shape>`.
+type CreateZValue<F, Sc = SchemaOf<F>, C extends string = ComputedKeys<F>> = [
+  C,
+] extends [never]
+  ? Sc
+  : [ArrayShapeOf<Sc>] extends [never]
+    ? ShapeOf<Sc> extends infer NS extends Shape
+      ? z.ZodObject<CreateZShape<NS, C>>
+      : Sc
+    : ArrayShapeOf<Sc> extends infer ENS extends Shape
+      ? z.ZodArray<z.ZodObject<CreateZShape<ENS, C>>>
+      : Sc;
+type CreateZShape<S extends Shape, Computed extends string = never> = {
+  [K in keyof S as IsInternal<S[K]> extends true
+    ? never
+    : K]: string extends FlagsOf<S[K]>
+    ? z.ZodType
+    : CreateOptional<S, K, Computed> extends true
+      ? z.ZodOptional<CreateZValue<S[K]>>
+      : CreateZValue<S[K]>;
+};
+/** The Zod raw shape of the update-input ({@link TableDef.update}): internal + `id` + readonly fields
+ *  dropped, all the rest `ZodOptional` (a partial patch) — mirrors {@link UpdateShape}. */
+type UpdateZShape<S extends Shape> = {
+  [K in keyof S as IsInternal<S[K]> extends true
+    ? never
+    : string extends FlagsOf<S[K]>
+      ? K
+      : UpdateExcluded<S, K> extends true
+        ? never
+        : K]: string extends FlagsOf<S[K]>
+    ? z.ZodType
+    : z.ZodOptional<SchemaOf<S[K]>>;
+};
+/**
+ * The schema type returned by `s.object`: a plain `z.ZodObject` carrying its original
+ * `Shape` via a type-only `~szShape` brand. The brand is optional, so the runtime cast
+ * (`z.object(...) as SZObject<S>`) is sound and the brand is invisible to `z.input`/
+ * `z.output`/`App`/`Wire` — nested fields stay REQUIRED on the decoded side. It exists
+ * solely so `ShapeOf`/`CreateValue` can recover the nested shape for the create surface.
+ */
+type SZObject<S extends Shape> = z.ZodObject<ZShape<S>> & {
+  readonly "~szShape"?: S;
+};
+type ToField<F> =
+  F extends SField<infer Sc, infer _>
+    ? SField<Sc, FlagsOf<F>>
+    : SField<SchemaOf<F>>;
+type Fields<S extends Shape> = { [K in keyof S]: ToField<S[K]> };
+type Unwrap<F> =
+  F extends SField<z.ZodOptional<infer Inner extends z.ZodType>, infer _>
+    ? SField<Inner, FlagsOf<F>>
+    : F;
+type PartialShape<S extends Shape> = {
+  [K in keyof S]: SField<z.ZodOptional<SchemaOf<S[K]>>, FlagsOf<S[K]>>;
+};
+type RequiredShape<S extends Shape> = { [K in keyof S]: Unwrap<Fields<S>[K]> };
+
+/**
+ * Renameable field-name refs for the `.index(name, t => [t.a, t.b])` callback form. A HOMOMORPHIC
+ * mapped type (`{ [K in keyof S]: K }`), so the LSP links each `t.<field>` back to its definition in
+ * the `defineTable(…)` shape — enabling go-to-definition and rename, which a `["a","b"]` string array
+ * cannot. Each property's value IS its own name, so the callback returns plain field-name strings.
+ */
+export type FieldRefs<S extends Shape> = { readonly [K in keyof S]: K };
+
+/** Build the runtime {@link FieldRefs} accessor: every field key mapped to itself. */
+function fieldRefs<S extends Shape>(fields: Fields<S>): FieldRefs<S> {
+  const out: Record<string, string> = {};
+  for (const k of Object.keys(fields)) out[k] = k;
+  return out as FieldRefs<S>;
+}
+
+/**
+ * The ORM-side id generation strategy of a table — how the ORM generates a record id when a write
+ * creates a record WITHOUT an explicit `id` (see {@link TableDef.idStrategy}):
+ *
+ * - `"ulid"` — `rand::ulid()` (26 chars, time-sortable). The DEFAULT.
+ * - `"uuid"` — `rand::uuid()` (UUID v7, time-sortable).
+ * - `"rand"` — `rand::id()` (20 chars, no ordering) — the server default, i.e. the pre-feature
+ *   behavior.
+ *
+ * It is ORM-only authoring metadata: it emits NO DDL (migrations never diff on it) and raw SQL
+ * (`$query`/`client.query`/`$unsafe`) keeps the server default. `sc pull` cannot recover it from
+ * the database, so a pulled schema falls back to the default.
+ */
+export type IdStrategy = "ulid" | "uuid" | "rand";
+
+export interface TableConfig {
+  schemafull: boolean;
+  /** Table `TYPE`: `normal` (default) or `any` (holds both records and graph edges). */
+  type?: "normal" | "any";
+  drop?: boolean;
+  comment?: string;
+  /**
+   * OPAQUE authoring metadata — a place for presets/plugins to TAG a table
+   * (`meta.tenant = { column, principal, softDelete, createOnly }`). It emits NO DDL, never enters
+   * a snapshot, and the diff/introspection engines ignore it — the runtime reads it back through
+   * `TableMeta.def.config.meta`. Use dot-free keys (`tenant`, not `acme.tenant`).
+   */
+  meta?: Record<string, unknown>;
+  /** ORM create-id generation strategy. Omitted = `"ulid"` (or the explicit id field's type). See
+   *  {@link TableDef.idStrategy}. ORM-only: never emitted as DDL. */
+  idStrategy?: IdStrategy;
+  /** Table-level `PERMISSIONS`. Omitted ops default to NONE in SurrealDB. See `.permissions()`. */
+  permissions?: TablePermissions;
+  relation?: { from: string[]; to: string[]; enforced?: boolean };
+  /** Composite (multi-field) indexes. See `.index(name, fields, opts)`. */
+  indexes?: TableIndex[];
+  /** Row-change events. See `.event(name, { when?, then })`. */
+  events?: TableEvent[];
+  /** `CHANGEFEED <dur> [INCLUDE ORIGINAL]`. See `.changefeed(dur, opts?)`. */
+  changefeed?: { expiry: string; includeOriginal?: boolean };
+  /**
+   * A pre-computed (materialized) VIEW — `AS <SELECT …>`. When set, the table is computed from the
+   * query (forced `TYPE ANY SCHEMALESS`, no authored fields). See {@link defineView}.
+   */
+  view?: Expr;
+  /** SINGLETON table: the one fixed record-id key (see {@link defineSingleton}) — emitted as the
+   *  literal id type `DEFINE FIELD id ON <t> TYPE '<id>'`, which the DB enforces. */
+  singleton?: string;
+}
+
+/** A table index definition (single- or multi-field, or a row-count index). */
+export interface TableIndex {
+  name: string;
+  fields: string[];
+  unique?: boolean;
+  /** A materialized row-count index (`DEFINE INDEX … COUNT`, no fields). */
+  count?: boolean;
+  /** `COMMENT <string>` on the index. */
+  comment?: string;
+  /**
+   * A special index spec appended after `FIELDS` — a vector (`HNSW …`/`DISKANN …`) or full-text
+   * (`FULLTEXT ANALYZER …`) index. Built from the `.index()` opts; minimal form (SurrealDB
+   * materializes the rest), so it round-trips against the introspected, canonicalized spec.
+   */
+  spec?: string;
+}
+
+/** Options for a HNSW vector index (`.index(name, [field], { hnsw: {…} })`). */
+export interface HnswOptions {
+  dimension: number;
+  dist?: "euclidean" | "cosine" | "manhattan" | "minkowski" | "hamming";
+  type?: "f64" | "f32" | "i64" | "i32" | "i16";
+  efc?: number;
+  m?: number;
+}
+/** Options for a DISKANN vector index (`.index(name, [field], { diskann: {…} })`). */
+export interface DiskannOptions {
+  dimension: number;
+  dist?: "euclidean" | "cosine" | "manhattan";
+  type?: "f64" | "f32" | "i64" | "i32" | "i16";
+  degree?: number;
+  l_build?: number;
+  alpha?: number;
+}
+/** Options for a FULL-TEXT search index (`.index(name, [field], { fulltext: {…} })`). All fields are
+ *  optional — bare `{ fulltext: {} }` emits `DEFINE INDEX … FULLTEXT`, which SurrealDB accepts.
+ *
+ *  NOTE ON DEFAULTS: SurrealDB materializes two defaults on every full-text index, so they are OMITTED
+ *  from the generated DDL (the database re-applies them on apply) and stripped from the canonical form
+ *  so authoring and introspection stay in sync:
+ *   - `analyzer` — omit it and SurrealDB injects its built-in `like` analyzer (`INFO` reports
+ *     `… ANALYZER like`). A real {@link defineAnalyzer} name is required for proper tokenizing/stemming.
+ *   - `bm25` — BM25 is the mandatory full-text scorer and is always-on with `[1.2, 0.75]`, so there is
+ *     no "off" and no "use the default" toggle: `bm25` is a TUNING knob only (`[k1, b]`). Omit it for
+ *     the default; a NON-default `[k1, b]` (and a non-`like` analyzer) survive into the `DEFINE INDEX`. */
+export interface FulltextOptions {
+  analyzer?: string;
+  bm25?: [number, number];
+  highlights?: boolean;
+}
+
+/** Options for the field-level `.$fulltext({…})` form. `analyzer` (optional) accepts the `AnalyzerDef`
+ *  or its name — omit it for SurrealDB's built-in `like`; `name` overrides the derived
+ *  `<table>_<field>_idx` index name. The default `analyzer`/`bm25` are omitted from emitted DDL — see
+ *  {@link FulltextOptions}. See {@link SField.$fulltext}. */
+export interface FulltextFieldOptions {
+  analyzer?: string | AnalyzerDef;
+  bm25?: [number, number];
+  highlights?: boolean;
+  name?: string;
+}
+
+/** Options for the composite `table.index(name, fields, opts)` — UNIQUE/COUNT/COMMENT or a vector/
+ *  full-text spec. See {@link TableDef.index}. */
+export interface IndexOptions {
+  unique?: boolean;
+  count?: boolean;
+  comment?: string;
+  /** A HNSW vector index over the field. */
+  hnsw?: HnswOptions;
+  /** A DISKANN vector index over the field. */
+  diskann?: DiskannOptions;
+  /** A full-text search index — needs a `defineAnalyzer` of `analyzer`'s name. */
+  fulltext?: FulltextOptions;
+}
+
+/** Build the special index spec string (minimal — SurrealDB fills in the rest). */
+function buildIndexSpec(opts: {
+  hnsw?: HnswOptions;
+  diskann?: DiskannOptions;
+  fulltext?: FulltextOptions;
+}): string | undefined {
+  if (opts.hnsw) {
+    const h = opts.hnsw;
+    let s = `HNSW DIMENSION ${h.dimension}`;
+    if (h.dist) s += ` DIST ${h.dist.toUpperCase()}`;
+    if (h.type) s += ` TYPE ${h.type.toUpperCase()}`;
+    if (h.efc !== undefined) s += ` EFC ${h.efc}`;
+    if (h.m !== undefined) s += ` M ${h.m}`;
+    return s;
+  }
+  if (opts.diskann) {
+    const d = opts.diskann;
+    let s = `DISKANN DIMENSION ${d.dimension}`;
+    if (d.dist) s += ` DIST ${d.dist.toUpperCase()}`;
+    if (d.type) s += ` TYPE ${d.type.toUpperCase()}`;
+    if (d.degree !== undefined) s += ` DEGREE ${d.degree}`;
+    if (d.l_build !== undefined) s += ` L_BUILD ${d.l_build}`;
+    if (d.alpha !== undefined) s += ` ALPHA ${d.alpha}`;
+    return s;
+  }
+  if (opts.fulltext) {
+    const f = opts.fulltext;
+    let s = "FULLTEXT"; // analyzer optional — omit it and SurrealDB injects its built-in `like`.
+    if (f.analyzer) s += ` ANALYZER ${f.analyzer}`;
+    // Only a tuned BM25 is emitted — the default is always-on, so there's nothing to write for it.
+    if (f.bm25) s += ` BM25(${f.bm25[0]},${f.bm25[1]})`;
+    if (f.highlights) s += " HIGHLIGHTS";
+    return s;
+  }
+  return undefined;
+}
+
+/** A SurrealQL expression: a `surql\`…\`` bound query (bindings inlined) or a raw string. */
+export type Expr = BoundQuery | string;
+
+/**
+ * A table event: `DEFINE EVENT <name> ON TABLE <table> [WHEN <when>] THEN <then>`. The event
+ * body sees `$before`/`$after`/`$event`/`$value`. `then` may be one expression or several
+ * (run in order). Author expressions with `surql\`…\`` (bindings inline) or a raw string.
+ */
+/** `ASYNC` runs the event off the write path. `true` is a bare `ASYNC`; the object form tunes
+ *  `RETRY @retry` (re-runs on failure) and/or `MAXDEPTH @max_depth` (cascade-recursion limit). */
+export type EventAsync = boolean | { retry?: number; maxDepth?: number };
+
+export interface TableEvent {
+  name: string;
+  when?: Expr;
+  then: Expr | Expr[];
+  /** `ASYNC [RETRY @retry] [MAXDEPTH @max_depth]` — fire the event asynchronously. */
+  async?: EventAsync;
+  /** `COMMENT @string` — a stored description. */
+  comment?: string;
+}
+
+function normalizeFields<S extends Shape>(shape: S): Fields<S> {
+  const out: Record<string, AnyField> = {};
+  for (const [k, v] of Object.entries(shape)) {
+    out[k] = v instanceof SField ? v : new SField(v);
+  }
+  return out as unknown as Fields<S>;
+}
+
+/** The wrappers `safeEncodeValue` peels to reach a schema registered in `objectFieldsRegistry`
+ * (and the array element) — the same identity-preserving set `ShapeOf` strips at the type
+ * level. `array` is intentionally NOT peeled (it's handled separately). */
+const ENCODE_PEEL = new Set([
+  "optional",
+  "nullable",
+  "default",
+  "prefault",
+  "catch",
+  "readonly",
+]);
+
+/** Peel identity-preserving wrappers off a schema to reach its core (registered) schema. */
+function unwrapCore(schema: z.ZodType): z.ZodType {
+  let s = schema;
+  while (ENCODE_PEEL.has((s._zod.def as { type: string }).type)) {
+    const inner = (s._zod.def as { innerType?: z.ZodType }).innerType;
+    if (!inner) break;
+    s = inner;
+  }
+  return s;
+}
+
+/** If `core` is a `ZodArray` whose (unwrapped) element is a registered `s.object`, return
+ * that element's fields; otherwise undefined. */
+function arrayElementFields(
+  core: z.ZodType,
+): Record<string, AnyField> | undefined {
+  if ((core._zod.def as { type: string }).type !== "array") return undefined;
+  const element = (core._zod.def as { element?: z.ZodType }).element;
+  if (!element) return undefined;
+  return objectFieldsRegistry.get(unwrapCore(element));
+}
+
+/**
+ * Validate a `$value`'s `{ computes: […] }` list against the field's nested object: the field must
+ * be an `s.object` or an `array<s.object>`, and every key must exist. Returns the list (a copy) or
+ * `undefined` when none was given. Fail-fast at authoring — a typo'd/irrelevant key is DX debt.
+ */
+function normalizeComputes(
+  schema: z.ZodType,
+  computes: readonly string[] | undefined,
+): readonly string[] | undefined {
+  if (computes === undefined || computes.length === 0) return undefined;
+  const core = unwrapCore(schema);
+  const fields = objectFieldsRegistry.get(core) ?? arrayElementFields(core);
+  if (!fields)
+    throw new Error(
+      "$value: { computes: […] } needs an s.object or array of s.object field — this field has no nested keys.",
+    );
+  for (const key of computes)
+    if (!(key in fields))
+      throw new Error(
+        `$value: { computes: […] } names "${key}", which is not a field of the nested object.`,
+      );
+  return [...computes];
+}
+
+/** Clone a schema replacing one def field (Zod's internal `clone`, like the object-mode helper). */
+function cloneDef(
+  schema: z.ZodType,
+  patch: Record<string, unknown>,
+): z.ZodType {
+  const def = schema._zod.def as unknown as Record<string, unknown>;
+  return (
+    schema as unknown as { clone(d: Record<string, unknown>): z.ZodType }
+  ).clone({ ...def, ...patch });
+}
+
+/** A nested object schema with `keys` wrapped `.optional()` (re-registered for nested DDL/encode). */
+function withOptionalKeys(
+  objectSchema: z.ZodType,
+  fields: Record<string, AnyField>,
+  keys: readonly string[],
+): z.ZodType {
+  const overrides: Record<string, z.ZodType> = {};
+  for (const key of keys) {
+    const field = fields[key];
+    if (field) overrides[key] = field.schema.optional();
+  }
+  const next = (objectSchema as unknown as z.ZodObject).extend(overrides);
+  objectFieldsRegistry.set(next, fields);
+  return next;
+}
+
+/**
+ * Wrap the `computes` keys `.optional()` in a field's nested object/array-of-object schema,
+ * preserving the identity-preserving wrappers around it. Backs the `.create` schema for
+ * `$value(…, { computes: […] })` — the DB fills those keys, so client input may omit them.
+ */
+function optionalizeComputed(
+  schema: z.ZodType,
+  keys: readonly string[],
+): z.ZodType {
+  const def = schema._zod.def as unknown as {
+    type: string;
+    innerType?: z.ZodType;
+    element?: z.ZodType;
+  };
+  if (ENCODE_PEEL.has(def.type) && def.innerType)
+    return cloneDef(schema, {
+      innerType: optionalizeComputed(def.innerType, keys),
+    });
+  const fields = objectFieldsRegistry.get(schema);
+  if (fields) return withOptionalKeys(schema, fields, keys);
+  if (def.type === "array" && def.element)
+    return cloneDef(schema, {
+      element: optionalizeComputed(def.element, keys),
+    });
+  return schema;
+}
+
+/**
+ * Validate + encode one provided field value to its wire form (non-throwing — the shared core
+ * of both `encode` and `safeEncode`). A nested `s.object` (or an array of one) recurses via
+ * `safeEncodeInput`, so absent nested keys are OMITTED — on CREATE the DB fills their defaults;
+ * on UPDATE `encodePartial` is deep-partial and pairs with `MERGE` (which deep-merges), so
+ * omitted siblings are preserved. Leaf fields go through `z.safeEncode` (which validates);
+ * issues are pushed into `issues` with their path prefixed by `path`, so the aggregate
+ * `ZodError` carries fully-qualified paths. Object-LEVEL refinements on a nested `s.object`
+ * are skipped (rare; leaf validation still runs).
+ */
+function safeEncodeValue(
+  field: AnyField,
+  v: unknown,
+  path: PropertyKey[],
+  issues: z.core.$ZodIssue[],
+): unknown {
+  const core = unwrapCore(field.schema);
+  const nested = objectFieldsRegistry.get(core);
+  if (nested)
+    return safeEncodeInput(nested, v as Record<string, unknown>, path, issues);
+  const elem = arrayElementFields(core);
+  if (elem) {
+    return (v as unknown[]).map((el, i) =>
+      safeEncodeInput(
+        elem,
+        el as Record<string, unknown>,
+        [...path, i],
+        issues,
+      ),
+    );
+  }
+  const res = z.safeEncode(field.schema, v as never);
+  if (res.success) return res.data;
+  for (const issue of res.error.issues)
+    issues.push({ ...issue, path: [...path, ...issue.path] });
+  return undefined;
+}
+
+/** Recurse over the provided keys (see `safeEncodeValue`), omitting absent (`undefined`) ones,
+ * building the wire object and collecting issues. */
+function safeEncodeInput(
+  fields: Record<string, AnyField>,
+  input: Record<string, unknown>,
+  path: PropertyKey[],
+  issues: z.core.$ZodIssue[],
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(input)) {
+    if (v === undefined) continue;
+    const field = fields[k];
+    out[k] = field ? safeEncodeValue(field, v, [...path, k], issues) : v;
+  }
+  return out;
+}
+
+/**
+ * The core of `safeEncode`/`safeEncodePartial` AND `encode`/`encodePartial`: validate+encode
+ * the PROVIDED keys, aggregating every leaf issue (with correct paths) into one `z.ZodError`.
+ * `safeEncode` returns the result; `encode` throws `error` (so `encode` and `safeEncode` are
+ * the same operation — `encode` = `safeEncode` + throw — including for a PARTIAL nested
+ * `s.object`).
+ */
+function safeEncodeFields(
+  fields: Record<string, AnyField>,
+  input: Record<string, unknown>,
+): z.ZodSafeParseResult<unknown> {
+  const issues: z.core.$ZodIssue[] = [];
+  const data = safeEncodeInput(fields, input, [], issues);
+  return issues.length > 0
+    ? { success: false, error: new z.ZodError(issues) }
+    : { success: true, data };
+}
+
+/** Async mirror of `safeEncodeValue` — awaits `z.safeEncodeAsync` per leaf and recurses into a
+ * nested `s.object` (or array of one) via `safeEncodeInputAsync`. Backs the `*Async` writes. */
+async function safeEncodeValueAsync(
+  field: AnyField,
+  v: unknown,
+  path: PropertyKey[],
+  issues: z.core.$ZodIssue[],
+): Promise<unknown> {
+  const core = unwrapCore(field.schema);
+  const nested = objectFieldsRegistry.get(core);
+  if (nested)
+    return safeEncodeInputAsync(
+      nested,
+      v as Record<string, unknown>,
+      path,
+      issues,
+    );
+  const elem = arrayElementFields(core);
+  if (elem) {
+    return Promise.all(
+      (v as unknown[]).map((el, i) =>
+        safeEncodeInputAsync(
+          elem,
+          el as Record<string, unknown>,
+          [...path, i],
+          issues,
+        ),
+      ),
+    );
+  }
+  const res = await z.safeEncodeAsync(field.schema, v as never);
+  if (res.success) return res.data;
+  for (const issue of res.error.issues)
+    issues.push({ ...issue, path: [...path, ...issue.path] });
+  return undefined;
+}
+
+/** Async mirror of `safeEncodeInput` — recurse over the provided keys, omitting absent ones. */
+async function safeEncodeInputAsync(
+  fields: Record<string, AnyField>,
+  input: Record<string, unknown>,
+  path: PropertyKey[],
+  issues: z.core.$ZodIssue[],
+): Promise<Record<string, unknown>> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(input)) {
+    if (v === undefined) continue;
+    const field = fields[k];
+    out[k] = field
+      ? await safeEncodeValueAsync(field, v, [...path, k], issues)
+      : v;
+  }
+  return out;
+}
+
+/** Async mirror of `safeEncodeFields` — backs `safeEncodeAsync`/`encodeAsync` (run + throw). */
+async function safeEncodeFieldsAsync(
+  fields: Record<string, AnyField>,
+  input: Record<string, unknown>,
+): Promise<z.ZodSafeParseResult<unknown>> {
+  const issues: z.core.$ZodIssue[] = [];
+  const data = await safeEncodeInputAsync(fields, input, [], issues);
+  return issues.length > 0
+    ? { success: false, error: new z.ZodError(issues) }
+    : { success: true, data };
+}
+
+// --- Create / Update input shapes ---
+type Prettify<T> = { [K in keyof T]: T[K] } & {};
+type AppOf<F> = z.output<SchemaOf<F>>;
+type InputOptional<F> = undefined extends z.input<SchemaOf<F>> ? true : false;
+
+/**
+ * Recover the nested `Shape` of an `s.object` schema (`never` if the schema isn't one).
+ * Identity-preserving wrappers (optional/default/readonly/nullable) are peeled first, then
+ * the `~szShape` brand is read. The inner `NS extends Shape ? NS : never` drops the
+ * `| undefined` that inferring from an optional property can introduce, so the result is the
+ * clean shape — or `never` for any non-object schema.
+ */
+type ShapeOf<Sc> =
+  Sc extends z.ZodOptional<infer I>
+    ? ShapeOf<I>
+    : Sc extends z.ZodDefault<infer I>
+      ? ShapeOf<I>
+      : Sc extends z.ZodReadonly<infer I>
+        ? ShapeOf<I>
+        : Sc extends z.ZodNullable<infer I>
+          ? ShapeOf<I>
+          : Sc extends { "~szShape"?: infer NS }
+            ? NS extends Shape
+              ? NS
+              : never
+            : never;
+
+/**
+ * The element `Shape` of an `s.object(...).array()` field (`never` otherwise). Peels the
+ * same identity-preserving wrappers off the array, then reads the element's `~szShape`.
+ */
+type ArrayShapeOf<Sc> =
+  Sc extends z.ZodOptional<infer I>
+    ? ArrayShapeOf<I>
+    : Sc extends z.ZodDefault<infer I>
+      ? ArrayShapeOf<I>
+      : Sc extends z.ZodReadonly<infer I>
+        ? ArrayShapeOf<I>
+        : Sc extends z.ZodNullable<infer I>
+          ? ArrayShapeOf<I>
+          : Sc extends z.ZodArray<infer E>
+            ? ShapeOf<E>
+            : never;
+
+/**
+ * The nested keys a field's `$value(…, { computes: […] })` fills, recovered from its
+ * `computes:<key>` flags. `never` when there are none — and for shape-agnostic `Shape` fields
+ * (whose flags widen to `string`), so `TableDef<string, Shape>` stays assignable.
+ */
+type ComputedKeys<F> =
+  string extends FlagsOf<F>
+    ? never
+    : FlagsOf<F> extends infer Fl
+      ? Fl extends `computes:${infer K}`
+        ? K
+        : never
+      : never;
+
+/** The `computes:<key>` flag(s) an `$value` call contributes (the type-level carrier). */
+type ComputedFlags<C extends readonly string[]> = `computes:${C[number]}`;
+
+/**
+ * The nested keys a `$value` may declare as computed: only an `s.object`/`array<s.object>`
+ * field has nested keys (everything else resolves to `never`, so a typo is a compile error).
+ */
+type ComputesKey<S extends z.ZodType> = [ShapeOf<S>] extends [never]
+  ? [ArrayShapeOf<S>] extends [never]
+    ? never
+    : keyof (z.output<S> extends readonly (infer E)[] ? E : never) & string
+  : keyof z.output<S> & string;
+
+/**
+ * The create-input VALUE type for a field. A nested `s.object` recurses into its own
+ * `CreateShape` (so nested `$default`/`"create"` fields become optional too); an array of
+ * `s.object` becomes that nested create-shape's array; everything else is the plain app
+ * type (`AppOf`). `C` carries the parent's `computes` keys, making the keys the parent's
+ * `$value` fills optional PER ITEM. `[X] extends [never]` guards each branch because
+ * `never extends Shape` is vacuously true and would otherwise wrongly match the object branch.
+ */
+type CreateValue<F, Sc = SchemaOf<F>, C extends string = ComputedKeys<F>> = [
+  ShapeOf<Sc>,
+] extends [never]
+  ? [ArrayShapeOf<Sc>] extends [never]
+    ? AppOf<F>
+    : ArrayShapeOf<Sc> extends infer ENS extends Shape
+      ? CreateShape<ENS, C>[]
+      : AppOf<F>
+  : ShapeOf<Sc> extends infer NS extends Shape
+    ? CreateShape<NS, C>
+    : AppOf<F>;
+
+type CreateOptional<
+  S extends Shape,
+  K extends keyof S,
+  Computed extends string = never,
+> = K extends "id"
+  ? true
+  : K extends Computed
+    ? true
+    : "create" extends FlagsOf<S[K]>
+      ? true
+      : InputOptional<S[K]>;
+// Public create input: internal fields are never settable by clients. Field VALUES use
+// `CreateValue` so a nested `s.object`'s own create-optional fields (a nested `$default`) AND a
+// parent's `computes` keys are optional too — while `CreateOptional` (the `?` modifier) is unchanged.
+type CreateShape<S extends Shape, Computed extends string = never> = Prettify<
+  {
+    [K in keyof S as IsInternal<S[K]> extends true
+      ? never
+      : CreateOptional<S, K, Computed> extends true
+        ? never
+        : K]: CreateValue<S[K]>;
+  } & {
+    [K in keyof S as IsInternal<S[K]> extends true
+      ? never
+      : CreateOptional<S, K, Computed> extends true
+        ? K
+        : never]?: CreateValue<S[K]>;
+  }
+>;
+// System create input: includes internal fields (the old, all-fields behavior).
+type CreateShapeAll<
+  S extends Shape,
+  Computed extends string = never,
+> = Prettify<
+  {
+    [K in keyof S as CreateOptional<S, K, Computed> extends true
+      ? never
+      : K]: CreateValue<S[K]>;
+  } & {
+    [K in keyof S as CreateOptional<S, K, Computed> extends true
+      ? K
+      : never]?: CreateValue<S[K]>;
+  }
+>;
+
+type UpdateExcluded<S extends Shape, K extends keyof S> = K extends "id"
+  ? true
+  : "readonly" extends FlagsOf<S[K]>
+    ? true
+    : false;
+/**
+ * The update-input VALUE type for a field — a DEEP partial, since `MERGE` recursively
+ * deep-merges nested objects (so any subset of nested keys is a valid patch). A nested
+ * `s.object` recurses into its own `UpdateShape` (every nested field optional); an array
+ * of `s.object` becomes that update-shape's array; everything else is the plain app type
+ * (`AppOf`). The `[X] extends [never]` guards mirror `CreateValue` (so scalar fields don't
+ * wrongly match the object branch via `never extends Shape`).
+ */
+type UpdateValue<F, Sc = SchemaOf<F>> = [ShapeOf<Sc>] extends [never]
+  ? [ArrayShapeOf<Sc>] extends [never]
+    ? AppOf<F>
+    : ArrayShapeOf<Sc> extends infer ENS extends Shape
+      ? UpdateShape<ENS>[]
+      : AppOf<F>
+  : ShapeOf<Sc> extends infer NS extends Shape
+    ? UpdateShape<NS>
+    : AppOf<F>;
+// Public update input: internal fields are excluded. Field VALUES use `UpdateValue` so a
+// nested `s.object` is itself a deep partial (every nested key optional), matching MERGE.
+type UpdateShape<S extends Shape> = Prettify<{
+  [K in keyof S as IsInternal<S[K]> extends true
+    ? never
+    : UpdateExcluded<S, K> extends true
+      ? never
+      : K]?: UpdateValue<S[K]>;
+}>;
+// System update input: includes internal fields (the old, all-fields behavior).
+type UpdateShapeAll<S extends Shape> = Prettify<{
+  [K in keyof S as UpdateExcluded<S, K> extends true ? never : K]?: UpdateValue<
+    S[K]
+  >;
+}>;
+
+/** A Zod-style non-throwing result: `{ success: true; data }` | `{ success: false; error }`
+ * (mirrors `z.safeEncode`/`z.safeDecode`). */
+type SafeResult<T> = z.ZodSafeParseResult<T>;
+/** The wire payload `encode`/`safeEncode` build: the provided keys' wire (`z.input`) types. Only
+ * the supplied keys are present at runtime, hence `Partial`. */
+type MakeWire<S extends Shape> = Partial<z.input<z.ZodObject<ZShape<S>>>>;
+/** Same, over ALL fields — the `.system` view includes `$internal()` ones. */
+type MakeWireAll<S extends Shape> = Partial<z.input<z.ZodObject<ZShapeAll<S>>>>;
+
+// --- table presets (composable bundles applied via TableDef.use) --------------------------------
+
+/** A row-change event contributed by a preset — the `.event(name, spec)` shape, name inline.
+ *  The name may carry a `{table}` placeholder, interpolated by `TableDef.use()`
+ *  (`"{table}_protect_tenant_id"` -> `"customer_protect_tenant_id"`). */
+export interface PresetEvent {
+  name: string;
+  when?: Expr;
+  then: Expr | Expr[];
+  async?: EventAsync;
+  comment?: string;
+}
+/** A composite index contributed by a preset — the `.index(name, fields, opts)` shape, inline.
+ *  The name may carry a `{table}` placeholder (see {@link PresetEvent}). */
+export interface PresetIndex extends IndexOptions {
+  name: string;
+  fields: readonly string[];
+}
+/**
+ * A reusable, composable table PRESET — a bundle of `columns` + `permissions` + `events` + `indexes`
+ * stamped onto a table via {@link TableDef.use}. A preset EMITS nothing on its own (it composes onto a
+ * table), which is why it hangs off {@link defineTable.preset} rather than the `define*` family.
+ * Configurable presets are plain functions returning one:
+ * `const tenant = (field: string) => defineTable.preset({ columns: { [field]: … }, permissions: … })`.
+ */
+export interface TablePreset<Cols extends Shape = {}> {
+  /** Columns the preset adds — typed-merged into the table. A name clash with the table or another
+   *  preset is a COMPILE error (no silent clobber). */
+  columns?: Cols;
+  /** Table `PERMISSIONS`, per-op **AND**-combined with the table's own + other presets' — a preset can
+   *  only NARROW access, never widen it. */
+  permissions?: TablePermissions;
+  /** Row-change events, appended. A `{table}` placeholder in `name` is interpolated by `.use()`. */
+  events?: PresetEvent[];
+  /** Composite indexes, appended. A `{table}` placeholder in `name` is interpolated by `.use()`. */
+  indexes?: PresetIndex[];
+  /** OPAQUE metadata merged into {@link TableConfig.meta} — DDL/diff/introspection-neutral. A
+   *  preset's marker for the runtime (`meta.tenant = { … }`), read back via `TableMeta.def.config.meta`.
+   *  Later `.use()` calls win on key conflicts (preset-vs-preset: last one wins, table's own meta first). */
+  meta?: Record<string, unknown>;
+}
+
+/** A preset's contributed columns (its `Cols`). */
+type PresetCols<P> = P extends TablePreset<infer C> ? C : {};
+// biome-ignore lint/suspicious/noExplicitAny: the canonical `IsAny` probe.
+type IsAny<T> = 0 extends 1 & T ? true : false;
+/** Surfaced (as a compile error on the `.use(...)` argument) when a preset column collides with a table
+ *  column. `.use` still returns a plain `TableDef`, so it stays a clean `AnyTable` subtype. */
+export interface PresetColumnConflict<K> {
+  readonly __betterSchemicPresetColumnConflict: K;
+}
+/** Constrain a `.use(...)` argument: if the preset's columns clash with the table's, intersect the
+ *  marker so the passed preset no longer matches (a compile error naming the conflicting key). The
+ *  `IsAny` guard keeps the shape-agnostic `TableDef<string, any>` usable. */
+type CheckPreset<S extends Shape, P> =
+  IsAny<S> extends true
+    ? P
+    : [Extract<keyof PresetCols<P>, keyof Omit<S, "id">>] extends [never]
+      ? P
+      : PresetColumnConflict<Extract<keyof PresetCols<P>, keyof Omit<S, "id">>>;
+// NOTE: `.use` is deliberately SINGLE-ARG (chain `.use(a).use(b)`), not variadic. Both variadic typing
+// strategies — `UnionToIntersection<PresetCols<Ps[number]>>` over a tuple, and an intersected variadic
+// arg-constraint — crash tsc 5.9.3 (`getSignatureApplicabilityError` Debug Failure), and fixed-arity
+// overloads cap type safety at their arity. Chaining keeps FULL column typing + compile-time conflict
+// detection at ANY depth: each `.use` re-checks the next preset against the table-so-far, so
+// preset-vs-preset clashes surface too. A runtime throw backs up the compile check.
+
+const PERM_OPS: readonly PermOp[] = ["select", "create", "update", "delete"];
+/** Normalize a `TablePermissions` to a per-op map of CONCRETE rules (a bare boolean/expr applies to
+ *  every op; `same as X` refs resolve to X's rule up front, so combining never ANDs a ref string). */
+function permOpMap(
+  p: TablePermissions | undefined,
+): Partial<Record<PermOp, boolean | BoundQuery>> {
+  if (p === undefined) return {};
+  if (typeof p === "boolean" || p instanceof BoundQuery)
+    return { select: p, create: p, update: p, delete: p };
+  const out: Partial<Record<PermOp, boolean | BoundQuery>> = {};
+  for (const op of PERM_OPS) {
+    let rule = p[op];
+    if (rule === undefined) continue;
+    const chain: PermOp[] = [op];
+    while (typeof rule === "string") {
+      const ref = rule.slice("same as ".length).trim() as PermOp;
+      if (chain.includes(ref))
+        throw new Error(
+          `PERMISSIONS: "same as" reference cycle: ${[...chain, ref].join(" -> ")}`,
+        );
+      chain.push(ref);
+      rule = p[ref];
+      if (rule === undefined)
+        throw new Error(
+          `PERMISSIONS: "same as ${ref}" references op "${ref}", which is not in the spec`,
+        );
+    }
+    out[op] = rule;
+  }
+  return out;
+}
+/** Does a WHERE expr need parens as an `AND` operand? Only when it holds a TOP-LEVEL `OR`/`||`
+ *  (lower precedence than `AND`). This matches the DB's canonical spelling — SurrealDB strips
+ *  redundant parens in `INFO … STRUCTURE` (verified live on 3.1.4), so emitting them would
+ *  phantom-diff every `diff --live`. Scans the raw template text: bindings interpolate as quoted
+ *  literals, so they can never introduce a top-level operator. */
+function needsParens(expr: string): boolean {
+  let depth = 0;
+  let quote: '"' | "'" | null = null;
+  for (let i = 0; i < expr.length; i++) {
+    const c = expr[i] as string;
+    if (quote) {
+      if (c === "\\") i++;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'") quote = c;
+    else if (c === "(" || c === "[" || c === "{") depth++;
+    else if (c === ")" || c === "]" || c === "}") depth--;
+    else if (depth === 0) {
+      if (c === "|" && expr[i + 1] === "|") return true;
+      const isOr =
+        (c === "O" || c === "o") &&
+        (expr[i + 1] === "R" || expr[i + 1] === "r") &&
+        (i === 0 || !/[\w$]/.test(expr[i - 1] as string)) &&
+        (i + 2 >= expr.length || !/[\w$]/.test(expr[i + 2] as string));
+      if (isOr) return true;
+    }
+  }
+  return false;
+}
+/** AND two per-op perms: `false` (NONE) absorbs, `true` (FULL) is the identity, exprs `AND` together
+ *  in DB-canonical form (parens only where precedence needs them — see {@link needsParens}). */
+function andPerm(
+  a: boolean | BoundQuery | undefined,
+  b: boolean | BoundQuery | undefined,
+): boolean | BoundQuery | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  if (a === false || b === false) return false;
+  if (a === true) return b;
+  if (b === true) return a;
+  const wrap = (q: BoundQuery) => (needsParens(q.query) ? surql`(${q})` : q);
+  return surql`${wrap(a)} AND ${wrap(b)}`;
+}
+/** Per-op AND-combine of two table permission specs — the `.use()` semantic (narrows, never widens). */
+function combinePermissions(
+  existing: TablePermissions | undefined,
+  add: TablePermissions,
+): TablePermissions {
+  const A = permOpMap(existing);
+  const B = permOpMap(add);
+  const out: Partial<Record<PermOp, Perm>> = {};
+  for (const op of PERM_OPS) {
+    const v = andPerm(A[op], B[op]);
+    if (v !== undefined) out[op] = v;
+  }
+  return out;
+}
+
+/** A table (or relation) definition: shape + DDL config, with chainable builders. */
+/**
+ * The unique column a `unique: true` index over `F` contributes to {@link TableDef}'s union — the
+ * field itself for a single-field index, and NOTHING for a composite one (a `[tenant_id, name]`
+ * index cannot be a cursor tiebreaker: its fields are unique only together).
+ */
+export type SingleUnique<F> = F extends readonly [infer Only]
+  ? Only extends string
+    ? Only
+    : never
+  : never;
+
+export class TableDef<
+  Name extends string,
+  S extends Shape,
+  /** Fields declared with a single-field UNIQUE index (a cursor tiebreaker). `never` when none. */
+  Unique = never,
+> {
+  /** Zod object over the inner schemas — drives validation, encode/decode, types. */
+  readonly object: z.ZodObject<ZShape<S>>;
+
+  constructor(
+    readonly name: Name,
+    readonly fields: Fields<S>,
+    readonly config: TableConfig = { schemafull: true },
+  ) {
+    // Public object skips internal fields (zod also strips unknown keys — double-safe);
+    // `emitTable` still iterates ALL `this.fields`, so internal fields stay in the DDL.
+    const zshape: Record<string, z.ZodType> = {};
+    for (const [k, f] of Object.entries(fields)) {
+      if ((f as AnyField).surreal.internal) continue;
+      zshape[k] = (f as AnyField).schema;
+    }
+    this.object = z.object(zshape) as z.ZodObject<ZShape<S>>;
+  }
+
+  get kind(): "table" | "relation" {
+    return this.config.relation ? "relation" : "table";
+  }
+
+  /**
+   * A SurrealDB `Table` instance for this table — for direct SDK calls that take a table reference,
+   * e.g. `client.$sdk.select(User.table)`. (For a record id, chain `User.record().for(id)`.)
+   */
+  get table(): Table<Name> {
+    return new Table(this.name);
+  }
+
+  /** DB wire row -> app object. */
+  decode(row: unknown): z.output<z.ZodObject<ZShape<S>>> {
+    return z.decode(this.object, row as never);
+  }
+  /** DB wire row -> app object (async — for async refinements). */
+  decodeAsync(row: unknown): Promise<z.output<z.ZodObject<ZShape<S>>>> {
+    return z.decodeAsync(this.object, row as never);
+  }
+
+  // No-throw read variants — return { success, data } | { success, error }.
+  safeDecode(row: unknown) {
+    return z.safeDecode(this.object, row as never);
+  }
+  safeDecodeAsync(row: unknown) {
+    return z.safeDecodeAsync(this.object, row as never);
+  }
+
+  // Deprecated Zod-style aliases. For codecs `parse` runs the DECODE direction (wire -> app),
+  // so it's just `decode` under a misleading name — prefer `decode` (and `encode` for create
+  // payloads). Kept for `z`-API familiarity; editors will strike them through.
+  /** @deprecated `parse` decodes a DB row (wire -> app). Use {@link TableDef.decode | decode}. */
+  parse(row: unknown): z.output<z.ZodObject<ZShape<S>>> {
+    return this.decode(row);
+  }
+  /** @deprecated Use {@link TableDef.safeDecode | safeDecode} (or {@link TableDef.safeEncode | safeEncode} to validate an app object). */
+  safeParse(row: unknown) {
+    return this.safeDecode(row);
+  }
+  /** @deprecated Use {@link TableDef.decodeAsync | decodeAsync}. */
+  parseAsync(row: unknown): Promise<z.output<z.ZodObject<ZShape<S>>>> {
+    return this.decodeAsync(row);
+  }
+  /** @deprecated Use {@link TableDef.safeDecodeAsync | safeDecodeAsync}. */
+  safeParseAsync(row: unknown) {
+    return this.safeDecodeAsync(row);
+  }
+
+  // --- Write side (app -> wire). `encode`/`encodePartial` are create/patch-shaped: DB-filled
+  // (`$default`/`id`) fields are optional (the DB fills them), absent keys are OMITTED, and each
+  // provided leaf is validated via the recursive encoder. The raw full-object codec (no create-
+  // shaping) is `z.encode(table.object, app)` if ever needed. ---
+
+  /**
+   * Build a wire payload for `CREATE` (DB-filled fields optional). Validates+encodes each
+   * provided field — so this VALIDATES and THROWS the aggregated `z.ZodError` on invalid
+   * input. Use `safeEncode` for the non-throwing form.
+   */
+  encode(input: CreateShape<S>): MakeWire<S> {
+    const r = this.safeEncode(input);
+    if (!r.success) throw r.error;
+    return r.data;
+  }
+  /**
+   * Build a wire payload for `UPDATE`/`MERGE` (a partial patch; excludes id/readonly).
+   * VALIDATES and THROWS on invalid input; use `safeEncodePartial` for the non-throwing form.
+   */
+  encodePartial(input: UpdateShape<S>): MakeWire<S> {
+    const r = this.safeEncodePartial(input);
+    if (!r.success) throw r.error;
+    return r.data;
+  }
+  /**
+   * Non-throwing `encode`: validates+encodes the provided keys and returns a Zod-style
+   * `{ success: true; data }` | `{ success: false; error }`. All field errors are
+   * aggregated (with correct paths) into a single `z.ZodError`.
+   */
+  safeEncode(input: CreateShape<S>): SafeResult<MakeWire<S>> {
+    return safeEncodeFields(
+      this.fields as unknown as Record<string, AnyField>,
+      input as Record<string, unknown>,
+    ) as SafeResult<MakeWire<S>>;
+  }
+  /** Non-throwing `encodePartial` (see `safeEncode`). */
+  safeEncodePartial(input: UpdateShape<S>): SafeResult<MakeWire<S>> {
+    return safeEncodeFields(
+      this.fields as unknown as Record<string, AnyField>,
+      input as Record<string, unknown>,
+    ) as SafeResult<MakeWire<S>>;
+  }
+  /** Async `encode` (awaits async refinements per leaf); throws the aggregated error. */
+  async encodeAsync(input: CreateShape<S>): Promise<MakeWire<S>> {
+    const r = await this.safeEncodeAsync(input);
+    if (!r.success) throw r.error;
+    return r.data;
+  }
+  /** Async `encodePartial`; throws the aggregated error. */
+  async encodePartialAsync(input: UpdateShape<S>): Promise<MakeWire<S>> {
+    const r = await this.safeEncodePartialAsync(input);
+    if (!r.success) throw r.error;
+    return r.data;
+  }
+  /** Non-throwing async `encode` (see `safeEncode`). */
+  safeEncodeAsync(input: CreateShape<S>): Promise<SafeResult<MakeWire<S>>> {
+    return safeEncodeFieldsAsync(
+      this.fields as unknown as Record<string, AnyField>,
+      input as Record<string, unknown>,
+    ) as Promise<SafeResult<MakeWire<S>>>;
+  }
+  /** Non-throwing async `encodePartial`. */
+  safeEncodePartialAsync(
+    input: UpdateShape<S>,
+  ): Promise<SafeResult<MakeWire<S>>> {
+    return safeEncodeFieldsAsync(
+      this.fields as unknown as Record<string, AnyField>,
+      input as Record<string, unknown>,
+    ) as Promise<SafeResult<MakeWire<S>>>;
+  }
+
+  /**
+   * The server/system view: the same table over ALL fields, including `$internal()`
+   * ones the public surface hides. Use it in trusted server code that must read or
+   * write internal fields (e.g. a `passhash`).
+   */
+  get system(): SystemView<Name, S> {
+    return new SystemView<Name, S>(
+      this.fields as unknown as Record<string, AnyField>,
+    );
+  }
+
+  // --- Derived input schemas (real, composable Standard-Schema Zod objects) ---
+  // `.object` (the full row) is built in the constructor. `.create`/`.update` mirror the
+  // `CreateShape`/`UpdateShape` semantics as runtime schemas so they can be `.partial()/.extend()/
+  // .refine()/.or()`d for client-input validation — instead of hand-rebuilding from the field map.
+
+  /** The **create-input** schema: internal fields dropped; DB-filled fields (`id`, `$default`/
+   *  `$defaultAlways`/`$value`/`$computed`) and Zod-optional fields are optional — except a
+   *  `$value({ optional: false })` field, which is create-required. A `$value({ computes })` field
+   *  additionally makes its computed nested keys optional. Composable. */
+  get create(): z.ZodObject<CreateZShape<S>> {
+    const shape: Record<string, z.ZodType> = {};
+    for (const [k, f] of Object.entries(this.fields)) {
+      const field = f as AnyField;
+      if (field.surreal.internal) continue;
+      const computes = field.surreal.computes;
+      const base =
+        computes && computes.length > 0
+          ? optionalizeComputed(field.schema, computes)
+          : field.schema;
+      const optional =
+        k === "id" ||
+        field.surreal.default !== undefined ||
+        field.surreal.defaultAlways === true ||
+        (field.surreal.value !== undefined &&
+          field.surreal.valueRequired !== true) ||
+        field.surreal.computed !== undefined ||
+        field.isOptional();
+      shape[k] = optional ? base.optional() : base;
+    }
+    return z.object(shape) as unknown as z.ZodObject<CreateZShape<S>>;
+  }
+
+  /** The **update-input** schema: a partial patch — `id` + readonly fields excluded, everything else
+   *  optional. Composable (`.extend()/.refine()/.or()`, e.g. `.update.extend({ id: s.string() })`). */
+  get update(): z.ZodObject<UpdateZShape<S>> {
+    const shape: Record<string, z.ZodType> = {};
+    for (const [k, f] of Object.entries(this.fields)) {
+      const field = f as AnyField;
+      if (field.surreal.internal || k === "id" || field.surreal.readonly)
+        continue;
+      shape[k] = field.schema.optional();
+    }
+    return z.object(shape) as unknown as z.ZodObject<UpdateZShape<S>>;
+  }
+
+  /** The fixed record-id key of a SINGLETON table (see {@link defineSingleton}); `undefined` for
+   *  normal tables. Survives every chaining/preset step (it lives in the table config). */
+  get singletonId(): string | undefined {
+    return this.config.singleton;
+  }
+
+  // --- DDL config (chainable, immutable) ---
+  private withConfig(
+    config: Partial<TableConfig>,
+  ): TableDef<Name, S, Unique> {
+    return new TableDef<Name, S, Unique>(this.name, this.fields, {
+      ...this.config,
+      ...config,
+    });
+  }
+  schemafull() {
+    return this.withConfig({ schemafull: true });
+  }
+  schemaless() {
+    return this.withConfig({ schemafull: false });
+  }
+  /** `TYPE ANY` — the table may hold both normal records and graph edges. */
+  typeAny() {
+    return this.withConfig({ type: "any" });
+  }
+  drop(drop = true) {
+    return this.withConfig({ drop });
+  }
+  comment(comment: string) {
+    return this.withConfig({ comment });
+  }
+  /** Set table-level `PERMISSIONS` (folded into the single `DEFINE TABLE` head). */
+  permissions(spec: TablePermissions | ((p: PermCtx<S>) => TablePermissions)) {
+    return this.withConfig({
+      permissions: typeof spec === "function" ? spec(permCtx<S>()) : spec,
+    });
+  }
+  /** `CHANGEFEED <dur> [INCLUDE ORIGINAL]` — track row changes for `SHOW CHANGES`. */
+  changefeed(expiry: string, opts: { includeOriginal?: boolean } = {}) {
+    return this.withConfig({
+      changefeed: { expiry, includeOriginal: opts.includeOriginal },
+    });
+  }
+  /**
+   * Choose how the ORM generates a record id when a write creates a record WITHOUT an explicit
+   * `id` — `create`/`createMany`/`create.relate`, `insert`/`insertMany`, `upsert`/`upsertMany`
+   * (including `createMany({ skipDuplicates: true })`). Default: `"ulid"`.
+   *
+   * - `"ulid"` — `rand::ulid()` (26 chars, time-sortable)
+   * - `"uuid"` — `rand::uuid()` (UUID v7, time-sortable)
+   * - `"rand"` — `rand::id()` (20 chars) — the server default, i.e. the pre-feature behavior
+   *
+   * An explicit `id` in the payload ALWAYS wins, singleton tables keep their fixed id, and an
+   * explicit `id: s.uuid()`/`s.ulid()` field defaults to the matching strategy (a conflicting
+   * `.idStrategy(...)` is rejected by `defineSchema`). Generation happens on the SERVER
+   * (`type::record(<table>, rand::ulid())` / an `id` expression field), so it needs no client
+   * dependency. It emits NO DDL: `sc diff`/migrations never see it, raw SQL and writes outside
+   * the ORM keep the server default, and `sc pull` cannot recover it from the database.
+   */
+  idStrategy(strategy: IdStrategy): TableDef<Name, S, Unique> {
+    if (strategy !== "ulid" && strategy !== "uuid" && strategy !== "rand")
+      throw new Error(
+        `idStrategy(${JSON.stringify(strategy)}) — expected "ulid" | "uuid" | "rand".`,
+      );
+    if (this.config.singleton !== undefined)
+      throw new Error(
+        `idStrategy is not applicable to singleton table "${this.name}" — its id is fixed at "${this.name}:${this.config.singleton}".`,
+      );
+    return this.withConfig({ idStrategy: strategy });
+  }
+  /**
+   * Add a composite index: `DEFINE INDEX <name> ON TABLE <table> FIELDS <fields> [UNIQUE]`, or a
+   * materialized row-count index with `{ count: true }` (no fields → `DEFINE INDEX <name> … COUNT`).
+   *
+   * `fields` is either a plain name array (`["a", "b"]`) or a callback over the table's field refs
+   * (`(t) => [t.a, t.b]`). Prefer the callback: each `t.<field>` is a real property reference the LSP
+   * can rename and go-to-definition, so an index survives a field rename — a string array can't.
+   */
+  index<const F extends readonly (keyof S & string)[]>(
+    name: string,
+    fields: F,
+    opts?: IndexOptions,
+  ): TableDef<Name, S, Unique | SingleUnique<F>>;
+  index(
+    name: string,
+    fields: (t: FieldRefs<S>) => readonly (keyof S & string)[],
+    opts?: IndexOptions,
+  ): TableDef<Name, S, Unique>;
+  index(
+    name: string,
+    fields:
+      | readonly (keyof S & string)[]
+      | ((t: FieldRefs<S>) => readonly (keyof S & string)[]),
+    opts: IndexOptions = {},
+  ): TableDef<Name, S, Unique> {
+    const cols =
+      typeof fields === "function" ? fields(fieldRefs(this.fields)) : fields;
+    const index: TableIndex = {
+      name,
+      fields: [...cols],
+      unique: opts.unique,
+      count: opts.count,
+      comment: opts.comment,
+      spec: buildIndexSpec(opts),
+    };
+    return this.withConfig({
+      indexes: [...(this.config.indexes ?? []), index],
+    });
+  }
+  /**
+   * Add a row-change event: `DEFINE EVENT <name> ON TABLE <table> [ASYNC …] [WHEN <when>] THEN <then>
+   * [COMMENT …]`. The body sees `$before`/`$after`/`$event`/`$value`; author with `surql\`…\`` or a raw
+   * string. `async` fires it off the write path; `comment` stores a description.
+   */
+  event(
+    name: string,
+    spec: {
+      when?: EventExpr<S>;
+      then: EventThen<S>;
+      async?: EventAsync;
+      comment?: string;
+    },
+  ) {
+    const event: TableEvent = {
+      name,
+      when: spec.when === undefined ? undefined : resolveEventExpr(spec.when),
+      // biome-ignore lint/suspicious/noThenProperty: `then` is the SurrealQL THEN clause (a string/BoundQuery), not a PromiseLike.
+      then: resolveEventExpr(spec.then),
+      async: spec.async,
+      comment: spec.comment,
+    };
+    return this.withConfig({
+      events: [...(this.config.events ?? []), event],
+    });
+  }
+
+  // --- Shape ops (mirror Zod's object methods; carry DDL metadata + config) ---
+  /** Add columns — a typed, cast-free column mixin. Accepts a raw field map OR an `s.object()` (its
+   *  native `.fields` are used); added columns win on key conflict, the smart `id` is preserved. Use
+   *  it to compose reusable base/meta columns: `defineTable("customer", fields).extend(auditColumns)`. */
+  extend<E extends Shape>(
+    ext: E | SObjectField<E>,
+  ): TableDef<Name, Omit<S, keyof E> & E> {
+    const added = ext instanceof SObjectField ? ext.fields : ext;
+    const f: Record<string, AnyField> = {
+      ...(this.fields as unknown as Record<string, AnyField>),
+      ...normalizeFields(added),
+    };
+    return new TableDef(
+      this.name,
+      f as unknown as Fields<Omit<S, keyof E> & E>,
+      this.config,
+    );
+  }
+  /**
+   * Apply a {@link TablePreset | preset} — a reusable bundle of columns + permissions + events + indexes
+   * (`defineTable("post", fields).use(tenant("org_id")).use(timestamps())`). Its columns typed-merge into
+   * the table (fully typed at any depth — **chain** `.use(a).use(b)` for several); permissions per-op
+   * AND-combine (narrow, never widen); events + indexes append (a `{table}` placeholder in their
+   * names interpolates to the table name); opaque `meta` merges (later presets win per key). A
+   * column-name clash with an existing column throws at apply/gen time. (Single-arg + chaining,
+   * deliberately — a variadic typed merge would either cap the arity or drop the column types past
+   * that cap; chaining keeps every preset typesafe.)
+   */
+  use<P extends TablePreset>(
+    preset: P & CheckPreset<S, P>,
+  ): TableDef<Name, WithSmartId<Name, S & PresetCols<P>>> {
+    // biome-ignore lint/suspicious/noExplicitAny: fold through the driver methods; return typed by the signature.
+    let t: any = this;
+    if (preset.columns) {
+      for (const k of Object.keys(preset.columns))
+        if (k !== "id" && k in (t.fields as object))
+          throw new Error(
+            `preset column "${k}" conflicts with an existing column on table "${t.name}"`,
+          );
+      t = t.extend(preset.columns);
+    }
+    if (preset.permissions !== undefined)
+      t = t.permissions(
+        combinePermissions(t.config.permissions, preset.permissions),
+      );
+    // `{table}` lets a generic preset emit per-table names (`"{table}_protect_tenant_id"`) without
+    // constraining the table at author time — index/event names are table-scoped in SurrealDB.
+    for (const e of preset.events ?? [])
+      t = t.event(e.name.replaceAll("{table}", t.name), e);
+    for (const i of preset.indexes ?? [])
+      t = t.index(i.name.replaceAll("{table}", t.name), i.fields, i);
+    // Opaque marker metadata — merged (table's own first, later presets win) and never emitted.
+    if (preset.meta !== undefined)
+      t = t.withConfig({
+        meta: {
+          ...(t.config.meta ?? {}),
+          ...preset.meta,
+        },
+      });
+    // `S & PresetCols` keeps the EXISTING id in WithSmartId's input — `IdValue` extracts its
+    // declared value type verbatim (a tuple id, a singleton literal). The previous
+    // `Omit<S, "id">` re-derived the id as the broad RecordIdValue.
+    return t as TableDef<Name, WithSmartId<Name, S & PresetCols<P>>>;
+  }
+  pick<K extends keyof S>(...keys: K[]): TableDef<Name, Pick<S, K>> {
+    const src = this.fields as unknown as Record<string, AnyField>;
+    const f: Record<string, AnyField> = {};
+    for (const k of keys) f[k as string] = src[k as string]!;
+    return new TableDef(
+      this.name,
+      f as unknown as Fields<Pick<S, K>>,
+      this.config,
+    );
+  }
+  omit<K extends keyof S>(...keys: K[]): TableDef<Name, Omit<S, K>> {
+    const f: Record<string, AnyField> = {
+      ...(this.fields as unknown as Record<string, AnyField>),
+    };
+    for (const k of keys) delete f[k as string];
+    return new TableDef(
+      this.name,
+      f as unknown as Fields<Omit<S, K>>,
+      this.config,
+    );
+  }
+  partial(): TableDef<Name, PartialShape<S>> {
+    const f: Record<string, AnyField> = {};
+    for (const [k, field] of Object.entries(this.fields))
+      f[k] = (field as AnyField).optional();
+    return new TableDef(
+      this.name,
+      f as unknown as Fields<PartialShape<S>>,
+      this.config,
+    );
+  }
+  required(): TableDef<Name, RequiredShape<S>> {
+    const f: Record<string, AnyField> = {};
+    for (const [k, field] of Object.entries(this.fields)) {
+      const sf = field as AnyField;
+      const def = sf.schema._zod.def as unknown as {
+        type: string;
+        innerType?: z.ZodType;
+      };
+      f[k] =
+        def.type === "optional" && def.innerType
+          ? new SField(def.innerType, sf.surreal)
+          : sf;
+    }
+    return new TableDef(
+      this.name,
+      f as unknown as Fields<RequiredShape<S>>,
+      this.config,
+    );
+  }
+
+  /** Derive a `record<name>` link to this table (carrying its id value type AND mode, so a
+   *  string-id table's links are string-id links too). */
+  record(): S extends { id: RecordIdField<Name, infer V, infer M> }
+    ? RecordIdField<Name, V, M>
+    : RecordIdField<Name, RecordIdValue, RecordIdMode> {
+    const idField = (this.fields as unknown as Record<string, AnyField>).id as
+      | RecordIdField<Name, RecordIdValue, RecordIdMode>
+      | undefined;
+    return new RecordIdField([this.name], {
+      valueType: idField?.valueType,
+      mode: idField?.mode ?? "record",
+    }) as never;
+  }
+
+  /**
+   * Switch the whole table to **string-id mode**: the `id` and every record-link field (nested in
+   * `s.object`/`s.array` included) decode to bare app strings (`01M…`) and accept
+   * `string | RecordId` on write/filter/where/cursor. The emitted DDL is UNCHANGED (`record<…>`),
+   * so `sc diff`/migrations stay empty; `sc pull` cannot recover the mode (like `idStrategy`).
+   *
+   * Multi-table (`s.recordId([A, B])`) and open (`s.recordId()`) links throw: a bare app string
+   * can't name the table on encode. Immutable — returns a new table.
+   */
+  stringIds(): TableDef<Name, StringIdsShape<S>> {
+    const mapped: Record<string, AnyField> = {};
+    let changed = false;
+    for (const [key, field] of Object.entries(
+      this.fields as unknown as Record<string, AnyField>,
+    )) {
+      const next = stringIdsField(field);
+      mapped[key] = next;
+      if (next !== field) changed = true;
+    }
+    return new TableDef(
+      this.name,
+      (changed ? mapped : this.fields) as unknown as Fields<StringIdsShape<S>>,
+      this.config,
+    );
+  }
+}
+
+/**
+ * The server/system view of a table (`TableDef.system`): the same data methods typed
+ * over ALL fields, including `$internal()` ones the public `TableDef` hides. Its
+ * `.object` validates/encodes/decodes the full shape, and `encode`/`encodePartial` accept
+ * internal fields. Exposed for trusted server code; never hand it to a browser client.
+ */
+// biome-ignore lint/correctness/noUnusedVariables: Name mirrors TableDef<Name, S> for symmetry (type-only)
+export class SystemView<Name extends string, S extends Shape> {
+  /** Zod object over ALL fields (internal included). */
+  readonly object: z.ZodObject<ZShapeAll<S>>;
+
+  constructor(readonly fields: Record<string, AnyField>) {
+    const zshape: Record<string, z.ZodType> = {};
+    for (const [k, f] of Object.entries(fields)) zshape[k] = f.schema;
+    this.object = z.object(zshape) as z.ZodObject<ZShapeAll<S>>;
+  }
+
+  /** DB wire row -> app object (internal fields kept). */
+  decode(row: unknown): z.output<z.ZodObject<ZShapeAll<S>>> {
+    return z.decode(this.object, row as never);
+  }
+  /** DB wire row -> app object (async; internal fields kept). */
+  decodeAsync(row: unknown): Promise<z.output<z.ZodObject<ZShapeAll<S>>>> {
+    return z.decodeAsync(this.object, row as never);
+  }
+
+  // No-throw read variants.
+  safeDecode(row: unknown) {
+    return z.safeDecode(this.object, row as never);
+  }
+  safeDecodeAsync(row: unknown) {
+    return z.safeDecodeAsync(this.object, row as never);
+  }
+
+  // Deprecated Zod-style aliases (parse runs the decode direction; use `decode`).
+  /** @deprecated `parse` decodes a DB row (wire -> app). Use {@link SystemView.decode | decode}. */
+  parse(row: unknown): z.output<z.ZodObject<ZShapeAll<S>>> {
+    return this.decode(row);
+  }
+  /** @deprecated Use {@link SystemView.safeDecode | safeDecode}. */
+  safeParse(row: unknown) {
+    return this.safeDecode(row);
+  }
+  /** @deprecated Use {@link SystemView.decodeAsync | decodeAsync}. */
+  parseAsync(row: unknown): Promise<z.output<z.ZodObject<ZShapeAll<S>>>> {
+    return this.decodeAsync(row);
+  }
+  /** @deprecated Use {@link SystemView.safeDecodeAsync | safeDecodeAsync}. */
+  safeParseAsync(row: unknown) {
+    return this.safeDecodeAsync(row);
+  }
+
+  // --- Write side over ALL fields (internal included). Mirrors `TableDef`'s create/patch-shaped
+  // `encode`/`encodePartial`; the raw full-object codec is `z.encode(view.object, app)`. ---
+
+  /**
+   * Build a `CREATE` payload allowed to set internal fields. VALIDATES and THROWS the
+   * aggregated `z.ZodError` on invalid input; use `safeEncode` for the non-throwing form.
+   */
+  encode(input: CreateShapeAll<S>): MakeWireAll<S> {
+    const r = this.safeEncode(input);
+    if (!r.success) throw r.error;
+    return r.data;
+  }
+  /**
+   * Build an `UPDATE`/`MERGE` payload allowed to set internal fields. VALIDATES and THROWS
+   * on invalid input; use `safeEncodePartial` for the non-throwing form.
+   */
+  encodePartial(input: UpdateShapeAll<S>): MakeWireAll<S> {
+    const r = this.safeEncodePartial(input);
+    if (!r.success) throw r.error;
+    return r.data;
+  }
+  /** Non-throwing `encode` over ALL fields (see `TableDef.safeEncode`). */
+  safeEncode(input: CreateShapeAll<S>): SafeResult<MakeWireAll<S>> {
+    return safeEncodeFields(
+      this.fields,
+      input as Record<string, unknown>,
+    ) as SafeResult<MakeWireAll<S>>;
+  }
+  /** Non-throwing `encodePartial` over ALL fields. */
+  safeEncodePartial(input: UpdateShapeAll<S>): SafeResult<MakeWireAll<S>> {
+    return safeEncodeFields(
+      this.fields,
+      input as Record<string, unknown>,
+    ) as SafeResult<MakeWireAll<S>>;
+  }
+  /** Async `encode` over ALL fields; throws the aggregated error. */
+  async encodeAsync(input: CreateShapeAll<S>): Promise<MakeWireAll<S>> {
+    const r = await this.safeEncodeAsync(input);
+    if (!r.success) throw r.error;
+    return r.data;
+  }
+  /** Async `encodePartial` over ALL fields; throws the aggregated error. */
+  async encodePartialAsync(input: UpdateShapeAll<S>): Promise<MakeWireAll<S>> {
+    const r = await this.safeEncodePartialAsync(input);
+    if (!r.success) throw r.error;
+    return r.data;
+  }
+  /** Non-throwing async `encode` over ALL fields. */
+  safeEncodeAsync(
+    input: CreateShapeAll<S>,
+  ): Promise<SafeResult<MakeWireAll<S>>> {
+    return safeEncodeFieldsAsync(
+      this.fields,
+      input as Record<string, unknown>,
+    ) as Promise<SafeResult<MakeWireAll<S>>>;
+  }
+  /** Non-throwing async `encodePartial` over ALL fields. */
+  safeEncodePartialAsync(
+    input: UpdateShapeAll<S>,
+  ): Promise<SafeResult<MakeWireAll<S>>> {
+    return safeEncodeFieldsAsync(
+      this.fields,
+      input as Record<string, unknown>,
+    ) as Promise<SafeResult<MakeWireAll<S>>>;
+  }
+}
+
+// --- Smart id: the `id` field describes the id value type; wrapped as record<thisTable, V>. ---
+type IdValue<Id> =
+  Id extends RecordIdField<string, infer V, infer _M>
+    ? V
+    : Id extends SField<infer Sc, infer _>
+      ? z.output<Sc> extends RecordIdValue
+        ? z.output<Sc>
+        : RecordIdValue
+      : Id extends z.ZodType
+        ? z.output<Id> extends RecordIdValue
+          ? z.output<Id>
+          : RecordIdValue
+        : RecordIdValue;
+/** The id MODE an authored `id` field carries (`record` when absent/not a record field). */
+type IdMode<Id> =
+  Id extends RecordIdField<string, RecordIdValue, infer M> ? M : "record";
+/** Is `S` a BROAD shape (an index signature, e.g. `AnyTable`'s)? Broad tables carry BOTH modes, so a
+ *  concrete string-id table stays assignable to them. */
+type IsBroadShape<S> = string extends keyof S ? true : false;
+type WithSmartId<Name extends string, S extends Shape> = Omit<S, "id"> & {
+  id: RecordIdField<
+    Name,
+    "id" extends keyof S ? IdValue<S["id"]> : RecordIdValue,
+    IsBroadShape<S> extends true
+      ? RecordIdMode
+      : "id" extends keyof S
+        ? IdMode<S["id"]>
+        : "record"
+  >;
+};
+
+/** Build a table's `id` field: a `record<name>` whose value type comes from `given`. */
+function buildIdField(
+  name: string,
+  given: AnyField | z.ZodType | undefined,
+): RecordIdField<string> {
+  if (given === undefined) return new RecordIdField([name]);
+  if (given instanceof RecordIdField)
+    return new RecordIdField([name], {
+      valueType: given.valueType,
+      mode: given.mode,
+    });
+  const valueSchema = given instanceof SField ? given.schema : given;
+  return new RecordIdField([name], {
+    valueType: valueSchema as z.ZodType<RecordIdValue>,
+  });
+}
+
+/** Normalize a shape, replacing/adding the special `id` field via buildIdField. */
+function applySmartId(name: string, shape: Shape): Record<string, AnyField> {
+  const out: Record<string, AnyField> = {};
+  for (const [k, v] of Object.entries(shape)) {
+    if (k === "id") continue;
+    out[k] = v instanceof SField ? v : new SField(v);
+  }
+  out.id = buildIdField(
+    name,
+    (shape as Record<string, AnyField | z.ZodType>).id,
+  );
+  return out;
+}
+
+// --- string-id mode: deep-map a table's record fields to bare app strings -------------------------
+
+/**
+ * The shape `TableDef.stringIds()` produces: every `RecordIdField` (top-level or nested inside
+ * `s.object`/`s.array`) becomes its string-mode sibling, so the schema's APP side is a bare string.
+ * Identity-preserving wrappers are mapped through; the `~szShape` brand recurses into objects.
+ */
+type StringIdsSchema<Sc> =
+  Sc extends z.ZodOptional<infer I>
+    ? z.ZodOptional<StringIdsSchema<I>>
+    : Sc extends z.ZodNullable<infer I>
+      ? z.ZodNullable<StringIdsSchema<I>>
+      : Sc extends z.ZodReadonly<infer I>
+        ? z.ZodReadonly<StringIdsSchema<I>>
+        : Sc extends z.ZodNonOptional<infer I>
+          ? z.ZodNonOptional<StringIdsSchema<I>>
+          : Sc extends z.ZodArray<infer E>
+            ? z.ZodArray<StringIdsSchema<E>>
+            : Sc extends z.ZodSet<infer E>
+              ? z.ZodSet<StringIdsSchema<E>>
+              : Sc extends z.ZodUnion<infer O>
+                ? UnionHasRecord<O> extends true
+                  ? z.ZodUnion<{
+                      [K in keyof O]: O[K] extends z.ZodType
+                        ? StringIdsSchema<O[K]>
+                        : O[K];
+                    }>
+                  : Sc
+                : Sc extends z.ZodIntersection<infer A, infer B>
+                  ? z.ZodIntersection<StringIdsSchema<A>, StringIdsSchema<B>>
+                  : Sc extends {
+                        readonly "~szShape"?: infer NS extends Shape;
+                      }
+                    ? SZObject<StringIdsShape<NS>>
+                    : Sc extends z.ZodType<RecordId<infer T, infer V>, infer _I>
+                      ? z.ZodType<BareId<T>, string | RecordId<T, V>>
+                      : Sc;
+
+/** Does ONE union option carry a record id — directly, in an array, or as an `s.object` brand?
+ *  Deliberately tuple-wrapped (NO distribution): it must not expand the recursive `s.json()` union. */
+type OptionHasRecord<O> =
+  O extends z.ZodType<infer Out, infer _I>
+    ? [Out] extends [RecordId]
+      ? true
+      : [Out] extends [readonly (infer E)[]]
+        ? [E] extends [RecordId]
+          ? true
+          : false
+        : O extends { readonly "~szShape"?: unknown }
+          ? true
+          : false
+    : false;
+/**
+ * Does any union option carry a record id? SHALLOW on purpose: it must terminate on the recursive
+ * `s.json()` union (whose array option re-enters the same union), which a full walk would not.
+ */
+type UnionHasRecord<O> = O extends readonly [infer H, ...infer R]
+  ? OptionHasRecord<H> extends true
+    ? true
+    : UnionHasRecord<R>
+  : false;
+/** One field of {@link StringIdsShape}: a record field flips mode, everything else maps its schema. */
+type StringIdsField<F> =
+  IsAny<F> extends true
+    ? RecordIdField<string, RecordIdValue, "string">
+    : F extends RecordIdField<infer T, infer V, infer _M>
+      ? RecordIdField<T, V, "string">
+      : F extends SField<infer Sc, infer Flags>
+        ? SField<StringIdsSchema<Sc>, Flags>
+        : F extends z.ZodType
+          ? StringIdsSchema<F>
+          : F;
+/** The whole shape of a string-id table. A BROAD shape (index signature, e.g. `AnyTable`'s) stays
+ *  `Shape` so `TableDef<string, any>` remains a structural supertype of every concrete table. */
+export type StringIdsShape<S extends Shape> = string extends keyof S
+  ? Shape
+  : { [K in keyof S]: StringIdsField<S[K]> };
+
+/** Swap the record core(s) inside one schema for their string-mode sibling (deep). */
+function stringIdsSchema(schema: z.ZodType): {
+  schema: z.ZodType;
+  changed: boolean;
+} {
+  return mapRecordSchemaTree(schema, (current) => {
+    const field = recordIdFieldRegistry.get(current);
+    if (!field || field.mode === "string")
+      return { schema: current, changed: false };
+    return { schema: field.stringIds().schema, changed: true };
+  });
+}
+
+/** Map one field (top-level or nested) to string mode, preserving its DDL metadata. */
+function stringIdsField(field: AnyField): AnyField {
+  if (field instanceof RecordIdField) return field.stringIds();
+  const mapped = stringIdsSchema(field.schema);
+  if (!mapped.changed) return field;
+  return new SField(mapped.schema, field.surreal);
+}
+
+/** Deep-map a whole shape's record fields to string mode. */
+function stringIdsShape<S extends Shape>(shape: S): StringIdsShape<S> {
+  const out: Record<string, AnyField> = {};
+  let changed = false;
+  for (const [key, value] of Object.entries(shape)) {
+    const field = value instanceof SField ? value : new SField(value);
+    const mapped = stringIdsField(field);
+    out[key] = mapped;
+    if (mapped !== field) changed = true;
+  }
+  return (changed ? out : shape) as StringIdsShape<S>;
+}
+
+/** Does this schema (or a wrapper/array around it) carry string-id mode? */
+export function stringIdsOf(schema: z.ZodType): boolean {
+  return findRecordIdField(schema)?.mode === "string";
+}
+
+/**
+ * Define a normal table (schemafull by default). The shape may be a plain object, or a callback
+ * `(self) => ({...})` that receives a `record<thisTable>` field — use it for self-referential
+ * links: `manager: self.optional()`. Type-safe with no repeated table name: `self`'s type comes
+ * from the `name` arg, not from `typeof <theConst>`, so it sidesteps the self-in-its-own-
+ * initializer cycle (TS 7022) that would otherwise widen the whole table to `any`.
+ */
+/**
+ * Reject a shape field carrying the `NoDdl` brand (no SurrealQL mapping) at compile time: the
+ * offending key resolves to an error string, so the shape literal won't type-check. Give such a
+ * field `.$surreal(type, codec)` to make it storable, or drop it.
+ */
+type RejectNoDdl<S extends Shape> = {
+  // `string extends FlagsOf` -> flags are unresolved (e.g. the callback form leaves `S` broad);
+  // only reject when the brand is a concrete member, never on the generic fallback.
+  [K in keyof S]: string extends FlagsOf<S[K]>
+    ? S[K]
+    : NoDdl extends FlagsOf<S[K]>
+      ? "no SurrealQL mapping for this field — give it `.$surreal(type, codec)` or remove it"
+      : S[K];
+};
+
+// The output (id value) type of an authored `id` field — WITHOUT the widen-to-RecordIdValue fallback
+// `IdValue` does, so `RejectBadId` can see whether it's actually a valid record-id value type.
+type IdOutput<Id> =
+  Id extends RecordIdField<string, infer V, infer _M>
+    ? V
+    : Id extends SField<infer Sc, infer _>
+      ? z.output<Sc>
+      : Id extends z.ZodType
+        ? z.output<Id>
+        : never;
+
+/** Compile-time guard: an explicit `id` field must have a valid `RecordIdValue` value type — a
+ *  `s.symbol()`/`s.boolean()` id (not a valid id value) is rejected rather than silently widened. */
+type RejectBadId<S extends Shape> = "id" extends keyof S
+  ? [IdOutput<S["id"]>] extends [RecordIdValue]
+    ? unknown
+    : {
+        id: "the `id` field's value must be a valid RecordId value type (string | number | bigint | uuid | array | object) — e.g. s.string(), s.int(), s.uuid()";
+      }
+  : unknown;
+
+// biome-ignore lint/complexity/noBannedTypes: `{}` is the empty default shape — a bare table (just `id`), like defineRelation.
+export function defineTable<Name extends string, S extends Shape = {}>(
+  name: Name,
+  // A no-DDL field / bad id in the raw-map form is rejected at compile time (`RejectNoDdl` +
+  // `RejectBadId`); the callback form keeps its precise `S` inference (a `& RejectNoDdl<S>` in a
+  // function-return position collapses it), so a no-DDL field there is caught by the runtime
+  // `inferField` backstop instead. The `s.object()` form is accepted too (its native `.fields` map is
+  // unwrapped) so a schema can be composed then turned into a table. Omitting `shape` gives a bare
+  // table (just the implicit `id`) — same as `defineRelation(name)`.
+  shape?:
+    | (S & RejectNoDdl<S> & RejectBadId<S>)
+    | ((self: RecordIdField<Name>) => S)
+    | SObjectField<S>,
+): TableDef<Name, WithSmartId<Name, S>> {
+  const resolved =
+    shape === undefined
+      ? ({} as S)
+      : typeof shape === "function"
+        ? shape(new RecordIdField([name]))
+        : shape instanceof SObjectField
+          ? (shape.fields as S)
+          : shape;
+  return new TableDef(
+    name,
+    applySmartId(name, resolved) as unknown as Fields<WithSmartId<Name, S>>,
+    {
+      schemafull: true,
+    },
+  );
+}
+
+/** A singleton table's shape: the smart id's VALUE type is the fixed key's string LITERAL —
+ *  that's the compile-time singleton marker (it rides the shape, so it survives `.use(preset)`
+ *  and every other chain), read back by {@link SingletonIdOf}. */
+type WithSingletonId<
+  Name extends string,
+  S extends Shape,
+  Id extends string,
+> = Omit<S, "id"> & { id: RecordIdField<Name, Id> };
+
+/** The fixed record-id key of a SINGLETON table (a string literal), or `never` for a normal
+ *  table (whose id value type is broad). Drives the id-optional client/query overloads. */
+export type SingletonIdOf<TD> =
+  TD extends TableDef<string, infer S>
+    ? S extends { id: RecordIdField<string, infer V, infer _M> }
+      ? string extends V
+        ? never
+        : V extends string
+          ? V
+          : never
+      : never
+    : never;
+
+/**
+ * Define a SINGLETON table — a table meant to hold exactly ONE record (system-wide config,
+ * feature flags, …). The record's id is FIXED (`<name>:<id>`, default key `default`) and the
+ * DATABASE enforces it: the emitted `DEFINE FIELD id ON <name> TYPE '<id>'` (a literal id type,
+ * SurrealDB >= 3.1) rejects any other id at write time.
+ *
+ * ```ts
+ * export const Config = defineSingleton("config", {
+ *   maintenance: s.boolean().$default(surql`false`),
+ *   motd: s.string().optional(),
+ * });
+ * // db.get(Config)                    — no id argument (config:default)
+ * // db.create(Config).content({...})  — CREATEs the one record
+ * // db.update(Config).merge({...})    — updates it
+ * ```
+ *
+ * The fixed key types through the shape (the id field's value type is the string literal), so
+ * the id-optional overloads survive presets and chaining.
+ */
+// biome-ignore lint/complexity/noBannedTypes: `{}` is the empty default shape, like defineTable.
+export function defineSingleton<
+  Name extends string,
+  S extends Shape = {},
+  Id extends string = "default",
+>(
+  name: Name,
+  shape?: (S & RejectNoDdl<S>) | ((self: RecordIdField<Name>) => S),
+  opts: { /** The fixed record-id key (default `"default"`). */ id?: Id } = {},
+): TableDef<Name, WithSingletonId<Name, S, Id>> {
+  const id = opts.id ?? "default";
+  if (!/^[A-Za-z0-9_]+$/.test(id))
+    throw new Error(
+      `defineSingleton("${name}"): the fixed id key "${id}" must be a plain identifier (letters/digits/underscore).`,
+    );
+  const resolved =
+    shape === undefined
+      ? ({} as S)
+      : typeof shape === "function"
+        ? shape(new RecordIdField([name]))
+        : shape;
+  const fields = applySmartId(name, resolved);
+  // The smart id's VALUE schema is the literal key — decode/encode stay the plain smart-id
+  // codec; the literal is the type-level marker + what the emitted DDL enforces.
+  fields.id = new RecordIdField([name], {
+    valueType: z.literal(id) as unknown as z.ZodType<RecordIdValue>,
+  });
+  return new TableDef(
+    name,
+    fields as unknown as Fields<WithSingletonId<Name, S, Id>>,
+    { schemafull: true, singleton: id },
+  );
+}
+/**
+ * Define a reusable {@link TablePreset} — a composable bundle of `columns` / `permissions` / `events` /
+ * `indexes` applied to a table via {@link TableDef.use}. Wrap it in a plain function to make it
+ * configurable: `const tenant = (field: string) => defineTable.preset({ … })`. (It hangs off
+ * `defineTable` rather than being a `define*` of its own because a preset emits no DDL by itself.)
+ */
+defineTable.preset = <Cols extends Shape = {}>(
+  preset: TablePreset<Cols>,
+): TablePreset<Cols> => preset;
+
+/**
+ * A table def erased for a schema-agnostic REFERENCE (a relation endpoint, a `recordId` target).
+ * `Unique` is pinned to `never`: a reference carries no unique-field union, and pinning it keeps
+ * `RecordRefName<T>`'s inference from resolving through this type's own shape.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: shape-agnostic table reference for relation endpoints
+type AnyTable = TableDef<string, any, never>;
+/** A single relation endpoint: a table def, a SurrealDB `Table` instance, or a bare table name. */
+type TableLike = AnyTable | Table<string> | string;
+/** A relation endpoint reference — one table, or an array (a `|`-union of `in`/`out` tables); mix freely. */
+type TableRef = TableLike | readonly TableLike[];
+/** The table-name string literal a single {@link TableLike} carries. */
+type NameOf<T> = T extends string
+  ? T
+  : T extends TableDef<infer N extends string, infer _>
+    ? N
+    : T extends Table<infer N extends string>
+      ? N
+      : never;
+/** The endpoint name(s) a {@link TableRef} carries — drives the typed `in`/`out` record links. */
+type NamesOf<T> = T extends readonly (infer E)[] ? NameOf<E> : NameOf<T>;
+/** The table name an `s.recordId(...)` entry restricts to: a literal name, a `TableDef`/`Table`,
+ *  or a LAZY `() => TableDef` (typed via the thunk's return, resolved post-module-eval). */
+type RecordRefName<T> = T extends string
+  ? T
+  : T extends () => infer TD
+    ? NamesOf<TD>
+    : NamesOf<T>;
+
+/** The id mode a `TableRef` implies: `string` only for a SINGLE string-id `TableDef`. */
+type RecordModeOf<F> = F extends readonly unknown[]
+  ? "record"
+  : F extends TableDef<string, infer S>
+    ? S extends { id: infer Id }
+      ? IdMode<Id>
+      : "record"
+    : "record";
+
+/** The id mode a relation's OWN id carries: `string` only when BOTH endpoints are string-mode; a
+ *  BROAD mode (e.g. `AnyRelationDef`) stays `RecordIdMode` so concrete string ids fit. */
+type RelationIdMode<
+  InMode extends RecordIdMode,
+  OutMode extends RecordIdMode,
+> = RecordIdMode extends InMode | OutMode
+  ? RecordIdMode
+  : [InMode, OutMode] extends ["string", "string"]
+    ? "string"
+    : "record";
+
+/** A relation's full shape: the edge fields plus the `in`/`out` record endpoints. */
+type RelationShape<
+  Name extends string,
+  S extends Shape,
+  In extends string,
+  Out extends string,
+  InMode extends RecordIdMode = "record",
+  OutMode extends RecordIdMode = "record",
+> = Omit<WithSmartId<Name, S>, "in" | "out" | "id"> & {
+  id: RecordIdField<
+    Name,
+    "id" extends keyof S ? IdValue<S["id"]> : RecordIdValue,
+    RelationIdMode<InMode, OutMode>
+  >;
+  in: RecordIdField<In, RecordIdValue, InMode>;
+  out: RecordIdField<Out, RecordIdValue, OutMode>;
+};
+
+function tableNames(ref: TableRef): string[] {
+  return refArray(ref).map((t) => (typeof t === "string" ? t : t.name));
+}
+
+/** Normalize a {@link TableRef} to an array of endpoints (a single ref becomes a one-element array). */
+function refArray(ref: TableRef): readonly TableLike[] {
+  return (Array.isArray(ref) ? ref : [ref]) as readonly TableLike[];
+}
+
+/**
+ * The endpoint id mode a ref implies: `string` only when it is a SINGLE `TableDef` whose id is in
+ * string mode (a multi-table/`Table`/bare-name endpoint stays `record` — a bare string can't name
+ * the table). Mirrors {@link RecordModeOf}.
+ */
+function endpointMode(ref: TableRef): RecordIdMode {
+  const refs = refArray(ref);
+  if (refs.length !== 1) return "record";
+  const only = refs[0];
+  if (only instanceof TableDef) {
+    const id = (only.fields as unknown as Record<string, AnyField>).id;
+    if (id instanceof RecordIdField) return id.mode;
+  }
+  return "record";
+}
+
+/** Build a relation's runtime fields: the edge fields + `in`/`out` (empty endpoints = any record). */
+function relationFields(
+  name: string,
+  edge: Shape,
+  fromNames: string[],
+  toNames: string[],
+  fromMode: RecordIdMode,
+  toMode: RecordIdMode,
+): Record<string, AnyField> {
+  const fields = applySmartId(name, edge);
+  // The relation's OWN id is string-mode only when BOTH endpoints are (a fully string-id edge);
+  // `RelationDef.stringIds()` forces this by passing "string" for both.
+  if (fromMode === "string" && toMode === "string") {
+    const id = fields.id as RecordIdField<string, RecordIdValue, RecordIdMode>;
+    fields.id = new RecordIdField([name], {
+      valueType: id.valueType,
+      mode: "string",
+    });
+  }
+  return {
+    ...fields,
+    in: new RecordIdField(fromNames, { mode: fromMode }),
+    out: new RecordIdField(toNames, { mode: toMode }),
+  };
+}
+
+/**
+ * A graph relation (edge table). It's a usable `TableDef` immediately — endpoints are OPTIONAL
+ * (`TYPE RELATION` with no `FROM`/`TO` restricts nothing) — and `.from(X)` / `.to(Y)` narrow the
+ * `in` / `out` record types. Both return a new `RelationDef` (immutable), chainable in any order.
+ *
+ * A `.from(User)`/`.to(User)` with a SINGLE string-id table inherits that table's id mode, so the
+ * `in`/`out` app values are bare strings too; `.stringIds()` flips the edge + both endpoints
+ * explicitly (and throws when an endpoint is multi-table/open — a bare string can't name the table).
+ */
+export class RelationDef<
+  Name extends string,
+  S extends Shape,
+  In extends string = string,
+  Out extends string = string,
+  // Phantom endpoint captures for the graph query builder: the `TableRef` passed to `.from()`/`.to()`,
+  // lossless (single def / array / bare name). `In`/`Out` keep the name-string links (unchanged); these
+  // carry the endpoint TableDef *types* so `.out(E)`/`.in(E)` can infer the target node type + fields.
+  FromRef = unknown,
+  ToRef = unknown,
+  InMode extends RecordIdMode = "record",
+  OutMode extends RecordIdMode = "record",
+  // The COMPLETE shape (edge fields + `in`/`out`), tracked as a type parameter so an override like
+  // `stringIds()` stays structurally exact against the base `TableDef<Name, RS>`.
+  RS extends Shape = RelationShape<Name, S, In, Out, InMode, OutMode>,
+> extends TableDef<Name, RS> {
+  constructor(
+    name: Name,
+    private readonly edge: S,
+    private readonly fromNames: string[] = [],
+    private readonly toNames: string[] = [],
+    private readonly isEnforced: boolean = false,
+    // The endpoint refs AS PASSED (def objects / `Table`s / bare names) — the runtime mirror of the
+    // `FromRef`/`ToRef` type captures, so the graph builder can recover a target's TableDef.
+    private readonly fromRefs: readonly TableLike[] = [],
+    private readonly toRefs: readonly TableLike[] = [],
+    private readonly fromMode: RecordIdMode = "record",
+    private readonly toMode: RecordIdMode = "record",
+  ) {
+    super(
+      name,
+      relationFields(
+        name,
+        edge,
+        fromNames,
+        toNames,
+        fromMode,
+        toMode,
+      ) as unknown as Fields<RS>,
+      {
+        schemafull: true,
+        relation: {
+          from: fromNames,
+          to: toNames,
+          ...(isEnforced ? { enforced: true } : {}),
+        },
+      },
+    );
+  }
+  /** The endpoint {@link TableDef}s for a direction — the def objects handed to `.from()`/`.to()`
+   *  (bare-name endpoints are omitted). The graph query builder uses these to build target-node refs. */
+  endpointDefs(dir: "from" | "to"): AnyTable[] {
+    const refs = dir === "to" ? this.toRefs : this.fromRefs;
+    return refs.filter((r): r is AnyTable => r instanceof TableDef);
+  }
+  /** Restrict the source endpoint(s) (`in`) — a `TableDef`, a SurrealDB `Table`, a bare name string, or
+   *  an array mixing them for a `FROM a | b` union. Endpoint names flow into the typed `in` record link. */
+  from<F extends TableRef>(
+    ref: F,
+  ): RelationDef<Name, S, NamesOf<F>, Out, F, ToRef, RecordModeOf<F>, OutMode> {
+    return new RelationDef(
+      this.name,
+      this.edge,
+      tableNames(ref),
+      this.toNames,
+      this.isEnforced,
+      refArray(ref),
+      this.toRefs,
+      endpointMode(ref),
+      this.toMode,
+    ) as unknown as RelationDef<
+      Name,
+      S,
+      NamesOf<F>,
+      Out,
+      F,
+      ToRef,
+      RecordModeOf<F>,
+      OutMode
+    >;
+  }
+  /** Restrict the target endpoint(s) (`out`) — a `TableDef`, a SurrealDB `Table`, a bare name string, or
+   *  an array mixing them for a `TO a | b` union. Endpoint names flow into the typed `out` record link. */
+  to<T extends TableRef>(
+    ref: T,
+  ): RelationDef<Name, S, In, NamesOf<T>, FromRef, T, InMode, RecordModeOf<T>> {
+    return new RelationDef(
+      this.name,
+      this.edge,
+      this.fromNames,
+      tableNames(ref),
+      this.isEnforced,
+      this.fromRefs,
+      refArray(ref),
+      this.fromMode,
+      endpointMode(ref),
+    ) as unknown as RelationDef<
+      Name,
+      S,
+      In,
+      NamesOf<T>,
+      FromRef,
+      T,
+      InMode,
+      RecordModeOf<T>
+    >;
+  }
+  /** Require both endpoints to exist on RELATE (`TYPE RELATION … ENFORCED`). */
+  enforced(): RelationDef<Name, S, In, Out, FromRef, ToRef, InMode, OutMode> {
+    return new RelationDef(
+      this.name,
+      this.edge,
+      this.fromNames,
+      this.toNames,
+      true,
+      this.fromRefs,
+      this.toRefs,
+      this.fromMode,
+      this.toMode,
+    ) as unknown as RelationDef<
+      Name,
+      S,
+      In,
+      Out,
+      FromRef,
+      ToRef,
+      InMode,
+      OutMode
+    >;
+  }
+  /**
+   * Flip the edge shape + both endpoints to string-id mode. Needs exactly one `FROM` and one `TO`
+   * endpoint: a bare app string can't name the table on encode.
+   */
+  override stringIds(): RelationDef<
+    Name,
+    StringIdsShape<S>,
+    In,
+    Out,
+    FromRef,
+    ToRef,
+    "string",
+    "string",
+    StringIdsShape<RS>
+  > {
+    if (this.fromNames.length !== 1)
+      throw new Error(
+        `RelationDef.stringIds() needs exactly ONE FROM endpoint — this relation has ${
+          this.fromNames.length === 0 ? "none" : this.fromNames.join(" | ")
+        }. A bare app string can't name the table on encode; call .from(User) with a single string-id table, or keep the endpoints in RecordId mode.`,
+      );
+    if (this.toNames.length !== 1)
+      throw new Error(
+        `RelationDef.stringIds() needs exactly ONE TO endpoint — this relation has ${
+          this.toNames.length === 0 ? "none" : this.toNames.join(" | ")
+        }. A bare app string can't name the table on encode; call .to(User) with a single string-id table, or keep the endpoints in RecordId mode.`,
+      );
+    return new RelationDef(
+      this.name,
+      stringIdsShape(this.edge),
+      this.fromNames,
+      this.toNames,
+      this.isEnforced,
+      this.fromRefs,
+      this.toRefs,
+      "string",
+      "string",
+    ) as unknown as RelationDef<
+      Name,
+      StringIdsShape<S>,
+      In,
+      Out,
+      FromRef,
+      ToRef,
+      "string",
+      "string",
+      StringIdsShape<RS>
+    >;
+  }
+}
+
+/**
+ * Define a graph relation (edge table). Endpoints are optional — the result is a usable table
+ * right away; chain `.from(X).to(Y)` to restrict the `in`/`out` records.
+ */
+export function defineRelation<Name extends string, S extends Shape = {}>(
+  name: Name,
+  fields?: S & RejectNoDdl<S>,
+): RelationDef<Name, S> {
+  return new RelationDef(name, (fields ?? {}) as S);
+}
+
+/**
+ * The intermediate of `defineView(name, shape?)` — call `.as(query)` to set the SELECT. The optional
+ * `shape` is TYPE-ONLY: it types the projected rows (`App<typeof View>` + the `encode`/`decode` codecs)
+ * but emits NO `DEFINE FIELD` — a view's rows are computed, so the DDL stays `TYPE ANY SCHEMALESS AS …`.
+ */
+export class ViewBuilder<Name extends string, S extends Shape> {
+  constructor(
+    private readonly name: Name,
+    private readonly shape: S,
+  ) {}
+  /**
+   * Set the view's query — `DEFINE TABLE <name> TYPE ANY SCHEMALESS AS <query>`. Returns a normal
+   * table, so `.permissions()` / `.comment()` / `.changefeed()` chain after as on any table. The
+   * `shape` must match the SELECT's projection (the query is freeform SurrealQL — unchecked).
+   */
+  as(query: Expr): TableDef<Name, WithSmartId<Name, S>> {
+    return new TableDef(
+      this.name,
+      applySmartId(this.name, this.shape) as unknown as Fields<
+        WithSmartId<Name, S>
+      >,
+      { schemafull: false, type: "any", view: query },
+    );
+  }
+}
+
+/**
+ * Define a pre-computed (materialized) VIEW table — `defineView(name, shape?).as(query)` emits
+ * `DEFINE TABLE <name> TYPE ANY SCHEMALESS AS <query>`. Its rows are computed from the SELECT (SurrealDB
+ * keeps them in sync). The optional `shape` types the projected rows for `App`/decode (it emits no
+ * fields). Chain `.permissions()` / `.comment()` / `.changefeed()` after `.as(…)` as on any table:
+ *
+ * ```ts
+ * const Raw = defineView("raw").as(surql`SELECT * FROM person`);            // untyped rows
+ * const Adults = defineView("adults", { name: s.string(), age: s.number() })
+ *   .as(surql`SELECT name, age FROM person WHERE age >= 18`);               // App = { id, name, age }
+ * ```
+ */
+export function defineView<Name extends string, S extends Shape = {}>(
+  name: Name,
+  shape?: S,
+): ViewBuilder<Name, S> {
+  return new ViewBuilder(name, (shape ?? ({} as S)) as S);
+}
+
+/**
+ * A standalone `DEFINE EVENT`, declared apart from its table (vs the inline `TableDef.event(…)`).
+ * Export one per event when you want each event as its own named symbol. It compiles to the same
+ * statement as the inline form — `pull` regenerates events inline, so the two are interchangeable.
+ */
+export class EventDef {
+  readonly kind = "event" as const;
+  constructor(
+    /** Owning table name. */
+    readonly table: string,
+    readonly name: string,
+    readonly when: Expr | undefined,
+    readonly then: Expr | Expr[],
+    readonly async?: EventAsync,
+    readonly comment?: string,
+  ) {}
+}
+
+/**
+ * Declare a row-change event on `table` as a standalone, exportable object:
+ * `export const reverify = defineEvent(User, "reverify", { when, then })`. Pass the `TableDef`
+ * (preferred — no name repetition) or a table name string. See {@link TableDef.event} for the
+ * inline, chainable form.
+ */
+export function defineEvent<T extends TableDef<string, Shape> | string>(
+  table: T,
+  name: string,
+  spec: {
+    when?: EventExpr<T extends TableDef<string, infer S> ? S : Shape>;
+    then: EventThen<T extends TableDef<string, infer S> ? S : Shape>;
+    async?: EventAsync;
+    comment?: string;
+  },
+): EventDef {
+  const tableName = typeof table === "string" ? table : table.name;
+  return new EventDef(
+    tableName,
+    name,
+    spec.when === undefined ? undefined : resolveEventExpr(spec.when),
+    resolveEventExpr(spec.then),
+    spec.async,
+    spec.comment,
+  );
+}
+
+interface FunctionConfig {
+  /** Return type (an s schema, inferred to a SurrealQL type — like a field). */
+  returns?: AnyField;
+  /** Function body: a `surql\`…\`` block (or raw string). Required to emit. */
+  body?: Expr;
+  /** `PERMISSIONS FULL` (true) / `NONE` (false) / a `surql` condition. */
+  permissions?: boolean | Expr;
+  comment?: string;
+}
+
+/** The typed argument object for calling a function — each named param as its **app** type
+ *  (`{ a: s.int(), b: s.int() }` -> `{ a: number, b: number }`). */
+export type CallArgs<A extends Shape> = { [K in keyof A]: App<A[K]> };
+
+const PARAM_REF_BRAND: unique symbol = Symbol.for(
+  "better-schemic.surrealdb.paramref",
+) as never;
+
+/** A `$param.path` reference (built via `surql.$`) — splices as text (`$after.email`), never
+ *  binds. Branded with a `Symbol.for` key so cross-instance checks survive package splits. */
+// biome-ignore lint/correctness/noUnusedVariables: T is the phantom value type.
+export class ParamRef<T = unknown> {
+  /** PHANTOM value type — lets typed operands (`u.age.gte(a.threshold)`) type-check. */
+  declare readonly __t?: T;
+  /** Cross-realm brand: `Symbol.for("better-schemic.surrealdb.paramref")`. */
+  readonly [PARAM_REF_BRAND] = true;
+  constructor(readonly path: readonly string[]) {}
+  /** The spliced text: `$after.email` (segments after the param name are escaped). */
+  toText(): string {
+    const [param, ...rest] = this.path;
+    return `$${param}${rest.map((p) => `.${escapeIdent(p)}`).join("")}`;
+  }
+  /** LEAF: retype this `$param` path — `surql.$.resend_api_key.as<string>()` — so it drops into
+   *  typed positions (operands, `Def.call` args, `surql.fn` args) as a `ParamRef<T2>`. Purely a
+   *  type-level cast; the runtime object is unchanged. (Like `path`/`toText`/`then`, `as` is a
+   *  RESERVED name on the proxy — a path segment literally named `as` needs
+   *  `new ParamRef([...])` spelled out.) */
+  as<T2>(): ParamRef<T2> {
+    return this as unknown as ParamRef<T2>;
+  }
+}
+/** Deep `$param.path` proxy: each property access extends the path (`surql.$.after.email`).
+ *  Names already on {@link ParamRef} (`path`/`toText`/`as`) and `then` are reserved, not path
+ *  segments. */
+export function paramProxy(path: readonly string[]): ParamRef {
+  return new Proxy(new ParamRef(path), {
+    get(target, key) {
+      if (typeof key === "string" && !(key in target) && key !== "then")
+        return paramProxy([...path, key]);
+      return (target as unknown as Record<string | symbol, unknown>)[key];
+    },
+  });
+}
+
+/** A BARE column-path reference (permissions exprs use bare field names, not `$this.…`) —
+ *  splices via the query layer's colref brand (`Symbol.for`, no import needed). */
+function colProxy(path: readonly string[]): unknown {
+  const target = {
+    [Symbol.for("better-schemic.surrealdb.colref")]: path.join("."),
+  };
+  return new Proxy(target, {
+    get(t, key) {
+      if (typeof key === "string" && !(key in t) && key !== "then")
+        return colProxy([...path, key]);
+      return (t as Record<string | symbol, unknown>)[key];
+    },
+  });
+}
+
+/** Typed row refs under a `$param`: top-level keys from the table shape, each a {@link ParamRef}
+ *  (`e.after.email` -> `$after.email`); deeper paths stay proxied (untyped). Collapses to a loose
+ *  string-keyed map for shape-agnostic `TableDef<string, Shape|any>` (variance guard). */
+type AppShape<S extends Shape> = z.output<z.ZodObject<ZShape<S>>>;
+export type RowRefs<S extends Shape> = string extends keyof S
+  ? Record<string, ParamRef>
+  : { readonly [K in keyof AppShape<S>]: ParamRef<AppShape<S>[K]> };
+/** Typed BARE column refs (permissions): `p.row.author` -> `author`. Same variance guard. */
+export type ColRefs<S extends Shape> = string extends keyof S
+  ? Record<string, unknown>
+  : { readonly [K in keyof S]: unknown };
+
+/** The typed context an EVENT callback receives — exactly the params SurrealDB defines there. */
+export interface EventCtx<S extends Shape> {
+  /** The row after the change (`$after.<field>` refs, typed to the table). */
+  after: RowRefs<S>;
+  /** The row before the change. */
+  before: RowRefs<S>;
+  /** `$value` — the changed value. */
+  value: ParamRef;
+  /** `$event` — typed comparisons: `e.event.eq("CREATE")` (canonical single-quote spelling). */
+  event: {
+    eq(kind: "CREATE" | "UPDATE" | "DELETE"): Expr;
+    neq(kind: "CREATE" | "UPDATE" | "DELETE"): Expr;
+  };
+}
+function eventCtx<S extends Shape>(): EventCtx<S> {
+  return {
+    after: paramProxy(["after"]) as RowRefs<S>,
+    before: paramProxy(["before"]) as RowRefs<S>,
+    value: paramProxy(["value"]),
+    event: {
+      eq: (k) => `$event = '${k}'`,
+      neq: (k) => `$event != '${k}'`,
+    },
+  };
+}
+/** Anything that lowers to a composable `surql` fragment — query builders, `block()`, and
+ *  `Def.call(...)` all carry `toQuery()`, so every authoring slot that takes an `Expr` takes
+ *  them directly (`then: (e) => block().let(…)…`). */
+export interface Fragmentable {
+  toQuery(): BoundQuery;
+}
+/** Coerce a {@link Fragmentable} to its `BoundQuery`; anything else passes through. */
+function toQueryValue(v: unknown): unknown {
+  return v !== null &&
+    typeof v === "object" &&
+    typeof (v as Fragmentable).toQuery === "function"
+    ? (v as Fragmentable).toQuery()
+    : v;
+}
+
+/** An event clause: a plain `Expr` (string/`surql`), a builder/block fragment, or a CALLBACK
+ *  receiving the typed ctx. */
+export type EventExpr<S extends Shape> =
+  | Expr
+  | Fragmentable
+  | ((e: EventCtx<S>) => Expr | Fragmentable);
+export type EventThen<S extends Shape> =
+  | Expr
+  | Fragmentable
+  | (Expr | Fragmentable)[]
+  | ((e: EventCtx<S>) => Expr | Fragmentable | (Expr | Fragmentable)[]);
+function resolveEventExpr<S extends Shape>(v: EventExpr<S>): Expr;
+function resolveEventExpr<S extends Shape>(v: EventThen<S>): Expr | Expr[];
+function resolveEventExpr<S extends Shape>(v: EventThen<S>): Expr | Expr[] {
+  const r =
+    typeof v === "function"
+      ? (v as (e: EventCtx<S>) => unknown)(eventCtx<S>())
+      : v;
+  return (Array.isArray(r) ? r.map(toQueryValue) : toQueryValue(r)) as
+    | Expr
+    | Expr[];
+}
+
+/** The typed context a FIELD-clause callback receives (`$default`/`$value`/`$computed`/`$assert`). */
+export interface FieldCtx {
+  /** `$value` — the incoming value for this field. */
+  value: ParamRef;
+  /** `$this.<path>` — the record (sibling fields). UNTYPED paths: a field does not know its
+   *  table at authoring time (define clauses needing typed siblings on the table instead). */
+  this: ParamRef & Record<string, ParamRef>;
+}
+const fieldCtx = (): FieldCtx => ({
+  value: paramProxy(["value"]),
+  this: paramProxy(["this"]) as FieldCtx["this"],
+});
+/** A field clause: a `surql` expression, a builder/block fragment, or a CALLBACK receiving
+ *  `{ value, this }`. */
+export type FieldExpr =
+  | BoundQuery
+  | Fragmentable
+  | ((f: FieldCtx) => BoundQuery | Fragmentable);
+function resolveFieldExpr(v: FieldExpr): BoundQuery;
+function resolveFieldExpr<T>(v: T | FieldExpr): T | BoundQuery;
+function resolveFieldExpr(v: unknown): unknown {
+  const r =
+    typeof v === "function" ? (v as (f: FieldCtx) => unknown)(fieldCtx()) : v;
+  return toQueryValue(r);
+}
+
+/** The typed context a PERMISSIONS callback receives. */
+export interface PermCtx<S extends Shape> {
+  /** BARE column refs (permissions exprs reference fields directly): `p.row.author` -> `author`. */
+  row: ColRefs<S>;
+  /** `$auth.<path>` — the authenticated record. UNTYPED paths for now: see `.subject(User)` on a
+   *  record access (authoring metadata; a type-level registry across modules is not expressible). */
+  auth: ParamRef & Record<string, ParamRef>;
+  /** `$session.<path>`. */
+  session: ParamRef & Record<string, ParamRef>;
+  /** `$token.<path>`. */
+  token: ParamRef & Record<string, ParamRef>;
+}
+function permCtx<S extends Shape>(): PermCtx<S> {
+  return {
+    row: colProxy([]) as ColRefs<S>,
+    auth: paramProxy(["auth"]) as PermCtx<S>["auth"],
+    session: paramProxy(["session"]) as PermCtx<S>["session"],
+    token: paramProxy(["token"]) as PermCtx<S>["token"],
+  };
+}
+
+/** Cross-realm ParamRef check (instanceof breaks across dual package instances). */
+export function isParamRef(v: unknown): v is ParamRef {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    (v as Record<symbol, unknown>)[PARAM_REF_BRAND] === true
+  );
+}
+
+// --- ranges (a SurrealQL VALUE, not a query clause) -----------------------------------------------
+
+const RANGE_BRAND: unique symbol = Symbol.for(
+  "better-schemic.surrealdb.range",
+) as never;
+
+/** One end of a {@link Range}: the bound value, and whether it is EXCLUDED from the range. */
+export interface RangeBound<T> {
+  readonly value: T;
+  readonly exclusive: boolean;
+}
+
+/**
+ * A SurrealQL RANGE — a first-class VALUE (`type::is_range(1..=5)` is true), not a clause. Spans
+ * `int`, `string`, `datetime`, and `array` bounds, and either end may be OPEN.
+ *
+ * SurrealQL spells the four bound combinations `a..b` / `a..=b` / `a>..b` / `a>..=b`: `>` after the
+ * start EXCLUDES it, `=` before the end INCLUDES it. Build one with {@link range}, whose key names
+ * carry the inclusivity so a call site can't be read the wrong way round.
+ *
+ * Usable wherever the DB takes a range: `WHERE age IN 18..=65`, `FOR $y IN 2020..=2022`,
+ * `<array>(1..=5)`. Bounds BIND as params in expression position (verified on 3.1.4).
+ */
+export class Range<T = unknown> {
+  /** Cross-realm brand: `Symbol.for("better-schemic.surrealdb.range")`. */
+  readonly [RANGE_BRAND] = true;
+  constructor(
+    /** The start bound; `undefined` = open (`..b`). */
+    readonly start: RangeBound<T> | undefined,
+    /** The end bound; `undefined` = open (`a..`). */
+    readonly end: RangeBound<T> | undefined,
+  ) {}
+}
+
+/** Cross-realm {@link Range} check (instanceof breaks across dual package instances). */
+export function isRange(v: unknown): v is Range {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    (v as Record<symbol, unknown>)[RANGE_BRAND] === true
+  );
+}
+
+/** The START of a range: `from` INCLUDES the bound, `after` EXCLUDES it; omit both for an open start. */
+type RangeStart<T> =
+  | { from: T; after?: never }
+  | { after: T; from?: never }
+  | { from?: never; after?: never };
+
+/** The END of a range: `to` INCLUDES the bound, `until` EXCLUDES it; omit both for an open end. */
+type RangeEnd<T> =
+  | { to: T; until?: never }
+  | { until: T; to?: never }
+  | { to?: never; until?: never };
+
+/** What {@link range} accepts — one start form and one end form (mixing `from`+`after`, or
+ *  `to`+`until`, is a compile error). */
+export type RangeSpec<T> = RangeStart<T> & RangeEnd<T>;
+
+/**
+ * Build a SurrealQL {@link Range}. Each key names its own inclusivity, so the bound is unambiguous
+ * at the call site (an off-by-one here is the classic range bug):
+ *
+ * | call                              | SurrealQL   | includes        |
+ * |-----------------------------------|-------------|-----------------|
+ * | `range({ from: 1, to: 10 })`      | `1..=10`    | 1 … 10          |
+ * | `range({ from: 1, until: 10 })`   | `1..10`     | 1 … 9           |
+ * | `range({ after: 0, to: 10 })`     | `0>..=10`   | 1 … 10          |
+ * | `range({ after: 0, until: 11 })`  | `0>..11`    | 1 … 10          |
+ * | `range({ from: 1 })`              | `1..`       | 1 … open        |
+ * | `range({ to: 10 })`               | `..=10`     | open … 10       |
+ *
+ * `range({ from: 18, to: 65 })` reads as "from 18 to 65", and is `18..=65`.
+ *
+ * NOTE: `T` is deliberately NOT inferred `const` — a range DENOTES every value between its bounds,
+ * so `range({ from: 2020, to: 2022 })` is a `Range<number>`, not `Range<2020 | 2022>`. Otherwise a
+ * `FOR $y IN 2020..=2022` loop var would type as `2020 | 2022` and silently omit 2021.
+ */
+export function range<T>(spec: RangeSpec<T>): Range<T> {
+  const { from, after, to, until } = spec as {
+    from?: T;
+    after?: T;
+    to?: T;
+    until?: T;
+  };
+  // The XOR is type-enforced; re-check at runtime for untyped callers (a JS schema module).
+  if (from !== undefined && after !== undefined)
+    throw new Error(
+      "range(): pass `from` (start included) OR `after` (start excluded), not both.",
+    );
+  if (to !== undefined && until !== undefined)
+    throw new Error(
+      "range(): pass `to` (end included) OR `until` (end excluded), not both.",
+    );
+  const start =
+    from !== undefined
+      ? { value: from, exclusive: false }
+      : after !== undefined
+        ? { value: after, exclusive: true }
+        : undefined;
+  const end =
+    to !== undefined
+      ? { value: to, exclusive: false }
+      : until !== undefined
+        ? { value: until, exclusive: true }
+        : undefined;
+  if (!start && !end)
+    throw new Error(
+      "range(): needs at least one bound — `from`/`after` (start) and/or `to`/`until` (end).",
+    );
+  return new Range<T>(start, end);
+}
+
+/** Render a range in a lowering pass — `a..b` / `a..=b` / `a>..b` / `a>..=b`, either end open. The
+ *  BOUNDS lower as operands, so a literal binds as a `$param` and a ref/`$param` splices as text. */
+export function renderRange(r: Range, ctx: Ctx): string {
+  const start = r.start
+    ? `${operandText(r.start.value, ctx)}${r.start.exclusive ? ">" : ""}`
+    : "";
+  const end = r.end
+    ? `${r.end.exclusive ? "" : "="}${operandText(r.end.value, ctx)}`
+    : "";
+  return `${start}..${end}`;
+}
+/** One argument to `Def.call(...)`: the app-typed literal (encoded + bound), a fragment
+ *  (`BoundQuery` — spliced with its bindings merged), a `surql.$` param ref (spliced as text),
+ *  a typed FIELD/BLOCK-VAR ref (`sv.code` from a `block()` chain — spliced), or any
+ *  builder/block ({@link Fragmentable} — spliced with its bindings merged). */
+export type CallArgValue<T> =
+  | T
+  | BoundQuery
+  | ParamRef
+  | ParamDef<T>
+  | FieldRefBase<T>
+  | Fragmentable;
+export type CallArgsIn<A extends Shape> = {
+  [K in keyof A]: CallArgValue<App<A[K]>>;
+};
+
+/** Coerce a fragment-CARRIER call arg (a query-layer ref via the `Symbol.for` fragment hook, or
+ *  a builder/block via `toQuery()`) to its `BoundQuery`; everything else passes through. */
+function callArgFragment(v: unknown): unknown {
+  const make = (v as Record<symbol, unknown> | null)?.[
+    Symbol.for("better-schemic.surrealdb.fragment")
+  ];
+  if (typeof make === "function") return make.call(v);
+  return toQueryValue(v);
+}
+
+let callBindCounter = 0;
+
+/**
+ * A prepared `fn::<name>(…)` CALL — one object, three uses:
+ *  1. a FRAGMENT: it IS a `BoundQuery<[R]>`, so it interpolates into `surql` templates and
+ *     authoring positions (event bodies, `$computed`, …) with its bindings merged;
+ *  2. STANDALONE: `await Def.call({...}).run(conn)`;
+ *  3. BOUND: `await db.call(Def, {...})` (the client pre-binds its connection).
+ * The result decodes through the def's `.returns(R)` schema (real `App` types).
+ */
+export class CallQuery<R = unknown> extends BoundQuery<[R]> {
+  constructor(
+    query: string,
+    bindings: Record<string, unknown>,
+    private readonly returnsSchema: z.ZodType,
+    private readonly fnName: string,
+    private readonly conn?: {
+      query(sql: string, vars?: Record<string, unknown>): Promise<unknown>;
+    },
+  ) {
+    super(query, bindings);
+  }
+
+  /** Pre-bind a connection (the ORM client does this) — makes the call awaitable. */
+  bind(conn: {
+    query(sql: string, vars?: Record<string, unknown>): Promise<unknown>;
+  }): CallQuery<R> {
+    return new CallQuery<R>(
+      this.query,
+      { ...this.bindings },
+      this.returnsSchema,
+      this.fnName,
+      conn,
+    );
+  }
+
+  /** Execute against `conn` (or the pre-bound connection) and decode via `.returns(R)`. */
+  async run(conn?: {
+    query(sql: string, vars?: Record<string, unknown>): Promise<unknown>;
+  }): Promise<R> {
+    const c = conn ?? this.conn;
+    if (!c)
+      throw new Error(
+        `fn::${this.fnName} call is not bound to a connection — pass one to \`.run(conn)\`, or use a bound client (\`db.call(...)\`).`,
+      );
+    const out = (await c.query(this.query, {
+      ...this.bindings,
+    })) as unknown[];
+    return z.decode(this.returnsSchema, out[0] as never) as R;
+  }
+
+  then<T1 = R, T2 = never>(
+    onfulfilled?: ((value: R) => T1 | PromiseLike<T1>) | null,
+    onrejected?: ((reason: unknown) => T2 | PromiseLike<T2>) | null,
+  ): Promise<T1 | T2> {
+    return this.run().then(onfulfilled, onrejected);
+  }
+}
+
+/**
+ * A custom function — `DEFINE FUNCTION fn::<name>(<args>) [-> <returns>] { <body> }`. Built with a
+ * chainable, immutable API (like {@link TableDef}): `defineFunction(name, args).returns(…).body(…)`.
+ * Args and the return type are s schemas (inferred to SurrealQL types, same as table fields). The
+ * generics carry the arg shape `A` and the decoded return type `R` so `.call(db, args)` is fully typed.
+ */
+export class FunctionDef<A extends Shape = Shape, R = unknown> {
+  readonly kind = "function" as const;
+  constructor(
+    readonly name: string,
+    /** Ordered named args, each an s schema. */
+    readonly args: Record<string, AnyField>,
+    readonly config: FunctionConfig = {},
+  ) {
+    // The name is SPLICED into DDL/calls, never bound — validate the grammar at authoring time.
+    if (!FN_NAME.test(name))
+      throw new Error(
+        `defineFunction(${JSON.stringify(name)}): invalid function name — use letters, digits, _ and :: segments (starting with a letter/_).`,
+      );
+  }
+  private withConfig<R2 = R>(c: Partial<FunctionConfig>): FunctionDef<A, R2> {
+    return new FunctionDef<A, R2>(this.name, this.args, {
+      ...this.config,
+      ...c,
+    });
+  }
+  /** Declare the return type (an s schema) — types `.call()`'s decoded result. */
+  returns<RF extends AnyField>(type: RF): FunctionDef<A, App<RF>> {
+    return this.withConfig<App<RF>>({ returns: type });
+  }
+  /** The function body — a `surql\`…\`` block (braces optional), a raw string, a builder/`block()`
+   *  fragment, or a CALLBACK receiving the def's own args as TYPED refs
+   *  (`.body((a) => surql\`RETURN ${a.email}\`)` — an arg-name typo is a compile error). */
+  body(
+    body:
+      | Expr
+      | Fragmentable
+      | ((
+          args: {
+            [K in keyof A]: ParamRef<App<A[K]>>;
+          },
+        ) => Expr | Fragmentable),
+  ): FunctionDef<A, R> {
+    let resolved: Expr | Fragmentable;
+    if (typeof body === "function") {
+      const refs = Object.fromEntries(
+        Object.keys(this.args).map((k) => [k, paramProxy([k])]),
+      ) as { [K in keyof A]: ParamRef<App<A[K]>> };
+      resolved = body(refs);
+    } else {
+      resolved = body;
+    }
+    return this.withConfig({ body: toQueryValue(resolved) as Expr });
+  }
+  /** `PERMISSIONS`: `FULL` (true, the default), `NONE` (false), or a `surql` condition. */
+  permissions(
+    p: boolean | Expr | ((ctx: Omit<PermCtx<Shape>, "row">) => boolean | Expr),
+  ): FunctionDef<A, R> {
+    return this.withConfig({
+      permissions: typeof p === "function" ? p(permCtx<Shape>()) : p,
+    });
+  }
+  comment(comment: string): FunctionDef<A, R> {
+    return this.withConfig({ comment });
+  }
+  /**
+   * Prepare a `fn::<name>(…)` CALL — one object, three uses (BREAKING vs the old `.call(db, args)`:
+   * run it with `.run(conn)` or the bound `db.call(Def, args)`):
+   *  1. a FRAGMENT — the returned {@link CallQuery} IS a `BoundQuery<[R]>`, so it interpolates into
+   *     `surql` templates and authoring positions with its bindings merged;
+   *  2. STANDALONE — `await Def.call({...}).run(conn)`;
+   *  3. BOUND — `await db.call(Def, {...})`.
+   * Args are NAMED and typed from the def's arg shape. A literal is **encoded** to wire via its
+   * param schema and bound; a `BoundQuery` fragment splices with its bindings merged; a `surql.$`
+   * param ref splices as text. Results **decode** through `.returns(R)` (real `App` types).
+   */
+  call(
+    ...rest: Record<string, never> extends CallArgsIn<A>
+      ? [args?: CallArgsIn<A>]
+      : [args: CallArgsIn<A>]
+  ): CallQuery<R> {
+    const given = (rest[0] ?? {}) as Record<string, unknown>;
+    const parts: string[] = [];
+    const bindings: Record<string, unknown> = {};
+    for (const [key, field] of Object.entries(this.args)) {
+      const v = callArgFragment(given[key]);
+      if (v instanceof BoundQuery) {
+        // A SIMPLE param path (a coerced block-var/row ref like `$code`) splices bare — parens
+        // there are redundant and INFO's printer strips them (DDL round-trip drift).
+        const simple =
+          /^\$[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(
+            v.query,
+          ) && !Object.keys(v.bindings ?? {}).length;
+        parts.push(simple ? v.query : `(${v.query})`);
+        Object.assign(bindings, v.bindings);
+      } else if (isParamRef(v)) {
+        parts.push(v.toText());
+      } else if (
+        v !== null &&
+        typeof v === "object" &&
+        (v as { kind?: unknown }).kind === "param" &&
+        typeof (v as { name?: unknown }).name === "string"
+      ) {
+        // A defineParam def IS its `$name` reference.
+        parts.push(`$${(v as { name: string }).name}`);
+      } else {
+        const name = `call__${++callBindCounter}_${key}`;
+        bindings[name] = field.encode(v as never);
+        parts.push(`$${name}`);
+      }
+    }
+    return new CallQuery<R>(
+      `fn::${this.name}(${parts.join(", ")})`,
+      bindings,
+      this.config.returns?.schema ?? z.unknown(),
+      this.name,
+    );
+  }
+}
+
+/**
+ * Declare a custom function as a standalone, exportable object:
+ * `export const greet = defineFunction("greet", { name: s.string() }).returns(s.string()).body(surql\`…\`)`.
+ * Emitted as `DEFINE FUNCTION fn::greet(...)`. Args are s schemas (inferred to SurrealQL types); the
+ * arg shape flows into `.call(db, args)` typing.
+ */
+export function defineFunction<A extends Shape = Record<string, never>>(
+  name: string,
+  args: A = {} as A,
+): FunctionDef<A> {
+  return new FunctionDef<A>(
+    name,
+    normalizeFields(args) as unknown as Record<string, AnyField>,
+  );
+}
+
+/** Symmetric JWT algorithms (HMAC) — one shared secret both signs and verifies. SurrealDB **rejects** a
+ *  distinct `WITH ISSUER KEY` for these ("requires the same key for signing and verification"), so the
+ *  typed config forbids an `issuer` here. Canonical DDL casing is uppercase. */
+export type SymmetricJwtAlgorithm = "HS256" | "HS384" | "HS512";
+
+/** Asymmetric JWT algorithms (RSA / ECDSA / EdDSA / RSA-PSS) — a **public** key verifies and a separate
+ *  **private** key signs, so `KEY` = public (not redacted by SurrealDB) and an optional `WITH ISSUER KEY`
+ *  = private (redacted). Canonical DDL casing is uppercase (`RS256`, `ES512`, `EDDSA`, …). */
+export type AsymmetricJwtAlgorithm =
+  | "RS256"
+  | "RS384"
+  | "RS512"
+  | "ES256"
+  | "ES384"
+  | "ES512"
+  | "PS256"
+  | "PS384"
+  | "PS512"
+  | "EDDSA";
+
+/** Every JWT signing algorithm SurrealDB accepts in `ALGORITHM @alg` (symmetric + asymmetric). Closed on
+ *  purpose: the split drives whether a `WITH ISSUER KEY` is valid, so it can't carry the `string & {}`
+ *  escape. */
+export type JwtAlgorithm = SymmetricJwtAlgorithm | AsymmetricJwtAlgorithm;
+
+/**
+ * A JWT verify/issue config — shared by `TYPE JWT` ({@link DatabaseAccessDef.jwt}) and RECORD's
+ * `WITH JWT` ({@link RecordAccessDef.withJwt}), mirroring the grammar's
+ * `[ ALGORITHM @alg KEY @key | URL @url ] [ WITH ISSUER KEY @key ]`. The variants encode the rules
+ * SurrealDB enforces at define-time:
+ * - `{ url }` — JWKS endpoint; verify-only (the issuer is external), so no local key/issuer.
+ * - `{ key, alg? }` **symmetric** (`alg` defaults `HS512`) — one shared secret; **no** `issuer` (the
+ *   engine forbids a different signing key for HMAC).
+ * - `{ key, alg, issuer? }` **asymmetric** — `key` is the public verify key; `issuer.key` is the
+ *   optional private signing key.
+ */
+export type JwtConfig =
+  | { url: string }
+  | { key: string | SecretRef; alg?: SymmetricJwtAlgorithm }
+  | {
+      key: string | SecretRef;
+      alg: AsymmetricJwtAlgorithm;
+      issuer?: { key: string | SecretRef };
+    };
+
+/** The access type + its type-specific config. `RECORD` (default) / `JWT` / `BEARER`. `jwt` carries the
+ *  resolved {@link JwtConfig} fields (verify `alg`/`key`/`url` + optional `issuer` signing key). */
+export type AccessKind =
+  | { type: "record" }
+  | {
+      type: "jwt";
+      alg?: string;
+      key?: string | SecretRef;
+      url?: string;
+      issuer?: { key: string | SecretRef };
+    }
+  | { type: "bearer"; subject: "record" | "user" };
+
+/** Token/session/grant lifetimes, e.g. `{ token: "1h", session: "12h", grant: "30d" }`. */
+export interface AccessDuration {
+  grant?: string;
+  token?: string;
+  session?: string;
+}
+
+interface AccessConfig {
+  /** `ON DATABASE` or `ON NAMESPACE` — required, set via `.onDatabase()`/`.onNamespace()` (no implicit
+   *  default: the scope is a deliberate choice, so emitting without one throws). */
+  on?: "database" | "namespace";
+  kind: AccessKind;
+  /** RECORD-only: SIGNUP/SIGNIN/AUTHENTICATE blocks. */
+  signup?: Expr;
+  signin?: Expr;
+  authenticate?: Expr;
+  /** RECORD-only: `WITH JWT [ ALGORITHM KEY | URL ] [ WITH ISSUER KEY ]` — customize the session token's
+   *  JWT (omit for SurrealDB's auto-generated key). Grammar order: after SIGNIN, before `WITH REFRESH`. */
+  withJwt?: JwtConfig;
+  /** RECORD-only: `WITH REFRESH` — issue refresh tokens alongside the session token. */
+  refresh?: boolean;
+  duration?: AccessDuration;
+  /** RECORD-only authoring METADATA: the subject table (SIGNUP/SIGNIN records). Emits nothing. */
+  subject?: string;
+  /** `COMMENT @string` — a human description stored with the access. */
+  comment?: string;
+}
+
+/**
+ * Marks a NON-TERMINAL builder stage — a def whose chain was never finished (`defineAccess("x")` with
+ * no scope/TYPE). Such a stage deliberately ALSO carries `kind`/`name`, so the CLI's duck-typed
+ * collector picks it up: an unfinished def must fail LOUDLY with a teaching error at lower/emit rather
+ * than be silently dropped from the schema (which would make `ls`/`diff`/`pull` quietly ignore it).
+ * The stage is still absent from {@link StandaloneDef}, so finishing the chain stays a COMPILE-time
+ * requirement — this beacon only catches the untyped paths (a JS schema module, a bad cast).
+ *
+ * Registered via `Symbol.for` so it survives duplicate module instances (subpath splits).
+ */
+export const INCOMPLETE_DEF: unique symbol = Symbol.for(
+  "better-schemic.surrealdb.incompleteDef",
+);
+
+/** A non-terminal builder stage: carries the teaching message to throw. See {@link INCOMPLETE_DEF}. */
+export interface IncompleteDef {
+  readonly [INCOMPLETE_DEF]: string;
+}
+
+/**
+ * An access definition — `DEFINE ACCESS <name> ON DATABASE TYPE …`. This is the shared **base** of the
+ * staged builders: `defineAccess(name)` → {@link UnscopedAccessDef} (pick a scope) →
+ * {@link DatabaseAccessDef}/{@link NamespaceAccessDef} (pick a type) → the type's own builder
+ * ({@link RecordAccessDef}/{@link JwtAccessDef}/{@link BearerAccessDef}). Each stage exposes only the
+ * clauses that are valid there, so mutually-exclusive types can't be mixed and a type's clauses can't
+ * leak onto another type — the whole shape is enforced at compile time. The `DURATION`/`COMMENT`
+ * clauses are shared by every type and live here. NOTE: SurrealDB redacts signing keys in
+ * introspection, so `pull` can't recover them (`--access` is opt-in for that reason).
+ */
+export abstract class AccessDef {
+  readonly kind = "access" as const;
+  constructor(
+    readonly name: string,
+    readonly config: AccessConfig,
+  ) {}
+  /** Rebuild the same concrete builder with merged config — preserves the chain's narrowed type. */
+  protected abstract clone(config: Partial<AccessConfig>): this;
+  /** Token/session/grant lifetimes (`DURATION FOR TOKEN …, FOR SESSION …, FOR GRANT …`). */
+  duration(d: AccessDuration): this {
+    return this.clone({ duration: d });
+  }
+  /** `COMMENT "…"` — a human description stored with the access. */
+  comment(comment: string): this {
+    return this.clone({ comment });
+  }
+}
+
+/**
+ * `TYPE RECORD` builder — end users sign up / sign in directly. Exposes the RECORD-only clauses
+ * (`.signup()` / `.signin()` / `.withRefresh()` / `.authenticate()`) plus the shared `.duration()` /
+ * `.comment()`. The type is fixed here, so the other-type switchers (`.jwt()` / `.bearer()`) are
+ * intentionally absent — you've committed to RECORD.
+ */
+export class RecordAccessDef extends AccessDef {
+  protected clone(c: Partial<AccessConfig>): this {
+    return new RecordAccessDef(this.name, { ...this.config, ...c }) as this;
+  }
+  /** Declare the access's SUBJECT table — the table its SIGNUP/SIGNIN records live in. Authoring
+   *  METADATA only (emits nothing): documents intent and feeds future tooling (\$auth typing is not
+   *  expressible type-level across modules — see the typed-fragments proposal). */
+  subject(table: TableDef<string, Shape> | string): this {
+    return this.clone({
+      subject: typeof table === "string" ? table : table.name,
+    });
+  }
+  /** `SIGNUP { … }` — a `surql\`…\`` block (braces optional) run on sign-up. */
+  signup(body: Expr): this {
+    return this.clone({ signup: body });
+  }
+  /** `SIGNIN { … }` — a `surql\`…\`` block run on sign-in. */
+  signin(body: Expr): this {
+    return this.clone({ signin: body });
+  }
+  /** `AUTHENTICATE { … }` — a `surql\`…\`` block run on each authenticated request. */
+  authenticate(body: Expr): this {
+    return this.clone({ authenticate: body });
+  }
+  /** `WITH JWT [ ALGORITHM KEY | URL ] [ WITH ISSUER KEY ]` — customize the session token's JWT instead
+   *  of SurrealDB's auto-generated key. Same {@link JwtConfig} as `TYPE JWT`; `env()`/`secret()` keys
+   *  lower to a bound `KEY $param`. */
+  withJwt(config: JwtConfig): this {
+    return this.clone({ withJwt: config });
+  }
+  /** `WITH REFRESH` — also issue a refresh token, so sessions can be renewed without re-auth. */
+  withRefresh(): this {
+    return this.clone({ refresh: true });
+  }
+}
+
+/**
+ * `TYPE JWT` builder — validate externally-issued tokens. The verify method was fixed at `.jwt(…)`
+ * (`{ key, alg? }` XOR `{ url }`), so only the shared `.duration()` / `.comment()` remain here.
+ */
+export class JwtAccessDef extends AccessDef {
+  protected clone(c: Partial<AccessConfig>): this {
+    return new JwtAccessDef(this.name, { ...this.config, ...c }) as this;
+  }
+}
+
+/**
+ * `TYPE BEARER` builder — bearer-token / API-key grants. The subject was fixed at `.bearer(…)`, so only
+ * the shared `.duration()` / `.comment()` remain here.
+ */
+export class BearerAccessDef extends AccessDef {
+  protected clone(c: Partial<AccessConfig>): this {
+    return new BearerAccessDef(this.name, { ...this.config, ...c }) as this;
+  }
+}
+
+/**
+ * The `ON DATABASE` stage — a type picker. The TYPE is a deliberate, required choice (no implicit
+ * default, mirroring how the scope is required): pick `.record()` (database-only end-user auth),
+ * `.jwt(…)` (validate external tokens), or `.bearer(…)` (API-key grants). Each returns that type's own
+ * builder, so the choice is exclusive and only that type's clauses are reachable afterward. A bare
+ * `.onDatabase()` is a non-terminal (like a bare `defineAccess("x")`) — you must pick a type.
+ */
+export class DatabaseAccessDef implements IncompleteDef {
+  /** Beacon only — see {@link INCOMPLETE_DEF}: makes the collector SEE this unfinished def so it
+   *  throws below instead of vanishing from the schema. Not a usable `AccessDef`. */
+  readonly kind = "access" as const;
+  constructor(readonly name: string) {}
+  get [INCOMPLETE_DEF](): string {
+    return `access "${this.name}" has no TYPE — call .record(), .jwt({ … }) or .bearer({ for: "record" | "user" }) after .onDatabase().`;
+  }
+  /** `TYPE RECORD` — end users sign up / sign in directly (database-only). */
+  record(): RecordAccessDef {
+    return new RecordAccessDef(this.name, {
+      on: "database",
+      kind: { type: "record" },
+    });
+  }
+  /** `TYPE JWT` — validate external tokens ({@link JwtConfig}): `{ url }` (JWKS) XOR `{ key, alg? }`
+   *  (symmetric) XOR `{ key, alg, issuer? }` (asymmetric — public verify + optional private issuer). */
+  jwt(opts: JwtConfig): JwtAccessDef {
+    return new JwtAccessDef(this.name, {
+      on: "database",
+      kind: { type: "jwt", ...opts },
+    });
+  }
+  /** `TYPE BEARER FOR USER|RECORD` — bearer-token / API-key grants. */
+  bearer(opts: { for: "record" | "user" }): BearerAccessDef {
+    return new BearerAccessDef(this.name, {
+      on: "database",
+      kind: { type: "bearer", subject: opts.for },
+    });
+  }
+}
+
+/**
+ * The `ON NAMESPACE` stage — a type picker. `TYPE RECORD` is database-only, so namespace access is JWT
+ * or BEARER; those are the only choices here, which turns "record on namespace" from a runtime throw
+ * into a compile error. A bare `.onNamespace()` is a non-terminal — you must pick `.jwt()` / `.bearer()`.
+ */
+export class NamespaceAccessDef implements IncompleteDef {
+  /** Beacon only — see {@link INCOMPLETE_DEF}. */
+  readonly kind = "access" as const;
+  constructor(readonly name: string) {}
+  get [INCOMPLETE_DEF](): string {
+    return `access "${this.name}" has no TYPE — call .jwt({ … }) or .bearer({ for: "record" | "user" }) after .onNamespace() (TYPE RECORD is database-only).`;
+  }
+  /** `TYPE JWT` — validate external tokens ({@link JwtConfig}): `{ url }` (JWKS) XOR `{ key, alg? }`
+   *  (symmetric) XOR `{ key, alg, issuer? }` (asymmetric — public verify + optional private issuer). */
+  jwt(opts: JwtConfig): JwtAccessDef {
+    return new JwtAccessDef(this.name, {
+      on: "namespace",
+      kind: { type: "jwt", ...opts },
+    });
+  }
+  /** `TYPE BEARER FOR USER|RECORD` — bearer-token / API-key grants. */
+  bearer(opts: { for: "record" | "user" }): BearerAccessDef {
+    return new BearerAccessDef(this.name, {
+      on: "namespace",
+      kind: { type: "bearer", subject: opts.for },
+    });
+  }
+}
+
+/**
+ * The pre-scope stage of {@link defineAccess}: you must pick a scope (`.onDatabase()` /
+ * `.onNamespace()`) before choosing a type or adding clauses. This makes the scope a deliberate,
+ * type-enforced first step — `defineAccess("x").record()` is a compile error; `defineAccess("x")
+ * .onDatabase().record()` is the way. (`TYPE RECORD` is database-only, so namespace access is JWT/BEARER.)
+ */
+export class UnscopedAccessDef implements IncompleteDef {
+  /** Beacon only — see {@link INCOMPLETE_DEF}. */
+  readonly kind = "access" as const;
+  constructor(readonly name: string) {}
+  get [INCOMPLETE_DEF](): string {
+    return `access "${this.name}" is incomplete — it has no scope and no TYPE. Call .onDatabase() or .onNamespace(), then a TYPE: .record() / .jwt({ … }) / .bearer({ for: "record" | "user" }).`;
+  }
+  /** `ON DATABASE` — database-scoped access (the only scope that supports `TYPE RECORD`). */
+  onDatabase(): DatabaseAccessDef {
+    return new DatabaseAccessDef(this.name);
+  }
+  /** `ON NAMESPACE` — namespace-scoped access (`TYPE JWT` / `TYPE BEARER`; not RECORD). */
+  onNamespace(): NamespaceAccessDef {
+    return new NamespaceAccessDef(this.name);
+  }
+}
+
+/**
+ * Declare an access definition: `export const account = defineAccess("account").onDatabase().record()
+ * .signup(surql\`…\`).signin(surql\`…\`).duration({ token: "1h", session: "12h" })`. Returns an
+ * {@link UnscopedAccessDef} — the scope (`.onDatabase()`/`.onNamespace()`) is a required first step;
+ * see {@link AccessDef} for `.record()`/`.jwt(…)`/`.bearer(…)` and the rest.
+ */
+export function defineAccess(name: string): UnscopedAccessDef {
+  return new UnscopedAccessDef(name);
+}
+
+/** SurrealDB's built-in tokenizers (autocompletable). The list is open — any other string is accepted
+ *  too (forward-compatible with tokenizers a newer server may add), via the `string & {}` escape. */
+export type Tokenizer = "blank" | "camel" | "class" | "punct" | (string & {});
+
+/** A token filter — a bare built-in (`ascii`/`lowercase`/`uppercase`, autocompletable) or a
+ *  parameterized one built typesafely via the `.filters(f => …)` callback ({@link FilterBuilder}).
+ *  The list is open: any other string is accepted too (forward-compatible / escape hatch). */
+export type Filter = "ascii" | "lowercase" | "uppercase" | (string & {});
+
+/** The 18 stemmer languages SurrealDB's `snowball` filter accepts (rust-stemmers). */
+export type SnowballLanguage =
+  | "arabic"
+  | "danish"
+  | "dutch"
+  | "english"
+  | "finnish"
+  | "french"
+  | "german"
+  | "greek"
+  | "hungarian"
+  | "italian"
+  | "norwegian"
+  | "portuguese"
+  | "romanian"
+  | "russian"
+  | "spanish"
+  | "swedish"
+  | "tamil"
+  | "turkish";
+
+/** Typed builders for token filters, handed to the `.filters(f => [...])` callback — so the
+ *  parameterized filters (`snowball`/`ngram`/`edgengram`/`mapper`) are constructed with checked args
+ *  instead of hand-written strings, and the bare ones are still available as `f.lowercase` etc. */
+export interface FilterBuilder {
+  readonly ascii: "ascii";
+  readonly lowercase: "lowercase";
+  readonly uppercase: "uppercase";
+  /** `snowball(<language>)` — stemmer for one of the supported {@link SnowballLanguage}s. */
+  snowball(language: SnowballLanguage): string;
+  /** `ngram(<min>,<max>)` — character n-grams of length `min..max`. */
+  ngram(min: number, max: number): string;
+  /** `edgengram(<min>,<max>)` — edge n-grams (prefixes) of length `min..max`. */
+  edgengram(min: number, max: number): string;
+  /** `mapper("<path>")` — map tokens via a file (the path must point to an existing file). */
+  mapper(path: string): string;
+}
+
+/** The singleton {@link FilterBuilder} passed to `.filters(f => …)`. */
+const FILTER_BUILDER: FilterBuilder = {
+  ascii: "ascii",
+  lowercase: "lowercase",
+  uppercase: "uppercase",
+  snowball: (language) => `snowball(${language})`,
+  ngram: (min, max) => `ngram(${min},${max})`,
+  edgengram: (min, max) => `edgengram(${min},${max})`,
+  mapper: (path) => `mapper(${JSON.stringify(path)})`,
+};
+
+/** A text-search `DEFINE ANALYZER`'s config: an ordered tokenizer + filter pipeline. */
+export interface AnalyzerConfig {
+  /** `FUNCTION fn::<name>` — the bare name of the custom tokenizing function the analyzer references. */
+  function?: string;
+  /** An inline function auto-created by `.function(input => surql\`…\`)` — auto-named `<analyzer>_fn`
+   *  and emitted alongside the analyzer (the schema lowering expands it into the functions list, so it
+   *  diffs/pulls as a normal `defineFunction`). Absent when `.function` was given a name/reference. */
+  functionDef?: FunctionDef;
+  /** `TOKENIZERS …` — e.g. `["blank", "class", "camel", "punct"]`. The built-ins autocomplete; any
+   *  other string is allowed too (see {@link Tokenizer}). Optional: a bare `DEFINE ANALYZER <name>`
+   *  (no tokenizers/filters) is valid SurrealQL. */
+  tokenizers?: Tokenizer[];
+  /** `FILTERS …` — e.g. `["lowercase", "ascii", "snowball(english)", "ngram(1,3)"]`. The built-in
+   *  names autocomplete; parameterized forms + any other string are allowed too (see {@link Filter}). */
+  filters?: Filter[];
+  /** `COMMENT "…"` — a human description stored with the analyzer. */
+  comment?: string;
+}
+
+/**
+ * A text-search analyzer (`DEFINE ANALYZER`), referenced by a `FULLTEXT` index. A fluent builder
+ * (like {@link AccessDef}); every clause is optional, so a bare `defineAnalyzer("text")` is valid:
+ * `export const english = defineAnalyzer("english").tokenizers("blank").filters("lowercase", "snowball(english)")`.
+ */
+export class AnalyzerDef {
+  readonly kind = "analyzer" as const;
+  constructor(
+    readonly name: string,
+    readonly config: AnalyzerConfig = {},
+  ) {}
+  private withConfig(c: Partial<AnalyzerConfig>): AnalyzerDef {
+    return new AnalyzerDef(this.name, { ...this.config, ...c });
+  }
+  /** `FUNCTION fn::<name>` — a custom tokenizing function run before the tokenizers. Pass:
+   *  - a `surql` builder `input => surql\`…\`` — auto-defines a function inline (auto-named
+   *    `<analyzer>_fn`, like a field index) and references it; `input` is the `$input` param token. Give
+   *    it a custom name with the second arg (`.function(input => …, "my_tokenizer")`);
+   *  - a {@link FunctionDef} from `defineFunction` (renameable, no hardcoded name);
+   *  - or the name as a string (the `fn::` prefix optional).
+   *  Emitted as `FUNCTION fn::<name>` in every case. */
+  function(fn: (input: Expr) => Expr, name?: string): AnalyzerDef;
+  function(fn: string | FunctionDef): AnalyzerDef;
+  function(
+    fn: string | FunctionDef | ((input: Expr) => Expr),
+    name?: string,
+  ): AnalyzerDef {
+    if (typeof fn === "function") {
+      const def = defineFunction(name ?? `${this.name}_fn`, {
+        input: s.string(),
+      }).body(fn(surql`$input`));
+      return this.withConfig({ function: def.name, functionDef: def });
+    }
+    return this.withConfig({ function: typeof fn === "string" ? fn : fn.name });
+  }
+  /** `TOKENIZERS …` — one or more tokenizers (built-ins autocomplete), applied in order. */
+  tokenizers(...tokenizers: Tokenizer[]): AnalyzerDef {
+    return this.withConfig({ tokenizers });
+  }
+  /** `FILTERS …` — one or more token filters, applied in order. Pass bare filters directly
+   *  (`.filters("lowercase", "ascii")`), or a callback for the typed/parameterized builders
+   *  (`.filters(f => [f.lowercase, f.snowball("english"), f.ngram(1, 3)])`) — no extra import needed. */
+  filters(...filters: Filter[]): AnalyzerDef;
+  filters(build: (f: FilterBuilder) => readonly Filter[]): AnalyzerDef;
+  filters(
+    ...args: [(f: FilterBuilder) => readonly Filter[]] | Filter[]
+  ): AnalyzerDef {
+    const list =
+      typeof args[0] === "function"
+        ? [...args[0](FILTER_BUILDER)]
+        : (args as Filter[]);
+    return this.withConfig({ filters: list });
+  }
+  /** `COMMENT "…"` — a human-readable description stored with the analyzer. */
+  comment(comment: string): AnalyzerDef {
+    return this.withConfig({ comment });
+  }
+}
+
+/** Declare a text-search analyzer, then chain its clauses fluently — `defineAnalyzer("english")
+ *  .tokenizers("class").filters("lowercase")`. Reference it from a `fulltext` index. A bare
+ *  `defineAnalyzer("text")` emits `DEFINE ANALYZER text`. */
+export function defineAnalyzer(name: string): AnalyzerDef {
+  return new AnalyzerDef(name);
+}
+
+/** The three `defineParam` flows (see {@link defineParam}). */
+export interface ParamConfig {
+  /** How the VALUE is managed: `value` = inline literal (full migrate/diff flow); `secret` =
+   *  env()/secret(), resolved at `sc param push`/apply and NEVER in source/migrations/snapshots;
+   *  `declared` = presence-only (type-optional), value pushed out of band. */
+  mode: "value" | "secret" | "declared";
+  value?: unknown;
+  secret?: SecretRef;
+  /** The declared value TYPE (an s schema) — types `.$` without carrying a value. */
+  valueType?: AnyField;
+  /** `PERMISSIONS NONE` (false). Omitted/true = FULL (the default). */
+  permissions?: boolean;
+  comment?: string;
+}
+
+/**
+ * A database-wide parameter — `DEFINE PARAM $<name>`. Reference it TYPED via {@link ParamDef.$}
+ * (`ResendKey.$` splices `$resend_api_key`; interpolating the def itself does too). Three flows,
+ * picked by the second argument (mirrors the `defineAccess` secret handling):
+ *
+ *  - `defineParam("page_size", 25)` — inline literal: fully managed (emit/diff/migrations/pull).
+ *  - `defineParam("resend_api_key", env("RESEND_API_KEY"))` — SECRET: excluded from
+ *    migrations/snapshots (SurrealDB stores param values readably — INFO would leak them);
+ *    managed out of band via `sc param push/check`.
+ *  - `defineParam("resend_api_key", s.string())` / `defineParam("flag")` — DECLARED only:
+ *    presence-tracked, value pushed via `sc param push <name> --value/--env`.
+ */
+export class ParamDef<T = unknown> {
+  readonly kind = "param" as const;
+  constructor(
+    readonly name: string,
+    readonly config: ParamConfig,
+  ) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+      throw new Error(
+        `defineParam("${name}"): the name must be a plain identifier (it becomes the $param).`,
+      );
+  }
+  private withConfig(c: Partial<ParamConfig>): ParamDef<T> {
+    return new ParamDef<T>(this.name, { ...this.config, ...c });
+  }
+  /** The TYPED `$<name>` reference (a deep {@link ParamRef} proxy) — drops into operands,
+   *  `Def.call` args, `surql.fn` args, and templates. */
+  get $(): ParamRef<T> {
+    return paramProxy([this.name]) as ParamRef<T>;
+  }
+  /** `PERMISSIONS NONE` (false) / FULL (true — the SurrealDB default, omitted from DDL). */
+  permissions(p: boolean): ParamDef<T> {
+    return this.withConfig({ permissions: p });
+  }
+  comment(comment: string): ParamDef<T> {
+    return this.withConfig({ comment });
+  }
+  /** Is this param in the MANAGED flow (inline literal value -> emit/diff/migrations)? Secret +
+   *  declared params are excluded and managed via `sc param push/check` instead. */
+  get managed(): boolean {
+    return this.config.mode === "value";
+  }
+}
+
+/** SECRET param — env()/secret(): out-of-band flow. */
+export function defineParam(name: string, value: SecretRef): ParamDef<string>;
+/** DECLARED param with a value TYPE — presence-only flow, `.$` typed by the schema. */
+export function defineParam<F extends AnyField>(
+  name: string,
+  type: F,
+): ParamDef<App<F>>;
+/** Inline LITERAL value — the fully-managed flow (emit/diff/migrations/pull). */
+export function defineParam<const V>(name: string, value: V): ParamDef<V>;
+/** DECLARED param (untyped) — presence-only flow. */
+export function defineParam(name: string): ParamDef<unknown>;
+export function defineParam(name: string, value?: unknown): ParamDef<unknown> {
+  if (arguments.length < 2) return new ParamDef(name, { mode: "declared" });
+  if (isSecretRef(value))
+    return new ParamDef(name, { mode: "secret", secret: value });
+  if (value instanceof SField)
+    return new ParamDef(name, { mode: "declared", valueType: value });
+  return new ParamDef(name, { mode: "value", value });
+}
+/** The tunables of a `DEFINE SEQUENCE` (all optional; SurrealDB defaults BATCH 1000 / START 0). */
+export interface SequenceConfig {
+  /** `BATCH <n>` — how many values a fetch reserves (default 1000). */
+  batch?: number;
+  /** `START <n>` — the first value handed out (default 0). */
+  start?: number;
+  /** `TIMEOUT <duration>` — how long a reserved batch is held before it can be reclaimed, e.g. `"5s"`. */
+  timeout?: string;
+}
+
+/**
+ * A `DEFINE SEQUENCE <name>` — a database-level monotonic counter, read with
+ * `sequence::nextval('name')`. Author fluently:
+ *
+ * ```ts
+ * export const invoiceNo = defineSequence("invoice").batch(50).start(1000);
+ * ```
+ *
+ * The builder validates eagerly (positive batch, integer start, a duration-shaped timeout), so a
+ * malformed sequence fails at module load rather than at apply. SurrealDB's materialized defaults
+ * (BATCH 1000 / START 0) are stripped on diff, so omitting them round-trips.
+ */
+export class SequenceDef {
+  readonly kind = "sequence" as const;
+  constructor(
+    readonly name: string,
+    readonly config: SequenceConfig = {},
+  ) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+      throw new Error(
+        `defineSequence("${name}"): the name must be a plain identifier (letters, digits, _).`,
+      );
+  }
+  private withConfig(c: Partial<SequenceConfig>): SequenceDef {
+    return new SequenceDef(this.name, { ...this.config, ...c });
+  }
+  /** `BATCH <n>` — a positive integer (values reserved per fetch). */
+  batch(n: number): SequenceDef {
+    if (!Number.isInteger(n) || n <= 0)
+      throw new Error(
+        `defineSequence("${this.name}").batch(${n}): batch must be a positive integer.`,
+      );
+    return this.withConfig({ batch: n });
+  }
+  /** `START <n>` — the first value to hand out. */
+  start(n: number): SequenceDef {
+    if (!Number.isInteger(n))
+      throw new Error(
+        `defineSequence("${this.name}").start(${n}): start must be an integer.`,
+      );
+    return this.withConfig({ start: n });
+  }
+  /** `TIMEOUT <duration>` — e.g. `"5s"`, `"1h"`; how long a reserved batch is held. */
+  timeout(d: string): SequenceDef {
+    if (!/^(?:\d+(?:ns|us|µs|ms|s|m|h|d|w|y))+$/.test(d.trim()))
+      throw new Error(
+        `defineSequence("${this.name}").timeout(${JSON.stringify(d)}): expected a SurrealQL duration like "5s" / "1h30m".`,
+      );
+    return this.withConfig({ timeout: d.trim() });
+  }
+}
+
+/** Declare a database-level sequence: `defineSequence("invoice").batch(50).start(1000)`. */
+export function defineSequence(name: string): SequenceDef {
+  return new SequenceDef(name);
+}
+
+/** A schema object declared apart from a table (collected by the CLI loader and emitted on its own). */
+export type StandaloneDef =
+  | EventDef
+  | FunctionDef
+  | AccessDef
+  | AnalyzerDef
+  | ParamDef
+  | SequenceDef;
+
+/** The teaching message if `v` is an unfinished builder stage, else `undefined`. */
+export function incompleteDefMessage(v: unknown): string | undefined {
+  if (!v || typeof v !== "object") return undefined;
+  const msg = (v as Record<symbol, unknown>)[INCOMPLETE_DEF];
+  return typeof msg === "string" ? msg : undefined;
+}
+
+/** Throw the teaching error if `def` is an unfinished builder stage. Called by BOTH the lower and the
+ *  emit entry points, so every pipeline (`ls`/`diff`/`pull`/`migrate`) reports it the same way. */
+export function assertCompleteDef(def: unknown): void {
+  const msg = incompleteDefMessage(def);
+  if (msg !== undefined) throw new Error(msg);
+}
+
+/** An unrecognized `kind` on a collected def. The `never` parameter makes the dispatch sites
+ *  EXHAUSTIVE at compile time; at runtime it names the def, so an untyped schema module reads a schema
+ *  error rather than an internal crash inside whichever sibling emitter it fell through to. */
+export function unknownDefKind(def: never): Error {
+  const d = def as { kind?: unknown; name?: unknown };
+  return new Error(
+    `definition "${String(d.name)}" has an unknown kind "${String(d.kind)}" — expected one of: event, access, analyzer, param, function, sequence.`,
+  );
+}
+
+/** The `defineFunction` body, or the teaching error. Shared by lower + emit so a bodyless function can
+ *  never lower to an empty `{}` block (silently landing an empty function in the snapshot) while emit
+ *  throws — both paths must reject it identically. */
+export function requireFunctionBody(fn: FunctionDef): Expr {
+  if (fn.config.body === undefined)
+    throw new Error(
+      `function fn::${fn.name} has no body — call .body(surql\`…\`)`,
+    );
+  return fn.config.body;
+}
+
+/**
+ * The underlying Zod schema of any s value: a field (`SField`), a table/relation def
+ * (anything carrying an `.object`), or a raw Zod type.
+ */
+type ZodOf<T> = T extends { object: infer O }
+  ? O extends z.ZodType
+    ? O
+    : never
+  : SchemaOf<T>;
+
+/** The app-facing type (what your code reads). Same as `s.output` / Zod's `infer`. */
+export type App<T> = z.output<ZodOf<T>>;
+/** The DB wire type (what crosses the wire). Same as `s.input`. */
+export type Wire<T> = z.input<ZodOf<T>>;
+
+/**
+ * Zod-style inference helpers, exposed on `s` (a type-only namespace merged with the `s`
+ * value — the same trick Zod uses for `z.infer`). They accept fields, table/relation defs,
+ * and raw schemas alike:
+ *   - `s.infer<T>` / `s.output<T>` / `s.TypeOf<T>` -> the decoded **app** type (== `App<T>`)
+ *   - `s.input<T>`                                   -> the **wire/DB** type (== `Wire<T>`)
+ */
+export namespace s {
+  export type infer<T> = z.output<ZodOf<T>>;
+  export type output<T> = z.output<ZodOf<T>>;
+  export type input<T> = z.input<ZodOf<T>>;
+  export type TypeOf<T> = z.output<ZodOf<T>>;
+  /** Any s field — the `z.ZodTypeAny` analogue, for typing generic schemas. */
+  export type Field = AnyField;
+}
+/** The typed input for creating a record (DB-filled fields optional). */
+export type Create<T> =
+  T extends TableDef<string, infer S> ? CreateShape<S> : never;
+/** The typed input for updating a record (partial; excludes id and readonly fields). */
+export type Update<T> =
+  T extends TableDef<string, infer S> ? UpdateShape<S> : never;
+
+// --- shared VALUE-LOWERING primitives (used by the query layer via ./query/render, and by
+// authoring itself: refs/defs/fragments in data positions) ---------------------------------------
+
+// --- lowering context ----------------------------------------------------------------------------
+
+/** A lowering pass: the bind map being assembled, plus the row token of the CURRENT row scope.
+ *  A field ref from a DIFFERENT row scope renders as `$parent.<col>` (correlated subquery); with
+ *  no current scope (`row` undefined — tag splices, block statements) every ref renders bare. */
+export interface Ctx {
+  readonly vars: Record<string, unknown>;
+  readonly row?: symbol;
+}
+
+// --- the deferred ref state ----------------------------------------------------------------------
+
+/** The value KIND a ref carries at runtime — picks which stdlib method family is callable
+ *  (`string::len` vs `array::len` under one `.length()`). `other` = kind unknown/uncovered. */
+export type RefKind = "string" | "number" | "array" | "date" | "other";
+
+/**
+ * What a field ref defers until lowering: its base (a COLUMN of some row scope, or pre-rendered
+ * TEXT like a block's `$var`), plus an optional composed decoration added by derived stdlib
+ * methods (`.length()` wraps the base in `string::len(…)`). The base renders row-token-aware —
+ * that ONE mechanism gives both derived expressions and `$parent` detection.
+ */
+export interface RefState {
+  readonly root:
+    | { readonly col: string; readonly row?: symbol }
+    | { readonly text: string };
+  readonly wrap?: (inner: string, ctx: Ctx) => string;
+  readonly kind: RefKind;
+  /** For `array` kind: the ELEMENT kind (so `.at(0)`/`.first()` chain with the right family). */
+  readonly elem?: RefKind;
+  /** When the outermost decoration is an ARITHMETIC operator: its precedence. Drives minimal
+   *  parenthesization — SurrealDB's printer strips redundant parens, so emitting them would
+   *  phantom-diff DDL round-trips; parens appear only where precedence requires them. */
+  readonly opPrec?: number;
+}
+
+/** The ref-state brand (`Symbol.for` — survives package-split dual instances). */
+export const REF_STATE: unique symbol = Symbol.for(
+  "better-schemic.surrealdb.refstate",
+) as never;
+
+/** Read a value's ref state (undefined if it isn't a field ref). */
+export function refState(v: unknown): RefState | undefined {
+  return (v as Record<symbol, RefState> | null)?.[REF_STATE];
+}
+
+/** Render a ref in a lowering context: the base column escapes (and swaps to `$parent.<col>`
+ *  when its row token differs from the context's), then derived decorations apply outward. */
+export function renderRef(s: RefState, ctx: Ctx): string {
+  let base: string;
+  if ("col" in s.root) {
+    const col = s.root.col
+      .split(".")
+      .map((p) => escapeIdent(p))
+      .join(".");
+    base =
+      s.root.row !== undefined &&
+      ctx.row !== undefined &&
+      s.root.row !== ctx.row
+        ? `$parent.${col}`
+        : col;
+  } else {
+    base = s.root.text;
+  }
+  return s.wrap ? s.wrap(base, ctx) : base;
+}
+
+/** The fragment brand the `surql` tag reads (`Symbol.for` -> shared without importing this
+ *  module): a value carrying it interpolates as its lowered `(subquery)` with bindings merged. */
+export const FRAGMENT: unique symbol = Symbol.for(
+  "better-schemic.surrealdb.fragment",
+) as never;
+
+/** Coerce a fragment-able value to its `BoundQuery` (a `BoundQuery` passes through; a builder /
+ *  block via its `FRAGMENT` hook). Undefined if it's neither. */
+export function fragOf(v: unknown): BoundQuery | undefined {
+  if (v instanceof BoundQuery) return v;
+  const make = (v as Record<symbol, unknown> | null)?.[FRAGMENT];
+  return typeof make === "function" ? (make.call(v) as BoundQuery) : undefined;
+}
+
+/** Regex-escape a literal string for use inside a `RegExp` source. */
+export function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Boundary-aware bind matcher (`$name`, never the prefix of `$name10`) — cached per bind name,
+ *  because fragment lowering rewrites the same names on every query. */
+const BIND_PATTERN_CACHE = new Map<string, RegExp>();
+export function bindPattern(name: string): RegExp {
+  let re = BIND_PATTERN_CACHE.get(name);
+  if (!re) {
+    if (BIND_PATTERN_CACHE.size >= 1000) BIND_PATTERN_CACHE.clear();
+    re = new RegExp(`\\$${escapeRegExp(name)}(?![A-Za-z0-9_])`, "g");
+    BIND_PATTERN_CACHE.set(name, re);
+  }
+  return re;
+}
+
+/** Rename one bind in a fragment's text, boundary-aware and replacement-safe (`$` in `to` never
+ *  expands as a `String.replace` pattern). */
+export function rewriteBind(text: string, name: string, to: string): string {
+  return text.replace(bindPattern(name), () => `$${to}`);
+}
+
+/** Merge a raw fragment's bindings into the pass's vars, renaming on collision (boundary-aware
+ *  rewrite in the fragment text — `$b1` must not touch `$b10`). SDK-tagged fragments use globally
+ *  countered names, so renames only fire for hand-built BoundQuery bindings. */
+export function mergeRaw(q: BoundQuery, vars: Record<string, unknown>): string {
+  let text = q.query;
+  for (const [name, value] of Object.entries(q.bindings ?? {})) {
+    let use = name;
+    if (use in vars) {
+      let n = 2;
+      while (`${name}_${n}` in vars) n++;
+      use = `${name}_${n}`;
+      text = rewriteBind(text, name, use);
+    }
+    vars[use] = value;
+  }
+  return text;
+}
+
+/** Render an operand in a lowering pass: a `$param` ref splices as text, a field ref renders
+ *  token-aware, a fragment splices with bindings merged (builders self-parenthesize; a raw
+ *  `BoundQuery` gets parens), anything else BINDS as a fresh `$b<n>` param. */
+export function operandText(v: unknown, ctx: Ctx): string {
+  if (isParamRef(v)) return v.toText();
+  // A RANGE is a value, but renders as `a..=b` rather than binding whole — its BOUNDS bind.
+  if (isRange(v)) return renderRange(v, ctx);
+  const param = paramDefName(v);
+  if (param !== undefined) return `$${param}`;
+  const rs = refState(v);
+  if (rs) return renderRef(rs, ctx);
+  if (v instanceof BoundQuery) return `(${mergeRaw(v, ctx.vars)})`;
+  const frag = fragOf(v);
+  if (frag) return mergeRaw(frag, ctx.vars);
+  if ((v as Record<symbol, unknown> | null)?.[EXPR_BRAND] === true)
+    throw new Error(
+      "a predicate Expr can't be used as a plain value here — use it in `where`/`if`, or wrap it: block().return((s) => expr).",
+    );
+  if (hasRefDeep(v)) return renderData(v, ctx);
+  rejectDefValue(v);
+  const bind = `b${Object.keys(ctx.vars).length}`;
+  ctx.vars[bind] = v;
+  return `$${bind}`;
+}
+
+/** The Expr brand (`Symbol.for` — checked here without importing the expr layer). */
+const EXPR_BRAND = Symbol.for("better-schemic.surrealdb.expr");
+
+/** A `defineParam` def used AS a value — the def IS the reference: splice `$<name>`. Duck-typed
+ *  (kind + name + config) so it survives package-split dual instances. */
+export function paramDefName(v: unknown): string | undefined {
+  const d = v as { kind?: unknown; name?: unknown; config?: unknown } | null;
+  return d !== null &&
+    typeof d === "object" &&
+    d.kind === "param" &&
+    typeof d.name === "string" &&
+    d.config !== undefined
+    ? d.name
+    : undefined;
+}
+
+/** Any OTHER schema def (table/function/event/access/analyzer) in a VALUE position is always a
+ *  bug — binding it would serialize the def object (`[object Object]` in DDL). Throw guidance. */
+export function rejectDefValue(v: unknown): void {
+  const kind = (v as { kind?: unknown } | null)?.kind;
+  if (
+    v !== null &&
+    typeof v === "object" &&
+    typeof kind === "string" &&
+    ["table", "function", "event", "access", "analyzer"].includes(kind)
+  )
+    throw new Error(
+      `a define${kind[0]?.toUpperCase()}${kind.slice(1)} def can't be used as a VALUE here${
+        kind === "function"
+          ? " — call it: Def.call({...})"
+          : kind === "table"
+            ? " — interpolate it in a surql template (splices the table name), or query it"
+            : ""
+      }.`,
+    );
+}
+
+/** A PLAIN data object (proto Object/null) — class instances (RecordId, Date, Uint8Array,
+ *  Duration, …) are leaf VALUES and always bind. */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  if (v === null || typeof v !== "object") return false;
+  const proto = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+}
+
+/** Does this plain object/array carry a ref/fragment ANYWHERE? If so it renders as a SurrealQL
+ *  literal with each value spliced (`{ to: [$email], html: $html }`); pure data binds WHOLE. */
+export function hasRefDeep(v: unknown, depth = 0): boolean {
+  if (depth > 16) return false;
+  if (
+    isParamRef(v) ||
+    refState(v) !== undefined ||
+    v instanceof BoundQuery ||
+    paramDefName(v) !== undefined ||
+    typeof (v as Record<symbol, unknown> | null)?.[FRAGMENT] === "function"
+  )
+    return true;
+  if (Array.isArray(v)) return v.some((e) => hasRefDeep(e, depth + 1));
+  if (isPlainObject(v))
+    return Object.values(v).some((e) => hasRefDeep(e, depth + 1));
+  return false;
+}
+
+const OBJ_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
+/** Render a ref-carrying plain object/array as a SurrealQL literal: refs/fragments splice,
+ *  leaf values bind individually. */
+export function renderData(v: unknown, ctx: Ctx): string {
+  if (Array.isArray(v)) {
+    return `[${v.map((e) => renderData(e, ctx)).join(", ")}]`;
+  }
+  if (
+    isPlainObject(v) &&
+    !isParamRef(v) &&
+    refState(v) === undefined &&
+    typeof (v as Record<symbol, unknown>)[FRAGMENT] !== "function"
+  ) {
+    const entries = Object.entries(v).map(
+      ([k, val]) =>
+        `${OBJ_KEY.test(k) ? k : JSON.stringify(k)}: ${renderData(val, ctx)}`,
+    );
+    return `{ ${entries.join(", ")} }`;
+  }
+  // Leaf: like operand lowering, but fragments splice BARE — object/array positions are
+  // delimiter-safe (`,`/`}`), and the printer would strip the parens anyway (DDL drift).
+  if (isParamRef(v)) return v.toText();
+  const rs = refState(v);
+  if (rs) return renderRef(rs, ctx);
+  const frag = v instanceof BoundQuery ? v : fragOf(v);
+  if (frag) return mergeRaw(frag, ctx.vars);
+  return operandText(v, ctx);
+}

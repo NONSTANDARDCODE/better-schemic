@@ -6,9 +6,10 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { createRequire } from "node:module";
+import { basename, dirname, join, resolve } from "node:path";
 import * as p from "@clack/prompts";
-// The @better-schemic versions this scaffolder pins are its OWN version (the packages release lockstep), so a
+// The better-schemic version this scaffolder pins is its OWN version (the packages release lockstep), so a
 // fresh project always gets a matching set. Inlined at build by the Bun bundler.
 import { version as BETTER_SCHEMIC_VERSION } from "../package.json";
 
@@ -16,24 +17,11 @@ const RANGE = `^${BETTER_SCHEMIC_VERSION}`;
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 
-/** Supported drivers: the package + the runtime deps a project authoring/connecting with it needs. */
-const DRIVERS: Record<
-  string,
-  { label: string; pkg: string; deps: Record<string, string> }
-> = {
-  surrealdb: {
-    label: "SurrealDB",
-    pkg: "@better-schemic/surrealdb",
-    deps: { surrealdb: "^2.0.3", zod: "^4.3.5" },
-  },
-};
-const DRIVER_NAMES = Object.keys(DRIVERS);
 const PMS = ["bun", "npm", "pnpm", "yarn"] as const;
 type Pm = (typeof PMS)[number];
 
 interface Options {
   dir?: string;
-  driver?: string;
   pm?: string;
   install?: boolean; // undefined = ask
   git: boolean;
@@ -47,14 +35,24 @@ function parseArgs(argv: string[]): Options {
     if (a === "-y" || a === "--yes") o.yes = true;
     else if (a === "--no-install") o.install = false;
     else if (a === "--no-git") o.git = false;
-    else if (a === "--driver") o.driver = argv[++i];
     else if (a === "--pm") o.pm = argv[++i];
     else if (a === "-h" || a === "--help") {
       printHelp();
       process.exit(0);
-    } else if (!a.startsWith("-") && o.dir === undefined) o.dir = a;
+    } else if (a.startsWith("-"))
+      // An unknown OPTION is an error, never a directory name — a typo must not scaffold a folder
+      // named after the flag's value.
+      unknownOption(a);
+    else if (o.dir === undefined) o.dir = a;
   }
   return o;
+}
+
+/** Refuse an unknown option with the usage (an exit, so the caller never continues). */
+function unknownOption(option: string): never {
+  console.error(`Unknown option: ${option}\n`);
+  printHelp();
+  process.exit(1);
 }
 
 function printHelp(): void {
@@ -63,7 +61,6 @@ function printHelp(): void {
 Usage: create-better-schemic [directory] [options]
 
 Options:
-  --driver <name>   ${DRIVER_NAMES.join(" | ")}
   --pm <name>       ${PMS.join(" | ")} (the package manager to install with)
   --no-install      scaffold only; don't install or run \`better-schemic init\`
   --no-git          don't run \`git init\`
@@ -95,16 +92,13 @@ const SCRIPTS: Record<string, string> = {
   db: "better-schemic",
 };
 
-/** Runtime deps for `driver` under `pm` (pnpm needs @better-schemic/core directly — strict node_modules). */
-function depMap(driver: string, pm: Pm): Record<string, string> {
-  const d = DRIVERS[driver];
-  const deps: Record<string, string> = {
-    "@better-schemic/cli": RANGE,
-    [d.pkg]: RANGE,
-    ...d.deps,
-  };
-  if (pm === "pnpm") deps["@better-schemic/core"] = RANGE;
-  return deps;
+/**
+ * The runtime deps a scaffolded project needs. `better-schemic` is ONE package: the authoring
+ * surface, the engine and the CLI. Zod and the SurrealDB SDK ship INSIDE it (they are its
+ * dependencies, not peers), so the project never installs them itself.
+ */
+function depMap(): Record<string, string> {
+  return { "better-schemic": RANGE };
 }
 
 // Kept conservative so it works across TypeScript 5, 6, and 7: `module: "ESNext"` (5.0+) rather than
@@ -131,14 +125,9 @@ const TSCONFIG = `${JSON.stringify(
 )}\n`;
 
 /** NEW project → write a fresh package.json. EXISTING → MERGE deps + scripts (never clobber). */
-function applyPackageJson(
-  target: string,
-  name: string,
-  driver: string,
-  pm: Pm,
-): string {
+function applyPackageJson(target: string, name: string): string {
   const path = join(target, "package.json");
-  const deps = depMap(driver, pm);
+  const deps = depMap();
   if (!existsSync(path)) {
     const fresh = {
       name,
@@ -216,6 +205,26 @@ function run(
   return { ok: r.status === 0, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
 }
 
+/**
+ * The CLI entry of the INSTALLED `better-schemic` package, resolved from its own manifest (the
+ * `bin` field) — never a hardcoded path, so a change in the package layout can't break the
+ * scaffolder.
+ */
+function resolveCliEntry(target: string): string {
+  const require = createRequire(join(target, "package.json"));
+  const manifestPath = require.resolve("better-schemic/package.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    bin?: string | Record<string, string>;
+  };
+  const bin = manifest.bin;
+  const rel = typeof bin === "string" ? bin : bin?.["better-schemic"];
+  if (!rel)
+    throw new Error(
+      "the installed `better-schemic` package exposes no `better-schemic` bin — reinstall it.",
+    );
+  return join(dirname(manifestPath), rel);
+}
+
 async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
   const tty = !!process.stdin.isTTY && !opts.yes;
@@ -252,27 +261,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // 2. driver
-  let driver = opts.driver;
-  if (!driver && tty) {
-    driver = abortIfCancel(
-      await p.select({
-        message: "Database driver",
-        options: DRIVER_NAMES.map((n) => ({
-          value: n,
-          label: DRIVERS[n].label,
-        })),
-        initialValue: "surrealdb",
-      }),
-    );
-  }
-  driver ||= "surrealdb";
-  if (!DRIVERS[driver]) {
-    p.cancel(`Unknown driver "${driver}". Known: ${DRIVER_NAMES.join(", ")}.`);
-    process.exit(1);
-  }
-
-  // 3. install? + which package manager (ask, default = detected)
+  // 2. install? + which package manager (ask, default = detected)
   const detected = detectPm();
   let install = opts.install;
   if (install === undefined)
@@ -302,20 +291,18 @@ async function main(): Promise<void> {
     ) as Pm;
   }
 
-  // 4. write/merge the project envelope (fresh for a new project, merge into an existing one)
+  // 3. write/merge the project envelope (fresh for a new project, merge into an existing one)
   const written = [
-    applyPackageJson(target, name, driver, pm),
+    applyPackageJson(target, name),
     applyTsconfig(target),
     writeIfAbsent(target, ".gitignore", GITIGNORE),
   ];
   const header = isExisting ? `Adding Better-schemic to ${name}` : name;
-  p.log.step(
-    `${bold(header)} ${dim(`(${DRIVERS[driver].label})`)}\n${written.join("\n")}`,
-  );
+  p.log.step(`${bold(header)} ${dim("(SurrealDB)")}\n${written.join("\n")}`);
   if (opts.git && !existsSync(join(target, ".git")))
     run("git", ["init", "-q"], target);
 
-  // 5. install + compose on `better-schemic init` (which scaffolds config + database/ via the driver)
+  // 4. install + compose on `better-schemic init` (which scaffolds the config + database/)
   if (install) {
     const s = p.spinner();
     s.start(`Installing dependencies with ${pm}`);
@@ -329,28 +316,18 @@ async function main(): Promise<void> {
     s.stop("Dependencies installed");
     p.log.step("Scaffolding the schema");
     const runtime = pm === "bun" ? "bun" : "node";
-    const cliJs = join(
-      target,
-      "node_modules",
-      "@better-schemic",
-      "cli",
-      "lib",
-      "cli.js",
-    );
-    // Mark the inner init as already-bootstrapped so it scaffolds directly (never forwards back here).
-    process.env.BETTER_SCHEMIC_NO_BOOTSTRAP = "1";
-    process.env.SCHEMIC_NO_BOOTSTRAP = "1"; // legacy alias
-    run(runtime, [cliJs, "init", "--driver", driver], target);
+    const cliJs = resolveCliEntry(target);
+    run(runtime, [cliJs, "init"], target);
   }
 
-  // 6. next steps
+  // 5. next steps
   const cd = dir === "." ? "" : `cd ${dir}\n`;
   // npm needs `npm run db -- <sub>` to forward args; bun/pnpm/yarn forward `<pm> run db <sub>` directly.
   const dbCmd = (sub: string) =>
     pm === "npm" ? `npm run db -- ${sub}` : `${pm} run db ${sub}`;
   const steps = install
     ? `${cd}cp .env.example .env   ${dim("# set your connection")}\n${dbCmd("gen")}\n${dbCmd("migrate")}`
-    : `${cd}${pm} install\n${pm} exec better-schemic init --driver ${driver}\ncp .env.example .env\n${dbCmd("gen")}`;
+    : `${cd}${pm} install\n${pm} exec better-schemic init\ncp .env.example .env\n${dbCmd("gen")}`;
   p.note(steps, "Next steps");
   p.outro(`${bold(name)} is ready.`);
 }

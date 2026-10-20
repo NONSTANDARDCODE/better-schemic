@@ -52,10 +52,10 @@ jobs:
       - name: Test
         run: bun run --filter '*' test
 
-  # MC/DC-equivalent coverage gate (branch + logical-condition) over drivers/surrealdb/src +
-  # packages/core/src. SEPARATE job: it installs the `surreal` binary so the live/parity suites run
+  # MC/DC-equivalent coverage gate (branch + logical-condition) over packages/better-schemic/src.
+  # SEPARATE job: it installs the `surreal` binary so the live/parity suites run
   # (never skip), instruments the suite, and fails on any per-file regression below its ratchet floor.
-  # See drivers/surrealdb/docs/TESTING.md.
+  # See packages/better-schemic/docs/TESTING.md.
   coverage:
     name: coverage (MC/DC gate)
     runs-on: ubuntu-latest
@@ -99,7 +99,7 @@ jobs:
   # Mutation gate (StrykerJS + a custom Bun test runner) over the scoped pure compilers. OFFLINE —
   # no `surreal` binary needed — one Stryker process scheduling mutants dynamically across parallel
   # test-runner workers. Fails on any per-file mutation-score regression below `mutation.config.json`.
-  # See drivers/surrealdb/docs/TESTING.md.
+  # See packages/better-schemic/docs/TESTING.md.
   mutation:
     name: mutation (Stryker · bun)
     runs-on: ubuntu-latest

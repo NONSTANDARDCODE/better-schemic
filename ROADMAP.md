@@ -2,8 +2,8 @@
 
 The **typed-query/ORM arc**: replacing the old fluent builder with the repository-style `/orm` layer.
 This file carries the milestone plan (M0–M7) and their status; the live-verified SurrealQL ground
-truth the compiler emits against is `drivers/surrealdb/docs/orm-syntax-map.md`, and the exhaustive
-runtime surface is `drivers/surrealdb/docs/ORM-COVERAGE.md`.
+truth the compiler emits against is `packages/better-schemic/docs/orm-syntax-map.md`, and the exhaustive
+runtime surface is `packages/better-schemic/docs/ORM-COVERAGE.md`.
 
 Packages release **in lockstep**; see `CHANGELOG.md` for what's shipped vs accumulating.
 
@@ -23,7 +23,7 @@ Legend: ✅ done · 🚧 in progress · 🟡 partial · ⏳ not started
   `responses()`, atomic `BEGIN/COMMIT` batches, unique-binds guardrail.
 - ✅ **M0.5** `/orm` bootstrap (`betterSchemic`/`createBetterSchemic`, delegates, `repository`,
   `tables`, `extends`, `forkSession`, BYO-managed lifecycle) + **the legacy surface removed** (fluent
-  builder, `/client`, `@better-schemic/core/query`; `/query` keeps `block()`).
+  builder, `/client`, `better-schemic/core/query`; `/query` keeps `block()`).
 
 ## M1 — leitura ✅ *(complete)*
 
@@ -226,12 +226,12 @@ F2 (`timestamps`, `soft-delete`).
 - ✅ **M6.3 F1** — `plugins/rules` (`noRawUnsafe`, `destructiveWriteWithoutWhere`, `requireLimit`,
   `requireOrderByForCursor`, `maxLimit`, `strict` → `UnknownField`; presets `safe`/`recommended`/
   `strict`) e `plugins/zod` (valida `data` de create/insert/update/upsert por tabela → `ValidationError`
-  com o path). Subpaths `@better-schemic/surrealdb/plugins/{rules,zod}`.
+  com o path). Subpaths `better-schemic/plugins/{rules,zod}`.
 - ✅ **M6.4 F2** — `plugins/timestamps` (modo `app` carimba `time::now()` em create/update/upsert;
   modo `database` só remove as colunas gerenciadas) e `plugins/soft-delete` (`delete`→`update`/
   `updateMany` com a coluna carimbada, filtro de leitura `deleted: "with" | "without" | "only"`
   (exceto `findUnique`, cujo `where` é o alvo), `deletedBy` de `meta.actor`, `restore`/
-  `restoreById` via `extendModel`). Subpaths `@better-schemic/surrealdb/plugins/{timestamps,soft-delete}`.
+  `restoreById` via `extendModel`). Subpaths `better-schemic/plugins/{timestamps,soft-delete}`.
 
 Tipado ponta a ponta: `HookPayload`/`AfterHookPayload`/`ErrorHookPayload` (raw/transaction próprios),
 `Plugin`/`PluginSpec`/`PluginContext`/`PluginState`/`Operation`, `PluginArgs`/`PluginClientExtras`/
@@ -255,7 +255,7 @@ release entry. Landing accumulates — publishing is a separate explicit decisio
 
 ## Parallel track — driver schema coverage
 
-SurrealDB DDL completeness, tracked in `drivers/surrealdb/docs/COVERAGE.md`.
+SurrealDB DDL completeness, tracked in `packages/better-schemic/docs/COVERAGE.md`.
 - ✅ **surrealdb:** full `DEFINE ANALYZER` coverage + fluent `defineAnalyzer`.
 - ✅ **surrealdb:** `s.range()` (`TYPE range`), `ASYNC [RETRY] [MAXDEPTH]` events, and
   `DEFINE SEQUENCE` (`defineSequence`) now round-trip.
@@ -265,8 +265,8 @@ SurrealDB DDL completeness, tracked in `drivers/surrealdb/docs/COVERAGE.md`.
 ## M8 — MC/DC reliability hardening ✅ *(complete; two-tier floors: critical 100% / rest 95%)*
 
 The SQLite-grade reliability pass: measure and drive **branch + logical-condition (MC/DC-equivalent)
-coverage** and **mutation strength** for `drivers/surrealdb/src` + `packages/core/src`, with real-DB
-integration and subprocess e2e coverage. Method + tooling: `drivers/surrealdb/docs/TESTING.md`.
+coverage** and **mutation strength** for `packages/better-schemic/src/surreal` + `packages/better-schemic/src/core`, with real-DB
+integration and subprocess e2e coverage. Method + tooling: `packages/better-schemic/docs/TESTING.md`.
 
 - ✅ **M8.0 — coverage tooling.** `scripts/coverage/{preload,lib,report,check,run,gaps}.ts`: a Bun
   preload instruments in-scope sources with `oxc-coverage-instrument` (`reportLogic` → per-operand
@@ -288,7 +288,7 @@ integration and subprocess e2e coverage. Method + tooling: `drivers/surrealdb/do
   `driver/portable.ts` — the type bridge and the pure compilers where a missed branch is a wrong
   migration. Files already at 100 across the board (`orm/auth.ts`, `cli/scaffold.ts`, `plugins/zod.ts`,
   core `cli-kit/{meta,style}`/`connection.ts`, `driver.ts`, …) stay at 100 by the ratchet.
-- ✅ **M8.3 — Tier-2 MC/DC.** `analyzeMcdc`/`describeMcdc` in `@better-schemic/core/testing`:
+- ✅ **M8.3 — Tier-2 MC/DC.** `analyzeMcdc`/`describeMcdc` in `better-schemic/testing`:
   a driver-agnostic, pure unique-cause MC/DC engine (enumerates the truth table or the explicit
   `cases` a suite exercises, finds the independence pair for every condition, fails a NAMED test on
   a redundant/masked operand). Applied to the error predicates (`isNotFound`, `isValidationError`,
@@ -330,7 +330,7 @@ integration and subprocess e2e coverage. Method + tooling: `drivers/surrealdb/do
   the PBT/fuzz suites included), the `coverage` job (installs the `surreal` binary so live/parity
   never skip; runs `test:coverage`, which now also enforces the MC/DC reconcile), the `mutation` job
   (offline, parallel test-runner workers) and `type-bench`. Method + tooling documented in
-  `drivers/surrealdb/docs/TESTING.md` (coverage/MC-DC, decision inventory, mutation, PBT, fuzzing).
+  `packages/better-schemic/docs/TESTING.md` (coverage/MC-DC, decision inventory, mutation, PBT, fuzzing).
 
 Literal operands (`x || {}`, `a ?? "d"`) are excluded from the condition denominator — MC/DC covers
 every **non-constant** condition.
@@ -352,7 +352,7 @@ A built-in, zero-dependency query logger enabled with one flag (`logger: true` /
   an operator tree; the renderer accepts the structured object (`EXPLAIN FORMAT JSON` /
   `SELECT … EXPLAIN [FULL]`), the indented string (`EXPLAIN <stmt>`) and the legacy array, with
   `TableScan ⚠ full scan` / `IndexScan ✓` badges; `explain: "slow" | "all" | "analyze"` auto-explain.
-- ✅ **M9.4 surface + docs** — subpath `@better-schemic/surrealdb/logger`
+- ✅ **M9.4 surface + docs** — subpath `better-schemic/logger`
   (`createQueryLogger`/`resolveLogger`); `logger` option on `betterSchemic`/`createBetterSchemic`;
   README, `docs/ORM-COVERAGE.md` §9 and `docs/orm-syntax-map.md` §11 (live-probed `EXPLAIN` shapes +
   `test/live/orm-syntax.test.ts` probes). Tests: `test/unit/orm-logger{,-highlight,-plan}.test.ts`,
@@ -597,3 +597,33 @@ projeção das leituras, e contadores ajustam num read-modify-write do servidor 
   `WRITE PROJECTIONS` em `test/live/orm-syntax.test.ts`), tipos (`orm-writes.assert.ts`); README,
   `ORM-COVERAGE.md` §2, `orm-syntax-map.md` §2.4.1/§2.4.2 (125 probes), CHANGELOG, cookbook
   `examples/orm/writes.ts` + manifest regenerado.
+
+## M18 — um único pacote (`better-schemic`) ✅ *(complete)*
+
+O monorepo tinha 5 pacotes (`core` + `cli` + `surrealdb` + o alias `better-schemic` + o
+scaffolder). Como o projeto é **SurrealDB-only**, o desacoplamento entre driver/CLI/engine pagava
+um custo real (5 manifests, pins `workspace:*`, release lockstep de 5, um alias de 20 linhas) sem
+comprar nada: o driver nunca foi plugável.
+
+- ✅ **M18.1 runtime único** — `packages/better-schemic` passa a conter o engine (`src/core`), o CLI
+  (`src/cli`) e o driver SurrealDB (`src/surreal`); as fronteiras de bundle passam a ser as entradas
+  de `exports` (`/connection`, `/orm`, `/query`, `/config`, `/plugins/*`, `/driver`, `/core`), e o
+  entry de autoria (`better-schemic`) segue **side-effect-free** (o emit/diff não entra no bundle do
+  app).
+- ✅ **M18.2 CLI estático** — o driver é embutido (importado uma vez pelo entry do CLI): sem
+  carregamento dinâmico por nome, sem resolução do entry compilado de outro pacote. `init`/`diff`
+  perderam a flag `--driver` (o build é SurrealDB-only) e o `init` deixou de fazer bootstrap via
+  `create-better-schemic` (o driver já está instalado).
+- ✅ **M18.3 dependências internas** — `zod` e o SDK `surrealdb` viraram **dependências** do pacote
+  (não peers): o app instala `better-schemic` e pronto — `s.*` estende os builders do Zod, e uma
+  segunda cópia quebraria `instanceof`. Zod cru sai do mesmo pacote (`import { z } from
+  "better-schemic"`), garantindo uma única cópia.
+- ✅ **M18.4 scaffolder** — `create-better-schemic` dropped o `--driver` (só existe SurrealDB) e
+  resolve o bin do pacote instalado pelo próprio `package.json` (nada de path hardcoded).
+- ✅ **M18.5 release + toolagem** — release lockstep de 2 pacotes (`release.ts` sem pin de
+  `core`), `land.ts`/coverage/MC-DC/mutation/type-bench apontando para o layout novo, e os pacotes
+  antigos (`@better-schemic/core`, `@better-schemic/cli`, `@better-schemic/surrealdb`) depreciados
+  no npm, apontando para `better-schemic`.
+- ✅ **M18.6 docs** — `AGENTS.md`, README raiz, README do pacote, `docs/engine/*` (os docs de
+  onboarding de driver viraram históricos) e o guia `docs/MIGRATION-one-package.md` com o mapa
+  antigo → novo.

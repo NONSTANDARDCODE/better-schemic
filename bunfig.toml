@@ -3,5 +3,5 @@
 # Used by `scripts/coverage/run.ts` from the repo root; see scripts/coverage/preload.ts.
 preload = [
   "./scripts/coverage/preload.ts",
-  "./drivers/surrealdb/test/preload-server.ts",
+  "./packages/better-schemic/test/surreal/preload-server.ts",
 ]

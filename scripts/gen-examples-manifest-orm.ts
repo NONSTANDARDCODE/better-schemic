@@ -7,12 +7,12 @@
  * source git commit + a content hash for vendoring consumers.
  *
  * Run: `bun run scripts/gen-examples-manifest-orm.ts` (or `bun run gen:examples:orm`).
- * See packages/core/docs/EXAMPLE-COOKBOOK-CONVENTION.md.
+ * See packages/better-schemic/docs/engine/EXAMPLE-COOKBOOK-CONVENTION.md.
  */
 import {
   allOrmGroups,
   capture,
-} from "../drivers/surrealdb/examples/orm/index";
+} from "../packages/better-schemic/examples/orm";
 import { writeManifest } from "./manifest";
 
 /** One flat catalog entry — the shape consumers render from. */

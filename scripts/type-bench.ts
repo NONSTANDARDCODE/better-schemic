@@ -11,11 +11,11 @@
  *
  *   bun run scripts/type-bench.ts                  # enforce every budget
  *   bun run scripts/type-bench.ts --update         # (re)baseline the current counts
- *   bun run scripts/type-bench.ts packages/core    # enforce one package's benches
+ *   bun run scripts/type-bench.ts packages/better-schemic   # enforce one package's benches
  */
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { resolveTsgo } from "./tsgo";
 
 export function bench(_name: string, fn: () => unknown): void {
@@ -32,21 +32,29 @@ interface Budgets {
   [benchFile: string]: number;
 }
 
-/** The bench files under one package dir (`<package>/test/types/*.bench.ts`). */
+/** The bench files under one package dir — every `types` folder under `<package>/test`. */
 function benchFilesIn(packageDir: string): string[] {
-  const dir = join(root, packageDir, "test/types");
-  try {
-    return readdirSync(dir)
-      .filter((name) => name.endsWith(".bench.ts"))
-      .sort()
-      .map((name) => join(dir, name));
-  } catch {
-    return [];
-  }
+  const dir = join(root, packageDir, "test");
+  const out: string[] = [];
+  const scan = (d: string): void => {
+    let names: string[];
+    try {
+      names = readdirSync(d);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const abs = join(d, name);
+      if (name.endsWith(".bench.ts")) out.push(abs);
+      else if (!name.includes(".")) scan(abs);
+    }
+  };
+  scan(dir);
+  return out.sort();
 }
 
 function discover(packageFilter?: string): string[] {
-  const packages = ["packages/core", "packages/cli", "drivers/surrealdb"];
+  const packages = ["packages/better-schemic"];
   const selected = packageFilter
     ? packages.filter(
         (p) => p === packageFilter || p.endsWith(`/${packageFilter}`),
@@ -57,10 +65,18 @@ function discover(packageFilter?: string): string[] {
 
 /** Compile one bench file in isolation and return its program-wide Instantiations count. */
 async function measure(file: string): Promise<number> {
-  const packageDir = resolve(file, "../../.."); // <package>/test/types/<file> -> <package>
+  // The bench lives at `<package>/test/<group>/types/<file>.bench.ts` — walk up to the package root
+  // (the dir that owns package.json).
+  let packageDir = dirname(file);
+  while (
+    packageDir !== root &&
+    !existsSync(join(packageDir, "package.json"))
+  )
+    packageDir = dirname(packageDir);
   const configPath = join(file, "..", ".tsconfig.bench.json");
   const config = {
-    extends: "../../tsconfig.json",
+    // The config lives next to the bench file, so the extends path is relative to THAT dir.
+    extends: relative(dirname(configPath), join(packageDir, "tsconfig.json")),
     include: [`.${file.slice(file.lastIndexOf("/"))}`],
   };
   await Bun.write(configPath, JSON.stringify(config, null, 2));

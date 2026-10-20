@@ -14,7 +14,7 @@
  *
  * Which tests to run per mutant is read from `mutation.config.json` at the sandbox root
  * (`testFilesByFile[<mutated file>]`, matched by repo-relative path or suffix, else `testFiles`).
- * See `drivers/surrealdb/docs/TESTING.md`.
+ * See `packages/better-schemic/docs/TESTING.md`.
  *
  * Run Stryker **under Bun** (`bun node_modules/@stryker-mutator/core/bin/stryker.js run`) so the
  * worker subprocess can import this `.ts` module directly.
@@ -49,8 +49,8 @@ interface MutationConfig {
 const CONFIG_FILE = "mutation.config.json";
 const DEFAULT_BUNFIG = "scripts/mutation/bunfig.mutation.toml";
 const DEFAULT_TEST_FILES = [
-  "drivers/surrealdb/test/unit",
-  "packages/core/test/unit",
+  "packages/better-schemic/test/surreal/unit",
+  "packages/better-schemic/test/core/unit",
 ];
 
 /** One `bun test` process outcome. */
@@ -161,7 +161,7 @@ export class BunTestRunner implements TestRunner {
   /**
    * Resolve the configured test targets for a mutated source. Stryker hands the ORIGINAL (often
    * absolute) `fileName`, while the config keys are repo-relative — so match exactly first, then by
-   * path suffix (`…/drivers/surrealdb/src/x.ts` ends with `drivers/surrealdb/src/x.ts`).
+   * path suffix (`…/packages/better-schemic/src/surreal/x.ts` ends with `packages/better-schemic/src/surreal/x.ts`).
    */
   private lookupTestFiles(fileName: string): string[] | undefined {
     const byFile = this.config.testFilesByFile ?? {};

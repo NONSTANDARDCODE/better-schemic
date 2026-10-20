@@ -17,8 +17,8 @@ mkdirSync(out, { recursive: true });
 
 const map = mergeFragments(fragments);
 const include = [
-  join(root, "drivers/surrealdb/src"),
-  join(root, "packages/core/src"),
+  join(root, "packages/better-schemic/src/surreal"),
+  join(root, "packages/better-schemic/src/core"),
 ];
 
 // Istanbul's own reports (HTML/LCOV/JSON) — text is replaced by ours (it can't show `bT`).

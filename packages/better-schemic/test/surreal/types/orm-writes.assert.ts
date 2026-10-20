@@ -1,0 +1,488 @@
+// M2.8 — TYPE assertions for the write surface: per-op args (`create`/`insert`/`update`/`patch`/
+// `upsert`/`delete`/`updateEach`/`relate`), the result envelopes dispatched by `return`, the
+// expression-carrying `data`, and the relation-only RELATE surface.
+// Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
+import { describe, it } from "node:test";
+import { assertType } from "../../../../../scripts/type-assert";
+import type { Surql } from "../../../src/surreal/frag";
+import { defineRelation, defineTable, s, surql } from "../../../src/surreal";
+import type { Client } from "../../../src/surreal/orm/client";
+import type { ModelDelegate } from "../../../src/surreal/orm/delegate";
+import type { BatchResult, ThrowingResult } from "../../../src/surreal/orm/results";
+import { defineSchema } from "../../../src/surreal/orm/schema";
+import type {
+  BatchWriteResult,
+  CreatedResult,
+  DeletedResult,
+  DeltaKey,
+  FieldDelta,
+  UpdateData,
+  UpdatedResult,
+  UpdateEachItem,
+  UpsertDeltaResult,
+  WriteData,
+  WrittenResult,
+} from "../../../src/surreal/orm/types/write";
+import type { App } from "../../../src/surreal/pure";
+
+const User = defineTable("user", {
+  name: s.string(),
+  email: s.string(),
+  age: s.int(),
+  active: s.boolean(),
+  tags: s.array(s.string()),
+  address: s.object({ city: s.string(), country: s.string() }),
+}).index("uniq_email", ["email"], { unique: true });
+const Post = defineTable("post", { title: s.string() });
+const Likes = defineRelation("likes", { score: s.int() }).from(User).to(Post);
+const schema = defineSchema({ users: User, posts: Post, likes: Likes });
+type U = typeof User;
+type Row = App<U>;
+type C = Client<typeof schema>;
+type Users = C["users"];
+type Likess = C["likes"];
+type L = typeof Likes;
+
+declare const client: C;
+
+/**
+ * TYPE-ONLY probes: the closure is never invoked (tsgo checks the delegate signatures; running
+ * them would need a real connection). The `@ts-expect-error` directives live here too.
+ */
+function typeProbes(): void {
+  const created: Promise<BatchResult<Row>> = client.users.createMany({
+    data: [
+      {
+        name: "A",
+        email: "a@x",
+        age: 1,
+        active: true,
+        tags: [],
+        address: { city: "X", country: "Y" },
+      },
+    ],
+  });
+  void created;
+
+  void client.users.create({
+    data: {
+      name: "Aeon",
+      email: "aeon@x",
+      age: 30,
+      active: true,
+      tags: [],
+      address: { city: "SP", country: "BR" },
+    },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: { age: 31 },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: { age: surql`age + ${1}`.as<number>() },
+  });
+  // @ts-expect-error — "old" is not assignable to the int field
+  void client.users.update({ where: { id: "user:a" }, data: { age: "old" } });
+
+  void client.users.upsert({ where: { id: "user:a" }, data: { age: 1 } });
+  void client.users.upsert({
+    where: { id: "user:a" },
+    data: { age: 1 },
+    onMissing: "create",
+  });
+  void client.users.upsert({
+    where: { id: "user:a" },
+    create: {
+      name: "A",
+      email: "a@x",
+      age: 1,
+      active: true,
+      tags: [],
+      address: { city: "X", country: "Y" },
+    },
+    update: { age: 2 },
+    onMissing: "create",
+  });
+  void client.users.upsert({
+    where: { id: "user:a" },
+    data: { age: 1 },
+    // @ts-expect-error — onMissing is "create" | "throw"
+    onMissing: "nope",
+  });
+  const upserted = client.users.upsert({
+    where: { id: "user:a" },
+    data: { age: 1 },
+  });
+  assertType<Promise<Row>, typeof upserted>();
+
+  // A target-less `upsert` is a plain CREATE; `data.id` alone infers the strict id target.
+  const targetless = client.users.upsert({
+    data: {
+      name: "B",
+      email: "b@x",
+      age: 2,
+      active: true,
+      tags: [],
+      address: { city: "X", country: "Y" },
+    },
+  });
+  assertType<Promise<Row>, typeof targetless>();
+  void client.users.upsert({ data: { id: "user:b", age: 2 } });
+  void client.users.upsert({
+    data: { id: "user:b", age: 2 },
+    onMissing: "create",
+  });
+
+  void client.users.upsertDelta({ where: { id: "user:a" }, data: { age: 1 } });
+  void client.users.upsertDelta({ data: { id: "user:a", age: 2 } });
+  void client.users.upsertDelta({
+    where: { id: "user:a" },
+    data: { age: 1 },
+    onMissing: "throw",
+    timeout: "5s",
+  });
+  void client.users.upsertDelta({
+    where: { id: "user:a" },
+    create: {
+      name: "A",
+      email: "a@x",
+      age: 1,
+      active: true,
+      tags: [],
+      address: { city: "X", country: "Y" },
+    },
+    update: { age: 2 },
+    mode: "merge",
+  });
+  void client.users.upsertDelta({
+    where: { email: "a@x" },
+    data: { email: "a@x", age: surql`age + 1`.as<number>() },
+    mode: "set",
+  });
+  void client.users.upsertDelta({
+    where: { id: "user:a" },
+    data: { age: 1 },
+    // @ts-expect-error — mode "patch" is not part of upsertDelta
+    mode: "patch",
+  });
+  void client.users.upsertDelta({
+    where: { id: "user:a" },
+    data: { age: 1 },
+    // @ts-expect-error — onMissing is "create" | "throw"
+    onMissing: "nope",
+  });
+  void client.users.upsertDelta({
+    where: { id: "user:a" },
+    // @ts-expect-error — "old" is not assignable to the int field
+    data: { age: "old" },
+  });
+
+  // The result envelope narrows on `created` (tsgo checks each branch at compile time).
+  const deltaResult = client.users.upsertDelta({
+    where: { id: "user:a" },
+    data: { age: 1 },
+  });
+  assertType<Promise<UpsertDeltaResult<U>>, typeof deltaResult>();
+  void deltaResult.then((row) => {
+    if (row.created) {
+      assertType<null, typeof row.before>();
+      assertType<null, typeof row.delta>();
+      assertType<readonly [], typeof row.changed>();
+    } else {
+      assertType<Row, typeof row.before>();
+      assertType<FieldDelta<Row> | null, typeof row.delta>();
+      assertType<readonly DeltaKey<Row>[], typeof row.changed>();
+    }
+  });
+  void client.users.updateMany({ data: { active: false } });
+  void client.users.deleteMany({ where: { age: { lt: 1 } } });
+  // @ts-expect-error — delete does not accept "after"
+  void client.users.delete({ where: { id: "user:a" }, return: "after" });
+
+  void client.users.updateEach({
+    data: [
+      { id: "user:a", age: 1 },
+      { id: "user:b", age: 2 },
+    ],
+  });
+  void client.users.updateEach({
+    by: "email",
+    data: [{ email: "a@x", age: 3 }],
+    onEmpty: "throw",
+  });
+  void client.users.updateEach({
+    by: "email",
+    // @ts-expect-error — `by: "email"` items must carry email
+    data: [{ id: "user:a", age: 3 }],
+  });
+
+  void client.posts.create({
+    data: { title: "T" },
+    relate: [{ from: "user:a", edge: "likes", to: "$self" }],
+    return: "none",
+  });
+  void client.posts.create({
+    data: { title: "T" },
+    relate: [{ from: "user:a", edge: "likes", to: "$self" }],
+    return: "before",
+  });
+  // @ts-expect-error — the relate batch rejects RETURN DIFF
+  void client.posts.create({
+    data: { title: "T" },
+    relate: [{ from: "user:a", edge: "likes", to: "$self" }],
+    return: "diff",
+  });
+
+  void client.likes.relate({
+    from: "user:a",
+    to: "post:p",
+    data: { score: 5 },
+  });
+  void client.likes.relateMany({
+    data: [
+      { from: "user:a", to: "post:p" },
+      { from: "user:b", to: "post:p", id: "first", data: { score: 1 } },
+    ],
+  });
+  void client.likes.unrelate({ from: "user:a", to: "post:p" });
+  void client.likes.unrelateMany({ where: { score: { lt: 3 } } });
+  // @ts-expect-error — an endpoint can not be null
+  void client.likes.relate({ from: null, to: "post:p" });
+
+  // --- projections on the returned rows (`select`/`omit`) ----------------------------------------
+  const selected = client.users.update({
+    where: { id: "user:a" },
+    data: { age: 2 },
+    select: { id: true, name: true },
+  });
+  assertType<
+    ThrowingResult<{ id: Row["id"]; name: string }>,
+    typeof selected
+  >();
+
+  const aliased = client.users.update({
+    where: { id: "user:a" },
+    data: { age: 2 },
+    select: { city: "address.city" },
+  });
+  assertType<ThrowingResult<{ city: string }>, typeof aliased>();
+
+  const beforeSelected = client.users.update({
+    where: { id: "user:a" },
+    data: { age: 2 },
+    return: "before",
+    select: { name: true },
+  });
+  assertType<ThrowingResult<{ name: string }>, typeof beforeSelected>();
+
+  const deleted = client.users.delete({
+    where: { id: "user:a" },
+    omit: ["email"],
+  });
+  assertType<ThrowingResult<Omit<Row, "email">>, typeof deleted>();
+
+  const createdProjected = client.users.create({
+    data: {
+      name: "A",
+      email: "a@x",
+      age: 1,
+      active: true,
+      tags: [],
+      address: { city: "X", country: "Y" },
+    },
+    select: { name: true },
+  });
+  assertType<Promise<{ name: string }>, typeof createdProjected>();
+
+  const batchSelected = client.users.updateMany({
+    where: { active: true },
+    data: { age: 2 },
+    select: { age: true },
+  });
+  assertType<Promise<BatchResult<{ age: number }>>, typeof batchSelected>();
+
+  void client.users.updateEach({
+    data: [{ id: "user:a", age: 1 }],
+    select: { name: true },
+  });
+
+  // --- numeric adjustments (`increment`/`decrement`) ---------------------------------------------
+  void client.users.update({
+    where: { id: "user:a" },
+    data: { age: { increment: 1 }, name: "B" },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: { age: { decrement: surql`2`.as<number>() } },
+  });
+  void client.users.updateEach({
+    data: [{ id: "user:a", age: { increment: 1 } }],
+  });
+  void client.users.upsert({
+    where: { id: "user:a" },
+    data: { age: { decrement: 1 } },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: {
+      // @ts-expect-error — increment needs a numeric field
+      name: { increment: 1 },
+    },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: {
+      // @ts-expect-error — the operand must be numeric
+      age: { increment: "x" },
+    },
+  });
+  void client.users.create({
+    data: {
+      name: "A",
+      email: "a@x",
+      // @ts-expect-error — create payloads don't take adjustments
+      age: { increment: 1 },
+      active: true,
+      tags: [],
+      address: { city: "X", country: "Y" },
+    },
+  });
+
+  // --- array adjustments (`append`/`remove`/`union`/`at`) ------------------------------------------
+  void client.users.update({
+    where: { id: "user:a" },
+    data: { tags: { append: "new" } },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: { tags: { append: ["a", "b"] } },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: { tags: { remove: "old" } },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: { tags: { union: ["a"] } },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: { tags: { at: { index: 0, value: "x" } } },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: {
+      // @ts-expect-error — a string field is not an array
+      name: { append: "x" },
+    },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: {
+      // @ts-expect-error — a numeric field takes the NUMERIC markers, not the array ones
+      age: { append: 1 },
+    },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: {
+      // @ts-expect-error — a numeric field takes the numeric markers
+      name: { remove: "x" },
+    },
+  });
+}
+void typeProbes;
+
+describe("write results dispatch on the `return` literal", () => {
+  it("create resolves rows; none/before are null; diff is unknown[]", () => {
+    assertType<Promise<Row>, CreatedResult<U, Record<string, never>>>();
+    assertType<Promise<Row>, CreatedResult<U, { return: "after" }>>();
+    assertType<Promise<null>, CreatedResult<U, { return: "none" }>>();
+    assertType<Promise<null>, CreatedResult<U, { return: "before" }>>();
+    assertType<Promise<unknown[]>, CreatedResult<U, { return: "diff" }>>();
+  });
+
+  it("insert/upsert `before` exposes the previous row (or null when created)", () => {
+    assertType<Promise<Row | null>, WrittenResult<U, { return: "before" }>>();
+    assertType<Promise<Row>, WrittenResult<U, Record<string, never>>>();
+    assertType<Promise<null>, WrittenResult<U, { return: "none" }>>();
+    assertType<Promise<unknown[]>, WrittenResult<U, { return: "diff" }>>();
+  });
+
+  it("update/patch are ThrowingResults (a miss resolves null)", () => {
+    assertType<ThrowingResult<Row>, UpdatedResult<U, Record<string, never>>>();
+    assertType<ThrowingResult<Row>, UpdatedResult<U, { return: "before" }>>();
+    assertType<Promise<null>, UpdatedResult<U, { return: "none" }>>();
+    assertType<Promise<unknown[]>, UpdatedResult<U, { return: "diff" }>>();
+  });
+
+  it("delete only accepts before|none", () => {
+    assertType<ThrowingResult<Row>, DeletedResult<U, Record<string, never>>>();
+    assertType<Promise<null>, DeletedResult<U, { return: "none" }>>();
+  });
+
+  it("batches resolve a BatchResult, a patch list with diff", () => {
+    assertType<
+      Promise<BatchResult<Row>>,
+      BatchWriteResult<U, Record<string, never>>
+    >();
+    assertType<Promise<unknown[]>, BatchWriteResult<U, { return: "diff" }>>();
+  });
+});
+
+describe("write data accepts fragments and partial updates", () => {
+  it("WriteData allows a surql expression per field", () => {
+    assertType<
+      true,
+      { age: Surql<[number]> } extends WriteData<{ age: number }> ? true : false
+    >();
+    assertType<
+      true,
+      { name: string } extends WriteData<{ name: string }> ? true : false
+    >();
+  });
+
+  it("UpdateData is deep-partial (id/readonly excluded by the codec shape)", () => {
+    assertType<true, { age: number } extends UpdateData<U> ? true : false>();
+    assertType<true, { age: 1 } extends UpdateData<U> ? true : false>();
+  });
+});
+
+describe("updateEach and relate are typed", () => {
+  it("updateEach items carry the by field plus update data", () => {
+    assertType<
+      false,
+      { id: string; age: number } extends UpdateEachItem<U, "email">
+        ? true
+        : false
+    >();
+    assertType<
+      true,
+      { email: string; age: number } extends UpdateEachItem<U, "email">
+        ? true
+        : false
+    >();
+  });
+
+  it("only RELATION delegates expose relate/unrelate", () => {
+    assertType<true, "relate" extends keyof Likess ? true : false>();
+    assertType<true, "relateMany" extends keyof Likess ? true : false>();
+    assertType<true, "unrelate" extends keyof Likess ? true : false>();
+    assertType<false, "relate" extends keyof Users ? true : false>();
+    assertType<true, Likess extends ModelDelegate<L> ? true : false>();
+  });
+
+  it("the delegate exposes the write surface", () => {
+    assertType<true, "create" extends keyof Users ? true : false>();
+    assertType<true, "createMany" extends keyof Users ? true : false>();
+    assertType<true, "insert" extends keyof Users ? true : false>();
+    assertType<true, "insertMany" extends keyof Users ? true : false>();
+    assertType<true, "update" extends keyof Users ? true : false>();
+    assertType<true, "patch" extends keyof Users ? true : false>();
+    assertType<true, "upsert" extends keyof Users ? true : false>();
+    assertType<true, "upsertDelta" extends keyof Users ? true : false>();
+    assertType<true, "delete" extends keyof Users ? true : false>();
+    assertType<true, "updateEach" extends keyof Users ? true : false>();
+  });
+});

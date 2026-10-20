@@ -12,8 +12,8 @@ const root = resolve(import.meta.dir, "../..");
 const fragments = process.env.COVERAGE_DIR ?? join(root, ".coverage");
 const filter = process.argv[2];
 const roots = [
-  join(root, "drivers/surrealdb/src"),
-  join(root, "packages/core/src"),
+  join(root, "packages/better-schemic/src/surreal"),
+  join(root, "packages/better-schemic/src/core"),
 ];
 
 const map = mergeFragments(fragments);

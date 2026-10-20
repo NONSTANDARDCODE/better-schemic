@@ -1,22 +1,25 @@
 #!/usr/bin/env bun
 import { join } from "node:path";
 /**
- * Lockstep release for all @better-schemic packages.
+ * Lockstep release for the better-schemic packages.
  *
  *   bun scripts/release.ts <version|next> [--dry-run]
  *
- * `next` auto-bumps the trailing prerelease number from core's current version (0.1.0-alpha.10 ->
+ * `next` auto-bumps the trailing prerelease number from the current version (0.1.0-alpha.10 ->
  * 0.1.0-alpha.11), skipping versions already published to npm — the continuous-deployment path
  * (see scripts/land.ts / AGENTS.md).
+ *
+ * TWO published packages:
+ *  - `better-schemic` — the runtime (authoring surface + engine + CLI);
+ *  - `create-better-schemic` — the scaffolder. It has NO dependency on `better-schemic` (it only
+ *    scaffolds the version string), so it is published last and bumped in lockstep — a fresh project
+ *    always gets a matching pair.
  *
  * Encapsulates the publish gotchas we have hit (see memory: publish-pin-gotcha):
  *  - `next` skips versions already on npm — the local manifests can lag the registry (a release cut
  *    from another checkout), and npm refuses to republish a version.
- *  - `bun publish` rewrites each dependent's `@better-schemic/core: workspace:*` using bun.lock, and a bare
- *    version bump does NOT refresh that recorded version. So we REBUILD the lockfile (rm + install).
- *  - We then PACK-VERIFY every dependent actually pins core@<version> BEFORE publishing anything (a
- *    wrong pin can't be fixed without burning the version).
- *  - core is published FIRST, since the dependents pin it.
+ *  - `bun publish` rewrites `workspace:*` deps using bun.lock, and a bare version bump does NOT
+ *    refresh that recorded version. So we REBUILD the lockfile (rm + install).
  *
  * Auth: an npm Automation token in ~/.npmrc (the account is 2FA auth-and-writes, so a normal publish
  * token would prompt for an OTP and hang). `npm` itself is broken under WSL — we use `bun publish`.
@@ -33,23 +36,9 @@ if (!versionArg || versionArg.startsWith("-")) {
 const ROOT = join(import.meta.dir, "..");
 // core first (dependents pin it); create-better-schemic last — it has NO @better-schemic deps (it scaffolds version
 // strings), so it isn't pin-verified, just bumped + published lockstep so it scaffolds matching versions.
-const ORDER = [
-  "core",
-  "cli",
-  "surrealdb",
-  "create-better-schemic",
-  "better-schemic",
-];
-const DEPENDENTS = ["cli", "surrealdb"];
-// driver packages live in drivers/, everything else in packages/
-const DRIVERS = new Set(["surrealdb"]);
-const pkgDir = (p: string) =>
-  join(ROOT, DRIVERS.has(p) ? "drivers" : "packages", p);
-// Display name: scoped packages vs the two unscoped aliases.
-const displayName = (p: string) =>
-  p === "better-schemic" || p === "create-better-schemic"
-    ? p
-    : `@better-schemic/${p}`;
+const ORDER = ["better-schemic", "create-better-schemic"];
+const pkgDir = (p: string) => join(ROOT, "packages", p);
+const displayName = (p: string) => p;
 
 // `next` -> bump the trailing .N of core's current version (0.1.0-alpha.10 -> 0.1.0-alpha.11),
 // skipping any candidate already published to npm (local manifests can lag the registry, and a
@@ -82,9 +71,9 @@ async function publishedVersions(name: string): Promise<Set<string>> {
 async function resolveVersion(arg: string): Promise<string> {
   if (arg !== "next") return arg;
   const cur = JSON.parse(
-    await Bun.file(join(pkgDir("core"), "package.json")).text(),
+    await Bun.file(join(pkgDir("better-schemic"), "package.json")).text(),
   ).version as string;
-  const published = await publishedVersions("@better-schemic/core");
+  const published = await publishedVersions("better-schemic");
   let next = bump(cur);
   while (published.has(next)) {
     console.log(`skipping ${next} — already published on npm`);
@@ -137,37 +126,37 @@ console.log("rebuilding lockfile...");
 await $`rm -f ${join(ROOT, "bun.lock")}`;
 await $`bun install`.cwd(ROOT).quiet();
 
-// 3. pack-verify each dependent pins core@<version> BEFORE publishing anything
-for (const p of DEPENDENTS) {
-  const tgz = `better-schemic-${p}-${version}.tgz`;
+// 3. pack-verify both packages carry the new version BEFORE publishing anything (a wrong version
+// can't be fixed without burning the version).
+for (const p of ORDER) {
+  // `bun pm pack` names the tarball after the package: `<name>-<version>.tgz`.
+  const tgz = `${p}-${version}.tgz`;
   await $`bun pm pack`.cwd(pkgDir(p)).quiet();
   const manifest = JSON.parse(
     await $`tar -xzf ${tgz} -O package/package.json`.cwd(pkgDir(p)).text(),
   );
   await $`rm -f ${tgz}`.cwd(pkgDir(p));
-  const pin = manifest.dependencies?.["@better-schemic/core"];
-  if (pin !== version) {
+  if (manifest.version !== version) {
     await abort(
-      `ABORT: @better-schemic/${p} pins core@${pin}, expected ${version} — lockfile not refreshed.`,
+      `ABORT: ${p} packs version ${manifest.version}, expected ${version}.`,
     );
   }
-  console.log(`verified @better-schemic/${p} -> core@${pin}`);
+  console.log(`verified ${p}@${manifest.version}`);
 }
 
 if (dryRun) {
   await restore(before);
   console.log(
-    `dry-run: ${version} verified (dependents pin core correctly); ` +
-      "package.json + bun.lock restored, nothing published.",
+    `dry-run: ${version} verified; package.json + bun.lock restored, nothing published.`,
   );
   process.exit(0);
 }
 
-// 4. publish core first, then the dependents (prepack builds each)
+// 4. publish the runtime first, then the scaffolder (prepack builds each)
 for (const p of ORDER) {
   console.log(`publishing ${displayName(p)}@${version}...`);
   await $`bun publish`.cwd(pkgDir(p));
 }
 console.log(
-  `\nReleased @better-schemic/* ${version}. Verify: bun pm view @better-schemic/cli version`,
+  `\nReleased better-schemic + create-better-schemic ${version}. Verify: bun pm view better-schemic version`,
 );

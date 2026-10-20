@@ -2,104 +2,104 @@
   "$comment": "Mutation-gate knobs read by scripts/mutation/bun-runner.ts (at the sandbox root) and scripts/mutation/ratchet.ts (at the repo root). `floors` is the ratchet: a green run can never regress. Record the current score with `bun run test:mutation:update`.",
   "bunfig": "scripts/mutation/bunfig.mutation.toml",
   "testFiles": [
-    "drivers/surrealdb/test/unit",
-    "packages/core/test/unit"
+    "packages/better-schemic/test/surreal/unit",
+    "packages/better-schemic/test/core/unit"
   ],
   "testFilesByFile": {
-    "drivers/surrealdb/src/orm/compiler/shared.ts": [
-      "drivers/surrealdb/test/unit/orm-shared.test.ts",
-      "drivers/surrealdb/test/unit/orm-where.test.ts",
-      "drivers/surrealdb/test/unit/orm-write-shared.test.ts",
-      "drivers/surrealdb/test/unit/orm-pagination.test.ts",
-      "drivers/surrealdb/test/unit/orm-cursor.test.ts",
-      "drivers/surrealdb/test/property/compilers.pbt.test.ts"
+    "packages/better-schemic/src/surreal/orm/compiler/shared.ts": [
+      "packages/better-schemic/test/surreal/unit/orm-shared.test.ts",
+      "packages/better-schemic/test/surreal/unit/orm-where.test.ts",
+      "packages/better-schemic/test/surreal/unit/orm-write-shared.test.ts",
+      "packages/better-schemic/test/surreal/unit/orm-pagination.test.ts",
+      "packages/better-schemic/test/surreal/unit/orm-cursor.test.ts",
+      "packages/better-schemic/test/surreal/property/compilers.pbt.test.ts"
     ],
-    "drivers/surrealdb/src/orm/compiler/where.ts": [
-      "drivers/surrealdb/test/unit/orm-where.test.ts",
-      "drivers/surrealdb/test/property/compilers.pbt.test.ts"
+    "packages/better-schemic/src/surreal/orm/compiler/where.ts": [
+      "packages/better-schemic/test/surreal/unit/orm-where.test.ts",
+      "packages/better-schemic/test/surreal/property/compilers.pbt.test.ts"
     ],
-    "drivers/surrealdb/src/orm/compiler/select.ts": [
-      "drivers/surrealdb/test/unit/orm-reads.test.ts",
-      "drivers/surrealdb/test/unit/orm-decode.test.ts",
-      "drivers/surrealdb/test/unit/orm-aggregate-guards.test.ts"
+    "packages/better-schemic/src/surreal/orm/compiler/select.ts": [
+      "packages/better-schemic/test/surreal/unit/orm-reads.test.ts",
+      "packages/better-schemic/test/surreal/unit/orm-decode.test.ts",
+      "packages/better-schemic/test/surreal/unit/orm-aggregate-guards.test.ts"
     ],
-    "drivers/surrealdb/src/orm/compiler/projection.ts": [
-      "drivers/surrealdb/test/unit/orm-projection-compiler.test.ts",
-      "drivers/surrealdb/test/unit/orm-reads.test.ts",
-      "drivers/surrealdb/test/unit/orm-writes-projection.test.ts",
-      "drivers/surrealdb/test/unit/orm-cursor.test.ts"
+    "packages/better-schemic/src/surreal/orm/compiler/projection.ts": [
+      "packages/better-schemic/test/surreal/unit/orm-projection-compiler.test.ts",
+      "packages/better-schemic/test/surreal/unit/orm-reads.test.ts",
+      "packages/better-schemic/test/surreal/unit/orm-writes-projection.test.ts",
+      "packages/better-schemic/test/surreal/unit/orm-cursor.test.ts"
     ],
-    "drivers/surrealdb/src/orm/compiler/aggregate.ts": [
-      "drivers/surrealdb/test/unit/orm-aggregate-compiler.test.ts",
-      "drivers/surrealdb/test/unit/orm-reads.test.ts"
+    "packages/better-schemic/src/surreal/orm/compiler/aggregate.ts": [
+      "packages/better-schemic/test/surreal/unit/orm-aggregate-compiler.test.ts",
+      "packages/better-schemic/test/surreal/unit/orm-reads.test.ts"
     ],
-    "drivers/surrealdb/src/orm/compiler/pagination.ts": [
-      "drivers/surrealdb/test/unit/orm-pagination.test.ts",
-      "drivers/surrealdb/test/unit/orm-cursor.test.ts"
+    "packages/better-schemic/src/surreal/orm/compiler/pagination.ts": [
+      "packages/better-schemic/test/surreal/unit/orm-pagination.test.ts",
+      "packages/better-schemic/test/surreal/unit/orm-cursor.test.ts"
     ],
-    "drivers/surrealdb/src/orm/compiler/unique.ts": [
-      "drivers/surrealdb/test/unit/orm-reads.test.ts",
-      "drivers/surrealdb/test/unit/orm-writes.test.ts"
+    "packages/better-schemic/src/surreal/orm/compiler/unique.ts": [
+      "packages/better-schemic/test/surreal/unit/orm-reads.test.ts",
+      "packages/better-schemic/test/surreal/unit/orm-writes.test.ts"
     ],
-    "drivers/surrealdb/src/orm/compiler/relations.ts": [
-      "drivers/surrealdb/test/unit/orm-relations-compiler.test.ts"
+    "packages/better-schemic/src/surreal/orm/compiler/relations.ts": [
+      "packages/better-schemic/test/surreal/unit/orm-relations-compiler.test.ts"
     ],
-    "drivers/surrealdb/src/orm/compiler/include/count.ts": [
-      "drivers/surrealdb/test/unit/orm-include.test.ts",
-      "drivers/surrealdb/test/unit/orm-include-links.test.ts"
+    "packages/better-schemic/src/surreal/orm/compiler/include/count.ts": [
+      "packages/better-schemic/test/surreal/unit/orm-include.test.ts",
+      "packages/better-schemic/test/surreal/unit/orm-include-links.test.ts"
     ],
-    "drivers/surrealdb/src/orm/compiler/include/edges.ts": [
-      "drivers/surrealdb/test/unit/orm-include.test.ts",
-      "drivers/surrealdb/test/unit/orm-include-links.test.ts"
+    "packages/better-schemic/src/surreal/orm/compiler/include/edges.ts": [
+      "packages/better-schemic/test/surreal/unit/orm-include.test.ts",
+      "packages/better-schemic/test/surreal/unit/orm-include-links.test.ts"
     ],
-    "drivers/surrealdb/src/orm/compiler/include/index.ts": [
-      "drivers/surrealdb/test/unit/orm-include.test.ts",
-      "drivers/surrealdb/test/unit/orm-include-links.test.ts"
+    "packages/better-schemic/src/surreal/orm/compiler/include/index.ts": [
+      "packages/better-schemic/test/surreal/unit/orm-include.test.ts",
+      "packages/better-schemic/test/surreal/unit/orm-include-links.test.ts"
     ],
-    "drivers/surrealdb/src/orm/compiler/include/links.ts": [
-      "drivers/surrealdb/test/unit/orm-include.test.ts",
-      "drivers/surrealdb/test/unit/orm-include-links.test.ts"
+    "packages/better-schemic/src/surreal/orm/compiler/include/links.ts": [
+      "packages/better-schemic/test/surreal/unit/orm-include.test.ts",
+      "packages/better-schemic/test/surreal/unit/orm-include-links.test.ts"
     ],
-    "drivers/surrealdb/src/orm/compiler/include/projection.ts": [
-      "drivers/surrealdb/test/unit/orm-include.test.ts",
-      "drivers/surrealdb/test/unit/orm-include-links.test.ts"
+    "packages/better-schemic/src/surreal/orm/compiler/include/projection.ts": [
+      "packages/better-schemic/test/surreal/unit/orm-include.test.ts",
+      "packages/better-schemic/test/surreal/unit/orm-include-links.test.ts"
     ],
-    "drivers/surrealdb/src/orm/compiler/include/specs.ts": [
-      "drivers/surrealdb/test/unit/orm-include.test.ts",
-      "drivers/surrealdb/test/unit/orm-include-links.test.ts"
+    "packages/better-schemic/src/surreal/orm/compiler/include/specs.ts": [
+      "packages/better-schemic/test/surreal/unit/orm-include.test.ts",
+      "packages/better-schemic/test/surreal/unit/orm-include-links.test.ts"
     ],
-    "drivers/surrealdb/src/surql-type-expr.ts": [
-      "drivers/surrealdb/test/unit/surql-type.test.ts",
-      "drivers/surrealdb/test/property/compilers.pbt.test.ts"
+    "packages/better-schemic/src/surreal/surql-type-expr.ts": [
+      "packages/better-schemic/test/surreal/unit/surql-type.test.ts",
+      "packages/better-schemic/test/surreal/property/compilers.pbt.test.ts"
     ],
-    "drivers/surrealdb/src/driver/surql-type.ts": [
-      "drivers/surrealdb/test/unit/surql-type.test.ts",
-      "drivers/surrealdb/test/property/compilers.pbt.test.ts"
+    "packages/better-schemic/src/surreal/driver/surql-type.ts": [
+      "packages/better-schemic/test/surreal/unit/surql-type.test.ts",
+      "packages/better-schemic/test/surreal/property/compilers.pbt.test.ts"
     ],
-    "packages/core/src/cli-kit/filter.ts": [
-      "packages/core/test/unit/filter.test.ts",
-      "packages/core/test/unit/mcdc-decisions.test.ts",
-      "packages/core/test/property/filter.pbt.test.ts"
+    "packages/better-schemic/src/core/cli-kit/filter.ts": [
+      "packages/better-schemic/test/core/unit/filter.test.ts",
+      "packages/better-schemic/test/core/unit/mcdc-decisions.test.ts",
+      "packages/better-schemic/test/core/property/filter.pbt.test.ts"
     ]
   },
   "tolerance": 0,
   "floors": {
-    "drivers/surrealdb/src/driver/surql-type.ts": 71.96,
-    "drivers/surrealdb/src/orm/compiler/aggregate.ts": 43.87,
-    "drivers/surrealdb/src/orm/compiler/include/count.ts": 72.3,
-    "drivers/surrealdb/src/orm/compiler/include/edges.ts": 78.12,
-    "drivers/surrealdb/src/orm/compiler/include/index.ts": 80.64,
-    "drivers/surrealdb/src/orm/compiler/include/links.ts": 74.23,
-    "drivers/surrealdb/src/orm/compiler/include/projection.ts": 78.91,
-    "drivers/surrealdb/src/orm/compiler/include/specs.ts": 66.66,
-    "drivers/surrealdb/src/orm/compiler/pagination.ts": 71.37,
-    "drivers/surrealdb/src/orm/compiler/projection.ts": 66.8,
-    "drivers/surrealdb/src/orm/compiler/relations.ts": 76.92,
-    "drivers/surrealdb/src/orm/compiler/select.ts": 57.56,
-    "drivers/surrealdb/src/orm/compiler/shared.ts": 70.68,
-    "drivers/surrealdb/src/orm/compiler/unique.ts": 66.66,
-    "drivers/surrealdb/src/orm/compiler/where.ts": 49.93,
-    "drivers/surrealdb/src/surql-type-expr.ts": 72.22,
-    "packages/core/src/cli-kit/filter.ts": 63.2
+    "packages/better-schemic/src/surreal/driver/surql-type.ts": 71.96,
+    "packages/better-schemic/src/surreal/orm/compiler/aggregate.ts": 43.87,
+    "packages/better-schemic/src/surreal/orm/compiler/include/count.ts": 72.3,
+    "packages/better-schemic/src/surreal/orm/compiler/include/edges.ts": 78.12,
+    "packages/better-schemic/src/surreal/orm/compiler/include/index.ts": 80.64,
+    "packages/better-schemic/src/surreal/orm/compiler/include/links.ts": 74.23,
+    "packages/better-schemic/src/surreal/orm/compiler/include/projection.ts": 78.91,
+    "packages/better-schemic/src/surreal/orm/compiler/include/specs.ts": 66.66,
+    "packages/better-schemic/src/surreal/orm/compiler/pagination.ts": 71.37,
+    "packages/better-schemic/src/surreal/orm/compiler/projection.ts": 66.8,
+    "packages/better-schemic/src/surreal/orm/compiler/relations.ts": 76.92,
+    "packages/better-schemic/src/surreal/orm/compiler/select.ts": 57.56,
+    "packages/better-schemic/src/surreal/orm/compiler/shared.ts": 70.68,
+    "packages/better-schemic/src/surreal/orm/compiler/unique.ts": 66.66,
+    "packages/better-schemic/src/surreal/orm/compiler/where.ts": 49.93,
+    "packages/better-schemic/src/surreal/surql-type-expr.ts": 72.22,
+    "packages/better-schemic/src/core/cli-kit/filter.ts": 63.2
   }
 }

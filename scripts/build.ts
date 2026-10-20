@@ -13,7 +13,7 @@
  * `bun run ../../scripts/build.ts` from its own root.
  */
 import { rm } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import { resolveTsgo } from "./tsgo";
 
@@ -28,6 +28,13 @@ export interface PackageBuild {
   sourcemap?: boolean;
   /** Prepend `#!/usr/bin/env node` to each emitted JS entry (bins). Default: false. */
   shebang?: boolean;
+  /**
+   * The entries that get the shebang, when the package mixes bins and libraries (e.g. the CLI entry
+   * of a package that also ships library entries). Paths are SOURCE entries (as in `entry`).
+   * Ignored when `shebang` is false; when `shebang` is true and this is set, ONLY these entries
+   * get it.
+   */
+  shebangEntries?: string[];
 }
 
 export function defineBuild(config: PackageBuild): PackageBuild {
@@ -76,9 +83,26 @@ async function main(): Promise<void> {
   }
 
   if (config.shebang) {
+    // The entry's OUTPUT path mirrors its source path under `lib/` — so a `shebangEntries` source
+    // maps to the output that Bun wrote for it.
+    const shebangOutputs = config.shebangEntries
+      ? new Set(
+          config.shebangEntries.map((entry) =>
+            // the source entry mirrors under `lib/` with a `.js` extension
+            join(
+              outDir,
+              relative(join(pkgDir, "src"), join(pkgDir, entry)).replace(
+                /\.ts$/,
+                ".js",
+              ),
+            ),
+          ),
+        )
+      : null;
     for (const output of result.outputs) {
       if (output.kind !== "entry-point" || !output.path.endsWith(".js"))
         continue;
+      if (shebangOutputs && !shebangOutputs.has(output.path)) continue;
       const source = await output.text();
       // Bun.build has no `banner` in every Bun version we support — own the shebang instead.
       if (!source.startsWith("#!"))

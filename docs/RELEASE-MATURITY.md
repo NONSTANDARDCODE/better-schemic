@@ -25,9 +25,9 @@ Graduate when you'd be embarrassed to make another breaking change.
       (the write-model array-default flip was the last big one — hold this line now).
 - [ ] **Driver contract stable** — it stops churning.
 - [ ] **CLI surface settled** — commands + flags; no renames/removals expected.
-- [ ] **Core loop round-trips** for the flagship driver: author → emit DDL → diff → migrate →
+- [ ] **Core loop round-trips** for SurrealDB: author → emit DDL → diff → migrate →
       introspect/pull, drift-free.
-- [ ] **COVERAGE.md not gap-riddled** for common syntax on each active driver.
+- [ ] **COVERAGE.md not gap-riddled** for common SurrealDB syntax.
 - [ ] **Migration safety exists** — destructive-op guards + a shadow/dry-run verify. Entry ticket to
       beta for a schema tool, not a stable-only luxury.
 - [ ] **Dogfooding without walls** — the dogfood projects run without constantly hitting missing pieces.
@@ -39,7 +39,7 @@ Mostly a hardening road, not a build road.
 - [ ] **Migration engine proven on production-shaped schemas** — no corruption; destructive guards +
       rollback exercised for real. *This is the dominant risk* — everything else is secondary to
       "will it ever lose my data."
-- [ ] **Coverage substantially complete** per driver (author → emit → introspect → diff across the DB's
+- [ ] **Coverage substantially complete** (author → emit → introspect → diff across SurrealDB's
       real surface, not the happy path).
 - [ ] **External adoption + a soak period** — beta baked long enough with users who aren't us (beyond
       the dogfood repo) that the sharp edges surfaced and got filed.
