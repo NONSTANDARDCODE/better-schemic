@@ -11,6 +11,10 @@
     "directory": "packages/better-schemic"
   },
   "type": "module",
+  "bin": {
+    "better-schemic": "lib/cli/index.js",
+    "sc": "lib/cli/index.js"
+  },
   "sideEffects": [
     "./src/driver.ts",
     "./src/surreal/driver.ts",
