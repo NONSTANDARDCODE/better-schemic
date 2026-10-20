@@ -39,6 +39,13 @@ if (!branch) {
 const ROOT = join(import.meta.dir, "..");
 const remote = opt("--remote", "origin");
 const main = `${remote}/main`;
+/**
+ * The GATE runs the MERGED version of this script — the tree it tests (the package list, the
+ * scripts it calls) comes from the merge, so the pre-merge copy would test packages that no longer
+ * exist. After the merge we RE-EXEC ourselves with this flag set: the fresh copy on disk is the
+ * merged one, and it only runs the gate + the push.
+ */
+const GATE_PHASE = process.env.BS_LAND_GATE === "1";
 
 const git = (...a: string[]) =>
   execFileSync("git", a, { cwd: ROOT, encoding: "utf8" }).trim();
@@ -51,24 +58,27 @@ const die = (msg: string): never => {
 };
 
 // --- preflight: a clean main checkout ----------------------------------------------------------
-if (git("rev-parse", "--abbrev-ref", "HEAD") !== "main")
-  die("the main checkout must be on `main` (this script integrates into it).");
-// tracked changes block the merge; untracked scratch files are fine.
-if (
-  git("status", "--porcelain")
-    .split("\n")
-    .some((l) => l && !l.startsWith("??"))
-)
-  die("main has uncommitted tracked changes — commit or stash them first.");
+// (the gate phase re-execs AFTER the merge, so the preflight runs only in the first phase)
+if (!GATE_PHASE) {
+  if (git("rev-parse", "--abbrev-ref", "HEAD") !== "main")
+    die("the main checkout must be on `main` (this script integrates into it).");
+  // tracked changes block the merge; untracked scratch files are fine.
+  if (
+    git("status", "--porcelain")
+      .split("\n")
+      .some((l) => l && !l.startsWith("??"))
+  )
+    die("main has uncommitted tracked changes — commit or stash them first.");
 
-git("fetch", remote, "-q");
+  git("fetch", remote, "-q");
 
-// Bring local main up to origin/main (fast-forward only).
-const behind = Number(git("rev-list", "--count", `HEAD..${main}`));
-if (behind) {
-  if (Number(git("rev-list", "--count", `${main}..HEAD`)))
-    die(`local main has diverged from ${main} — reconcile manually.`);
-  gitIO("merge", "--ff-only", main);
+  // Bring local main up to origin/main (fast-forward only).
+  const behind = Number(git("rev-list", "--count", `HEAD..${main}`));
+  if (behind) {
+    if (Number(git("rev-list", "--count", `${main}..HEAD`)))
+      die(`local main has diverged from ${main} — reconcile manually.`);
+    gitIO("merge", "--ff-only", main);
+  }
 }
 
 // --- locate + rebase the branch --------------------------------------------------------------
@@ -93,7 +103,7 @@ const isFF = (() => {
   }
 })();
 
-if (!isFF) {
+if (!isFF && !GATE_PHASE) {
   if (!wt) die(`${branch} is behind ${main} and has no worktree to rebase in.`);
   console.log(`rebasing ${branch} onto ${main}...`);
   try {
@@ -107,12 +117,23 @@ if (!isFF) {
   }
 }
 
-const ahead = Number(git("rev-list", "--count", `HEAD..${branch}`));
-if (ahead === 0) die(`${branch} has no commits beyond main — nothing to land.`);
+if (!GATE_PHASE) {
+  const ahead = Number(git("rev-list", "--count", `HEAD..${branch}`));
+  if (ahead === 0) die(`${branch} has no commits beyond main — nothing to land.`);
 
-// --- ff-merge into main locally (not pushed) -------------------------------------------------
-console.log(`merging ${branch} -> main (${ahead} commit(s))...`);
-gitIO("merge", "--ff-only", branch);
+  // --- ff-merge into main locally (not pushed) -----------------------------------------------
+  console.log(`merging ${branch} -> main (${ahead} commit(s))...`);
+  gitIO("merge", "--ff-only", branch);
+  // RE-EXEC for the gate: the copy on disk is now the MERGED script, so the gate tests the tree we
+  // just merged (the pre-merge copy would test packages that no longer exist).
+  const reexec = Bun.spawnSync({
+    cmd: [process.execPath, join(ROOT, "scripts/land.ts"), ...process.argv.slice(2)],
+    env: { ...process.env, BS_LAND_GATE: "1" },
+    cwd: ROOT,
+    stdio: "inherit",
+  });
+  process.exit(reexec.exitCode ?? 1);
+}
 
 // --- gate: never ship red --------------------------------------------------------------------
 if (!flag("--no-test")) {
