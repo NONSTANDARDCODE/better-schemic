@@ -34,13 +34,14 @@ if (!versionArg || versionArg.startsWith("-")) {
 }
 
 const ROOT = join(import.meta.dir, "..");
-// core first (dependents pin it); create-better-schemic last — it has NO @better-schemic deps (it scaffolds version
-// strings), so it isn't pin-verified, just bumped + published lockstep so it scaffolds matching versions.
+// The runtime package first; the scaffolder last — it has NO dependency on `better-schemic` (it only
+// scaffolds the version string), so it is bumped in lockstep and published last: a fresh project always
+// gets a matching pair.
 const ORDER = ["better-schemic", "create-better-schemic"];
 const pkgDir = (p: string) => join(ROOT, "packages", p);
 const displayName = (p: string) => p;
 
-// `next` -> bump the trailing .N of core's current version (0.1.0-alpha.10 -> 0.1.0-alpha.11),
+// `next` -> bump the trailing .N of the current version (0.1.0-alpha.10 -> 0.1.0-alpha.11),
 // skipping any candidate already published to npm (local manifests can lag the registry, and a
 // republish is impossible).
 function bump(v: string): string {
