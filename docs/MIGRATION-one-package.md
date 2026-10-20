@@ -45,7 +45,7 @@ import { z } from "better-schemic"; // the SAME zod instance the package uses
 | `@better-schemic/surrealdb/orm` | `better-schemic/orm` |
 | `@better-schemic/surrealdb/plugins/*` | `better-schemic/plugins/*` |
 | `@better-schemic/surrealdb/driver` | `better-schemic/driver` |
-| `@better-schemic/core/config` | `better-schemic/config` |
+| `@better-schemic/core/config` | `better-schemic/config` (now also exports `surrealConnection`) |
 | `@better-schemic/core/authoring` | `better-schemic/authoring` |
 | `@better-schemic/core/testing` | `better-schemic/testing` |
 | `@better-schemic/core/driver` | `better-schemic/core/driver` |

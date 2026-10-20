@@ -64,6 +64,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 ### Added
 - **`better-schemic` reexporta o Zod** (`import { z } from "better-schemic"`) — a mesma instância
   que o `s.*` usa.
+- **`better-schemic/config` exporta também o `surrealConnection`** — o arquivo de config do projeto
+  passa a precisar de UM import (`import { defineConfig, surrealConnection } from
+  "better-schemic/config"`), como no scaffold.
 - **teste de pureza de bundle:** o entry de autoria (`better-schemic`) segue **side-effect-free** —
   importar `s.*` não puxa o emit/diff nem o CLI para o bundle do app (garantido por metafile).
 - **guia de migração:** [`docs/MIGRATION-one-package.md`](./docs/MIGRATION-one-package.md).

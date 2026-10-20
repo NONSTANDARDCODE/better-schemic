@@ -24,8 +24,7 @@ purpose-based subpaths (`/connection`, `/config`, `/orm`, `/query`, `/plugins/*`
 The one piece a project legitimately imports from the engine side is the config helper:
 
 ```ts
-import { defineConfig } from "better-schemic/config";
-import { surrealConnection } from "better-schemic/connection";
+import { defineConfig, surrealConnection } from "better-schemic/config";
 ```
 
 Both live in the same package as everything else — no extra install, no pnpm strict-`node_modules`

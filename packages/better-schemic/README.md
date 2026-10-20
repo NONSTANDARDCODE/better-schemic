@@ -28,7 +28,7 @@ replay into — `npm i -D @surrealdb/node`).
 | --- | --- |
 | `better-schemic` | the authoring surface — `s.*`, `define*`, the `surql` tag (side-effect-free) |
 | `better-schemic/connection` | `surrealConnection` — the config factory |
-| `better-schemic/config` | `defineConfig` — the project config |
+| `better-schemic/config` | `defineConfig` + `surrealConnection` — the project config |
 | `better-schemic/orm` | the repository-style ORM client |
 | `better-schemic/query` | fragments & procedural SurrealQL |
 | `better-schemic/plugins/*` | the authoring plugins |
@@ -93,8 +93,7 @@ The connection lives in `better-schemic.config.ts` — a named connection from t
 `surrealConnection` factory (no `driver:` string to keep in sync):
 
 ```ts
-import { defineConfig } from "better-schemic/config";
-import { surrealConnection } from "better-schemic/connection";
+import { defineConfig, surrealConnection } from "better-schemic/config";
 
 export default defineConfig({
   connections: {

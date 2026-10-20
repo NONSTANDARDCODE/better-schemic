@@ -273,8 +273,7 @@ nothing else to install (and no second copy of Zod to break `s.*`).
 
 ```ts
 // better-schemic.config.ts
-import { defineConfig } from "better-schemic/config";
-import { surrealConnection } from "better-schemic/connection";
+import { defineConfig, surrealConnection } from "better-schemic/config";
 
 export default defineConfig({
   connections: {

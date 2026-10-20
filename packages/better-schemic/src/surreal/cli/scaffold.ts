@@ -2,8 +2,7 @@
 // surrealConnection factory, a sample s.* schema, a seed stub, and a .env.example. The CLI calls
 // surrealDriver.initScaffold() and writes these verbatim, then records the neutral snapshot.
 
-const CONFIG = `import { defineConfig } from "better-schemic/config";
-import { surrealConnection } from "better-schemic/connection";
+const CONFIG = `import { defineConfig, surrealConnection } from "better-schemic/config";
 
 // Connections-only config: each named connection comes from a driver's \`<driver>Connection(...)\`
 // factory, so there's no \`driver: "…"\` string to keep in sync. Values are explicit — read env here

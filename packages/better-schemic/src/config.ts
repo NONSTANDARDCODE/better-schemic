@@ -1,14 +1,23 @@
 /**
- * `better-schemic/config` — `defineConfig`, the project config entry point. A project declares
- * its named CONNECTIONS, each built by the `surrealConnection` factory:
+ * `better-schemic/config` — the project config: `defineConfig` + the `surrealConnection` factory.
  *
  * ```ts
- * import { defineConfig } from "./core/config";
- * import { surrealConnection } from "./surreal/connection";
+ * import { defineConfig, surrealConnection } from "better-schemic/config";
  *
  * export const betterSchemic = defineConfig({
- *   connections: { default: surrealConnection({ schema: "./database/schema", url: "ws://localhost:8000" }) },
+ *   connections: {
+ *     default: surrealConnection({
+ *       schema: "./database/schema",
+ *       url: process.env.SURREAL_URL ?? "ws://127.0.0.1:8000/rpc",
+ *       namespace: "app",
+ *       database: "app",
+ *     }),
+ *   },
  * });
  * ```
+ *
+ * `defineConfig` is the neutral engine's helper (it accepts any connection entry); `surrealConnection`
+ * is the SurrealDB factory it pairs with. Both live here so a config file needs ONE import.
  */
 export * from "./core/config";
+export * from "./surreal/connection";
