@@ -126,16 +126,13 @@ if (!GATE_PHASE) {
   gitIO("merge", "--ff-only", branch);
   // RE-EXEC for the gate: the copy on disk is now the MERGED script, so the gate tests the tree we
   // just merged (the pre-merge copy would test packages that no longer exist).
-  console.log(
-    `[debug] re-exec: ${process.execPath} ${join(ROOT, "scripts/land.ts")} ${process.argv.slice(2).join(" ")}`,
-  );
   const reexec = Bun.spawnSync({
     cmd: [process.execPath, join(ROOT, "scripts/land.ts"), ...process.argv.slice(2)],
     env: { ...process.env, BS_LAND_GATE: "1" },
     cwd: ROOT,
-    stdio: "inherit",
+    // Bun.spawnSync wants an ARRAY of streams ("inherit" per fd) — a bare string throws.
+    stdio: ["inherit", "inherit", "inherit"],
   });
-  console.log(`[debug] re-exec exit: ${reexec.exitCode}`);
   process.exit(reexec.exitCode ?? 1);
 }
 
