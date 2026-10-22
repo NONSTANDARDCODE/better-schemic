@@ -18,6 +18,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+### Changed
+- Upgrade the SurrealDB SDK to `^2.1.1` (was pinned at 2.0.3 by a root `overrides`); remove the Renovate `surrealdb` disable rule.
+- Fix the ORM logger's `isStringly`/`isRecordId` to use `instanceof` against the SDK classes instead of fragile `constructor.name`/`"tb"` duck typing (SDK 2.1 renames `RecordId` to `RecordId$1` and drops the `tb` field).
+- Fix `stringIdCodec` in `pure.ts` with an `isRecordIdValue` type guard — `instanceof RecordId` no longer narrows the `string | RecordId` union under SDK 2.1.
+- Update `escapeIdent` / id-part test expectations for the new SDK quoting (reserved words like `value`/`all` now escape as `⟨value⟩`/`⟨all⟩`, ULIDs are emitted angle-bracketed).
+
 ## [0.1.0-alpha.16] - 2026-10-22
 
 ### Changed
@@ -1183,3 +1189,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   (app-vs-driver version drift created dual SDK copies whose nominal `#private` classes are
   incompatible), and `` surql`…`.as<T>() `` replaces the separate `surql.expr` tag (a second tag name
   broke editor syntax highlighting).
+=== CHANGELOG UNRELEASED ===
+
+## Unreleased
+
+- Added: upgrade surrealdb SDK to ^2.1.1; fix logger/pure instance checks; update escapeIdent/idPart expectations; remove Renovate surrealdb disable rule
