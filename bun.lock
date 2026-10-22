@@ -19,7 +19,7 @@
     },
     "packages/better-schemic": {
       "name": "better-schemic",
-      "version": "0.1.0-alpha.15",
+      "version": "0.1.0-alpha.16",
       "bin": {
         "better-schemic": "lib/cli/index.js",
         "sc": "lib/cli/index.js",
@@ -45,7 +45,7 @@
     },
     "packages/create-better-schemic": {
       "name": "create-better-schemic",
-      "version": "0.1.0-alpha.15",
+      "version": "0.1.0-alpha.16",
       "bin": {
         "create-better-schemic": "lib/index.js",
       },

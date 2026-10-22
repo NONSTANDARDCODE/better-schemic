@@ -20,6 +20,9 @@ import { join } from "node:path";
  *    from another checkout), and npm refuses to republish a version.
  *  - `bun publish` rewrites `workspace:*` deps using bun.lock, and a bare version bump does NOT
  *    refresh that recorded version. So we REBUILD the lockfile (rm + install).
+ *  - A prerelease (`0.1.0-alpha.16`) cannot be published implicitly to `latest` anymore — bun aborts
+ *    with "prerelease needs a tag". This repo intentionally keeps prereleases on `latest` (a bare
+ *    `npm i better-schemic` must get the newest alpha), so we pass `--tag latest` EXPLICITLY.
  *
  * Auth: an npm Automation token in ~/.npmrc (the account is 2FA auth-and-writes, so a normal publish
  * token would prompt for an OTP and hang). `npm` itself is broken under WSL — we use `bun publish`.
@@ -153,10 +156,12 @@ if (dryRun) {
   process.exit(0);
 }
 
-// 4. publish the runtime first, then the scaffolder (prepack builds each)
+// 4. publish the runtime first, then the scaffolder (prepack builds each).
+// `--tag latest` is explicit on purpose: bun refuses to infer `latest` for a prerelease, and these
+// packages are alpha-only — the newest alpha must stay the default install (see the header).
 for (const p of ORDER) {
   console.log(`publishing ${displayName(p)}@${version}...`);
-  await $`bun publish`.cwd(pkgDir(p));
+  await $`bun publish --tag latest`.cwd(pkgDir(p));
 }
 console.log(
   `\nReleased better-schemic + create-better-schemic ${version}. Verify: bun pm view better-schemic version`,

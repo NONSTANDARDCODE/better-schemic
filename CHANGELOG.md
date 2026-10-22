@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+## [0.1.0-alpha.16] - 2026-10-22
+
 ### Changed
 - **BREAKING — um único pacote (`better-schemic`).** O monorepo tinha cinco pacotes
   (`@better-schemic/core`, `@better-schemic/cli`, `@better-schemic/surrealdb`, o alias
