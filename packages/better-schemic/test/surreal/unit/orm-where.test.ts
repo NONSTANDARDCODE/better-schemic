@@ -284,7 +284,7 @@ describe("where — paths", () => {
       vars: { p0: "BR" },
     });
     expect(compile({ "contacts[0].value": { contains: "@" } }).sql).toBe(
-      "contacts[0].value CONTAINS $p0",
+      "contacts[0].⟨value⟩ CONTAINS $p0",
     );
   });
 

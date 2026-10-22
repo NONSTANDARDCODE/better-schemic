@@ -175,7 +175,7 @@
     "commander": "^15.0.0",
     "jiti": "^2.7.0",
     "magicast": "^0.5.5",
-    "surrealdb": "^2.0.3",
+    "surrealdb": "^2.1.1",
     "zod": "^4.3.5"
   },
   "peerDependencies": {

@@ -1348,6 +1348,17 @@ function parseIdString(text: string): { table?: string; id: string } {
     : { id: unescapeIdPart(text) };
 }
 
+/**
+ * Narrow a value to a `RecordId` of the field's table/value type. `instanceof RecordId` alone
+ * stopped narrowing the `string | RecordId` union in SDK 2.1 (the exported `RecordId` is a
+ * constructor object, not a class declaration), so the codec uses this predicate instead.
+ */
+function isRecordIdValue<T extends string, V extends RecordIdValue>(
+  value: unknown,
+): value is RecordId<T, V> {
+  return value instanceof RecordId;
+}
+
 /** The bare-string app form of a `RecordId`'s id value (`string`/`number`/`bigint`/`uuid`). */
 export function bareIdValue(id: RecordIdValue): string {
   if (typeof id === "string") return id;
@@ -1430,11 +1441,11 @@ function stringIdCodec<T extends string, V extends RecordIdValue>(
   const app = z.union([z.string(), record]);
   const codec = z.codec(wire, app, {
     decode: (value) =>
-      value instanceof RecordId
+      isRecordIdValue<T, V>(value)
         ? bareIdValue(value.id)
         : parseIdString(value).id,
     encode: (value) => {
-      if (value instanceof RecordId) return value as RecordId<T, V>;
+      if (isRecordIdValue<T, V>(value)) return value;
       const parsed = parseIdString(value);
       if (parsed.table !== undefined && parsed.table !== table)
         throw new Error(

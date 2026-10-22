@@ -490,7 +490,7 @@ describe("aggregate over split — the entry-shape decision table", () => {
       split: "items",
       select: { t: { sum: "anything.at.all" } },
     } as never);
-    expect(calls[0]?.sql).toContain("anything.at.all AS _split_anything_at_all");
+    expect(calls[0]?.sql).toContain("anything.at.⟨all⟩ AS _split_anything_at_⟨all⟩");
   });
 
   test("a schemaless holder still lowers (the where compiles without table meta)", async () => {

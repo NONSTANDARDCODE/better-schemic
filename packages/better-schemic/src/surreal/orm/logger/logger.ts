@@ -11,6 +11,15 @@
  * asks {@link QueryLogger.planStatement} for an `EXPLAIN …` and runs it without a logger (no recursion).
  */
 
+import {
+  BoundQuery,
+  Decimal,
+  Duration,
+  Geometry,
+  RecordId,
+  Table,
+  Uuid,
+} from "surrealdb";
 import type {
   LogFormat,
   LoggerOption,
@@ -308,7 +317,7 @@ function jsonSafe(value: unknown, seen: Set<object> = new Set()): unknown {
   if (value === null || value === undefined) return value;
   if (value instanceof Date) return value.toISOString();
   if (typeof value === "bigint") return String(value);
-  if (isRecordId(value) || isStringly(value)) return String(value);
+  if (isStringly(value)) return String(value);
   if (typeof value !== "object") return value;
   if (seen.has(value)) return "[circular]";
   seen.add(value);
@@ -320,21 +329,16 @@ function jsonSafe(value: unknown, seen: Set<object> = new Set()): unknown {
 
 /** A value that stringifies meaningfully (RecordId, Table, Uuid, Duration, Decimal, Geometry). */
 function isStringly(value: unknown): boolean {
-  if (!value || typeof value !== "object") return false;
-  const name = (value as { constructor?: { name?: string } }).constructor?.name;
   return (
-    name === "RecordId" ||
-    name === "Table" ||
-    name === "Uuid" ||
-    name === "Duration" ||
-    name === "Decimal" ||
-    name === "Geometry" ||
-    name === "BoundQuery"
+    value instanceof RecordId ||
+    value instanceof Table ||
+    value instanceof Uuid ||
+    value instanceof Duration ||
+    value instanceof Decimal ||
+    value instanceof Geometry ||
+    value instanceof BoundQuery
   );
 }
-
-const isRecordId = (value: unknown): boolean =>
-  typeof value === "object" && value !== null && "tb" in value && "id" in value;
 
 /** Colour + truncate one bound value for the pretty/compact formats. */
 function renderValue(value: unknown, palette: Palette, maxLen: number): string {
@@ -364,7 +368,7 @@ function valueText(value: unknown): string {
   if (typeof value === "string") return JSON.stringify(value);
   if (typeof value === "number" || typeof value === "boolean")
     return String(value);
-  if (isRecordId(value) || isStringly(value)) return String(value);
+  if (isStringly(value)) return String(value);
   return JSON.stringify(jsonSafe(value)) ?? String(value);
 }
 

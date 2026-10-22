@@ -585,7 +585,7 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
 
   describe("GENERATED IDS — type::record / INSERT id expression / UPSERT target expression", () => {
     const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
-    const idPart = (id: unknown) => String(id).replace(/^user:/, "");
+    const idPart = (id: unknown) => String(id).replace(/^user:/, "").replaceAll("⟨", "").replaceAll("⟩", "");
 
     test('CREATE ONLY type::record(s"user", rand::ulid()) CONTENT $p generates a ULID', async () => {
       const out = await last(

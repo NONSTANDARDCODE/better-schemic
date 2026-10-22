@@ -825,7 +825,7 @@ describe("rendering edge cases", () => {
               big: 10n,
               fn: () => {},
               tbOnly: { tb: "user" },
-              duck: { tb: "user", id: "x", toString: () => "user:x" },
+              duck: new RecordId("user", "x"),
               table: new FakeTable(),
               duration: new FakeDuration(),
               decimal: new FakeDecimal(),
@@ -846,7 +846,7 @@ describe("rendering edge cases", () => {
     expect(vars.big).toBe("10");
     expect(vars.tbOnly).toEqual({ tb: "user" });
     expect(vars.duck).toBe("user:x");
-    expect(vars.table).toBe("[object Object]");
+    expect(vars.table).toEqual({});
     expect(vars.list).toEqual([1, { deep: true }]);
     const obj = JSON.parse(c.lines[0] as string) as Record<string, unknown>;
     expect(obj.plans).toBeUndefined();
