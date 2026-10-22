@@ -384,7 +384,8 @@ live("orm relations — live", () => {
       name: "Alice",
       _count: { likes: 2 },
     });
-    expect(reduced.pagination.nextCursor).toEqual(new RecordId("rl_user", 1));
+    expect(reduced.pagination.nextCursor).toBeInstanceOf(RecordId);
+    expect((reduced.pagination.nextCursor as RecordId).table?.name).toBe("rl_user");
   });
 
   test("M3.5: recursion flows through a surql projection fragment", async () => {

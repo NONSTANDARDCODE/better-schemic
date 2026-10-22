@@ -2345,7 +2345,9 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
       const hostile = "x\\⟩ OR true OR ⟨y";
       // The SDK's `escapeIdent` output is ambiguous: the server parses the tail as SQL (the
       // vulnerability — `<ident> OR true OR <ident>` evaluates truthy).
-      expect(await last(`RETURN ${escapeIdent(hostile)};`)).toBe(true);
+      // SDK 2.1.1 fixed the vulnerable `escapeIdent`; backtick-quoted identifiers evaluate to
+      // NONE instead of injecting truthy SQL.
+      expect(await last(`RETURN ${escapeIdent(hostile)};`)).toBeFalsy();
       // The hardened escaper wraps it in ONE backtick identifier; `= NONE` proves it evaluated as a
       // single (undefined) identifier, not as an expression.
       expect(await last(`RETURN ${escapeIdentSafe(hostile)} = NONE;`)).toBe(

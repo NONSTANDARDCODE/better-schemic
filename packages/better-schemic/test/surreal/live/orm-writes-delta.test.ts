@@ -76,7 +76,7 @@ live("orm upsertDelta — live", () => {
     expect(created.before).toBeNull();
     expect(created.delta).toBeNull();
     expect(created.changed).toEqual([]);
-    expect(created.record.id).toEqual(new RecordId("dl_account", "1"));
+    expect(created.record.id).toEqual(new RecordId("dl_account", 1));
     expect(created.record.balance).toBeInstanceOf(Decimal);
     expect(
       (created.record.balance as Decimal).equals(new Decimal("10.00")),
