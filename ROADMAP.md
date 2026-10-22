@@ -627,3 +627,6 @@ comprar nada: o driver nunca foi plugável.
 - ✅ **M18.6 docs** — `AGENTS.md`, README raiz, README do pacote, `docs/engine/*` (os docs de
   onboarding de driver viraram históricos) e o guia `docs/MIGRATION-one-package.md` com o mapa
   antigo → novo.
+
+## TODO
+criar modulo de metrics no sistema com otel, fazer lint mais robusto, melhorar sistemas de tipos (otimizar para AoT do bun recem lancado), criar plugin com tipos pre compilados e sem new Function (inpirado em zod-compiler), querys tipadas 100% inferidas apartir de arquivos (nova funcionaalidade de mappers do ts) e de surrealql diretamente inpirado nisso: https://x.com/colinhacks/status/2113145042454134986, por fim tornar estavel o sistema de querys ao vivo, com suporte a rodar com swr no browser e em background pegar as alterações ao vivo, buscando uma DX semelhante ao que a convex entrega
