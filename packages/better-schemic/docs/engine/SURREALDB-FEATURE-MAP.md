@@ -12,7 +12,7 @@
 >
 > Crawl method: Chrome DevTools MCP (real browser) + same-origin `fetch()` for token-efficient
 > structured DOM extraction. Live verification: **SurrealDB 3.1.3** (`surreal sql` CLI), scratch
-> namespace `__sz_map`, dropped on completion. SDK `surrealdb` 2.0.3. Today: 2026-06-09.
+> namespace `__sz_map`, dropped on completion. SDK `surrealdb` 2.1.1.
 >
 > **Branch note (read me):** This map audits the `spike/zod-codecs` schema layer
 > (`packages/better-schemic/src/core/pure.ts` + `src/ddl.ts`, the commit that carries `docs/PARITY.md`). The

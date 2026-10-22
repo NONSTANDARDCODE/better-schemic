@@ -24,7 +24,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 - Fix `stringIdCodec` in `pure.ts` with an `isRecordIdValue` type guard — `instanceof RecordId` no longer narrows the `string | RecordId` union under SDK 2.1.
 - Update `escapeIdent` / id-part test expectations for the new SDK quoting (reserved words like `value`/`all` now escape as `⟨value⟩`/`⟨all⟩`, ULIDs are emitted angle-bracketed).
 
-## [0.1.0-alpha.16] - 2026-10-22
+## [0.1.0-alpha.17] - 2026-10-22
 
 ### Changed
 - **BREAKING — um único pacote (`better-schemic`).** O monorepo tinha cinco pacotes

@@ -4,7 +4,7 @@
 > `defineEvent`/`defineFunction`/`defineAccess`, `emitTable`/`emitStatements`/`emitField`/
 > `emitDefStatement`) against SurrealDB's full feature set and the SurrealQL `DEFINE`
 > language. Source of truth: the official docs (URLs at the bottom). Live verification:
-> **SurrealDB 3.1.3** over `ws://localhost:8000`, JS SDK `surrealdb` 2.0.3, Zod `^4`. Every
+> **SurrealDB 3.1.3** over `ws://localhost:8000`, JS SDK `surrealdb` 2.1.1, Zod `^4`. Every
 > generated statement was applied to a throwaway `__sz_parity` namespace and introspected
 > via `INFO FOR TABLE … STRUCTURE`; that namespace was dropped on completion.
 >
