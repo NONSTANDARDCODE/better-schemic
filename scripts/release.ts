@@ -44,7 +44,7 @@ const ORDER = ["better-schemic", "create-better-schemic"];
 const pkgDir = (p: string) => join(ROOT, "packages", p);
 const displayName = (p: string) => p;
 
-// `next` -> bump the trailing .N of the current version (0.1.0-alpha.10 -> 0.1.0-alpha.11),
+// `next` -> bump the trailing .N of the current version (0.1-beta.1 -> 0.1-beta.2),
 // skipping any candidate already published to npm (local manifests can lag the registry, and a
 // republish is impossible).
 function bump(v: string): string {

@@ -1,6 +1,6 @@
 {
   "name": "better-schemic",
-  "version": "0.1.0-alpha.17",
+  "version": "0.1-beta.1",
   "description": "Better-schemic — schema-as-code for SurrealDB. Author your schema in TypeScript, generate SurrealQL DDL, and manage migrations.",
   "license": "MIT",
   "author": "NONSTANDARDCODE",
