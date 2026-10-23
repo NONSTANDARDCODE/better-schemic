@@ -19,7 +19,7 @@
     "skills-install": "bunx skills experimental_install"
   },
   "dependencies": {
-    "skills": "^1.7.2"
+    "skills": "^1.7.4"
   },
   "devDependencies": {
     "@stryker-mutator/api": "^10.0.0",
