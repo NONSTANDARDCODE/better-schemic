@@ -1,5 +1,6 @@
-import { defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: ".$internal() — DB-managed, client-hidden field (PERMISSIONS NONE)",
@@ -9,4 +10,4 @@ DEFINE FIELD passhash ON TABLE account TYPE string PERMISSIONS NONE;`,
     id: s.string(),
     passhash: s.string().$internal(),
   }),
-});
+})

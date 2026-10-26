@@ -8,24 +8,14 @@
  *   bypasses the codec and is spliced (the server enforces it); literal fields are validated.
  * - Batches (`createMany`) set `transactional: true` and roll back together on failure.
  */
-import { escapeIdentSafe as escapeIdent } from "../../ident";
-import type { ModelMeta } from "../meta";
-import { relateStatement, relateSugar } from "./relate";
+import { escapeIdentSafe as escapeIdent } from "../../ident"
+
+import { relateStatement, relateSugar } from "./relate"
+import { compileError, describeValue, isPlainObject, renderPath, renderValue } from "./shared"
 import {
-  type Binds,
-  compileError,
-  describeValue,
-  isPlainObject,
-  renderPath,
-  renderValue,
-} from "./shared";
-import {
-  type CreateManyRuntimeArgs,
-  type CreateRuntimeArgs,
   compileWriteProjection,
   createTarget,
   encodeData,
-  type InsertRuntimeArgs,
   mutationTail,
   payload,
   readReturn,
@@ -33,10 +23,18 @@ import {
   resultOf,
   selectMode,
   updatableFields,
-  type WritePlan,
-  type WriteRet,
   withGeneratedId,
-} from "./write-shared";
+} from "./write-shared"
+
+import type { Binds } from "./shared"
+import type { ModelMeta } from "../meta"
+import type {
+  CreateManyRuntimeArgs,
+  CreateRuntimeArgs,
+  InsertRuntimeArgs,
+  WritePlan,
+  WriteRet,
+} from "./write-shared"
 
 // --- create --------------------------------------------------------------------------------------
 
@@ -48,26 +46,22 @@ export function compileCreate(
   operation = "create",
   resolveEdge?: (name: string) => ModelMeta | undefined,
 ): WritePlan {
-  const ret = readReturn(
-    args.return,
-    operation,
-    ["after", "before", "diff", "none"],
-    "after",
-  );
-  if (args.data === undefined)
+  const ret = readReturn(args.return, operation, ["after", "before", "diff", "none"], "after")
+  if (args.data === undefined) {
     throw compileError(
       "ValidationError",
       `${operation}: "data" is required — pass the record's fields (DB-filled ones optional).`,
       { operation, table: meta.name },
-    );
-  const encoded = encodeData(meta, args.data, "create", operation);
-  const target = createTarget(meta, args.data, args.only === true, operation);
-  const relate = relateSugar(args.relate, operation, meta, resolveEdge);
-  const proj = compileWriteProjection(meta, args, binds, operation);
-  assertCreateProjectable(proj, ret, operation, meta);
+    )
+  }
+  const encoded = encodeData(meta, args.data, "create", operation),
+    target = createTarget(meta, args.data, args.only === true, operation),
+    relate = relateSugar(args.relate, operation, meta, resolveEdge),
+    proj = compileWriteProjection(meta, args, binds, operation)
+  assertCreateProjectable(proj, ret, operation, meta)
 
   if (relate.length === 0) {
-    const sel = selectMode(proj, ret, operation, meta);
+    const sel = selectMode(proj, ret, operation, meta)
     return {
       statements: [
         `CREATE ${target} CONTENT ${payload(encoded, binds)}${mutationTail(ret, undefined, operation, sel?.mode === "server" ? sel.proj.text : undefined)}`,
@@ -76,30 +70,31 @@ export function compileCreate(
       resultIndexes: [0],
       result: resultOf(ret, "row"),
       ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
-    };
+    }
   }
 
-  if (ret === "diff")
+  if (ret === "diff") {
     throw compileError(
       "ReturnNotSupported",
       `${operation}: RETURN DIFF is not supported with "relate" — the sugar runs several statements. Use after/before/none, or relate separately.`,
       { operation, table: meta.name },
-    );
+    )
+  }
   // The sugar ends with `RETURN $__created` — the server can't project a bound value, so a
-  // projection here is always client-applied.
-  const sel = selectMode(proj, ret, operation, meta, { clientOnly: true });
-  const statements = [
-    `LET $__created = (CREATE ${createTarget(meta, args.data, true, operation)} CONTENT ${payload(encoded, binds)});`,
-    ...relate.map((entry) => relateStatement(entry, binds, operation)),
-    ret === "after" ? "RETURN $__created;" : "RETURN NONE;",
-  ];
+  // Projection here is always client-applied.
+  const sel = selectMode(proj, ret, operation, meta, { clientOnly: true }),
+    statements = [
+      `LET $__created = (CREATE ${createTarget(meta, args.data, true, operation)} CONTENT ${payload(encoded, binds)});`,
+      ...relate.map((entry) => relateStatement(entry, binds, operation)),
+      ret === "after" ? "RETURN $__created;" : "RETURN NONE;",
+    ]
   return {
     statements,
     transactional: true,
     resultIndexes: [statements.length - 1],
     result: ret === "after" ? "row" : "none",
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
-  };
+  }
 }
 
 /** `RETURN DIFF` has no rows to project. */
@@ -109,12 +104,13 @@ function assertCreateProjectable(
   operation: string,
   meta: ModelMeta,
 ): void {
-  if (proj && ret === "diff")
+  if (proj && ret === "diff") {
     throw compileError(
       "ReturnNotSupported",
       `${operation}: RETURN DIFF returns a JSON Patch list, not rows — drop select/omit, or use return: "after"/"before".`,
       { operation, table: meta.name },
-    );
+    )
+  }
 }
 
 /** Compile `createMany` — N `CREATE`s (or one `FOR` with `skipDuplicates`) in ONE round-trip. */
@@ -124,35 +120,31 @@ export function compileCreateMany(
   binds: Binds,
   operation = "createMany",
 ): WritePlan {
-  const ret = readReturn(
-    args.return,
-    operation,
-    ["after", "before", "diff", "none"],
-    "after",
-  );
-  const proj = compileWriteProjection(meta, args, binds, operation);
-  if (proj && ret === "diff")
+  const ret = readReturn(args.return, operation, ["after", "before", "diff", "none"], "after"),
+    proj = compileWriteProjection(meta, args, binds, operation)
+  if (proj && ret === "diff") {
     throw compileError(
       "ReturnNotSupported",
       `${operation}: RETURN DIFF returns a JSON Patch list, not rows — drop select/omit, or use return: "after"/"before".`,
       { operation, table: meta.name },
-    );
-  const sel = selectMode(proj, ret, operation, meta);
-  const data = requireArray(args.data, "data", operation);
+    )
+  }
+  const sel = selectMode(proj, ret, operation, meta),
+    data = requireArray(args.data, "data", operation)
   if (args.skipDuplicates === true)
-    return compileSkipDuplicates(meta, data, ret, binds, operation, sel);
-  const projText = sel?.mode === "server" ? sel.proj.text : undefined;
+    return compileSkipDuplicates(meta, data, ret, binds, operation, sel)
 
-  const statements = data.map(
-    (item) =>
-      `CREATE ${createTarget(meta, item, false, operation)} CONTENT ${payload(encodeData(meta, item, "create", operation), binds)}${mutationTail(ret, undefined, operation, projText)}`,
-  );
+  const projText = sel?.mode === "server" ? sel.proj.text : undefined,
+    statements = data.map(
+      (item) =>
+        `CREATE ${createTarget(meta, item, false, operation)} CONTENT ${payload(encodeData(meta, item, "create", operation), binds)}${mutationTail(ret, undefined, operation, projText)}`,
+    )
   return {
     statements,
     transactional: statements.length > 1,
     result: resultOf(ret, "many"),
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
-  };
+  }
 }
 
 /** `skipDuplicates` — one `INSERT IGNORE` per row (returns only inserted rows). */
@@ -164,16 +156,16 @@ function compileSkipDuplicates(
   operation: string,
   sel: ReturnType<typeof selectMode>,
 ): WritePlan {
-  const projText = sel?.mode === "server" ? sel.proj.text : undefined;
-  const statements = data.map((item) =>
-    insertStatement(meta, item, "ignore", ret, binds, operation, projText),
-  );
+  const projText = sel?.mode === "server" ? sel.proj.text : undefined,
+    statements = data.map((item) =>
+      insertStatement(meta, item, "ignore", ret, binds, operation, projText),
+    )
   return {
     statements,
     transactional: statements.length > 1,
     result: resultOf(ret, "many"),
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
-  };
+  }
 }
 
 // --- insert --------------------------------------------------------------------------------------
@@ -185,26 +177,23 @@ export function compileInsert(
   binds: Binds,
   operation = "insert",
 ): WritePlan {
-  const ret = readReturn(
-    args.return,
-    operation,
-    ["after", "before", "diff", "none"],
-    "after",
-  );
-  if (Array.isArray(args.data))
+  const ret = readReturn(args.return, operation, ["after", "before", "diff", "none"], "after")
+  if (Array.isArray(args.data)) {
     throw compileError(
       "ValidationError",
       `${operation}: "data" is a single object — use insertMany for arrays (same statement, batch envelope).`,
       { operation, table: meta.name },
-    );
-  if (args.data === undefined)
+    )
+  }
+  if (args.data === undefined) {
     throw compileError("ValidationError", `${operation}: "data" is required.`, {
       operation,
       table: meta.name,
-    });
-  const proj = compileWriteProjection(meta, args, binds, operation);
-  assertInsertProjectable(proj, ret, operation, meta);
-  const sel = selectMode(proj, ret, operation, meta);
+    })
+  }
+  const proj = compileWriteProjection(meta, args, binds, operation)
+  assertInsertProjectable(proj, ret, operation, meta)
+  const sel = selectMode(proj, ret, operation, meta)
   return {
     statements: [
       insertStatement(
@@ -221,7 +210,7 @@ export function compileInsert(
     resultIndexes: [0],
     result: resultOf(ret, "row"),
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
-  };
+  }
 }
 
 /** Compile `insertMany` — one `INSERT` with the array payload. */
@@ -231,22 +220,18 @@ export function compileInsertMany(
   binds: Binds,
   operation = "insertMany",
 ): WritePlan {
-  const ret = readReturn(
-    args.return,
-    operation,
-    ["after", "before", "diff", "none"],
-    "after",
-  );
-  if (args.data !== undefined && !Array.isArray(args.data))
+  const ret = readReturn(args.return, operation, ["after", "before", "diff", "none"], "after")
+  if (args.data !== undefined && !Array.isArray(args.data)) {
     throw compileError(
       "ValidationError",
       `${operation}: "data" must be an array — use insert for a single object.`,
       { operation, table: meta.name },
-    );
-  const data = requireArray(args.data, "data", operation);
-  const proj = compileWriteProjection(meta, args, binds, operation);
-  assertInsertProjectable(proj, ret, operation, meta);
-  const sel = selectMode(proj, ret, operation, meta);
+    )
+  }
+  const data = requireArray(args.data, "data", operation),
+    proj = compileWriteProjection(meta, args, binds, operation)
+  assertInsertProjectable(proj, ret, operation, meta)
+  const sel = selectMode(proj, ret, operation, meta)
   return {
     statements: [
       insertStatement(
@@ -262,7 +247,7 @@ export function compileInsertMany(
     transactional: false,
     result: resultOf(ret, "many"),
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
-  };
+  }
 }
 
 /** `INSERT` RETURN DIFF is a paged/nested diff — projecting it makes no sense. */
@@ -272,12 +257,13 @@ function assertInsertProjectable(
   operation: string,
   meta: ModelMeta,
 ): void {
-  if (proj && ret === "diff")
+  if (proj && ret === "diff") {
     throw compileError(
       "ReturnNotSupported",
       `${operation}: RETURN DIFF returns a JSON Patch list, not rows — drop select/omit, or use return: "after"/"before".`,
       { operation, table: meta.name },
-    );
+    )
+  }
 }
 
 /** `INSERT [IGNORE] INTO t $p [ON DUPLICATE KEY UPDATE …] [RETURN …]`. */
@@ -290,50 +276,45 @@ function insertStatement(
   operation: string,
   projText?: string,
 ): string {
-  const table = escapeIdent(meta.name);
-  const encoded = Array.isArray(data)
-    ? data.map((item) =>
-        withGeneratedId(meta, encodeData(meta, item, "create", operation)),
-      )
-    : withGeneratedId(meta, encodeData(meta, data, "create", operation));
-  const payloadText = payload(encoded, binds);
-  let sql = `INSERT INTO ${table} ${payloadText}`;
+  const table = escapeIdent(meta.name),
+    encoded = Array.isArray(data)
+      ? data.map((item) => withGeneratedId(meta, encodeData(meta, item, "create", operation)))
+      : withGeneratedId(meta, encodeData(meta, data, "create", operation)),
+    payloadText = payload(encoded, binds)
+  let sql = `INSERT INTO ${table} ${payloadText}`
 
-  if (onDuplicate === "ignore")
-    sql = `INSERT IGNORE INTO ${table} ${payloadText}`;
+  if (onDuplicate === "ignore") sql = `INSERT IGNORE INTO ${table} ${payloadText}`
   else if (onDuplicate === "update") {
-    const fields = updatableFields(encoded);
-    if (fields.length === 0)
+    const fields = updatableFields(encoded)
+    if (fields.length === 0) {
       throw compileError(
         "ValidationError",
         `${operation}: onDuplicate "update" needs at least one updatable field in the payload (id/in/out are never updated).`,
         { operation, table: meta.name },
-      );
+      )
+    }
     sql += ` ON DUPLICATE KEY UPDATE ${fields
       .map((field) => `${renderPath(field)} = $input.${renderPath(field)}`)
-      .join(", ")}`;
+      .join(", ")}`
   } else if (isPlainObject(onDuplicate)) {
-    const entries = Object.entries(onDuplicate).filter(
-      ([, v]) => v !== undefined,
-    );
-    if (entries.length === 0)
+    const entries = Object.entries(onDuplicate).filter(([, v]) => v !== undefined)
+    if (entries.length === 0) {
       throw compileError(
         "ValidationError",
         `${operation}: the onDuplicate map is empty — pass "ignore", "update" or the fields to set.`,
         { operation, table: meta.name },
-      );
-    sql += ` ON DUPLICATE KEY UPDATE ${entries
-      .map(
-        ([field, value]) =>
-          `${renderPath(field)} = ${renderValue(value, binds, binds.ctx())}`,
       )
-      .join(", ")}`;
-  } else if (onDuplicate !== undefined)
+    }
+    sql += ` ON DUPLICATE KEY UPDATE ${entries
+      .map(([field, value]) => `${renderPath(field)} = ${renderValue(value, binds, binds.ctx())}`)
+      .join(", ")}`
+  } else if (onDuplicate !== undefined) {
     throw compileError(
       "ValidationError",
       `${operation}: onDuplicate must be "ignore", "update" or a map of expressions, got ${describeValue(onDuplicate)}.`,
       { operation, table: meta.name },
-    );
+    )
+  }
 
-  return `${sql}${mutationTail(ret, undefined, operation, projText)}`;
+  return `${sql}${mutationTail(ret, undefined, operation, projText)}`
 }

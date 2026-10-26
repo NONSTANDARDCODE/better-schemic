@@ -12,7 +12,7 @@
  * compiler API, no separate program.
  * See `docs/TYPE-PERF-TESTING.md`.
  */
-export type IsAny<T> = 0 extends 1 & T ? true : false;
+export type IsAny<T> = 0 extends 1 & T ? true : false
 
 /**
  * The call tuple: empty when the assertion holds, a diagnostic payload otherwise. That turns a
@@ -23,9 +23,9 @@ export type AssertCall<Expected, Actual> =
   IsAny<Actual> extends true
     ? [
         {
-          error: "Actual resolved to any — the type under test collapsed";
-          expected: Expected;
-          actual: Actual;
+          error: "Actual resolved to any — the type under test collapsed"
+          expected: Expected
+          actual: Actual
         },
       ]
     : [Actual] extends [Expected]
@@ -33,19 +33,17 @@ export type AssertCall<Expected, Actual> =
         ? []
         : [
             {
-              error: "Expected and Actual are not mutually assignable";
-              expected: Expected;
-              actual: Actual;
+              error: "Expected and Actual are not mutually assignable"
+              expected: Expected
+              actual: Actual
             },
           ]
       : [
           {
-            error: "Expected and Actual are not mutually assignable";
-            expected: Expected;
-            actual: Actual;
+            error: "Expected and Actual are not mutually assignable"
+            expected: Expected
+            actual: Actual
           },
-        ];
+        ]
 
-export function assertType<Expected, Actual>(
-  ..._check: AssertCall<Expected, Actual>
-): void {}
+export function assertType<Expected, Actual>(..._check: AssertCall<Expected, Actual>): void {}

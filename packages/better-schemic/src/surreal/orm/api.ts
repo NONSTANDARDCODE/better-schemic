@@ -9,36 +9,33 @@
  * the runtime inspects `status` and throws a {@link BetterSchemicError} carrying the HTTP status and
  * the response body — a failed endpoint can never be mistaken for an empty result.
  */
-import { compileError } from "./compiler/shared";
-import { assertSessionBound } from "./context";
-import type { DelegateContext } from "./delegate";
-import { BetterSchemicError, normalizeError } from "./errors";
-import type {
-  ApiBodyOptions,
-  ApiOperations,
-  ApiRequestOptions,
-} from "./types/api";
+import { compileError } from "./compiler/shared"
+import { assertSessionBound } from "./context"
+import { BetterSchemicError, normalizeError } from "./errors"
+
+import type { DelegateContext } from "./delegate"
+import type { ApiBodyOptions, ApiOperations, ApiRequestOptions } from "./types/api"
 
 /** The structural slice of the SDK's `SurrealApi` the runtime drives. */
 interface SdkApi {
-  get(path: string): SdkApiPromise;
-  post(path: string, body?: unknown): SdkApiPromise;
-  put(path: string, body?: unknown): SdkApiPromise;
-  patch(path: string, body?: unknown): SdkApiPromise;
-  delete(path: string, body?: unknown): SdkApiPromise;
+  get: (path: string) => SdkApiPromise
+  post: (path: string, body?: unknown) => SdkApiPromise
+  put: (path: string, body?: unknown) => SdkApiPromise
+  patch: (path: string, body?: unknown) => SdkApiPromise
+  delete: (path: string, body?: unknown) => SdkApiPromise
 }
 
 interface SdkApiPromise extends Promise<SdkApiResponse> {
-  header(name: string, value: string): SdkApiPromise;
-  query(name: string, value: string): SdkApiPromise;
+  header: (name: string, value: string) => SdkApiPromise
+  query: (name: string, value: string) => SdkApiPromise
 }
 
 /** The SDK's `ApiResponse` envelope. */
 interface SdkApiResponse {
-  status?: number;
-  body?: unknown;
-  headers?: Record<string, string>;
-  request_id?: string;
+  status?: number
+  body?: unknown
+  headers?: Record<string, string>
+  request_id?: string
 }
 
 /** Build `client.api` over one client context. */
@@ -48,68 +45,64 @@ export function createApiOperations(ctx: DelegateContext): ApiOperations {
     path: string,
     options: ApiBodyOptions | undefined,
   ): Promise<T> => {
-    const operation = `api.${verb}`;
-    assertSessionBound(ctx.context, operation);
-    if (typeof path !== "string" || !path.startsWith("/"))
+    const operation = `api.${verb}`
+    assertSessionBound(ctx.context, operation)
+    if (typeof path !== "string" || !path.startsWith("/")) {
       throw compileError(
         "ValidationError",
         `${operation}: the path must start with "/" (got ${JSON.stringify(path)}).`,
         { operation },
-      );
-    const source = ctx.conn as unknown as { api?: (prefix?: string) => SdkApi };
-    if (typeof source.api !== "function")
+      )
+    }
+    const source = ctx.conn as unknown as { api?: (prefix?: string) => SdkApi }
+    if (typeof source.api !== "function") {
       throw compileError(
         "UnsupportedCapability",
         `${operation} needs the SurrealDB SDK connection — this client wraps an object without \`api()\`.`,
         { operation },
-      );
-
-    let request =
-      verb === "get"
-        ? source.api().get(path)
-        : source.api()[verb](path, options?.body);
-    for (const [name, value] of Object.entries(options?.headers ?? {}))
-      request = request.header(name, value);
-    for (const [name, value] of Object.entries(options?.query ?? {}))
-      request = request.query(name, String(value));
-
-    let response: SdkApiResponse;
-    try {
-      response = await request;
-    } catch (e) {
-      throw normalizeError(e, { operation });
+      )
     }
-    const status = response?.status ?? 0;
-    if (status >= 400)
+
+    let request = verb === "get" ? source.api().get(path) : source.api()[verb](path, options?.body)
+    for (const [name, value] of Object.entries(options?.headers ?? {}))
+      request = request.header(name, value)
+
+    for (const [name, value] of Object.entries(options?.query ?? {}))
+      request = request.query(name, String(value))
+
+    let response: SdkApiResponse
+    try {
+      response = await request
+    } catch (error) {
+      throw normalizeError(error, { operation })
+    }
+    const status = response?.status ?? 0
+    if (status >= 400) {
       throw new BetterSchemicError(
         "DatabaseError",
         `${operation} "${path}" failed with status ${status}: ${describeBody(response.body)}`,
         { operation, status, details: response.body },
-      );
-    return response?.body as T;
-  };
+      )
+    }
+    return response?.body as T
+  }
 
   return {
-    get: <T>(path: string, options?: ApiRequestOptions) =>
-      invoke<T>("get", path, options as ApiBodyOptions | undefined),
-    post: <T>(path: string, options?: ApiBodyOptions) =>
-      invoke<T>("post", path, options),
-    put: <T>(path: string, options?: ApiBodyOptions) =>
-      invoke<T>("put", path, options),
-    patch: <T>(path: string, options?: ApiBodyOptions) =>
-      invoke<T>("patch", path, options),
-    delete: <T>(path: string, options?: ApiBodyOptions) =>
-      invoke<T>("delete", path, options),
-  };
+    get: async <T>(path: string, options?: ApiRequestOptions) => invoke<T>("get", path, options),
+    post: async <T>(path: string, options?: ApiBodyOptions) => invoke<T>("post", path, options),
+    put: async <T>(path: string, options?: ApiBodyOptions) => invoke<T>("put", path, options),
+    patch: async <T>(path: string, options?: ApiBodyOptions) => invoke<T>("patch", path, options),
+    delete: async <T>(path: string, options?: ApiBodyOptions) => invoke<T>("delete", path, options),
+  }
 }
 
 /** A short rendering of an error body for the thrown message. */
 function describeBody(body: unknown): string {
-  if (body === undefined || body === null) return "(no body)";
-  if (typeof body === "string") return body;
+  if (body === undefined || body === null) return "(no body)"
+  if (typeof body === "string") return body
   try {
-    return JSON.stringify(body);
+    return JSON.stringify(body)
   } catch {
-    return String(body);
+    return String(body)
   }
 }

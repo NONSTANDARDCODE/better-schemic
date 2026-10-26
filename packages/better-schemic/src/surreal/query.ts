@@ -8,4 +8,4 @@
  * at `better-schemic/orm` — `client.users.findMany({ where, select, include })` etc.
  * See `docs/ORM-COVERAGE.md` (surface) and `docs/orm-syntax-map.md` (live-verified SurrealQL).
  */
-export * from "./surql/block";
+export * from "./surql/block"

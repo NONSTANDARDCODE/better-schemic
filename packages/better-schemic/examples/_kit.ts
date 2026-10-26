@@ -12,61 +12,63 @@
  * (apply -> introspect -> diff = 0, and `pull` regeneration) is proven separately by the live parity
  * suites in `test/parity/*` against SurrealDB 3.1.3.
  */
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { emitDefStatement, emitTable } from "../src/surreal/ddl";
-import { type StandaloneDef, TableDef } from "../src/surreal/pure";
+import { readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
+import { emitDefStatement, emitTable } from "../src/surreal/ddl"
+import { TableDef } from "../src/surreal/pure"
+import type { StandaloneDef } from "../src/surreal/pure"
 
 /** A top-level schema object: a table/relation/view (a `TableDef`) or a standalone `define*`. */
-// biome-ignore lint/suspicious/noExplicitAny: heterogeneous example schemas — the Shape varies per table.
-export type Definable = TableDef<string, any> | StandaloneDef;
+export type Definable = TableDef<string, any> | StandaloneDef
 
 /** One catalog entry: the authoring snippet, the schema objects it produces, and the SurrealQL golden. */
 export interface Example {
   /** The feature / syntax this entry demonstrates (also the test name). */
-  title: string;
+  title: string
   /** Optional caveat — round-trip behavior, a known gap, or a `[~]`/`[ ]` note from COVERAGE.md. */
-  note?: string;
+  note?: string
   /** The verbatim `def` snippet, extracted from the example file's source (the website gallery renders this). */
-  code: string;
+  code: string
   /** The schema objects — the real `def` value from the example file. */
-  defs: Definable[];
+  defs: Definable[]
   /** The exact SurrealQL `defs` emit. Asserted by the reference test. */
-  ddl: string;
+  ddl: string
 }
 
 /** A named group of examples (one source file in this folder). */
 export interface ExampleGroup {
   /** The file these examples live in (for the test's `describe` label / the manifest group slug). */
-  file: string;
+  file: string
   /** What the file covers. */
-  about: string;
-  examples: Example[];
+  about: string
+  examples: Example[]
 }
 
 /** Advance `i` past a string/template literal starting at `src[i]` (the opening quote). */
 function skipString(src: string, i: number, quote: string): number {
-  i++;
+  i++
   while (i < src.length) {
     if (src[i] === "\\") {
-      i += 2;
-      continue;
+      i += 2
+      continue
     }
     if (src[i] === quote) return i + 1;
     // A `${…}` template expression can itself hold braces/quotes — skip it balanced.
     if (quote === "`" && src[i] === "$" && src[i + 1] === "{") {
-      i += 2;
-      let d = 1;
+      i += 2
+      let d = 1
       while (i < src.length && d > 0) {
         if (src[i] === "{") d++;
-        else if (src[i] === "}") d--;
-        i++;
+        } else if (src[i] === "}") {
+          d--
+        }
+        i++
       }
-      continue;
+      continue
     }
-    i++;
+    i++
   }
-  return i;
+  return i
 }
 
 /**
@@ -76,30 +78,31 @@ function skipString(src: string, i: number, quote: string): number {
  * `def` is authored LAST so the scan ends cleanly at the object's close.
  */
 function extractDefSource(src: string): string {
-  const m = /\bdef:\s*/.exec(src);
-  if (!m)
-    throw new Error("example file has no `def:` property to render as `code`");
-  const start = m.index + m[0].length;
-  let i = start;
-  let depth = 0;
+  const m = /\bdef:\s*/.exec(src)
+  if (!m) {
+    throw new Error("example file has no `def:` property to render as `code`")
+  }
+  const start = m.index + m[0].length
+  let i = start,
+    depth = 0
   while (i < src.length) {
-    const c = src[i];
+    const c = src[i]
     if (c === '"' || c === "'" || c === "`") {
-      i = skipString(src, i, c);
-      continue;
+      i = skipString(src, i, c)
+      continue
     }
     if (c === "(" || c === "[" || c === "{") depth++;
-    else if (c === ")" || c === "]" || c === "}") {
-      if (depth === 0) break; // the closing `}` of the options object
-      depth--;
-    } else if (c === "," && depth === 0) break; // trailing comma after the def
-    i++;
+    } else if (c === ")" || c === "]" || c === "}") {
+      if (depth === 0) break; // The closing `}` of the options object
+      depth--
+    } else if (c === "," && depth === 0) break; // Trailing comma after the def
+    i++
   }
   // Drop `// biome-ignore …` lines — tooling suppressions, never part of the displayed snippet.
   return src
     .slice(start, i)
-    .replace(/^[ \t]*\/\/ biome-ignore.*\r?\n/gm, "")
-    .trim();
+    .replaceAll(/^[ \t]*\/\/ biome-ignore.*\r?\n/gm, "")
+    .trim()
 }
 
 /**
@@ -110,10 +113,10 @@ function extractDefSource(src: string): string {
 export function example(
   metaUrl: string,
   e: {
-    title: string;
-    note?: string;
-    ddl: string;
-    def: Definable | Definable[];
+    title: string
+    note?: string
+    ddl: string
+    def: Definable | Definable[]
   },
 ): Example {
   return {
@@ -122,16 +125,12 @@ export function example(
     code: extractDefSource(readFileSync(fileURLToPath(metaUrl), "utf8")),
     ddl: e.ddl,
     defs: Array.isArray(e.def) ? e.def : [e.def],
-  };
+  }
 }
 
 /** Assemble a group from its per-file examples (one real `.ts` module each). */
-export function group(
-  file: string,
-  about: string,
-  examples: Example[],
-): ExampleGroup {
-  return { file, about, examples };
+export function group(file: string, about: string, examples: Example[]): ExampleGroup {
+  return { file, about, examples }
 }
 
 /**
@@ -141,8 +140,6 @@ export function group(
  */
 export function emit(defs: Definable[]): string {
   return defs
-    .map((d) =>
-      d instanceof TableDef ? emitTable(d) : emitDefStatement(d).ddl,
-    )
-    .join("\n\n");
+    .map((d) => (d instanceof TableDef ? emitTable(d) : emitDefStatement(d).ddl))
+    .join("\n\n")
 }

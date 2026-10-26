@@ -1,5 +1,6 @@
-import { defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "Geometry — bare and the 7 kinds",
@@ -23,4 +24,4 @@ DEFINE FIELD coll ON TABLE geo TYPE geometry<collection>;`,
     mpoly: s.geometry("multipolygon"),
     coll: s.geometry("collection"),
   }),
-});
+})

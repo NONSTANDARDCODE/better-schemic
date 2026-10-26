@@ -1,5 +1,6 @@
-import { defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "READONLY and field COMMENT",
@@ -11,4 +12,4 @@ DEFINE FIELD note ON TABLE rc TYPE string COMMENT "free-form note";`,
     createdAt: s.datetime().$readonly(),
     note: s.string().$comment("free-form note"),
   }),
-});
+})

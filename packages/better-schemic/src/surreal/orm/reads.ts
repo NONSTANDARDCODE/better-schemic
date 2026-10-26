@@ -4,51 +4,39 @@
  * site), runs LAZILY (nothing touches the connection until awaited), and decodes its rows through
  * `./decode`. `./delegate` owns the public surface; this module owns the runtime.
  */
-import { RecordId } from "surrealdb";
-import { escapeIdentSafe as escapeIdent } from "../ident";
-import { bareIdValue } from "../pure";
+import { RecordId } from "surrealdb"
+
+import { escapeIdentSafe as escapeIdent } from "../ident"
+import { bareIdValue } from "../pure"
+
+import { compileAggregate, compileCount, compileExists } from "./compiler/aggregate"
+import { compileCursor, compilePaginate } from "./compiler/pagination"
+import { compileRead } from "./compiler/select"
+import { baseColumn, compileError, createBinds, isTableMeta, pathSegments } from "./compiler/shared"
+import { uniqueTarget } from "./compiler/unique"
+import { contextOption, resolveMeta } from "./context"
+import { decodeRow, decodeRows, isRecord } from "./decode"
+import { execute } from "./execute"
+import { runWithHooks } from "./hooks"
+import { attachExplain, attachThrow, lazyResult } from "./results"
+
 import type {
   AggregateArgs as AggregateRuntimeArgs,
   CountArgs as CountRuntimeArgs,
-} from "./compiler/aggregate";
-import {
-  compileAggregate,
-  compileCount,
-  compileExists,
-} from "./compiler/aggregate";
-import type { CursorKey } from "./compiler/keyset";
+} from "./compiler/aggregate"
+import type { CursorKey } from "./compiler/keyset"
 import type {
   CursorArgs as CursorRuntimeArgs,
   PaginateArgs as PaginateRuntimeArgs,
-} from "./compiler/pagination";
-import { compileCursor, compilePaginate } from "./compiler/pagination";
-import type { CompileReadOptions, ReadArgs } from "./compiler/select";
-import { compileRead } from "./compiler/select";
-import {
-  type Binds,
-  baseColumn,
-  compileError,
-  createBinds,
-  isTableMeta,
-  pathSegments,
-} from "./compiler/shared";
-import { uniqueTarget } from "./compiler/unique";
-import { contextOption, resolveMeta } from "./context";
-import { decodeRow, decodeRows, isRecord } from "./decode";
-import type { DelegateContext } from "./delegate";
-import { execute, type Statement } from "./execute";
-import { runWithHooks } from "./hooks";
-import type { ModelMeta } from "./meta";
-import {
-  attachExplain,
-  attachThrow,
-  type ExplainKey,
-  type ExplainResult,
-  lazyResult,
-  type ThrowingResult,
-} from "./results";
-import type { OperationContext } from "./types/context";
-import type { OperationKind } from "./types/hooks";
+} from "./compiler/pagination"
+import type { CompileReadOptions, ReadArgs } from "./compiler/select"
+import type { Binds } from "./compiler/shared"
+import type { DelegateContext } from "./delegate"
+import type { Statement } from "./execute"
+import type { ModelMeta } from "./meta"
+import type { ExplainKey, ExplainResult, ThrowingResult } from "./results"
+import type { OperationContext } from "./types/context"
+import type { OperationKind } from "./types/hooks"
 
 /** The read methods a delegate exposes (the runtime side of the typed `Delegate` interface). */
 export function createReadOperations(
@@ -56,71 +44,60 @@ export function createReadOperations(
   ctx: DelegateContext,
 ): Record<string, unknown> {
   return {
-    findMany: (args: ReadArgs = {}) =>
-      finishRead(ctx, prepare(meta, ctx, args, "findMany")),
+    findMany: (args: ReadArgs = {}) => finishRead(ctx, prepare(meta, ctx, args, "findMany")),
     findFirst: (args: ReadArgs = {}) =>
       finishRead(ctx, prepare(meta, ctx, args, "findFirst", { one: true })),
     findOne: (args: ReadArgs = {}) =>
       finishRead(ctx, prepare(meta, ctx, args, "findOne", { one: true })),
-    findUnique: (args: ReadArgs) =>
-      finishRead(ctx, prepareUnique(meta, ctx, args)),
-    count: (args: CountRuntimeArgs = {}) =>
-      finishRead(ctx, countPlan(meta, ctx, args)),
-    exists: (args: CountRuntimeArgs = {}) =>
-      finishRead(ctx, existsPlan(meta, ctx, args)),
-    aggregate: (args: AggregateRuntimeArgs) =>
-      finishRead(ctx, aggregatePlan(meta, ctx, args)),
-    paginate: (args: PaginateRuntimeArgs) =>
-      finishRead(ctx, paginatePlan(meta, ctx, args)),
-    cursor: (args: CursorRuntimeArgs) =>
-      finishRead(ctx, cursorPlan(meta, ctx, args)),
-  };
+    findUnique: (args: ReadArgs) => finishRead(ctx, prepareUnique(meta, ctx, args)),
+    count: (args: CountRuntimeArgs = {}) => finishRead(ctx, countPlan(meta, ctx, args)),
+    exists: (args: CountRuntimeArgs = {}) => finishRead(ctx, existsPlan(meta, ctx, args)),
+    aggregate: (args: AggregateRuntimeArgs) => finishRead(ctx, aggregatePlan(meta, ctx, args)),
+    paginate: (args: PaginateRuntimeArgs) => finishRead(ctx, paginatePlan(meta, ctx, args)),
+    cursor: (args: CursorRuntimeArgs) => finishRead(ctx, cursorPlan(meta, ctx, args)),
+  }
 }
 
 /** The runtime context every prepared read derives from its args. */
 interface ReadRuntimeArgs {
-  readonly where?: unknown;
-  readonly explain?: unknown;
+  readonly where?: unknown
+  readonly explain?: unknown
   /** Per-call namespace/database override (`findMany({ context: { database } })`). */
-  readonly context?: OperationContext;
+  readonly context?: OperationContext
   /** Per-call hook metadata (`findMany({ meta })`). */
-  readonly meta?: Record<string, unknown>;
+  readonly meta?: Record<string, unknown>
 }
 
 /** One statement of a prepared read with its `ExplainResult` role. */
 interface PreparedStatement {
-  readonly statement: Statement;
-  readonly key: ExplainKey;
+  readonly statement: Statement
+  readonly key: ExplainKey
 }
 
 /** A compiled read plus everything the executor/`.throw()`/`.explain()` needs. */
 interface PreparedRead {
-  readonly meta: ModelMeta;
-  readonly operation: string;
-  readonly statements: readonly PreparedStatement[];
+  readonly meta: ModelMeta
+  readonly operation: string
+  readonly statements: readonly PreparedStatement[]
   /** The filter, for `NotFoundInfo` (`.throw()`). */
-  readonly where?: unknown;
+  readonly where?: unknown
   /** One row (throwing wrapper) vs many. */
-  readonly resultMode: "many" | "one";
+  readonly resultMode: "many" | "one"
   /** `explain: true` — return the plan instead of executing. */
-  readonly explain: boolean;
+  readonly explain: boolean
   /** Interpret the raw rows of the prepared statements. */
-  readonly decode: (rows: readonly unknown[]) => unknown;
+  readonly decode: (rows: readonly unknown[]) => unknown
   /** Per-call scope override, resolved against the client's context at run time. */
-  readonly context?: OperationContext;
+  readonly context?: OperationContext
   /** Per-call hook metadata (merged over the scope's at run time). */
-  readonly hookMeta?: Record<string, unknown>;
+  readonly hookMeta?: Record<string, unknown>
 }
 
 /** Wrap compiled SQL + the shared binds into a keyed prepared statement. */
-const stmt = (
-  sql: string,
-  binds: Binds,
-  key: ExplainKey,
-): PreparedStatement => ({
+const stmt = (sql: string, binds: Binds, key: ExplainKey): PreparedStatement => ({
   statement: { sql, vars: binds.vars },
   key,
-});
+})
 
 /** Compile a read into its statement + decode spec (eager — a bad arg throws here). */
 function prepare(
@@ -129,33 +106,32 @@ function prepare(
   args: ReadArgs,
   operation: string,
   options: {
-    one?: boolean;
+    one?: boolean
     /** Override the result mode (findUnique's id path is "one" without forcing a LIMIT). */
-    resultMode?: "many" | "one";
-    compile?: CompileReadOptions;
+    resultMode?: "many" | "one"
+    compile?: CompileReadOptions
   } = {},
 ): PreparedRead {
-  const binds = createBinds();
-  const effective = options.one ? { ...args, limit: args.limit ?? 1 } : args;
-  const compiled = compileRead(meta, effective, binds, operation, {
-    ...(options.compile ?? {}),
-    index: ctx.index,
-  });
-  const decode = (rows: readonly unknown[]): unknown => {
-    const raw = rows[0];
-    if (compiled.only)
-      return decodeRow(raw, meta, compiled.projection, ctx.index) ?? null;
-    const page = Array.isArray(raw) ? raw : [];
-    if (options.one === true)
-      return page.length === 0
-        ? null
-        : decodeRow(page[0], meta, compiled.projection, ctx.index);
-    return decodeRows(page, meta, compiled.projection, ctx.index);
-  };
+  const binds = createBinds(),
+    effective = options.one ? { ...args, limit: args.limit ?? 1 } : args,
+    compiled = compileRead(meta, effective, binds, operation, {
+      ...options.compile,
+      index: ctx.index,
+    }),
+    decode = (rows: readonly unknown[]): unknown => {
+      const raw = rows[0]
+      if (compiled.only) return decodeRow(raw, meta, compiled.projection, ctx.index) ?? null
+
+      const page = Array.isArray(raw) ? raw : []
+      if (options.one === true)
+        return page.length === 0 ? null : decodeRow(page[0], meta, compiled.projection, ctx.index)
+
+      return decodeRows(page, meta, compiled.projection, ctx.index)
+    }
   return prepared(meta, operation, [stmt(compiled.sql, binds, "data")], args, {
     resultMode: options.resultMode ?? (options.one ? "one" : "many"),
     decode,
-  });
+  })
 }
 
 /** Assemble a prepared read from its statements + decoder. */
@@ -165,8 +141,8 @@ function prepared(
   statements: readonly PreparedStatement[],
   args: ReadRuntimeArgs,
   extras: {
-    resultMode: "many" | "one";
-    decode: (rows: readonly unknown[]) => unknown;
+    resultMode: "many" | "one"
+    decode: (rows: readonly unknown[]) => unknown
   },
 ): PreparedRead {
   return {
@@ -178,51 +154,39 @@ function prepared(
     explain: args.explain === true,
     decode: extras.decode,
     ...(args.context ? { context: args.context } : {}),
-    ...(args.meta !== undefined ? { hookMeta: args.meta } : {}),
-  };
+    ...(args.meta === undefined ? {} : { hookMeta: args.meta }),
+  }
 }
 
 /** The rows of a statement index, as an array. */
-const rowsAt = (
-  rows: readonly unknown[],
-  index: number,
-): readonly unknown[] => {
-  const raw = rows[index];
-  return Array.isArray(raw) ? raw : [];
-};
+const rowsAt = (rows: readonly unknown[], index: number): readonly unknown[] => {
+  const raw = rows[index]
+  return Array.isArray(raw) ? raw : []
+}
 
 /** `count` plan: `[{ count: n }]` -> `n` (0 when the server returns nothing). */
-function countPlan(
-  meta: ModelMeta,
-  ctx: DelegateContext,
-  args: CountRuntimeArgs,
-): PreparedRead {
-  const binds = createBinds();
-  const sql = compileCount(meta, args, binds, "count", { index: ctx.index });
-  const decode = (rows: readonly unknown[]): unknown => {
-    const first = rowsAt(rows, 0)[0] as { count?: unknown } | undefined;
-    return typeof first?.count === "number" ? first.count : 0;
-  };
+function countPlan(meta: ModelMeta, ctx: DelegateContext, args: CountRuntimeArgs): PreparedRead {
+  const binds = createBinds(),
+    sql = compileCount(meta, args, binds, "count", { index: ctx.index }),
+    decode = (rows: readonly unknown[]): unknown => {
+      const first = rowsAt(rows, 0)[0] as { count?: unknown } | undefined
+      return typeof first?.count === "number" ? first.count : 0
+    }
   return prepared(meta, "count", [stmt(sql, binds, "count")], args, {
     resultMode: "many",
     decode,
-  });
+  })
 }
 
 /** `exists` plan: `SELECT VALUE id … LIMIT 1` -> whether any row came back. */
-function existsPlan(
-  meta: ModelMeta,
-  ctx: DelegateContext,
-  args: CountRuntimeArgs,
-): PreparedRead {
-  const binds = createBinds();
-  const sql = compileExists(meta, args, binds, "exists", { index: ctx.index });
-  const decode = (rows: readonly unknown[]): unknown =>
-    rowsAt(rows, 0).length > 0;
+function existsPlan(meta: ModelMeta, ctx: DelegateContext, args: CountRuntimeArgs): PreparedRead {
+  const binds = createBinds(),
+    sql = compileExists(meta, args, binds, "exists", { index: ctx.index }),
+    decode = (rows: readonly unknown[]): unknown => rowsAt(rows, 0).length > 0
   return prepared(meta, "exists", [stmt(sql, binds, "exists")], args, {
     resultMode: "many",
     decode,
-  });
+  })
 }
 
 /** `aggregate` plan: decode the grouped rows through the per-entry projection. */
@@ -231,19 +195,16 @@ function aggregatePlan(
   ctx: DelegateContext,
   args: AggregateRuntimeArgs,
 ): PreparedRead {
-  const binds = createBinds();
-  const compiled = compileAggregate(meta, args, binds, "aggregate", {
-    index: ctx.index,
-  });
-  const decode = (rows: readonly unknown[]): unknown =>
-    decodeRows(rowsAt(rows, 0), meta, compiled.projection, ctx.index);
-  return prepared(
-    meta,
-    "aggregate",
-    [stmt(compiled.sql, binds, "data")],
-    args,
-    { resultMode: "many", decode },
-  );
+  const binds = createBinds(),
+    compiled = compileAggregate(meta, args, binds, "aggregate", {
+      index: ctx.index,
+    }),
+    decode = (rows: readonly unknown[]): unknown =>
+      decodeRows(rowsAt(rows, 0), meta, compiled.projection, ctx.index)
+  return prepared(meta, "aggregate", [stmt(compiled.sql, binds, "data")], args, {
+    resultMode: "many",
+    decode,
+  })
 }
 
 /** `paginate` plan: data + count in ONE round-trip; `count:false` probes `n+1` for `hasNext`. */
@@ -252,142 +213,119 @@ function paginatePlan(
   ctx: DelegateContext,
   args: PaginateRuntimeArgs,
 ): PreparedRead {
-  const binds = createBinds();
-  const plan = compilePaginate(meta, args, binds, "paginate", {
-    index: ctx.index,
-  });
-  const statements: PreparedStatement[] = [
-    stmt(plan.dataSql, binds, "data"),
-    ...(plan.countSql ? [stmt(plan.countSql, binds, "total")] : []),
-  ];
-  const decode = (rows: readonly unknown[]): unknown => {
-    const pageRows = rowsAt(rows, 0);
-    const data = decodeRows(
-      plan.probe ? pageRows.slice(0, plan.limit) : pageRows,
-      meta,
-      plan.projection,
-      ctx.index,
-    );
-    let total: number | undefined;
-    if (plan.count) {
-      const first = rowsAt(rows, 1)[0] as { count?: unknown } | undefined;
-      total = typeof first?.count === "number" ? first.count : 0;
+  const binds = createBinds(),
+    plan = compilePaginate(meta, args, binds, "paginate", {
+      index: ctx.index,
+    }),
+    statements: PreparedStatement[] = [
+      stmt(plan.dataSql, binds, "data"),
+      ...(plan.countSql ? [stmt(plan.countSql, binds, "total")] : []),
+    ],
+    decode = (rows: readonly unknown[]): unknown => {
+      const pageRows = rowsAt(rows, 0),
+        data = decodeRows(
+          plan.probe ? pageRows.slice(0, plan.limit) : pageRows,
+          meta,
+          plan.projection,
+          ctx.index,
+        )
+      let total: number | undefined
+      if (plan.count) {
+        const first = rowsAt(rows, 1)[0] as { count?: unknown } | undefined
+        total = typeof first?.count === "number" ? first.count : 0
+      }
+      const hasNext = plan.count ? total! > plan.start + data.length : pageRows.length > plan.limit
+      return {
+        data,
+        pagination: {
+          type: "offset",
+          page: Math.floor(plan.start / plan.limit) + 1,
+          perPage: plan.limit,
+          ...(plan.count ? { total, pageCount: Math.ceil(total! / plan.limit) } : {}),
+          hasNext,
+          hasPrevious: plan.start > 0,
+        },
+      }
     }
-    const hasNext = plan.count
-      ? (total as number) > plan.start + data.length
-      : pageRows.length > plan.limit;
-    return {
-      data,
-      pagination: {
-        type: "offset",
-        page: Math.floor(plan.start / plan.limit) + 1,
-        perPage: plan.limit,
-        ...(plan.count
-          ? { total, pageCount: Math.ceil((total as number) / plan.limit) }
-          : {}),
-        hasNext,
-        hasPrevious: plan.start > 0,
-      },
-    };
-  };
   return prepared(meta, "paginate", statements, args, {
     resultMode: "many",
     decode,
-  });
+  })
 }
 
 /** `cursor` plan: one probe statement; `before` flips the order and the rows back. */
-function cursorPlan(
-  meta: ModelMeta,
-  ctx: DelegateContext,
-  args: CursorRuntimeArgs,
-): PreparedRead {
-  const binds = createBinds();
-  const plan = compileCursor(meta, args, binds, "cursor", { index: ctx.index });
-  const decode = (rows: readonly unknown[]): unknown => {
-    const pageRows = rowsAt(rows, 0);
-    const hasMore = pageRows.length > plan.limit;
-    const probe = pageRows.slice(0, plan.limit);
-    const decoded = decodeRows(probe, meta, plan.projection, ctx.index);
-    const data = plan.backward ? [...decoded].reverse() : decoded;
-    // The cursors carry the STORED value, so they read the RAW probe rows paired positionally
-    // with `data` (both reversed for `before`) — never the codec-decoded app value. A datetime
-    // field keeps its nanoseconds (`Date` would truncate to ms, and the keyset predicate would
-    // then skip every row created in the same millisecond).
-    const raw = plan.backward ? [...probe].reverse() : probe;
-    const hasPrevious = plan.backward
-      ? hasMore
-      : args.after !== undefined || args.before !== undefined;
-    const hasNext = plan.backward ? true : hasMore;
-    const nextCursor = hasNext
-      ? cursorOf(meta, raw[raw.length - 1], plan.keyset)
-      : null;
-    const previousCursor = hasPrevious
-      ? cursorOf(meta, raw[0], plan.keyset)
-      : null;
-    for (const row of data) stripKeyset(row, plan.keyset);
-    return {
-      data,
-      pagination: {
-        type: "cursor",
-        hasNext,
-        hasPrevious,
-        nextCursor,
-        previousCursor,
-      },
-    };
-  };
+function cursorPlan(meta: ModelMeta, ctx: DelegateContext, args: CursorRuntimeArgs): PreparedRead {
+  const binds = createBinds(),
+    plan = compileCursor(meta, args, binds, "cursor", { index: ctx.index }),
+    decode = (rows: readonly unknown[]): unknown => {
+      const pageRows = rowsAt(rows, 0),
+        hasMore = pageRows.length > plan.limit,
+        probe = pageRows.slice(0, plan.limit),
+        decoded = decodeRows(probe, meta, plan.projection, ctx.index),
+        data = plan.backward ? [...decoded].reverse() : decoded,
+        // The cursors carry the STORED value, so they read the RAW probe rows paired positionally
+        // With `data` (both reversed for `before`) — never the codec-decoded app value. A datetime
+        // Field keeps its nanoseconds (`Date` would truncate to ms, and the keyset predicate would
+        // Then skip every row created in the same millisecond).
+        raw = plan.backward ? [...probe].reverse() : probe,
+        hasPrevious = plan.backward
+          ? hasMore
+          : args.after !== undefined || args.before !== undefined,
+        hasNext = plan.backward ? true : hasMore,
+        nextCursor = hasNext ? cursorOf(meta, raw.at(-1), plan.keyset) : null,
+        previousCursor = hasPrevious ? cursorOf(meta, raw[0], plan.keyset) : null
+      for (const row of data) stripKeyset(row, plan.keyset)
+
+      return {
+        data,
+        pagination: {
+          type: "cursor",
+          hasNext,
+          hasPrevious,
+          nextCursor,
+          previousCursor,
+        },
+      }
+    }
   return prepared(
     meta,
     "cursor",
-    [
-      stmt(
-        plan.sql,
-        binds,
-        plan.backward ? "probe:hasPrevious" : "probe:hasNext",
-      ),
-    ],
+    [stmt(plan.sql, binds, plan.backward ? "probe:hasPrevious" : "probe:hasNext")],
     args,
     { resultMode: "many", decode },
-  );
+  )
 }
 
 /** Extract a row's cursor value (the id for a single-id order, a tuple otherwise). */
-function cursorOf(
-  meta: ModelMeta,
-  row: unknown,
-  keyset: readonly CursorKey[],
-): unknown {
-  if (row === undefined || row === null) return null;
+function cursorOf(meta: ModelMeta, row: unknown, keyset: readonly CursorKey[]): unknown {
+  if (row === undefined || row === null) return null
   if (keyset.length === 1 && keyset[0]?.field === "id")
-    return cursorValueOf(meta, keyset[0], keysetValue(row, keyset[0]));
-  const tuple: Record<string, unknown> = {};
+    return cursorValueOf(meta, keyset[0], keysetValue(row, keyset[0]))
+
+  const tuple: Record<string, unknown> = {}
   for (const key of keyset) {
-    const value = cursorValueOf(meta, key, keysetValue(row, key));
-    if (value === undefined)
+    const value = cursorValueOf(meta, key, keysetValue(row, key))
+    if (value === undefined) {
       throw compileError(
         "ValidationError",
         `cursor: the raw row is missing "${key.field}" — the server returned no value for an orderBy field (a NONE keyset value can't build a cursor).`,
         { operation: "cursor", field: key.field },
-      );
-    tuple[key.field] = value;
+      )
+    }
+    tuple[key.field] = value
   }
-  return tuple;
+  return tuple
 }
 
 /**
  * The cursor's APP representation of a keyset value: a string-id record column returns the bare
  * string (`01M…`); everything else keeps the raw stored value (a `DateTime` keeps its nanoseconds).
  */
-function cursorValueOf(
-  meta: ModelMeta,
-  key: CursorKey,
-  value: unknown,
-): unknown {
-  if (!(value instanceof RecordId) || !isTableMeta(meta)) return value;
-  const column = meta.columns.get(baseColumn(key.field));
-  if (!column?.record?.stringIds) return value;
-  return bareIdValue(value.id);
+function cursorValueOf(meta: ModelMeta, key: CursorKey, value: unknown): unknown {
+  if (!(value instanceof RecordId) || !isTableMeta(meta)) return value
+  const column = meta.columns.get(baseColumn(key.field))
+  if (!column?.record?.stringIds) return value
+  return bareIdValue(value.id)
 }
 
 /**
@@ -395,47 +333,38 @@ function cursorValueOf(
  * path, falling back to the flat key a same-path `select` alias lands under.
  */
 function keysetValue(row: unknown, key: CursorKey): unknown {
-  if (key.alias !== undefined)
-    return isRecord(row) ? row[key.alias] : undefined;
-  const nested = readPath(row, pathSegments(key.field));
-  if (nested !== undefined) return nested;
-  return isRecord(row) ? row[key.field] : undefined;
+  if (key.alias !== undefined) return isRecord(row) ? row[key.alias] : undefined
+
+  const nested = readPath(row, pathSegments(key.field))
+  if (nested !== undefined) return nested
+  return isRecord(row) ? row[key.field] : undefined
 }
 
 /** Remove the reserved keyset aliases the compiler appended (they aren't part of the result). */
 function stripKeyset(row: unknown, keyset: readonly CursorKey[]): void {
-  if (!isRecord(row)) return;
-  for (const key of keyset) if (key.alias !== undefined) delete row[key.alias];
+  if (!isRecord(row)) return
+  for (const key of keyset) if (key.alias !== undefined) delete row[key.alias]
 }
 
 /** Read a dotted path off a raw row (`undefined` when an ancestor is missing or a scalar). */
 function readPath(value: unknown, segments: readonly string[]): unknown {
-  let current: unknown = value;
+  let current: unknown = value
   for (const segment of segments) {
-    if (!isRecord(current)) return undefined;
-    current = current[segment];
+    if (!isRecord(current)) return undefined
+    current = current[segment]
   }
-  return current;
+  return current
 }
 
 /** `findUnique`: target the record (id) or filter by the unique field, then take the one row. */
-function prepareUnique(
-  meta: ModelMeta,
-  ctx: DelegateContext,
-  args: ReadArgs,
-): PreparedRead {
-  const target = uniqueTarget(meta, args.where);
-  if (target.kind === "id")
-    return prepare(
-      meta,
-      ctx,
-      { ...args, where: undefined, only: true },
-      "findUnique",
-      {
-        resultMode: "one",
-        compile: { target: `ONLY ${escapeIdent(meta.name)}:${target.id}` },
-      },
-    );
+function prepareUnique(meta: ModelMeta, ctx: DelegateContext, args: ReadArgs): PreparedRead {
+  const target = uniqueTarget(meta, args.where)
+  if (target.kind === "id") {
+    return prepare(meta, ctx, { ...args, where: undefined, only: true }, "findUnique", {
+      resultMode: "one",
+      compile: { target: `ONLY ${escapeIdent(meta.name)}:${target.id}` },
+    })
+  }
   return prepare(
     meta,
     ctx,
@@ -450,19 +379,14 @@ function prepareUnique(
     },
     "findUnique",
     { one: true },
-  );
+  )
 }
 
 /** Run a prepared read (one round-trip) and decode its result. */
-async function runPrepared(
-  ctx: DelegateContext,
-  prepared: PreparedRead,
-): Promise<unknown> {
-  const hooks = ctx.hooks;
-  const first = prepared.statements[0]?.statement;
-  const meta = hooks
-    ? resolveMeta(ctx, prepared.context, prepared.hookMeta)
-    : undefined;
+async function runPrepared(ctx: DelegateContext, prepared: PreparedRead): Promise<unknown> {
+  const { hooks } = ctx,
+    first = prepared.statements[0]?.statement,
+    meta = hooks ? resolveMeta(ctx, prepared.context, prepared.hookMeta) : undefined
   return runWithHooks(
     hooks,
     {
@@ -479,10 +403,10 @@ async function runPrepared(
         debug: ctx.debug,
         logger: ctx.logger,
         ...contextOption(ctx, prepared.context),
-      });
-      return prepared.decode(out.rows);
+      })
+      return prepared.decode(out.rows)
     },
-  );
+  )
 }
 
 /** Run `EXPLAIN` for every prepared statement (ONE round-trip) — never the real query. */
@@ -501,7 +425,7 @@ async function explainPrepared(
     phase: "explain",
     logger: ctx.logger,
     ...contextOption(ctx, prepared.context),
-  });
+  })
   return {
     driver: "surrealdb",
     operation: prepared.operation,
@@ -512,7 +436,7 @@ async function explainPrepared(
       plan: out.rows[index],
     })),
     ignoredOptions: [],
-  };
+  }
 }
 
 /**
@@ -520,32 +444,24 @@ async function explainPrepared(
  * gets `.explain()` attached (which runs EXPLAIN without starting the real statement).
  */
 function finishRead(ctx: DelegateContext, prepared: PreparedRead): unknown {
-  if (prepared.explain) return explainPrepared(ctx, prepared);
+  if (prepared.explain) return explainPrepared(ctx, prepared)
   const result =
-    prepared.resultMode === "one"
-      ? throwingPrepared(ctx, prepared)
-      : lazyPrepared(ctx, prepared);
-  return attachExplain(result, () => explainPrepared(ctx, prepared));
+    prepared.resultMode === "one" ? throwingPrepared(ctx, prepared) : lazyPrepared(ctx, prepared)
+  return attachExplain(result, async () => explainPrepared(ctx, prepared))
 }
 
 /** A lazy read (runs on await). */
-function lazyPrepared(
-  ctx: DelegateContext,
-  prepared: PreparedRead,
-): Promise<unknown> {
-  return lazyResult(() => runPrepared(ctx, prepared));
+async function lazyPrepared(ctx: DelegateContext, prepared: PreparedRead): Promise<unknown> {
+  return lazyResult(async () => runPrepared(ctx, prepared))
 }
 
 /** A lazy read with `.throw()` attached (the miss carries `NotFoundInfo`). */
-function throwingPrepared(
-  ctx: DelegateContext,
-  prepared: PreparedRead,
-): ThrowingResult<unknown> {
+function throwingPrepared(ctx: DelegateContext, prepared: PreparedRead): ThrowingResult<unknown> {
   return attachThrow(lazyPrepared(ctx, prepared), () => ({
     table: prepared.meta.name,
     operation: prepared.operation,
     where: prepared.where,
     surql: prepared.statements[0]?.statement.sql,
     vars: ctx.debug ? prepared.statements[0]?.statement.vars : undefined,
-  }));
+  }))
 }

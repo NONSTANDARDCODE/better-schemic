@@ -1,5 +1,6 @@
-import { defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "FULLTEXT with no analyzer (SurrealDB's built-in `like`)",
@@ -8,4 +9,4 @@ export default example(import.meta.url, {
 DEFINE FIELD body ON TABLE doc3 TYPE string;
 DEFINE INDEX doc3_body_idx ON TABLE doc3 FIELDS body FULLTEXT;`,
   def: defineTable("doc3", { id: s.string(), body: s.string().$fulltext() }),
-});
+})

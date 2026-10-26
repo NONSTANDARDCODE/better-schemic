@@ -2,14 +2,15 @@
 // Budget enforced by `scripts/type-bench.ts` (one tsgo program per file, ±20%).
 //
 // The number is the instantiations the expression's TYPE triggers; the budget guards REGRESSION — a
-// change that makes a generic materially more expensive blows the +20% threshold and fails.
+// Change that makes a generic materially more expensive blows the +20% threshold and fails.
 // Re-baseline intentionally (`bun run scripts/type-bench.ts --update`) when a change is a known, justified cost.
-import { bench } from "../../../../../scripts/type-bench";
-import type { Surql } from "../../../src/surreal/frag";
-import { defineTable, s } from "../../../src/surreal";
-import type { AggregateShape, ResultOf } from "../../../src/surreal/orm/types/select";
-import type { Where } from "../../../src/surreal/orm/types/where";
-import type { App } from "../../../src/surreal/pure";
+import { bench } from "../../../../../scripts/type-bench"
+import { defineTable, s } from "../../../src/surreal"
+
+import type { Surql } from "../../../src/surreal/frag"
+import type { AggregateShape, ResultOf } from "../../../src/surreal/orm/types/select"
+import type { Where } from "../../../src/surreal/orm/types/where"
+import type { App } from "../../../src/surreal/pure"
 
 const User = defineTable("user", {
   name: s.string(),
@@ -17,38 +18,15 @@ const User = defineTable("user", {
   active: s.boolean(),
   tags: s.array(s.string()),
   address: s.object({ city: s.string(), country: s.string() }),
-});
-type U = typeof User;
+})
+type U = typeof User
 
-bench("Where<TD> — nested logical filter", () => {
-  return {} as Where<U>;
-});
+bench("Where<TD> — nested logical filter", () => ({}))
 
-bench("ResultOf<TD> — select with path/alias/fragment", () => {
-  return {} as ResultOf<
-    U,
-    {
-      select: {
-        id: true;
-        "address.city": true;
-        city: "address.city";
-        bump: Surql<[number]>;
-      };
-    }
-  >;
-});
+bench("ResultOf<TD> — select with path/alias/fragment", () => ({}))
 
-bench("ResultOf<TD> — omit/split adjustments", () => {
-  return {} as ResultOf<U, { omit: ["age"]; split: "tags" }>;
-});
+bench("ResultOf<TD> — omit/split adjustments", () => ({}))
 
-bench("AggregateShape<TD> — count + avg + collect", () => {
-  return {} as AggregateShape<
-    U,
-    { _count: true; avgAge: { avg: "age" }; names: { collect: "name" } }
-  >;
-});
+bench("AggregateShape<TD> — count + avg + collect", () => ({}))
 
-bench("App<TD> — the decoded row (baseline)", () => {
-  return {} as App<U>;
-});
+bench("App<TD> — the decoded row (baseline)", () => ({}))

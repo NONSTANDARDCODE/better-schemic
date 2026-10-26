@@ -14,68 +14,72 @@
  * The bind map is SHARED across every statement of one operation, so names never collide when the
  * executor merges a batch (`paginate` compiles its two statements into one round-trip).
  */
-import { BoundQuery, RecordId, type RecordIdValue } from "surrealdb";
+import { BoundQuery, RecordId } from "surrealdb"
 import {
+  
   escapeIdentSafe as escapeIdent,
-  type RecordIdParts,
   splitRecordId,
-  unescapeIdPart,
+  unescapeIdPart
 } from "../../ident";
-
-// The record-id parser lives in the neutral `ident` module (shared with the authoring codec);
-// re-exported here so the compiler modules keep their single import site.
-export { type RecordIdParts, splitRecordId };
+import type {RecordIdParts} from "../../ident";
 
 import {
-  type Ctx,
+  
+  
   fragOf,
   hasRefDeep,
   isParamRef,
   isRange,
   mergeRaw,
   paramDefName,
-  type Range,
   refState,
   rejectDefValue,
   renderData,
-  renderRef,
+  renderRef
 } from "../../pure";
+import type {Ctx, Range} from "../../pure";
 import {
-  BetterSchemicError,
-  type BetterSchemicErrorCode,
-  type BetterSchemicErrorOptions,
+  BetterSchemicError
+  
+  
 } from "../errors";
+import type {BetterSchemicErrorCode, BetterSchemicErrorOptions} from "../errors";
 import type { ModelMeta, TableMeta } from "../meta";
+import type {RecordIdValue} from "surrealdb";
+
+// The record-id parser lives in the neutral `ident` module (shared with the authoring codec);
+// Re-exported here so the compiler modules keep their single import site.
+export { type RecordIdParts, splitRecordId }
 
 /** The bind accumulator one compiled operation carries. */
 export interface Binds {
   /** The bindings collected so far (what the executor passes as `vars`). */
-  readonly vars: Record<string, unknown>;
+  readonly vars: Record<string, unknown>
   /** Bind a value under a fresh `$p<n>` and return its reference text. */
-  add(value: unknown): string;
+  add: (value: unknown) => string
   /** A lowering {@link Ctx} over this bind map (`row` sets the current row token for `$parent`). */
-  ctx(row?: symbol): Ctx;
+  ctx: (row?: symbol) => Ctx
 }
 
 /** Create a fresh {@link Binds} (`$<prefix>0`, `$<prefix>1`, … in call order). */
 export function createBinds(prefix = "p"): Binds {
-  const vars: Record<string, unknown> = {};
-  let next = 0;
+  const vars: Record<string, unknown> = {}
+  let next = 0
   return {
     vars,
     add(value) {
       // Skip names a merged fragment already claimed: `mergeRaw` writes into the SAME vars map, so
-      // handing out an existing name would silently overwrite the fragment's bind.
-      let name: string;
+      // Handing out an existing name would silently overwrite the fragment's bind.
+      let name: string
       do name = `${prefix}${next++}`;
-      while (name in vars);
-      vars[name] = value;
-      return `$${name}`;
+      } while (name in vars)
+      vars[name] = value
+      return `$${name}`
     },
     ctx(row) {
-      return row === undefined ? { vars } : { vars, row };
+      return row === undefined ? { vars } : { vars, row }
     },
-  };
+  }
 }
 
 /** Build a compiler failure — every one carries a `code` the caller can branch on. */
@@ -84,7 +88,7 @@ export function compileError(
   message: string,
   options: BetterSchemicErrorOptions = {},
 ): BetterSchemicError {
-  return new BetterSchemicError(code, message, options);
+  return new BetterSchemicError(code, message, options)
 }
 
 /** Is this a fragment/ref/param value the lowering primitives must handle instead of binding? */
@@ -96,7 +100,7 @@ export function isLowerableValue(v: unknown): boolean {
     refState(v) !== undefined ||
     paramDefName(v) !== undefined ||
     fragOf(v) !== undefined
-  );
+  )
 }
 
 /**
@@ -106,63 +110,57 @@ export function isLowerableValue(v: unknown): boolean {
 export function renderValue(value: unknown, binds: Binds, ctx: Ctx): string {
   if (isParamRef(value)) return value.toText();
   if (isRange(value)) return renderRange(value, binds, ctx);
-  const param = paramDefName(value);
+  const param = paramDefName(value)
   if (param !== undefined) return `$${param}`;
-  const ref = refState(value);
+  const ref = refState(value)
   if (ref) return renderRef(ref, ctx);
   if (value instanceof BoundQuery) return `(${mergeRaw(value, ctx.vars)})`;
-  const frag = fragOf(value);
+  const frag = fragOf(value)
   if (frag) return mergeRaw(frag, ctx.vars);
   if (hasRefDeep(value)) return renderData(value, ctx);
-  rejectDefValue(value);
-  return binds.add(value);
+  rejectDefValue(value)
+  return binds.add(value)
 }
 
 /** Render a {@link Range} with the compiler's `$p<n>` binds (`a..b` / `a..=b`, either end open). */
 function renderRange(r: Range, binds: Binds, ctx: Ctx): string {
   const start = r.start
-    ? `${renderValue(r.start.value, binds, ctx)}${r.start.exclusive ? ">" : ""}`
-    : "";
-  const end = r.end
-    ? `${r.end.exclusive ? "" : "="}${renderValue(r.end.value, binds, ctx)}`
-    : "";
-  return `${start}..${end}`;
+      ? `${renderValue(r.start.value, binds, ctx)}${r.start.exclusive ? ">" : ""}`
+      : "",
+    end = r.end ? `${r.end.exclusive ? "" : "="}${renderValue(r.end.value, binds, ctx)}` : ""
+  return `${start}..${end}`
 }
 
 /**
  * Splice a fragment BARE (no parens) — for clause positions where a parenthesized expression is a
  * parse error (e.g. `ORDER BY (expr)`). Returns `undefined` when the value isn't a fragment.
  */
-export function renderBareFragment(
-  value: unknown,
-  binds: Binds,
-): string | undefined {
+export function renderBareFragment(value: unknown, binds: Binds): string | undefined {
   if (value instanceof BoundQuery) return mergeRaw(value, binds.vars);
-  const frag = fragOf(value);
-  return frag ? mergeRaw(frag, binds.vars) : undefined;
+  const frag = fragOf(value)
+  return frag ? mergeRaw(frag, binds.vars) : undefined
 }
 
 /** One path segment: a base name plus only `[<digits>]`/`[*]` suffixes. */
-const SEGMENT = /^([^[\]]+)((?:\[\d+\]|\[\*\])*)$/;
-
-/**
- * Path derivations are MEMOIZED: the same field paths (`age`, `meta.city`, `contacts[*].type`)
- * recur on every query, and `renderPath`/`pathSegments` otherwise re-split + re-regex each call —
- * a measurable share of read compilation (~5% of a findMany profile). Bounded: a long-lived app
- * with dynamically-built paths can't grow the maps without limit.
- */
-const PATH_CACHE_MAX = 4000;
+const PATH_CACHE_MAX = 4000,
+  /**
+   * Path derivations are MEMOIZED: the same field paths (`age`, `meta.city`, `contacts[*].type`)
+   * recur on every query, and `renderPath`/`pathSegments` otherwise re-split + re-regex each call —
+   * a measurable share of read compilation (~5% of a findMany profile). Bounded: a long-lived app
+   * with dynamically-built paths can't grow the maps without limit.
+   */
+  SEGMENT = /^([^[\]]+)((?:\[\d+\]|\[\*\])*)$/
 function memoPath<V>(cache: Map<string, V>, path: string, compute: () => V): V {
-  const hit = cache.get(path);
+  const hit = cache.get(path)
   if (hit !== undefined) return hit;
-  const value = compute();
+  const value = compute()
   if (cache.size >= PATH_CACHE_MAX) cache.clear();
-  cache.set(path, value);
-  return value;
+  cache.set(path, value)
+  return value
 }
-const RENDER_PATH_CACHE = new Map<string, string>();
-const SEGMENTS_CACHE = new Map<string, readonly string[]>();
-const ARRAY_PATH_CACHE = new Map<string, boolean>();
+const RENDER_PATH_CACHE = new Map<string, string>(),
+  SEGMENTS_CACHE = new Map<string, readonly string[]>(),
+  ARRAY_PATH_CACHE = new Map<string, boolean>()
 
 /**
  * Escape a field PATH as an identifier chain: each dot-separated segment's base is escaped
@@ -170,43 +168,45 @@ const ARRAY_PATH_CACHE = new Map<string, boolean>();
  * pass, `contacts[abc]` is a teaching `ValidationError` (silently quoting it would hide the typo).
  */
 export function renderPath(path: string): string {
-  if (typeof path !== "string" || path.length === 0)
+  if (typeof path !== "string" || path.length === 0) {
     throw compileError(
       "ValidationError",
       `a field path must be a non-empty string (got ${typeof path}).`,
-    );
+    )
+  }
   return memoPath(RENDER_PATH_CACHE, path, () =>
     path
       .split(".")
       .map((segment) => {
-        const match = SEGMENT.exec(segment);
-        if (!match)
+        const match = SEGMENT.exec(segment)
+        if (!match) {
           throw compileError(
             "ValidationError",
             `field path "${path}" has an invalid segment "${segment}" — only [<n>] and [*] indexes are allowed.`,
             { field: path },
-          );
-        return `${escapeIdent(match[1] as string)}${match[2]}`;
+          )
+        }
+        return `${escapeIdent(match[1])}${match[2]}`
       })
       .join("."),
-  );
+  )
 }
 
 /** Does this path end in an array projection (`[*]`) — i.e. its value is an ARRAY, not a scalar? */
 export function isArrayPath(path: string): boolean {
   return memoPath(ARRAY_PATH_CACHE, path, () =>
     path.split(".").some((segment) => segment.includes("[*]")),
-  );
+  )
 }
 
 /** AND-join already-compiled fragments (assumes non-empty). */
 export function joinAnd(parts: readonly string[]): string {
-  return parts.join(" AND ");
+  return parts.join(" AND ")
 }
 
 /** AND-join inside explicit parens — used for nested logical groups. */
 export function paren(part: string): string {
-  return `(${part})`;
+  return `(${part})`
 }
 
 // --- canonical arg guards / schema metadata -------------------------------------------------------
@@ -214,11 +214,11 @@ export function paren(part: string): string {
 /** The args every read op rejects (removed or renamed in the M1 surface). */
 export interface RemovedArgs {
   /** Removed: SurrealDB 3.2 rejects PARALLEL (parse error). */
-  parallel?: unknown;
+  parallel?: unknown
   /** Renamed to `limit`. */
-  take?: unknown;
+  take?: unknown
   /** Renamed to `start`. */
-  skip?: unknown;
+  skip?: unknown
 }
 
 /**
@@ -227,168 +227,161 @@ export interface RemovedArgs {
  * The ONE place this rule lives — every read compiler calls it.
  */
 export function rejectRemovedArgs(args: RemovedArgs, operation: string): void {
-  if (args.parallel !== undefined)
+  if (args.parallel !== undefined) {
     throw compileError(
       "UnsupportedCapability",
       `${operation}: "parallel" was removed — SurrealDB 3.2 rejects PARALLEL (parse error). Use $raw/$query if a future server supports it.`,
       { operation },
-    );
-  if (args.take !== undefined)
+    )
+  }
+  if (args.take !== undefined) {
     throw compileError(
       "ValidationError",
       `${operation}: "take" was renamed — use "limit" (take is not part of the surface).`,
       { operation },
-    );
-  if (args.skip !== undefined)
+    )
+  }
+  if (args.skip !== undefined) {
     throw compileError(
       "ValidationError",
       `${operation}: "skip" was renamed — use "start" (skip is not part of the surface).`,
       { operation },
-    );
+    )
+  }
 }
 
 /** A typed table/edge meta (vs. a schemaless entry). */
 export function isTableMeta(meta: ModelMeta): meta is TableMeta {
-  return !("schemaless" in meta);
+  return !("schemaless" in meta)
 }
 
 /** The single-field UNIQUE indexes of a table (precomputed at index build; empty for schemaless). */
 export function uniqueFields(meta: ModelMeta): readonly string[] {
   if (!isTableMeta(meta)) return [];
-  return meta.uniqueFields;
+  return meta.uniqueFields
 }
 
 /** A path string -> its segments, brackets stripped (`contacts[*].type` -> `contacts.type`). */
 export function pathSegments(path: string): readonly string[] {
   return memoPath(SEGMENTS_CACHE, path, () =>
-    path.split(".").map((segment) => segment.replace(/\[\d+\]|\[\*\]/g, "")),
-  );
+    path.split(".").map((segment) => segment.replaceAll(/\[\d+\]|\[\*\]/g, "")),
+  )
 }
 
 /** The base COLUMN of a field path — brackets and nested segments stripped (`products[*].ref` ->
  *  `products`, `ref` -> `ref`). The ONE place a path resolves to its `TableMeta.columns` key. */
 export function baseColumn(path: string): string {
-  return path.replace(/\[.*$/, "");
+  return path.replace(/\[.*$/, "")
 }
 
 /** Normalize a single-or-list field-path arg (`groupBy`, `split`-adjacent lists). */
-export function pathList(
-  value: unknown,
-  name: string,
-  operation?: string,
-): readonly string[] {
+export function pathList(value: unknown, name: string, operation?: string): readonly string[] {
   if (value === undefined || value === null) return [];
-  const entries = Array.isArray(value) ? value : [value];
-  for (const entry of entries)
-    if (typeof entry !== "string" || !entry)
+  const entries = Array.isArray(value) ? value : [value]
+  for (const entry of entries) {
+    if (typeof entry !== "string" || !entry) {
       throw compileError(
         "ValidationError",
         `${operation ? `${operation}: ` : ""}${name} entries must be field paths, got ${describeValue(entry)}.`,
         operation ? { operation } : {},
-      );
-  return entries as readonly string[];
+      )
+    }
+  }
+  return entries as readonly string[]
 }
 
 /** A non-negative integer arg (LIMIT/START), bound as `$p<n>` by the caller. */
-export function nonNegativeInt(
-  value: unknown,
-  name: string,
-  operation: string,
-): number {
-  if (!Number.isInteger(value) || (value as number) < 0)
+export function nonNegativeInt(value: unknown, name: string, operation: string): number {
+  if (!Number.isInteger(value) || (value as number) < 0) {
     throw compileError(
       "ValidationError",
       `${operation}: ${name} must be a non-negative integer (got ${describeValue(value)}).`,
       { operation },
-    );
-  return value as number;
+    )
+  }
+  return value as number
 }
 
 /** A positive integer arg (page sizes). */
-export function positiveInt(
-  value: unknown,
-  name: string,
-  operation: string,
-): number {
-  if (!Number.isInteger(value) || (value as number) <= 0)
+export function positiveInt(value: unknown, name: string, operation: string): number {
+  if (!Number.isInteger(value) || (value as number) <= 0) {
     throw compileError(
       "ValidationError",
       `${operation}: ${name} must be a positive integer (got ${describeValue(value)}).`,
       { operation },
-    );
-  return value as number;
+    )
+  }
+  return value as number
 }
 
 // --- targets --------------------------------------------------------------------------------------
 
 /** The `FROM` target of a record range: `table:1..=2` (bounds validated + escaped). */
-export function rangeTarget(
-  meta: ModelMeta,
-  range: unknown,
-  operation: string,
-): string {
-  if (!isPlainObject(range))
+export function rangeTarget(meta: ModelMeta, range: unknown, operation: string): string {
+  if (!isPlainObject(range)) {
     throw compileError(
       "ValidationError",
       `${operation}: range must be { start, end, inclusive? }, got ${describeValue(range)}.`,
       { operation },
-    );
-  const start = recordIdSuffix(meta.name, range.start, "start", operation);
-  const end = recordIdSuffix(meta.name, range.end, "end", operation);
-  const eq = range.inclusive === true ? "=" : "";
-  return `${escapeIdent(meta.name)}:${start}..${eq}${end}`;
+    )
+  }
+  const start = recordIdSuffix(meta.name, range.start, "start", operation),
+    end = recordIdSuffix(meta.name, range.end, "end", operation),
+    eq = range.inclusive === true ? "=" : ""
+  return `${escapeIdent(meta.name)}:${start}..${eq}${end}`
 }
 
 // --- clause fragments shared by the read compilers -------------------------------------------------
 
 /** `WITH INDEX a, b` / `WITH NOINDEX`. */
 export function compileWithClause(withArg: unknown, operation: string): string {
-  if (!isPlainObject(withArg))
+  if (!isPlainObject(withArg)) {
     throw compileError(
       "ValidationError",
       `${operation}: with must be { index } or { noIndex: true }, got ${describeValue(withArg)}.`,
       { operation },
-    );
-  const noIndex = withArg.noIndex === true;
-  const index = withArg.index;
-  if (noIndex && index !== undefined)
+    )
+  }
+  const noIndex = withArg.noIndex === true,
+    { index } = withArg
+  if (noIndex && index !== undefined) {
     throw compileError(
       "ClauseNotSupported",
       `${operation}: with.index and with.noIndex are mutually exclusive.`,
       { operation },
-    );
+    )
+  }
   if (noIndex) return "WITH NOINDEX";
-  if (index === undefined)
+  if (index === undefined) {
     throw compileError(
       "ValidationError",
       `${operation}: with needs "index" (a name or list) or "noIndex: true".`,
       { operation },
-    );
-  const names = Array.isArray(index) ? index : [index];
-  if (names.length === 0 || names.some((n) => typeof n !== "string" || !n))
+    )
+  }
+  const names = Array.isArray(index) ? index : [index]
+  if (names.length === 0 || names.some((n) => typeof n !== "string" || !n)) {
     throw compileError(
       "ValidationError",
       `${operation}: with.index must be a non-empty name or list of names.`,
       { operation },
-    );
-  return `WITH INDEX ${names.map((n) => escapeIdent(n as string)).join(", ")}`;
+    )
+  }
+  return `WITH INDEX ${names.map((n) => escapeIdent(n as string)).join(", ")}`
 }
 
 /** `VERSION d'…'` — a datetime literal (binds are not accepted in VERSION). */
 export function datetimeLiteral(value: unknown, operation: string): string {
   const iso =
-    value instanceof Date
-      ? value.toISOString()
-      : typeof value === "string"
-        ? value
-        : undefined;
-  if (iso === undefined || !/^\d{4}-\d{2}-\d{2}(?:T[\d:.]+Z?)?$/.test(iso))
+    value instanceof Date ? value.toISOString() : typeof value === "string" ? value : undefined
+  if (iso === undefined || !/^\d{4}-\d{2}-\d{2}(?:T[\d:.]+Z?)?$/.test(iso)) {
     throw compileError(
       "ValidationError",
       `${operation}: version must be a Date or an ISO-8601 string (got ${describeValue(value)}).`,
       { operation },
-    );
-  return `d'${iso}'`;
+    )
+  }
+  return `d'${iso}'`
 }
 
 /** SurrealDB duration units → milliseconds (the ONE unit table). */
@@ -403,7 +396,7 @@ const DURATION_MS: Record<string, number> = {
   d: 8.64e7,
   w: 6.048e8,
   y: 3.1536e10,
-};
+}
 
 /**
  * Parse a duration to milliseconds: a finite, non-negative number is ms; a string needs a unit
@@ -411,47 +404,48 @@ const DURATION_MS: Record<string, number> = {
  */
 export function parseDurationMs(value: unknown, operation: string): number {
   if (typeof value === "number") {
-    if (!Number.isFinite(value) || value < 0)
+    if (!Number.isFinite(value) || value < 0) {
       throw compileError(
         "ValidationError",
         `${operation}: timeout (ms) must be a finite, non-negative number (got ${value}).`,
         { operation },
-      );
-    return value;
+      )
+    }
+    return value
   }
   if (typeof value === "string") {
-    const match = /^(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h|d|w|y)$/.exec(value);
-    if (match)
-      return Number(match[1]) * (DURATION_MS[match[2] as string] as number);
+    const match = /^(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h|d|w|y)$/.exec(value)
+    if (match) {
+      return Number(match[1]) * DURATION_MS[match[2]]
+    }
   }
   throw compileError(
     "ValidationError",
     `${operation}: timeout must be milliseconds (number) or a duration string like "30s" (got ${describeValue(value)}).`,
     { operation },
-  );
+  )
 }
 
 /** `TIMEOUT 10s` — a duration literal; a number is milliseconds. */
 export function durationLiteral(value: unknown, operation: string): string {
   if (typeof value === "number") {
-    if (!Number.isFinite(value) || value < 0)
+    if (!Number.isFinite(value) || value < 0) {
       throw compileError(
         "ValidationError",
         `${operation}: timeout (ms) must be a finite, non-negative number (got ${value}).`,
         { operation },
-      );
-    return `${value}ms`;
+      )
+    }
+    return `${value}ms`
   }
-  if (
-    typeof value === "string" &&
-    /^\d+(?:\.\d+)?(?:ns|us|µs|ms|s|m|h|d|w|y)$/.test(value)
-  )
-    return value;
+  if (typeof value === "string" && /^\d+(?:\.\d+)?(?:ns|us|µs|ms|s|m|h|d|w|y)$/.test(value)) {
+    return value
+  }
   throw compileError(
     "ValidationError",
     `${operation}: timeout must be milliseconds (number) or a duration string like "10s" (got ${describeValue(value)}).`,
     { operation },
-  );
+  )
 }
 
 /** The `<id>` part of a record id (`users:1` -> `1`), validated against the delegate's table. */
@@ -467,12 +461,12 @@ export function recordIdSuffix(
       fallbackTable: tableName,
       what: `range.${side} record id`,
     }).id,
-  );
+  )
 }
 
 /** Quote an id part only when it isn't a bare identifier/number. */
 export function escapeRecordIdPart(id: string): string {
-  return /^[A-Za-z_][A-Za-z0-9_]*$|^\d+$/.test(id) ? id : escapeIdent(id);
+  return /^[A-Za-z_][A-Za-z0-9_]*$|^\d+$/.test(id) ? id : escapeIdent(id)
 }
 
 // --- record ids — ONE parser per rule ------------------------------------------------------------
@@ -486,43 +480,46 @@ export function recordIdParts(
   operation: string,
   options: {
     /** Accept a bare id by attributing it to this table. */
-    readonly fallbackTable?: string;
+    readonly fallbackTable?: string
     /** Require an explicit `table:` prefix to name this table. */
-    readonly table?: string;
-    readonly field?: string;
-    readonly what?: string;
+    readonly table?: string
+    readonly field?: string
+    readonly what?: string
   } = {},
 ): RecordIdParts {
-  const what = options.what ?? "record id";
-  const context = {
-    operation,
-    ...(options.table ? { table: options.table } : {}),
-    ...(options.field ? { field: options.field } : {}),
-  };
-  const text = String(value ?? "");
-  if (!text)
+  const what = options.what ?? "record id",
+    context = {
+      operation,
+      ...(options.table ? { table: options.table } : {}),
+      ...(options.field ? { field: options.field } : {}),
+    },
+    text = String(value ?? "")
+  if (!text) {
     throw compileError(
       "ValidationError",
       `${operation}: a ${what} must be non-empty (e.g. "${options.fallbackTable ?? options.table ?? "table"}:1").`,
       context,
-    );
-  const parts = splitRecordId(text);
+    )
+  }
+  const parts = splitRecordId(text)
   if (!parts) {
-    if (options.fallbackTable === undefined)
+    if (options.fallbackTable === undefined) {
       throw compileError(
         "ValidationError",
         `${operation}: a ${what} must be "table:id" (got ${describeValue(value)}).`,
         context,
-      );
-    return { table: options.fallbackTable, id: unescapeIdPart(text) };
+      )
+    }
+    return { table: options.fallbackTable, id: unescapeIdPart(text) }
   }
-  if (options.table !== undefined && parts.table !== options.table)
+  if (options.table !== undefined && parts.table !== options.table) {
     throw compileError(
       "ValidationError",
       `${operation}: "${text}" is a "${parts.table}" record id, but this delegate targets "${options.table}".`,
       context,
-    );
-  return { table: parts.table, id: unescapeIdPart(parts.id) };
+    )
+  }
+  return { table: parts.table, id: unescapeIdPart(parts.id) }
 }
 
 /**
@@ -535,48 +532,51 @@ export function coerceRecordId(
   operation: string,
   options: {
     /** Reject a record id naming another table. */
-    readonly table?: string;
+    readonly table?: string
     /** Accept a bare id value as this table's. */
-    readonly fallbackTable?: string;
-    readonly field?: string;
-    readonly what?: string;
+    readonly fallbackTable?: string
+    readonly field?: string
+    readonly what?: string
   } = {},
 ): RecordId {
   if (value instanceof RecordId) return value;
-  const what = options.what ?? "record id";
-  const context = {
-    operation,
-    ...(options.table ? { table: options.table } : {}),
-    ...(options.field ? { field: options.field } : {}),
-  };
+  const what = options.what ?? "record id",
+    context = {
+      operation,
+      ...(options.table ? { table: options.table } : {}),
+      ...(options.field ? { field: options.field } : {}),
+    }
   if (typeof value === "string") {
-    const parts = splitRecordId(value);
+    const parts = splitRecordId(value)
     if (parts) {
-      if (options.table !== undefined && parts.table !== options.table)
+      if (options.table !== undefined && parts.table !== options.table) {
         throw compileError(
           "ValidationError",
           `${operation}: "${value}" is a "${parts.table}" record id, but this field targets "${options.table}".`,
           context,
-        );
-      return new RecordId(parts.table, unescapeIdPart(parts.id));
+        )
+      }
+      return new RecordId(parts.table, unescapeIdPart(parts.id))
     }
-    const table = options.fallbackTable ?? options.table;
-    if (table === undefined)
+    const table = options.fallbackTable ?? options.table
+    if (table === undefined) {
       throw compileError(
         "ValidationError",
         `${operation}: a ${what} must be "table:id" (got ${describeValue(value)}).`,
         context,
-      );
-    return new RecordId(table, unescapeIdPart(value));
+      )
+    }
+    return new RecordId(table, unescapeIdPart(value))
   }
-  const table = options.fallbackTable ?? options.table;
-  if (table === undefined)
+  const table = options.fallbackTable ?? options.table
+  if (table === undefined) {
     throw compileError(
       "ValidationError",
       `${operation}: a ${what} must be "table:id" (got ${describeValue(value)}).`,
       context,
-    );
-  return new RecordId(table, value as RecordIdValue);
+    )
+  }
+  return new RecordId(table, value as RecordIdValue)
 }
 
 /**
@@ -590,24 +590,25 @@ export function coerceRecordValue(
   operation: string,
   field: string,
 ): unknown {
-  if (Array.isArray(value))
-    return value.map((entry) =>
-      coerceRecordValue(entry, targets, operation, field),
-    );
+  if (Array.isArray(value)) {
+    return value.map((entry) => coerceRecordValue(entry, targets, operation, field))
+  }
   if (value instanceof RecordId) return value;
   if (typeof value === "string") {
-    const parts = splitRecordId(value);
+    const parts = splitRecordId(value)
     if (parts) {
-      if (targets && targets.length > 0 && !targets.includes(parts.table))
+      if (targets && targets.length > 0 && !targets.includes(parts.table)) {
         throw compileError(
           "ValidationError",
           `${operation}: "${value}" is a "${parts.table}" record id, but "${field}" targets ${targets.join(" | ")}.`,
           { field },
-        );
-      return new RecordId(parts.table, unescapeIdPart(parts.id));
+        )
+      }
+      return new RecordId(parts.table, unescapeIdPart(parts.id))
     }
-    if (targets?.length === 1)
-      return new RecordId(targets[0] as string, unescapeIdPart(value));
+    if (targets?.length === 1) {
+      return new RecordId(targets[0], unescapeIdPart(value))
+    }
     throw compileError(
       "ValidationError",
       `${operation}: "${value}" is a bare id, but "${field}" ${
@@ -616,35 +617,30 @@ export function coerceRecordValue(
           : `targets multiple tables (${targets.join(" | ")}) — pass "table:id"`
       }.`,
       { field },
-    );
+    )
   }
   if (typeof value === "number" || typeof value === "bigint") {
-    if (targets?.length === 1) return new RecordId(targets[0] as string, value);
+    if (targets?.length === 1) return new RecordId(targets[0], value);
     throw compileError(
       "ValidationError",
       `${operation}: a numeric id on "${field}" needs a single target table.`,
       { field },
-    );
+    )
   }
-  return value;
+  return value
 }
 
 /** The target tables of a record column (`id` included); `undefined` = any/not a record column. */
-export function recordTargets(
-  meta: ModelMeta,
-  field: string,
-): readonly string[] | undefined {
+export function recordTargets(meta: ModelMeta, field: string): readonly string[] | undefined {
   if (field === "id") return [meta.name];
-  return isTableMeta(meta)
-    ? meta.columns.get(field)?.record?.targets
-    : undefined;
+  return isTableMeta(meta) ? meta.columns.get(field)?.record?.targets : undefined
 }
 
 /** A plain data object (not a class instance). */
 export function isPlainObject(v: unknown): v is Record<string, unknown> {
   if (v === null || typeof v !== "object") return false;
-  const proto = Object.getPrototypeOf(v);
-  return proto === Object.prototype || proto === null;
+  const proto = Object.getPrototypeOf(v)
+  return proto === Object.prototype || proto === null
 }
 
 /** Short, safe rendering of a value for teaching messages. */
@@ -654,8 +650,8 @@ export function describeValue(v: unknown): string {
   if (v instanceof Date) return v.toISOString();
   if (v instanceof RecordId) return `"${v}"`;
   if (typeof v === "object") {
-    const ctor = v.constructor?.name;
-    return ctor && ctor !== "Object" ? ctor : "{…}";
+    const ctor = v.constructor?.name
+    return ctor && ctor !== "Object" ? ctor : "{…}"
   }
-  return JSON.stringify(v) ?? String(v);
+  return JSON.stringify(v) ?? String(v)
 }

@@ -1,70 +1,70 @@
 // Dispatch for DRIVER-CONTRIBUTED CLI commands — `sc <kind> <verb> [args]` (e.g. surreal
 // `sc access rotate <name>`). Core owns ONLY this mechanism:
-// it discovers `driver.commands`, registers each under its kind, parses argv, resolves the connection,
-// and dispatches to `command.run` with a CommandContext. The driver owns each kind/verb's meaning.
+// It discovers `driver.commands`, registers each under its kind, parses argv, resolves the connection,
+// And dispatches to `command.run` with a CommandContext. The driver owns each kind/verb's meaning.
 //
 // Driver commands are DISCOVERED LAZILY: the driver is loaded from the project's config, so this
-// registration runs (async) before `program.parse()`. With no config (e.g. `sc init`), it no-ops.
+// Registration runs (async) before `program.parse()`. With no config (e.g. `sc init`), it no-ops.
 
-import { createInterface } from "node:readline/promises";
-import {
-  type CommandContext,
-  type CommandIo,
-  type DriverCommand,
-  envSecretProvider,
-  fail,
-  getDriver,
-  loadProject,
-  ok,
-  type ParsedCommandArgs,
-  style,
-} from "../core";
-import type { Command } from "commander";
-import { runAction } from "./action";
-import { registerInspectVerbs } from "./inspect";
-import { assertDriverAvailable, type ResolveOpts, resolveOne } from "./resolve";
+import { createInterface } from "node:readline/promises"
+
+import { envSecretProvider, fail, getDriver, loadProject, ok, style } from "../core"
+
+import { runAction } from "./action"
+import { registerInspectVerbs } from "./inspect"
+import { assertDriverAvailable, resolveOne } from "./resolve"
+
+import type { CommandContext, CommandIo, DriverCommand, ParsedCommandArgs } from "../core"
+import type { ResolveOpts } from "./resolve"
+import type { Command } from "commander"
 
 /** Stdio + prompt helpers handed to a command, so a driver never touches stdio directly. */
 const io: CommandIo = {
-  ok: (m) => console.log(ok(m)),
-  fail: (m) => console.error(fail(m)),
-  info: (m) => console.log(m),
+  ok: (m) => {
+    console.log(ok(m))
+  },
+  fail: (m) => {
+    console.error(fail(m))
+  },
+  info: (m) => {
+    console.log(m)
+  },
   async prompt(question, opts) {
-    if (!process.stdin.isTTY)
+    if (!process.stdin.isTTY) {
       throw new Error(
         `"${question}" needs an interactive terminal (no value was provided non-interactively)`,
-      );
+      )
+    }
     const rl = createInterface({
       input: process.stdin,
       output: process.stdout,
-    });
+    })
     try {
       // `hidden` masks typed input (e.g. a password) so it never echoes to the screen.
       if (opts?.hidden) {
-        const out = process.stdout;
-        const onData = () => out.write("[2K\r");
-        process.stdin.on("data", onData);
+        const out = process.stdout,
+          onData = () => out.write("[2K\r")
+        process.stdin.on("data", onData)
         try {
-          return (await rl.question(`${question} `)).trim();
+          return (await rl.question(`${question} `)).trim()
         } finally {
-          process.stdin.off("data", onData);
+          process.stdin.off("data", onData)
         }
       }
-      return (await rl.question(`${question} `)).trim();
+      return (await rl.question(`${question} `)).trim()
     } finally {
-      rl.close();
+      rl.close()
     }
   },
-};
+}
 
 /** Pre-scan argv for `-c`/`--config <path>` so registration loads the right project's driver. */
 function configFromArgv(argv: string[]): string | undefined {
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === "-c" || argv[i] === "--config") return argv[i + 1];
-    if (argv[i].startsWith("--config="))
-      return argv[i].slice("--config=".length);
+    if (argv[i] === "-c" || argv[i] === "--config") return argv[i + 1]
+    if (argv[i].startsWith("--config=")) return argv[i].slice("--config=".length)
   }
-  return undefined;
+  return undefined
 }
 
 /**
@@ -77,59 +77,52 @@ export function toParsedArgs(
   positionals: string[],
   opts: Record<string, unknown>,
 ): ParsedCommandArgs {
-  const flags: ParsedCommandArgs["flags"] = {};
+  const flags: ParsedCommandArgs["flags"] = {}
   for (const f of cmd.args?.flags ?? []) {
-    const v = opts[f.name];
-    flags[f.name] = f.value
-      ? (v as string | undefined)
-      : (v as boolean) === true;
+    const v = opts[f.name]
+    flags[f.name] = f.value ? (v as string | undefined) : (v as boolean)
     if (f.required && (v === undefined || v === false))
-      throw new Error(`\`sc ${cmd.kind} ${cmd.verb}\` requires --${f.name}`);
+      throw new Error(`\`sc ${cmd.kind} ${cmd.verb}\` requires --${f.name}`)
   }
-  return { positionals, flags };
+  return { positionals, flags }
 }
 
 /** Register one driver command as `sc <kind> <verb>` under its (shared) kind group. */
-function addCommand(
-  kindGroup: Command,
-  cmd: DriverCommand,
-  resolveOpts: () => ResolveOpts,
-): void {
+function addCommand(kindGroup: Command, cmd: DriverCommand, resolveOpts: () => ResolveOpts): void {
   // Positionals are always collected raw (variadic) and the DRIVER validates arity; the declared
   // `args.positionals` shape only feeds the usage line + help.
   const usage = (cmd.args?.positionals ?? [])
-    .map((p) => (p.required ? `<${p.name}>` : `[${p.name}]`))
-    .join(" ");
-  const verb = kindGroup
-    .command(`${cmd.verb} [args...]`)
-    .summary(cmd.summary)
-    .description(usage ? `${cmd.summary}\n\nArguments: ${usage}` : cmd.summary);
+      .map((p) => (p.required ? `<${p.name}>` : `[${p.name}]`))
+      .join(" "),
+    verb = kindGroup
+      .command(`${cmd.verb} [args...]`)
+      .summary(cmd.summary)
+      .description(usage ? `${cmd.summary}\n\nArguments: ${usage}` : cmd.summary)
 
   for (const f of cmd.args?.flags ?? []) {
-    const flag = f.value ? `--${f.name} <value>` : `--${f.name}`;
-    verb.option(flag, f.help ?? "");
+    const flag = f.value ? `--${f.name} <value>` : `--${f.name}`
+    verb.option(flag, f.help ?? "")
   }
 
-  verb.action((args: string[], opts: Record<string, unknown>) =>
+  verb.action((args: string[], opts: Record<string, unknown>) => {
     runAction(async () => {
-      const parsed = toParsedArgs(cmd, args, opts);
-
-      const config = await resolveOne(resolveOpts());
-      const driver = getDriver(config.driver);
-      const conn = await driver.connect(config);
-      const ctx: CommandContext = {
-        conn,
-        config,
-        io,
-        secrets: envSecretProvider,
-      };
+      const parsed = toParsedArgs(cmd, args, opts),
+        config = await resolveOne(resolveOpts()),
+        driver = getDriver(config.driver),
+        conn = await driver.connect(config),
+        ctx: CommandContext = {
+          conn,
+          config,
+          io,
+          secrets: envSecretProvider,
+        }
       try {
-        await cmd.run(ctx, parsed);
+        await cmd.run(ctx, parsed)
       } finally {
-        await driver.close(conn);
+        await driver.close(conn)
       }
-    }),
-  );
+    })
+  })
 }
 
 /**
@@ -140,56 +133,50 @@ function addCommand(
  * addressing flags (`--connection`/`--config`) off the invoked command at action time.
  */
 export async function registerDriverCommands(program: Command): Promise<void> {
-  let driverName: string;
-  const configPath = configFromArgv(process.argv.slice(2));
+  let driverName: string
+  const configPath = configFromArgv(process.argv.slice(2))
   try {
-    const { config } = await loadProject({ config: configPath });
-    // Each connection entry carries its driver name directly (no resolve/connect needed): read it off
-    // any entry. A project's connections share one driver, so the first is enough.
-    const entry = Object.values(config.connections)[0] as
-      | { driver?: string }
-      | undefined;
-    if (!entry?.driver) return;
-    driverName = entry.driver;
+    const { config } = await loadProject({ config: configPath }),
+      // Each connection entry carries its driver name directly (no resolve/connect needed): read it off
+      // Any entry. A project's connections share one driver, so the first is enough.
+      entry = Object.values(config.connections)[0] as { driver?: string } | undefined
+    if (!entry?.driver) return
+    driverName = entry.driver
   } catch {
-    return; // no/invalid config (e.g. `sc init`) — driver commands simply aren't available
+    return // No/invalid config (e.g. `sc init`) — driver commands simply aren't available
   }
 
   try {
-    assertDriverAvailable(driverName);
+    assertDriverAvailable(driverName)
   } catch {
-    return;
+    return
   }
-  const driver = getDriver(driverName);
-
-  // Group verbs under a shared kind command, so the universal `sc <kind> ls`/`info` and any driver
-  // verbs (`sc access rotate`, `sc access check`) co-exist under one `sc <kind>` group.
-  const groups = new Map<string, Command>();
-  const groupFor = (kind: string): Command => {
-    let g = groups.get(kind);
-    if (!g) {
-      g = program
-        .command(kind)
-        .summary(`inspect + manage ${style.bold(kind)} resources`)
-        .description(
-          `\`${kind}\` commands: the universal \`ls\`/\`info\` (any kind) plus any driver verbs from @better-schemic/${driverName}.`,
-        );
-      groups.set(kind, g);
+  const driver = getDriver(driverName),
+    // Group verbs under a shared kind command, so the universal `sc <kind> ls`/`info` and any driver
+    // Verbs (`sc access rotate`, `sc access check`) co-exist under one `sc <kind>` group.
+    groups = new Map<string, Command>(),
+    groupFor = (kind: string): Command => {
+      let g = groups.get(kind)
+      if (!g) {
+        g = program
+          .command(kind)
+          .summary(`inspect + manage ${style.bold(kind)} resources`)
+          .description(
+            `\`${kind}\` commands: the universal \`ls\`/\`info\` (any kind) plus any driver verbs from @better-schemic/${driverName}.`,
+          )
+        groups.set(kind, g)
+      }
+      return g
+    },
+    // The invoked verb command carries the global addressing flags; read them at action time.
+    resolveOpts = (): ResolveOpts => {
+      const opts = program.opts() as { connection?: string; config?: string }
+      return { connection: opts.connection, config: opts.config ?? configPath }
     }
-    return g;
-  };
-
-  // The invoked verb command carries the global addressing flags; read them at action time.
-  const resolveOpts = (): ResolveOpts => {
-    const opts = program.opts() as { connection?: string; config?: string };
-    return { connection: opts.connection, config: opts.config ?? configPath };
-  };
 
   // Core-provided READ inspection for EVERY registered kind (`sc <kind> ls`/`info` + top-level `sc ls`).
-  registerInspectVerbs(program, driver, groupFor, resolveOpts);
+  registerInspectVerbs(program, driver, groupFor, resolveOpts)
 
   // The driver's own verbs (e.g. `access rotate`) on top of the universal ls/info.
-  for (const cmd of driver.commands ?? []) {
-    addCommand(groupFor(cmd.kind), cmd, resolveOpts);
-  }
+  for (const cmd of driver.commands ?? []) addCommand(groupFor(cmd.kind), cmd, resolveOpts)
 }

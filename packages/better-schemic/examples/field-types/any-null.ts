@@ -1,5 +1,6 @@
-import { defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "any / null",
@@ -11,4 +12,4 @@ DEFINE FIELD nothing ON TABLE loose TYPE null;`,
     anything: s.any(),
     nothing: s.null(),
   }),
-});
+})

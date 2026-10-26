@@ -2,119 +2,114 @@
  * ORM cookbook — read operations. Each entry is a real delegate call over the sample schema; the golden
  * is the exact runtime SurrealQL it produces. See `../_kit.ts` (the reference test re-runs every `def`).
  */
-import { group, ormExample } from "./_kit";
+import { group, ormExample } from "./_kit"
 
-export const reads = group(
-  "reads",
-  "find* / projection / where / order / groups",
-  [
-    ormExample(import.meta.url, {
-      title: "findMany — where + orderBy + limit",
-      sql: "SELECT * FROM user WHERE active = $p0 ORDER BY age DESC LIMIT $p1;",
-      vars: { p0: true, p1: 10 },
-      def: (client) =>
-        client.users.findMany({
-          where: { active: true },
-          orderBy: [{ age: "desc" }],
-          limit: 10,
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "findMany — select a projection",
-      sql: "SELECT id, name FROM user;",
-      def: (client) =>
-        client.users.findMany({ select: { id: true, name: true } }),
-    }),
-    ormExample(import.meta.url, {
-      title: "findMany — range targets the record range",
-      sql: "SELECT * FROM user:1..100;",
-      def: (client) =>
-        client.users.findMany({ range: { start: "1", end: "100" } }),
-    }),
-    ormExample(import.meta.url, {
-      title: "findFirst — LIMIT 1",
-      sql: "SELECT * FROM user WHERE email = $p0 LIMIT $p1;",
-      vars: { p0: "a@x", p1: 1 },
-      def: (client) => client.users.findFirst({ where: { email: "a@x" } }),
-    }),
-    ormExample(import.meta.url, {
-      title: "findUnique — id target uses FROM ONLY",
-      sql: "SELECT * FROM ONLY user:aeon;",
-      def: (client) => client.users.findUnique({ where: { id: "user:aeon" } }),
-    }),
-    ormExample(import.meta.url, {
-      title: "count — GROUP ALL",
-      sql: "SELECT count() FROM user WHERE active = $p0 GROUP ALL;",
-      vars: { p0: true },
-      def: (client) => client.users.count({ where: { active: true } }),
-    }),
-    ormExample(import.meta.url, {
-      title: "exists — SELECT VALUE id LIMIT 1",
-      sql: "SELECT VALUE id FROM user WHERE email = $p0 LIMIT $p1;",
-      vars: { p0: "a@x", p1: 1 },
-      def: (client) => client.users.exists({ where: { email: "a@x" } }),
-    }),
-    ormExample(import.meta.url, {
-      title: "aggregate — groupBy + _count + avg",
-      note: 'SurrealDB requires every groupBy key in the projection — the key is also the alias, so the compiler drops the redundant `AS active`.',
-      sql: "SELECT active, count() AS _count, math::mean(age) AS avgAge FROM user GROUP BY active;",
-      def: (client) =>
-        client.users.aggregate({
-          select: { active: "active", _count: true, avgAge: { avg: "age" } },
-          groupBy: ["active"],
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "aggregate — groupBy an ALIAS (the key may be the output name)",
-      note: "SurrealDB accepts the alias OR the projected path as a group key; both spellings work.",
-      sql: "SELECT cartName, count() AS _count, math::sum(_split_lines_quantity) AS total " +
-        "FROM (SELECT lines AS _split_lines, name AS cartName, lines[*].quantity AS _split_lines_quantity FROM cart SPLIT lines) " +
-        "GROUP BY cartName;",
-      def: (client) =>
-        client.carts.aggregate({
-          split: "lines",
-          select: {
-            cartName: "name",
-            _count: true,
-            total: { sum: "lines[*].quantity" },
-          },
-          groupBy: ["cartName"],
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "aggregate — groupAll over a split (UNWIND then GROUP)",
-      note: "SPLIT and GROUP cannot share a SELECT: the split goes to an inner subquery. `where` filters the PARENT rows.",
-      sql: "SELECT count() AS _count, math::sum(_split_lines_quantity) AS total " +
-        "FROM (SELECT lines AS _split_lines, lines[*].quantity AS _split_lines_quantity FROM cart WHERE name = $p0 SPLIT lines) " +
-        "GROUP ALL;",
-      vars: { p0: "Ana" },
-      def: (client) =>
-        client.carts.aggregate({
-          split: "lines",
-          where: { name: "Ana" },
-          select: { _count: true, total: { sum: "lines[*].quantity" } },
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "paginate — offset page with total",
-      note: "Data and count ride ONE round-trip; the count is a second statement.",
-      sql: "SELECT * FROM user WHERE active = $p0 LIMIT $p1;\nSELECT count() FROM user WHERE active = $p2 GROUP ALL;",
-      vars: { p0: true, p1: 20, p2: true },
-      def: (client) =>
-        client.users.paginate({ where: { active: true }, limit: 20, start: 0 }),
-    }),
-    ormExample(import.meta.url, {
-      title: "cursor — keyset after (orderBy keys auto-projected)",
-      note: "The probe fetches limit+1 rows; `name` is the only selected column, so `id` rides along as the reserved `_keyset_0` alias — read for the cursor, stripped from `data`.",
-      sql: "SELECT name, id AS _keyset_0 FROM user WHERE (id > $c0) ORDER BY id ASC LIMIT $p0;",
-      vars: { c0: "user:⟨10⟩", p0: 21 },
-      def: (client) =>
-        client.users.cursor({
-          select: { name: true },
-          orderBy: [{ id: "asc" }],
-          limit: 20,
-          after: "user:10",
-        }),
-    }),
-  ],
-);
+export const reads = group("reads", "find* / projection / where / order / groups", [
+  ormExample(import.meta.url, {
+    title: "findMany — where + orderBy + limit",
+    sql: "SELECT * FROM user WHERE active = $p0 ORDER BY age DESC LIMIT $p1;",
+    vars: { p0: true, p1: 10 },
+    def: async (client) =>
+      client.users.findMany({
+        where: { active: true },
+        orderBy: [{ age: "desc" }],
+        limit: 10,
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "findMany — select a projection",
+    sql: "SELECT id, name FROM user;",
+    def: async (client) => client.users.findMany({ select: { id: true, name: true } }),
+  }),
+  ormExample(import.meta.url, {
+    title: "findMany — range targets the record range",
+    sql: "SELECT * FROM user:1..100;",
+    def: async (client) => client.users.findMany({ range: { start: "1", end: "100" } }),
+  }),
+  ormExample(import.meta.url, {
+    title: "findFirst — LIMIT 1",
+    sql: "SELECT * FROM user WHERE email = $p0 LIMIT $p1;",
+    vars: { p0: "a@x", p1: 1 },
+    def: async (client) => client.users.findFirst({ where: { email: "a@x" } }),
+  }),
+  ormExample(import.meta.url, {
+    title: "findUnique — id target uses FROM ONLY",
+    sql: "SELECT * FROM ONLY user:aeon;",
+    def: async (client) => client.users.findUnique({ where: { id: "user:aeon" } }),
+  }),
+  ormExample(import.meta.url, {
+    title: "count — GROUP ALL",
+    sql: "SELECT count() FROM user WHERE active = $p0 GROUP ALL;",
+    vars: { p0: true },
+    def: async (client) => client.users.count({ where: { active: true } }),
+  }),
+  ormExample(import.meta.url, {
+    title: "exists — SELECT VALUE id LIMIT 1",
+    sql: "SELECT VALUE id FROM user WHERE email = $p0 LIMIT $p1;",
+    vars: { p0: "a@x", p1: 1 },
+    def: async (client) => client.users.exists({ where: { email: "a@x" } }),
+  }),
+  ormExample(import.meta.url, {
+    title: "aggregate — groupBy + _count + avg",
+    note: "SurrealDB requires every groupBy key in the projection — the key is also the alias, so the compiler drops the redundant `AS active`.",
+    sql: "SELECT active, count() AS _count, math::mean(age) AS avgAge FROM user GROUP BY active;",
+    def: async (client) =>
+      client.users.aggregate({
+        select: { active: "active", _count: true, avgAge: { avg: "age" } },
+        groupBy: ["active"],
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "aggregate — groupBy an ALIAS (the key may be the output name)",
+    note: "SurrealDB accepts the alias OR the projected path as a group key; both spellings work.",
+    sql:
+      "SELECT cartName, count() AS _count, math::sum(_split_lines_quantity) AS total " +
+      "FROM (SELECT lines AS _split_lines, name AS cartName, lines[*].quantity AS _split_lines_quantity FROM cart SPLIT lines) " +
+      "GROUP BY cartName;",
+    def: async (client) =>
+      client.carts.aggregate({
+        split: "lines",
+        select: {
+          cartName: "name",
+          _count: true,
+          total: { sum: "lines[*].quantity" },
+        },
+        groupBy: ["cartName"],
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "aggregate — groupAll over a split (UNWIND then GROUP)",
+    note: "SPLIT and GROUP cannot share a SELECT: the split goes to an inner subquery. `where` filters the PARENT rows.",
+    sql:
+      "SELECT count() AS _count, math::sum(_split_lines_quantity) AS total " +
+      "FROM (SELECT lines AS _split_lines, lines[*].quantity AS _split_lines_quantity FROM cart WHERE name = $p0 SPLIT lines) " +
+      "GROUP ALL;",
+    vars: { p0: "Ana" },
+    def: async (client) =>
+      client.carts.aggregate({
+        split: "lines",
+        where: { name: "Ana" },
+        select: { _count: true, total: { sum: "lines[*].quantity" } },
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "paginate — offset page with total",
+    note: "Data and count ride ONE round-trip; the count is a second statement.",
+    sql: "SELECT * FROM user WHERE active = $p0 LIMIT $p1;\nSELECT count() FROM user WHERE active = $p2 GROUP ALL;",
+    vars: { p0: true, p1: 20, p2: true },
+    def: async (client) => client.users.paginate({ where: { active: true }, limit: 20, start: 0 }),
+  }),
+  ormExample(import.meta.url, {
+    title: "cursor — keyset after (orderBy keys auto-projected)",
+    note: "The probe fetches limit+1 rows; `name` is the only selected column, so `id` rides along as the reserved `_keyset_0` alias — read for the cursor, stripped from `data`.",
+    sql: "SELECT name, id AS _keyset_0 FROM user WHERE (id > $c0) ORDER BY id ASC LIMIT $p0;",
+    vars: { c0: "user:⟨10⟩", p0: 21 },
+    def: async (client) =>
+      client.users.cursor({
+        select: { name: true },
+        orderBy: [{ id: "asc" }],
+        limit: 20,
+        after: "user:10",
+      }),
+  }),
+])

@@ -16,11 +16,11 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-const ENABLED = process.env.COVERAGE === "1";
-const DIR = process.env.COVERAGE_DIR;
+const ENABLED = process.env.COVERAGE === "1",
+ DIR = process.env.COVERAGE_DIR,
 
 /** Resolve the configured scope roots once. */
-const ROOTS = (process.env.COVERAGE_INCLUDE ?? "")
+ ROOTS = (process.env.COVERAGE_INCLUDE ?? "")
   .split(":")
   .map((p) => p.trim())
   .filter(Boolean)
@@ -28,21 +28,21 @@ const ROOTS = (process.env.COVERAGE_INCLUDE ?? "")
 
 /** A file is in scope when it lives under a root and is real product source (not test/lib). */
 function inScope(path: string): boolean {
-  if (ROOTS.length === 0) return false;
-  if (path.includes("/node_modules/")) return false;
-  if (path.includes("/lib/")) return false;
-  if (path.includes("/dist/")) return false;
-  if (path.endsWith(".test.ts") || path.endsWith(".test.tsx")) return false;
-  if (path.endsWith(".assert.ts") || path.endsWith(".bench.ts")) return false;
-  if (path.includes("/test/")) return false;
+  if (ROOTS.length === 0) {return false;}
+  if (path.includes("/node_modules/")) {return false;}
+  if (path.includes("/lib/")) {return false;}
+  if (path.includes("/dist/")) {return false;}
+  if (path.endsWith(".test.ts") || path.endsWith(".test.tsx")) {return false;}
+  if (path.endsWith(".assert.ts") || path.endsWith(".bench.ts")) {return false;}
+  if (path.includes("/test/")) {return false;}
   return ROOTS.some((root) => path === root || path.startsWith(`${root}/`));
 }
 
 /** Pick the parser source type from the extension (oxc infers too, but be explicit for TSX). */
 function sourceType(path: string): "ts" | "tsx" | "jsx" | undefined {
-  if (path.endsWith(".tsx")) return "tsx";
-  if (path.endsWith(".jsx")) return "jsx";
-  if (path.endsWith(".ts") || path.endsWith(".mts") || path.endsWith(".cts")) return "ts";
+  if (path.endsWith(".tsx")) {return "tsx";}
+  if (path.endsWith(".jsx")) {return "jsx";}
+  if (path.endsWith(".ts") || path.endsWith(".mts") || path.endsWith(".cts")) {return "ts";}
   return undefined;
 }
 
@@ -58,13 +58,13 @@ if (ENABLED && DIR) {
   Bun.plugin({
     name: "mcdc-coverage",
     // ONLY `.ts`/`.tsx`: matching `.cjs`/`.mjs` and returning a forced `loader` changes their module
-    // type and breaks CommonJS default exports (e.g. jiti.cjs). In-scope sources are all TS.
+    // Type and breaks CommonJS default exports (e.g. jiti.cjs). In-scope sources are all TS.
     setup(build) {
       build.onLoad({ filter: /\.tsx?$/ }, (args) => {
         const source = readFileSync(args.path, "utf8");
         if (!inScope(args.path)) {
           // Returning `undefined` here breaks the test loader (no module), so pass the source through
-          // explicitly with its natural loader.
+          // Explicitly with its natural loader.
           return { contents: source, loader: loaderFor(args.path) };
         }
         const result = instrument(source, args.path, {
@@ -80,14 +80,14 @@ if (ENABLED && DIR) {
 
   let flushed = false;
   const flush = (): void => {
-    if (flushed) return;
+    if (flushed) {return;}
     flushed = true;
     const cov = (globalThis as { __coverage__?: Record<string, unknown> }).__coverage__;
     if (process.env.COVERAGE_DEBUG === "1")
-      console.error(
+      {console.error(
         `[coverage] flush pid=${process.pid} files=${cov ? Object.keys(cov).length : 0}`,
-      );
-    if (!cov || Object.keys(cov).length === 0) return;
+      );}
+    if (!cov || Object.keys(cov).length === 0) {return;}
     try {
       mkdirSync(DIR, { recursive: true });
       // Deterministic per-process name: a later flush OVERWRITES (never double-counts on merge).
@@ -98,7 +98,7 @@ if (ENABLED && DIR) {
   };
 
   // `bun test` does NOT fire `process.on("exit")`/`beforeExit`; its root `afterAll` hook does. A
-  // spawned CLI child (`bun run`, e2e) is not a test, so `afterAll` throws there and `exit` fires.
+  // Spawned CLI child (`bun run`, e2e) is not a test, so `afterAll` throws there and `exit` fires.
   // Register BOTH: exactly one path runs in each context.
   try {
     const { afterAll } = await import("bun:test");

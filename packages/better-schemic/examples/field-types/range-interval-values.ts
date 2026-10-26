@@ -1,5 +1,6 @@
-import { defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "Range — interval values",
@@ -10,4 +11,4 @@ DEFINE FIELD span ON TABLE window TYPE range;`,
     id: s.string(),
     span: s.range(),
   }),
-});
+})

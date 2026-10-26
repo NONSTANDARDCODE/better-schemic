@@ -1,59 +1,66 @@
-import { type ChildProcess, execFileSync, spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { createServer, connect as netConnect } from "node:net";
-import { escapeIdent, Surreal } from "surrealdb";
-import type { SurrealZodCheckEmbedded } from "../config";
+import { execFileSync, spawn } from "node:child_process"
+import { randomBytes } from "node:crypto"
+import { createServer, connect as netConnect } from "node:net"
+
+import { Surreal, escapeIdent } from "surrealdb"
+
+import type { SurrealZodCheckEmbedded } from "../config"
+import type { ChildProcess } from "node:child_process"
 
 /** Pick a free localhost TCP port by binding to :0 and reading it back. */
-function freePort(): Promise<number> {
+async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
-    const srv = createServer();
-    srv.once("error", reject);
+    const srv = createServer()
+    srv.once("error", reject)
     srv.listen(0, "127.0.0.1", () => {
-      const addr = srv.address();
-      const port = addr && typeof addr === "object" ? addr.port : 0;
-      srv.close(() => (port ? resolve(port) : reject(new Error("no port"))));
-    });
-  });
+      const addr = srv.address(),
+        port = addr && typeof addr === "object" ? addr.port : 0
+      srv.close(() => {
+        port ? resolve(port) : reject(new Error("no port"))
+      })
+    })
+  })
 }
 
 /** Race a promise against a timeout (the loser is abandoned — callers close/retry). */
-function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
+async function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error(msg)), ms);
-    t.unref?.();
+    const t = setTimeout(() => {
+      reject(new Error(msg))
+    }, ms)
+    t.unref?.()
     p.then(
       (v) => {
-        clearTimeout(t);
-        resolve(v);
+        clearTimeout(t)
+        resolve(v)
       },
-      (e) => {
-        clearTimeout(t);
-        reject(e);
+      (error) => {
+        clearTimeout(t)
+        reject(error)
       },
-    );
-  });
+    )
+  })
 }
 
 /** Whether the local `surreal` CLI is runnable (used to pick the `auto` check engine). */
 export function surrealBinaryAvailable(bin = "surreal"): boolean {
   try {
-    execFileSync(bin, ["version"], { stdio: "ignore" });
-    return true;
+    execFileSync(bin, ["version"], { stdio: "ignore" })
+    return true
   } catch {
-    return false;
+    return false
   }
 }
 
 export interface EphemeralServer {
-  url: string;
-  username: string;
-  password: string;
+  url: string
+  username: string
+  password: string
   /** Stop the spawned process (idempotent). */
-  stop: () => Promise<void>;
+  stop: () => Promise<void>
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const sleep = async (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /**
  * Poll a raw TCP port until it ACCEPTS. The SDK's WS `connect` to a closed port never settles (it is
@@ -66,35 +73,40 @@ async function waitForPort(
   deadline: number,
   stderr: () => string,
 ): Promise<void> {
-  const parsed = new URL(url);
-  const host = parsed.hostname.replace(/^\[|\]$/g, "");
-  const port = Number(
-    parsed.port ||
-      (parsed.protocol === "wss:" || parsed.protocol === "https:" ? 443 : 80),
-  );
+  const parsed = new URL(url),
+    host = parsed.hostname.replaceAll(/^\[|\]$/g, ""),
+    port = Number(
+      parsed.port || (parsed.protocol === "wss:" || parsed.protocol === "https:" ? 443 : 80),
+    )
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
       throw new Error(
         `surreal exited (${child.exitCode}): ${stderr().split("\n").filter(Boolean).pop() ?? "no output"}`,
-      );
+      )
     }
     const accepted = await new Promise<boolean>((resolve) => {
-      const socket = netConnect({ host, port });
-      const done = (v: boolean) => {
-        socket.destroy();
-        resolve(v);
-      };
-      socket.setTimeout(250, () => done(false));
-      socket.once("connect", () => done(true));
-      socket.once("error", () => done(false));
-    });
-    if (accepted) return;
-    await sleep(10);
+      const socket = netConnect({ host, port }),
+        done = (v: boolean) => {
+          socket.destroy()
+          resolve(v)
+        }
+      socket.setTimeout(250, () => {
+        done(false)
+      })
+      socket.once("connect", () => {
+        done(true)
+      })
+      socket.once("error", () => {
+        done(false)
+      })
+    })
+    if (accepted) return
+    await sleep(10)
   }
-  const tail = stderr().split("\n").filter(Boolean).slice(-3).join(" | ");
+  const tail = stderr().split("\n").filter(Boolean).slice(-3).join(" | ")
   throw new Error(
     `surreal did not open ${host}:${port} within 30s${tail ? ` — server stderr: ${tail}` : ""}`,
-  );
+  )
 }
 
 /** Poll a Surreal connection until it succeeds, the process dies, or we time out. */
@@ -105,40 +117,40 @@ async function waitUntilReady(
   child: ChildProcess,
   stderr: () => string,
 ): Promise<void> {
-  const deadline = Date.now() + 30_000;
-  await waitForPort(url, child, deadline, stderr);
-  const attempts: string[] = [];
+  const deadline = Date.now() + 30_000
+  await waitForPort(url, child, deadline, stderr)
+  const attempts: string[] = []
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
       throw new Error(
         `surreal exited (${child.exitCode}): ${stderr().split("\n").filter(Boolean).pop() ?? "no output"}`,
-      );
+      )
     }
-    const db = new Surreal();
+    const db = new Surreal()
     try {
       // RACE each attempt against a short timeout: a HANGING connect (seen under the land gate)
-      // would otherwise never settle and silently blow past the deadline loop — the hook then eats
-      // its full timeout with zero diagnostics. A timed-out attempt just retries.
+      // Would otherwise never settle and silently blow past the deadline loop — the hook then eats
+      // Its full timeout with zero diagnostics. A timed-out attempt just retries.
       await withTimeout(
         (async () => {
-          await db.connect(url, { reconnect: false });
-          await db.signin({ username, password });
+          await db.connect(url, { reconnect: false })
+          await db.signin({ username, password })
         })(),
-        2_000,
+        2000,
         "connect attempt timed out (2s)",
-      );
-      await db.close();
-      return;
-    } catch (e) {
-      attempts.push((e as Error).message);
-      await db.close().catch(() => {});
-      await sleep(100);
+      )
+      await db.close()
+      return
+    } catch (error) {
+      attempts.push((error as Error).message)
+      await db.close().catch(() => {})
+      await sleep(100)
     }
   }
-  const tail = stderr().split("\n").filter(Boolean).slice(-3).join(" | ");
+  const tail = stderr().split("\n").filter(Boolean).slice(-3).join(" | ")
   throw new Error(
     `surreal did not become ready within 30s at ${url} — last attempts: ${attempts.slice(-3).join("; ")}${tail ? ` — server stderr: ${tail}` : ""}`,
-  );
+  )
 }
 
 /**
@@ -148,68 +160,69 @@ async function waitUntilReady(
  * instance running the user's own schema, so asserts/defaults/scripted functions all work. The
  * caller must `stop()` it (a `process.exit` hook is also registered as a backstop).
  */
-export async function spawnEphemeralServer(
-  bin = "surreal",
-): Promise<EphemeralServer> {
-  const port = await freePort();
-  const username = "root";
-  // A RANDOM per-run password: the instance is loopback-bound, but a fixed root/root would let any
-  // local process sign in (and `--allow-all` runs scripted functions) while a replay is in flight.
-  const password = randomBytes(16).toString("hex");
-  const child = spawn(
-    bin,
-    [
-      "start",
-      "--bind",
-      `127.0.0.1:${port}`,
-      "--username",
-      username,
-      "--password",
-      password,
-      "--allow-all",
-      "memory",
-    ],
-    { stdio: ["ignore", "ignore", "pipe"] },
-  );
-  let stderr = "";
+export async function spawnEphemeralServer(bin = "surreal"): Promise<EphemeralServer> {
+  const port = await freePort(),
+    username = "root",
+    // A RANDOM per-run password: the instance is loopback-bound, but a fixed root/root would let any
+    // Local process sign in (and `--allow-all` runs scripted functions) while a replay is in flight.
+    password = randomBytes(16).toString("hex"),
+    child = spawn(
+      bin,
+      [
+        "start",
+        "--bind",
+        `127.0.0.1:${port}`,
+        "--username",
+        username,
+        "--password",
+        password,
+        "--allow-all",
+        "memory",
+      ],
+      { stdio: ["ignore", "ignore", "pipe"] },
+    )
+  let stderr = ""
   child.stderr?.on("data", (d) => {
-    stderr += String(d);
-  });
+    stderr += String(d)
+  })
 
-  let stopped = false;
-  const stop = (): Promise<void> =>
-    new Promise((resolve) => {
-      if (stopped || child.exitCode !== null) {
-        stopped = true;
-        return resolve();
-      }
-      stopped = true;
-      child.once("exit", () => resolve());
-      child.kill("SIGTERM");
-      // Hard-kill if it doesn't exit promptly.
-      setTimeout(() => child.kill("SIGKILL"), 2000).unref?.();
-    });
-  // Backstop: don't leak the process if the CLI exits abnormally.
-  const onExit = () => {
-    if (!stopped) child.kill("SIGKILL");
-  };
-  process.once("exit", onExit);
+  let stopped = false
+  const stop = async (): Promise<void> =>
+      new Promise((resolve) => {
+        if (stopped || child.exitCode !== null) {
+          stopped = true
+          resolve()
+          return
+        }
+        stopped = true
+        child.once("exit", () => {
+          resolve()
+        })
+        child.kill("SIGTERM")
+        // Hard-kill if it doesn't exit promptly.
+        setTimeout(() => child.kill("SIGKILL"), 2000).unref?.()
+      }),
+    // Backstop: don't leak the process if the CLI exits abnormally.
+    onExit = () => {
+      if (!stopped) child.kill("SIGKILL")
+    }
+  process.once("exit", onExit)
 
-  const url = `ws://127.0.0.1:${port}/rpc`;
+  const url = `ws://127.0.0.1:${port}/rpc`
   try {
-    await waitUntilReady(url, username, password, child, () => stderr);
-  } catch (e) {
-    await stop();
-    throw e;
+    await waitUntilReady(url, username, password, child, () => stderr)
+  } catch (error) {
+    await stop()
+    throw error
   }
-  return { url, username, password, stop };
+  return { url, username, password, stop }
 }
 
 export interface EmbeddedConnection {
-  db: Surreal;
+  db: Surreal
   /** A display label for the engine, e.g. `embedded memory`. */
-  url: string;
-  stop: () => Promise<void>;
+  url: string
+  stop: () => Promise<void>
 }
 
 /**
@@ -225,43 +238,42 @@ export async function connectEmbedded(
   database: string,
 ): Promise<EmbeddedConnection> {
   // Non-literal specifier so tsc/bundlers don't treat `@surrealdb/node` as a hard dependency.
-  const pkg: string = "@surrealdb/node";
-  let createNodeEngines: ((options?: unknown) => unknown) | undefined;
+  const pkg = "@surrealdb/node"
+  let createNodeEngines: ((options?: unknown) => unknown) | undefined
   try {
     const mod = (await import(pkg)) as {
-      createNodeEngines?: (options?: unknown) => unknown;
-    };
-    createNodeEngines = mod.createNodeEngines;
+      createNodeEngines?: (options?: unknown) => unknown
+    }
+    createNodeEngines = mod.createNodeEngines
   } catch {
-    createNodeEngines = undefined;
+    createNodeEngines = undefined
   }
   if (!createNodeEngines) {
     throw new Error(
       'check.engine embedded mode needs `@surrealdb/node` — install it (e.g. `npm i -D @surrealdb/node`), or use a string engine ("auto" / "binary" / "remote").',
-    );
+    )
   }
 
-  const backend = cfg.backend ?? "memory";
-  const scheme = backend === "memory" ? "mem" : backend;
-  const url = `${scheme}://${cfg.path ?? ""}`;
-  const engines = createNodeEngines({
-    capabilities: cfg.capabilities ?? true,
-    strict: cfg.strict,
-    query_timeout: cfg.query_timeout,
-    transaction_timeout: cfg.transaction_timeout,
-  });
-  // biome-ignore lint/suspicious/noExplicitAny: the SDK's `engines` option is loosely typed here.
-  const db = new Surreal({ engines } as any);
-  await db.connect(url);
-  await db.query(`DEFINE NAMESPACE IF NOT EXISTS ${escapeIdent(namespace)}`);
-  await db.use({ namespace });
-  await db.query(`DEFINE DATABASE IF NOT EXISTS ${escapeIdent(database)}`);
-  await db.use({ namespace, database });
+  const backend = cfg.backend ?? "memory",
+    scheme = backend === "memory" ? "mem" : backend,
+    url = `${scheme}://${cfg.path ?? ""}`,
+    engines = createNodeEngines({
+      capabilities: cfg.capabilities ?? true,
+      strict: cfg.strict,
+      query_timeout: cfg.query_timeout,
+      transaction_timeout: cfg.transaction_timeout,
+    }),
+    db = new Surreal({ engines } as any)
+  await db.connect(url)
+  await db.query(`DEFINE NAMESPACE IF NOT EXISTS ${escapeIdent(namespace)}`)
+  await db.use({ namespace })
+  await db.query(`DEFINE DATABASE IF NOT EXISTS ${escapeIdent(database)}`)
+  await db.use({ namespace, database })
   return {
     db,
     url: `embedded ${backend}`,
     stop: async () => {
-      await db.close().catch(() => {});
+      await db.close().catch(() => {})
     },
-  };
+  }
 }

@@ -15,5 +15,5 @@
  * copy of Zod in the app would break `instanceof` checks inside Zod. If you need raw Zod, import
  * it from HERE (`import { z } from "./surreal"`) so there is exactly one copy.
  */
-export * from "./surreal";
-export * as z from "zod";
+export * from "./surreal"
+export * as z from "zod"

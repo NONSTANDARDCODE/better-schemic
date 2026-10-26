@@ -3,11 +3,14 @@
  * VALID authoring module: we eval the generated `define*` expression and assert it emits real DDL for
  * `name` (catching template typos / bad API usage), plus the throw paths (inline-only + unknown kinds).
  */
-import { describe, expect, test } from "bun:test";
-import { surql } from "surrealdb";
-import { scaffoldEntity } from "../../../src/surreal/cli/scaffold";
-import { emitDefStatement, emitTable } from "../../../src/surreal/ddl";
+import { describe, expect, test } from "bun:test"
+
+import { surql } from "surrealdb"
+
+import { scaffoldEntity } from "../../../src/surreal/cli/scaffold"
+import { emitDefStatement, emitTable } from "../../../src/surreal/ddl"
 import {
+  TableDef,
   defineAccess,
   defineAnalyzer,
   defineEvent,
@@ -16,30 +19,29 @@ import {
   defineTable,
   defineView,
   s,
-  TableDef,
-} from "../../../src/surreal/pure";
+} from "../../../src/surreal/pure"
 
 const API = {
-  defineTable,
-  defineRelation,
-  defineView,
-  defineFunction,
-  defineAccess,
-  defineEvent,
-  defineAnalyzer,
-  s,
-  surql,
-};
-const transpiler = new Bun.Transpiler({ loader: "ts" });
+    defineTable,
+    defineRelation,
+    defineView,
+    defineFunction,
+    defineAccess,
+    defineEvent,
+    defineAnalyzer,
+    s,
+    surql,
+  },
+  transpiler = new Bun.Transpiler({ loader: "ts" })
 
 /** Eval the module's exported `define*(...)` expression and emit it to SurrealQL. */
 function emitScaffold(src: string): string {
-  const m = src.match(/export const \w+\s*=\s*([\s\S]*?);/);
-  if (!m) throw new Error("no `export const … = …;` in scaffold");
-  const js = transpiler.transformSync(`const __f = () => (\n${m[1]}\n);`);
-  const fn = new Function(...Object.keys(API), `${js}\nreturn __f();`);
-  const def = fn(...Object.values(API));
-  return def instanceof TableDef ? emitTable(def) : emitDefStatement(def).ddl;
+  const m = /export const \w+\s*=\s*([\s\S]*?);/.exec(src)
+  if (!m) throw new Error("no `export const … = …;` in scaffold")
+  const js = transpiler.transformSync(`const __f = () => (\n${m[1]}\n);`),
+    fn = new Function(...Object.keys(API), `${js}\nreturn __f();`),
+    def = fn(...Object.values(API))
+  return def instanceof TableDef ? emitTable(def) : emitDefStatement(def).ddl
 }
 
 describe("scaffoldEntity — authorable kinds emit valid DDL", () => {
@@ -51,41 +53,37 @@ describe("scaffoldEntity — authorable kinds emit valid DDL", () => {
     ["access", "DEFINE ACCESS thing_one ON DATABASE TYPE RECORD"],
     ["event", "DEFINE EVENT thing_one ON TABLE thing"],
     ["analyzer", "DEFINE ANALYZER thing_one TOKENIZERS"],
-  ];
+  ]
   for (const [kind, includes] of cases) {
     test(`${kind} scaffolds + emits`, () => {
-      const src = scaffoldEntity(kind, "thing_one");
+      const src = scaffoldEntity(kind, "thing_one")
       // PascalCase export name from the snake_case input.
-      expect(src).toContain("export const ThingOne =");
-      expect(src).toContain('from "better-schemic"');
-      expect(emitScaffold(src)).toContain(includes);
-    });
+      expect(src).toContain("export const ThingOne =")
+      expect(src).toContain('from "better-schemic"')
+      expect(emitScaffold(src)).toContain(includes)
+    })
   }
-});
+})
 
 describe("scaffoldEntity — identifier shaping", () => {
   test("a leading-digit name is prefixed to stay a valid identifier", () => {
-    const src = scaffoldEntity("table", "123_things");
-    expect(src).toContain("export const _123Things =");
-  });
+    const src = scaffoldEntity("table", "123_things")
+    expect(src).toContain("export const _123Things =")
+  })
   test("a non-alphanumeric name falls back to Entity", () => {
-    const src = scaffoldEntity("table", "___");
-    expect(src).toContain("export const Entity =");
-  });
-});
+    const src = scaffoldEntity("table", "___")
+    expect(src).toContain("export const Entity =")
+  })
+})
 
 describe("scaffoldEntity — throw paths", () => {
   test("index is inline-only -> throws a helpful message", () => {
-    expect(() => scaffoldEntity("index", "by_email")).toThrow(
-      /inline on a table/,
-    );
-  });
+    expect(() => scaffoldEntity("index", "by_email")).toThrow(/inline on a table/)
+  })
   test("field is inline-only -> throws", () => {
-    expect(() => scaffoldEntity("field", "email")).toThrow(/inline on a table/);
-  });
+    expect(() => scaffoldEntity("field", "email")).toThrow(/inline on a table/)
+  })
   test("unknown kind -> throws with the known-kinds list", () => {
-    expect(() => scaffoldEntity("widget", "x")).toThrow(
-      /can't scaffold a "widget"/,
-    );
-  });
-});
+    expect(() => scaffoldEntity("widget", "x")).toThrow(/can't scaffold a "widget"/)
+  })
+})

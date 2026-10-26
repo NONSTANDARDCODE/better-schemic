@@ -21,53 +21,46 @@
  * object literal with that exact shape can't be written as a payload value directly (wrap it in a
  * `surql` fragment when a record genuinely stores that object).
  */
-import { Decimal } from "surrealdb";
-import { isLowerableValue } from "./compiler/shared";
+import { Decimal } from "surrealdb"
+
+import { isLowerableValue } from "./compiler/shared"
 
 /** The adjustment marker keys (all reserved in a write payload). */
-const ARITHMETIC_KINDS = new Set([
-  "increment",
-  "decrement",
-  "append",
-  "remove",
-  "union",
-  "at",
-]);
-
-/** Markers that carry a number/bigint/Decimal (or an expression) — not an array value. */
-const NUMERIC_KINDS = new Set(["increment", "decrement"]);
+const ARITHMETIC_KINDS = new Set(["increment", "decrement", "append", "remove", "union", "at"]),
+  /** Markers that carry a number/bigint/Decimal (or an expression) — not an array value. */
+  NUMERIC_KINDS = new Set(["increment", "decrement"])
 
 /** One parsed adjustment marker: the operator and the operand to bind. */
 export interface Adjustment {
   /** `+` (increment/append/union) or `-` (decrement/remove). */
-  readonly op: "+" | "-";
+  readonly op: "+" | "-"
   /** The marker key (`increment` | `decrement` | `append` | `remove` | `union` | `at`). */
-  readonly kind: string;
+  readonly kind: string
   /** The family of target field the marker may touch. */
-  readonly family: "number" | "array";
+  readonly family: "number" | "array"
   /** The operand (validated by the compiler; a number/bigint/Decimal, an array value, or an expression). */
-  readonly value: unknown;
+  readonly value: unknown
 }
 
 /** Is this value a plain object with exactly one adjustment-marker key? */
 export function adjustmentOf(value: unknown): Adjustment | undefined {
-  if (value === null || typeof value !== "object" || Array.isArray(value))
-    return undefined;
-  const proto = Object.getPrototypeOf(value);
-  if (proto !== null && proto !== Object.prototype) return undefined;
-  const keys = Object.keys(value as object);
-  if (keys.length !== 1) return undefined;
-  const kind = keys[0] as string;
-  if (!ARITHMETIC_KINDS.has(kind)) return undefined;
-  const operand = (value as Record<string, unknown>)[kind];
-  if (operand === undefined) return undefined;
-  const numeric = NUMERIC_KINDS.has(kind);
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined
+
+  const proto = Object.getPrototypeOf(value)
+  if (proto !== null && proto !== Object.prototype) return undefined
+  const keys = Object.keys(value)
+  if (keys.length !== 1) return undefined
+  const kind = keys[0]
+  if (!ARITHMETIC_KINDS.has(kind)) return undefined
+  const operand = (value as Record<string, unknown>)[kind]
+  if (operand === undefined) return undefined
+  const numeric = NUMERIC_KINDS.has(kind)
   return {
     op: kind === "decrement" || kind === "remove" ? "-" : "+",
     kind,
     family: numeric ? "number" : "array",
     value: operand,
-  };
+  }
 }
 
 /**
@@ -76,7 +69,7 @@ export function adjustmentOf(value: unknown): Adjustment | undefined {
  * marker and skip the field.
  */
 export function literalOperand(value: unknown): boolean {
-  return value !== undefined && !isLowerableValue(value);
+  return value !== undefined && !isLowerableValue(value)
 }
 
 /**
@@ -85,18 +78,18 @@ export function literalOperand(value: unknown): boolean {
  * Used by the `zod` plugin so app-level schemas validate the literal operand, not the wrapper.
  */
 export function stripAdjustments(data: unknown): unknown {
-  if (Array.isArray(data)) return data.map((item) => stripAdjustments(item));
-  if (data === null || typeof data !== "object") return data;
-  const adjustment = adjustmentOf(data);
-  if (adjustment) return data;
-  const out: Record<string, unknown> = {};
+  if (Array.isArray(data)) return data.map((item) => stripAdjustments(item))
+  if (data === null || typeof data !== "object") return data
+  const adjustment = adjustmentOf(data)
+  if (adjustment) return data
+  const out: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
-    const marker = adjustmentOf(value);
+    const marker = adjustmentOf(value)
     if (marker) {
-      if (literalOperand(marker.value)) out[key] = marker.value;
-      continue; // an expression operand can't be schema-validated
+      if (literalOperand(marker.value)) out[key] = marker.value
+      continue // An expression operand can't be schema-validated
     }
-    out[key] = value;
+    out[key] = value
   }
-  return out;
+  return out
 }

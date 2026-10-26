@@ -1,5 +1,6 @@
-import { defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: ".$surreal on s.custom — store an app-only type (URL) as a string",
@@ -13,4 +14,4 @@ DEFINE FIELD homepage ON TABLE site TYPE string;`,
       decode: (v) => new URL(v),
     }),
   }),
-});
+})

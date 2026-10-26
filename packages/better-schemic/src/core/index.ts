@@ -14,7 +14,7 @@ export {
   makeJiti,
   type ResolvedConfig,
   resolveConnectionConfig,
-} from "./cli-kit/config";
+} from "./cli-kit/config"
 // --- neutral diff display ---------------------------------------------------------------------
 export {
   type Diff,
@@ -25,7 +25,7 @@ export {
   isEmptyDiff,
   summarizeKinds,
   tokenDiff,
-} from "./cli-kit/diff";
+} from "./cli-kit/diff"
 // --- neutral filtering ------------------------------------------------------------------------
 export {
   type Filter,
@@ -37,7 +37,7 @@ export {
   mergeStored,
   parseFilter,
   passesFilter,
-} from "./cli-kit/filter";
+} from "./cli-kit/filter"
 // --- pull plan + magicast merge (neutral codegen support) -------------------------------------
 export {
   actionLabel,
@@ -51,7 +51,7 @@ export {
   type PullPlan,
   type RenderedUnit,
   unifiedDiff,
-} from "./cli-kit/merge";
+} from "./cli-kit/merge"
 // --- snapshot + migration metadata ------------------------------------------------------------
 export {
   checksum,
@@ -63,15 +63,12 @@ export {
   slug,
   timestamp,
   writeSnapshot,
-} from "./cli-kit/meta";
+} from "./cli-kit/meta"
 // --- pager + style ----------------------------------------------------------------------------
-export { pipeThroughPager, resolvePager } from "./cli-kit/pager";
+export { pipeThroughPager, resolvePager } from "./cli-kit/pager"
 // --- jiti schema loader (loads a project's authored schema files agnostically) ----------------
-export {
-  type AnyTable,
-  loadDefs,
-} from "./cli-kit/schema";
-export { colorEnabled, fail, ok, plural, style } from "./cli-kit/style";
+export { type AnyTable, loadDefs } from "./cli-kit/schema"
+export { colorEnabled, fail, ok, plural, style } from "./cli-kit/style"
 // --- ORM client foundation (managed connections + disposable bound client) ---------------------
 export {
   asyncDisposable,
@@ -80,7 +77,7 @@ export {
   type ResolveConnectionOptions,
   resolveConnection,
   resolveFromConfig,
-} from "./client";
+} from "./client"
 // --- config-as-factory types (defineConfig lives on the `./config` subpath) --------------------
 export type {
   BetterSchemicConfig,
@@ -92,7 +89,7 @@ export type {
   EntryClient,
   SchemicConfig,
   SchemicProject,
-} from "./config";
+} from "./config"
 // --- multi-connection contract (docs/MULTI-CONNECTION.md) -------------------------------------
 export {
   type AnyConnectionEntry,
@@ -104,7 +101,7 @@ export {
   type ResolveContext,
   type ResolvedConnectionHandle,
   type StandardSchemaLike,
-} from "./connection";
+} from "./connection"
 // --- driver contract + registry ---------------------------------------------------------------
 export {
   type ApplyOptions,
@@ -127,7 +124,7 @@ export {
   registerDriver,
   type ShadowCapability,
   type Statement,
-} from "./driver/driver";
+} from "./driver/driver"
 // --- portable schema IR -----------------------------------------------------------------------
 export {
   array,
@@ -139,13 +136,10 @@ export {
   type ScalarName,
   scalar,
   union,
-} from "./driver/portable";
+} from "./driver/portable"
 // (the Statement-level portable-diff is retired — superseded by the kind registry's
-// planKinds/buildKindDiff in ./kind/plan.ts.)
-export type {
-  PortableField,
-  PortablePermissions,
-} from "./driver/portable-ir";
+// PlanKinds/buildKindDiff in ./kind/plan.ts.)
+export type { PortableField, PortablePermissions } from "./driver/portable-ir"
 // --- kind registry (core-v2) — generic, open object kinds (docs/kind-registry.md) -------------
 export {
   buildKindDiff,
@@ -167,7 +161,7 @@ export {
   type ResolvedDisplay,
   snapshotKinds,
   snapshotObjects,
-} from "./kind";
+} from "./kind"
 // --- secret refs (apply-time-resolved placeholders for secret-bearing DDL; drivers re-export) ----
 export {
   env,
@@ -176,6 +170,6 @@ export {
   type SecretProvider,
   type SecretRef,
   secret,
-} from "./secrets";
+} from "./secrets"
 // --- seed context (the `(db, ctx)` helper passed to each seed) ---------------------------------
-export type { SeedContext } from "./seed";
+export type { SeedContext } from "./seed"

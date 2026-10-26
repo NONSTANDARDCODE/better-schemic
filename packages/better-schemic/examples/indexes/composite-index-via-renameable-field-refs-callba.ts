@@ -1,5 +1,6 @@
-import { defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "Composite index via renameable field refs (callback form)",
@@ -13,4 +14,4 @@ DEFINE INDEX ab ON TABLE pr FIELDS a, b;`,
     a: s.string(),
     b: s.string(),
   }).index("ab", (t) => [t.a, t.b]),
-});
+})

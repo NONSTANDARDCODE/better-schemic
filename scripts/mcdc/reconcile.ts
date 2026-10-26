@@ -18,197 +18,194 @@
  *
  * Needs a coverage run first (`.coverage/` fragments); `scripts/coverage/run.ts` invokes it.
  */
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { coveredDecisionKeys, mergeFragments } from "../coverage/lib";
-import { inScopeFiles, inventoryFile } from "./inventory";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
+import { join, resolve } from "node:path"
+import { coveredDecisionKeys, mergeFragments } from "../coverage/lib"
+import { inScopeFiles, inventoryFile } from "./inventory"
 
-const root = resolve(import.meta.dir, "../..");
-const coverageDir = process.env.COVERAGE_DIR ?? join(root, ".coverage");
-const coverageConfig = JSON.parse(
-  readFileSync(join(root, "coverage.config.json"), "utf8"),
-) as { include: string[]; exclude: string[] };
-const manifestPath = join(root, "mcdc-manifest.json");
-const ratchetPath = join(root, "mcdc.config.json");
-
-const argv = process.argv.slice(2);
-const update = argv.includes("--update");
-const list = argv.includes("--list");
+const root = resolve(import.meta.dir, "../.."),
+  coverageDir = process.env.COVERAGE_DIR ?? join(root, ".coverage"),
+  coverageConfig = JSON.parse(readFileSync(join(root, "coverage.config.json"), "utf8")) as {
+    include: string[]
+    exclude: string[]
+  },
+  manifestPath = join(root, "mcdc-manifest.json"),
+  ratchetPath = join(root, "mcdc.config.json"),
+  argv = new Set(process.argv.slice(2)),
+  update = argv.has("--update"),
+  list = argv.has("--list")
 
 interface Ratchet {
-  tolerance?: number;
-  files?: Record<
-    string,
-    { total: number; auto: number; table: number; unknown: number }
-  >;
+  tolerance?: number
+  files?: Record<string, { total: number; auto: number; table: number; unknown: number }>
 }
 interface Manifest {
   /** `${relPath}:${line}:${column}` → the `describeMcdc` label proving this decision. */
-  table?: Record<string, string>;
+  table?: Record<string, string>
 }
 
 const ratchet: Ratchet = existsSync(ratchetPath)
-  ? JSON.parse(readFileSync(ratchetPath, "utf8"))
-  : {};
-const manifest: Manifest = existsSync(manifestPath)
-  ? JSON.parse(readFileSync(manifestPath, "utf8"))
-  : { table: {} };
+    ? JSON.parse(readFileSync(ratchetPath, "utf8"))
+    : {},
+  manifest: Manifest = existsSync(manifestPath)
+    ? JSON.parse(readFileSync(manifestPath, "utf8"))
+    : { table: {} }
 
 /** Labels of every `describeMcdc({ label: "…" })` call in the test suites. */
 function mcdcLabels(): Set<string> {
-  const labels = new Set<string>();
-  const re = /describeMcdc\(\s*\{\s*label:\s*(["'`])([^"'`]+)\1/g;
-  const scan = (dir: string): void => {
-    for (const name of readdirSync(dir)) {
-      const abs = join(dir, name);
-      if (existsSync(abs) && name.endsWith(".ts")) {
-        for (const m of (readFileSync(abs, "utf8") ?? "").matchAll(re))
-          labels.add(m[2] as string);
-      } else if (!name.includes(".")) {
-        try {
-          scan(abs);
-        } catch {
-          /* not a dir */
+  const labels = new Set<string>(),
+    re = /describeMcdc\(\s*\{\s*label:\s*(["'`])([^"'`]+)\1/g,
+    scan = (dir: string): void => {
+      for (const name of readdirSync(dir)) {
+        const abs = join(dir, name)
+        if (existsSync(abs) && name.endsWith(".ts")) {
+          for (const m of (readFileSync(abs, "utf8") ?? "").matchAll(re)) {
+            labels.add(m[2] as string)
+          }
+        } else if (!name.includes(".")) {
+          try {
+            scan(abs)
+          } catch {
+            /* Not a dir */
+          }
         }
       }
     }
-  };
-  for (const base of ["packages/better-schemic/test/surreal", "packages/better-schemic/test/core"])
-    scan(join(root, base));
-  return labels;
+  for (const base of [
+    "packages/better-schemic/test/surreal",
+    "packages/better-schemic/test/core",
+  ]) {
+    scan(join(root, base))
+  }
+  return labels
 }
-const labels = mcdcLabels();
-
-const roots = coverageConfig.include.map((p) => join(root, p));
-const files = inScopeFiles(roots).filter(
-  (f) => !coverageConfig.exclude.some((ex) => f.includes(ex)),
-);
+const labels = mcdcLabels(),
+  roots = coverageConfig.include.map((p) => join(root, p)),
+  files = inScopeFiles(roots).filter((f) => !coverageConfig.exclude.some((ex) => f.includes(ex)))
 
 if (!existsSync(coverageDir)) {
-  console.error(
-    `no coverage fragments in ${coverageDir} — run \`bun run test:coverage\` first.`,
-  );
-  process.exit(1);
+  console.error(`no coverage fragments in ${coverageDir} — run \`bun run test:coverage\` first.`)
+  process.exit(1)
 }
-const map = mergeFragments(coverageDir);
+const map = mergeFragments(coverageDir)
 
 interface Row {
-  rel: string;
-  total: number;
-  auto: number;
-  table: number;
-  unknown: { key: string; kind: string }[];
+  rel: string
+  total: number
+  auto: number
+  table: number
+  unknown: { key: string; kind: string }[]
 }
-const rows: Row[] = [];
-const manifestFailures: string[] = [];
-/** Decision keys enumerated for every file this run could read coverage for (`rel` → `line:col`). */
-const enumerated = new Map<string, Set<string>>();
+const rows: Row[] = [],
+  manifestFailures: string[] = [],
+  /** Decision keys enumerated for every file this run could read coverage for (`rel` → `line:col`). */
+  enumerated = new Map<string, Set<string>>()
 
 for (const file of files) {
-  let fc: ReturnType<typeof map.fileCoverageFor>;
+  let fc: ReturnType<typeof map.fileCoverageFor>
   try {
-    fc = map.fileCoverageFor(file);
+    fc = map.fileCoverageFor(file)
   } catch {
-    continue; // not instrumented / never loaded
+    continue // Not instrumented / never loaded
   }
-  const source = readFileSync(file, "utf8");
-  const autos = coveredDecisionKeys(fc as never, source);
-  const rel = file.replace(`${root}/`, "");
-  const row: Row = { rel, total: 0, auto: 0, table: 0, unknown: [] };
-  const keys = new Set<string>();
+  const source = readFileSync(file, "utf8"),
+    autos = coveredDecisionKeys(fc as never, source),
+    rel = file.replace(`${root}/`, ""),
+    row: Row = { rel, total: 0, auto: 0, table: 0, unknown: [] },
+    keys = new Set<string>()
   for (const d of inventoryFile(file)) {
-    row.total++;
-    const key = `${d.line}:${d.column}`;
-    keys.add(key);
-    const manifestKey = `${rel}:${key}`;
-    const label = manifest.table?.[manifestKey];
+    row.total++
+    const key = `${d.line}:${d.column}`
+    keys.add(key)
+    const manifestKey = `${rel}:${key}`,
+      label = manifest.table?.[manifestKey]
     if (label !== undefined) row.table++;
-    else if (autos.get(key) === true) row.auto++;
-    else row.unknown.push({ key, kind: d.kind });
+    } else if (autos.get(key) === true) {
+      row.auto++
+    } else {
+      row.unknown.push({ key, kind: d.kind })
+    }
   }
-  enumerated.set(rel, keys);
+  enumerated.set(rel, keys)
   if (row.total > 0) rows.push(row);
 }
 
 // Manifest keys are a live contract: every entry must point at an enumerated decision (a decision
-// that MOVED leaves a stale key, silently dropping its Tier-2 proof to auto/unknown) and name a
-// label a test actually declares.
+// That MOVED leaves a stale key, silently dropping its Tier-2 proof to auto/unknown) and name a
+// Label a test actually declares.
 for (const [manifestKey, label] of Object.entries(manifest.table ?? {})) {
-  if (!labels.has(label))
-    manifestFailures.push(
-      `${manifestKey} → describeMcdc "${label}" — no test declares that label`,
-    );
-  const at = /^(.*):(\d+):(\d+)$/.exec(manifestKey);
-  if (!at) {
-    manifestFailures.push(
-      `${manifestKey} — malformed key (want <path>:<line>:<column>)`,
-    );
-    continue;
+  if (!labels.has(label)) {
+    manifestFailures.push(`${manifestKey} → describeMcdc "${label}" — no test declares that label`)
   }
-  const keys = enumerated.get(at[1] as string);
-  if (keys && !keys.has(`${at[2]}:${at[3]}`))
+  const at = /^(.*):(\d+):(\d+)$/.exec(manifestKey)
+  if (!at) {
+    manifestFailures.push(`${manifestKey} — malformed key (want <path>:<line>:<column>)`)
+    continue
+  }
+  const keys = enumerated.get(at[1])
+  if (keys && !keys.has(`${at[2]}:${at[3]}`)) {
     manifestFailures.push(
       `${manifestKey} — no decision at that location (stale key: re-point it after the decision moved)`,
-    );
+    )
+  }
 }
 
-rows.sort(
-  (a, b) => b.unknown.length - a.unknown.length || a.rel.localeCompare(b.rel),
-);
+rows.sort((a, b) => b.unknown.length - a.unknown.length || a.rel.localeCompare(b.rel))
 
 if (update) {
-  const files: Ratchet["files"] = {};
-  for (const r of rows)
+  const files: Ratchet["files"] = {}
+  for (const r of rows) {
     files[r.rel] = {
       total: r.total,
       auto: r.auto,
       table: r.table,
       unknown: r.unknown.length,
-    };
+    }
+  }
   writeFileSync(
     ratchetPath,
     `${JSON.stringify({ ...ratchet, tolerance: ratchet.tolerance ?? 0, files }, null, 2)}\n`,
-  );
-  console.log(`updated mcdc ratchet for ${rows.length} files`);
+  )
+  console.log(`updated mcdc ratchet for ${rows.length} files`)
   for (const f of manifestFailures) console.error(`  manifest: ${f}`);
-  process.exit(manifestFailures.length ? 1 : 0);
+  process.exit(manifestFailures.length > 0 ? 1 : 0)
 }
 
-const tol = ratchet.tolerance ?? 0;
-const failures: string[] = [...manifestFailures];
-const totals = { total: 0, auto: 0, table: 0, unknown: 0 };
+const tol = ratchet.tolerance ?? 0,
+  failures: string[] = [...manifestFailures],
+  totals = { total: 0, auto: 0, table: 0, unknown: 0 }
 for (const r of rows) {
-  totals.total += r.total;
-  totals.auto += r.auto;
-  totals.table += r.table;
-  totals.unknown += r.unknown.length;
-  const floor = ratchet.files?.[r.rel]?.unknown ?? 0;
-  if (r.unknown.length > floor + tol)
-    failures.push(
-      `${r.rel}: ${r.unknown.length} unclassified decision(s) > floor ${floor}`,
-    );
+  totals.total += r.total
+  totals.auto += r.auto
+  totals.table += r.table
+  totals.unknown += r.unknown.length
+  const floor = ratchet.files?.[r.rel]?.unknown ?? 0
+  if (r.unknown.length > floor + tol) {
+    failures.push(`${r.rel}: ${r.unknown.length} unclassified decision(s) > floor ${floor}`)
+  }
 }
 
 console.log(
   `${"file".padEnd(58)} ${"dec".padStart(5)} ${"auto".padStart(5)} ${"table".padStart(6)} ${"unk".padStart(5)}`,
-);
-for (const r of rows)
+)
+for (const r of rows) {
   console.log(
     `${r.rel.padEnd(58)} ${String(r.total).padStart(5)} ${String(r.auto).padStart(5)} ${String(r.table).padStart(6)} ${String(r.unknown.length).padStart(5)}`,
-  );
+  )
+}
 console.log(
   `\n${totals.total} decisions — ${totals.auto} auto, ${totals.table} table, ${totals.unknown} unknown`,
-);
+)
 
 if (list) {
-  for (const r of rows)
-    for (const u of r.unknown)
-      console.log(`  unknown  ${r.rel}:${u.key}  (${u.kind})`);
+  for (const r of rows) {
+    for (const u of r.unknown) {
+      console.log(`  unknown  ${r.rel}:${u.key}  (${u.kind})`);}
 }
 
 if (failures.length > 0) {
-  console.error(`\nmcdc gate FAILED (${failures.length}):`);
+  console.error(`\nmcdc gate FAILED (${failures.length}):`)
   for (const f of failures) console.error(`  - ${f}`);
-  process.exit(1);
+  process.exit(1)
 }
-console.log("\nmcdc gate OK — no new unclassified decisions");
+console.log("\nmcdc gate OK — no new unclassified decisions")

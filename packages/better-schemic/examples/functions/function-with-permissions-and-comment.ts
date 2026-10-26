@@ -1,5 +1,6 @@
-import { defineFunction, s, surql } from "better-schemic";
-import { example } from "../_kit";
+import { defineFunction, s, surql } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "Function with PERMISSIONS and COMMENT",
@@ -9,4 +10,4 @@ export default example(import.meta.url, {
     .body(surql`RETURN $amount * 0.21`)
     .permissions(surql`$auth.id != NONE`)
     .comment("VAT helper"),
-});
+})

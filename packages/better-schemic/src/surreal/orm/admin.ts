@@ -7,117 +7,111 @@
  * session-bound; `import` replays the dump through `query()` (context-aware, and the only form that
  * works over WS).
  */
-import { escapeIdentSafe as escapeIdent } from "../ident";
-import { compileError } from "./compiler/shared";
-import { assertSessionBound, contextOption } from "./context";
-import type { DelegateContext } from "./delegate";
-import { BetterSchemicError, normalizeError } from "./errors";
-import { execute, runScript, terminate } from "./execute";
-import { statementResult } from "./results";
-import type {
-  AdminOperations,
-  ExportOptions,
-  ServerVersion,
-} from "./types/admin";
+import { escapeIdentSafe as escapeIdent } from "../ident"
+
+import { compileError } from "./compiler/shared"
+import { assertSessionBound, contextOption } from "./context"
+import { BetterSchemicError, normalizeError } from "./errors"
+import { execute, runScript, terminate } from "./execute"
+import { statementResult } from "./results"
+
+import type { DelegateContext } from "./delegate"
+import type { AdminOperations, ExportOptions, ServerVersion } from "./types/admin"
 
 /** Build the admin surface over one client context. */
 export function createAdminOperations(ctx: DelegateContext): AdminOperations {
-  const info = async (
-    level: "root" | "ns" | "db" | "table",
-    table?: string,
-  ): Promise<unknown> => {
-    const operation = "info";
-    const clause =
-      level === "table" ? `TABLE ${tableClause(table)}` : level.toUpperCase();
-    const out = await execute(ctx.conn, {
-      statements: [{ sql: `INFO FOR ${clause}` }],
-      operation,
-      debug: ctx.debug,
-      ...(ctx.inTransaction === true ? { inTransaction: true } : {}),
-      logger: ctx.logger,
-      ...contextOption(ctx),
-    });
-    return out.rows[0];
-  };
-
-  const version = async (): Promise<ServerVersion> => {
-    const sdk = ctx.conn as unknown as {
-      version?: () => Promise<ServerVersion>;
-    };
-    if (typeof sdk.version !== "function")
-      throw new BetterSchemicError(
-        "UnsupportedCapability",
-        "version() needs the SurrealDB SDK connection — this client wraps an object without `version()`.",
-        { operation: "version" },
-      );
-    try {
-      return await sdk.version();
-    } catch (e) {
-      throw normalizeError(e, { operation: "version" });
-    }
-  };
-
-  const ping = async (): Promise<boolean> => {
-    await execute(ctx.conn, {
-      statements: [{ sql: "RETURN true" }],
-      operation: "ping",
-      debug: ctx.debug,
-      ...(ctx.inTransaction === true ? { inTransaction: true } : {}),
-      logger: ctx.logger,
-      ...contextOption(ctx),
-    });
-    return true;
-  };
-
-  const exportDatabase = async (options?: ExportOptions): Promise<string> => {
-    assertSessionBound(ctx.context, "export");
-    const sdk = ctx.conn as unknown as {
-      export?: (options?: ExportOptions) => Promise<unknown>;
-    };
-    if (typeof sdk.export !== "function")
-      throw new BetterSchemicError(
-        "UnsupportedCapability",
-        "export() needs the SurrealDB SDK connection — this client wraps an object without `export()`.",
-        { operation: "export" },
-      );
-    try {
-      const dump = await sdk.export(options);
-      if (typeof dump !== "string")
+  const info = async (level: "root" | "ns" | "db" | "table", table?: string): Promise<unknown> => {
+      const operation = "info",
+        clause = level === "table" ? `TABLE ${tableClause(table)}` : level.toUpperCase(),
+        out = await execute(ctx.conn, {
+          statements: [{ sql: `INFO FOR ${clause}` }],
+          operation,
+          debug: ctx.debug,
+          ...(ctx.inTransaction === true ? { inTransaction: true } : {}),
+          logger: ctx.logger,
+          ...contextOption(ctx),
+        })
+      return out.rows[0]
+    },
+    version = async (): Promise<ServerVersion> => {
+      const sdk = ctx.conn as unknown as {
+        version?: () => Promise<ServerVersion>
+      }
+      if (typeof sdk.version !== "function") {
         throw new BetterSchemicError(
           "UnsupportedCapability",
-          "export(): the connection returned a non-text dump (`.raw()`); use `$sdk.export().raw()` for streaming.",
+          "version() needs the SurrealDB SDK connection — this client wraps an object without `version()`.",
+          { operation: "version" },
+        )
+      }
+      try {
+        return await sdk.version()
+      } catch (error) {
+        throw normalizeError(error, { operation: "version" })
+      }
+    },
+    ping = async (): Promise<boolean> => {
+      await execute(ctx.conn, {
+        statements: [{ sql: "RETURN true" }],
+        operation: "ping",
+        debug: ctx.debug,
+        ...(ctx.inTransaction === true ? { inTransaction: true } : {}),
+        logger: ctx.logger,
+        ...contextOption(ctx),
+      })
+      return true
+    },
+    exportDatabase = async (options?: ExportOptions): Promise<string> => {
+      assertSessionBound(ctx.context, "export")
+      const sdk = ctx.conn as unknown as {
+        export?: (options?: ExportOptions) => Promise<unknown>
+      }
+      if (typeof sdk.export !== "function") {
+        throw new BetterSchemicError(
+          "UnsupportedCapability",
+          "export() needs the SurrealDB SDK connection — this client wraps an object without `export()`.",
           { operation: "export" },
-        );
-      return dump;
-    } catch (e) {
-      throw normalizeError(e, { operation: "export" });
-    }
-  };
-
-  const importDatabase = async (dump: string): Promise<void> => {
-    if (typeof dump !== "string" || dump.trim().length === 0)
-      throw compileError(
-        "ValidationError",
-        "import() needs the SurrealQL dump string produced by export().",
-        { operation: "import" },
-      );
-    const responses = await runScript(ctx.conn, terminate(dump), {
-      ...contextOption(ctx),
-      operation: "import",
-      debug: ctx.debug,
-      logger: ctx.logger,
-    });
-    // A dump may hold many statements; surface the FIRST failure instead of "importing" silently.
-    const failure = responses
-      .map((response, index) =>
-        statementResult(response, {
+        )
+      }
+      try {
+        const dump = await sdk.export(options)
+        if (typeof dump !== "string") {
+          throw new BetterSchemicError(
+            "UnsupportedCapability",
+            "export(): the connection returned a non-text dump (`.raw()`); use `$sdk.export().raw()` for streaming.",
+            { operation: "export" },
+          )
+        }
+        return dump
+      } catch (error) {
+        throw normalizeError(error, { operation: "export" })
+      }
+    },
+    importDatabase = async (dump: string): Promise<void> => {
+      if (typeof dump !== "string" || dump.trim().length === 0) {
+        throw compileError(
+          "ValidationError",
+          "import() needs the SurrealQL dump string produced by export().",
+          { operation: "import" },
+        )
+      }
+      const responses = await runScript(ctx.conn, terminate(dump), {
+          ...contextOption(ctx),
           operation: "import",
-          statementIndex: index,
+          debug: ctx.debug,
+          logger: ctx.logger,
         }),
-      )
-      .find((result) => result.status === "ERR");
-    if (failure?.error) throw failure.error;
-  };
+        // A dump may hold many statements; surface the FIRST failure instead of "importing" silently.
+        failure = responses
+          .map((response, index) =>
+            statementResult(response, {
+              operation: "import",
+              statementIndex: index,
+            }),
+          )
+          .find((result) => result.status === "ERR")
+      if (failure?.error) throw failure.error
+    }
 
   return {
     info,
@@ -125,16 +119,17 @@ export function createAdminOperations(ctx: DelegateContext): AdminOperations {
     ping,
     export: exportDatabase,
     import: importDatabase,
-  } as unknown as AdminOperations;
+  } as unknown as AdminOperations
 }
 
 /** Validate + escape the table named by `INFO FOR TABLE`. */
 function tableClause(table: string | undefined): string {
-  if (typeof table !== "string" || table.length === 0)
+  if (typeof table !== "string" || table.length === 0) {
     throw compileError(
       "ValidationError",
       'info("table", table): pass the table name as the second argument.',
       { operation: "info" },
-    );
-  return escapeIdent(table);
+    )
+  }
+  return escapeIdent(table)
 }

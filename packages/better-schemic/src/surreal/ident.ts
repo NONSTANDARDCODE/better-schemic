@@ -11,19 +11,17 @@
  *
  * Neutral module: no ORM/engine imports, usable from the compiler, runtime and CLI.
  */
-import { escapeIdent } from "surrealdb";
+import { escapeIdent } from "surrealdb"
 
 /** Backtick-quote an identifier (escapes `\` and the backtick itself; both round-trip live). */
 function backtickIdent(name: string): string {
-  return `\`${name.replace(/\\/g, "\\\\").replace(/`/g, "\\`")}\``;
+  return `\`${name.replaceAll("\\", String.raw`\\`).replaceAll("`", "\\`")}\``
 }
 
 /** Escape a possibly-untrusted identifier for SurrealQL (see the module docs). */
 export function escapeIdentSafe(name: string): string {
-  if (typeof name !== "string") return escapeIdent(String(name));
-  return name.includes("\\") || name.includes("⟩")
-    ? backtickIdent(name)
-    : escapeIdent(name);
+  if (typeof name !== "string") return escapeIdent(String(name))
+  return name.includes("\\") || name.includes("⟩") ? backtickIdent(name) : escapeIdent(name)
 }
 
 /**
@@ -39,18 +37,23 @@ export function escapeIdentSafe(name: string): string {
  */
 export function unescapeIdPart(text: string): string {
   if (text.length >= 2 && text.startsWith("⟨") && text.endsWith("⟩"))
-    return text.slice(1, -1).replaceAll("\\⟩", "⟩");
-  if (text.length >= 2 && text.startsWith("`") && text.endsWith("`"))
-    return text.slice(1, -1).replaceAll("\\`", "`").replaceAll("\\\\", "\\");
-  if (text.length >= 3 && text.startsWith('u"') && text.endsWith('"'))
-    return text.slice(2, -1);
-  return text;
+    return text.slice(1, -1).replaceAll("\\⟩", "⟩")
+
+  if (text.length >= 2 && text.startsWith("`") && text.endsWith("`")) {
+    return text
+      .slice(1, -1)
+      .replaceAll("\\`", "`")
+      .replaceAll(String.raw`\\`, "\\")
+  }
+  if (text.length >= 3 && text.startsWith('u"') && text.endsWith('"')) return text.slice(2, -1)
+
+  return text
 }
 
 /** A record-id value split into its table and id parts (the id part still ESCAPED). */
 export interface RecordIdParts {
-  readonly table: string;
-  readonly id: string;
+  readonly table: string
+  readonly id: string
 }
 
 /**
@@ -60,8 +63,8 @@ export interface RecordIdParts {
  * {@link unescapeIdPart} to get the RAW value).
  */
 export function splitRecordId(value: unknown): RecordIdParts | undefined {
-  const text = String(value ?? "");
-  const colon = text.indexOf(":");
-  if (colon === -1) return undefined;
-  return { table: text.slice(0, colon), id: text.slice(colon + 1) };
+  const text = String(value ?? ""),
+    colon = text.indexOf(":")
+  if (colon === -1) return undefined
+  return { table: text.slice(0, colon), id: text.slice(colon + 1) }
 }

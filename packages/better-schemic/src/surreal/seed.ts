@@ -1,11 +1,11 @@
-import type { SeedContext } from "../core";
-import type { Surreal } from "surrealdb";
+import type { SeedContext } from "../core"
+import type { Surreal } from "surrealdb"
 
 /**
  * A seed function — receives the connected `Surreal` client and the {@link SeedContext} (a small
  * filesystem helper scoped to the seed's own directory).
  */
-export type SeedFn = (db: Surreal, ctx: SeedContext) => void | Promise<void>;
+export type SeedFn = (db: Surreal, ctx: SeedContext) => void | Promise<void>
 
 /**
  * Type a `database/seed/*.ts` default export. An identity wrapper (like `defineConfig`): it returns the
@@ -14,5 +14,5 @@ export type SeedFn = (db: Surreal, ctx: SeedContext) => void | Promise<void>;
  * next to the seed as a string (raw SurrealQL, JSON, …), `ctx.dir` is that directory.
  */
 export function defineSeed(fn: SeedFn): SeedFn {
-  return fn;
+  return fn
 }

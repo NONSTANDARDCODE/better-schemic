@@ -1,98 +1,94 @@
 // M2 — the write RETURN semantics and the plan decode: `before` state, `diff` patch combining
-// across statements, and the eager guards (skipDuplicates, relate sugar, timeout, updateEach
-// select). The core write goldens live in `orm-writes.test.ts`; fixtures in `orm-writes-fixtures`.
-import { describe, expect, test } from "bun:test";
-import { RecordId } from "surrealdb";
-import { surql } from "../../../src/surreal";
-import type { Client } from "../../../src/surreal/orm/client";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import { fakeConn, ok } from "../orm-fixtures";
-import {
-  codeOf,
-  data,
-  LIKE_ROW,
-  lastCall,
-  makeClient,
-  ROW,
-  schema,
-} from "./orm-writes-fixtures";
+// Across statements, and the eager guards (skipDuplicates, relate sugar, timeout, updateEach
+// Select). The core write goldens live in `orm-writes.test.ts`; fixtures in `orm-writes-fixtures`.
+import { describe, expect, test } from "bun:test"
+
+import { RecordId } from "surrealdb"
+
+import { surql } from "../../../src/surreal"
+import { betterSchemic } from "../../../src/surreal/orm/client"
+import { fakeConn, ok } from "../orm-fixtures"
+
+import { LIKE_ROW, ROW, codeOf, data, lastCall, makeClient, schema } from "./orm-writes-fixtures"
+
+import type { Client } from "../../../src/surreal/orm/client"
 
 describe("return semantics — before/diff and the batch decode", () => {
   test("create return:'before' resolves null (nothing existed before)", async () => {
-    const { client, calls } = makeClient([]);
-    const result = await client.users.create({ data, return: "before" });
-    expect(result).toBeNull();
+    const { client, calls } = makeClient([]),
+      result = await client.users.create({ data, return: "before" })
+    expect(result).toBeNull()
     expect(lastCall(calls).sql).toBe(
       'CREATE type::record(s"user", rand::ulid()) CONTENT $p0 RETURN BEFORE;',
-    );
-  });
+    )
+  })
 
   test("batch diff results decode as flattened patch ops, not rows", async () => {
-    const ops = [{ op: "replace", path: "/age", value: 2 }];
-    const { client } = makeClient([ops]);
-    const many = await client.users.updateMany({
-      where: { age: { gt: 0 } },
-      data: { active: false },
-      return: "diff",
-    });
-    expect(many).toEqual(ops);
+    const ops = [{ op: "replace", path: "/age", value: 2 }],
+      { client } = makeClient([ops]),
+      many = await client.users.updateMany({
+        where: { age: { gt: 0 } },
+        data: { active: false },
+        return: "diff",
+      })
+    expect(many).toEqual(ops)
 
     const one = await client.users.patch({
       where: { id: "user:1" },
       patches: [{ op: "replace", path: "/age", value: 3 }],
       return: "diff",
-    });
-    expect(one).toEqual(ops);
-  });
+    })
+    expect(one).toEqual(ops)
+  })
 
   test("update with data+unset combines both statements' diffs", async () => {
-    let step = 0;
+    let step = 0
     const { conn } = fakeConn((sql) =>
-      sql.split("\n").map((line) => {
-        if (line.startsWith("BEGIN") || line.startsWith("COMMIT"))
-          return ok(null);
-        step += 1;
-        return ok([[{ op: "replace", path: `/s${step}`, value: step }]]);
-      }),
-    );
-    const client = betterSchemic(conn, { schema }) as Client<typeof schema>;
-    const result = await client.users.update({
-      where: { id: "user:1" },
-      data: { active: true },
-      unset: ["age"],
-      return: "diff",
-    });
+        sql.split("\n").map((line) => {
+          if (line.startsWith("BEGIN") || line.startsWith("COMMIT")) return ok(null)
+
+          step += 1
+          return ok([[{ op: "replace", path: `/s${step}`, value: step }]])
+        }),
+      ),
+      client = betterSchemic(conn, { schema }) as Client<typeof schema>,
+      result = await client.users.update({
+        where: { id: "user:1" },
+        data: { active: true },
+        unset: ["age"],
+        return: "diff",
+      })
     expect(result).toEqual([
       { op: "replace", path: "/s1", value: 1 },
       { op: "replace", path: "/s2", value: 2 },
-    ]);
-  });
+    ])
+  })
 
   test("batch return:'diff' combines every statement's patch (createMany)", async () => {
-    let step = 0;
+    let step = 0
     const { conn } = fakeConn((sql) =>
-      sql.split("\n").map((line) => {
-        if (line.startsWith("BEGIN") || line.startsWith("COMMIT"))
-          return ok(null);
-        step += 1;
-        return ok([[{ op: "add", path: `/f${step}`, value: step }]]);
-      }),
-    );
-    const client = betterSchemic(conn, { schema }) as Client<typeof schema>;
-    const result = await client.users.createMany({
-      data: [data, { ...data, name: "B" }],
-      return: "diff",
-    });
+        sql.split("\n").map((line) => {
+          if (line.startsWith("BEGIN") || line.startsWith("COMMIT")) return ok(null)
+
+          step += 1
+          return ok([[{ op: "add", path: `/f${step}`, value: step }]])
+        }),
+      ),
+      client = betterSchemic(conn, { schema }) as Client<typeof schema>,
+      result = await client.users.createMany({
+        data: [data, { ...data, name: "B" }],
+        return: "diff",
+      })
     expect(result).toEqual([
       { op: "add", path: "/f1", value: 1 },
       { op: "add", path: "/f2", value: 2 },
-    ]);
-  });
+    ])
+  })
 
   test("upsert RETURN DIFF with expressions is rejected before any query", () => {
-    const { client, calls } = makeClient();
+    const { client, calls } = makeClient()
     expect(
-      codeOf(() =>
+      codeOf(async () =>
         client.users.upsert({
           where: { id: "user:1" },
           create: { id: "user:1", ...data },
@@ -101,119 +97,112 @@ describe("return semantics — before/diff and the batch decode", () => {
           onMissing: "create",
         }),
       ),
-    ).toBe("ReturnNotSupported");
+    ).toBe("ReturnNotSupported")
     expect(
-      codeOf(() =>
+      codeOf(async () =>
         client.users.upsert({
           where: { id: "user:1" },
           data: { age: surql`age + 1` },
           return: "diff",
         }),
       ),
-    ).toBe("ReturnNotSupported");
-    expect(calls).toHaveLength(0);
-  });
+    ).toBe("ReturnNotSupported")
+    expect(calls).toHaveLength(0)
+  })
 
   test("upsert LET/IF honors return:'before' on both branches", async () => {
-    const { client, calls } = makeClient();
+    const { client, calls } = makeClient()
     await client.users.upsert({
       where: { id: "user:1" },
       create: { id: "user:1", ...data },
       update: { age: surql`age + 1` },
       return: "before",
       onMissing: "create",
-    });
-    const sql = lastCall(calls).sql;
-    expect(sql).toContain("THEN CREATE user:1 CONTENT $p1 RETURN NONE");
-    expect(sql).toContain(
-      "ELSE UPDATE $__existing[0] MERGE { age: age + 1 } RETURN BEFORE END;",
-    );
-  });
+    })
+    const { sql } = lastCall(calls)
+    expect(sql).toContain("THEN CREATE user:1 CONTENT $p1 RETURN NONE")
+    expect(sql).toContain("ELSE UPDATE $__existing[0] MERGE { age: age + 1 } RETURN BEFORE END;")
+  })
 
   test("upsertMany conflict with an explicit update map compiles LET/IF (full create)", async () => {
     const { conn, calls } = fakeConn((sql) =>
-      sql.split("\n").map((line) => {
-        if (line.startsWith("IF")) return ok([ROW]);
-        return ok(null);
+        sql.split("\n").map((line) => {
+          if (line.startsWith("IF")) return ok([ROW])
+
+          return ok(null)
+        }),
+      ),
+      client = betterSchemic(conn, { schema }) as Client<typeof schema>,
+      result = await client.users.upsertMany({
+        data: [{ ...data }],
+        conflict: "email",
+        update: { age: surql`age + 1` },
       }),
-    );
-    const client = betterSchemic(conn, { schema }) as Client<typeof schema>;
-    const result = await client.users.upsertMany({
-      data: [{ ...data }],
-      conflict: "email",
-      update: { age: surql`age + 1` },
-    });
-    const sql = calls[0]?.sql ?? "";
+      sql = calls[0]?.sql ?? ""
     expect(sql).toContain(
       "LET $__e0 = (SELECT VALUE id FROM user WHERE email = $p0.email LIMIT 1);",
-    );
+    )
     expect(sql).toContain(
       'IF array::len($__e0) = 0 THEN CREATE type::record(s"user", rand::ulid()) CONTENT $p0 ELSE UPDATE $__e0[0] MERGE { age: age + 1 } END;',
-    );
-    expect(result.count).toBe(1);
-  });
+    )
+    expect(result.count).toBe(1)
+  })
 
   test("upsertMany conflict must be a single-field UNIQUE index", () => {
-    const { client } = makeClient();
+    const { client } = makeClient()
     expect(
-      codeOf(() =>
-        client.users.upsertMany({ data: [{ ...data }], conflict: "age" }),
-      ),
-    ).toBe("UniqueTargetRequired");
+      codeOf(async () => client.users.upsertMany({ data: [{ ...data }], conflict: "age" })),
+    ).toBe("UniqueTargetRequired")
     expect(
-      codeOf(() =>
+      codeOf(async () =>
         client.users.upsertMany({
           data: [{ ...data }],
           conflict: "email",
           update: "drop" as never,
         }),
       ),
-    ).toBe("ValidationError");
-  });
+    ).toBe("ValidationError")
+  })
 
   test("insertMany return:'diff' combines the single statement's patch", async () => {
-    const ops = [{ op: "change", path: "/name", value: "@@ x @@" }];
-    const { client } = makeClient([ops]);
-    const result = await client.users.insertMany({
-      data: [{ id: "user:1", ...data }],
-      onDuplicate: "update",
-      return: "diff",
-    });
-    expect(result).toEqual(ops);
-  });
-});
+    const ops = [{ op: "change", path: "/name", value: "@@ x @@" }],
+      { client } = makeClient([ops]),
+      result = await client.users.insertMany({
+        data: [{ id: "user:1", ...data }],
+        onDuplicate: "update",
+        return: "diff",
+      })
+    expect(result).toEqual(ops)
+  })
+})
 
 describe("eager guards — skipDuplicates, relate sugar, unrelate timeout, updateEach", () => {
   test("skipDuplicates: id-less rows compile with a generated id; non-objects still fail", async () => {
-    const { client, calls } = makeClient();
+    const { client, calls } = makeClient()
     expect(
-      codeOf(() =>
-        client.users.createMany({ data: [5 as never], skipDuplicates: true }),
-      ),
-    ).toBe("ValidationError");
-    await client.users.createMany({ data: [data, data], skipDuplicates: true });
+      codeOf(async () => client.users.createMany({ data: [5 as never], skipDuplicates: true })),
+    ).toBe("ValidationError")
+    await client.users.createMany({ data: [data, data], skipDuplicates: true })
     expect(calls[0]?.sql).toBe(
       "BEGIN TRANSACTION;\n" +
         "INSERT IGNORE INTO user { name: $b0, email: $b1, age: $b2, active: $b3, tags: [], address: { city: $b4 }, id: rand::ulid() };\n" +
         "INSERT IGNORE INTO user { name: $b5, email: $b6, age: $b7, active: $b8, tags: [], address: { city: $b9 }, id: rand::ulid() };\n" +
         "COMMIT TRANSACTION;",
-    );
-  });
+    )
+  })
 
   test("relate sugar validates the edge and codec-checks its data", async () => {
-    const { client, calls } = makeClient([
-      { id: new RecordId("post", "1"), title: "T" },
-    ]);
+    const { client, calls } = makeClient([{ id: new RecordId("post", "1"), title: "T" }])
     expect(
-      codeOf(() =>
+      codeOf(async () =>
         client.posts.create({
           data: { title: "T" },
           relate: [{ from: "user:1", edge: "nope", to: "$self" }],
         }),
       ),
-    ).toBe("ValidationError");
+    ).toBe("ValidationError")
     expect(
-      codeOf(() =>
+      codeOf(async () =>
         client.posts.create({
           data: { title: "T" },
           relate: [
@@ -226,90 +215,88 @@ describe("eager guards — skipDuplicates, relate sugar, unrelate timeout, updat
           ],
         }),
       ),
-    ).toBe("ValidationError");
-    expect(calls).toHaveLength(0);
+    ).toBe("ValidationError")
+    expect(calls).toHaveLength(0)
 
     await client.posts.create({
       data: { title: "T" },
       relate: [{ from: "user:1", edge: "likes", to: "$self" }],
       return: "none",
-    });
-    expect(lastCall(calls).sql).toContain("RETURN NONE;");
-  });
+    })
+    expect(lastCall(calls).sql).toContain("RETURN NONE;")
+  })
 
   test("create + relate rejects RETURN DIFF", () => {
-    const { client } = makeClient();
+    const { client } = makeClient()
     expect(
-      codeOf(() =>
+      codeOf(async () =>
         client.posts.create({
           data: { title: "T" },
           relate: [{ from: "user:1", edge: "likes", to: "$self" }],
           return: "diff" as never,
         }),
       ),
-    ).toBe("ReturnNotSupported");
-  });
+    ).toBe("ReturnNotSupported")
+  })
 
   test("relateMany rejects a per-item return", () => {
-    const { client } = makeClient([LIKE_ROW]);
+    const { client } = makeClient([LIKE_ROW])
     expect(
-      codeOf(() =>
+      codeOf(async () =>
         client.likes.relateMany({
           data: [{ from: "user:1", to: "post:1", return: "before" } as never],
         }),
       ),
-    ).toBe("ValidationError");
-  });
+    ).toBe("ValidationError")
+  })
 
   test("unrelate / unrelateMany thread the timeout", async () => {
-    const { client, calls } = makeClient([LIKE_ROW]);
+    const { client, calls } = makeClient([LIKE_ROW])
     await client.likes.unrelate({
       from: "user:1",
       to: "post:1",
       timeout: "2s",
-    });
+    })
     expect(lastCall(calls).sql).toBe(
       "DELETE likes WHERE in = user:1 AND out = post:1 RETURN BEFORE TIMEOUT 2s;",
-    );
+    )
     await client.likes.unrelateMany({
       where: { score: { lt: 3 } },
       timeout: 500,
-    });
-    expect(lastCall(calls).sql).toBe(
-      "DELETE likes WHERE score < $p0 RETURN BEFORE TIMEOUT 500ms;",
-    );
-  });
+    })
+    expect(lastCall(calls).sql).toBe("DELETE likes WHERE score < $p0 RETURN BEFORE TIMEOUT 500ms;")
+  })
 
   test("updateEach compiles select before the write and projects the rows", async () => {
-    const { client, calls } = makeClient([ROW]);
+    const { client, calls } = makeClient([ROW])
     expect(
-      codeOf(() =>
+      codeOf(async () =>
         client.users.updateEach({
           data: [{ id: "user:1", age: 31 }],
           select: 123 as never,
         }),
       ),
-    ).toBe("ValidationError");
-    expect(calls).toHaveLength(0);
+    ).toBe("ValidationError")
+    expect(calls).toHaveLength(0)
 
     const result = await client.users.updateEach({
       data: [{ id: "user:1", age: 31 }],
       select: { id: true, age: true },
-    });
-    expect(result.count).toBe(1);
-    expect(result.data?.[0]).toEqual({ id: ROW.id, age: ROW.age });
-  });
+    })
+    expect(result.count).toBe(1)
+    expect(result.data?.[0]).toEqual({ id: ROW.id, age: ROW.age })
+  })
 
   test("updateEach rejects onEmpty:'throw' with return:'none'", () => {
-    const { client } = makeClient();
+    const { client } = makeClient()
     expect(
-      codeOf(() =>
+      codeOf(async () =>
         client.users.updateEach({
           data: [{ id: "user:1", age: 1 }],
           return: "none",
           onEmpty: "throw",
         }),
       ),
-    ).toBe("ValidationError");
-  });
-});
+    ).toBe("ValidationError")
+  })
+})

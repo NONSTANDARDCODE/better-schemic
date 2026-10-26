@@ -1,5 +1,6 @@
-import { defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "Record links — record<table>, multi-table, array<record<…>>",
@@ -13,4 +14,4 @@ DEFINE FIELD tags ON TABLE links TYPE array<record<tag>>;`,
     owner: s.recordId(["user", "org"]),
     tags: s.array(s.recordId("tag")),
   }),
-});
+})

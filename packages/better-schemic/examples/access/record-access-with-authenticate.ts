@@ -1,5 +1,6 @@
-import { defineAccess, surql } from "better-schemic";
-import { example } from "../_kit";
+import { defineAccess, surql } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "RECORD access with AUTHENTICATE",
@@ -9,4 +10,4 @@ export default example(import.meta.url, {
     .record()
     .authenticate(surql`RETURN $auth`)
     .duration({ session: "1d" }),
-});
+})

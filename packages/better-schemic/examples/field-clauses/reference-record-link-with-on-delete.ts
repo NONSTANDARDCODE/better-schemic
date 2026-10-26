@@ -1,5 +1,6 @@
-import { defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "REFERENCE — record link with ON DELETE",
@@ -10,4 +11,4 @@ DEFINE FIELD author ON TABLE ref TYPE record<user> REFERENCE ON DELETE CASCADE;`
     id: s.string(),
     author: s.recordId("user").$reference({ onDelete: "cascade" }),
   }),
-});
+})

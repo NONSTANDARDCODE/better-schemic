@@ -1,5 +1,6 @@
-import { defineAnalyzer, defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineAnalyzer, defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "FULLTEXT (single field, inline via field.$fulltext()) + tuned BM25",
@@ -13,9 +14,7 @@ DEFINE INDEX doc2_body_idx ON TABLE doc2 FIELDS body FULLTEXT ANALYZER simple BM
     defineAnalyzer("simple").tokenizers("blank").filters("lowercase"),
     defineTable("doc2", {
       id: s.string(),
-      body: s
-        .string()
-        .$fulltext({ analyzer: "simple", bm25: [1.5, 0.75], highlights: true }),
+      body: s.string().$fulltext({ analyzer: "simple", bm25: [1.5, 0.75], highlights: true }),
     }),
   ],
-});
+})

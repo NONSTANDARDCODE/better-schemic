@@ -2,17 +2,21 @@
 //
 // Today `PortableDb` hard-codes the object kinds a schema may contain (`tables`/`functions`/
 // `accesses`/`natives`) and the Driver's whole-DB methods switch on those slots. The kind registry
-// turns the slots into a REGISTRY a driver populates: each driver registers KINDS, and every kind
-// brings (a) its OWN authoring builder — any shape/chain it likes, fully typed — and (b) its engine
-// behavior (`lower`/`emit`/`remove`/`overwrite`/`deps`/`owner`/`introspect`) over THAT kind's objects.
+// Turns the slots into a REGISTRY a driver populates: each driver registers KINDS, and every kind
+// Brings (a) its OWN authoring builder — any shape/chain it likes, fully typed — and (b) its engine
+// Behavior (`lower`/`emit`/`remove`/`overwrite`/`deps`/`owner`/`introspect`) over THAT kind's objects.
 // Core orchestrates generically over the registry (see ./plan.ts) and never names a kind.
 //
 // What stays in core is the field/type VOCABULARY (`SFieldBase`, the Zod-drop-in `s.*`, `PortableType`,
-// codecs) — the substrate every kind builds on. Fields/types are NOT a kind: a table HAS fields, a
-// function's args ARE fields, an index REFERENCES fields. See docs/kind-registry.md.
+// Codecs) — the substrate every kind builds on. Fields/types are NOT a kind: a table HAS fields, a
+// Function's args ARE fields, an index REFERENCES fields. See docs/kind-registry.md.
 //
 // The registry is PER-DRIVER, not a module global: a driver builds one `KindRegistry` and registers
-// its kinds into it.
+// Its kinds into it.
+
+// `DiffItem` is a type-only import (erased at compile) — the display contract the `displayItems` hook
+// Produces; no runtime cli->kind coupling, same arrangement as ./plan.ts.
+import type { DiffItem } from "../cli-kit/diff"
 
 /**
  * An authored definable, tagged with the KIND that owns it. Core dispatches on `kind` alone — every
@@ -21,8 +25,8 @@
  * structural subtype).
  */
 export interface Definable {
-  readonly kind: string;
-  readonly name: string;
+  readonly kind: string
+  readonly name: string
 }
 
 /**
@@ -32,19 +36,15 @@ export interface Definable {
  * round-trips. Either way it is tagged with `kind`/`name` for cross-kind dispatch + ordering.
  */
 export interface PortableObject {
-  readonly kind: string;
-  readonly name: string;
+  readonly kind: string
+  readonly name: string
 }
 
 /** A reference to another object in the schema graph — the unit of cross-kind dependency ordering. */
 export interface Ref {
-  readonly kind: string;
-  readonly name: string;
+  readonly kind: string
+  readonly name: string
 }
-
-// `DiffItem` is a type-only import (erased at compile) — the display contract the `displayItems` hook
-// produces; no runtime cli->kind coupling, same arrangement as ./plan.ts.
-import type { DiffItem } from "../cli-kit/diff";
 
 /**
  * What core needs to orchestrate ONE kind generically — it never inspects the specifics. The
@@ -57,17 +57,17 @@ export interface KindEngine<
   P extends PortableObject = PortableObject,
 > {
   /** Authoring object -> this kind's portable object (normalized; both lowerings must converge here). */
-  lower(authored: A): P;
+  lower: (authored: A) => P
   /** CREATE DDL for one portable object (a fresh apply / migration `up` for an added object). */
-  emit(portable: P): string[];
+  emit: (portable: P) => string[]
   /** DROP DDL for one portable object (`up` for a removed object, `down` for an added one). */
-  remove(portable: P): string[];
+  remove: (portable: P) => string[]
   /**
    * In-place CHANGE DDL taking `prev` to `next` (the dialect's ALTER/OVERWRITE). The spine calls
    * `overwrite(next, prev)` to roll a change back. A kind with no in-place form recreates: implement
    * as `[...remove(prev), ...emit(next)]`. Default (omitted) = recreate via emit(next).
    */
-  overwrite?(prev: P, next: P): string[];
+  overwrite?: (prev: P, next: P) => string[]
   /**
    * The CANONICAL change-detection key: the spine treats prev/next of the same object as a CHANGE iff
    * their `canonical` differs. Default (omitted) = `emit(portable).join("\n")` — so a kind whose `emit`
@@ -78,7 +78,7 @@ export interface KindEngine<
    * faithful in `emit`, but don't count as changes. `canonical(a) === canonical(b)` MUST mean "no
    * migration needed". Affects ONLY classification; `emit`/`overwrite` (the DDL) are unaffected.
    */
-  canonical?(portable: P): string;
+  canonical?: (portable: P) => string
   /**
    * Fine-grained DISPLAY items for a change of this object — so `better-schemic diff` shows per-SUB-OBJECT
    * changes (a table decomposes into per-FIELD items: `field:user:name` changed), each carrying its
@@ -89,18 +89,18 @@ export interface KindEngine<
    * `emit`/`overwrite`); a structured driver reuses the per-field diff it already computes. Leave
    * `DiffItem.file` unset (the caller attaches source linkage).
    */
-  displayItems?(prev: P | undefined, next: P | undefined): DiffItem[];
+  displayItems?: (prev: P | undefined, next: P | undefined) => DiffItem[]
   /**
    * Objects this one must be emitted AFTER — the cross-kind dependency edges (a field/index -> its
    * table; an edge table -> its in/out tables; an event -> its table + any function it calls). Drives
    * the topological sort in ./plan.ts. Omitted = no dependencies.
    */
-  deps?(portable: P): Ref[];
+  deps?: (portable: P) => Ref[]
   /**
    * The owning object to CLUSTER next to in the emitted order (an index's table) — readability only,
    * never overrides {@link deps}. Omitted = a top-level object.
    */
-  owner?(portable: P): Ref | undefined;
+  owner?: (portable: P) => Ref | undefined
   /**
    * The STRUCTURAL container this object is nested within (an index's/field's table) — used for
    * ADDRESSING and grouping (the CLI's dotted `parent.child`, e.g. `sc index info user.email_idx`) and
@@ -109,20 +109,20 @@ export interface KindEngine<
    * The CLI resolves a nesting address as `parent ?? owner` (so a kind that only sets `owner` still
    * addresses dotted). Omitted (and no `owner`) = a top-level object, addressed by its bare name.
    */
-  parent?(portable: P): Ref | undefined;
+  parent?: (portable: P) => Ref | undefined
   /**
    * Live connection -> all portable objects of THIS kind (the reverse direction). Introspection is
    * often one `INFO`/catalog read yielding every kind at once; a driver backs all of its kinds'
    * `introspect` with one shared (memoized) read and slices out this kind's objects. Omitted -> this
    * kind isn't introspectable (diff/emit still work from authored state).
    */
-  introspect?(conn: unknown): Promise<P[]>;
+  introspect?: (conn: unknown) => Promise<P[]>
   /**
    * How this kind is PRESENTED — its human labels and the folder its objects render into. All optional
    * with sensible defaults off the kind name (see {@link KindRegistry.display}), so a kind only declares
    * what the defaults get wrong (e.g. `plural: "Indexes"`, or `folder: "access"`). DISPLAY ONLY.
    */
-  display?: KindDisplay;
+  display?: KindDisplay
   /**
    * UNMANAGED by the migration pipeline: when `true`, objects of this kind are EXCLUDED from
    * snapshot / diff / gen AND from the introspect-compare — so they never enter a migration file nor
@@ -138,47 +138,47 @@ export interface KindEngine<
    * {@link KindRegistry.isExcludedFromMigrations}; only a boolean `true` also skips introspection
    * ({@link KindRegistry.skipsIntrospection}) — a predicate can't be decided there.
    */
-  excludeFromMigrations?: boolean | ((portable: PortableObject) => boolean);
+  excludeFromMigrations?: boolean | ((portable: PortableObject) => boolean)
 }
 
 /** Per-kind presentation metadata (labels + output folder). All optional; core fills defaults. */
 export interface KindDisplay {
   /** Title-Case singular, e.g. `"Table"`, `"Field"`. Default: the kind name, capitalized. */
-  label?: string;
+  label?: string
   /** Title-Case plural, e.g. `"Tables"`, `"Indexes"`. Default: the English plural of `label`. */
-  plural?: string;
+  plural?: string
   /** The directory this kind's objects render into. Default: the lowercase slug of `plural`. */
-  folder?: string;
+  folder?: string
 }
 
 /** A kind's resolved presentation — every field filled (the shape {@link KindRegistry.display} returns). */
-export type ResolvedDisplay = Required<KindDisplay>;
+export type ResolvedDisplay = Required<KindDisplay>
 
 /** A kind's full spec: its `name`, its `build` (the driver's authoring entry), and its engine. */
 export type KindSpec<
   Build extends (...args: never[]) => unknown,
   A extends Definable,
   P extends PortableObject,
-> = { name: string; build: Build } & KindEngine<A, P>;
+> = { name: string; build: Build } & KindEngine<A, P>
 
 /** `"table"` -> `"Table"`. */
 function capitalize(s: string): string {
-  return s ? s[0].toUpperCase() + s.slice(1) : s;
+  return s ? s[0].toUpperCase() + s.slice(1) : s
 }
 
 /** A plain English pluralizer for kind labels: `Index` -> `Indexes`, `Policy` -> `Policies`. */
 function pluralize(s: string): string {
-  if (/[^aeiou]y$/i.test(s)) return `${s.slice(0, -1)}ies`;
-  if (/(s|x|z|ch|sh)$/i.test(s)) return `${s}es`;
-  return `${s}s`;
+  if (/[^aeiou]y$/i.test(s)) return `${s.slice(0, -1)}ies`
+  if (/(s|x|z|ch|sh)$/i.test(s)) return `${s}es`
+  return `${s}s`
 }
 
 /** `"Tables"` -> `"tables"`; collapses non-alphanumerics to single dashes (a filesystem-safe folder). */
 function slugify(s: string): string {
   return s
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replaceAll(/[^a-z0-9]+/g, "-")
+    .replaceAll(/^-+|-+$/g, "")
 }
 
 /**
@@ -189,9 +189,9 @@ function slugify(s: string): string {
  */
 export class KindRegistry {
   // Heterogeneous kinds erase at the engine seam (engine ops are structural); the AUTHORING side
-  // keeps full types via `define`'s `Build` passthrough.
-  // biome-ignore lint/suspicious/noExplicitAny: the engine seam is intentionally type-erased.
-  private readonly kinds = new Map<string, KindEngine<any, any>>();
+  // Keeps full types via `define`'s `Build` passthrough.
+
+  private readonly kinds = new Map<string, KindEngine<any, any>>()
 
   /**
    * Register a KIND. `build` is the driver's own authoring entry — ANY shape/chain — and its type
@@ -204,16 +204,16 @@ export class KindRegistry {
     A extends Definable,
     P extends PortableObject,
   >(spec: KindSpec<Build, A, P>): Build {
-    this.kinds.set(spec.name, spec);
-    this.ordinalIndex = undefined;
-    this.displayCache.clear();
-    return spec.build;
+    this.kinds.set(spec.name, spec)
+    this.ordinalIndex = undefined
+    this.displayCache.clear()
+    return spec.build
   }
 
   /** The engine for `kind`, or undefined if no such kind is registered. */
-  // biome-ignore lint/suspicious/noExplicitAny: the engine erases at this seam (see `kinds`).
+
   engine(kind: string): KindEngine<any, any> | undefined {
-    return this.kinds.get(kind);
+    return this.kinds.get(kind)
   }
 
   /**
@@ -224,8 +224,8 @@ export class KindRegistry {
    * is treated as managed (false), so a stray object never gets silently dropped by a typo.
    */
   isExcludedFromMigrations(portable: PortableObject): boolean {
-    const flag = this.kinds.get(portable.kind)?.excludeFromMigrations;
-    return typeof flag === "function" ? flag(portable) : flag === true;
+    const flag = this.kinds.get(portable.kind)?.excludeFromMigrations
+    return typeof flag === "function" ? flag(portable) : flag === true
   }
 
   /**
@@ -234,7 +234,7 @@ export class KindRegistry {
    * runs for the kind, and the diff/snapshot/emit choke points filter by object afterwards.
    */
   skipsIntrospection(kind: string): boolean {
-    return this.kinds.get(kind)?.excludeFromMigrations === true;
+    return this.kinds.get(kind)?.excludeFromMigrations === true
   }
 
   /**
@@ -243,23 +243,23 @@ export class KindRegistry {
    * `"field"` items a table's `displayItems` emits) — they just get the name-derived defaults.
    */
   display(kind: string): ResolvedDisplay {
-    const cached = this.displayCache.get(kind);
-    if (cached) return cached;
-    const d = this.kinds.get(kind)?.display ?? {};
-    const label = d.label ?? capitalize(kind);
-    const plural = d.plural ?? pluralize(label);
-    const resolved: ResolvedDisplay = {
-      label,
-      plural,
-      folder: d.folder ?? slugify(plural),
-    };
-    this.displayCache.set(kind, resolved);
-    return resolved;
+    const cached = this.displayCache.get(kind)
+    if (cached) return cached
+    const d = this.kinds.get(kind)?.display ?? {},
+      label = d.label ?? capitalize(kind),
+      plural = d.plural ?? pluralize(label),
+      resolved: ResolvedDisplay = {
+        label,
+        plural,
+        folder: d.folder ?? slugify(plural),
+      }
+    this.displayCache.set(kind, resolved)
+    return resolved
   }
 
   /** Registered kind names, in registration order (== ordinal order). */
   names(): string[] {
-    return [...this.kinds.keys()];
+    return [...this.kinds.keys()]
   }
 
   /**
@@ -271,18 +271,18 @@ export class KindRegistry {
    * comparators, so a per-call `indexOf` over the kind list would make ordering O(n·k).
    */
   ordinal(kind: string): number {
-    this.ordinalIndex ??= new Map(this.names().map((n, i) => [n, i]));
-    return this.ordinalIndex.get(kind) ?? Number.MAX_SAFE_INTEGER;
+    this.ordinalIndex ??= new Map(this.names().map((n, i) => [n, i]))
+    return this.ordinalIndex.get(kind) ?? Number.MAX_SAFE_INTEGER
   }
 
   /** [name, engine] pairs in registration order — the spine iterates these. */
-  // biome-ignore lint/suspicious/noExplicitAny: the engine erases at this seam (see `kinds`).
+
   entries(): [string, KindEngine<any, any>][] {
-    return [...this.kinds.entries()];
+    return [...this.kinds.entries()]
   }
 
   /** Registration index per kind (see {@link ordinal}); rebuilt after every `define`. */
-  private ordinalIndex?: Map<string, number>;
+  private ordinalIndex?: Map<string, number>
   /** Resolved presentation per kind (see {@link display}); cleared on `define`. */
-  private readonly displayCache = new Map<string, ResolvedDisplay>();
+  private readonly displayCache = new Map<string, ResolvedDisplay>()
 }

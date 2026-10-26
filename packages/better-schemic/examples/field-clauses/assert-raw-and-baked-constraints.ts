@@ -1,5 +1,6 @@
-import { defineTable, s, surql } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s, surql } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "ASSERT — raw and baked $-constraints",
@@ -16,4 +17,4 @@ DEFINE FIELD slug ON TABLE a TYPE string ASSERT $value = /^[a-z-]+$/;`,
     score: s.float().$gte(0).$lte(1),
     slug: s.string().$assert(surql`$value = /^[a-z-]+$/`),
   }),
-});
+})

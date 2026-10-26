@@ -1,7 +1,7 @@
 // The KIND REGISTRY subsystem (core-v2) — the generic, open replacement for the fixed object-kind
-// slots. See ./registry.ts (the primitive + per-driver registry) and ./plan.ts (the kind-blind
-// migration spine + cross-kind dependency ordering). Additive: the fixed-slot `Driver`/`PortableDb`
-// path is untouched while kinds migrate onto this one (docs/kind-registry.md §8).
+// Slots. See ./registry.ts (the primitive + per-driver registry) and ./plan.ts (the kind-blind
+// Migration spine + cross-kind dependency ordering). Additive: the fixed-slot `Driver`/`PortableDb`
+// Path is untouched while kinds migrate onto this one (docs/kind-registry.md §8).
 
 export {
   buildKindDiff,
@@ -15,7 +15,7 @@ export {
   planKinds,
   snapshotKinds,
   snapshotObjects,
-} from "./plan";
+} from "./plan"
 export {
   type Definable,
   type KindDisplay,
@@ -25,4 +25,4 @@ export {
   type PortableObject,
   type Ref,
   type ResolvedDisplay,
-} from "./registry";
+} from "./registry"

@@ -1,5 +1,6 @@
-import { defineFunction, s, surql } from "better-schemic";
-import { example } from "../_kit";
+import { defineFunction, s, surql } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "Function with args, return type, body",
@@ -7,4 +8,4 @@ export default example(import.meta.url, {
   def: defineFunction("greet", { name: s.string() })
     .returns(s.string())
     .body(surql`RETURN "hi " + $name`),
-});
+})

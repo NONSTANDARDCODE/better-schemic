@@ -8,7 +8,7 @@
  */
 export interface SeedContext {
   /** Absolute path of the directory containing the running seed. */
-  readonly dir: string;
+  readonly dir: string
   /** Read a supporting file (resolved relative to {@link SeedContext.dir}) as a UTF-8 string. */
-  file(name: string): string;
+  file: (name: string) => string
 }

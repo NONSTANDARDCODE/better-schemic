@@ -6,17 +6,17 @@
  * belong to the session, not to the namespace/database context). Use the `auth` overload of
  * `$withContext` (or `forkSession()`) for an isolated session.
  */
-import type { AccessRecordAuth, AnyAuth, Token, Tokens } from "surrealdb";
+import type { AccessRecordAuth, AnyAuth, Token, Tokens } from "surrealdb"
 
 export interface AuthOperations {
   /** System user (root/ns/db) or record-access credentials. */
-  signin(auth: AnyAuth): Promise<Tokens>;
+  signin: (auth: AnyAuth) => Promise<Tokens>
   /** Record-access sign-up. */
-  signup(auth: AccessRecordAuth): Promise<Tokens>;
+  signup: (auth: AccessRecordAuth) => Promise<Tokens>
   /** Adopt an existing access token (or access+refresh pair). */
-  authenticate(token: Token | Tokens): Promise<Tokens>;
+  authenticate: (token: Token | Tokens) => Promise<Tokens>
   /** End the session (the SDK clears the token). */
-  invalidate(): Promise<void>;
+  invalidate: () => Promise<void>
   /** The record of the authenticated RECORD user (`undefined` when there is none). */
-  record<T = Record<string, unknown>>(): Promise<T | undefined>;
+  record: <T = Record<string, unknown>>() => Promise<T | undefined>
 }

@@ -10,26 +10,26 @@ import { createContext } from "istanbul-lib-report";
 import reports from "istanbul-reports";
 import { fileMetrics, fmt, inScope, mergeFragments } from "./lib";
 
-const root = resolve(import.meta.dir, "../..");
-const fragments = process.env.COVERAGE_DIR ?? join(root, ".coverage");
-const out = join(root, "coverage");
+const root = resolve(import.meta.dir, "../.."),
+ fragments = process.env.COVERAGE_DIR ?? join(root, ".coverage"),
+ out = join(root, "coverage");
 mkdirSync(out, { recursive: true });
 
-const map = mergeFragments(fragments);
-const include = [
+const map = mergeFragments(fragments),
+ include = [
   join(root, "packages/better-schemic/src/surreal"),
   join(root, "packages/better-schemic/src/core"),
-];
+],
 
 // Istanbul's own reports (HTML/LCOV/JSON) — text is replaced by ours (it can't show `bT`).
-const context = createContext({ dir: out, coverageMap: map });
+ context = createContext({ dir: out, coverageMap: map });
 for (const name of ["html", "lcov", "json-summary"]) {
-  reports.create(name as "html").execute(context);
+  reports.create(name).execute(context);
 }
 
-const files = map.files().filter((f) => inScope(f, include)).sort();
-const totals = { s: [0, 0], b: [0, 0], f: [0, 0], l: [0, 0], c: [0, 0] };
-const rows: string[] = [];
+const files = map.files().filter((f) => inScope(f, include)).sort(),
+ totals = { s: [0, 0], b: [0, 0], f: [0, 0], l: [0, 0], c: [0, 0] },
+ rows: string[] = [];
 for (const file of files) {
   let source: string | undefined;
   try {
@@ -37,8 +37,8 @@ for (const file of files) {
   } catch {
     source = undefined;
   }
-  const m = fileMetrics(map.fileCoverageFor(file) as never, source);
-  const rel = file.replace(`${root}/`, "");
+  const m = fileMetrics(map.fileCoverageFor(file) as never, source),
+   rel = file.replace(`${root}/`, "");
   rows.push(
     `${rel.padEnd(58)} ${fmt(m.statements)} ${fmt(m.branches)} ${fmt(m.functions)} ${fmt(m.lines)} ${fmt(m.conditions)}`,
   );

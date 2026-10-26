@@ -1,11 +1,12 @@
-import { defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 /** A domain type with no wire representation of its own — the codec below maps it to/from a string. */
 class Money {
   constructor(readonly cents: number) {}
   toString() {
-    return (this.cents / 100).toFixed(2);
+    return (this.cents / 100).toFixed(2)
   }
 }
 
@@ -21,4 +22,4 @@ DEFINE FIELD price ON TABLE wallet TYPE string;`,
       decode: (v) => new Money(Math.round(Number(v) * 100)),
     }),
   }),
-});
+})

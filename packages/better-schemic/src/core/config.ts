@@ -37,35 +37,31 @@ import type {
   ConnectionInput,
   ResolveContext,
   ResolvedConnectionHandle,
-} from "./connection";
+} from "./connection"
 
 export interface BetterSchemicConfig {
   /** Named database connections — each produced by a per-driver `<driver>Connection(...)` factory. */
-  connections: Record<string, AnyConnectionEntry>;
+  connections: Record<string, AnyConnectionEntry>
   /**
    * With more than one connection, the connection a bare command targets (must name a single static
    * connection). Absent + ambiguous → a live command errors asking for `--connection`.
    */
-  defaultConnection?: string;
+  defaultConnection?: string
   /** Table that records applied migrations (per connection). Default `_migrations`. */
-  migrationsTable?: string;
+  migrationsTable?: string
   /** Optional seed script run by `better-schemic seed`. */
-  seed?: string;
+  seed?: string
 }
 
 /**
  * Legacy alias — prefer {@link BetterSchemicConfig}.
  */
-export type SchemicConfig = BetterSchemicConfig;
+export type SchemicConfig = BetterSchemicConfig
 
 /** The bound ORM client type a {@link ConnectionEntry} opens (inferred from the driver factory). */
-// biome-ignore lint/suspicious/noExplicitAny: matching the erased Args slot.
-export type EntryClient<E> =
-  E extends ConnectionEntry<infer Client, any> ? Client : never;
+export type EntryClient<E> = E extends ConnectionEntry<infer Client, any> ? Client : never
 /** The typed resolver `args` a {@link ConnectionEntry} accepts (from its `args` schema). */
-// biome-ignore lint/suspicious/noExplicitAny: matching the erased Client slot.
-export type EntryArgs<E> =
-  E extends ConnectionEntry<any, infer Args> ? Args : never;
+export type EntryArgs<E> = E extends ConnectionEntry<any, infer Args> ? Args : never
 
 /**
  * What {@link defineConfig} ADDS to your config: the config IS the app's typed entry point to its
@@ -75,13 +71,11 @@ export type EntryArgs<E> =
  * connection whose resolver returns an ARRAY is bulk-only: `connect` throws a teaching error — pass
  * `args` selecting ONE config. The client is disposable: `await using db = await betterSchemic.connect()`.
  */
-export interface BetterSchemicProject<
-  Conns extends Record<string, AnyConnectionEntry>,
-> {
-  connect<N extends keyof Conns & string>(
+export interface BetterSchemicProject<Conns extends Record<string, AnyConnectionEntry>> {
+  connect: <N extends keyof Conns & string>(
     name?: N,
     args?: EntryArgs<Conns[N]>,
-  ): Promise<EntryClient<Conns[N]>>;
+  ) => Promise<EntryClient<Conns[N]>>
 }
 
 /**
@@ -108,19 +102,14 @@ export type ChainCtx<Conns extends Record<string, AnyConnectionEntry>> = Omit<
   "connections"
 > & {
   connections: {
-    [K in keyof Conns]: PromiseLike<EntryClient<Conns[K]>> &
-      ResolvedConnectionHandle;
-  };
-};
+    [K in keyof Conns]: PromiseLike<EntryClient<Conns[K]>> & ResolvedConnectionHandle
+  }
+}
 
 /** The shape a driver connection factory must have to be used as the `.connection()` driver marker. */
-export interface ChainableDriverFactory<
-  C extends ConnectionConfigBase,
-  Client,
-> {
-  // biome-ignore lint/suspicious/noExplicitAny: the chain re-types input/args itself (variance cast).
-  (input: ConnectionInput<C, any>): ConnectionEntry<Client, any>;
-}
+export type ChainableDriverFactory<C extends ConnectionConfigBase, Client> = (
+  input: ConnectionInput<C, any>,
+) => ConnectionEntry<Client, any>
 
 /**
  * The CHAINED config builder (`defineConfig().connection(...)`): each `.connection(name, factory,
@@ -128,72 +117,61 @@ export interface ChainableDriverFactory<
  * `ctx.connections` with everything declared so far. The literal `defineConfig({ connections })`
  * form remains for static maps.
  */
-export interface ChainedConfig<Conns extends Record<string, AnyConnectionEntry>>
-  extends BetterSchemicProject<Conns> {
-  connections: Conns;
-  defaultConnection?: string;
-  migrationsTable?: string;
-  seed?: string;
-  connection<
-    N extends string,
-    C extends ConnectionConfigBase,
-    Client,
-    Args = undefined,
-  >(
+export interface ChainedConfig<
+  Conns extends Record<string, AnyConnectionEntry>,
+> extends BetterSchemicProject<Conns> {
+  connections: Conns
+  defaultConnection?: string
+  migrationsTable?: string
+  seed?: string
+  connection: <N extends string, C extends ConnectionConfigBase, Client, Args = undefined>(
     name: N,
     factory: ChainableDriverFactory<C, Client>,
-    input:
-      | C
-      | ((ctx: ChainCtx<Conns>, args: Args) => C | C[] | Promise<C | C[]>),
-  ): ChainedConfig<Conns & { [K in N]: ConnectionEntry<Client, Args> }>;
+    input: C | ((ctx: ChainCtx<Conns>, args: Args) => C | C[] | Promise<C | C[]>),
+  ) => ChainedConfig<Conns & Record<N, ConnectionEntry<Client, Args>>>
 }
 
 /** Start a CHAINED config: `defineConfig().connection("main", surrealConnection, {...})`. */
 export function defineConfig(
   base?: Omit<BetterSchemicConfig, "connections">,
-): ChainedConfig<Record<never, never>>;
+): ChainedConfig<Record<never, never>>
 /** Type + enrich a literal config — returns it with the typed `connect()` attached. */
 export function defineConfig<const C extends BetterSchemicConfig>(
   config: C,
-): C & BetterSchemicProject<C["connections"]>;
+): C & BetterSchemicProject<C["connections"]>
 export function defineConfig(
   config?: BetterSchemicConfig | Omit<BetterSchemicConfig, "connections">,
 ): unknown {
-  const isLiteral = !!config && "connections" in config;
-  const base: BetterSchemicConfig = isLiteral
-    ? (config as BetterSchemicConfig)
-    : {
-        ...(config as Omit<BetterSchemicConfig, "connections"> | undefined),
-        connections: {},
-      };
+  const isLiteral = Boolean(config) && "connections" in config,
+    base: BetterSchemicConfig = isLiteral
+      ? config
+      : {
+          ...config,
+          connections: {},
+        },
+    withApi = (cfg: BetterSchemicConfig): unknown => ({
+      ...cfg,
+      async connect(name?: string, args?: unknown) {
+        // Lazy: authoring/loading a config stays light; the client machinery loads only when used.
+        const { connectFromConfig } = await import("./client")
+        return connectFromConfig(cfg, name, args)
+      },
+      connection(name: string, factory: (input: unknown) => AnyConnectionEntry, input: unknown) {
+        // The factory IS the driver marker: it stamps the driver tag, config type, and client opener.
+        // The chain re-types ctx/args itself, so the factory is called through a variance cast.
+        const entry = factory(input)
+        return withApi({
+          ...cfg,
+          connections: { ...cfg.connections, [name]: entry },
+        })
+      },
+    })
 
-  const withApi = (cfg: BetterSchemicConfig): unknown => ({
-    ...cfg,
-    async connect(name?: string, args?: unknown) {
-      // Lazy: authoring/loading a config stays light; the client machinery loads only when used.
-      const { connectFromConfig } = await import("./client");
-      return connectFromConfig(cfg, name, args);
-    },
-    connection(
-      name: string,
-      factory: (input: unknown) => AnyConnectionEntry,
-      input: unknown,
-    ) {
-      // The factory IS the driver marker: it stamps the driver tag, config type, and client opener.
-      // The chain re-types ctx/args itself, so the factory is called through a variance cast.
-      const entry = factory(input as never);
-      return withApi({
-        ...cfg,
-        connections: { ...cfg.connections, [name]: entry },
-      });
-    },
-  });
-
-  return withApi(base);
+  return withApi(base)
 }
 
 /**
  * Legacy alias — prefer {@link BetterSchemicProject}.
  */
 export type SchemicProject<Conns extends Record<string, AnyConnectionEntry>> =
-  BetterSchemicProject<Conns>;
+  BetterSchemicProject<Conns>

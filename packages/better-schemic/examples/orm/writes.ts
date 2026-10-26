@@ -2,18 +2,25 @@
  * ORM cookbook — write operations. Each entry is a real delegate call over the sample schema; the golden
  * is the exact runtime SurrealQL it produces. See `./_kit.ts` (the reference test re-runs every `def`).
  */
-import { group, ormExample } from "./_kit";
+import { group, ormExample } from "./_kit"
 
-export const writes = group(
-  "writes",
-  "create / insert / update / upsert / delete",
-  [
-    ormExample(import.meta.url, {
-      title:
-        "create — CONTENT payload (default ULID id, generated server-side)",
-      sql: 'CREATE type::record(s"user", rand::ulid()) CONTENT $p0;',
-      vars: {
-        p0: {
+export const writes = group("writes", "create / insert / update / upsert / delete", [
+  ormExample(import.meta.url, {
+    title: "create — CONTENT payload (default ULID id, generated server-side)",
+    sql: 'CREATE type::record(s"user", rand::ulid()) CONTENT $p0;',
+    vars: {
+      p0: {
+        name: "A",
+        email: "a@x",
+        age: 30,
+        active: true,
+        tags: [],
+        address: { city: "SP" },
+      },
+    },
+    def: async (client) =>
+      client.users.create({
+        data: {
           name: "A",
           email: "a@x",
           age: 30,
@@ -21,24 +28,25 @@ export const writes = group(
           tags: [],
           address: { city: "SP" },
         },
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "create — string id targets CREATE ONLY t:id",
+    sql: "CREATE ONLY user:aeon CONTENT $p0;",
+    vars: {
+      p0: {
+        id: "user:aeon",
+        name: "A",
+        email: "a@x",
+        age: 30,
+        active: true,
+        tags: [],
+        address: { city: "SP" },
       },
-      def: (client) =>
-        client.users.create({
-          data: {
-            name: "A",
-            email: "a@x",
-            age: 30,
-            active: true,
-            tags: [],
-            address: { city: "SP" },
-          },
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "create — string id targets CREATE ONLY t:id",
-      sql: "CREATE ONLY user:aeon CONTENT $p0;",
-      vars: {
-        p0: {
+    },
+    def: async (client) =>
+      client.users.create({
+        data: {
           id: "user:aeon",
           name: "A",
           email: "a@x",
@@ -47,11 +55,34 @@ export const writes = group(
           tags: [],
           address: { city: "SP" },
         },
+        only: true,
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "createMany — batched creates",
+    sql: 'BEGIN TRANSACTION;\nCREATE type::record(s"user", rand::ulid()) CONTENT $p0;\nCREATE type::record(s"user", rand::ulid()) CONTENT $p1;\nCOMMIT TRANSACTION;',
+    vars: {
+      p0: {
+        name: "A",
+        email: "a@x",
+        age: 30,
+        active: true,
+        tags: [],
+        address: { city: "SP" },
       },
-      def: (client) =>
-        client.users.create({
-          data: {
-            id: "user:aeon",
+      p1: {
+        name: "B",
+        email: "b@x",
+        age: 31,
+        active: false,
+        tags: [],
+        address: { city: "SP" },
+      },
+    },
+    def: async (client) =>
+      client.users.createMany({
+        data: [
+          {
             name: "A",
             email: "a@x",
             age: 30,
@@ -59,85 +90,59 @@ export const writes = group(
             tags: [],
             address: { city: "SP" },
           },
-          only: true,
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "createMany — batched creates",
-      sql: 'BEGIN TRANSACTION;\nCREATE type::record(s"user", rand::ulid()) CONTENT $p0;\nCREATE type::record(s"user", rand::ulid()) CONTENT $p1;\nCOMMIT TRANSACTION;',
-      vars: {
-        p0: {
-          name: "A",
-          email: "a@x",
-          age: 30,
-          active: true,
-          tags: [],
-          address: { city: "SP" },
-        },
-        p1: {
-          name: "B",
-          email: "b@x",
-          age: 31,
-          active: false,
-          tags: [],
-          address: { city: "SP" },
-        },
+          {
+            name: "B",
+            email: "b@x",
+            age: 31,
+            active: false,
+            tags: [],
+            address: { city: "SP" },
+          },
+        ],
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "create — idStrategy('uuid') generates a UUID v7 server-side",
+    note: "`.idStrategy('uuid')` — no DDL, ORM-only; raw SQL keeps the server default.",
+    sql: 'CREATE type::record(s"uuid_user", rand::uuid()) CONTENT $p0;',
+    vars: { p0: { name: "A", email: "a@x" } },
+    def: async (client) => client.uuidUsers.create({ data: { name: "A", email: "a@x" } }),
+  }),
+  ormExample(import.meta.url, {
+    title: "create — idStrategy('rand') keeps the server default (rand::id())",
+    sql: "CREATE rand_user CONTENT $p0;",
+    vars: { p0: { name: "A" } },
+    def: async (client) => client.randUsers.create({ data: { name: "A" } }),
+  }),
+  ormExample(import.meta.url, {
+    title: "upsert — generated id resolves the unique row, else creates (onMissing create)",
+    note: "One statement: the subquery finds the existing row by UNIQUE, `??` falls back to the generated target.",
+    sql: 'UPSERT ((SELECT VALUE id FROM uuid_user WHERE email = $p0 LIMIT 1)[0] ?? type::record(s"uuid_user", rand::uuid())) MERGE $p1;',
+    vars: { p0: "a@x", p1: { email: "a@x", name: "A" } },
+    def: async (client) =>
+      client.uuidUsers.upsert({
+        where: { email: "a@x" },
+        data: { email: "a@x", name: "A" },
+        onMissing: "create",
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "insert — onDuplicate ignore",
+    sql: "INSERT IGNORE INTO user $p0;",
+    vars: {
+      p0: {
+        id: "user:aeon",
+        name: "A",
+        email: "a@x",
+        age: 30,
+        active: true,
+        tags: [],
+        address: { city: "SP" },
       },
-      def: (client) =>
-        client.users.createMany({
-          data: [
-            {
-              name: "A",
-              email: "a@x",
-              age: 30,
-              active: true,
-              tags: [],
-              address: { city: "SP" },
-            },
-            {
-              name: "B",
-              email: "b@x",
-              age: 31,
-              active: false,
-              tags: [],
-              address: { city: "SP" },
-            },
-          ],
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "create — idStrategy('uuid') generates a UUID v7 server-side",
-      note: "`.idStrategy('uuid')` — no DDL, ORM-only; raw SQL keeps the server default.",
-      sql: 'CREATE type::record(s"uuid_user", rand::uuid()) CONTENT $p0;',
-      vars: { p0: { name: "A", email: "a@x" } },
-      def: (client) =>
-        client.uuidUsers.create({ data: { name: "A", email: "a@x" } }),
-    }),
-    ormExample(import.meta.url, {
-      title:
-        "create — idStrategy('rand') keeps the server default (rand::id())",
-      sql: "CREATE rand_user CONTENT $p0;",
-      vars: { p0: { name: "A" } },
-      def: (client) => client.randUsers.create({ data: { name: "A" } }),
-    }),
-    ormExample(import.meta.url, {
-      title:
-        "upsert — generated id resolves the unique row, else creates (onMissing create)",
-      note: "One statement: the subquery finds the existing row by UNIQUE, `??` falls back to the generated target.",
-      sql: 'UPSERT ((SELECT VALUE id FROM uuid_user WHERE email = $p0 LIMIT 1)[0] ?? type::record(s"uuid_user", rand::uuid())) MERGE $p1;',
-      vars: { p0: "a@x", p1: { email: "a@x", name: "A" } },
-      def: (client) =>
-        client.uuidUsers.upsert({
-          where: { email: "a@x" },
-          data: { email: "a@x", name: "A" },
-          onMissing: "create",
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "insert — onDuplicate ignore",
-      sql: "INSERT IGNORE INTO user $p0;",
-      vars: {
-        p0: {
+    },
+    def: async (client) =>
+      client.users.insert({
+        data: {
           id: "user:aeon",
           name: "A",
           email: "a@x",
@@ -146,184 +151,179 @@ export const writes = group(
           tags: [],
           address: { city: "SP" },
         },
+        onDuplicate: "ignore",
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "update — merge mode",
+    sql: "UPDATE user:aeon MERGE $p0;",
+    vars: { p0: { age: 31 } },
+    def: async (client) => client.users.update({ where: { id: "user:aeon" }, data: { age: 31 } }),
+  }),
+  ormExample(import.meta.url, {
+    title: "update — set mode with an expression",
+    sql: "UPDATE user:aeon SET age = $p0;",
+    vars: { p0: 31 },
+    def: async (client) =>
+      client.users.update({
+        where: { id: "user:aeon" },
+        mode: "set",
+        data: { age: 31 },
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "update — select projects the returned row (server RETURN)",
+    note: "The projection rides the statement's own RETURN clause — fewer bytes than the whole row; the result type follows `select` like reads.",
+    sql: "UPDATE user:aeon MERGE $p0 RETURN id, age;",
+    vars: { p0: { age: 31 } },
+    def: async (client) =>
+      client.users.update({
+        where: { id: "user:aeon" },
+        data: { age: 31 },
+        select: { id: true, age: true },
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "update — select + return before (projected client-side)",
+    note: "`RETURN BEFORE <proj>` is a parse error on the server, so the BEFORE row is decoded whole and the projection applied client-side.",
+    sql: "UPDATE user:aeon MERGE $p0 RETURN BEFORE;",
+    vars: { p0: { age: 31 } },
+    def: async (client) =>
+      client.users.update({
+        where: { id: "user:aeon" },
+        data: { age: 31 },
+        return: "before",
+        select: { id: true, age: true },
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "update — omit strips fields client-side",
+    note: "`RETURN … OMIT` is a parse error in mutations: the row comes back whole and `omit` is applied after decoding.",
+    sql: "UPDATE user:aeon MERGE $p0;",
+    vars: { p0: { age: 31 } },
+    def: async (client) =>
+      client.users.update({
+        where: { id: "user:aeon" },
+        data: { age: 31 },
+        omit: ["tags"],
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "update — increment lowers to SET age += $p (one read-modify-write)",
+    note: "`{ increment }`/`{ decrement }` adjust the existing value server-side — no lost update between a client read and write.",
+    sql: "UPDATE user:aeon SET age += $p0;",
+    vars: { p0: 1 },
+    def: async (client) =>
+      client.users.update({
+        where: { id: "user:aeon" },
+        data: { age: { increment: 1 } },
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "update — append on an array field (SET tags += $p, one server write)",
+    note: "`{ append }` is the compound assignment: it APPENDS without dedup, and the server keeps a UNIQUE index over the whole array correct. Use `{ union }` when you want dedup.",
+    sql: "UPDATE user:aeon SET tags += $p0;",
+    vars: { p0: "vip" },
+    def: async (client) =>
+      client.users.update({
+        where: { id: "user:aeon" },
+        data: { tags: { append: "vip" } },
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "update — remove from an array field (SET tags -= $p)",
+    note: "`{ remove }` removes EVERY occurrence of the value in one server-side write.",
+    sql: "UPDATE user:aeon SET tags -= $p0;",
+    vars: { p0: "vip" },
+    def: async (client) =>
+      client.users.update({
+        where: { id: "user:aeon" },
+        data: { tags: { remove: "vip" } },
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "update — union on an array field (array::union — the DEDUPING merge)",
+    note: "`+=` never dedups, so the deduping merge is `array::union(field, $p)`, computed by the server.",
+    sql: "UPDATE user:aeon SET tags = array::union(tags, $p0);",
+    vars: { p0: ["vip", "beta"] },
+    def: async (client) =>
+      client.users.update({
+        where: { id: "user:aeon" },
+        data: { tags: { union: ["vip", "beta"] } },
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "update — assign one array index (SET tags[0] = $p)",
+    sql: "UPDATE user:aeon SET tags[0] = $p0;",
+    vars: { p0: "first" },
+    def: async (client) =>
+      client.users.update({
+        where: { id: "user:aeon" },
+        data: { tags: { at: { index: 0, value: "first" } } },
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "upsert — a COMPOSITE unique index is a valid target (multi-tenant)",
+    note: "`email` is unique only within a tenant, so `[tenant, email]` IS the unique key — pass every field of the group; a partial `where` would match many rows and is refused.",
+    sql: "UPDATE account MERGE $p0 WHERE tenant = $p1 AND email = $p2;",
+    vars: { p0: { name: "Aeon" }, p1: "acme", p2: "aeon@x.dev" },
+    def: async (client) =>
+      client.accounts.upsert({
+        where: { tenant: "acme", email: "aeon@x.dev" },
+        data: { name: "Aeon" },
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "update — decrement + return before (SET age -= $p RETURN BEFORE)",
+    sql: "UPDATE user:aeon SET age -= $p0 RETURN BEFORE;",
+    vars: { p0: 2 },
+    def: async (client) =>
+      client.users.update({
+        where: { id: "user:aeon" },
+        data: { age: { decrement: 2 } },
+        return: "before",
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "updateMany — whole-table merge",
+    sql: "UPDATE user MERGE $p0;",
+    vars: { p0: { active: false } },
+    def: async (client) => client.users.updateMany({ data: { active: false } }),
+  }),
+  ormExample(import.meta.url, {
+    title: "upsert — STRICT update over id (the default; a miss rejects ResultNotFound)",
+    sql: "UPDATE ONLY user:aeon MERGE $p0;",
+    vars: { p0: { age: 32 } },
+    def: async (client) => client.users.upsert({ where: { id: "user:aeon" }, data: { age: 32 } }),
+  }),
+  ormExample(import.meta.url, {
+    title: "upsert — insert-or-update over id (onMissing create)",
+    sql: "UPSERT user:aeon MERGE $p0;",
+    vars: { p0: { age: 32 } },
+    def: async (client) =>
+      client.users.upsert({
+        where: { id: "user:aeon" },
+        data: { age: 32 },
+        onMissing: "create",
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "upsert — no target is a plain CREATE (idStrategy id)",
+    note: "With neither `where` nor `data.id` the call is a plain create — the id comes from the table's `idStrategy`.",
+    sql: 'CREATE type::record(s"user", rand::ulid()) CONTENT $p0;',
+    vars: {
+      p0: {
+        name: "A",
+        email: "a@x",
+        age: 30,
+        active: true,
+        tags: [],
+        address: { city: "SP" },
       },
-      def: (client) =>
-        client.users.insert({
-          data: {
-            id: "user:aeon",
-            name: "A",
-            email: "a@x",
-            age: 30,
-            active: true,
-            tags: [],
-            address: { city: "SP" },
-          },
-          onDuplicate: "ignore",
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "update — merge mode",
-      sql: "UPDATE user:aeon MERGE $p0;",
-      vars: { p0: { age: 31 } },
-      def: (client) =>
-        client.users.update({ where: { id: "user:aeon" }, data: { age: 31 } }),
-    }),
-    ormExample(import.meta.url, {
-      title: "update — set mode with an expression",
-      sql: "UPDATE user:aeon SET age = $p0;",
-      vars: { p0: 31 },
-      def: (client) =>
-        client.users.update({
-          where: { id: "user:aeon" },
-          mode: "set",
-          data: { age: 31 },
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "update — select projects the returned row (server RETURN)",
-      note: "The projection rides the statement's own RETURN clause — fewer bytes than the whole row; the result type follows `select` like reads.",
-      sql: "UPDATE user:aeon MERGE $p0 RETURN id, age;",
-      vars: { p0: { age: 31 } },
-      def: (client) =>
-        client.users.update({
-          where: { id: "user:aeon" },
-          data: { age: 31 },
-          select: { id: true, age: true },
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "update — select + return before (projected client-side)",
-      note: "`RETURN BEFORE <proj>` is a parse error on the server, so the BEFORE row is decoded whole and the projection applied client-side.",
-      sql: "UPDATE user:aeon MERGE $p0 RETURN BEFORE;",
-      vars: { p0: { age: 31 } },
-      def: (client) =>
-        client.users.update({
-          where: { id: "user:aeon" },
-          data: { age: 31 },
-          return: "before",
-          select: { id: true, age: true },
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "update — omit strips fields client-side",
-      note: "`RETURN … OMIT` is a parse error in mutations: the row comes back whole and `omit` is applied after decoding.",
-      sql: "UPDATE user:aeon MERGE $p0;",
-      vars: { p0: { age: 31 } },
-      def: (client) =>
-        client.users.update({
-          where: { id: "user:aeon" },
-          data: { age: 31 },
-          omit: ["tags"],
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title:
-        "update — increment lowers to SET age += $p (one read-modify-write)",
-      note: "`{ increment }`/`{ decrement }` adjust the existing value server-side — no lost update between a client read and write.",
-      sql: "UPDATE user:aeon SET age += $p0;",
-      vars: { p0: 1 },
-      def: (client) =>
-        client.users.update({
-          where: { id: "user:aeon" },
-          data: { age: { increment: 1 } },
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "update — append on an array field (SET tags += $p, one server write)",
-      note: "`{ append }` is the compound assignment: it APPENDS without dedup, and the server keeps a UNIQUE index over the whole array correct. Use `{ union }` when you want dedup.",
-      sql: "UPDATE user:aeon SET tags += $p0;",
-      vars: { p0: "vip" },
-      def: (client) =>
-        client.users.update({
-          where: { id: "user:aeon" },
-          data: { tags: { append: "vip" } },
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "update — remove from an array field (SET tags -= $p)",
-      note: "`{ remove }` removes EVERY occurrence of the value in one server-side write.",
-      sql: "UPDATE user:aeon SET tags -= $p0;",
-      vars: { p0: "vip" },
-      def: (client) =>
-        client.users.update({
-          where: { id: "user:aeon" },
-          data: { tags: { remove: "vip" } },
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "update — union on an array field (array::union — the DEDUPING merge)",
-      note: "`+=` never dedups, so the deduping merge is `array::union(field, $p)`, computed by the server.",
-      sql: "UPDATE user:aeon SET tags = array::union(tags, $p0);",
-      vars: { p0: ["vip", "beta"] },
-      def: (client) =>
-        client.users.update({
-          where: { id: "user:aeon" },
-          data: { tags: { union: ["vip", "beta"] } },
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "update — assign one array index (SET tags[0] = $p)",
-      sql: "UPDATE user:aeon SET tags[0] = $p0;",
-      vars: { p0: "first" },
-      def: (client) =>
-        client.users.update({
-          where: { id: "user:aeon" },
-          data: { tags: { at: { index: 0, value: "first" } } },
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "upsert — a COMPOSITE unique index is a valid target (multi-tenant)",
-      note: "`email` is unique only within a tenant, so `[tenant, email]` IS the unique key — pass every field of the group; a partial `where` would match many rows and is refused.",
-      sql: "UPDATE account MERGE $p0 WHERE tenant = $p1 AND email = $p2;",
-      vars: { p0: { name: "Aeon" }, p1: "acme", p2: "aeon@x.dev" },
-      def: (client) =>
-        client.accounts.upsert({
-          where: { tenant: "acme", email: "aeon@x.dev" },
-          data: { name: "Aeon" },
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "update — decrement + return before (SET age -= $p RETURN BEFORE)",
-      sql: "UPDATE user:aeon SET age -= $p0 RETURN BEFORE;",
-      vars: { p0: 2 },
-      def: (client) =>
-        client.users.update({
-          where: { id: "user:aeon" },
-          data: { age: { decrement: 2 } },
-          return: "before",
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "updateMany — whole-table merge",
-      sql: "UPDATE user MERGE $p0;",
-      vars: { p0: { active: false } },
-      def: (client) => client.users.updateMany({ data: { active: false } }),
-    }),
-    ormExample(import.meta.url, {
-      title:
-        "upsert — STRICT update over id (the default; a miss rejects ResultNotFound)",
-      sql: "UPDATE ONLY user:aeon MERGE $p0;",
-      vars: { p0: { age: 32 } },
-      def: (client) =>
-        client.users.upsert({ where: { id: "user:aeon" }, data: { age: 32 } }),
-    }),
-    ormExample(import.meta.url, {
-      title: "upsert — insert-or-update over id (onMissing create)",
-      sql: "UPSERT user:aeon MERGE $p0;",
-      vars: { p0: { age: 32 } },
-      def: (client) =>
-        client.users.upsert({
-          where: { id: "user:aeon" },
-          data: { age: 32 },
-          onMissing: "create",
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "upsert — no target is a plain CREATE (idStrategy id)",
-      note: "With neither `where` nor `data.id` the call is a plain create — the id comes from the table's `idStrategy`.",
-      sql: 'CREATE type::record(s"user", rand::ulid()) CONTENT $p0;',
-      vars: {
-        p0: {
+    },
+    def: async (client) =>
+      client.users.upsert({
+        data: {
           name: "A",
           email: "a@x",
           age: 30,
@@ -331,58 +331,59 @@ export const writes = group(
           tags: [],
           address: { city: "SP" },
         },
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "upsert — data.id infers the STRICT id target",
+    note: "`where` omitted: the payload `id` names the record and matches the MERGE target; a miss still rejects `ResultNotFound`.",
+    sql: "UPDATE ONLY user:aeon MERGE $p0;",
+    vars: { p0: { id: "user:aeon", age: 32 } },
+    def: async (client) => client.users.upsert({ data: { id: "user:aeon", age: 32 } }),
+  }),
+  ormExample(import.meta.url, {
+    title: "upsertDelta — create-or-update with the before/after envelope (onMissing create)",
+    note: "ONE statement: `$before`/`$after` come from the same UPSERT, decoded into `record`/`before`/`delta`.",
+    sql: "UPSERT user:aeon MERGE $p0 RETURN VALUE { before: $before, after: $after };",
+    vars: { p0: { age: 32 } },
+    def: async (client) =>
+      client.users.upsertDelta({
+        where: { id: "user:aeon" },
+        data: { age: 32 },
+        onMissing: "create",
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "upsertDelta — STRICT update never creates (the default)",
+    note: "`onMissing: 'throw'` (the default) compiles `UPDATE ONLY`; a miss rejects `ResultNotFound`.",
+    sql: "UPDATE ONLY user:aeon MERGE $p0 RETURN VALUE { before: $before, after: $after };",
+    vars: { p0: { age: 33 } },
+    def: async (client) =>
+      client.users.upsertDelta({
+        where: { id: "user:aeon" },
+        data: { age: 33 },
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "upsertDelta — distinct create/update payloads (onMissing create)",
+    note: "Distinct branches branch first (LET/IF) and envelope EACH branch in one transactional round-trip.",
+    sql: "BEGIN TRANSACTION;\nLET $__existing = (SELECT VALUE id FROM user WHERE id = $p0 LIMIT 1);\nIF array::len($__existing) = 0 THEN CREATE user:aeon CONTENT $p1 RETURN VALUE { before: $before, after: $after } ELSE UPDATE $__existing[0] MERGE $p2 RETURN VALUE { before: $before, after: $after } END;\nCOMMIT TRANSACTION;",
+    vars: {
+      p0: "user:aeon",
+      p1: {
+        id: "user:aeon",
+        name: "A",
+        email: "a@x",
+        age: 30,
+        active: true,
+        tags: [],
+        address: { city: "SP" },
       },
-      def: (client) =>
-        client.users.upsert({
-          data: {
-            name: "A",
-            email: "a@x",
-            age: 30,
-            active: true,
-            tags: [],
-            address: { city: "SP" },
-          },
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "upsert — data.id infers the STRICT id target",
-      note: "`where` omitted: the payload `id` names the record and matches the MERGE target; a miss still rejects `ResultNotFound`.",
-      sql: "UPDATE ONLY user:aeon MERGE $p0;",
-      vars: { p0: { id: "user:aeon", age: 32 } },
-      def: (client) =>
-        client.users.upsert({ data: { id: "user:aeon", age: 32 } }),
-    }),
-    ormExample(import.meta.url, {
-      title:
-        "upsertDelta — create-or-update with the before/after envelope (onMissing create)",
-      note: "ONE statement: `$before`/`$after` come from the same UPSERT, decoded into `record`/`before`/`delta`.",
-      sql: "UPSERT user:aeon MERGE $p0 RETURN VALUE { before: $before, after: $after };",
-      vars: { p0: { age: 32 } },
-      def: (client) =>
-        client.users.upsertDelta({
-          where: { id: "user:aeon" },
-          data: { age: 32 },
-          onMissing: "create",
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "upsertDelta — STRICT update never creates (the default)",
-      note: "`onMissing: 'throw'` (the default) compiles `UPDATE ONLY`; a miss rejects `ResultNotFound`.",
-      sql: "UPDATE ONLY user:aeon MERGE $p0 RETURN VALUE { before: $before, after: $after };",
-      vars: { p0: { age: 33 } },
-      def: (client) =>
-        client.users.upsertDelta({
-          where: { id: "user:aeon" },
-          data: { age: 33 },
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "upsertDelta — distinct create/update payloads (onMissing create)",
-      note: "Distinct branches branch first (LET/IF) and envelope EACH branch in one transactional round-trip.",
-      sql: "BEGIN TRANSACTION;\nLET $__existing = (SELECT VALUE id FROM user WHERE id = $p0 LIMIT 1);\nIF array::len($__existing) = 0 THEN CREATE user:aeon CONTENT $p1 RETURN VALUE { before: $before, after: $after } ELSE UPDATE $__existing[0] MERGE $p2 RETURN VALUE { before: $before, after: $after } END;\nCOMMIT TRANSACTION;",
-      vars: {
-        p0: "user:aeon",
-        p1: {
+      p2: { age: 31 },
+    },
+    def: async (client) =>
+      client.users.upsertDelta({
+        where: { id: "user:aeon" },
+        create: {
           id: "user:aeon",
           name: "A",
           email: "a@x",
@@ -391,35 +392,20 @@ export const writes = group(
           tags: [],
           address: { city: "SP" },
         },
-        p2: { age: 31 },
-      },
-      def: (client) =>
-        client.users.upsertDelta({
-          where: { id: "user:aeon" },
-          create: {
-            id: "user:aeon",
-            name: "A",
-            email: "a@x",
-            age: 30,
-            active: true,
-            tags: [],
-            address: { city: "SP" },
-          },
-          update: { age: 31 },
-          onMissing: "create",
-        }),
-    }),
-    ormExample(import.meta.url, {
-      title: "delete — RETURN BEFORE",
-      sql: "DELETE user:aeon RETURN BEFORE;",
-      vars: {},
-      def: (client) => client.users.delete({ where: { id: "user:aeon" } }),
-    }),
-    ormExample(import.meta.url, {
-      title: "deleteMany — explicit all:true",
-      sql: "DELETE FROM user WHERE active = $p0 RETURN BEFORE;",
-      vars: { p0: false },
-      def: (client) => client.users.deleteMany({ where: { active: false } }),
-    }),
-  ],
-);
+        update: { age: 31 },
+        onMissing: "create",
+      }),
+  }),
+  ormExample(import.meta.url, {
+    title: "delete — RETURN BEFORE",
+    sql: "DELETE user:aeon RETURN BEFORE;",
+    vars: {},
+    def: async (client) => client.users.delete({ where: { id: "user:aeon" } }),
+  }),
+  ormExample(import.meta.url, {
+    title: "deleteMany — explicit all:true",
+    sql: "DELETE FROM user WHERE active = $p0 RETURN BEFORE;",
+    vars: { p0: false },
+    def: async (client) => client.users.deleteMany({ where: { active: false } }),
+  }),
+])

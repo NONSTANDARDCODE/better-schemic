@@ -7,7 +7,8 @@
 import { describe, expect, test } from "bun:test";
 import { allCoverage } from "../../../coverage";
 import type { AnyDef } from "../../../coverage/_kit";
-import { type DefineOptions, emitDefStatement, emitTable } from "../../../src/surreal/ddl";
+import {  emitDefStatement, emitTable } from "../../../src/surreal/ddl";
+import type {DefineOptions} from "../../../src/surreal/ddl";
 import { TableDef } from "../../../src/surreal/pure";
 
 /** Emit a coverage `def` with the right emitter for its kind. */

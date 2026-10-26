@@ -4,11 +4,10 @@
  * validated against the relation's declared FROM/TO tables; edge data is codec-validated with
  * expression splice (`SET f = $p` per field).
  */
-import { escapeIdentSafe as escapeIdent, unescapeIdPart } from "../../ident";
-import { hasRefDeep } from "../../pure";
-import type { ModelMeta, SchemaIndex } from "../meta";
+import { escapeIdentSafe as escapeIdent, unescapeIdPart } from "../../ident"
+import { hasRefDeep } from "../../pure"
+
 import {
-  type Binds,
   compileError,
   describeValue,
   escapeRecordIdPart,
@@ -16,10 +15,9 @@ import {
   isTableMeta,
   renderValue,
   splitRecordId,
-} from "./shared";
+} from "./shared"
 import {
   compileWriteProjection,
-  type DeleteManyRuntimeArgs,
   encodeData,
   mutationTail,
   readReturn,
@@ -27,34 +25,36 @@ import {
   resultOf,
   selectMode,
   setAssignments,
-  type WritePlan,
-  type WriteRet,
   whereSql,
-} from "./write-shared";
+} from "./write-shared"
+
+import type { ModelMeta, SchemaIndex } from "../meta"
+import type { Binds } from "./shared"
+import type { DeleteManyRuntimeArgs, WritePlan, WriteRet } from "./write-shared"
 
 // --- relate / unrelate ---------------------------------------------------------------------------
 
 export interface RelateRuntimeArgs {
-  from?: unknown;
-  to?: unknown;
-  id?: unknown;
-  data?: unknown;
-  return?: unknown;
-  select?: unknown;
-  omit?: unknown;
-  timeout?: unknown;
-  meta?: Record<string, unknown>;
+  from?: unknown
+  to?: unknown
+  id?: unknown
+  data?: unknown
+  return?: unknown
+  select?: unknown
+  omit?: unknown
+  timeout?: unknown
+  meta?: Record<string, unknown>
 }
 
 /** One compiled RELATE clause (shared by `relate` and `create.relate` sugar). */
 export interface RelateEntry {
-  readonly from: unknown;
-  readonly edge: string;
-  readonly to: unknown;
-  readonly data?: unknown;
-  readonly ret: WriteRet;
+  readonly from: unknown
+  readonly edge: string
+  readonly to: unknown
+  readonly data?: unknown
+  readonly ret: WriteRet
   /** The edge's metadata when resolvable (codec-validates `data`, checks endpoints). */
-  readonly meta?: ModelMeta;
+  readonly meta?: ModelMeta
 }
 
 /** Compile `relate` — `RELATE from->edge[:id]->to [SET …] [RETURN …]`. */
@@ -64,104 +64,96 @@ export function compileRelate(
   binds: Binds,
   operation = "relate",
 ): WritePlan {
-  const ret = readReturn(
-    args.return,
-    operation,
-    ["after", "before", "diff", "none"],
-    "after",
-  );
-  requireRelation(meta, operation);
-  if (args.from === undefined || args.to === undefined)
+  const ret = readReturn(args.return, operation, ["after", "before", "diff", "none"], "after")
+  requireRelation(meta, operation)
+  if (args.from === undefined || args.to === undefined) {
     throw compileError(
       "ValidationError",
       `${operation}: "from" and "to" are required endpoints (record ids or expressions).`,
       { operation, table: meta.name },
-    );
-  const proj = compileWriteProjection(meta, args, binds, operation);
-  if (proj && ret === "diff")
+    )
+  }
+  const proj = compileWriteProjection(meta, args, binds, operation)
+  if (proj && ret === "diff") {
     throw compileError(
       "ReturnNotSupported",
       `${operation}: RETURN DIFF returns a JSON Patch list, not rows — drop select/omit, or use return: "after"/"before".`,
       { operation, table: meta.name },
-    );
-  const sel = selectMode(proj, ret, operation, meta);
-  const entry: RelateEntry = {
-    from: args.from,
-    edge: relateEdgeName(meta, args.id, operation),
-    to: args.to,
-    ...(args.data !== undefined ? { data: args.data } : {}),
-    ret,
-    meta,
-  };
+    )
+  }
+  const sel = selectMode(proj, ret, operation, meta),
+    entry: RelateEntry = {
+      from: args.from,
+      edge: relateEdgeName(meta, args.id, operation),
+      to: args.to,
+      ...(args.data === undefined ? {} : { data: args.data }),
+      ret,
+      meta,
+    }
   return {
     statements: [
-      relateStatement(
-        entry,
-        binds,
-        operation,
-        sel?.mode === "server" ? sel.proj.text : undefined,
-      ),
+      relateStatement(entry, binds, operation, sel?.mode === "server" ? sel.proj.text : undefined),
     ],
     transactional: false,
     resultIndexes: [0],
     result: resultOf(ret, "row"),
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
-  };
+  }
 }
 
 /** Compile `relateMany` — one `RELATE` per item in ONE transactional round-trip. */
 export function compileRelateMany(
   meta: ModelMeta,
   args: {
-    data?: unknown;
-    select?: unknown;
-    omit?: unknown;
-    meta?: Record<string, unknown>;
+    data?: unknown
+    select?: unknown
+    omit?: unknown
+    meta?: Record<string, unknown>
   },
   binds: Binds,
   operation = "relateMany",
 ): WritePlan {
-  requireRelation(meta, operation);
-  const proj = compileWriteProjection(meta, args, binds, operation);
-  const sel = selectMode(proj, "after", operation, meta);
-  const projText = sel?.mode === "server" ? sel.proj.text : undefined;
-  const items = requireArray(args.data, "data", operation);
-  const entries = items.map((item) => {
-    if (!isPlainObject(item))
-      throw compileError(
-        "ValidationError",
-        `${operation}: every item must be { from, to, data?, id? }, got ${describeValue(item)}.`,
-        { operation, table: meta.name },
-      );
-    if (item.from === undefined || item.to === undefined)
-      throw compileError(
-        "ValidationError",
-        `${operation}: every item needs "from" and "to".`,
-        { operation, table: meta.name },
-      );
-    if (item.return !== undefined && item.return !== "after")
-      throw compileError(
-        "ValidationError",
-        `${operation}: every statement returns its created edge — per-item "return" is not supported (got ${describeValue(item.return)}).`,
-        { operation, table: meta.name },
-      );
-    return {
-      from: item.from,
-      edge: relateEdgeName(meta, item.id, operation),
-      to: item.to,
-      ...(item.data !== undefined ? { data: item.data } : {}),
-      ret: "after",
-      meta,
-    } satisfies RelateEntry;
-  });
+  requireRelation(meta, operation)
+  const proj = compileWriteProjection(meta, args, binds, operation),
+    sel = selectMode(proj, "after", operation, meta),
+    projText = sel?.mode === "server" ? sel.proj.text : undefined,
+    items = requireArray(args.data, "data", operation),
+    entries = items.map((item) => {
+      if (!isPlainObject(item)) {
+        throw compileError(
+          "ValidationError",
+          `${operation}: every item must be { from, to, data?, id? }, got ${describeValue(item)}.`,
+          { operation, table: meta.name },
+        )
+      }
+      if (item.from === undefined || item.to === undefined) {
+        throw compileError("ValidationError", `${operation}: every item needs "from" and "to".`, {
+          operation,
+          table: meta.name,
+        })
+      }
+      if (item.return !== undefined && item.return !== "after") {
+        throw compileError(
+          "ValidationError",
+          `${operation}: every statement returns its created edge — per-item "return" is not supported (got ${describeValue(item.return)}).`,
+          { operation, table: meta.name },
+        )
+      }
+      return {
+        from: item.from,
+        edge: relateEdgeName(meta, item.id, operation),
+        to: item.to,
+        ...(item.data === undefined ? {} : { data: item.data }),
+        ret: "after",
+        meta,
+      } satisfies RelateEntry
+    })
   return {
-    statements: entries.map((entry) =>
-      relateStatement(entry, binds, operation, projText),
-    ),
+    statements: entries.map((entry) => relateStatement(entry, binds, operation, projText)),
     transactional: entries.length > 1,
     result: resultOf("after", "many"),
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
-  };
+  }
 }
 
 /** `RELATE from->edge[:id]->to [SET …] [RETURN …]`. */
@@ -171,19 +163,19 @@ export function relateStatement(
   operation: string,
   projText?: string,
 ): string {
-  const from = endpointText(entry.from, binds, operation, entry.meta, "from");
-  const to =
-    entry.to === "$self"
-      ? "$__created"
-      : endpointText(entry.to, binds, operation, entry.meta, "to");
-  let sql = `RELATE ${from}->${entry.edge}->${to}`;
+  const from = endpointText(entry.from, binds, operation, entry.meta, "from"),
+    to =
+      entry.to === "$self"
+        ? "$__created"
+        : endpointText(entry.to, binds, operation, entry.meta, "to")
+  let sql = `RELATE ${from}->${entry.edge}->${to}`
   if (entry.data !== undefined) {
     const encoded = entry.meta
       ? encodeData(entry.meta, entry.data, "update", operation)
-      : entry.data;
-    sql += ` SET ${setAssignments(encoded, binds)}`;
+      : entry.data
+    sql += ` SET ${setAssignments(encoded, binds)}`
   }
-  return `${sql}${mutationTail(entry.ret, undefined, operation, projText)}`;
+  return `${sql}${mutationTail(entry.ret, undefined, operation, projText)}`
 }
 
 /** Compile `unrelate` — `DELETE edge WHERE in = $a AND out = $b RETURN BEFORE`. */
@@ -193,22 +185,22 @@ export function compileUnrelate(
   binds: Binds,
   operation = "unrelate",
 ): WritePlan {
-  requireRelation(meta, operation);
-  if (args.from === undefined || args.to === undefined)
-    throw compileError(
-      "ValidationError",
-      `${operation}: "from" and "to" are required.`,
-      { operation, table: meta.name },
-    );
-  const from = endpointText(args.from, binds, operation, meta, "from");
-  const to = endpointText(args.to, binds, operation, meta, "to");
-  const sql = `DELETE ${escapeIdent(meta.name)} WHERE in = ${from} AND out = ${to}${mutationTail("before", args.timeout, operation)}`;
+  requireRelation(meta, operation)
+  if (args.from === undefined || args.to === undefined) {
+    throw compileError("ValidationError", `${operation}: "from" and "to" are required.`, {
+      operation,
+      table: meta.name,
+    })
+  }
+  const from = endpointText(args.from, binds, operation, meta, "from"),
+    to = endpointText(args.to, binds, operation, meta, "to"),
+    sql = `DELETE ${escapeIdent(meta.name)} WHERE in = ${from} AND out = ${to}${mutationTail("before", args.timeout, operation)}`
   return {
     statements: [sql],
     transactional: false,
     resultIndexes: [0],
     result: "many",
-  };
+  }
 }
 
 /** Compile `unrelateMany` — delete edges by filter (`all: true` without `where`). */
@@ -219,31 +211,32 @@ export function compileUnrelateMany(
   operation = "unrelateMany",
   options: { readonly index?: SchemaIndex } = {},
 ): WritePlan {
-  requireRelation(meta, operation);
-  const where = whereSql(args.where, binds, meta, options.index);
-  if (!where && args.all !== true)
+  requireRelation(meta, operation)
+  const where = whereSql(args.where, binds, meta, options.index)
+  if (!where && args.all !== true) {
     throw compileError(
       "UnsafeMutation",
       `${operation}: no "where" deletes EVERY edge of "${meta.name}". Confirm with all: true (or add a where).`,
       { operation, table: meta.name },
-    );
+    )
+  }
   const sql = where
     ? `DELETE ${escapeIdent(meta.name)}${where}`
-    : `DELETE ${escapeIdent(meta.name)}`;
+    : `DELETE ${escapeIdent(meta.name)}`
   return {
     statements: [`${sql}${mutationTail("before", args.timeout, operation)}`],
     transactional: false,
     result: "many",
-  };
+  }
 }
 
 function requireRelation(meta: ModelMeta, operation: string): void {
-  if (isTableMeta(meta) && meta.kind === "relation") return;
+  if (isTableMeta(meta) && meta.kind === "relation") return
   throw compileError(
     "ValidationError",
     `${operation}: "${meta.name}" is not a relation — call it on the edge delegate whose schema entry is a defineRelation(...).`,
     { operation, table: meta.name },
-  );
+  )
 }
 
 /** A RELATE endpoint lowered to its record id (validated against the declared endpoints) or expr. */
@@ -254,55 +247,53 @@ function endpointText(
   meta: ModelMeta | undefined,
   direction: "from" | "to",
 ): string {
-  if (value === null || value === undefined)
+  if (value === null || value === undefined) {
     throw compileError(
       "ValidationError",
       `${operation}: an endpoint can't be ${describeValue(value)} — pass a record id or a surql expression.`,
       { operation },
-    );
-  if (hasRefDeep(value)) return renderValue(value, binds, binds.ctx());
+    )
+  }
+  if (hasRefDeep(value)) return renderValue(value, binds, binds.ctx())
   const declared =
-    meta !== undefined && isTableMeta(meta)
-      ? (meta.endpoints?.[direction] ?? [])
-      : [];
-  const text = String(value);
-  const parts = splitRecordId(text);
+      meta !== undefined && isTableMeta(meta) ? (meta.endpoints?.[direction] ?? []) : [],
+    text = String(value),
+    parts = splitRecordId(text)
   if (!parts) {
     // A BARE endpoint is unambiguous only when the relation declares exactly one table for this
-    // direction (string-id mode's app representation).
+    // Direction (string-id mode's app representation).
     if (declared.length === 1)
-      return `${escapeIdent(declared[0] as string)}:${escapeRecordIdPart(unescapeIdPart(text))}`;
+      return `${escapeIdent(declared[0])}:${escapeRecordIdPart(unescapeIdPart(text))}`
+
     throw compileError(
       "ValidationError",
       `${operation}: endpoint "${text}" is not a record id — pass "table:id" (or a surql expression).`,
       { operation },
-    );
+    )
   }
-  if (declared.length > 0 && !declared.includes(parts.table))
+  if (declared.length > 0 && !declared.includes(parts.table)) {
     throw compileError(
       "ValidationError",
       `${operation}: "${parts.table}" is not a declared ${direction === "from" ? "FROM" : "TO"} endpoint of "${meta?.name}" (declared: ${declared.join(", ")}).`,
       { operation, table: meta?.name, field: direction },
-    );
-  return `${escapeIdent(parts.table)}:${escapeRecordIdPart(unescapeIdPart(parts.id))}`;
+    )
+  }
+  return `${escapeIdent(parts.table)}:${escapeRecordIdPart(unescapeIdPart(parts.id))}`
 }
 
 /** `edge` / `edge:<id>` (the edge table is the delegate itself). */
-function relateEdgeName(
-  meta: ModelMeta,
-  id: unknown,
-  operation: string,
-): string {
-  const table = escapeIdent(meta.name);
-  if (id === undefined) return table;
-  if (typeof id !== "string" || !id)
+function relateEdgeName(meta: ModelMeta, id: unknown, operation: string): string {
+  const table = escapeIdent(meta.name)
+  if (id === undefined) return table
+  if (typeof id !== "string" || !id) {
     throw compileError(
       "ValidationError",
       `${operation}: "id" must be a non-empty string (got ${describeValue(id)}).`,
       { operation, table: meta.name },
-    );
-  const suffix = unescapeIdPart(splitRecordId(id)?.id ?? id);
-  return `${table}:${escapeRecordIdPart(suffix)}`;
+    )
+  }
+  const suffix = unescapeIdPart(splitRecordId(id)?.id ?? id)
+  return `${table}:${escapeRecordIdPart(suffix)}`
 }
 
 /**
@@ -316,61 +307,58 @@ export function relateSugar(
   meta: ModelMeta,
   resolveEdge?: (name: string) => ModelMeta | undefined,
 ): readonly RelateEntry[] {
-  if (value === undefined) return [];
-  const entries = requireArray(value, "relate", operation);
+  if (value === undefined) return []
+  const entries = requireArray(value, "relate", operation)
   return entries.map((entry) => {
-    if (!isPlainObject(entry))
+    if (!isPlainObject(entry)) {
       throw compileError(
         "ValidationError",
         `${operation}: every relate entry is { from, edge, to } (got ${describeValue(entry)}).`,
         { operation, table: meta.name },
-      );
-    if (
-      entry.from === undefined ||
-      entry.edge === undefined ||
-      entry.to === undefined
-    )
+      )
+    }
+    if (entry.from === undefined || entry.edge === undefined || entry.to === undefined) {
       throw compileError(
         "ValidationError",
         `${operation}: a relate entry needs { from, edge, to } — "to" may be "$self" for the created record.`,
         { operation, table: meta.name },
-      );
+      )
+    }
     const edgeName =
       typeof entry.edge === "string"
         ? entry.edge
         : isPlainObject(entry.edge) && typeof entry.edge.name === "string"
           ? entry.edge.name
-          : undefined;
-    if (typeof edgeName !== "string" || !edgeName)
+          : undefined
+    if (typeof edgeName !== "string" || !edgeName) {
       throw compileError(
         "ValidationError",
         `${operation}: relate.edge must be the edge table name (or its defineRelation def).`,
         { operation, table: meta.name },
-      );
-    const edgeMeta = resolveEdge?.(edgeName);
-    if (resolveEdge && edgeMeta === undefined)
+      )
+    }
+    const edgeMeta = resolveEdge?.(edgeName)
+    if (resolveEdge && edgeMeta === undefined) {
       throw compileError(
         "ValidationError",
         `${operation}: relate.edge "${edgeName}" is not part of the schema — use a defineSchema key, the physical table name, or the RelationDef.`,
         { operation, table: meta.name },
-      );
-    if (
-      edgeMeta !== undefined &&
-      isTableMeta(edgeMeta) &&
-      edgeMeta.kind !== "relation"
-    )
+      )
+    }
+    if (edgeMeta !== undefined && isTableMeta(edgeMeta) && edgeMeta.kind !== "relation") {
       throw compileError(
         "ValidationError",
         `${operation}: relate.edge "${edgeName}" is a table, not a relation — edges need a defineRelation(...) entry.`,
         { operation, table: meta.name },
-      );
+      )
+    }
     return {
       from: entry.from,
       edge: escapeIdent(edgeName),
       to: entry.to,
-      ...(entry.data !== undefined ? { data: entry.data } : {}),
-      ret: "after" as WriteRet,
-      ...(edgeMeta !== undefined ? { meta: edgeMeta } : {}),
-    };
-  });
+      ...(entry.data === undefined ? {} : { data: entry.data }),
+      ret: "after",
+      ...(edgeMeta === undefined ? {} : { meta: edgeMeta }),
+    }
+  })
 }

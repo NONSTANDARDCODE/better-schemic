@@ -4,4 +4,4 @@
  * the engine registry on import). CLI/engine-only — kept OUT of the side-effect-free authoring
  * index (`better-schemic`) so `s.*` never drags the emit/diff engine into an app bundle.
  */
-export * from "./surreal/driver";
+export * from "./surreal/driver"

@@ -1,5 +1,6 @@
-import { defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "Scalars",
@@ -30,4 +31,4 @@ DEFINE FIELD doc ON TABLE scalars TYPE file;`,
     dur: s.duration(),
     doc: s.file(),
   }),
-});
+})

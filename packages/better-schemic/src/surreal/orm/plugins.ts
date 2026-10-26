@@ -13,18 +13,19 @@
  * call site); async work belongs in a hook. Plugins are resolved once per client; each delegate
  * carries its own `state` (mutated via `$withState`, disabled via `$withoutPlugins`).
  */
-import { BetterSchemicError } from "./errors";
-import type { SchemaIndex } from "./meta";
-import type { Hooks, OperationKind } from "./types/hooks";
-import {
-  type Operation,
-  PLUGIN_BRAND,
-  type Plugin,
-  type PluginClientContext,
-  type PluginModelContext,
-  type PluginSpec,
-  type PluginState,
-} from "./types/plugins";
+import { BetterSchemicError } from "./errors"
+import { PLUGIN_BRAND } from "./types/plugins"
+
+import type { SchemaIndex } from "./meta"
+import type { Hooks, OperationKind } from "./types/hooks"
+import type {
+  Operation,
+  Plugin,
+  PluginClientContext,
+  PluginModelContext,
+  PluginSpec,
+  PluginState,
+} from "./types/plugins"
 
 /**
  * Define a plugin. The concrete spec is preserved, so a client built with `plugins: [p]` folds `p`'s
@@ -45,9 +46,7 @@ import {
 export function definePlugin<Cfg, const Spec extends PluginSpec<Cfg>>(
   spec: Spec & { readonly config?: Cfg },
 ): Spec & { readonly [PLUGIN_BRAND]: true } {
-  return { ...spec, [PLUGIN_BRAND]: true } as Spec & {
-    readonly [PLUGIN_BRAND]: true;
-  };
+  return { ...spec, [PLUGIN_BRAND]: true }
 }
 
 /** The `this` a plugin method runs with. */
@@ -55,58 +54,50 @@ function pluginContext<Cfg>(
   plugin: Plugin<Cfg>,
   state: PluginState,
 ): { config: Cfg; state: PluginState } {
-  return { config: plugin.config as Cfg, state };
+  return { config: plugin.config as Cfg, state }
 }
 
 /** Wrap a plugin failure with its id so the source is obvious. */
-function pluginFailure(
-  plugin: Plugin,
-  phase: string,
-  cause: unknown,
-): BetterSchemicError {
-  if (cause instanceof BetterSchemicError) return cause;
+function pluginFailure(plugin: Plugin, phase: string, cause: unknown): BetterSchemicError {
+  if (cause instanceof BetterSchemicError) return cause
   return new BetterSchemicError(
     "PluginError",
     `plugin "${plugin.id}": ${phase} failed${cause instanceof Error ? ` — ${cause.message}` : ""}.`,
     { operation: phase, cause },
-  );
+  )
 }
 
 /** The resolved plugin pipeline of one client (absent when no plugin is registered). */
 export interface PluginPipeline {
-  readonly plugins: readonly Plugin[];
+  readonly plugins: readonly Plugin[]
   /** Hooks contributed by every plugin, in registration order (merged into the dispatcher). */
-  readonly hooks: readonly Hooks[];
+  readonly hooks: readonly Hooks[]
   /** True when at least one plugin mutates operations (skips the dispatch wrapper otherwise). */
-  readonly hasTransforms: boolean;
+  readonly hasTransforms: boolean
   /** Run every plugin's `setup` once (throws `PluginError` on failure). */
-  setup(index: SchemaIndex): void;
+  setup: (index: SchemaIndex) => void
   /** Run transforms for one operation; returns true when a plugin asked to skip it. */
-  transform(operation: RuntimeOperation): boolean;
+  transform: (operation: RuntimeOperation) => boolean
   /** The methods every plugin's `extendClient` contributes. */
-  extendClient(ctx: PluginClientContext): Record<string, unknown>;
+  extendClient: (ctx: PluginClientContext) => Record<string, unknown>
   /** The methods every plugin's `extendModel` contributes (for one delegate's state). */
-  extendModel(
-    ctx: PluginModelContext,
-    state: PluginState,
-  ): Record<string, unknown>;
+  extendModel: (ctx: PluginModelContext, state: PluginState) => Record<string, unknown>
 }
 
 /** Validate the plugin list (unique, non-empty ids). */
 function validatePlugins(plugins: readonly Plugin[]): void {
-  const seen = new Set<string>();
+  const seen = new Set<string>()
   for (const plugin of plugins) {
     if (typeof plugin.id !== "string" || plugin.id.length === 0)
-      throw new BetterSchemicError(
-        "PluginError",
-        "every plugin needs a non-empty `id`.",
-      );
-    if (seen.has(plugin.id))
+      throw new BetterSchemicError("PluginError", "every plugin needs a non-empty `id`.")
+
+    if (seen.has(plugin.id)) {
       throw new BetterSchemicError(
         "PluginError",
         `duplicate plugin id "${plugin.id}" — plugin ids must be unique.`,
-      );
-    seen.add(plugin.id);
+      )
+    }
+    seen.add(plugin.id)
   }
 }
 
@@ -114,14 +105,12 @@ function validatePlugins(plugins: readonly Plugin[]): void {
 export function createPluginPipeline(
   plugins: readonly Plugin[] | undefined,
 ): PluginPipeline | undefined {
-  if (!plugins || plugins.length === 0) return undefined;
-  validatePlugins(plugins);
+  if (!plugins || plugins.length === 0) return undefined
+  validatePlugins(plugins)
   const hooks = plugins
-    .map((plugin) => plugin.hooks)
-    .filter((value): value is Hooks => value !== undefined);
-  const hasTransforms = plugins.some(
-    (plugin) => typeof plugin.transform === "function",
-  );
+      .map((plugin) => plugin.hooks)
+      .filter((value): value is Hooks => value !== undefined),
+    hasTransforms = plugins.some((plugin) => typeof plugin.transform === "function")
 
   return {
     plugins,
@@ -129,73 +118,64 @@ export function createPluginPipeline(
     hasTransforms,
     setup(index) {
       for (const plugin of plugins) {
-        if (typeof plugin.setup !== "function") continue;
+        if (typeof plugin.setup !== "function") continue
         try {
-          plugin.setup.call(pluginContext(plugin, {}), { index });
-        } catch (e) {
-          throw pluginFailure(plugin, "setup", e);
+          plugin.setup.call(pluginContext(plugin, {}), { index })
+        } catch (error) {
+          throw pluginFailure(plugin, "setup", error)
         }
       }
     },
     transform(operation) {
-      let skipped = false;
+      let skipped = false
       for (const plugin of plugins) {
-        if (typeof plugin.transform !== "function") continue;
-        const result = plugin.transform.call(
-          pluginContext(plugin, operation.state),
-          operation,
-        );
-        if (result === false) skipped = true;
+        if (typeof plugin.transform !== "function") continue
+        const result = plugin.transform.call(pluginContext(plugin, operation.state), operation)
+        if (result === false) skipped = true
       }
       // A `where`/`data` bag created by a transform is flushed into `args` only now, so a plugin
-      // that merely READS `op.where` never injects an empty object into the compiled operation.
-      operation.commit();
-      return skipped;
+      // That merely READS `op.where` never injects an empty object into the compiled operation.
+      operation.commit()
+      return skipped
     },
     extendClient(ctx) {
-      const out: Record<string, unknown> = {};
+      const out: Record<string, unknown> = {}
       for (const plugin of plugins) {
-        if (typeof plugin.extendClient !== "function") continue;
+        if (typeof plugin.extendClient !== "function") continue
         try {
-          Object.assign(
-            out,
-            plugin.extendClient.call(pluginContext(plugin, {}), ctx),
-          );
-        } catch (e) {
-          throw pluginFailure(plugin, "extendClient", e);
+          Object.assign(out, plugin.extendClient.call(pluginContext(plugin, {}), ctx))
+        } catch (error) {
+          throw pluginFailure(plugin, "extendClient", error)
         }
       }
-      return out;
+      return out
     },
     extendModel(ctx, state) {
-      const out: Record<string, unknown> = {};
+      const out: Record<string, unknown> = {}
       for (const plugin of plugins) {
-        if (typeof plugin.extendModel !== "function") continue;
+        if (typeof plugin.extendModel !== "function") continue
         try {
-          Object.assign(
-            out,
-            plugin.extendModel.call(pluginContext(plugin, state), ctx),
-          );
-        } catch (e) {
-          throw pluginFailure(plugin, "extendModel", e);
+          Object.assign(out, plugin.extendModel.call(pluginContext(plugin, state), ctx))
+        } catch (error) {
+          throw pluginFailure(plugin, "extendModel", error)
         }
       }
-      return out;
+      return out
     },
-  };
+  }
 }
 
 /** The mutable operation view handed to `transform` (where/data proxy into `args`). */
 export class RuntimeOperation implements Operation {
-  kind: OperationKind;
-  readonly table: string;
-  readonly args: Record<string, unknown>;
-  readonly state: PluginState;
-  readonly index: SchemaIndex;
-  meta?: Record<string, unknown>;
-  #where?: Record<string, unknown>;
-  #data?: Record<string, unknown>;
-  #scope?: Record<string, unknown>;
+  kind: OperationKind
+  readonly table: string
+  readonly args: Record<string, unknown>
+  readonly state: PluginState
+  readonly index: SchemaIndex
+  meta?: Record<string, unknown>
+  #where?: Record<string, unknown>
+  #data?: Record<string, unknown>
+  #scope?: Record<string, unknown>
 
   constructor(
     kind: OperationKind,
@@ -205,56 +185,56 @@ export class RuntimeOperation implements Operation {
     index: SchemaIndex,
     meta?: Record<string, unknown>,
   ) {
-    this.kind = kind;
-    this.table = table;
-    this.args = args;
-    this.state = state;
-    this.index = index;
-    if (meta !== undefined) this.meta = meta;
+    this.kind = kind
+    this.table = table
+    this.args = args
+    this.state = state
+    this.index = index
+    if (meta !== undefined) this.meta = meta
   }
 
   get where(): Record<string, unknown> {
-    if (this.#where) return this.#where;
-    const existing = this.args.where;
-    if (existing !== undefined) return existing as Record<string, unknown>;
-    this.#where = {};
-    return this.#where;
+    if (this.#where) return this.#where
+    const existing = this.args.where
+    if (existing !== undefined) return existing as Record<string, unknown>
+    this.#where = {}
+    return this.#where
   }
 
   set where(value: Record<string, unknown>) {
-    this.#where = value;
+    this.#where = value
   }
 
   get data(): Record<string, unknown> {
-    if (this.#data) return this.#data;
-    const existing = this.args.data;
-    if (existing !== undefined) return existing as Record<string, unknown>;
-    this.#data = {};
-    return this.#data;
+    if (this.#data) return this.#data
+    const existing = this.args.data
+    if (existing !== undefined) return existing as Record<string, unknown>
+    this.#data = {}
+    return this.#data
   }
 
   set data(value: Record<string, unknown>) {
-    this.#data = value;
+    this.#data = value
   }
 
   /** A plugin-written filter the WRITE compilers AND into every statement (see `Operation.scope`). */
   get scope(): Record<string, unknown> {
-    if (this.#scope) return this.#scope;
-    const existing = this.args.scope;
-    if (existing !== undefined) return existing as Record<string, unknown>;
-    this.#scope = {};
-    return this.#scope;
+    if (this.#scope) return this.#scope
+    const existing = this.args.scope
+    if (existing !== undefined) return existing as Record<string, unknown>
+    this.#scope = {}
+    return this.#scope
   }
 
   set scope(value: Record<string, unknown>) {
-    this.#scope = value;
+    this.#scope = value
   }
 
   /** Flush a `where`/`data`/`scope` bag created by a transform back into `args` (no-op if untouched). */
   commit(): void {
-    if (this.#where !== undefined) this.args.where = this.#where;
-    if (this.#data !== undefined) this.args.data = this.#data;
-    if (this.#scope !== undefined) this.args.scope = this.#scope;
+    if (this.#where !== undefined) this.args.where = this.#where
+    if (this.#data !== undefined) this.args.data = this.#data
+    if (this.#scope !== undefined) this.args.scope = this.#scope
   }
 }
 
@@ -264,5 +244,5 @@ export function isPlugin(value: unknown): value is Plugin {
     typeof value === "object" &&
     value !== null &&
     (value as Record<string, unknown>)[PLUGIN_BRAND] === true
-  );
+  )
 }

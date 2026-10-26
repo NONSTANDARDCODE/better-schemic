@@ -1,17 +1,18 @@
 // Typed-fragments PHASE 3 (2/3): block() — the typed statement-block builder. LET vars type
-// through the chain (s.n is a real ref of the value's kind), IF/FOR/RETURN/THROW give statement
-// parity, and the block is a fragment: it interpolates into surql templates and every authoring
-// slot (event THEN, function body) via the Fragmentable (`toQuery()`) coercion.
-import { describe, expect, test } from "bun:test";
-import { emitDefStatement, emitTable } from "../../../src/surreal/ddl";
-import { defineFunction, defineTable, s, surql } from "../../../src/surreal";
-import { block } from "../../../src/surreal/query";
+// Through the chain (s.n is a real ref of the value's kind), IF/FOR/RETURN/THROW give statement
+// Parity, and the block is a fragment: it interpolates into surql templates and every authoring
+// Slot (event THEN, function body) via the Fragmentable (`toQuery()`) coercion.
+import { describe, expect, test } from "bun:test"
+
+import { defineFunction, defineTable, s, surql } from "../../../src/surreal"
+import { emitDefStatement, emitTable } from "../../../src/surreal/ddl"
+import { block } from "../../../src/surreal/query"
 
 const Post = defineTable("blk_post", {
   title: s.string(),
   author: s.string(),
   views: s.number(),
-});
+})
 
 describe("lowering", () => {
   test("let + if + return: `{ LET $n = ...; IF ... { ... }; RETURN ...; }`", () => {
@@ -21,31 +22,31 @@ describe("lowering", () => {
       })
       .if((sv) => sv.n.gt(100), surql`RETURN 'big'`)
       .return((sv) => sv.n)
-      .toQuery();
+      .toQuery()
     expect(q.query).toMatch(
       /^\{ LET \$n = \(SELECT count\(\) FROM blk_post GROUP ALL\)\[0\]\.count OR 0; IF \$n > \$sub__\d+_b0 \{ RETURN 'big' \}; RETURN \$n; \}$/,
-    );
-    expect(Object.values(q.bindings ?? {})).toEqual([100]);
-  });
+    )
+    expect(Object.values(q.bindings ?? {})).toEqual([100])
+  })
 
   test("typed let vars: a literal number var is a NUMBER ref — .plus flows", () => {
     const q = block()
       .let({ n: 5 })
       .return((sv) => sv.n.plus(1))
-      .toQuery();
-    expect(q.query).toMatch(/RETURN \$n \+ \$sub__\d+_r\d+; \}$/);
-  });
+      .toQuery()
+    expect(q.query).toMatch(/RETURN \$n \+ \$sub__\d+_r\d+; \}$/)
+  })
 
   test("literal lets bind; string vars get the string family", () => {
     const q = block()
       .let({ greeting: "hello" })
       .return((sv) => sv.greeting.uppercase())
-      .toQuery();
+      .toQuery()
     expect(q.query).toMatch(
       /^\{ LET \$greeting = \$sub__\d+_b0; RETURN string::uppercase\(\$greeting\); \}$/,
-    );
-    expect(Object.values(q.bindings ?? {})).toEqual(["hello"]);
-  });
+    )
+    expect(Object.values(q.bindings ?? {})).toEqual(["hello"])
+  })
 
   test("for loops: FOR $item IN <iterable> { body } with a typed loop var", () => {
     const q = block()
@@ -54,283 +55,269 @@ describe("lowering", () => {
         (sv) => ({ name: sv.names }),
         (sv) => surql`CREATE ${Post} SET title = ${sv.name.uppercase()}`,
       )
-      .toQuery();
+      .toQuery()
     expect(q.query).toMatch(
       /FOR \$name IN \$names \{ CREATE blk_post SET title = string::uppercase\(\$name\) \}; \}$/,
-    );
-  });
+    )
+  })
 
   test("throw: a plain string binds", () => {
-    const q = block().throw("nope").toQuery();
-    expect(q.query).toMatch(/^\{ THROW \$sub__\d+_b0 \}$/);
-    expect(Object.values(q.bindings ?? {})).toEqual(["nope"]);
-  });
+    const q = block().throw("nope").toQuery()
+    expect(q.query).toMatch(/^\{ THROW \$sub__\d+_b0 \}$/)
+    expect(Object.values(q.bindings ?? {})).toEqual(["nope"])
+  })
 
   test("do(): an arbitrary statement (fragments splice bare)", () => {
     const q = block()
       .do(surql`UPDATE ${Post} SET views += 1`)
       .do(surql`SELECT * FROM blk_post WHERE views > 1`)
-      .toQuery();
+      .toQuery()
     expect(q.query).toMatch(
       /^\{ UPDATE blk_post SET views \+= 1; SELECT \* FROM blk_post WHERE views > 1; \}$/,
-    );
-  });
+    )
+  })
 
   test("if/else with nested block()s", () => {
     const q = block()
       .let({ n: 5 })
-      .if(
-        (sv) => sv.n.gte(10),
-        block().return(surql`'big'`),
-        block().return(surql`'small'`),
-      )
-      .toQuery();
+      .if((sv) => sv.n.gte(10), block().return(surql`'big'`), block().return(surql`'small'`))
+      .toQuery()
     expect(q.query).toMatch(
       /IF \$n >= \$sub__\d+_b1 \{ RETURN 'big' \} ELSE \{ RETURN 'small' \}; \}$/,
-    );
-  });
+    )
+  })
 
   test("reserved/invalid let names are rejected with guidance", () => {
-    expect(() => block().let({ b0: 1 })).toThrow(/reserved/);
-    expect(() => block().let({ "no spaces": 1 })).toThrow(/identifier/);
-  });
-});
+    expect(() => block().let({ b0: 1 })).toThrow(/reserved/)
+    expect(() => block().let({ "no spaces": 1 })).toThrow(/identifier/)
+  })
+})
 
 describe("body canonicalization + value kinds", () => {
   const ifWith = (body: Parameters<ReturnType<typeof block>["if"]>[1]) =>
     block()
       .let({ n: 1 })
       .if((sv) => sv.n.gt(0), body)
-      .toQuery().query;
+      .toQuery().query
 
   test("a semicolon inside a quoted string is not top-level", () => {
-    expect(ifWith(surql`RETURN 'a;b'`)).toContain("{ RETURN 'a;b' }");
-    expect(ifWith(surql`RETURN "a;b"`)).toContain('{ RETURN "a;b" }');
-  });
+    expect(ifWith(surql`RETURN 'a;b'`)).toContain("{ RETURN 'a;b' }")
+    expect(ifWith(surql`RETURN "a;b"`)).toContain('{ RETURN "a;b" }')
+  })
 
   test("a semicolon inside brackets/braces is not top-level", () => {
-    expect(ifWith(surql`RETURN [1; 2]`)).toContain("{ RETURN [1; 2] }");
-    expect(ifWith(surql`RETURN { a: 1; b: 2 }`)).toContain(
-      "{ RETURN { a: 1; b: 2 } }",
-    );
-    expect(ifWith(surql`RETURN (1; 2)`)).toContain("{ RETURN (1; 2) }");
-  });
+    expect(ifWith(surql`RETURN [1; 2]`)).toContain("{ RETURN [1; 2] }")
+    expect(ifWith(surql`RETURN { a: 1; b: 2 }`)).toContain("{ RETURN { a: 1; b: 2 } }")
+    expect(ifWith(surql`RETURN (1; 2)`)).toContain("{ RETURN (1; 2) }")
+  })
 
   test("a backslash inside a quoted string does not close it", () => {
     // The escaped `;` stays inside the quote, so the scan treats the body as single-statement.
-    expect(ifWith(surql`RETURN 'a\\;b'`)).toContain("{ RETURN 'a\\;b' }");
-  });
+    expect(ifWith(surql`RETURN 'a\\;b'`)).toContain(String.raw`{ RETURN 'a\;b' }`)
+  })
 
   test("a top-level semicolon wraps as a multi-statement body", () => {
-    expect(ifWith(surql`LET $x = 1; RETURN $x`)).toContain(
-      "{ LET $x = 1; RETURN $x; }",
-    );
-  });
+    expect(ifWith(surql`LET $x = 1; RETURN $x`)).toContain("{ LET $x = 1; RETURN $x; }")
+  })
 
   test("a Date LET carries the date kind", () => {
     const q = block()
       .let({ d: new Date(0) })
       .return((sv) => sv.d)
-      .toQuery();
-    expect(q.query).toContain("LET $d =");
-  });
-});
+      .toQuery()
+    expect(q.query).toContain("LET $d =")
+  })
+})
 
 describe("composition", () => {
   test("a block interpolates into a surql template", () => {
-    const q = surql`${block().return(surql`1 + 1`)}`;
-    expect(q.query).toBe("{ RETURN 1 + 1 }");
-  });
+    const q = surql`${block().return(surql`1 + 1`)}`
+    expect(q.query).toBe("{ RETURN 1 + 1 }")
+  })
 
   test("typed: the block's RETURN types the fragment (Frag<R> flows to .let)", () => {
-    // n: number -> RETURN s.n -> Block<..., number>; nesting keeps the type.
+    // N: number -> RETURN s.n -> Block<..., number>; nesting keeps the type.
     const inner = block()
-      .let({ n: 5 })
-      .return((sv) => sv.n);
-    const outer = block()
-      .let({ m: inner })
-      .return((sv) => sv.m.plus(1));
-    expect(outer.toQuery().query).toContain("LET $m = { LET $n =");
-  });
-});
+        .let({ n: 5 })
+        .return((sv) => sv.n),
+      outer = block()
+        .let({ m: inner })
+        .return((sv) => sv.m.plus(1))
+    expect(outer.toQuery().query).toContain("LET $m = { LET $n =")
+  })
+})
 
 describe("authoring slots take blocks directly (Fragmentable)", () => {
   test("event THEN: block() emits as the braced body", () => {
     const T = Post.event("blk_notify", {
-      when: (e) => e.event.eq("CREATE"),
-      then: (e) =>
-        block()
-          .let({ who: e.after.author })
-          .do(surql`UPDATE ${Post} SET views += 1 WHERE author = $who`),
-    });
-    const ddl = emitTable(T)
-      .split("\n")
-      .find((l) => l.includes("EVENT"));
-    expect(ddl).toContain("THEN { LET $who = $after.author;");
-    expect(ddl).toContain(
-      "UPDATE blk_post SET views += 1 WHERE author = $who; }",
-    );
-  });
+        when: (e) => e.event.eq("CREATE"),
+        then: (e) =>
+          block()
+            .let({ who: e.after.author })
+            .do(surql`UPDATE ${Post} SET views += 1 WHERE author = $who`),
+      }),
+      ddl = emitTable(T)
+        .split("\n")
+        .find((l) => l.includes("EVENT"))
+    expect(ddl).toContain("THEN { LET $who = $after.author;")
+    expect(ddl).toContain("UPDATE blk_post SET views += 1 WHERE author = $who; }")
+  })
 
   test("function body: block() with typed args", () => {
     const F = defineFunction("blk_bump", { by: s.number() })
-      .returns(s.number())
-      .body((a) =>
-        block()
-          .let({
-            n: surql`(SELECT count() FROM blk_post GROUP ALL)[0].count OR 0`.as<number>(),
-          })
-          .return((sv) => surql`${sv.n} + ${a.by}`),
-      );
-    const { ddl } = emitDefStatement(F);
+        .returns(s.number())
+        .body((a) =>
+          block()
+            .let({
+              n: surql`(SELECT count() FROM blk_post GROUP ALL)[0].count OR 0`.as<number>(),
+            })
+            .return((sv) => surql`${sv.n} + ${a.by}`),
+        ),
+      { ddl } = emitDefStatement(F)
     expect(ddl).toContain(
       "{ LET $n = (SELECT count() FROM blk_post GROUP ALL)[0].count OR 0; RETURN $n + $by; }",
-    );
-  });
-});
+    )
+  })
+})
 
 // --- live (SURREAL_URL-gated): block-built event + function apply, fire, and round-trip ----------
-const URL = process.env.SURREAL_URL;
+const URL = process.env.SURREAL_URL
 
 describe.skipIf(!URL)("block live", () => {
   test("block event THEN fires and is drift-free vs INFO; block function body runs", async () => {
-    const { Surreal } = await import("surrealdb");
-    const { emitDefStatement, emitTable } = await import("../../../src/surreal/ddl");
-    const { explodeSchema, introspectAll } = await import(
-      "../../../src/surreal/kinds/explode"
-    );
-    const { deepEqual } = await import("../../../src/surreal/cli/struct");
-    const { defineFunction } = await import("../../../src/surreal");
-
-    // An audit-counter flow: every post CREATE bumps a per-author tally via a block THEN.
-    const Tally = defineTable("blk_tally", {
-      author: s.string(),
-      total: s.number(),
-    });
-    const PostV = Post.event("blk_tally_bump", {
-      when: (e) => e.event.eq("CREATE"),
-      then: (e) =>
-        block()
-          .let({
-            existing: surql`(SELECT * FROM ${Tally} WHERE author = ${e.after.author} LIMIT 1)[0]`,
-          })
-          .if(
-            (sv) => sv.existing.isNone(),
-            surql`CREATE ${Tally} SET author = $after.author, total = 1`,
-            surql`UPDATE ${Tally} SET total += 1 WHERE author = $after.author`,
-          ),
-    });
-
-    const Bump = defineFunction("blk_bump_live", { by: s.number() })
-      .returns(s.number())
-      .body((a) =>
-        block()
-          .let({
-            n: surql`(SELECT count() FROM blk_post GROUP ALL)[0].count OR 0`.as<number>(),
-          })
-          .return((sv) => surql`${sv.n} + ${a.by}`),
-      );
-
-    const c = new Surreal();
-    await c.connect(URL as string);
-    await c.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
-    await c.use({ namespace: "blk", database: "blk" });
+    const { Surreal } = await import("surrealdb"),
+      { emitDefStatement, emitTable } = await import("../../../src/surreal/ddl"),
+      { explodeSchema, introspectAll } = await import("../../../src/surreal/kinds/explode"),
+      { deepEqual } = await import("../../../src/surreal/cli/struct"),
+      { defineFunction } = await import("../../../src/surreal"),
+      // An audit-counter flow: every post CREATE bumps a per-author tally via a block THEN.
+      Tally = defineTable("blk_tally", {
+        author: s.string(),
+        total: s.number(),
+      }),
+      PostV = Post.event("blk_tally_bump", {
+        when: (e) => e.event.eq("CREATE"),
+        then: (e) =>
+          block()
+            .let({
+              existing: surql`(SELECT * FROM ${Tally} WHERE author = ${e.after.author} LIMIT 1)[0]`,
+            })
+            .if(
+              (sv) => sv.existing.isNone(),
+              surql`CREATE ${Tally} SET author = $after.author, total = 1`,
+              surql`UPDATE ${Tally} SET total += 1 WHERE author = $after.author`,
+            ),
+      }),
+      Bump = defineFunction("blk_bump_live", { by: s.number() })
+        .returns(s.number())
+        .body((a) =>
+          block()
+            .let({
+              n: surql`(SELECT count() FROM blk_post GROUP ALL)[0].count OR 0`.as<number>(),
+            })
+            .return((sv) => surql`${sv.n} + ${a.by}`),
+        ),
+      c = new Surreal()
+    await c.connect(URL!)
+    await c.signin({
+      username: process.env.SURREAL_USER ?? "root",
+      password: process.env.SURREAL_PASS ?? "root",
+    })
+    await c.use({ namespace: "blk", database: "blk" })
     await c.query(
       "REMOVE TABLE IF EXISTS blk_post; REMOVE TABLE IF EXISTS blk_tally; REMOVE FUNCTION IF EXISTS fn::blk_bump_live;",
-    );
-    await c.query(emitTable(Tally, { exists: "overwrite" }));
-    await c.query(emitDefStatement(Bump, { exists: "overwrite" }).ddl);
-    await c.query(emitTable(PostV, { exists: "overwrite" }));
+    )
+    await c.query(emitTable(Tally, { exists: "overwrite" }))
+    await c.query(emitDefStatement(Bump, { exists: "overwrite" }).ddl)
+    await c.query(emitTable(PostV, { exists: "overwrite" }))
 
     // Fire twice for one author: CREATE branch then UPDATE branch.
     await c.query(
       "CREATE blk_post:1 SET title = 'a', author = 'ada', views = 0;" +
         "CREATE blk_post:2 SET title = 'b', author = 'ada', views = 0;",
-    );
+    )
     const [tally] = (await c.query("SELECT author, total FROM blk_tally")) as [
       { author: string; total: number }[],
-    ];
-    expect(tally).toEqual([{ author: "ada", total: 2 }]);
+    ]
+    expect(tally).toEqual([{ author: "ada", total: 2 }])
 
     // The block-bodied function runs through a raw `RETURN fn::…`.
-    const [out] = (await c.query("RETURN fn::blk_bump_live(10)")) as [number];
-    expect(out).toBe(12);
+    const [out] = (await c.query("RETURN fn::blk_bump_live(10)")) as [number]
+    expect(out).toBe(12)
 
     // Drift check: the block-built THEN round-trips through INFO unchanged.
-    const scrub = (v: unknown) => JSON.parse(JSON.stringify(v));
-    const pick = (objs: { kind: string; name: string }[], name: string) =>
-      objs.find((o) => o.kind === "table" && o.name === name) as unknown as {
-        struct: unknown;
-      };
-    const authored = pick(explodeSchema([PostV, Tally]), "blk_post");
-    const live = pick(await introspectAll(c), "blk_post");
-    expect(deepEqual(scrub(authored.struct), scrub(live.struct))).toBe(true);
+    const scrub = (v: unknown) => JSON.parse(JSON.stringify(v)),
+      pick = (objs: { kind: string; name: string }[], name: string) =>
+        objs.find((o) => o.kind === "table" && o.name === name) as unknown as {
+          struct: unknown
+        },
+      authored = pick(explodeSchema([PostV, Tally]), "blk_post"),
+      live = pick(await introspectAll(c), "blk_post")
+    expect(deepEqual(scrub(authored.struct), scrub(live.struct))).toBe(true)
 
     await c.query(
       "REMOVE TABLE IF EXISTS blk_post; REMOVE TABLE IF EXISTS blk_tally; REMOVE FUNCTION IF EXISTS fn::blk_bump_live;",
-    );
-    await c.close();
-  }, 60_000);
-});
+    )
+    await c.close()
+  }, 60_000)
+})
 
 describe("object bindings — refactor safety extras", () => {
   test("multi-key .let emits several LETs in order", () => {
     const q = block()
       .let({ a: 1, b: "x" })
       .return((sv) => surql`${sv.a} + ${sv.b.length()}`)
-      .toQuery();
+      .toQuery()
     expect(q.query).toMatch(
       /^\{ LET \$a = \$sub__\d+_b0; LET \$b = \$sub__\d+_b1; RETURN \$a \+ string::len\(\$b\); \}$/,
-    );
-  });
+    )
+  })
 
   test(".let with an empty object throws with guidance", () => {
-    expect(() => block().let({})).toThrow(/at least one var/);
-  });
+    expect(() => block().let({})).toThrow(/at least one var/)
+  })
 
   test(".for with more than one binding key throws", () => {
-    expect(() =>
-      block().for(
-        { a: [1], b: [2] } as Record<string, number[]>,
-        surql`RETURN 1`,
-      ),
-    ).toThrow(/exactly ONE loop binding/);
-  });
+    expect(() => block().for({ a: [1], b: [2] }, surql`RETURN 1`)).toThrow(
+      /exactly ONE loop binding/,
+    )
+  })
 
   test("callback .let sees earlier vars: (s) => ({ next: s.n.plus(1) })", () => {
     const q = block()
       .let({ n: 1 })
       .let((sv) => ({ next: sv.n.plus(1) }))
       .return((sv) => sv.next)
-      .toQuery();
-    expect(q.query).toMatch(
-      /LET \$next = \$n \+ \$sub__\d+_r\d+; RETURN \$next; \}$/,
-    );
-  });
-});
+      .toQuery()
+    expect(q.query).toMatch(/LET \$next = \$n \+ \$sub__\d+_r\d+; RETURN \$next; \}$/)
+  })
+})
 
 describe("empty block", () => {
   test("block() with no statements emits the valid no-op `{ }`", () => {
-    expect(block().toQuery().query).toBe("{ }");
-  });
-});
+    expect(block().toQuery().query).toBe("{ }")
+  })
+})
 
-const EMPTY_URL = process.env.SURREAL_URL;
+const EMPTY_URL = process.env.SURREAL_URL
 describe.skipIf(!EMPTY_URL)("empty block live", () => {
   test("an empty block is a valid function body and round-trips", async () => {
-    const { Surreal } = await import("surrealdb");
-    const { emitDefStatement } = await import("../../../src/surreal/ddl");
-    const { defineFunction } = await import("../../../src/surreal");
-    const F = defineFunction("blk_noop").body(block());
-    const c = new Surreal();
-    await c.connect(EMPTY_URL as string);
-    await c.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
-    await c.use({ namespace: "blk_e", database: "blk_e" });
-    await c.query("REMOVE FUNCTION IF EXISTS fn::blk_noop;");
-    await c.query(emitDefStatement(F, { exists: "overwrite" }).ddl);
-    const [out] = (await c.query("RETURN fn::blk_noop()")) as [unknown];
-    expect(out ?? null).toBeNull(); // a no-op body returns NONE
-    await c.query("REMOVE FUNCTION IF EXISTS fn::blk_noop;");
-    await c.close();
-  }, 30_000);
-});
+    const { Surreal } = await import("surrealdb"),
+      { emitDefStatement } = await import("../../../src/surreal/ddl"),
+      { defineFunction } = await import("../../../src/surreal"),
+      F = defineFunction("blk_noop").body(block()),
+      c = new Surreal()
+    await c.connect(EMPTY_URL!)
+    await c.signin({
+      username: process.env.SURREAL_USER ?? "root",
+      password: process.env.SURREAL_PASS ?? "root",
+    })
+    await c.use({ namespace: "blk_e", database: "blk_e" })
+    await c.query("REMOVE FUNCTION IF EXISTS fn::blk_noop;")
+    await c.query(emitDefStatement(F, { exists: "overwrite" }).ddl)
+    const [out] = (await c.query("RETURN fn::blk_noop()")) as [unknown]
+    expect(out ?? null).toBeNull() // A no-op body returns NONE
+    await c.query("REMOVE FUNCTION IF EXISTS fn::blk_noop;")
+    await c.close()
+  }, 30_000)
+})

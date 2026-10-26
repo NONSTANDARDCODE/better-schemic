@@ -12,20 +12,8 @@ export type {
   MigrationStore,
   ShadowCapability,
   Statement,
-} from "./driver";
-export { driverNames, getDriver, registerDriver } from "./driver";
-export type {
-  GeometryKind,
-  PortableType,
-  ScalarName,
-} from "./portable";
-export {
-  array,
-  literal,
-  nullable,
-  option,
-  record,
-  scalar,
-  union,
-} from "./portable";
-export type { PortableField, PortablePermissions } from "./portable-ir";
+} from "./driver"
+export { driverNames, getDriver, registerDriver } from "./driver"
+export type { GeometryKind, PortableType, ScalarName } from "./portable"
+export { array, literal, nullable, option, record, scalar, union } from "./portable"
+export type { PortableField, PortablePermissions } from "./portable-ir"

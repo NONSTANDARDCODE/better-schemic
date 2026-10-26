@@ -1,5 +1,6 @@
-import { defineAccess, surql } from "better-schemic";
-import { example } from "../_kit";
+import { defineAccess, surql } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "RECORD access (SIGNUP / SIGNIN / DURATION)",
@@ -7,11 +8,7 @@ export default example(import.meta.url, {
   def: defineAccess("user")
     .onDatabase()
     .record()
-    .signup(
-      surql`CREATE user SET email = $email, pass = crypto::argon2::generate($pass)`,
-    )
-    .signin(
-      surql`SELECT * FROM user WHERE email = $email AND crypto::argon2::compare(pass, $pass)`,
-    )
+    .signup(surql`CREATE user SET email = $email, pass = crypto::argon2::generate($pass)`)
+    .signin(surql`SELECT * FROM user WHERE email = $email AND crypto::argon2::compare(pass, $pass)`)
     .duration({ token: "1h", session: "12h" }),
-});
+})

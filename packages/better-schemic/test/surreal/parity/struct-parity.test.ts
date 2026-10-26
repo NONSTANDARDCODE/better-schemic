@@ -4,219 +4,205 @@
  * INFO lowering converge on one normal form. Applies a broad corpus to a scratch SurrealDB and
  * compares the two per object. Skips when no DB is reachable.
  */
-import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { Surreal, surql } from "surrealdb";
-import { z } from "zod";
-import { fromStandalone, fromTableDef } from "../../../src/surreal/cli/lower";
-import { renderSchemaToTS } from "../../../src/surreal/cli/pull";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test"
+
+import { Surreal, surql } from "surrealdb"
+import { z } from "zod"
+
+import { fromStandalone, fromTableDef } from "../../../src/surreal/cli/lower"
+import { renderSchemaToTS } from "../../../src/surreal/cli/pull"
 import {
   deepEqual,
   normalizeAccess,
   normalizeDb,
   normalizeFunction,
   normalizeTable,
-} from "../../../src/surreal/cli/struct";
-import {
-  type DbStructured,
-  introspectStructured,
-} from "../../../src/surreal/cli/structure";
-import { emitDefStatement, emitStatements } from "../../../src/surreal/ddl";
-import { createOnly } from "../../../src/surreal/plugins/create-only";
-import { defineFunction, defineRelation, defineTable, s } from "../../../src/surreal/pure";
+} from "../../../src/surreal/cli/struct"
+import { introspectStructured } from "../../../src/surreal/cli/structure"
+import { emitDefStatement, emitStatements } from "../../../src/surreal/ddl"
+import { createOnly } from "../../../src/surreal/plugins/create-only"
+import { defineFunction, defineRelation, defineTable, s } from "../../../src/surreal/pure"
+
+import type { DbStructured } from "../../../src/surreal/cli/structure"
 
 // The workspace gate runs every package's suite IN PARALLEL — parallel-suite CPU contention can slow a live
-// connect/DDL past bun's 5s DEFAULT hook timeout, failing the `beforeEach`/`afterAll` below as an
+// Connect/DDL past bun's 5s DEFAULT hook timeout, failing the `beforeEach`/`afterAll` below as an
 // "(unnamed)" test. `beforeAll`s that say `120_000` explicitly are already covered; the default
-// applies to every hook that doesn't. Isolated runs are unaffected.
-setDefaultTimeout(120_000);
+// Applies to every hook that doesn't. Isolated runs are unaffected.
+setDefaultTimeout(120_000)
 
-const NS = "__sz_structparity";
-const DB = "sp";
+const DB = "sp",
+  NS = "__sz_structparity"
 
 async function connectScratch(): Promise<Surreal | null> {
-  const db = new Surreal();
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  const db = new Surreal()
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
     await Promise.race([
       (async () => {
-        await db.connect(process.env.SURREAL_URL ?? "ws://127.0.0.1:8000/rpc");
+        await db.connect(process.env.SURREAL_URL ?? "ws://127.0.0.1:8000/rpc")
         await db.signin({
           username: process.env.SURREAL_USER ?? "root",
           password: process.env.SURREAL_PASS ?? "root",
-        });
-        await db.query(`DEFINE NAMESPACE IF NOT EXISTS ${NS};`);
-        await db.use({ namespace: NS, database: DB });
-        await db.query(
-          `REMOVE DATABASE IF EXISTS ${DB}; DEFINE DATABASE ${DB};`,
-        );
-        await db.use({ namespace: NS, database: DB });
+        })
+        await db.query(`DEFINE NAMESPACE IF NOT EXISTS ${NS};`)
+        await db.use({ namespace: NS, database: DB })
+        await db.query(`REMOVE DATABASE IF EXISTS ${DB}; DEFINE DATABASE ${DB};`)
+        await db.use({ namespace: NS, database: DB })
       })(),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error("connect timeout")), 2000);
+        timer = setTimeout(() => {
+          reject(new Error("connect timeout"))
+        }, 2000)
       }),
-    ]);
-    return db;
+    ])
+    return db
   } catch {
-    await db.close().catch(() => {});
-    return null;
+    await db.close().catch(() => {})
+    return null
   } finally {
-    clearTimeout(timer);
+    clearTimeout(timer)
   }
 }
 
-const db = await connectScratch();
-const live = describe.skipIf(!db);
-if (!db) console.warn("[struct-parity] SurrealDB unreachable — skipping");
+const db = await connectScratch(),
+  live = describe.skipIf(!db)
+if (!db) console.warn("[struct-parity] SurrealDB unreachable — skipping")
 
 // A broad corpus exercising the clause space (types, perms, defaults, asserts, index, nested
-// objects, arrays, records, literal unions, relation, function).
+// Objects, arrays, records, literal unions, relation, function).
 const Big = defineTable("sp_big", {
-  id: z.string(),
-  s: s.string(),
-  i: s.int(),
-  dt: s.datetime(),
-  uid: s.uuid(),
-  rec: s.recordId("sp_big"),
-  arr: s.array(s.string()),
-  arrn: s.array(s.string(), { max: 3 }),
-  setf: s.set(s.string()),
-  opt: s.string().optional(),
-  // A union with an `.optional()` member hoists to `option<…>` (the DB canonical form).
-  unopt: s.union([s.string().optional(), s.int()]),
-  // `.optional()` + `.nullable()` members flatten to ATOMS — the repeated `string` must dedupe.
-  unoptn: s.union([s.string().optional(), s.string().nullable()]),
-  // Exact container sizes lower to `array<T, N>`/`set<T, N>` + their equality asserts.
-  exln: s.array(s.string()).$length(2),
-  exsz: s.set(s.int()).$size(4),
-  // A nullable constrained field: the assert is emitted null-guarded on BOTH sides.
-  nulc: s.string().nullable().$min(3),
-  // ...and a nullable FORMAT field (its guard must round-trip too).
-  mail: s.email().nullable(),
-  role: s.enum(["admin", "user"]),
-  obj: s.object({ a: s.string(), b: s.number().optional() }),
-  def: s.string().$default("pending"),
-  defa: s.datetime().$defaultAlways(surql`time::now()`),
-  // DEFAULT + VALUE: VALUE runs last and may yield NONE, so `option<>` must survive on BOTH sides.
-  defv: s
-    .string()
-    .optional()
-    .$default("x")
-    .$value(surql`IF $input = "x" THEN NONE ELSE $value END`),
-  val: s.string().$value(surql`string::lowercase($value)`, {
-    optional: false,
-  }),
-  asrt: s.number().$assert(surql`$value > 0`),
-  ro: s.string().$readonly(),
-  cmt: s.string().$comment("a field"),
-  perm: s.string().$permissions({ select: true, update: false }),
-  uniq: s.string().$unique(),
-}).permissions({ select: true, create: surql`$auth.id != NONE` });
-const Less = defineTable("sp_less", { id: z.string() })
-  .schemaless()
-  .comment("c");
-const Rel = defineRelation("sp_likes", { id: z.string() }).from(Big).to(Big);
-const CreateOnly = defineTable("sp_create_only", {
-  id: z.string(),
-  action: s.string(),
-})
-  .permissions({ select: true, create: true, delete: true })
-  .use(createOnly({ hard: true }));
-const Fn = defineFunction("sp_add", { a: s.int(), b: s.int() })
-  .returns(s.int())
-  .body(surql`RETURN $a + $b;`);
-
-// Kept in the live INFO order (alphabetical) so the `diff --ts` rendering compares equal.
-const TABLES = [Big, CreateOnly, Less, Rel];
-const DEFS = [Fn];
-const asTable = (t: unknown) => t as Parameters<typeof fromTableDef>[0];
-const asDef = (d: unknown) => d as Parameters<typeof fromStandalone>[0];
+    id: z.string(),
+    s: s.string(),
+    i: s.int(),
+    dt: s.datetime(),
+    uid: s.uuid(),
+    rec: s.recordId("sp_big"),
+    arr: s.array(s.string()),
+    arrn: s.array(s.string(), { max: 3 }),
+    setf: s.set(s.string()),
+    opt: s.string().optional(),
+    // A union with an `.optional()` member hoists to `option<…>` (the DB canonical form).
+    unopt: s.union([s.string().optional(), s.int()]),
+    // `.optional()` + `.nullable()` members flatten to ATOMS — the repeated `string` must dedupe.
+    unoptn: s.union([s.string().optional(), s.string().nullable()]),
+    // Exact container sizes lower to `array<T, N>`/`set<T, N>` + their equality asserts.
+    exln: s.array(s.string()).$length(2),
+    exsz: s.set(s.int()).$size(4),
+    // A nullable constrained field: the assert is emitted null-guarded on BOTH sides.
+    nulc: s.string().nullable().$min(3),
+    // ...and a nullable FORMAT field (its guard must round-trip too).
+    mail: s.email().nullable(),
+    role: s.enum(["admin", "user"]),
+    obj: s.object({ a: s.string(), b: s.number().optional() }),
+    def: s.string().$default("pending"),
+    defa: s.datetime().$defaultAlways(surql`time::now()`),
+    // DEFAULT + VALUE: VALUE runs last and may yield NONE, so `option<>` must survive on BOTH sides.
+    defv: s
+      .string()
+      .optional()
+      .$default("x")
+      .$value(surql`IF $input = "x" THEN NONE ELSE $value END`),
+    val: s.string().$value(surql`string::lowercase($value)`, {
+      optional: false,
+    }),
+    asrt: s.number().$assert(surql`$value > 0`),
+    ro: s.string().$readonly(),
+    cmt: s.string().$comment("a field"),
+    perm: s.string().$permissions({ select: true, update: false }),
+    uniq: s.string().$unique(),
+  }).permissions({ select: true, create: surql`$auth.id != NONE` }),
+  Less = defineTable("sp_less", { id: z.string() }).schemaless().comment("c"),
+  Rel = defineRelation("sp_likes", { id: z.string() }).from(Big).to(Big),
+  CreateOnly = defineTable("sp_create_only", {
+    id: z.string(),
+    action: s.string(),
+  })
+    .permissions({ select: true, create: true, delete: true })
+    .use(createOnly({ hard: true })),
+  Fn = defineFunction("sp_add", { a: s.int(), b: s.int() })
+    .returns(s.int())
+    .body(surql`RETURN $a + $b;`),
+  // Kept in the live INFO order (alphabetical) so the `diff --ts` rendering compares equal.
+  TABLES = [Big, CreateOnly, Less, Rel],
+  DEFS = [Fn],
+  asTable = (t: unknown) => t as Parameters<typeof fromTableDef>[0],
+  asDef = (d: unknown) => d as Parameters<typeof fromStandalone>[0]
 
 live("struct-parity", () => {
   afterAll(async () => {
-    await db?.close().catch(() => {});
-  });
+    await db?.close().catch(() => {})
+  })
 
   test("fromTableDef converges with fromInfo across the corpus", async () => {
-    if (!db) return;
-    for (const t of TABLES)
-      for (const s of emitStatements(asTable(t))) await db.query(s.ddl);
-    for (const d of DEFS) await db.query(emitDefStatement(asDef(d)).ddl);
+    if (!db) return
+    for (const t of TABLES) for (const s of emitStatements(asTable(t))) await db.query(s.ddl)
 
-    const info = await introspectStructured(db, new Set());
-    const liveTable = new Map(info.tables.map((x) => [x.name, x]));
-    const liveFn = new Map(info.functions.map((x) => [x.name, x]));
-    const liveAccess = new Map(info.accesses.map((x) => [x.name, x]));
+    for (const d of DEFS) await db.query(emitDefStatement(asDef(d)).ddl)
 
-    const diverged: string[] = [];
-    const report = (name: string, a: unknown, b: unknown) => {
-      diverged.push(name);
-      console.error(`\n=== DIVERGE ${name} ===`);
-      console.error("fromTableDef:", JSON.stringify(a, null, 1));
-      console.error("fromInfo:    ", JSON.stringify(b, null, 1));
-    };
+    const info = await introspectStructured(db, new Set()),
+      liveTable = new Map(info.tables.map((x) => [x.name, x])),
+      liveFn = new Map(info.functions.map((x) => [x.name, x])),
+      liveAccess = new Map(info.accesses.map((x) => [x.name, x])),
+      diverged: string[] = [],
+      report = (name: string, a: unknown, b: unknown) => {
+        diverged.push(name)
+        console.error(`\n=== DIVERGE ${name} ===`)
+        console.error("fromTableDef:", JSON.stringify(a, null, 1))
+        console.error("fromInfo:", JSON.stringify(b, null, 1))
+      }
 
     for (const t of TABLES) {
-      const name = asTable(t).name;
-      const a = normalizeTable(fromTableDef(asTable(t)));
-      const liveStruct = liveTable.get(name);
+      const { name } = asTable(t),
+        a = normalizeTable(fromTableDef(asTable(t))),
+        liveStruct = liveTable.get(name)
       if (!liveStruct) {
-        report(`table ${name}`, a, "MISSING");
-        continue;
+        report(`table ${name}`, a, "MISSING")
+        continue
       }
-      const b = normalizeTable(liveStruct);
-      if (!deepEqual(a, b)) report(`table ${name}`, a, b);
+      const b = normalizeTable(liveStruct)
+      if (!deepEqual(a, b)) report(`table ${name}`, a, b)
     }
     for (const d of DEFS) {
-      const lowered = fromStandalone(asDef(d));
-      const name = lowered.name;
-      const fn = liveFn.get(name);
-      const ac = liveAccess.get(name);
+      const lowered = fromStandalone(asDef(d)),
+        { name } = lowered,
+        fn = liveFn.get(name),
+        ac = liveAccess.get(name)
       if (fn) {
-        const a = normalizeFunction(
-          lowered as Parameters<typeof normalizeFunction>[0],
-        );
+        const a = normalizeFunction(lowered as Parameters<typeof normalizeFunction>[0])
         if (!deepEqual(a, normalizeFunction(fn)))
-          report(`function ${name}`, a, normalizeFunction(fn));
+          report(`function ${name}`, a, normalizeFunction(fn))
       } else if (ac) {
-        const a = normalizeAccess(
-          lowered as Parameters<typeof normalizeAccess>[0],
-        );
-        if (!deepEqual(a, normalizeAccess(ac)))
-          report(`access ${name}`, a, normalizeAccess(ac));
-      } else {
-        report(`def ${name}`, lowered, "MISSING");
-      }
+        const a = normalizeAccess(lowered as Parameters<typeof normalizeAccess>[0])
+        if (!deepEqual(a, normalizeAccess(ac))) report(`access ${name}`, a, normalizeAccess(ac))
+      } else report(`def ${name}`, lowered, "MISSING")
     }
 
-    expect(diverged).toEqual([]);
-  });
+    expect(diverged).toEqual([])
+  })
 
   test("diff --ts: rendering both sides to TS converges (no spurious change)", async () => {
-    if (!db) return;
+    if (!db) return
     // Both sides already applied in the test above; re-introspect the live (current) side.
-    const live = await introspectStructured(db, new Set());
-    const schema: DbStructured = {
-      tables: TABLES.map((t) => fromTableDef(asTable(t))),
-      functions: DEFS.map((d) => fromStandalone(asDef(d))).filter(
-        (x): x is Parameters<typeof normalizeFunction>[0] => "block" in x,
-      ),
-      accesses: [],
-      analyzers: [],
-      params: [],
-    };
-    // Restrict the live side to the corpus objects (the scratch DB holds only these).
-    const names = new Set(schema.tables.map((t) => t.name));
-    const liveCorpus: DbStructured = {
-      tables: live.tables.filter((t) => names.has(t.name)),
-      functions: live.functions.filter((f) =>
-        schema.functions.some((s) => s.name === f.name),
-      ),
-      accesses: [],
-      analyzers: [],
-      params: [],
-    };
-    expect(renderSchemaToTS(normalizeDb(schema))).toBe(
-      renderSchemaToTS(normalizeDb(liveCorpus)),
-    );
-  });
-});
+    const live = await introspectStructured(db, new Set()),
+      schema: DbStructured = {
+        tables: TABLES.map((t) => fromTableDef(asTable(t))),
+        functions: DEFS.map((d) => fromStandalone(asDef(d))).filter(
+          (x): x is Parameters<typeof normalizeFunction>[0] => "block" in x,
+        ),
+        accesses: [],
+        analyzers: [],
+        params: [],
+      },
+      // Restrict the live side to the corpus objects (the scratch DB holds only these).
+      names = new Set(schema.tables.map((t) => t.name)),
+      liveCorpus: DbStructured = {
+        tables: live.tables.filter((t) => names.has(t.name)),
+        functions: live.functions.filter((f) => schema.functions.some((s) => s.name === f.name)),
+        accesses: [],
+        analyzers: [],
+        params: [],
+      }
+    expect(renderSchemaToTS(normalizeDb(schema))).toBe(renderSchemaToTS(normalizeDb(liveCorpus)))
+  })
+})

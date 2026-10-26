@@ -1,5 +1,6 @@
-import { defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "Vector HNSW (single field, inline via field.$hnsw())",
@@ -10,4 +11,4 @@ DEFINE INDEX vh3_emb_idx ON TABLE vh3 FIELDS emb HNSW DIMENSION 4 DIST COSINE;`,
     id: s.string(),
     emb: s.array(s.float()).$hnsw({ dimension: 4, dist: "cosine" }),
   }),
-});
+})

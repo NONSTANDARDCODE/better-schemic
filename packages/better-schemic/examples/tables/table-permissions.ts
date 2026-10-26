@@ -1,5 +1,6 @@
-import { defineTable, s, surql } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s, surql } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "table PERMISSIONS",
@@ -11,4 +12,4 @@ export default example(import.meta.url, {
     update: surql`$auth.id = id.owner`,
     delete: surql`$auth.admin = true`,
   }),
-});
+})

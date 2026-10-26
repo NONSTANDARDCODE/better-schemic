@@ -1,90 +1,82 @@
 // M0.1 — ORM syntax map probes: every SurrealQL construct the `/orm` compiler will emit, verified
-// against a REAL SurrealDB (the local `surreal` binary, ephemeral in-memory server), not inferred.
+// Against a REAL SurrealDB (the local `surreal` binary, ephemeral in-memory server), not inferred.
 // This is the executable half of `docs/orm-syntax-map.md`: each test encodes the live-observed
-// behaviour, so a server upgrade that changes any of it fails loudly here first.
+// Behaviour, so a server upgrade that changes any of it fails loudly here first.
 //
 // Skipped automatically when no `surreal` binary is available (like the e2e suite).
-import { setDefaultTimeout } from "bun:test";
+import { setDefaultTimeout } from "bun:test"
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+
+import { RecordId, Surreal, Uuid, escapeIdent } from "surrealdb"
+
+import { spawnEphemeralServer, surrealBinaryAvailable } from "../../../src/surreal/cli/engine"
+import { escapeIdentSafe, unescapeIdPart } from "../../../src/surreal/ident"
+
+import type { EphemeralServer } from "../../../src/surreal/cli/engine"
 
 // The workspace gate runs every package's suite IN PARALLEL — live connects/DDL can be slow.
-setDefaultTimeout(120_000);
-
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { escapeIdent, RecordId, Surreal, Uuid } from "surrealdb";
-import {
-  type EphemeralServer,
-  spawnEphemeralServer,
-  surrealBinaryAvailable,
-} from "../../../src/surreal/cli/engine";
-import { escapeIdentSafe, unescapeIdPart } from "../../../src/surreal/ident";
+setDefaultTimeout(120_000)
 
 /** Normalize SDK values (RecordId/Uuid/Date/arrays/objects) to plain JSON-comparable values. */
 const plain = (v: unknown): unknown => {
-  if (v instanceof RecordId || v instanceof Uuid) return String(v);
-  if (v instanceof Date) return v.toISOString();
-  if (Array.isArray(v)) return v.map(plain);
-  if (v && typeof v === "object") {
-    return Object.fromEntries(
-      Object.entries(v as Record<string, unknown>).map(([k, x]) => [
-        k,
-        plain(x),
-      ]),
-    );
-  }
-  return v;
-};
+    if (v instanceof RecordId || v instanceof Uuid) return String(v)
 
-const ENABLED = surrealBinaryAvailable();
-const live = describe.skipIf(!ENABLED);
-if (!ENABLED)
-  console.warn("[orm-syntax] `surreal` binary unavailable — skipping");
+    if (v instanceof Date) return v.toISOString()
 
-const NS = "orm_syntax";
-const DB = "map";
+    if (Array.isArray(v)) return v.map(plain)
+
+    if (v && typeof v === "object") {
+      return Object.fromEntries(
+        Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, plain(x)]),
+      )
+    }
+    return v
+  },
+  ENABLED = surrealBinaryAvailable(),
+  live = describe.skipIf(!ENABLED)
+if (!ENABLED) console.warn("[orm-syntax] `surreal` binary unavailable — skipping")
+
+const DB = "map",
+  NS = "orm_syntax"
 
 live("ORM syntax map — live probes (server 3.x)", () => {
-  let server: EphemeralServer;
-  let db: Surreal;
+  let db: Surreal, server: EphemeralServer
 
   /** Run a statement script and return the per-statement result array (SDK-faithful). */
-  const run = <T extends unknown[] = unknown[]>(
+  const run = async <T extends unknown[] = unknown[]>(
     sql: string,
     vars?: Record<string, unknown>,
-  ) => db.query<T>(sql, vars);
+  ) => db.query<T>(sql, vars)
 
   /**
    * Run and return the LAST statement's value (SDK values normalized to plain JSON).
    * `any` on purpose: these probes assert arbitrary shapes, and bun:test's `expect`
    * resolves `unknown` to a `Matchers<undefined>`.
    */
-  // biome-ignore lint/suspicious/noExplicitAny: arbitrary probe shapes vs. bun:test's expect typing.
-  type AnyResult = any;
 
-  const last = async (
-    sql: string,
-    vars?: Record<string, unknown>,
-  ): Promise<AnyResult> => {
-    const out = await run<unknown[]>(sql, vars);
-    return plain(out[out.length - 1]);
-  };
+  type AnyResult = any
 
-  /** Await a query, capturing the thrown error instead of failing the test (SDK throws on
-   *  AlreadyExists/Cancelled responses during response collection — `.rejects` doesn't catch it). */
-  const caught = async (p: Promise<unknown>): Promise<unknown> => {
-    try {
-      await p;
-      return null;
-    } catch (e) {
-      return e;
+  const last = async (sql: string, vars?: Record<string, unknown>): Promise<AnyResult> => {
+      const out = await run(sql, vars)
+      return plain(out.at(-1))
+    },
+    /** Await a query, capturing the thrown error instead of failing the test (SDK throws on
+     *  AlreadyExists/Cancelled responses during response collection — `.rejects` doesn't catch it). */
+    caught = async (p: Promise<unknown>): Promise<unknown> => {
+      try {
+        await p
+        return null
+      } catch (error) {
+        return error
+      }
     }
-  };
 
   beforeAll(async () => {
-    server = await spawnEphemeralServer();
-    db = new Surreal();
-    await db.connect(server.url, { reconnect: false });
-    await db.signin({ username: server.username, password: server.password });
-    await db.use({ namespace: NS, database: DB });
+    server = await spawnEphemeralServer()
+    db = new Surreal()
+    await db.connect(server.url, { reconnect: false })
+    await db.signin({ username: server.username, password: server.password })
+    await db.use({ namespace: NS, database: DB })
 
     await db.query(`
       DEFINE TABLE user SCHEMAFULL;
@@ -117,412 +109,366 @@ live("ORM syntax map — live probes (server 3.x)", () => {
       RELATE user:bob->likes->post:p1 SET score = 3;
       CREATE tdoc:a CONTENT { name: "A", tenant_id: user:alice };
       CREATE tdoc:b CONTENT { name: "B", tenant_id: user:bob };
-    `);
-  });
+    `)
+  })
 
   afterAll(async () => {
-    await db?.close().catch(() => {});
-    await server?.stop();
-  });
+    await db?.close().catch(() => {})
+    await server?.stop()
+  })
 
   describe("UPDATE — semantics and modes", () => {
     test("UPDATE t:id on a missing record returns [] and does NOT create", async () => {
-      const out = await last("UPDATE user:ghost MERGE { name: 'G', age: 1 };");
-      expect(out).toEqual([]);
+      const out = await last("UPDATE user:ghost MERGE { name: 'G', age: 1 };")
+      expect(out).toEqual([])
       // `FROM ONLY <missing>` yields `undefined` through the SDK (JSON null on the wire).
-      expect(await last("SELECT * FROM ONLY user:ghost;")).toBeFalsy();
-    });
+      expect(await last("SELECT * FROM ONLY user:ghost;")).toBeFalsy()
+    })
 
     test("CREATE t:id duplicate errors; CREATE ONLY/EQ return shapes", async () => {
-      expect(
-        await last("CREATE user:gone CONTENT { name: 'X', age: 1 };"),
-      ).toEqual([expect.objectContaining({ id: "user:gone" })]);
-      const dup = await caught(
-        last("CREATE user:gone CONTENT { name: 'Y', age: 2 };"),
-      );
-      expect(String(dup)).toMatch(/already exists/);
-      expect(
-        await last("CREATE ONLY user:only1 CONTENT { name: 'Z', age: 3 };"),
-      ).toEqual(expect.objectContaining({ id: "user:only1", name: "Z" }));
-    });
+      expect(await last("CREATE user:gone CONTENT { name: 'X', age: 1 };")).toEqual([
+        expect.objectContaining({ id: "user:gone" }),
+      ])
+      const dup = await caught(last("CREATE user:gone CONTENT { name: 'Y', age: 2 };"))
+      expect(String(dup)).toMatch(/already exists/)
+      expect(await last("CREATE ONLY user:only1 CONTENT { name: 'Z', age: 3 };")).toEqual(
+        expect.objectContaining({ id: "user:only1", name: "Z" }),
+      )
+    })
 
     test("CREATE ONLY as an expression captures the created record (LET)", async () => {
       const created = await last(
         "LET $c = (CREATE ONLY user CONTENT { name: 'L', age: 4 }); RETURN $c;",
-      );
-      expect(created).toEqual(
-        expect.objectContaining({ name: "L", age: 4, active: true }),
-      );
-    });
+      )
+      expect(created).toEqual(expect.objectContaining({ name: "L", age: 4, active: true }))
+    })
 
     test("modes: MERGE / SET / PATCH / UNSET; CONTENT drops DB defaults", async () => {
-      await run(
-        "CREATE ONLY user:m1 CONTENT { name: 'M', age: 10, tags: ['a','b'] };",
-      );
+      await run("CREATE ONLY user:m1 CONTENT { name: 'M', age: 10, tags: ['a','b'] };")
       expect(await last("UPDATE user:m1 MERGE { age: 11 };")).toEqual([
         expect.objectContaining({ age: 11, name: "M" }),
-      ]);
+      ])
       expect(await last("UPDATE user:m1 SET age = 12;")).toEqual([
         expect.objectContaining({ age: 12, name: "M" }),
-      ]);
+      ])
       expect(
-        await last(
-          'UPDATE user:m1 PATCH [{ op: "add", path: "/tags/-", value: "c" }];',
-        ),
-      ).toEqual([expect.objectContaining({ tags: ["a", "b", "c"] })]);
+        await last('UPDATE user:m1 PATCH [{ op: "add", path: "/tags/-", value: "c" }];'),
+      ).toEqual([expect.objectContaining({ tags: ["a", "b", "c"] })])
       // CONTENT replaces the whole record — the DB-side default is NOT re-applied.
-      await expect(
-        last("UPDATE user:m1 CONTENT { name: 'M2', age: 13 };"),
-      ).rejects.toThrow(/active/);
+      await expect(last("UPDATE user:m1 CONTENT { name: 'M2', age: 13 };")).rejects.toThrow(
+        /active/,
+      )
       // UNSET only works on optional fields.
       expect(await last("UPDATE user:m1 UNSET tags;")).toEqual([
         expect.objectContaining({ name: "M" }),
-      ]);
-      await expect(last("UPDATE user:m1 UNSET age;")).rejects.toThrow();
-    });
+      ])
+      await expect(last("UPDATE user:m1 UNSET age;")).rejects.toThrow()
+    })
 
     test("UPDATE ONLY t:id returns an object, not an array", async () => {
-      const out = await last("UPDATE ONLY user:m1 SET name = 'M3';");
-      expect(out).toEqual(expect.objectContaining({ name: "M3" }));
-      expect(Array.isArray(out)).toBe(false);
-    });
+      const out = await last("UPDATE ONLY user:m1 SET name = 'M3';")
+      expect(out).toEqual(expect.objectContaining({ name: "M3" }))
+      expect(Array.isArray(out)).toBe(false)
+    })
 
     test("RETURN modes: NONE / BEFORE / AFTER / DIFF", async () => {
-      expect(await last("UPDATE user:m1 SET age = 20 RETURN NONE;")).toEqual(
-        [],
-      );
+      expect(await last("UPDATE user:m1 SET age = 20 RETURN NONE;")).toEqual([])
       expect(await last("UPDATE user:m1 SET age = 21 RETURN BEFORE;")).toEqual([
         expect.objectContaining({ age: 20 }),
-      ]);
+      ])
       expect(await last("UPDATE user:m1 SET age = 22 RETURN AFTER;")).toEqual([
         expect.objectContaining({ age: 22 }),
-      ]);
+      ])
       expect(await last("UPDATE user:m1 SET age = 23 RETURN DIFF;")).toEqual([
         [expect.objectContaining({ op: "replace", path: "/age", value: 23 })],
-      ]);
-    });
+      ])
+    })
 
     test("UPDATE t MERGE ... WHERE cond: empty when no match, never creates", async () => {
-      const out = await last(
-        "UPDATE user MERGE { age: 1 } WHERE id = user:nope;",
-      );
-      expect(out).toEqual([]);
-      expect(await last("SELECT * FROM ONLY user:nope;")).toBeFalsy();
-    });
+      const out = await last("UPDATE user MERGE { age: 1 } WHERE id = user:nope;")
+      expect(out).toEqual([])
+      expect(await last("SELECT * FROM ONLY user:nope;")).toBeFalsy()
+    })
 
     test("TIMEOUT is accepted on UPDATE", async () => {
       expect(await last("UPDATE user:m1 SET age = 24 TIMEOUT 5s;")).toEqual([
         expect.objectContaining({ age: 24 }),
-      ]);
-    });
-  });
+      ])
+    })
+  })
 
   describe("WRITE PROJECTIONS — RETURN <projection> and SET ±= adjustments", () => {
     test("UPDATE RETURN field/list/nested/alias/expression/star forms", async () => {
       await run(
         "DEFINE TABLE wproj SCHEMALESS; CREATE ONLY wproj:1 CONTENT { name: 'P', age: 40, tags: ['x'], meta: { a: 1 } };",
-      );
+      )
+      expect(await last("UPDATE ONLY wproj:1 SET age = 41 RETURN age;")).toEqual({ age: 41 })
+      expect(await last("UPDATE wproj:1 SET age = 42 RETURN name, age;")).toEqual([
+        { name: "P", age: 42 },
+      ])
+      expect(await last("UPDATE wproj:1 SET age = 43 RETURN tags;")).toEqual([{ tags: ["x"] }])
+      expect(await last("UPDATE wproj:1 SET age = 44 RETURN meta.a, meta;")).toEqual([
+        { meta: { a: 1 } },
+      ])
       expect(
-        await last("UPDATE ONLY wproj:1 SET age = 41 RETURN age;"),
-      ).toEqual({ age: 41 });
-      expect(
-        await last("UPDATE wproj:1 SET age = 42 RETURN name, age;"),
-      ).toEqual([{ name: "P", age: 42 }]);
-      expect(await last("UPDATE wproj:1 SET age = 43 RETURN tags;")).toEqual([
-        { tags: ["x"] },
-      ]);
-      expect(
-        await last("UPDATE wproj:1 SET age = 44 RETURN meta.a, meta;"),
-      ).toEqual([{ meta: { a: 1 } }]);
-      expect(
-        await last(
-          "UPDATE ONLY wproj:1 SET name = 'p2' RETURN string::uppercase(name) AS upper;",
-        ),
-      ).toEqual({ upper: "P2" });
+        await last("UPDATE ONLY wproj:1 SET name = 'p2' RETURN string::uppercase(name) AS upper;"),
+      ).toEqual({ upper: "P2" })
       // `*` and `* + extra`; `RETURN <proj> TIMEOUT …` (RETURN precedes TIMEOUT).
       expect(await last("UPDATE ONLY wproj:1 SET age = 45 RETURN *;")).toEqual(
         expect.objectContaining({ age: 45, name: "p2" }),
-      );
-      expect(
-        await last("UPDATE ONLY wproj:1 SET age = 46 RETURN *, name;"),
-      ).toEqual(expect.objectContaining({ age: 46, name: "p2" }));
-      expect(
-        await last("UPDATE ONLY wproj:1 SET age = 47 RETURN age TIMEOUT 5s;"),
-      ).toEqual({ age: 47 });
+      )
+      expect(await last("UPDATE ONLY wproj:1 SET age = 46 RETURN *, name;")).toEqual(
+        expect.objectContaining({ age: 46, name: "p2" }),
+      )
+      expect(await last("UPDATE ONLY wproj:1 SET age = 47 RETURN age TIMEOUT 5s;")).toEqual({
+        age: 47,
+      })
       // `RETURN … OMIT` is a PARSE ERROR — why the ORM applies omit client-side.
-      expect(
-        await caught(
-          last("UPDATE ONLY wproj:1 SET age = 48 RETURN * OMIT age;"),
-        ),
-      ).toBeTruthy();
-    });
+      expect(await caught(last("UPDATE ONLY wproj:1 SET age = 48 RETURN * OMIT age;"))).toBeTruthy()
+    })
 
     test("CREATE / INSERT / UPSERT / RELATE / LET-IF / DELETE tail projections", async () => {
-      expect(
-        await last("CREATE wproj:pc CONTENT { name: 'C' } RETURN name;"),
-      ).toEqual([{ name: "C" }]);
-      expect(
-        await last(
-          "INSERT INTO wproj { id: wproj:pi, name: 'I' } RETURN name;",
-        ),
-      ).toEqual([{ name: "I" }]);
-      expect(await last("UPSERT wproj:1 SET age = 49 RETURN age;")).toEqual([
-        { age: 49 },
-      ]);
-      await run("DEFINE TABLE wedge TYPE RELATION IN wproj OUT wproj;");
-      expect(
-        await last(
-          "RELATE wproj:1->wedge->wproj:pi SET score = 7 RETURN score;",
-        ),
-      ).toEqual([{ score: 7 }]);
+      expect(await last("CREATE wproj:pc CONTENT { name: 'C' } RETURN name;")).toEqual([
+        { name: "C" },
+      ])
+      expect(await last("INSERT INTO wproj { id: wproj:pi, name: 'I' } RETURN name;")).toEqual([
+        { name: "I" },
+      ])
+      expect(await last("UPSERT wproj:1 SET age = 49 RETURN age;")).toEqual([{ age: 49 }])
+      await run("DEFINE TABLE wedge TYPE RELATION IN wproj OUT wproj;")
+      expect(await last("RELATE wproj:1->wedge->wproj:pi SET score = 7 RETURN score;")).toEqual([
+        { score: 7 },
+      ])
       // DELETE evaluates the projection on the REMOVED row (fields are NONE) — the ORM lowers
       // `select` on delete as `RETURN BEFORE` + client-side projection.
-      expect(await last("DELETE wproj:pi RETURN name;")).toEqual([
-        { name: undefined },
-      ]);
+      expect(await last("DELETE wproj:pi RETURN name;")).toEqual([{ name: undefined }])
       expect(await last("DELETE wproj:pc RETURN BEFORE;")).toEqual([
         expect.objectContaining({ name: "C" }),
-      ]);
+      ])
       const branch = await last(
         "LET $__e = (SELECT VALUE id FROM wproj WHERE id = wproj:ghost LIMIT 1); IF array::len($__e) = 0 THEN CREATE wproj:ghost CONTENT { name: 'N' } RETURN name ELSE UPDATE $__e[0] SET age += 1 RETURN age END;",
-      );
-      expect(branch).toEqual([{ name: "N" }]);
-    });
+      )
+      expect(branch).toEqual([{ name: "N" }])
+    })
 
     test("SET ±= adjusts an existing numeric value (bound operand, BEFORE/AFTER)", async () => {
-      await run("CREATE ONLY wproj:arith CONTENT { name: 'A', age: 100 };");
+      await run("CREATE ONLY wproj:arith CONTENT { name: 'A', age: 100 };")
       expect(
         await last("UPDATE ONLY wproj:arith SET age -= $d RETURN BEFORE;", {
           d: 7,
         }),
-      ).toEqual(expect.objectContaining({ age: 100 }));
-      expect(await last("SELECT VALUE age FROM ONLY wproj:arith;")).toBe(93);
+      ).toEqual(expect.objectContaining({ age: 100 }))
+      expect(await last("SELECT VALUE age FROM ONLY wproj:arith;")).toBe(93)
       expect(
         await last("UPDATE ONLY wproj:arith SET age += $d RETURN AFTER;", {
           d: 3,
         }),
-      ).toEqual(expect.objectContaining({ age: 96 }));
+      ).toEqual(expect.objectContaining({ age: 96 }))
       // Nested object paths adjust in place; missing objects are created.
-      await run("UPDATE ONLY wproj:arith SET meta = { a: 1, b: 2 };");
-      expect(
-        await last("UPDATE ONLY wproj:arith SET meta.a += 5 RETURN meta;"),
-      ).toEqual({ meta: { a: 6, b: 2 } });
-      await run("UPDATE ONLY wproj:arith SET fresh = { deep: { n: 1 } };");
-      expect(
-        await last(
-          "UPDATE ONLY wproj:arith SET fresh.deep.n += 4 RETURN fresh;",
-        ),
-      ).toEqual({ fresh: { deep: { n: 5 } } });
+      await run("UPDATE ONLY wproj:arith SET meta = { a: 1, b: 2 };")
+      expect(await last("UPDATE ONLY wproj:arith SET meta.a += 5 RETURN meta;")).toEqual({
+        meta: { a: 6, b: 2 },
+      })
+      await run("UPDATE ONLY wproj:arith SET fresh = { deep: { n: 1 } };")
+      expect(await last("UPDATE ONLY wproj:arith SET fresh.deep.n += 4 RETURN fresh;")).toEqual({
+        fresh: { deep: { n: 5 } },
+      })
       // Compound assignment is general: strings concat, arrays append.
-      expect(
-        await last("UPDATE ONLY wproj:arith SET name += '!' RETURN name;"),
-      ).toEqual({ name: "A!" });
-      expect(
-        await last("UPDATE ONLY wproj:arith SET tags = ['x'] RETURN tags;"),
-      ).toEqual({ tags: ["x"] });
-      expect(
-        await last("UPDATE ONLY wproj:arith SET tags += ['y'] RETURN tags;"),
-      ).toEqual({ tags: ["x", "y"] });
-    });
-  });
+      expect(await last("UPDATE ONLY wproj:arith SET name += '!' RETURN name;")).toEqual({
+        name: "A!",
+      })
+      expect(await last("UPDATE ONLY wproj:arith SET tags = ['x'] RETURN tags;")).toEqual({
+        tags: ["x"],
+      })
+      expect(await last("UPDATE ONLY wproj:arith SET tags += ['y'] RETURN tags;")).toEqual({
+        tags: ["x", "y"],
+      })
+    })
+  })
 
   describe("INSERT — arrays, IGNORE, ON DUPLICATE KEY UPDATE", () => {
     test("INSERT INTO t $rows inserts and returns rows; duplicate errors", async () => {
       const out = await last(
         "INSERT INTO user [{ id: user:i1, name: 'I1', age: 1 }, { id: user:i2, name: 'I2', age: 2 }];",
-      );
+      )
       expect(out).toEqual([
         expect.objectContaining({ id: "user:i1" }),
         expect.objectContaining({ id: "user:i2" }),
-      ]);
-      await expect(
-        last("INSERT INTO user [{ id: user:i1, name: 'X', age: 9 }];"),
-      ).rejects.toThrow(/already exists/);
-    });
+      ])
+      await expect(last("INSERT INTO user [{ id: user:i1, name: 'X', age: 9 }];")).rejects.toThrow(
+        /already exists/,
+      )
+    })
 
     test("INSERT IGNORE skips existing ids and returns only the inserted rows", async () => {
       const out = await last(
         "INSERT IGNORE INTO user [{ id: user:i1, name: 'X', age: 9 }, { id: user:i3, name: 'I3', age: 3 }];",
-      );
-      expect(out).toEqual([expect.objectContaining({ id: "user:i3" })]);
-    });
+      )
+      expect(out).toEqual([expect.objectContaining({ id: "user:i3" })])
+    })
 
     test("ON DUPLICATE KEY UPDATE: $input is the inserted record (nested paths too)", async () => {
       const out = await last(
         "INSERT INTO user [{ id: user:i1, name: 'U', age: 10 }] ON DUPLICATE KEY UPDATE name = $input.name, age = $input.age;",
-      );
-      expect(out).toEqual([
-        expect.objectContaining({ id: "user:i1", name: "U", age: 10 }),
-      ]);
-    });
+      )
+      expect(out).toEqual([expect.objectContaining({ id: "user:i1", name: "U", age: 10 })])
+    })
 
     test("ON DUPLICATE KEY UPDATE: bare field refs and $before/$after are NONE", async () => {
       // The existing record's fields are NOT addressable bare inside ON DUPLICATE — arithmetic
-      // against prior state needs a correlated subquery by id.
+      // Against prior state needs a correlated subquery by id.
       await expect(
         last(
           "INSERT INTO user [{ id: user:i1, name: 'V', age: 11 }] ON DUPLICATE KEY UPDATE age = age + 1;",
         ),
-      ).rejects.toThrow(/addition/);
+      ).rejects.toThrow(/addition/)
       await expect(
         last(
           "INSERT INTO user [{ id: user:i1, name: 'V', age: 11 }] ON DUPLICATE KEY UPDATE age = $before.age;",
         ),
-      ).rejects.toThrow();
+      ).rejects.toThrow()
       const out = await last(
         "INSERT INTO user [{ id: user:i1, name: 'V', age: 11 }] ON DUPLICATE KEY UPDATE age = (SELECT VALUE age FROM ONLY user:i1) + 1;",
-      );
+      )
       // Prior age was 10 (set by the $input test) -> 11 after the correlated subquery increment.
-      expect(out).toEqual([expect.objectContaining({ age: 11 })]);
-    });
+      expect(out).toEqual([expect.objectContaining({ age: 11 })])
+    })
 
     test("INSERT RELATION INTO edge works for edges", async () => {
       expect(
         await last(
           "INSERT RELATION INTO likes { id: likes:ir1, in: user:alice, out: post:p2, score: 7 };",
         ),
-      ).toEqual([expect.objectContaining({ id: "likes:ir1", score: 7 })]);
-    });
-  });
+      ).toEqual([expect.objectContaining({ id: "likes:ir1", score: 7 })])
+    })
+  })
 
   describe("UPSERT", () => {
     test("UPSERT t:id MERGE creates when missing and merges when present", async () => {
-      expect(
-        await last("UPSERT user:up1 MERGE { name: 'UP', age: 1 };"),
-      ).toEqual([expect.objectContaining({ id: "user:up1" })]);
+      expect(await last("UPSERT user:up1 MERGE { name: 'UP', age: 1 };")).toEqual([
+        expect.objectContaining({ id: "user:up1" }),
+      ])
       expect(await last("UPSERT user:up1 MERGE { age: 2 };")).toEqual([
         expect.objectContaining({ age: 2, name: "UP" }),
-      ]);
-    });
+      ])
+    })
 
     test("UPSERT t MERGE ... WHERE cond creates when nothing matches", async () => {
-      const out = await last(
-        "UPSERT user MERGE { name: 'Ghosty', age: 1 } WHERE name = 'Ghosty';",
-      );
-      expect(out).toEqual([expect.objectContaining({ name: "Ghosty" })]);
-    });
+      const out = await last("UPSERT user MERGE { name: 'Ghosty', age: 1 } WHERE name = 'Ghosty';")
+      expect(out).toEqual([expect.objectContaining({ name: "Ghosty" })])
+    })
 
     test("UPSERT ... SET partial-updates an existing record; a partial create fails schema", async () => {
-      await run("CREATE ONLY user:set1 CONTENT { name: 'S', age: 5 };");
+      await run("CREATE ONLY user:set1 CONTENT { name: 'S', age: 5 };")
       // On an EXISTING record, SET behaves like a partial update (absent fields are kept).
-      const updated = await last("UPSERT user:set1 SET age = 6;");
-      expect(updated).toEqual([expect.objectContaining({ name: "S", age: 6 })]);
+      const updated = await last("UPSERT user:set1 SET age = 6;")
+      expect(updated).toEqual([expect.objectContaining({ name: "S", age: 6 })])
       // On a MISSING record, SET creates from the payload — required fields must be present.
       expect(await last("UPSERT user:set2 SET name = 'S2', age = 7;")).toEqual([
         expect.objectContaining({ name: "S2" }),
-      ]);
-      await expect(last("UPSERT user:set3 SET age = 8;")).rejects.toThrow(
-        /name/,
-      );
-    });
+      ])
+      await expect(last("UPSERT user:set3 SET age = 8;")).rejects.toThrow(/name/)
+    })
 
     test("STRICT upsert lowering (the ORM default): UPDATE ONLY miss is NONE, UPDATE … WHERE miss is []", async () => {
       // `upsert` with `onMissing: "throw"` compiles these two shapes; both must NEVER create.
-      expect(
-        await last("UPDATE ONLY user:strict_miss MERGE { name: 'X' };"),
-      ).toBeUndefined();
-      expect(
-        await last("UPDATE user MERGE { name: 'X' } WHERE name = 'NOPE';"),
-      ).toEqual([]);
-      await run("CREATE ONLY user:strict_hit CONTENT { name: 'SH', age: 1 };");
+      expect(await last("UPDATE ONLY user:strict_miss MERGE { name: 'X' };")).toBeUndefined()
+      expect(await last("UPDATE user MERGE { name: 'X' } WHERE name = 'NOPE';")).toEqual([])
+      await run("CREATE ONLY user:strict_hit CONTENT { name: 'SH', age: 1 };")
       // `ONLY` returns the OBJECT; the plain-table form returns an ARRAY.
-      const hit = await last("UPDATE ONLY user:strict_hit MERGE { age: 2 };");
-      expect(hit).toMatchObject({ id: "user:strict_hit", age: 2 });
-      const hitWhere = await last(
-        "UPDATE user MERGE { age: 3 } WHERE name = 'SH';",
-      );
-      expect(hitWhere).toEqual([
-        expect.objectContaining({ id: "user:strict_hit", age: 3 }),
-      ]);
+      const hit = await last("UPDATE ONLY user:strict_hit MERGE { age: 2 };")
+      expect(hit).toMatchObject({ id: "user:strict_hit", age: 2 })
+      const hitWhere = await last("UPDATE user MERGE { age: 3 } WHERE name = 'SH';")
+      expect(hitWhere).toEqual([expect.objectContaining({ id: "user:strict_hit", age: 3 })])
       // A payload `id` EQUAL to the target is accepted (only a divergent/generated id errors) —
-      // the target inferred from `data.id` compiles `UPDATE ONLY t:id MERGE $p` with the id bound
-      // in the payload, so this is the fact that lowering rests on.
-      await run("CREATE ONLY user:strict_same CONTENT { name: 'SS', age: 1 };");
+      // The target inferred from `data.id` compiles `UPDATE ONLY t:id MERGE $p` with the id bound
+      // In the payload, so this is the fact that lowering rests on.
+      await run("CREATE ONLY user:strict_same CONTENT { name: 'SS', age: 1 };")
       const sameId = await last(
         "UPDATE ONLY user:strict_same MERGE { id: user:strict_same, age: 2 };",
-      );
-      expect(sameId).toMatchObject({ id: "user:strict_same", age: 2 });
+      )
+      expect(sameId).toMatchObject({ id: "user:strict_same", age: 2 })
       const divergent = await caught(
         last("UPDATE ONLY user:strict_same MERGE { id: user:other, age: 3 };"),
-      );
-      expect(String(divergent)).toMatch(/specific record has been specified/);
-    });
-  });
+      )
+      expect(String(divergent)).toMatch(/specific record has been specified/)
+    })
+  })
 
   describe("UPSERT DELTA — RETURN VALUE { before, after }", () => {
     test("UPSERT ONLY t:id envelope: create has before undefined, update has both", async () => {
       const created = await last(
         "UPSERT ONLY user:dl1 MERGE { name: 'DL', age: 1 } RETURN VALUE { before: $before, after: $after };",
-      );
-      expect("before" in created).toBe(true);
-      expect(created.before).toBeUndefined();
+      )
+      expect("before" in created).toBe(true)
+      expect(created.before).toBeUndefined()
       expect(created.after).toMatchObject({
         id: "user:dl1",
         name: "DL",
         age: 1,
-      });
+      })
 
       const updated = await last(
         "UPSERT ONLY user:dl1 MERGE { age: 2 } RETURN VALUE { before: $before, after: $after };",
-      );
-      expect(updated.before).toMatchObject({ id: "user:dl1", age: 1 });
-      expect(updated.after).toMatchObject({ id: "user:dl1", age: 2 });
-    });
+      )
+      expect(updated.before).toMatchObject({ id: "user:dl1", age: 1 })
+      expect(updated.after).toMatchObject({ id: "user:dl1", age: 2 })
+    })
 
     test("non-ONLY forms return an ARRAY of envelopes", async () => {
       const created = await last(
         "UPSERT user MERGE { name: 'DLP', age: 1 } WHERE name = 'DLP' RETURN VALUE { before: $before, after: $after };",
-      );
-      expect(Array.isArray(created)).toBe(true);
-      expect(created[0].before).toBeUndefined();
+      )
+      expect(Array.isArray(created)).toBe(true)
+      expect(created[0].before).toBeUndefined()
       const updated = await last(
         "UPSERT user MERGE { name: 'DLP', age: 3 } WHERE name = 'DLP' RETURN VALUE { before: $before, after: $after };",
-      );
-      expect(updated[0].before).toMatchObject({ age: 1 });
-      expect(updated[0].after).toMatchObject({ age: 3 });
-    });
+      )
+      expect(updated[0].before).toMatchObject({ age: 1 })
+      expect(updated[0].after).toMatchObject({ age: 3 })
+    })
 
     test("generated-target subquery carries the envelope on both branches", async () => {
       const sql =
-        "UPSERT ((SELECT VALUE id FROM user WHERE name = 'DLG' LIMIT 1)[0] ?? type::record(s\"user\", rand::ulid())) " +
-        "MERGE { name: 'DLG', age: 1 } RETURN VALUE { before: $before, after: $after };";
-      const created = await last(sql);
-      expect(created[0].before).toBeUndefined();
-      const id = String(created[0].after.id);
-      const updated = await last(sql.replace("age: 1", "age: 4"));
-      expect(String(updated[0].after.id)).toBe(id);
-      expect(updated[0].before).toMatchObject({ age: 1 });
-    });
+          "UPSERT ((SELECT VALUE id FROM user WHERE name = 'DLG' LIMIT 1)[0] ?? type::record(s\"user\", rand::ulid())) " +
+          "MERGE { name: 'DLG', age: 1 } RETURN VALUE { before: $before, after: $after };",
+        created = await last(sql)
+      expect(created[0].before).toBeUndefined()
+      const id = String(created[0].after.id),
+        updated = await last(sql.replace("age: 1", "age: 4"))
+      expect(String(updated[0].after.id)).toBe(id)
+      expect(updated[0].before).toMatchObject({ age: 1 })
+    })
 
     test("LET/IF branch envelopes work per branch, with per-branch TIMEOUT", async () => {
       const createSql = `LET $__existing = (SELECT VALUE id FROM user WHERE name = 'DLIF' LIMIT 1);
-IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) CONTENT { name: 'DLIF', age: 1 } RETURN VALUE { before: $before, after: $after } TIMEOUT 5s ELSE UPDATE $__existing[0] MERGE { age: 2 } RETURN VALUE { before: $before, after: $after } TIMEOUT 5s END;`;
-      const created = await last(createSql);
-      expect(created[0].before).toBeUndefined();
-      expect(created[0].after).toMatchObject({ name: "DLIF", age: 1 });
-      const updated = await last(createSql);
-      expect(updated[0].before).toMatchObject({ age: 1 });
-      expect(updated[0].after).toMatchObject({ age: 2 });
-    });
+IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) CONTENT { name: 'DLIF', age: 1 } RETURN VALUE { before: $before, after: $after } TIMEOUT 5s ELSE UPDATE $__existing[0] MERGE { age: 2 } RETURN VALUE { before: $before, after: $after } TIMEOUT 5s END;`,
+        created = await last(createSql)
+      expect(created[0].before).toBeUndefined()
+      expect(created[0].after).toMatchObject({ name: "DLIF", age: 1 })
+      const updated = await last(createSql)
+      expect(updated[0].before).toMatchObject({ age: 1 })
+      expect(updated[0].after).toMatchObject({ age: 2 })
+    })
 
     test("strict UPDATE shapes: NONE on an ONLY miss, [] on a WHERE miss", async () => {
       expect(
         await last(
           "UPDATE ONLY user:dlmiss MERGE { name: 'X' } RETURN VALUE { before: $before, after: $after };",
         ),
-      ).toBeUndefined();
+      ).toBeUndefined()
       expect(
         await last(
           "UPDATE user MERGE { name: 'X' } WHERE name = 'NOPE' RETURN VALUE { before: $before, after: $after };",
         ),
-      ).toEqual([]);
-      await run("CREATE ONLY user:dlstrict CONTENT { name: 'DS', age: 1 };");
+      ).toEqual([])
+      await run("CREATE ONLY user:dlstrict CONTENT { name: 'DS', age: 1 };")
       const hit = await last(
         "UPDATE ONLY user:dlstrict SET age = age + 1 RETURN VALUE { before: $before, after: $after };",
-      );
-      expect(hit.before).toMatchObject({ age: 1 });
-      expect(hit.after).toMatchObject({ age: 2 });
-    });
+      )
+      expect(hit.before).toMatchObject({ age: 1 })
+      expect(hit.after).toMatchObject({ age: 2 })
+    })
 
     test("TIMEOUT follows RETURN: the reverse order is a parse error", async () => {
       expect(
@@ -531,458 +477,394 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
             "UPSERT ONLY user:dl1 MERGE { age: 9 } RETURN VALUE { before: $before, after: $after } TIMEOUT 5s;",
           ),
         ),
-      ).toBeNull();
+      ).toBeNull()
       expect(
         await caught(
           run(
             "UPSERT ONLY user:dl1 MERGE { age: 9 } TIMEOUT 5s RETURN VALUE { before: $before, after: $after };",
           ),
         ),
-      ).not.toBeNull();
+      ).not.toBeNull()
       expect(
         await caught(
           run(
             "LET $e = (SELECT VALUE id FROM user WHERE name = 'DLIF' LIMIT 1); IF array::len($e) = 0 THEN CREATE user:dlend CONTENT { name: 'End', age: 1 } RETURN VALUE { before: $before, after: $after } ELSE UPDATE $e[0] MERGE { age: 2 } RETURN VALUE { before: $before, after: $after } END TIMEOUT 5s;",
           ),
         ),
-      ).not.toBeNull();
-    });
+      ).not.toBeNull()
+    })
 
     test("INSERT … ON DUPLICATE also exposes the envelope (observed, not relied upon)", async () => {
       const inserted = await last(
         "INSERT INTO user { id: user:dlins, name: 'DI', age: 1 } ON DUPLICATE KEY UPDATE age = $input.age RETURN VALUE { before: $before, after: $after };",
-      );
-      expect(inserted[0].before).toBeUndefined();
-      expect(inserted[0].after).toMatchObject({ id: "user:dlins", age: 1 });
+      )
+      expect(inserted[0].before).toBeUndefined()
+      expect(inserted[0].after).toMatchObject({ id: "user:dlins", age: 1 })
       const duplicate = await last(
         "INSERT INTO user { id: user:dlins, name: 'DI', age: 2 } ON DUPLICATE KEY UPDATE age = $input.age RETURN VALUE { before: $before, after: $after };",
-      );
-      expect(duplicate[0].before).toMatchObject({ age: 1 });
-      expect(duplicate[0].after).toMatchObject({ age: 2 });
-    });
+      )
+      expect(duplicate[0].before).toMatchObject({ age: 1 })
+      expect(duplicate[0].after).toMatchObject({ age: 2 })
+    })
 
     test("capture-and-return (LET before + trailing RETURN) does NOT surface a value", async () => {
-      await run("CREATE ONLY user:dlcap CONTENT { name: 'Cap', age: 1 };");
+      await run("CREATE ONLY user:dlcap CONTENT { name: 'Cap', age: 1 };")
       const out = await last(
         "LET $__b = (SELECT * FROM ONLY user:dlcap)[0]; UPDATE ONLY user:dlcap MERGE { age: 2 } RETURN NONE; RETURN { before: $__b, after: (SELECT * FROM ONLY user:dlcap)[0] };",
-      );
+      )
       // The trailing plain RETURN inside a multi-statement script comes back empty on 3.2 —
-      // hence the per-branch RETURN VALUE form (the only proven one).
-      expect(out).toEqual({});
-    });
+      // Hence the per-branch RETURN VALUE form (the only proven one).
+      expect(out).toEqual({})
+    })
 
     test("CONTENT removal: the removed field disappears from after", async () => {
-      await run(
-        "CREATE ONLY user:dlrm CONTENT { name: 'RM', age: 1, tags: ['x'], active: true };",
-      );
+      await run("CREATE ONLY user:dlrm CONTENT { name: 'RM', age: 1, tags: ['x'], active: true };")
       const out = await last(
         "UPSERT ONLY user:dlrm CONTENT { name: 'RM', age: 1, active: true } RETURN VALUE { before: $before, after: $after };",
-      );
-      expect(out.before).toMatchObject({ tags: ["x"] });
-      expect("tags" in out.after).toBe(false);
-    });
-  });
+      )
+      expect(out.before).toMatchObject({ tags: ["x"] })
+      expect("tags" in out.after).toBe(false)
+    })
+  })
 
   describe("GENERATED IDS — type::record / INSERT id expression / UPSERT target expression", () => {
-    const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
-    const idPart = (id: unknown) => String(id).replace(/^user:/, "").replaceAll("⟨", "").replaceAll("⟩", "");
+    const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/,
+      idPart = (id: unknown) =>
+        String(id)
+          .replace(/^user:/, "")
+          .replaceAll("⟨", "")
+          .replaceAll("⟩", "")
 
     test('CREATE ONLY type::record(s"user", rand::ulid()) CONTENT $p generates a ULID', async () => {
-      const out = await last(
-        'CREATE ONLY type::record(s"user", rand::ulid()) CONTENT $p;',
-        { p: { name: "Gen1", age: 1 } },
-      );
-      expect(out).toEqual(expect.objectContaining({ name: "Gen1", age: 1 }));
-      expect(String(out.id).startsWith("user:")).toBe(true);
-      expect(idPart(out.id)).toMatch(ULID);
-    });
+      const out = await last('CREATE ONLY type::record(s"user", rand::ulid()) CONTENT $p;', {
+        p: { name: "Gen1", age: 1 },
+      })
+      expect(out).toEqual(expect.objectContaining({ name: "Gen1", age: 1 }))
+      expect(String(out.id).startsWith("user:")).toBe(true)
+      expect(idPart(out.id)).toMatch(ULID)
+    })
 
     test("a bare table identifier also works inside type::record", async () => {
       const out = await last(
         "CREATE ONLY type::record(user, rand::ulid()) CONTENT { name: 'Gen2', age: 2 };",
-      );
-      expect(idPart(out.id)).toMatch(ULID);
-    });
+      )
+      expect(idPart(out.id)).toMatch(ULID)
+    })
 
     test('an ESCAPED identifier double-escapes inside type::record — use s"..."', async () => {
       await run(
         "DEFINE TABLE `gen-weird` SCHEMAFULL; DEFINE FIELD name ON `gen-weird` TYPE string;",
-      );
+      )
       const good = await last(
-        'CREATE ONLY type::record(s"gen-weird", rand::ulid()) CONTENT { name: "W" };',
-      );
-      const bad = await last(
-        'CREATE ONLY type::record(`gen-weird`, rand::ulid()) CONTENT { name: "B" };',
-      );
+          'CREATE ONLY type::record(s"gen-weird", rand::ulid()) CONTENT { name: "W" };',
+        ),
+        bad = await last(
+          'CREATE ONLY type::record(`gen-weird`, rand::ulid()) CONTENT { name: "B" };',
+        )
       // The s"..." form targets the table `gen-weird`; the backtick-ident form targets a table
-      // whose name LITERALLY contains backticks (the identifier got escaped as data).
-      expect(String(good.id).startsWith("⟨gen-weird⟩:")).toBe(true);
-      expect(String(bad.id).startsWith("⟨`gen-weird`⟩:")).toBe(true);
-    });
+      // Whose name LITERALLY contains backticks (the identifier got escaped as data).
+      expect(String(good.id).startsWith("⟨gen-weird⟩:")).toBe(true)
+      expect(String(bad.id).startsWith("⟨`gen-weird`⟩:")).toBe(true)
+    })
 
     test("CREATE t CONTENT with an id expression also sets the id (alternative form)", async () => {
-      const out = await last(
-        "CREATE user CONTENT { name: 'Gen3', age: 3, id: rand::ulid() };",
-      );
-      expect(idPart(out[0].id)).toMatch(ULID);
-    });
+      const out = await last("CREATE user CONTENT { name: 'Gen3', age: 3, id: rand::ulid() };")
+      expect(idPart(out[0].id)).toMatch(ULID)
+    })
 
     test("INSERT evaluates an id expression per row (single and array)", async () => {
-      const one = await last(
-        "INSERT INTO user { name: $p0, age: $p1, id: rand::ulid() };",
-        { p0: "Gen4", p1: 4 },
-      );
-      expect(idPart(one[0].id)).toMatch(ULID);
+      const one = await last("INSERT INTO user { name: $p0, age: $p1, id: rand::ulid() };", {
+        p0: "Gen4",
+        p1: 4,
+      })
+      expect(idPart(one[0].id)).toMatch(ULID)
       const many = await last(
-        "INSERT INTO user [{ name: $p0, age: $p1, id: rand::ulid() }, { name: $p2, age: $p3, id: rand::ulid() }];",
-        { p0: "Gen5", p1: 5, p2: "Gen6", p3: 6 },
-      );
-      const ids = many.map((row: { id: unknown }) => String(row.id));
-      expect(new Set(ids).size).toBe(2);
-      for (const id of ids) expect(idPart(id)).toMatch(ULID);
-    });
+          "INSERT INTO user [{ name: $p0, age: $p1, id: rand::ulid() }, { name: $p2, age: $p3, id: rand::ulid() }];",
+          { p0: "Gen5", p1: 5, p2: "Gen6", p3: 6 },
+        ),
+        ids = many.map((row: { id: unknown }) => String(row.id))
+      expect(new Set(ids).size).toBe(2)
+      for (const id of ids) expect(idPart(id)).toMatch(ULID)
+    })
 
     test("UPSERT (subquery ?? type::record(...)) updates on a hit, creates on a miss", async () => {
-      await run(
-        'CREATE ONLY user:gen_target CONTENT { name: "Target", age: 10 };',
-      );
+      await run('CREATE ONLY user:gen_target CONTENT { name: "Target", age: 10 };')
       const hit = await last(
         'UPSERT ((SELECT VALUE id FROM user WHERE name = $p0 LIMIT 1)[0] ?? type::record(s"user", rand::ulid())) MERGE $p1;',
         { p0: "Target", p1: { age: 11 } },
-      );
-      expect(String(hit[0].id)).toBe("user:gen_target");
+      )
+      expect(String(hit[0].id)).toBe("user:gen_target")
       const miss = await last(
         'UPSERT ((SELECT VALUE id FROM user WHERE name = $p0 LIMIT 1)[0] ?? type::record(s"user", rand::ulid())) MERGE $p1;',
         { p0: "Target2", p1: { name: "Target2", age: 12 } },
-      );
-      expect(String(miss[0].id)).not.toBe("user:gen_target");
-      expect(idPart(miss[0].id)).toMatch(ULID);
-    });
+      )
+      expect(String(miss[0].id)).not.toBe("user:gen_target")
+      expect(idPart(miss[0].id)).toMatch(ULID)
+    })
 
     test("an id expression inside MERGE on an EXISTING record is a server error", async () => {
-      const err = await caught(
-        last("UPSERT user:gen_target MERGE { id: rand::ulid(), age: 13 };"),
-      );
-      expect(String(err)).toMatch(/id/i);
-    });
-  });
+      const err = await caught(last("UPSERT user:gen_target MERGE { id: rand::ulid(), age: 13 };"))
+      expect(String(err)).toMatch(/id/i)
+    })
+  })
 
   describe("DELETE", () => {
     test("DELETE t:id RETURN BEFORE removes and returns; RETURN NONE empty", async () => {
       expect(await last("DELETE user:i3 RETURN BEFORE;")).toEqual([
         expect.objectContaining({ id: "user:i3" }),
-      ]);
-      expect(await last("DELETE user:i2 RETURN NONE;")).toEqual([]);
-      expect(await last("DELETE user:nope;")).toEqual([]);
-    });
+      ])
+      expect(await last("DELETE user:i2 RETURN NONE;")).toEqual([])
+      expect(await last("DELETE user:nope;")).toEqual([])
+    })
 
     test("DELETE FROM t WHERE cond removes matching rows", async () => {
-      const out = await last(
-        "DELETE FROM user WHERE name = 'Ghosty' RETURN BEFORE;",
-      );
-      expect(out).toEqual([expect.objectContaining({ name: "Ghosty" })]);
-    });
-  });
+      const out = await last("DELETE FROM user WHERE name = 'Ghosty' RETURN BEFORE;")
+      expect(out).toEqual([expect.objectContaining({ name: "Ghosty" })])
+    })
+  })
 
   describe("tenant scoping — WHERE on a record target (plugin scope channel)", () => {
     test("SELECT … FROM ONLY t:id WHERE <scope> filters the target (object on hit, NONE on miss)", async () => {
-      expect(
-        await last("SELECT * FROM ONLY tdoc:b WHERE tenant_id = user:bob;"),
-      ).toEqual(expect.objectContaining({ tenant_id: "user:bob" }));
-      expect(
-        await last("SELECT * FROM ONLY tdoc:b WHERE tenant_id = user:alice;"),
-      ).toBeFalsy();
-    });
+      expect(await last("SELECT * FROM ONLY tdoc:b WHERE tenant_id = user:bob;")).toEqual(
+        expect.objectContaining({ tenant_id: "user:bob" }),
+      )
+      expect(await last("SELECT * FROM ONLY tdoc:b WHERE tenant_id = user:alice;")).toBeFalsy()
+    })
 
     test("SELECT … FROM t WHERE <pred> AND <scope> LIMIT 1 filters the unique-field form", async () => {
       expect(
-        await last(
-          "SELECT * FROM tdoc WHERE id = tdoc:b AND tenant_id = user:bob LIMIT 1;",
-        ),
-      ).toHaveLength(1);
+        await last("SELECT * FROM tdoc WHERE id = tdoc:b AND tenant_id = user:bob LIMIT 1;"),
+      ).toHaveLength(1)
       expect(
-        await last(
-          "SELECT * FROM tdoc WHERE id = tdoc:b AND tenant_id = user:alice LIMIT 1;",
-        ),
-      ).toEqual([]);
-    });
+        await last("SELECT * FROM tdoc WHERE id = tdoc:b AND tenant_id = user:alice LIMIT 1;"),
+      ).toEqual([])
+    })
 
     test("UPDATE ONLY t:id REPLACE needs the READONLY tenant present (same value passes)", async () => {
-      await last(
-        "CREATE ONLY tdoc:rep CONTENT { name: 'R', tenant_id: user:alice };",
-      );
-      const error = await caught(
-        last("UPDATE ONLY tdoc:rep REPLACE { name: 'R2' };"),
-      );
-      expect(String(error)).toMatch(/readonly/);
+      await last("CREATE ONLY tdoc:rep CONTENT { name: 'R', tenant_id: user:alice };")
+      const error = await caught(last("UPDATE ONLY tdoc:rep REPLACE { name: 'R2' };"))
+      expect(String(error)).toMatch(/readonly/)
       expect(
-        await last(
-          "UPDATE ONLY tdoc:rep REPLACE { name: 'R2', tenant_id: user:alice };",
-        ),
-      ).toEqual(expect.objectContaining({ name: "R2" }));
-      await last("DELETE tdoc:rep;");
-    });
+        await last("UPDATE ONLY tdoc:rep REPLACE { name: 'R2', tenant_id: user:alice };"),
+      ).toEqual(expect.objectContaining({ name: "R2" }))
+      await last("DELETE tdoc:rep;")
+    })
 
     test("UPDATE ONLY t:id … WHERE <other tenant> is a no-op (NONE)", async () => {
       expect(
-        await last(
-          "UPDATE ONLY tdoc:a MERGE { name: 'A2' } WHERE tenant_id = user:alice;",
-        ),
-      ).toEqual(expect.objectContaining({ name: "A2" }));
+        await last("UPDATE ONLY tdoc:a MERGE { name: 'A2' } WHERE tenant_id = user:alice;"),
+      ).toEqual(expect.objectContaining({ name: "A2" }))
       expect(
-        await last(
-          "UPDATE ONLY tdoc:b MERGE { name: 'B2' } WHERE tenant_id = user:alice;",
-        ),
-      ).toBeFalsy();
+        await last("UPDATE ONLY tdoc:b MERGE { name: 'B2' } WHERE tenant_id = user:alice;"),
+      ).toBeFalsy()
       expect(await last("SELECT name FROM ONLY tdoc:b;")).toEqual(
         expect.objectContaining({ name: "B" }),
-      );
-    });
+      )
+    })
 
     test("DELETE t:id WHERE <other tenant> removes nothing", async () => {
-      expect(await last("DELETE tdoc:b WHERE tenant_id = user:alice;")).toEqual(
-        [],
-      );
+      expect(await last("DELETE tdoc:b WHERE tenant_id = user:alice;")).toEqual([])
       expect(await last("SELECT name FROM ONLY tdoc:b;")).toEqual(
         expect.objectContaining({ name: "B" }),
-      );
-    });
+      )
+    })
 
     test("UPSERT ONLY t:id … WHERE <other tenant> is a no-op on an existing record", async () => {
       expect(
-        await last(
-          "UPSERT ONLY tdoc:b MERGE { name: 'B3' } WHERE tenant_id = user:alice;",
-        ),
-      ).toBeFalsy();
+        await last("UPSERT ONLY tdoc:b MERGE { name: 'B3' } WHERE tenant_id = user:alice;"),
+      ).toBeFalsy()
       expect(await last("SELECT name FROM ONLY tdoc:b;")).toEqual(
         expect.objectContaining({ name: "B" }),
-      );
-    });
+      )
+    })
 
     test("UPSERT ONLY t:missing … WHERE scope CREATES — the create branch ignores the WHERE (payload carries the tenant)", async () => {
       const created = await last(
         "UPSERT ONLY tdoc:new MERGE { name: 'N', tenant_id: user:alice } WHERE tenant_id = user:alice;",
-      );
-      expect(created).toEqual(
-        expect.objectContaining({ name: "N", tenant_id: "user:alice" }),
-      );
+      )
+      expect(created).toEqual(expect.objectContaining({ name: "N", tenant_id: "user:alice" }))
       // The runtime plugin relies on this: it ALWAYS injects the scoped tenant into the payload.
-      await last("DELETE tdoc:new;");
-    });
+      await last("DELETE tdoc:new;")
+    })
 
     test("a READONLY tenant column blocks a changed UPDATE value (same value is a no-op)", async () => {
       expect(await last("UPDATE tdoc:a SET tenant_id = user:alice;")).toEqual([
         expect.objectContaining({ tenant_id: "user:alice" }),
-      ]);
-      const error = await caught(
-        last("UPDATE tdoc:a SET tenant_id = user:bob;"),
-      );
-      expect(String(error)).toMatch(/readonly/);
-    });
+      ])
+      const error = await caught(last("UPDATE tdoc:a SET tenant_id = user:bob;"))
+      expect(String(error)).toMatch(/readonly/)
+    })
 
     test("INSERT … ON DUPLICATE KEY UPDATE can touch another tenant's row (why the plugin refuses it)", async () => {
       await last(
         "INSERT INTO tdoc { id: tdoc:b, name: 'B4', tenant_id: user:alice } ON DUPLICATE KEY UPDATE name = 'B4';",
-      );
+      )
       // The row was updated, but its READONLY tenant stayed user:bob.
       expect(await last("SELECT name, tenant_id FROM ONLY tdoc:b;")).toEqual(
         expect.objectContaining({ name: "B4", tenant_id: "user:bob" }),
-      );
-      await last("UPDATE tdoc:b SET name = 'B';");
-    });
+      )
+      await last("UPDATE tdoc:b SET name = 'B';")
+    })
 
     test("the guard event round-trips INFO with single-quoted literals", async () => {
-      const info = await last("INFO FOR TABLE tdoc STRUCTURE;");
-      const event = (
-        info as { events: { name: string; when: string; then: string[] }[] }
-      ).events.find((e) => e.name === "tdoc_protect_tenant_id");
-      expect(event?.when).toBe("$event = 'CREATE' OR $event = 'UPDATE'");
-      expect(event?.then[0]).toContain("THROW 'tenant_id cannot");
-    });
-  });
+      const info = await last("INFO FOR TABLE tdoc STRUCTURE;"),
+        event = (info as { events: { name: string; when: string; then: string[] }[] }).events.find(
+          (e) => e.name === "tdoc_protect_tenant_id",
+        )
+      expect(event?.when).toBe("$event = 'CREATE' OR $event = 'UPDATE'")
+      expect(event?.then[0]).toContain("THROW 'tenant_id cannot")
+    })
+  })
 
   describe("SELECT — projections, clauses, FETCH", () => {
     test("aliases and nested paths project; unknown paths yield nulls", async () => {
       expect(
-        await last(
-          "SELECT id, title, author.name AS author_name FROM post ORDER BY id;",
-        ),
+        await last("SELECT id, title, author.name AS author_name FROM post ORDER BY id;"),
       ).toEqual([
         expect.objectContaining({ author_name: "Alice" }),
         expect.objectContaining({ author_name: "Bob" }),
-      ]);
-    });
+      ])
+    })
 
     test("SELECT * OMIT drops fields (even explicitly selected ones)", async () => {
-      const out = (await last(
-        "SELECT id, title OMIT title FROM post;",
-      )) as Record<string, unknown>[];
-      expect(out[0]).not.toHaveProperty("title");
-    });
+      const out = (await last("SELECT id, title OMIT title FROM post;")) as Record<
+        string,
+        unknown
+      >[]
+      expect(out[0]).not.toHaveProperty("title")
+    })
 
     test("FETCH runs AFTER ORDER BY/LIMIT and materializes links (nested too)", async () => {
-      const posts = (await last(
-        "SELECT * FROM post ORDER BY id FETCH author;",
-      )) as Record<string, unknown>[];
-      expect(posts[0]?.author).toEqual(
-        expect.objectContaining({ name: "Alice" }),
-      );
-      const bob = await last("SELECT * FROM ONLY user:bob FETCH mentor;");
+      const posts = (await last("SELECT * FROM post ORDER BY id FETCH author;")) as Record<
+        string,
+        unknown
+      >[]
+      expect(posts[0]?.author).toEqual(expect.objectContaining({ name: "Alice" }))
+      const bob = await last("SELECT * FROM ONLY user:bob FETCH mentor;")
       expect(bob).toEqual(
         expect.objectContaining({
           mentor: expect.objectContaining({ name: "Alice" }),
         }),
-      );
+      )
       // FETCH before ORDER BY is a parse error — clause order matters.
-      await expect(
-        last("SELECT * FROM post FETCH author ORDER BY id;"),
-      ).rejects.toThrow(/Parse error/);
-    });
+      await expect(last("SELECT * FROM post FETCH author ORDER BY id;")).rejects.toThrow(
+        /Parse error/,
+      )
+    })
 
     test("link projection without FETCH flattens: author.id AS author_id", async () => {
-      expect(
-        await last("SELECT id, author.id AS author_id FROM post ORDER BY id;"),
-      ).toEqual([
+      expect(await last("SELECT id, author.id AS author_id FROM post ORDER BY id;")).toEqual([
         expect.objectContaining({ author_id: "user:alice" }),
         expect.objectContaining({ author_id: "user:bob" }),
-      ]);
-    });
+      ])
+    })
 
     test("only: FROM ONLY t:id returns an object; missing returns a falsy result", async () => {
       expect(await last("SELECT * FROM ONLY user:alice;")).toEqual(
         expect.objectContaining({ name: "Alice" }),
-      );
-      expect(await last("SELECT * FROM ONLY user:missing;")).toBeFalsy();
-    });
+      )
+      expect(await last("SELECT * FROM ONLY user:missing;")).toBeFalsy()
+    })
 
     test("SPLIT works; SPLIT + GROUP BY is mutually exclusive", async () => {
-      const rows = (await last(
-        "SELECT id, tags FROM post SPLIT tags ORDER BY tags;",
-      )) as Record<string, unknown>[];
-      expect(rows.length).toBeGreaterThan(1);
+      const rows = (await last("SELECT id, tags FROM post SPLIT tags ORDER BY tags;")) as Record<
+        string,
+        unknown
+      >[]
+      expect(rows.length).toBeGreaterThan(1)
       await expect(
         last("SELECT tags, count() AS c FROM post SPLIT tags GROUP BY tags;"),
-      ).rejects.toThrow(/mutually exclusive/);
-    });
+      ).rejects.toThrow(/mutually exclusive/)
+    })
 
     test("GROUP BY / GROUP ALL, math::*, array::group/distinct, count subquery", async () => {
       expect(
-        await last(
-          "SELECT author, count() AS c FROM post GROUP BY author ORDER BY author;",
-        ),
-      ).toEqual([
-        expect.objectContaining({ c: 1 }),
-        expect.objectContaining({ c: 1 }),
-      ]);
-      expect(
-        await last("SELECT math::sum(age) AS total FROM user GROUP ALL;"),
-      ).toEqual([expect.objectContaining({ total: expect.any(Number) })]);
+        await last("SELECT author, count() AS c FROM post GROUP BY author ORDER BY author;"),
+      ).toEqual([expect.objectContaining({ c: 1 }), expect.objectContaining({ c: 1 })])
+      expect(await last("SELECT math::sum(age) AS total FROM user GROUP ALL;")).toEqual([
+        expect.objectContaining({ total: expect.any(Number) }),
+      ])
       expect(
         await last(
           "SELECT array::group(author) AS authors, array::distinct(tags) AS tagset FROM post GROUP ALL;",
         ),
-      ).toEqual([expect.objectContaining({ authors: expect.any(Array) })]);
+      ).toEqual([expect.objectContaining({ authors: expect.any(Array) })])
       expect(
-        await last(
-          "SELECT count() FROM (SELECT author FROM post GROUP BY author) GROUP ALL;",
-        ),
-      ).toEqual([expect.objectContaining({ count: 2 })]);
-    });
+        await last("SELECT count() FROM (SELECT author FROM post GROUP BY author) GROUP ALL;"),
+      ).toEqual([expect.objectContaining({ count: 2 })])
+    })
 
     test("LIMIT n START m pagination; SELECT VALUE; count/exists probes", async () => {
-      expect(
-        await last("SELECT name FROM user ORDER BY name LIMIT 1 START 1;"),
-      ).toEqual([expect.objectContaining({ name: expect.any(String) })]);
-      expect(await last("SELECT VALUE name FROM user ORDER BY name;")).toEqual(
-        expect.any(Array),
-      );
+      expect(await last("SELECT name FROM user ORDER BY name LIMIT 1 START 1;")).toEqual([
+        expect.objectContaining({ name: expect.any(String) }),
+      ])
+      expect(await last("SELECT VALUE name FROM user ORDER BY name;")).toEqual(expect.any(Array))
       expect(await last("SELECT count() FROM user GROUP ALL;")).toEqual([
         expect.objectContaining({ count: expect.any(Number) }),
-      ]);
-      expect(await last("SELECT VALUE id FROM user LIMIT 1;")).toEqual(
-        expect.any(Array),
-      );
-    });
+      ])
+      expect(await last("SELECT VALUE id FROM user LIMIT 1;")).toEqual(expect.any(Array))
+    })
 
     test("record ranges: t:start..end and t:start..=end", async () => {
-      await run(
-        "DEFINE TABLE r SCHEMALESS; CREATE r:1; CREATE r:2; CREATE r:3; CREATE r:4;",
-      );
-      expect(await last("SELECT VALUE id FROM r:2..4;")).toEqual([
-        "r:2",
-        "r:3",
-      ]);
-      expect(await last("SELECT VALUE id FROM r:2..=4;")).toEqual([
-        "r:2",
-        "r:3",
-        "r:4",
-      ]);
+      await run("DEFINE TABLE r SCHEMALESS; CREATE r:1; CREATE r:2; CREATE r:3; CREATE r:4;")
+      expect(await last("SELECT VALUE id FROM r:2..4;")).toEqual(["r:2", "r:3"])
+      expect(await last("SELECT VALUE id FROM r:2..=4;")).toEqual(["r:2", "r:3", "r:4"])
       // The prototype's `FROM users:1..users:100` is a parse error in 3.x.
-      await expect(last("SELECT * FROM r:2..r:4;")).rejects.toThrow(
-        /Parse error/,
-      );
-    });
+      await expect(last("SELECT * FROM r:2..r:4;")).rejects.toThrow(/Parse error/)
+    })
 
     test("WITH [NO]INDEX, TIMEOUT, ORDER BY alias/expression", async () => {
-      await run("DEFINE INDEX idx_user_name ON user FIELDS name;");
+      await run("DEFINE INDEX idx_user_name ON user FIELDS name;")
       expect(
-        await last(
-          "SELECT * FROM user WITH INDEX idx_user_name WHERE name = 'Alice';",
-        ),
-      ).toEqual([expect.objectContaining({ name: "Alice" })]);
-      expect(await last("SELECT * FROM user WITH NOINDEX;")).toEqual(
-        expect.any(Array),
-      );
-      expect(await last("SELECT * FROM user TIMEOUT 5s;")).toEqual(
-        expect.any(Array),
-      );
+        await last("SELECT * FROM user WITH INDEX idx_user_name WHERE name = 'Alice';"),
+      ).toEqual([expect.objectContaining({ name: "Alice" })])
+      expect(await last("SELECT * FROM user WITH NOINDEX;")).toEqual(expect.any(Array))
+      expect(await last("SELECT * FROM user TIMEOUT 5s;")).toEqual(expect.any(Array))
       const ordered = (await last(
-        "SELECT id, (age * 2) AS double FROM user ORDER BY double DESC;",
-      )) as { double: number }[];
-      const doubles = ordered.map((r) => r.double);
-      expect(doubles.length).toBeGreaterThan(0);
-      expect(doubles).toEqual([...doubles].sort((a, b) => b - a));
-    });
+          "SELECT id, (age * 2) AS double FROM user ORDER BY double DESC;",
+        )) as { double: number }[],
+        doubles = ordered.map((r) => r.double)
+      expect(doubles.length).toBeGreaterThan(0)
+      expect(doubles).toEqual([...doubles].sort((a, b) => b - a))
+    })
 
     test("PARALLEL is NOT a valid clause in 3.2", async () => {
-      await expect(last("SELECT * FROM user PARALLEL;")).rejects.toThrow(
-        /Parse error/,
-      );
-    });
+      await expect(last("SELECT * FROM user PARALLEL;")).rejects.toThrow(/Parse error/)
+    })
 
     test("EXPLAIN works on SELECT only", async () => {
-      expect(
-        await last("EXPLAIN SELECT * FROM post WHERE published = true;"),
-      ).toEqual(expect.any(String));
-      await expect(
-        last("EXPLAIN UPDATE user:alice SET age = 1;"),
-      ).rejects.toThrow(/EXPLAIN is only supported/);
-    });
+      expect(await last("EXPLAIN SELECT * FROM post WHERE published = true;")).toEqual(
+        expect.any(String),
+      )
+      await expect(last("EXPLAIN UPDATE user:alice SET age = 1;")).rejects.toThrow(
+        /EXPLAIN is only supported/,
+      )
+    })
 
     test("EXPLAIN FORMAT JSON / ANALYZE / suffix expose the structured plan", async () => {
       const plan = (await last(
         "EXPLAIN FORMAT JSON SELECT * FROM post WHERE published = true;",
-      )) as { operator?: string; children?: unknown[] };
-      expect(typeof plan.operator).toBe("string");
-      expect(Array.isArray(plan.children)).toBe(true);
+      )) as { operator?: string; children?: unknown[] }
+      expect(typeof plan.operator).toBe("string")
+      expect(Array.isArray(plan.children)).toBe(true)
       const analyzed = (await last(
         "EXPLAIN ANALYZE FORMAT JSON SELECT * FROM post WHERE published = true;",
-      )) as { metrics?: unknown; total_rows?: number };
-      expect(analyzed.metrics).toBeDefined();
-      expect(typeof analyzed.total_rows).toBe("number");
-      const suffix = (await last(
-        "SELECT * FROM post WHERE published = true EXPLAIN;",
-      )) as { operator?: string };
-      expect(typeof suffix.operator).toBe("string");
-    });
+      )) as { metrics?: unknown; total_rows?: number }
+      expect(analyzed.metrics).toBeDefined()
+      expect(typeof analyzed.total_rows).toBe("number")
+      const suffix = (await last("SELECT * FROM post WHERE published = true EXPLAIN;")) as {
+        operator?: string
+      }
+      expect(typeof suffix.operator).toBe("string")
+    })
 
     test("VERSION needs a versioned backend (memory server rejects it)", async () => {
-      await run("DEFINE TABLE cf CHANGEFEED 1h; CREATE cf:a SET n = 1;");
-      await expect(
-        last("SELECT * FROM cf VERSION d'2000-01-01T00:00:00Z';"),
-      ).rejects.toThrow(/versioned/);
-    });
-  });
+      await run("DEFINE TABLE cf CHANGEFEED 1h; CREATE cf:a SET n = 1;")
+      await expect(last("SELECT * FROM cf VERSION d'2000-01-01T00:00:00Z';")).rejects.toThrow(
+        /versioned/,
+      )
+    })
+  })
 
   describe("WHERE operators", () => {
     test("set operators: CONTAINS family", async () => {
@@ -994,12 +876,12 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
            AND tags CONTAINSNOT 'x'
            AND tags CONTAINSNONE ['x']
          ORDER BY id;`,
-      );
+      )
       expect(out).toEqual([
         expect.objectContaining({ id: "post:p1" }),
         expect.objectContaining({ id: "post:p2" }),
-      ]);
-    });
+      ])
+    })
 
     test("INSIDE is SCALAR membership; ALLINSIDE is subset; ANY/NONEINSIDE are set ops", async () => {
       const cases: [string, unknown][] = [
@@ -1011,30 +893,26 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
         ["['x'] NONEINSIDE ['db', 'graph']", true],
         ["['db'] NONEINSIDE ['db', 'graph']", false],
         ["['x'] OUTSIDE ['db']", true],
-      ];
-      for (const [expr, expected] of cases) {
-        expect(await last(`RETURN ${expr};`)).toBe(expected);
-      }
-    });
+      ]
+      for (const [expr, expected] of cases) expect(await last(`RETURN ${expr};`)).toBe(expected)
+    })
 
     test("?= is any-equals, *= is all-equals", async () => {
-      expect(await last("RETURN ['db','graph'] ?= 'db';")).toBe(true);
-      expect(await last("RETURN ['db','graph'] *= 'db';")).toBe(false);
-      expect(await last("RETURN ['db'] *= 'db';")).toBe(true);
+      expect(await last("RETURN ['db','graph'] ?= 'db';")).toBe(true)
+      expect(await last("RETURN ['db','graph'] *= 'db';")).toBe(false)
+      expect(await last("RETURN ['db'] *= 'db';")).toBe(true)
       // `*=` is vacuously true on an empty array (documented in the map §4.3).
-      expect(await last("RETURN [] *= 'db';")).toBe(true);
-    });
+      expect(await last("RETURN [] *= 'db';")).toBe(true)
+    })
 
     test("fuzzy operators ~ / ?~ / *~ are NOT valid in 3.x", async () => {
-      await expect(
-        last("SELECT id FROM post WHERE title ~ 'hello';"),
-      ).rejects.toThrow(/Parse error/);
+      await expect(last("SELECT id FROM post WHERE title ~ 'hello';")).rejects.toThrow(
+        /Parse error/,
+      )
       // Fuzzy matching is available via functions instead.
-      expect(
-        await last("RETURN string::similarity::jaro('hello', 'hallo');"),
-      ).toBeGreaterThan(0.8);
-      expect(await last("RETURN string::matches('hello', /hel/);")).toBe(true);
-    });
+      expect(await last("RETURN string::similarity::jaro('hello', 'hallo');")).toBeGreaterThan(0.8)
+      expect(await last("RETURN string::matches('hello', /hel/);")).toBe(true)
+    })
 
     test("array paths: contacts[*].f returns an array — equality needs INSIDE/CONTAINS", async () => {
       await run(
@@ -1042,207 +920,170 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
          DEFINE FIELD contacts[*].type ON user TYPE string;
          DEFINE FIELD contacts[*].value ON user TYPE string;
          UPDATE user:alice MERGE { contacts: [{ type: 'email', value: 'a@x' }] };`,
-      );
-      expect(await last("RETURN user:alice.contacts[*].type;")).toEqual([
-        "email",
-      ]);
-      expect(await last("RETURN user:alice.contacts[0].type;")).toBe("email");
+      )
+      expect(await last("RETURN user:alice.contacts[*].type;")).toEqual(["email"])
+      expect(await last("RETURN user:alice.contacts[0].type;")).toBe("email")
       // Path equality with a scalar is FALSE (array vs scalar) …
-      expect(
-        await last("SELECT id FROM user WHERE contacts[*].type = 'email';"),
-      ).toEqual([]);
+      expect(await last("SELECT id FROM user WHERE contacts[*].type = 'email';")).toEqual([])
       // … membership is the correct lowering.
-      expect(
-        await last(
-          "SELECT id FROM user WHERE contacts[*].type CONTAINS 'email';",
-        ),
-      ).toEqual([expect.objectContaining({ id: "user:alice" })]);
-    });
+      expect(await last("SELECT id FROM user WHERE contacts[*].type CONTAINS 'email';")).toEqual([
+        expect.objectContaining({ id: "user:alice" }),
+      ])
+    })
 
     test("correlated subqueries via $parent", async () => {
       expect(
         await last(
           "SELECT id, (SELECT VALUE title FROM post WHERE author = $parent.id) AS posts FROM user WHERE id = user:alice;",
         ),
-      ).toEqual([
-        expect.objectContaining({ posts: expect.arrayContaining(["Hello"]) }),
-      ]);
-    });
+      ).toEqual([expect.objectContaining({ posts: expect.arrayContaining(["Hello"]) })])
+    })
 
     test("tuple cursor predicate parses and filters", async () => {
       const rows = await last(
         "SELECT id, age FROM user WHERE (age < $c0 OR (age = $c0 AND id > $c1)) ORDER BY age DESC, id ASC LIMIT 5;",
         { c0: 30, c1: "user:alice" },
-      );
-      expect(Array.isArray(rows)).toBe(true);
-    });
+      )
+      expect(Array.isArray(rows)).toBe(true)
+    })
 
     test("the ORDER BY idiom must be projected; aliases and `*` satisfy it", async () => {
       // The ordered path must appear in the selection — omitting it is a parse error.
-      await expect(
-        last("SELECT id FROM user ORDER BY age ASC;"),
-      ).rejects.toThrow(/order idiom/i);
+      await expect(last("SELECT id FROM user ORDER BY age ASC;")).rejects.toThrow(/order idiom/i)
       // An aliased projection of the ordered path IS an idiom; the alias is what comes back.
       const rows = await last(
         "SELECT name, age AS _keyset_0, id AS _keyset_1 FROM user ORDER BY age DESC, id ASC LIMIT 5;",
-      );
+      )
       expect(rows[0]).toEqual({
         name: "Carol",
         _keyset_0: 35,
         _keyset_1: "user:carol",
-      });
+      })
       // `*` covers the idiom; OMIT does not remove an explicit alias of the omitted path.
       const omitted = await last(
         "SELECT *, age AS _keyset_0 OMIT age FROM user ORDER BY age ASC LIMIT 5;",
-      );
-      expect(omitted[0]).not.toHaveProperty("age");
-      expect(omitted[0]).toHaveProperty("_keyset_0");
+      )
+      expect(omitted[0]).not.toHaveProperty("age")
+      expect(omitted[0]).toHaveProperty("_keyset_0")
       // A dotted alias survives an omitted ancestor too.
-      const post = await last(
-        "SELECT *, author.name AS _keyset_0 OMIT author FROM post LIMIT 1;",
-      );
-      expect(post[0]).not.toHaveProperty("author");
-      expect(post[0]).toHaveProperty("_keyset_0");
-    });
-  });
+      const post = await last("SELECT *, author.name AS _keyset_0 OMIT author FROM post LIMIT 1;")
+      expect(post[0]).not.toHaveProperty("author")
+      expect(post[0]).toHaveProperty("_keyset_0")
+    })
+  })
 
   describe("graph traversal", () => {
     test("projection directions: ->edge, <-edge, <->edge (parenthesized), <->?", async () => {
       expect(await last("SELECT ->likes AS out_e FROM user:alice;")).toEqual([
         expect.objectContaining({ out_e: expect.any(Array) }),
-      ]);
+      ])
       expect(await last("SELECT <-likes AS in_e FROM post:p1;")).toEqual([
         expect.objectContaining({ in_e: expect.any(Array) }),
-      ]);
+      ])
       expect(await last("SELECT (<->likes) AS both FROM user:alice;")).toEqual([
         expect.objectContaining({ both: expect.any(Array) }),
-      ]);
+      ])
       // Record-anchored both-direction traversal works; bare table anchors do not.
-      expect(await last("RETURN user:alice<->likes<->post;")).toEqual(
-        expect.any(Array),
-      );
-    });
+      expect(await last("RETURN user:alice<->likes<->post;")).toEqual(expect.any(Array))
+    })
 
     test("target/edge filters: ->(edge WHERE) ->(node WHERE)", async () => {
       // Alice has a like to the unpublished post:p2 (INSERT RELATION, earlier test) -> she matches;
       // Bob only likes the published post:p1 -> he does not.
       const unpublished = (await last(
         "SELECT VALUE id FROM user WHERE count(->likes->(post WHERE published = false)) > 0;",
-      )) as string[];
-      expect(unpublished).toContain("user:alice");
-      expect(unpublished).not.toContain("user:bob");
+      )) as string[]
+      expect(unpublished).toContain("user:alice")
+      expect(unpublished).not.toContain("user:bob")
       expect(
-        await last(
-          "SELECT VALUE id FROM user WHERE count(->(likes WHERE score > 4)->post) > 0;",
-        ),
-      ).toEqual(["user:alice"]);
-    });
+        await last("SELECT VALUE id FROM user WHERE count(->(likes WHERE score > 4)->post) > 0;"),
+      ).toEqual(["user:alice"])
+    })
 
     test("per-parent filtered include: edge filter inside the subquery", async () => {
       const out = (await last(
-        "SELECT id, name, (SELECT id, title FROM ->(likes WHERE score > 4)->post ORDER BY title LIMIT 2) AS liked FROM user ORDER BY id;",
-      )) as Record<string, unknown>[];
-      const alice = out.find((u) => u.id === "user:alice");
+          "SELECT id, name, (SELECT id, title FROM ->(likes WHERE score > 4)->post ORDER BY title LIMIT 2) AS liked FROM user ORDER BY id;",
+        )) as Record<string, unknown>[],
+        alice = out.find((u) => u.id === "user:alice")
       expect(alice).toEqual(
         expect.objectContaining({
-          liked: expect.arrayContaining([
-            expect.objectContaining({ id: "post:p1" }),
-          ]),
+          liked: expect.arrayContaining([expect.objectContaining({ id: "post:p1" })]),
         }),
-      );
-    });
+      )
+    })
 
     test("count(->edge[WHERE ...]) and edge+target combined subquery", async () => {
-      expect(
-        await last(
-          "SELECT id, count(->likes) AS n FROM user WHERE id = user:alice;",
-        ),
-      ).toEqual([expect.objectContaining({ n: expect.any(Number) })]);
+      expect(await last("SELECT id, count(->likes) AS n FROM user WHERE id = user:alice;")).toEqual(
+        [expect.objectContaining({ n: expect.any(Number) })],
+      )
       const out = (await last(
         "SELECT id, (SELECT id, out.* FROM ->likes) AS likes FROM user WHERE id = user:alice;",
-      )) as Record<string, unknown>[];
+      )) as Record<string, unknown>[]
       expect(out[0]?.likes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             out: expect.objectContaining({ id: "post:p1" }),
           }),
         ]),
-      );
-    });
+      )
+    })
 
     test("recursion returns record ids only; projection must happen outside the body", async () => {
+      expect(await last("SELECT name, @.{1..2}->likes->post AS posts FROM user:alice;")).toEqual([
+        expect.objectContaining({ posts: expect.any(Array) }),
+      ])
       expect(
-        await last(
-          "SELECT name, @.{1..2}->likes->post AS posts FROM user:alice;",
-        ),
-      ).toEqual([expect.objectContaining({ posts: expect.any(Array) })]);
-      expect(
-        await last(
-          "SELECT name, user:alice.{1..2}(->likes->post) AS posts FROM user:alice;",
-        ),
-      ).toEqual([expect.objectContaining({ posts: expect.any(Array) })]);
-      await expect(
-        last("SELECT @.{1..2}->likes->post.title FROM user:alice;"),
-      ).rejects.toThrow(
+        await last("SELECT name, user:alice.{1..2}(->likes->post) AS posts FROM user:alice;"),
+      ).toEqual([expect.objectContaining({ posts: expect.any(Array) })])
+      await expect(last("SELECT @.{1..2}->likes->post.title FROM user:alice;")).rejects.toThrow(
         /Expected a record ID during recursive graph traversal/,
-      );
-    });
-  });
+      )
+    })
+  })
 
   describe("relations & graph lowering (M3)", () => {
     test("FETCH: multiple/nested links, alias preserved; an unselected link is NOT returned", async () => {
-      expect(
-        await last("SELECT * FROM user:bob FETCH mentor, friends;"),
-      ).toEqual([
+      expect(await last("SELECT * FROM user:bob FETCH mentor, friends;")).toEqual([
         expect.objectContaining({
           mentor: expect.objectContaining({ name: "Alice" }),
           friends: [expect.objectContaining({ name: "Alice" })],
         }),
-      ]);
-      expect(await last("SELECT * FROM user:bob FETCH mentor.mentor;")).toEqual(
-        [
-          expect.objectContaining({
-            mentor: expect.objectContaining({ name: "Alice" }),
-          }),
-        ],
-      );
+      ])
+      expect(await last("SELECT * FROM user:bob FETCH mentor.mentor;")).toEqual([
+        expect.objectContaining({
+          mentor: expect.objectContaining({ name: "Alice" }),
+        }),
+      ])
       // A projected alias wins over FETCH (FETCH is applied last but doesn't overwrite).
       expect(
-        await last(
-          "SELECT id, author.id AS author_id FROM post ORDER BY id FETCH author;",
-        ),
+        await last("SELECT id, author.id AS author_id FROM post ORDER BY id FETCH author;"),
       ).toEqual([
         { author_id: "user:alice", id: "post:p1" },
         { author_id: "user:bob", id: "post:p2" },
-      ]);
+      ])
       // FETCH materializes a link only when it is part of the selection.
-      expect(
-        await last("SELECT id FROM post ORDER BY id FETCH author;"),
-      ).toEqual([{ id: "post:p1" }, { id: "post:p2" }]);
-      expect(
-        await last("SELECT id, author FROM post ORDER BY id FETCH author;"),
-      ).toEqual([
+      expect(await last("SELECT id FROM post ORDER BY id FETCH author;")).toEqual([
+        { id: "post:p1" },
+        { id: "post:p2" },
+      ])
+      expect(await last("SELECT id, author FROM post ORDER BY id FETCH author;")).toEqual([
         expect.objectContaining({
           author: expect.objectContaining({ name: "Alice" }),
         }),
         expect.objectContaining({
           author: expect.objectContaining({ name: "Bob" }),
         }),
-      ]);
-    });
+      ])
+    })
 
     test("incoming edges: the target follows the SAME direction (<-edge<-target); <-edge->target is empty", async () => {
-      expect(await last("SELECT <-likes<-user AS users FROM post:p1;")).toEqual(
-        [
-          expect.objectContaining({
-            users: expect.arrayContaining(["user:alice", "user:bob"]),
-          }),
-        ],
-      );
+      expect(await last("SELECT <-likes<-user AS users FROM post:p1;")).toEqual([
+        expect.objectContaining({
+          users: expect.arrayContaining(["user:alice", "user:bob"]),
+        }),
+      ])
       // Mixing directions mid-chain is NOT relative to the edge — it means out-of-edge.
-      expect(await last("SELECT <-likes->user AS users FROM post:p1;")).toEqual(
-        [{ users: [] }],
-      );
+      expect(await last("SELECT <-likes->user AS users FROM post:p1;")).toEqual([{ users: [] }])
       expect(
         await last(
           "SELECT (SELECT id, name FROM <-(likes WHERE score > 4)<-user) AS likers FROM post:p1;",
@@ -1251,22 +1092,18 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
         expect.objectContaining({
           likers: [expect.objectContaining({ name: "Alice" })],
         }),
-      ]);
-    });
+      ])
+    })
 
     test("per-parent target subquery: projection, edge/target filters, order/limit/start", async () => {
-      expect(
-        await last(
-          "SELECT (SELECT * FROM ->likes->post) AS liked FROM user:alice;",
-        ),
-      ).toEqual([
+      expect(await last("SELECT (SELECT * FROM ->likes->post) AS liked FROM user:alice;")).toEqual([
         expect.objectContaining({
           liked: expect.arrayContaining([
             expect.objectContaining({ id: "post:p1" }),
             expect.objectContaining({ id: "post:p2" }),
           ]),
         }),
-      ]);
+      ])
       expect(
         await last(
           "SELECT (SELECT id, title FROM ->(likes WHERE score > 4)->(post WHERE published = true) ORDER BY title DESC LIMIT 1 START 0) AS liked FROM user:alice;",
@@ -1275,40 +1112,30 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
         expect.objectContaining({
           liked: [{ id: "post:p1", title: "Hello" }],
         }),
-      ]);
+      ])
       // ORDER BY needs the idiom in the selection unless the projection is `*`.
       await expect(
-        last(
-          "SELECT (SELECT id FROM ->likes->post ORDER BY title DESC) AS liked FROM user:alice;",
-        ),
-      ).rejects.toThrow(/Missing order idiom/);
+        last("SELECT (SELECT id FROM ->likes->post ORDER BY title DESC) AS liked FROM user:alice;"),
+      ).rejects.toThrow(/Missing order idiom/)
       expect(
         await last(
           "SELECT (SELECT * FROM ->likes->post ORDER BY title DESC) AS liked FROM user:alice;",
         ),
       ).toEqual([
         expect.objectContaining({
-          liked: expect.arrayContaining([
-            expect.objectContaining({ title: "Hello" }),
-          ]),
+          liked: expect.arrayContaining([expect.objectContaining({ title: "Hello" })]),
         }),
-      ]);
-    });
+      ])
+    })
 
     test("edge records and edge+target: `out`/`in` materialize the target nested", async () => {
-      expect(
-        await last("SELECT (SELECT * FROM ->likes) AS likes FROM user:alice;"),
-      ).toEqual([
+      expect(await last("SELECT (SELECT * FROM ->likes) AS likes FROM user:alice;")).toEqual([
         expect.objectContaining({
-          likes: expect.arrayContaining([
-            expect.objectContaining({ score: 5, out: "post:p1" }),
-          ]),
+          likes: expect.arrayContaining([expect.objectContaining({ score: 5, out: "post:p1" })]),
         }),
-      ]);
+      ])
       expect(
-        await last(
-          "SELECT (SELECT score, out.* FROM ->likes) AS likes FROM user:alice;",
-        ),
+        await last("SELECT (SELECT score, out.* FROM ->likes) AS likes FROM user:alice;"),
       ).toEqual([
         expect.objectContaining({
           likes: expect.arrayContaining([
@@ -1318,28 +1145,26 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
             }),
           ]),
         }),
-      ]);
+      ])
       // Incoming edges materialize the other endpoint under `in`.
-      expect(
-        await last(
-          "SELECT (SELECT score, in.* FROM <-likes) AS likes FROM post:p1;",
-        ),
-      ).toEqual([
-        expect.objectContaining({
-          likes: expect.arrayContaining([
-            expect.objectContaining({
-              in: expect.objectContaining({ name: expect.any(String) }),
-            }),
-          ]),
-        }),
-      ]);
+      expect(await last("SELECT (SELECT score, in.* FROM <-likes) AS likes FROM post:p1;")).toEqual(
+        [
+          expect.objectContaining({
+            likes: expect.arrayContaining([
+              expect.objectContaining({
+                in: expect.objectContaining({ name: expect.any(String) }),
+              }),
+            ]),
+          }),
+        ],
+      )
       // DIVERGE: `out.*` next to a target-parenthesized traversal returns EMPTY objects — filters
-      // on the target must go through `WHERE out.<field>` instead.
+      // On the target must go through `WHERE out.<field>` instead.
       expect(
         await last(
           "SELECT (SELECT score, out.* FROM ->likes->(post WHERE published = true)) AS likes FROM user:alice;",
         ),
-      ).toEqual([{ likes: [{}] }]);
+      ).toEqual([{ likes: [{}] }])
       expect(
         await last(
           "SELECT (SELECT score, out.* FROM ->(likes WHERE score > 4) WHERE out.published = true) AS likes FROM user:alice;",
@@ -1352,58 +1177,42 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
             }),
           ],
         }),
-      ]);
-    });
+      ])
+    })
 
     test("wildcards: ->? / <-? / <->? return edge records", async () => {
-      expect(
-        await last("SELECT (SELECT * FROM ->?) AS rel FROM user:alice;"),
-      ).toEqual([
+      expect(await last("SELECT (SELECT * FROM ->?) AS rel FROM user:alice;")).toEqual([
         expect.objectContaining({
-          rel: expect.arrayContaining([
-            expect.objectContaining({ score: expect.any(Number) }),
-          ]),
+          rel: expect.arrayContaining([expect.objectContaining({ score: expect.any(Number) })]),
         }),
-      ]);
-      expect(
-        await last("SELECT (SELECT * FROM <-?) AS rel FROM post:p1;"),
-      ).toEqual([
+      ])
+      expect(await last("SELECT (SELECT * FROM <-?) AS rel FROM post:p1;")).toEqual([
         expect.objectContaining({
-          rel: expect.arrayContaining([
-            expect.objectContaining({ out: "post:p1" }),
-          ]),
+          rel: expect.arrayContaining([expect.objectContaining({ out: "post:p1" })]),
         }),
-      ]);
-      expect(
-        await last("SELECT (SELECT * FROM <->?) AS rel FROM user:alice;"),
-      ).toEqual([
+      ])
+      expect(await last("SELECT (SELECT * FROM <->?) AS rel FROM user:alice;")).toEqual([
         expect.objectContaining({
-          rel: expect.arrayContaining([
-            expect.objectContaining({ score: expect.any(Number) }),
-          ]),
+          rel: expect.arrayContaining([expect.objectContaining({ score: expect.any(Number) })]),
         }),
-      ]);
+      ])
       // A wildcard edge accepts a filter on the edge row (`->(? WHERE …)`)…
       expect(
-        await last(
-          "SELECT (SELECT * FROM ->(? WHERE score > 4)) AS rel FROM user:alice;",
-        ),
+        await last("SELECT (SELECT * FROM ->(? WHERE score > 4)) AS rel FROM user:alice;"),
       ).toEqual([
         expect.objectContaining({
           rel: expect.arrayContaining([expect.objectContaining({ score: 5 })]),
         }),
-      ]);
+      ])
       // …and a bracket filter on `?` filters the edge array too (the compiler emits the paren form).
       expect(
-        await last(
-          "SELECT (SELECT * FROM ->?[WHERE score > 4]) AS rel FROM user:alice;",
-        ),
+        await last("SELECT (SELECT * FROM ->?[WHERE score > 4]) AS rel FROM user:alice;"),
       ).toEqual([
         expect.objectContaining({
           rel: expect.arrayContaining([expect.objectContaining({ score: 5 })]),
         }),
-      ]);
-    });
+      ])
+    })
 
     test("direction both: the target follows the SAME direction; `?.*` is a parse error", async () => {
       expect(
@@ -1417,23 +1226,17 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
             { id: "post:p2", title: "World" },
           ],
         }),
-      ]);
-      expect(
-        await last("SELECT (SELECT * FROM <->likes) AS rel FROM user:alice;"),
-      ).toEqual([
+      ])
+      expect(await last("SELECT (SELECT * FROM <->likes) AS rel FROM user:alice;")).toEqual([
         expect.objectContaining({
-          rel: expect.arrayContaining([
-            expect.objectContaining({ score: expect.any(Number) }),
-          ]),
+          rel: expect.arrayContaining([expect.objectContaining({ score: expect.any(Number) })]),
         }),
-      ]);
+      ])
       // There is no single target alias with direction `both` — `?.*` is NOT a thing.
       await expect(
-        last(
-          "SELECT (SELECT score, ?.* FROM <->likes) AS rel FROM user:alice;",
-        ),
-      ).rejects.toThrow(/Parse error/);
-    });
+        last("SELECT (SELECT score, ?.* FROM <->likes) AS rel FROM user:alice;"),
+      ).rejects.toThrow(/Parse error/)
+    })
 
     test("_count lowering: edges (bracket/target), both directions, record arrays, NONE arrays", async () => {
       expect(
@@ -1444,7 +1247,7 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
         expect.objectContaining({ id: "user:alice", n: 2 }),
         expect.objectContaining({ id: "user:bob", n: 1 }),
         expect.objectContaining({ id: "user:carol", n: 0 }),
-      ]);
+      ])
       expect(
         await last(
           "SELECT id, count(->likes[WHERE score = 5]) AS n FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] ORDER BY id;",
@@ -1453,7 +1256,7 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
         expect.objectContaining({ id: "user:alice", n: 1 }),
         expect.objectContaining({ id: "user:bob", n: 0 }),
         expect.objectContaining({ id: "user:carol", n: 0 }),
-      ]);
+      ])
       expect(
         await last(
           "SELECT id, count(->likes->(post WHERE published = false)) AS n FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] ORDER BY id;",
@@ -1462,7 +1265,7 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
         expect.objectContaining({ id: "user:alice", n: 1 }),
         expect.objectContaining({ id: "user:bob", n: 0 }),
         expect.objectContaining({ id: "user:carol", n: 0 }),
-      ]);
+      ])
       // Record arrays count with `count(field)` — NONE-safe (unlike `array::len`).
       expect(
         await last(
@@ -1472,12 +1275,12 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
         expect.objectContaining({ id: "user:alice", n: 0 }),
         expect.objectContaining({ id: "user:bob", n: 1 }),
         expect.objectContaining({ id: "user:carol", n: 0 }),
-      ]);
+      ])
       await expect(
         last(
           "SELECT id, array::len(friends) AS n FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] ORDER BY id;",
         ),
-      ).rejects.toThrow(/Expected `array` but found `NONE`/);
+      ).rejects.toThrow(/Expected `array` but found `NONE`/)
       expect(
         await last(
           "SELECT id, count(friends[WHERE name = 'Alice']) AS n FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] ORDER BY id;",
@@ -1486,93 +1289,85 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
         expect.objectContaining({ id: "user:alice", n: 0 }),
         expect.objectContaining({ id: "user:bob", n: 1 }),
         expect.objectContaining({ id: "user:carol", n: 0 }),
-      ]);
-      expect(
-        await last("SELECT id, count(<-likes) AS n FROM post ORDER BY id;"),
-      ).toEqual([
+      ])
+      expect(await last("SELECT id, count(<-likes) AS n FROM post ORDER BY id;")).toEqual([
         expect.objectContaining({ id: "post:p1", n: 2 }),
         expect.objectContaining({ id: "post:p2", n: 1 }),
-      ]);
-    });
+      ])
+    })
 
     test("relational WHERE: is/isNot (NONE in negation), some/none, every via count-equality", async () => {
       expect(
         await last(
           "SELECT name FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] AND mentor.name = 'Alice';",
         ),
-      ).toEqual([{ name: "Bob" }]);
+      ).toEqual([{ name: "Bob" }])
       // Negation is true for a missing link (NONE) and for a different value.
       expect(
         await last(
           "SELECT name FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] AND mentor.name != 'Alice' ORDER BY name;",
         ),
-      ).toEqual([{ name: "Alice" }, { name: "Carol" }]);
+      ).toEqual([{ name: "Alice" }, { name: "Carol" }])
       expect(
         await last(
           "SELECT name FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] AND count(->likes->(post WHERE published = true)) > 0 ORDER BY name;",
         ),
-      ).toEqual([{ name: "Alice" }, { name: "Bob" }]);
+      ).toEqual([{ name: "Alice" }, { name: "Bob" }])
       expect(
         await last(
           "SELECT name FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] AND count(->likes->(post WHERE published = true)) = 0 ORDER BY name;",
         ),
-      ).toEqual([{ name: "Carol" }]);
+      ).toEqual([{ name: "Carol" }])
       // `every` as an equality of counts — vacuously true for zero relations, NONE-safe.
       expect(
         await last(
           "SELECT name FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] AND count(->likes) = count(->likes->(post WHERE published = true)) ORDER BY name;",
         ),
-      ).toEqual([{ name: "Bob" }, { name: "Carol" }]);
+      ).toEqual([{ name: "Bob" }, { name: "Carol" }])
       expect(
         await last(
           "SELECT name FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] AND count(friends[WHERE name = 'Alice']) > 0;",
         ),
-      ).toEqual([{ name: "Bob" }]);
+      ).toEqual([{ name: "Bob" }])
       // `NOT` inside a traversal filter needs parentheses.
       await expect(
         last(
           "SELECT name FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] AND count(->likes->(post WHERE NOT published = true)) = 0;",
         ),
-      ).rejects.toThrow(/Parse error/);
+      ).rejects.toThrow(/Parse error/)
       expect(
         await last(
           "SELECT name FROM user WHERE name IN ['Alice', 'Bob', 'Carol'] AND count(->likes->(post WHERE NOT (published = true))) = 0 ORDER BY name;",
         ),
-      ).toEqual([{ name: "Bob" }, { name: "Carol" }]);
-    });
-  });
+      ).toEqual([{ name: "Bob" }, { name: "Carol" }])
+    })
+  })
 
   describe("full-text and vector search", () => {
     test("FULLTEXT index (3.x spelling) + @@ / @n@ / score / highlight", async () => {
-      await run(
-        "DEFINE ANALYZER ascii TOKENIZERS blank,class FILTERS lowercase,ascii;",
-      );
+      await run("DEFINE ANALYZER ascii TOKENIZERS blank,class FILTERS lowercase,ascii;")
       // 2.x's `SEARCH ANALYZER` is a parse error in 3.x — the clause is FULLTEXT.
       await expect(
         last("DEFINE INDEX bad ON post FIELDS title SEARCH ANALYZER ascii;"),
-      ).rejects.toThrow(/Parse error/);
-      await run(
-        "DEFINE INDEX idx_ft ON post FIELDS title FULLTEXT ANALYZER ascii BM25 HIGHLIGHTS;",
-      );
-      expect(await last("SELECT id FROM post WHERE title @@ 'hello';")).toEqual(
-        [expect.objectContaining({ id: "post:p1" })],
-      );
+      ).rejects.toThrow(/Parse error/)
+      await run("DEFINE INDEX idx_ft ON post FIELDS title FULLTEXT ANALYZER ascii BM25 HIGHLIGHTS;")
+      expect(await last("SELECT id FROM post WHERE title @@ 'hello';")).toEqual([
+        expect.objectContaining({ id: "post:p1" }),
+      ])
       expect(
-        await last(
-          "SELECT id, search::score(0) AS score FROM post WHERE title @0@ 'hello';",
-        ),
-      ).toEqual([expect.objectContaining({ score: expect.any(Number) })]);
+        await last("SELECT id, search::score(0) AS score FROM post WHERE title @0@ 'hello';"),
+      ).toEqual([expect.objectContaining({ score: expect.any(Number) })])
       expect(
         await last(
           `SELECT search::highlight('<b>', '</b>', 0, title) AS hl FROM post WHERE title @@ 'hello';`,
         ),
-      ).toEqual([expect.objectContaining({ hl: "<b>Hello</b>" })]);
+      ).toEqual([expect.objectContaining({ hl: "<b>Hello</b>" })])
       expect(
         await last(
           "SELECT id, search::score(0) AS score FROM post WHERE title @@ 'hello' ORDER BY score DESC;",
         ),
-      ).toEqual([expect.objectContaining({ id: "post:p1" })]);
-    });
+      ).toEqual([expect.objectContaining({ id: "post:p1" })])
+    })
 
     test("KNN: HNSW index, <|k,metric|>, distance/similarity functions", async () => {
       await run(`
@@ -1582,24 +1377,24 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
         CREATE vec:v1 SET embedding = [1.0, 0.0, 0.0];
         CREATE vec:v2 SET embedding = [0.9, 0.1, 0.0];
         CREATE vec:v3 SET embedding = [0.0, 1.0, 0.0];
-      `);
+      `)
       const hits = await last(
         "SELECT id, vector::distance::knn() AS dist FROM vec WHERE embedding <|3, COSINE|> $q;",
-        { q: [1.0, 0.0, 0.0] },
-      );
+        { q: [1, 0, 0] },
+      )
       expect(hits).toEqual([
         expect.objectContaining({ id: "vec:v1", dist: 0 }),
         expect.objectContaining({ id: "vec:v2" }),
         expect.objectContaining({ id: "vec:v3" }),
-      ]);
+      ])
       expect(
         await last(
           "SELECT id, vector::similarity::cosine(embedding, $q) AS sim FROM vec WHERE id = vec:v1;",
-          { q: [1.0, 0.0, 0.0] },
+          { q: [1, 0, 0] },
         ),
-      ).toEqual([expect.objectContaining({ sim: 1 })]);
-    });
-  });
+      ).toEqual([expect.objectContaining({ sim: 1 })])
+    })
+  })
 
   describe("batches, upsert-by-unique, transactions", () => {
     test("FOR loop = updateEach lowering", async () => {
@@ -1608,12 +1403,12 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
            UPDATE user MERGE $row.fields WHERE id = $row.by;
          };
          SELECT id, age FROM user WHERE id IN [user:alice, user:bob] ORDER BY id;`,
-      );
+      )
       expect(out).toEqual([
         expect.objectContaining({ id: "user:alice", age: 31 }),
         expect.objectContaining({ id: "user:bob", age: 26 }),
-      ]);
-    });
+      ])
+    })
 
     test("upsert-by-unique lowering: LET + IF/ELSE", async () => {
       const out = await last(
@@ -1621,123 +1416,108 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
          IF array::len($e) = 0 THEN CREATE user CONTENT { name: 'Zed', age: 1 }
          ELSE UPDATE $e[0] MERGE { age: 2 } END;
          SELECT id, name, age FROM user WHERE name = 'Zed';`,
-      );
-      expect(out).toEqual([expect.objectContaining({ name: "Zed", age: 1 })]);
-    });
+      )
+      expect(out).toEqual([expect.objectContaining({ name: "Zed", age: 1 })])
+    })
 
     test("SQL transactions: BEGIN/COMMIT applies, CANCEL discards", async () => {
       await run(
         "BEGIN TRANSACTION; CREATE user:tx1 CONTENT { name: 'TX', age: 1 }; COMMIT TRANSACTION;",
-      );
+      )
       expect(await last("SELECT id FROM ONLY user:tx1;")).toEqual(
         expect.objectContaining({ id: "user:tx1" }),
-      );
+      )
       // CANCEL makes the SDK throw during response collection — the cancellation surfaces as an
-      // error, and the transaction's writes are discarded.
+      // Error, and the transaction's writes are discarded.
       const cancelled = await caught(
         run(
           "BEGIN TRANSACTION; CREATE user:tx2 CONTENT { name: 'TX2', age: 1 }; CANCEL TRANSACTION;",
         ),
-      );
-      expect(String(cancelled)).toMatch(/cancelled transaction/);
-      expect(await last("SELECT * FROM ONLY user:tx2;")).toBeFalsy();
-    });
-  });
+      )
+      expect(String(cancelled)).toMatch(/cancelled transaction/)
+      expect(await last("SELECT * FROM ONLY user:tx2;")).toBeFalsy()
+    })
+  })
 
   describe("live queries and changefeeds", () => {
     test("LIVE SELECT returns a uuid; KILL accepts a bound param", async () => {
-      const uuid = (await last(
-        "LIVE SELECT * FROM user WHERE active = true;",
-      )) as string;
-      expect(typeof uuid).toBe("string");
-      await expect(last(`KILL "${uuid}";`)).rejects.toThrow(/Parse error/);
-      await run("KILL $q;", { q: uuid });
-    });
+      const uuid = (await last("LIVE SELECT * FROM user WHERE active = true;")) as string
+      expect(typeof uuid).toBe("string")
+      await expect(last(`KILL "${uuid}";`)).rejects.toThrow(/Parse error/)
+      await run("KILL $q;", { q: uuid })
+    })
 
     test("DIFF: `LIVE SELECT DIFF FROM t` (no projection); DIFF after target is invalid", async () => {
-      const uuid = await last(
-        "LIVE SELECT DIFF FROM user WHERE active = true;",
-      );
-      expect(typeof uuid).toBe("string");
-      await run("KILL $q;", { q: uuid });
-      await expect(last("LIVE SELECT DIFF * FROM user;")).rejects.toThrow(
+      const uuid = await last("LIVE SELECT DIFF FROM user WHERE active = true;")
+      expect(typeof uuid).toBe("string")
+      await run("KILL $q;", { q: uuid })
+      await expect(last("LIVE SELECT DIFF * FROM user;")).rejects.toThrow(/Parse error/)
+      await expect(last("LIVE SELECT * FROM user WHERE active = true DIFF;")).rejects.toThrow(
         /Parse error/,
-      );
-      await expect(
-        last("LIVE SELECT * FROM user WHERE active = true DIFF;"),
-      ).rejects.toThrow(/Parse error/);
-    });
+      )
+    })
 
     test("SHOW CHANGES FOR TABLE / DATABASE normalizes to versionstamp + changes", async () => {
-      await run(
-        "DEFINE TABLE cf2 CHANGEFEED 1h; CREATE cf2:a SET n = 1; UPDATE cf2:a SET n = 2;",
-      );
-      const table = (await last(
-        "SHOW CHANGES FOR TABLE cf2 SINCE 0 LIMIT 10;",
-      )) as { versionstamp: unknown; changes: unknown[] }[];
-      expect(table.length).toBeGreaterThan(0);
-      expect(table[0]).toHaveProperty("versionstamp");
-      expect(table[0]).toHaveProperty("changes");
-      const database = await last("SHOW CHANGES FOR DATABASE SINCE 0 LIMIT 1;");
-      expect(Array.isArray(database)).toBe(true);
-    });
-  });
+      await run("DEFINE TABLE cf2 CHANGEFEED 1h; CREATE cf2:a SET n = 1; UPDATE cf2:a SET n = 2;")
+      const table = (await last("SHOW CHANGES FOR TABLE cf2 SINCE 0 LIMIT 10;")) as {
+        versionstamp: unknown
+        changes: unknown[]
+      }[]
+      expect(table.length).toBeGreaterThan(0)
+      expect(table[0]).toHaveProperty("versionstamp")
+      expect(table[0]).toHaveProperty("changes")
+      const database = await last("SHOW CHANGES FOR DATABASE SINCE 0 LIMIT 1;")
+      expect(Array.isArray(database)).toBe(true)
+    })
+  })
 
   describe("read clauses — M1 compiler order and shapes", () => {
     test("FROM ONLY needs a single result: a table with 2 rows errors, LIMIT 1 unwraps", async () => {
-      await expect(last("SELECT * FROM ONLY user;")).rejects.toThrow(
-        /single result/,
-      );
+      await expect(last("SELECT * FROM ONLY user;")).rejects.toThrow(/single result/)
       expect(await last("SELECT * FROM ONLY user LIMIT 1;")).toEqual(
         expect.objectContaining({ id: expect.any(String) }),
-      );
+      )
       // `only` + `range` is a compile-time error in the ORM; the server also can't express it.
-      await expect(
-        last("SELECT * FROM ONLY user:alice..=user:bob;"),
-      ).rejects.toThrow(/Parse error/);
-    });
+      await expect(last("SELECT * FROM ONLY user:alice..=user:bob;")).rejects.toThrow(/Parse error/)
+    })
 
     test("path projections nest by path; aliases flatten", async () => {
-      await run(
-        "UPDATE user:alice MERGE { contacts: [{ type: 'email', value: 'a@x' }] };",
-      );
+      await run("UPDATE user:alice MERGE { contacts: [{ type: 'email', value: 'a@x' }] };")
       expect(await last("SELECT contacts[*].type FROM user:alice;")).toEqual([
         { contacts: { type: ["email"] } },
-      ]);
+      ])
       expect(await last("SELECT contacts.type FROM user:alice;")).toEqual([
         { contacts: { type: ["email"] } },
-      ]);
+      ])
       expect(await last("SELECT contacts[0].value FROM user:alice;")).toEqual([
         { contacts: { value: "a@x" } },
-      ]);
-      expect(
-        await last("SELECT contacts[*].type AS t FROM user:alice;"),
-      ).toEqual([{ t: ["email"] }]);
-    });
+      ])
+      expect(await last("SELECT contacts[*].type AS t FROM user:alice;")).toEqual([
+        { t: ["email"] },
+      ])
+    })
 
     test("clause order: WITH before WHERE, SPLIT after, VERSION before TIMEOUT", async () => {
-      await run("DEFINE INDEX idx_user_age ON user FIELDS age;");
+      await run("DEFINE INDEX idx_user_age ON user FIELDS age;")
       expect(
         await last(
           "SELECT * FROM user WITH INDEX idx_user_age WHERE age > 20 SPLIT tags ORDER BY tags LIMIT 2 START 0 TIMEOUT 5s;",
         ),
-      ).toEqual(expect.any(Array));
-      await expect(
-        last("SELECT * FROM user WHERE age > 20 WITH NOINDEX;"),
-      ).rejects.toThrow(/Parse error/);
-      await expect(
-        last("SELECT * FROM user TIMEOUT 5s LIMIT 1;"),
-      ).rejects.toThrow(/Parse error/);
+      ).toEqual(expect.any(Array))
+      await expect(last("SELECT * FROM user WHERE age > 20 WITH NOINDEX;")).rejects.toThrow(
+        /Parse error/,
+      )
+      await expect(last("SELECT * FROM user TIMEOUT 5s LIMIT 1;")).rejects.toThrow(/Parse error/)
       await expect(
         last("SELECT * FROM user TIMEOUT 5s VERSION d'2025-01-01T00:00:00Z';"),
-      ).rejects.toThrow(/Parse error/);
-    });
+      ).rejects.toThrow(/Parse error/)
+    })
 
     test("SPLIT + GROUP ALL is mutually exclusive (not just GROUP BY)", async () => {
       await expect(
         last("SELECT tags, count() AS c FROM user SPLIT tags GROUP ALL;"),
-      ).rejects.toThrow(/mutually exclusive/);
-    });
+      ).rejects.toThrow(/mutually exclusive/)
+    })
 
     test("LIMIT/START accept binds; ORDER BY needs an alias, not a parenthesized expr", async () => {
       expect(
@@ -1745,56 +1525,43 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
           l: 1,
           s: 1,
         }),
-      ).toEqual([expect.objectContaining({ name: expect.any(String) })]);
-      await expect(
-        last("SELECT * FROM user ORDER BY (age + 1) DESC;"),
-      ).rejects.toThrow(/Parse error/);
-      expect(
-        await last("SELECT (age + 1) AS bump FROM user ORDER BY bump DESC;"),
-      ).toEqual(expect.any(Array));
-    });
+      ).toEqual([expect.objectContaining({ name: expect.any(String) })])
+      await expect(last("SELECT * FROM user ORDER BY (age + 1) DESC;")).rejects.toThrow(
+        /Parse error/,
+      )
+      expect(await last("SELECT (age + 1) AS bump FROM user ORDER BY bump DESC;")).toEqual(
+        expect.any(Array),
+      )
+    })
 
     test("count() without GROUP ALL is per-row; SELECT * with GROUP is invalid", async () => {
       const counted = (await last("SELECT count() FROM user;")) as {
-        count: number;
-      }[];
-      expect(Array.isArray(counted)).toBe(true);
-      expect(counted[0]).toEqual({ count: 1 });
-      await expect(last("SELECT * FROM user GROUP ALL;")).rejects.toThrow(
-        /cannot be aggregated/,
-      );
+        count: number
+      }[]
+      expect(Array.isArray(counted)).toBe(true)
+      expect(counted[0]).toEqual({ count: 1 })
+      await expect(last("SELECT * FROM user GROUP ALL;")).rejects.toThrow(/cannot be aggregated/)
       await expect(last("SELECT * FROM user GROUP BY active;")).rejects.toThrow(
         /cannot be aggregated/,
-      );
-    });
+      )
+    })
 
     test("record ranges use the id suffix (t:1..=2) and accept string ids", async () => {
       await run(
         "DEFINE TABLE rng SCHEMALESS; CREATE rng:1; CREATE rng:2; CREATE rng:3; CREATE rng:abc; CREATE rng:xyz;",
-      );
-      expect(await last("SELECT VALUE id FROM rng:1..=2;")).toEqual([
-        "rng:1",
-        "rng:2",
-      ]);
-      expect(await last("SELECT VALUE id FROM rng:abc..=xyz;")).toEqual([
-        "rng:abc",
-        "rng:xyz",
-      ]);
-      expect(await last("SELECT VALUE id FROM rng:1..3;")).toEqual([
-        "rng:1",
-        "rng:2",
-      ]);
-    });
+      )
+      expect(await last("SELECT VALUE id FROM rng:1..=2;")).toEqual(["rng:1", "rng:2"])
+      expect(await last("SELECT VALUE id FROM rng:abc..=xyz;")).toEqual(["rng:abc", "rng:xyz"])
+      expect(await last("SELECT VALUE id FROM rng:1..3;")).toEqual(["rng:1", "rng:2"])
+    })
 
     test("OMIT drops a required field without failing the projection", async () => {
       expect(await last("SELECT * OMIT age FROM user:alice;")).toEqual([
         expect.not.objectContaining({ age: expect.anything() }),
-      ]);
-      expect(await last("SELECT name, age OMIT age FROM user:alice;")).toEqual([
-        { name: "Alice" },
-      ]);
-    });
-  });
+      ])
+      expect(await last("SELECT name, age OMIT age FROM user:alice;")).toEqual([{ name: "Alice" }])
+    })
+  })
 
   describe("M2 — write forms the compiler emits", () => {
     test("INSERT binds an array or a single object; a STRING id is NOT coerced to a record id", async () => {
@@ -1805,44 +1572,38 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
             { id: new RecordId("user", "ins-b"), name: "B", age: 3 },
           ],
         }),
-      ).toHaveLength(2);
+      ).toHaveLength(2)
       expect(
         await last("INSERT INTO user $p;", {
           p: { id: new RecordId("user", "ins-single"), name: "S", age: 1 },
         }),
-      ).toEqual([expect.objectContaining({ name: "S", age: 1 })]);
+      ).toEqual([expect.objectContaining({ name: "S", age: 1 })])
       // DIVERGE: a "user:x" STRING id inserts a record whose id VALUE is the string (user:⟨user:x⟩).
       const coerced = (await last("INSERT INTO user $p;", {
         p: { id: "user:raw", name: "R", age: 9 },
-      })) as { id: string }[];
-      expect(String(coerced[0]?.id)).toBe("user:⟨user:raw⟩");
-    });
+      })) as { id: string }[]
+      expect(String(coerced[0]?.id)).toBe("user:⟨user:raw⟩")
+    })
 
     test("INSERT … ON DUPLICATE KEY UPDATE needs an insertable row and accepts $p.f / $input.f", async () => {
-      await run("CREATE user:dup CONTENT { name: 'Old', age: 10 };");
+      await run("CREATE user:dup CONTENT { name: 'Old', age: 10 };")
       const partial = await caught(
         last("INSERT INTO user $p ON DUPLICATE KEY UPDATE name = $p.name;", {
           p: { id: new RecordId("user", "dup"), name: "New" },
         }),
-      );
-      expect(String(partial)).toMatch(/coerce value for field .age./);
+      )
+      expect(String(partial)).toMatch(/coerce value for field .age./)
       expect(
-        await last(
-          "INSERT INTO user $p ON DUPLICATE KEY UPDATE name = $p.name;",
-          {
-            p: { id: new RecordId("user", "dup"), name: "New", age: 10 },
-          },
-        ),
-      ).toEqual([expect.objectContaining({ id: "user:dup", name: "New" })]);
+        await last("INSERT INTO user $p ON DUPLICATE KEY UPDATE name = $p.name;", {
+          p: { id: new RecordId("user", "dup"), name: "New", age: 10 },
+        }),
+      ).toEqual([expect.objectContaining({ id: "user:dup", name: "New" })])
       expect(
-        await last(
-          "INSERT INTO user $p ON DUPLICATE KEY UPDATE age = $input.age;",
-          {
-            p: { id: new RecordId("user", "dup"), name: "New2", age: 42 },
-          },
-        ),
-      ).toEqual([expect.objectContaining({ id: "user:dup", age: 42 })]);
-    });
+        await last("INSERT INTO user $p ON DUPLICATE KEY UPDATE age = $input.age;", {
+          p: { id: new RecordId("user", "dup"), name: "New2", age: 42 },
+        }),
+      ).toEqual([expect.objectContaining({ id: "user:dup", age: 42 })])
+    })
 
     test("INSERT ON DUPLICATE RETURN BEFORE returns the PREVIOUS state; DIFF is a paged diff", async () => {
       const before = await last(
@@ -1850,15 +1611,13 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
         {
           p: { id: new RecordId("user", "dup"), name: "BeforeProbe", age: 42 },
         },
-      );
-      expect(before).toEqual([expect.objectContaining({ name: "New" })]);
-      expect(await last("SELECT VALUE name FROM user:dup;")).toEqual([
-        "BeforeProbe",
-      ]);
+      )
+      expect(before).toEqual([expect.objectContaining({ name: "New" })])
+      expect(await last("SELECT VALUE name FROM user:dup;")).toEqual(["BeforeProbe"])
       const diff = await last(
         "INSERT INTO user $p ON DUPLICATE KEY UPDATE name = $input.name RETURN DIFF;",
         { p: { id: new RecordId("user", "dup"), name: "DiffProbe", age: 42 } },
-      );
+      )
       expect(diff).toEqual([
         [
           expect.objectContaining({
@@ -1867,18 +1626,16 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
             value: expect.any(String),
           }),
         ],
-      ]);
-    });
+      ])
+    })
 
     test("UPSERT: per-field SET preserves missing fields; MERGE … WHERE creates", async () => {
-      await run("CREATE user:ups CONTENT { name: 'U', age: 20, tags: ['x'] };");
+      await run("CREATE user:ups CONTENT { name: 'U', age: 20, tags: ['x'] };")
       expect(await last("UPSERT user:ups SET age = $p;", { p: 21 })).toEqual([
         expect.objectContaining({ age: 21, name: "U" }),
-      ]);
+      ])
       // DIVERGE: "SET $obj" (whole-object bind) is a parse error — the compiler emits per-field.
-      expect(
-        await caught(last("UPSERT user:ups SET $p;", { p: { age: 22 } })),
-      ).not.toBeNull();
+      expect(await caught(last("UPSERT user:ups SET $p;", { p: { age: 22 } }))).not.toBeNull()
       expect(
         await last("UPSERT user MERGE $p WHERE name = $v;", {
           p: { name: "UpsertCreated", age: 1 },
@@ -1889,63 +1646,57 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
           name: "UpsertCreated",
           id: expect.any(String),
         }),
-      ]);
-    });
+      ])
+    })
 
     test("UPDATE … UNSET with RETURN and TIMEOUT order", async () => {
-      await run(
-        "CREATE ONLY user:unset2 CONTENT { name: 'U2', age: 5, tags: ['a'] };",
-      );
-      expect(
-        await last("UPDATE user:unset2 UNSET tags RETURN BEFORE TIMEOUT 5s;"),
-      ).toEqual([expect.objectContaining({ tags: ["a"] })]);
+      await run("CREATE ONLY user:unset2 CONTENT { name: 'U2', age: 5, tags: ['a'] };")
+      expect(await last("UPDATE user:unset2 UNSET tags RETURN BEFORE TIMEOUT 5s;")).toEqual([
+        expect.objectContaining({ tags: ["a"] }),
+      ])
       expect(await last("SELECT * FROM user:unset2;")).toEqual([
         expect.not.objectContaining({ tags: expect.anything() }),
-      ]);
-    });
+      ])
+    })
 
     test("UPDATE ONLY t:id works with and without WHERE", async () => {
-      await run("CREATE user:onlyw CONTENT { name: 'OW', age: 1 };");
+      await run("CREATE user:onlyw CONTENT { name: 'OW', age: 1 };")
       expect(await last("UPDATE ONLY user:onlyw SET age = 2;")).toEqual(
         expect.objectContaining({ age: 2 }),
-      );
-      expect(
-        await last("UPDATE ONLY user SET age = 3 WHERE name = 'OW';"),
-      ).toEqual(expect.objectContaining({ age: 3 }));
-    });
+      )
+      expect(await last("UPDATE ONLY user SET age = 3 WHERE name = 'OW';")).toEqual(
+        expect.objectContaining({ age: 3 }),
+      )
+    })
 
     test("UPDATE RETURN DIFF is a nested JSON Patch array", async () => {
-      await run("CREATE user:diff1 CONTENT { name: 'D', age: 1 };");
-      const diff = await last("UPDATE user:diff1 SET age = 2 RETURN DIFF;");
-      expect(diff).toEqual([
-        [expect.objectContaining({ op: "replace", path: "/age", value: 2 })],
-      ]);
-    });
+      await run("CREATE user:diff1 CONTENT { name: 'D', age: 1 };")
+      const diff = await last("UPDATE user:diff1 SET age = 2 RETURN DIFF;")
+      expect(diff).toEqual([[expect.objectContaining({ op: "replace", path: "/age", value: 2 })]])
+    })
 
     test("DELETE shapes: t:id, FROM t WHERE, whole table, RETURN BEFORE/NONE", async () => {
       await run(`
         DEFINE TABLE del SCHEMALESS;
         CREATE del:a CONTENT { v: 1 };
         CREATE del:b CONTENT { v: 2 };
-      `);
-      expect(await last("DELETE del:a RETURN BEFORE;")).toEqual([
-        expect.objectContaining({ v: 1 }),
-      ]);
-      expect(await last("DELETE del:missing RETURN BEFORE;")).toEqual([]);
+      `)
+      expect(await last("DELETE del:a RETURN BEFORE;")).toEqual([expect.objectContaining({ v: 1 })])
+      expect(await last("DELETE del:missing RETURN BEFORE;")).toEqual([])
       expect(await last("DELETE FROM del WHERE v = 2 RETURN BEFORE;")).toEqual([
         expect.objectContaining({ v: 2 }),
-      ]);
-      await run("CREATE del:c CONTENT { v: 3 };");
-      expect(await last("DELETE del RETURN NONE;")).toEqual([]);
-      expect(await last("SELECT * FROM del;")).toEqual([]);
-    });
+      ])
+      await run("CREATE del:c CONTENT { v: 3 };")
+      expect(await last("DELETE del RETURN NONE;")).toEqual([])
+      expect(await last("SELECT * FROM del;")).toEqual([])
+    })
 
     test("DIVERGE: FOR returns NONE — per-item statements carry updateEach results", async () => {
       await run(`
         DEFINE TABLE fe SCHEMALESS;
         CREATE fe:1 CONTENT { age: 1 };
         CREATE fe:2 CONTENT { age: 2 };
-      `);
+      `)
       const loop = await last(
         "FOR $__row IN $rows { UPDATE fe MERGE $__row.fields WHERE id = $__row.by; };",
         {
@@ -1954,8 +1705,8 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
             { by: new RecordId("fe", 2), fields: { age: 22 } },
           ],
         },
-      );
-      expect(loop).toBeUndefined();
+      )
+      expect(loop).toBeUndefined()
       const perItem = plain(
         await run(
           "UPDATE fe MERGE $f0 WHERE id = $b0 RETURN AFTER; UPDATE fe MERGE $f1 WHERE id = $b1 RETURN AFTER;",
@@ -1966,109 +1717,80 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
             b1: new RecordId("fe", 999),
           },
         ),
-      );
-      expect(perItem).toEqual([[expect.objectContaining({ age: 111 })], []]);
-    });
+      )
+      expect(perItem).toEqual([[expect.objectContaining({ age: 111 })], []])
+    })
 
     test("INSERT IGNORE per row returns only the inserted rows (skipDuplicates)", async () => {
       await run(`
         DEFINE TABLE skip SCHEMALESS;
         CREATE skip:x CONTENT { v: 1 };
-      `);
-      const out = await last(
-        "INSERT IGNORE INTO skip $p0; INSERT IGNORE INTO skip $p1;",
-        {
-          p0: { id: new RecordId("skip", "x"), v: 2 },
-          p1: { id: new RecordId("skip", "y"), v: 3 },
-        },
-      );
+      `)
+      const out = await last("INSERT IGNORE INTO skip $p0; INSERT IGNORE INTO skip $p1;", {
+        p0: { id: new RecordId("skip", "x"), v: 2 },
+        p1: { id: new RecordId("skip", "y"), v: 3 },
+      })
       // Only the LAST statement's rows are read here; both ran (see the SELECTs below).
-      expect(out).toEqual([expect.objectContaining({ v: 3 })]);
-      expect(await last("SELECT v FROM skip:y;")).toEqual([{ v: 3 }]);
-      expect(await last("SELECT v FROM skip:x;")).toEqual([{ v: 1 }]);
-    });
+      expect(out).toEqual([expect.objectContaining({ v: 3 })])
+      expect(await last("SELECT v FROM skip:y;")).toEqual([{ v: 3 }])
+      expect(await last("SELECT v FROM skip:x;")).toEqual([{ v: 1 }])
+    })
 
     test("RELATE with SET data, a named edge id, and via LET $created", async () => {
-      const edge = await last(
-        "RELATE user:alice->likes->post:p2 SET score = $p;",
-        { p: 7 },
-      );
+      const edge = await last("RELATE user:alice->likes->post:p2 SET score = $p;", { p: 7 })
       expect(edge).toEqual([
         expect.objectContaining({ score: 7, in: "user:alice", out: "post:p2" }),
-      ]);
-      const named = await last(
-        "RELATE user:alice->likes:named1->post:p2 SET score = 1;",
-      );
-      expect(named).toEqual([expect.objectContaining({ id: "likes:named1" })]);
+      ])
+      const named = await last("RELATE user:alice->likes:named1->post:p2 SET score = 1;")
+      expect(named).toEqual([expect.objectContaining({ id: "likes:named1" })])
       const created = await last(
         "LET $c = (CREATE ONLY post CONTENT { title: 'Rel', author: user:alice }); RELATE user:alice->likes->$c SET score = 2; RETURN $c;",
-      );
-      expect(created).toEqual(expect.objectContaining({ title: "Rel" }));
-    });
-  });
+      )
+      expect(created).toEqual(expect.objectContaining({ title: "Rel" }))
+    })
+  })
 
   describe("M4 — live queries, changefeeds and transactions", () => {
-    const sleep = (ms: number): Promise<void> =>
-      new Promise((resolve) => setTimeout(resolve, ms));
-    /** Poll until `done` (live messages/events are asynchronous). */
-    const waitFor = async (
-      done: () => boolean,
-      ms = 5_000,
-    ): Promise<boolean> => {
-      const until = Date.now() + ms;
-      while (!done() && Date.now() < until) await sleep(25);
-      return done();
-    };
-    /** Run a script and return the LAST statement's value (SDK values are NOT normalized). */
-    const rawLast = async (
-      sql: string,
-      vars?: Record<string, unknown>,
-    ): Promise<unknown> => {
-      const out = await run<unknown[]>(sql, vars);
-      return out[out.length - 1];
-    };
+    const sleep = async (ms: number): Promise<void> =>
+        new Promise((resolve) => setTimeout(resolve, ms)),
+      /** Poll until `done` (live messages/events are asynchronous). */
+      waitFor = async (done: () => boolean, ms = 5000): Promise<boolean> => {
+        const until = Date.now() + ms
+        while (!done() && Date.now() < until) await sleep(25)
+
+        return done()
+      },
+      /** Run a script and return the LAST statement's value (SDK values are NOT normalized). */
+      rawLast = async (sql: string, vars?: Record<string, unknown>): Promise<unknown> => {
+        const out = await run(sql, vars)
+        return out.at(-1)
+      }
 
     test("LIVE SELECT returns the query uuid; DIFF placement and unsupported clauses", async () => {
       expect(
         await rawLast("LIVE SELECT id, name FROM user WHERE active = $p;", {
           p: true,
         }),
-      ).toBeInstanceOf(Uuid);
-      expect(await rawLast("LIVE SELECT DIFF FROM user;")).toBeInstanceOf(Uuid);
-      expect(await rawLast("LIVE SELECT VALUE name FROM user;")).toBeInstanceOf(
-        Uuid,
-      );
-      expect(
-        await rawLast("LIVE SELECT * FROM user FETCH mentor;"),
-      ).toBeInstanceOf(Uuid);
+      ).toBeInstanceOf(Uuid)
+      expect(await rawLast("LIVE SELECT DIFF FROM user;")).toBeInstanceOf(Uuid)
+      expect(await rawLast("LIVE SELECT VALUE name FROM user;")).toBeInstanceOf(Uuid)
+      expect(await rawLast("LIVE SELECT * FROM user FETCH mentor;")).toBeInstanceOf(Uuid)
       // DIFF must sit right after SELECT, and cannot combine with a projection.
-      expect(await caught(run("LIVE SELECT * FROM user DIFF;"))).not.toBeNull();
-      expect(
-        await caught(run("LIVE SELECT id, name FROM user DIFF;")),
-      ).not.toBeNull();
+      expect(await caught(run("LIVE SELECT * FROM user DIFF;"))).not.toBeNull()
+      expect(await caught(run("LIVE SELECT id, name FROM user DIFF;"))).not.toBeNull()
       // ORDER BY / LIMIT / GROUP ALL / FROM ONLY are parse errors in a LIVE SELECT.
-      expect(
-        await caught(run("LIVE SELECT * FROM user ORDER BY name;")),
-      ).not.toBeNull();
-      expect(
-        await caught(run("LIVE SELECT * FROM user LIMIT 1;")),
-      ).not.toBeNull();
-      expect(
-        await caught(run("LIVE SELECT count() FROM user GROUP ALL;")),
-      ).not.toBeNull();
-      expect(await caught(run("LIVE SELECT * FROM ONLY user;"))).not.toBeNull();
+      expect(await caught(run("LIVE SELECT * FROM user ORDER BY name;"))).not.toBeNull()
+      expect(await caught(run("LIVE SELECT * FROM user LIMIT 1;"))).not.toBeNull()
+      expect(await caught(run("LIVE SELECT count() FROM user GROUP ALL;"))).not.toBeNull()
+      expect(await caught(run("LIVE SELECT * FROM ONLY user;"))).not.toBeNull()
       // A record target parses but fails at execution ("Cannot execute LIVE statement using value").
-      expect(
-        await caught(run("LIVE SELECT * FROM user:alice;")),
-      ).not.toBeNull();
-    });
+      expect(await caught(run("LIVE SELECT * FROM user:alice;"))).not.toBeNull()
+    })
 
     test("LIVE SELECT inside BEGIN/COMMIT is accepted by the server (client forbids it)", async () => {
-      const out = await run<unknown[]>(
-        "BEGIN TRANSACTION; LIVE SELECT * FROM user; COMMIT TRANSACTION;",
-      );
-      expect(out[1]).toBeInstanceOf(Uuid);
-    });
+      const out = await run("BEGIN TRANSACTION; LIVE SELECT * FROM user; COMMIT TRANSACTION;")
+      expect(out[1]).toBeInstanceOf(Uuid)
+    })
 
     test("live notifications: CREATE/UPDATE/DELETE, DIFF patches, FETCH, kill", async () => {
       await run(`
@@ -2078,64 +1800,53 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
         DEFINE FIELD friend ON livep TYPE option<record<livep>>;
         CREATE livep:a CONTENT { name: "A", active: true };
         CREATE livep:b CONTENT { name: "B", active: true };
-      `);
-      const uuid = (await rawLast(
-        "LIVE SELECT id, name FROM livep WHERE active = $p;",
-        { p: true },
-      )) as Uuid;
-      const messages: AnyResult[] = [];
-      const sub = await db.liveOf(uuid);
-      const stop = sub.subscribe((m) => messages.push(plain(m)));
-      await run(`CREATE livep:c CONTENT { name: "C", active: true };`);
-      await run(`UPDATE livep:c SET name = "C2";`);
-      await run(`DELETE livep:c;`);
-      await waitFor(() => messages.length >= 3);
-      stop();
-      expect(messages.map((m) => m.action)).toEqual([
-        "CREATE",
-        "UPDATE",
-        "DELETE",
-      ]);
+      `)
+      const uuid = (await rawLast("LIVE SELECT id, name FROM livep WHERE active = $p;", {
+          p: true,
+        })) as Uuid,
+        messages: AnyResult[] = [],
+        sub = await db.liveOf(uuid),
+        stop = sub.subscribe((m) => messages.push(plain(m)))
+      await run(`CREATE livep:c CONTENT { name: "C", active: true };`)
+      await run(`UPDATE livep:c SET name = "C2";`)
+      await run(`DELETE livep:c;`)
+      await waitFor(() => messages.length >= 3)
+      stop()
+      expect(messages.map((m) => m.action)).toEqual(["CREATE", "UPDATE", "DELETE"])
       expect(messages[0]).toEqual(
         expect.objectContaining({
           queryId: String(uuid),
           recordId: "livep:c",
           value: { id: "livep:c", name: "C" },
         }),
-      );
+      )
       expect(messages[1]).toEqual(
         expect.objectContaining({
           recordId: "livep:c",
           value: { id: "livep:c", name: "C2" },
         }),
-      );
-      await sub.kill();
+      )
+      await sub.kill()
 
-      const diffUuid = (await rawLast("LIVE SELECT DIFF FROM livep;")) as Uuid;
-      const diffs: AnyResult[] = [];
-      const diffSub = await db.liveOf(diffUuid);
-      const stopDiff = diffSub.subscribe((m) => diffs.push(plain(m)));
-      await run(`CREATE livep:d CONTENT { name: "D", active: true };`);
-      await run(`UPDATE livep:d SET name = "D2";`);
-      await waitFor(() => diffs.length >= 2);
-      stopDiff();
-      expect(diffs[0]?.value).toEqual([
-        expect.objectContaining({ op: "replace", path: "" }),
-      ]);
-      expect(diffs[1]?.value).toEqual([
-        expect.objectContaining({ op: "change", path: "/name" }),
-      ]);
-      await diffSub.kill();
+      const diffUuid = (await rawLast("LIVE SELECT DIFF FROM livep;")) as Uuid,
+        diffs: AnyResult[] = [],
+        diffSub = await db.liveOf(diffUuid),
+        stopDiff = diffSub.subscribe((m) => diffs.push(plain(m)))
+      await run(`CREATE livep:d CONTENT { name: "D", active: true };`)
+      await run(`UPDATE livep:d SET name = "D2";`)
+      await waitFor(() => diffs.length >= 2)
+      stopDiff()
+      expect(diffs[0]?.value).toEqual([expect.objectContaining({ op: "replace", path: "" })])
+      expect(diffs[1]?.value).toEqual([expect.objectContaining({ op: "change", path: "/name" })])
+      await diffSub.kill()
 
-      const fetchUuid = (await rawLast(
-        "LIVE SELECT * FROM livep FETCH friend;",
-      )) as Uuid;
-      const fetched: AnyResult[] = [];
-      const fetchSub = await db.liveOf(fetchUuid);
-      const stopFetch = fetchSub.subscribe((m) => fetched.push(plain(m)));
-      await run(`UPDATE livep:a SET friend = livep:b;`);
-      await waitFor(() => fetched.length >= 1);
-      stopFetch();
+      const fetchUuid = (await rawLast("LIVE SELECT * FROM livep FETCH friend;")) as Uuid,
+        fetched: AnyResult[] = [],
+        fetchSub = await db.liveOf(fetchUuid),
+        stopFetch = fetchSub.subscribe((m) => fetched.push(plain(m)))
+      await run(`UPDATE livep:a SET friend = livep:b;`)
+      await waitFor(() => fetched.length > 0)
+      stopFetch()
       expect(fetched[0]).toEqual(
         expect.objectContaining({
           action: "UPDATE",
@@ -2144,16 +1855,16 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
             friend: expect.objectContaining({ id: "livep:b", name: "B" }),
           }),
         }),
-      );
-      await fetchSub.kill();
-    });
+      )
+      await fetchSub.kill()
+    })
 
     test("KILL accepts a bound uuid string; a quoted string is a parse error", async () => {
-      const uuid = (await rawLast("LIVE SELECT * FROM user;")) as Uuid;
-      const killed = await run<unknown[]>("KILL $p;", { p: uuid.toString() });
-      expect(killed[0]).toBeUndefined();
-      expect(await caught(run(`KILL "${uuid.toString()}";`))).not.toBeNull();
-    });
+      const uuid = (await rawLast("LIVE SELECT * FROM user;")) as Uuid,
+        killed = await run("KILL $p;", { p: uuid.toString() })
+      expect(killed[0]).toBeUndefined()
+      expect(await caught(run(`KILL "${uuid.toString()}";`))).not.toBeNull()
+    })
 
     test("SHOW CHANGES: shapes, bigint versionstamp and inclusive SINCE pagination", async () => {
       await run(`
@@ -2162,12 +1873,10 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
         CREATE chg:c1 CONTENT { name: "one" };
         UPDATE chg:c1 SET name = "two";
         DELETE chg:c1;
-      `);
-      const changes = (await last(
-        "SHOW CHANGES FOR TABLE chg SINCE 0 LIMIT 20;",
-      )) as AnyResult[];
-      const body = changes.filter((c) => !("define_table" in c.changes[0]));
-      expect(typeof changes[0]?.versionstamp).toBe("bigint");
+      `)
+      const changes = (await last("SHOW CHANGES FOR TABLE chg SINCE 0 LIMIT 20;")) as AnyResult[],
+        body = changes.filter((c) => !("define_table" in c.changes[0]))
+      expect(typeof changes[0]?.versionstamp).toBe("bigint")
       expect(
         body.map((c) =>
           "delete" in c.changes[0]
@@ -2176,134 +1885,113 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
               ? "update-original"
               : "update",
         ),
-      ).toEqual(["update", "update-original", "delete"]);
+      ).toEqual(["update", "update-original", "delete"])
       expect(body[0]?.changes[0]?.update).toEqual(
         expect.objectContaining({ id: "chg:c1", name: "one" }),
-      );
+      )
       expect(body[1]?.changes[0]).toEqual(
         expect.objectContaining({
           current: expect.objectContaining({ name: "two" }),
           update: [expect.objectContaining({ op: "change", path: "/name" })],
         }),
-      );
+      )
       expect(body[2]?.changes[0]?.delete).toEqual(
         expect.objectContaining({
           id: "chg:c1",
           original: expect.objectContaining({ name: "two" }),
         }),
-      );
+      )
       // `SINCE <stamp>` is INCLUSIVE — pagination advances by taking the last stamp + 1.
-      const lastStamp = (changes[changes.length - 1] as AnyResult)
-        ?.versionstamp;
-      const page = (await last(
-        `SHOW CHANGES FOR TABLE chg SINCE ${lastStamp} LIMIT 5;`,
-      )) as AnyResult[];
-      expect(page[0]?.versionstamp).toBe(lastStamp);
+      const lastStamp = changes.at(-1)?.versionstamp,
+        page = (await last(`SHOW CHANGES FOR TABLE chg SINCE ${lastStamp} LIMIT 5;`)) as AnyResult[]
+      expect(page[0]?.versionstamp).toBe(lastStamp)
       // Values are NOT bindable in SINCE (literal versionstamp or datetime only).
       expect(
-        await caught(
-          run("SHOW CHANGES FOR TABLE chg SINCE $p LIMIT 1;", { p: 0 }),
-        ),
-      ).not.toBeNull();
+        await caught(run("SHOW CHANGES FOR TABLE chg SINCE $p LIMIT 1;", { p: 0 })),
+      ).not.toBeNull()
       // Database level aggregates every changefeed.
-      const atDb = (await last(
-        "SHOW CHANGES FOR DATABASE SINCE 0 LIMIT 100;",
-      )) as AnyResult[];
-      expect(atDb.some((c) => "changes" in c && c.changes.length > 0)).toBe(
-        true,
-      );
-    });
+      const atDb = (await last("SHOW CHANGES FOR DATABASE SINCE 0 LIMIT 100;")) as AnyResult[]
+      expect(atDb.some((c) => "changes" in c && c.changes.length > 0)).toBe(true)
+    })
 
     test("transactions: commit persists, cancel discards, conflict is normalizable", async () => {
-      await run(`DEFINE TABLE tx SCHEMALESS; CREATE tx:base CONTENT { v: 1 };`);
-      const committed = await db.beginTransaction();
-      await committed.query(`CREATE tx:keep CONTENT { v: 2 };`);
-      await committed.commit();
-      expect(await last("SELECT v FROM tx:keep;")).toEqual([{ v: 2 }]);
+      await run(`DEFINE TABLE tx SCHEMALESS; CREATE tx:base CONTENT { v: 1 };`)
+      const committed = await db.beginTransaction()
+      await committed.query(`CREATE tx:keep CONTENT { v: 2 };`)
+      await committed.commit()
+      expect(await last("SELECT v FROM tx:keep;")).toEqual([{ v: 2 }])
 
-      const cancelled = await db.beginTransaction();
-      await cancelled.query(`CREATE tx:drop CONTENT { v: 3 };`);
-      await cancelled.cancel();
-      expect(await last("SELECT v FROM tx:drop;")).toEqual([]);
+      const cancelled = await db.beginTransaction()
+      await cancelled.query(`CREATE tx:drop CONTENT { v: 3 };`)
+      await cancelled.cancel()
+      expect(await last("SELECT v FROM tx:drop;")).toEqual([])
 
-      // commit after cancel throws; cancel after a failed statement is safe.
-      const dead = await db.beginTransaction();
-      await dead.cancel();
-      expect(await caught(dead.commit())).not.toBeNull();
+      // Commit after cancel throws; cancel after a failed statement is safe.
+      const dead = await db.beginTransaction()
+      await dead.cancel()
+      expect(await caught(dead.commit())).not.toBeNull()
 
-      const failed = await db.beginTransaction();
-      expect(
-        await caught(failed.query(`CREATE tx:base CONTENT { v: 9 };`)),
-      ).not.toBeNull();
-      await failed.cancel();
+      const failed = await db.beginTransaction()
+      expect(await caught(failed.query(`CREATE tx:base CONTENT { v: 9 };`))).not.toBeNull()
+      await failed.cancel()
 
       // Nested beginTransaction is ALLOWED at the server/SDK level (the ORM turns it into the
-      // same transaction instead — see the client rule).
-      const outer = await db.beginTransaction();
-      const inner = await db.beginTransaction();
-      await inner.cancel();
-      await outer.cancel();
+      // Same transaction instead — see the client rule).
+      const outer = await db.beginTransaction(),
+        inner = await db.beginTransaction()
+      await inner.cancel()
+      await outer.cancel()
 
       // Optimistic concurrency: the second commit is a WriteConflict, payload included.
-      const left = await db.beginTransaction();
-      const right = await db.beginTransaction();
-      await left.query(`UPDATE tx:base SET v = 10;`);
-      await right.query(`UPDATE tx:base SET v = 20;`);
-      await left.commit();
-      const conflict = await caught(right.commit());
-      expect(conflict).toBeInstanceOf(Error);
+      const left = await db.beginTransaction(),
+        right = await db.beginTransaction()
+      await left.query(`UPDATE tx:base SET v = 10;`)
+      await right.query(`UPDATE tx:base SET v = 20;`)
+      await left.commit()
+      const conflict = await caught(right.commit())
+      expect(conflict).toBeInstanceOf(Error)
       expect(
         (conflict as { kind?: string; message?: string }).kind === "Internal" ||
           (conflict as Error).message.includes("Write conflict"),
-      ).toBe(true);
-    });
-  });
+      ).toBe(true)
+    })
+  })
   describe("M5 — raw escape hatches, context and admin", () => {
     test("USE NS … DB …; scopes the rest of the script and never leaks the session", async () => {
       await run(
         `DEFINE NAMESPACE ctx_probe; USE NS ctx_probe DB main; DEFINE TABLE t SCHEMAFULL; DEFINE FIELD n ON t TYPE int; CREATE t:1 CONTENT { n: 1 };`,
-      );
-      const [use, rows] = await run<unknown[]>(
-        "USE NS ctx_probe DB main; SELECT * FROM t;",
-      );
-      expect(plain(use)).toEqual({ namespace: "ctx_probe", database: "main" });
-      expect(plain(rows)).toEqual([{ id: "t:1", n: 1 }]);
+      )
+      const [use, rows] = await run("USE NS ctx_probe DB main; SELECT * FROM t;")
+      expect(plain(use)).toEqual({ namespace: "ctx_probe", database: "main" })
+      expect(plain(rows)).toEqual([{ id: "t:1", n: 1 }])
       // The connection's session never moved.
-      expect(db.namespace).toBe(NS);
-      expect(db.database).toBe(DB);
+      expect(db.namespace).toBe(NS)
+      expect(db.database).toBe(DB)
       // `USE NS` alone KEEPS the current database (it does not unset it).
-      const [onlyNs] = await run<unknown[]>("USE NS ctx_probe;");
+      const [onlyNs] = await run("USE NS ctx_probe;")
       expect(plain(onlyNs)).toEqual({
         namespace: "ctx_probe",
         database: "map",
-      });
-    });
+      })
+    })
 
     test("INFO FOR ROOT/NS/DB/TABLE shapes", async () => {
-      const root = await last("INFO FOR ROOT;");
-      expect(Object.keys(root.namespaces ?? {})).toContain("ctx_probe");
-      const ns = await last("INFO FOR NS;");
-      expect(Object.keys(ns.databases ?? {})).toContain("map");
-      const dbInfo = await last("INFO FOR DB;");
-      expect(Object.keys(dbInfo.tables ?? {})).toContain("user");
-      const table = await last("INFO FOR TABLE user;");
-      expect(Object.keys(table.fields ?? {})).toContain("name");
-    });
+      const root = await last("INFO FOR ROOT;")
+      expect(Object.keys(root.namespaces ?? {})).toContain("ctx_probe")
+      const ns = await last("INFO FOR NS;")
+      expect(Object.keys(ns.databases ?? {})).toContain("map")
+      const dbInfo = await last("INFO FOR DB;")
+      expect(Object.keys(dbInfo.tables ?? {})).toContain("user")
+      const table = await last("INFO FOR TABLE user;")
+      expect(Object.keys(table.fields ?? {})).toContain("name")
+    })
 
     test("functions run as RETURN fn::x($p…) and resolve in the prefixed namespace", async () => {
-      await run(
-        "DEFINE FUNCTION fn::probe_add($a: int, $b: int) { RETURN $a + $b; };",
-      );
-      expect(await last("RETURN fn::probe_add($a, $b);", { a: 2, b: 3 })).toBe(
-        5,
-      );
-      await run(
-        "USE NS ctx_probe DB main; DEFINE FUNCTION fn::probe_here() { RETURN 'here'; };",
-      );
-      expect(
-        await last("USE NS ctx_probe DB main; RETURN fn::probe_here();"),
-      ).toBe("here");
-    });
+      await run("DEFINE FUNCTION fn::probe_add($a: int, $b: int) { RETURN $a + $b; };")
+      expect(await last("RETURN fn::probe_add($a, $b);", { a: 2, b: 3 })).toBe(5)
+      await run("USE NS ctx_probe DB main; DEFINE FUNCTION fn::probe_here() { RETURN 'here'; };")
+      expect(await last("USE NS ctx_probe DB main; RETURN fn::probe_here();")).toBe("here")
+    })
 
     test("TIMEOUT is accepted only by the statement verbs that support it", async () => {
       for (const sql of [
@@ -2312,7 +2000,8 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
         'CREATE user:tmp CONTENT { name: "tmp", age: 1 } TIMEOUT 1s;',
         "DELETE user:tmp TIMEOUT 1s;",
       ])
-        expect(await caught(run(sql))).toBeNull();
+        expect(await caught(run(sql))).toBeNull()
+
       for (const sql of [
         "RETURN 1 TIMEOUT 1s;",
         "LET $x = 1 TIMEOUT 1s;",
@@ -2320,120 +2009,97 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
         "INFO FOR DB TIMEOUT 1s;",
         "SHOW CHANGES FOR TABLE user SINCE 0 TIMEOUT 1s;",
       ])
-        expect(await caught(run(sql))).not.toBeNull();
-    });
+        expect(await caught(run(sql))).not.toBeNull()
+    })
 
     test("DEFINE API returns an ApiResponse envelope; db.health() is WS-unsupported", async () => {
-      await run(
-        "DEFINE API '/probe' FOR get THEN { RETURN { status: 200, body: { ok: true } }; };",
-      );
+      await run("DEFINE API '/probe' FOR get THEN { RETURN { status: 200, body: { ok: true } }; };")
       const api = db.api() as unknown as {
-        get(path: string): Promise<unknown>;
-      };
-      const response = await api.get("/probe");
+          get: (path: string) => Promise<unknown>
+        },
+        response = await api.get("/probe")
       expect(plain(response)).toMatchObject({
         status: 200,
         body: { ok: true },
-      });
+      })
       // `health()` is an HTTP-endpoint concept — over WebSocket the server has no such method.
-      expect(await caught(db.health())).not.toBeNull();
-    });
-  });
+      expect(await caught(db.health())).not.toBeNull()
+    })
+  })
 
   describe("identifier escaping — hardened", () => {
     test("names containing `⟩`/`\\` are backtick-quoted and round-trip (never inject)", async () => {
-      const hostile = "x\\⟩ OR true OR ⟨y";
+      const hostile = "x\\⟩ OR true OR ⟨y"
       // The SDK's `escapeIdent` output is ambiguous: the server parses the tail as SQL (the
-      // vulnerability — `<ident> OR true OR <ident>` evaluates truthy).
+      // Vulnerability — `<ident> OR true OR <ident>` evaluates truthy).
       // SDK 2.1.1 fixed the vulnerable `escapeIdent`; backtick-quoted identifiers evaluate to
       // NONE instead of injecting truthy SQL.
-      expect(await last(`RETURN ${escapeIdent(hostile)};`)).toBeFalsy();
+      expect(await last(`RETURN ${escapeIdent(hostile)};`)).toBeFalsy()
       // The hardened escaper wraps it in ONE backtick identifier; `= NONE` proves it evaluated as a
-      // single (undefined) identifier, not as an expression.
-      expect(await last(`RETURN ${escapeIdentSafe(hostile)} = NONE;`)).toBe(
-        true,
-      );
+      // Single (undefined) identifier, not as an expression.
+      expect(await last(`RETURN ${escapeIdentSafe(hostile)} = NONE;`)).toBe(true)
       // Real names round-trip through DDL + reads (including `⟩`, `\`, backtick and space).
-      for (const [i, name] of ["a⟩b", "a\\b", "a`b", "a b"].entries()) {
-        const ident = escapeIdentSafe(name);
-        const table = `esc_probe_${i}`;
-        await run(`DEFINE TABLE ${table};`);
-        await run(`CREATE ${table}:1 SET ${ident} = ${JSON.stringify(name)};`);
-        expect(await last(`SELECT VALUE ${ident} FROM ${table};`)).toEqual([
-          name,
-        ]);
-        await run(`REMOVE TABLE ${table};`);
+      for (const [i, name] of ["a⟩b", String.raw`a\b`, "a`b", "a b"].entries()) {
+        const ident = escapeIdentSafe(name),
+          table = `esc_probe_${i}`
+        await run(`DEFINE TABLE ${table};`)
+        await run(`CREATE ${table}:1 SET ${ident} = ${JSON.stringify(name)};`)
+        expect(await last(`SELECT VALUE ${ident} FROM ${table};`)).toEqual([name])
+        await run(`REMOVE TABLE ${table};`)
       }
-    });
-  });
+    })
+  })
 
   describe("string ids — bare app strings vs wire RecordId", () => {
     test("a raw string bind never matches a record column; the RecordId encode does", async () => {
       await run(
         "DEFINE TABLE sid_target SCHEMAFULL; DEFINE TABLE sid_probe SCHEMAFULL; DEFINE FIELD ref ON sid_probe TYPE record<sid_target>;",
-      );
-      await run(
-        "CREATE sid_target:o1; CREATE sid_probe:r1 SET ref = sid_target:o1;",
-      );
+      )
+      await run("CREATE sid_target:o1; CREATE sid_probe:r1 SET ref = sid_target:o1;")
       // The string-id codec's WIRE accepts a bare string, but the BIND must be a RecordId — a raw
-      // string compares type-vs-type and silently matches nothing.
+      // String compares type-vs-type and silently matches nothing.
       expect(
         await last("SELECT VALUE ref FROM sid_probe WHERE ref = $p;", {
           p: "o1",
         }),
-      ).toEqual([]);
+      ).toEqual([])
       expect(
         await last("SELECT VALUE ref FROM sid_probe WHERE ref = $p;", {
           p: new RecordId("sid_target", "o1"),
         }),
-      ).toEqual(["sid_target:o1"]);
-    });
+      ).toEqual(["sid_target:o1"])
+    })
 
     test("keyset cursor: id > $RecordId filters; id > $rawString does not", async () => {
-      await run("CREATE sid_probe:r2 SET ref = sid_target:o1;");
+      await run("CREATE sid_probe:r2 SET ref = sid_target:o1;")
       expect(
-        await last(
-          "SELECT VALUE id FROM sid_probe WHERE id > $p ORDER BY id;",
-          { p: new RecordId("sid_probe", "r1") },
-        ),
-      ).toEqual(["sid_probe:r2"]);
+        await last("SELECT VALUE id FROM sid_probe WHERE id > $p ORDER BY id;", {
+          p: new RecordId("sid_probe", "r1"),
+        }),
+      ).toEqual(["sid_probe:r2"])
       // The raw-string comparison is NOT the keyset semantics — the cursor compiler coerces.
       expect(
-        await last(
-          "SELECT VALUE id FROM sid_probe WHERE id > $p ORDER BY id;",
-          { p: "r1" },
-        ),
-      ).not.toEqual(["sid_probe:r2"]);
-    });
+        await last("SELECT VALUE id FROM sid_probe WHERE id > $p ORDER BY id;", { p: "r1" }),
+      ).not.toEqual(["sid_probe:r2"])
+    })
 
     test("an unescaped ULID-like literal is accepted and normalized to ⟨…⟩", async () => {
-      const ulid = "01MABCDEFGHJKMNPQRSTVWXYZ";
-      await run(`CREATE sid_ulid:${ulid};`);
-      expect(
-        await last("SELECT VALUE type::string(id) FROM sid_ulid;"),
-      ).toEqual([`sid_ulid:${ulid}`]);
-      const rid = new RecordId("sid_ulid", ulid);
-      expect(
-        await last("SELECT VALUE id = $p FROM sid_ulid;", { p: rid }),
-      ).toEqual([true]);
-      expect(
-        await last("SELECT VALUE id FROM sid_ulid WHERE id > $p;", { p: rid }),
-      ).toEqual([]);
+      const ulid = "01MABCDEFGHJKMNPQRSTVWXYZ"
+      await run(`CREATE sid_ulid:${ulid};`)
+      expect(await last("SELECT VALUE type::string(id) FROM sid_ulid;")).toEqual([
+        `sid_ulid:${ulid}`,
+      ])
+      const rid = new RecordId("sid_ulid", ulid)
+      expect(await last("SELECT VALUE id = $p FROM sid_ulid;", { p: rid })).toEqual([true])
+      expect(await last("SELECT VALUE id FROM sid_ulid WHERE id > $p;", { p: rid })).toEqual([])
       // The raw id part comes back bare from `record::id` (the codec uses `RecordId.id`).
-      expect(await last("RETURN record::id($p);", { p: rid })).toBe(ulid);
+      expect(await last("RETURN record::id($p);", { p: rid })).toBe(ulid)
       // The SDK renders a UUID value part as `u"…"`; the shared unescape recovers the raw text.
-      const uuidRid = new RecordId(
-        "sid_ulid",
-        new Uuid("0190f5b2-7c1e-7c3a-8f4b-2b6a1c9d8e7f"),
-      );
-      const rendered = String(uuidRid).split(":")[1] ?? "";
-      expect(rendered).toMatch(/^u"/);
-      expect(unescapeIdPart(rendered)).toBe(
-        "0190f5b2-7c1e-7c3a-8f4b-2b6a1c9d8e7f",
-      );
-      await run(
-        "REMOVE TABLE sid_probe; REMOVE TABLE sid_target; REMOVE TABLE sid_ulid;",
-      );
-    });
-  });
-});
+      const uuidRid = new RecordId("sid_ulid", new Uuid("0190f5b2-7c1e-7c3a-8f4b-2b6a1c9d8e7f")),
+        rendered = String(uuidRid).split(":")[1] ?? ""
+      expect(rendered).toMatch(/^u"/)
+      expect(unescapeIdPart(rendered)).toBe("0190f5b2-7c1e-7c3a-8f4b-2b6a1c9d8e7f")
+      await run("REMOVE TABLE sid_probe; REMOVE TABLE sid_target; REMOVE TABLE sid_ulid;")
+    })
+  })
+})

@@ -1,35 +1,34 @@
 // The query logger against a REAL server: the framed output carries the actual execution plan from
 // `.explain()` and from auto-explain (`EXPLAIN FORMAT JSON`). Ephemeral server; skipped without the
 // `surreal` binary.
-import { setDefaultTimeout } from "bun:test";
+import { setDefaultTimeout } from "bun:test"
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 
-setDefaultTimeout(120_000);
+import { Surreal } from "surrealdb"
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { Surreal } from "surrealdb";
-import {
-  type EphemeralServer,
-  spawnEphemeralServer,
-  surrealBinaryAvailable,
-} from "../../../src/surreal/cli/engine";
-import { defineTable, s } from "../../../src/surreal";
-import { betterSchemic, type Client } from "../../../src/surreal/orm/client";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { defineTable, s } from "../../../src/surreal"
+import { spawnEphemeralServer, surrealBinaryAvailable } from "../../../src/surreal/cli/engine"
+import { betterSchemic } from "../../../src/surreal/orm/client"
+import { defineSchema } from "../../../src/surreal/orm/schema"
 
-const ENABLED = surrealBinaryAvailable();
-const live = describe.skipIf(!ENABLED);
-if (!ENABLED)
-  console.warn("[orm-logger] `surreal` binary unavailable — skipping");
+import type { EphemeralServer } from "../../../src/surreal/cli/engine"
+import type { Client } from "../../../src/surreal/orm/client"
+
+setDefaultTimeout(120_000)
+
+const ENABLED = surrealBinaryAvailable(),
+  live = describe.skipIf(!ENABLED)
+if (!ENABLED) console.warn("[orm-logger] `surreal` binary unavailable — skipping")
 
 const User = defineTable("lg_user", {
-  name: s.string(),
-  age: s.int(),
-  active: s.boolean(),
-}).index("lg_idx_age", ["age"], { unique: true });
-const schema = defineSchema({ users: User });
+    name: s.string(),
+    age: s.int(),
+    active: s.boolean(),
+  }).index("lg_idx_age", ["age"], { unique: true }),
+  schema = defineSchema({ users: User })
 
 function capturing(overrides: Record<string, unknown> = {}) {
-  const lines: string[] = [];
+  const lines: string[] = []
   return {
     lines,
     out: () => lines.join("\n"),
@@ -38,19 +37,18 @@ function capturing(overrides: Record<string, unknown> = {}) {
       colors: false,
       ...overrides,
     },
-  };
+  }
 }
 
 live("orm logger — live", () => {
-  let server: EphemeralServer;
-  let db: Surreal;
+  let db: Surreal, server: EphemeralServer
 
   beforeAll(async () => {
-    server = await spawnEphemeralServer();
-    db = new Surreal();
-    await db.connect(server.url, { reconnect: false });
-    await db.signin({ username: server.username, password: server.password });
-    await db.use({ namespace: "orm_logger", database: "live" });
+    server = await spawnEphemeralServer()
+    db = new Surreal()
+    await db.connect(server.url, { reconnect: false })
+    await db.signin({ username: server.username, password: server.password })
+    await db.use({ namespace: "orm_logger", database: "live" })
     await db.query(`
       REMOVE TABLE IF EXISTS lg_user;
       DEFINE TABLE lg_user SCHEMAFULL;
@@ -60,64 +58,52 @@ live("orm logger — live", () => {
       DEFINE INDEX lg_idx_age ON lg_user FIELDS age UNIQUE;
       CREATE lg_user:1 CONTENT { name: "Alice", age: 30, active: true };
       CREATE lg_user:2 CONTENT { name: "Bob", age: 25, active: false };
-    `);
-  });
+    `)
+  })
 
   afterAll(async () => {
-    await db?.close().catch(() => {});
-    await server?.stop();
-  });
+    await db?.close().catch(() => {})
+    await server?.stop()
+  })
 
   test("a read is logged as a framed box with the SQL, rows and duration", async () => {
-    const cap = capturing();
-    const client = betterSchemic(db, { schema, logger: cap.option }) as Client<
-      typeof schema
-    >;
-    const rows = await client.users.findMany({ where: { age: { gte: 25 } } });
-    expect(rows).toHaveLength(2);
-    const out = cap.out();
-    expect(out).toContain("findMany");
-    expect(out).toContain("SELECT * FROM lg_user");
-    expect(out).toContain("rows");
-    expect(out).toContain("╭");
-  });
+    const cap = capturing(),
+      client = betterSchemic(db, { schema, logger: cap.option }) as Client<typeof schema>,
+      rows = await client.users.findMany({ where: { age: { gte: 25 } } })
+    expect(rows).toHaveLength(2)
+    const out = cap.out()
+    expect(out).toContain("findMany")
+    expect(out).toContain("SELECT * FROM lg_user")
+    expect(out).toContain("rows")
+    expect(out).toContain("╭")
+  })
 
   test(".explain() logs the server's real execution plan", async () => {
-    const cap = capturing();
-    const client = betterSchemic(db, { schema, logger: cap.option }) as Client<
-      typeof schema
-    >;
-    const plan = await client.users
-      .findMany({ where: { age: { gt: 1 } } })
-      .explain();
-    expect(plan.statements.length).toBeGreaterThan(0);
-    const out = cap.out();
-    expect(out).toContain("EXPLAIN findMany");
-    expect(out).toMatch(/Scan|Iterate|Select/);
-  });
+    const cap = capturing(),
+      client = betterSchemic(db, { schema, logger: cap.option }) as Client<typeof schema>,
+      plan = await client.users.findMany({ where: { age: { gt: 1 } } }).explain()
+    expect(plan.statements.length).toBeGreaterThan(0)
+    const out = cap.out()
+    expect(out).toContain("EXPLAIN findMany")
+    expect(out).toMatch(/Scan|Iterate|Select/)
+  })
 
   test("auto-explain 'slow' draws the FORMAT JSON plan tree", async () => {
-    const cap = capturing({ slowMs: 0, explain: "slow" });
-    const client = betterSchemic(db, { schema, logger: cap.option }) as Client<
-      typeof schema
-    >;
-    await client.users.findMany({ where: { age: { gt: 1 } } });
-    const out = cap.out();
-    expect(out).toContain("plan");
-    expect(out).toMatch(/Scan|Iterate|Select/);
-  });
+    const cap = capturing({ slowMs: 0, explain: "slow" }),
+      client = betterSchemic(db, { schema, logger: cap.option }) as Client<typeof schema>
+    await client.users.findMany({ where: { age: { gt: 1 } } })
+    const out = cap.out()
+    expect(out).toContain("plan")
+    expect(out).toMatch(/Scan|Iterate|Select/)
+  })
 
   test("a server-side error is logged (and still throws)", async () => {
-    const cap = capturing();
-    const client = betterSchemic(db, { schema, logger: cap.option }) as Client<
-      typeof schema
-    >;
+    const cap = capturing(),
+      client = betterSchemic(db, { schema, logger: cap.option }) as Client<typeof schema>
     // A duplicate unique insert fails on the server; the logger shows the error.
-    await client.users
-      .create({ data: { name: "Alice", age: 30, active: true } })
-      .catch(() => {});
-    const out = cap.out();
-    expect(out).toContain("create");
-    expect(out).toMatch(/⛔|already exists|DatabaseError|ParseError/);
-  });
-});
+    await client.users.create({ data: { name: "Alice", age: 30, active: true } }).catch(() => {})
+    const out = cap.out()
+    expect(out).toContain("create")
+    expect(out).toMatch(/⛔|already exists|DatabaseError|ParseError/)
+  })
+})

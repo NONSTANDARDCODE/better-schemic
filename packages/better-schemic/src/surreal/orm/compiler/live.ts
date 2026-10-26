@@ -9,29 +9,33 @@
  * NO projection; `FROM ONLY`/record targets are errors; `ORDER BY`/`LIMIT`/`GROUP`/`SPLIT` do not
  * exist in a LIVE SELECT; a record leaving the `WHERE` filter emits nothing.
  */
-import { escapeIdentSafe as escapeIdent } from "../../ident";
-import type { ModelMeta, SchemaIndex } from "../meta";
-import { compileIncludes, type IncludeCompiled } from "./include";
-import { compileProjection, type ProjectionSpec } from "./projection";
+import { escapeIdentSafe as escapeIdent } from "../../ident"
+
+import { compileIncludes } from "./include"
+import { compileProjection } from "./projection"
 import {
-  type Binds,
   compileError,
   describeValue,
   isPlainObject,
   isTableMeta,
   pathList,
   renderPath,
-} from "./shared";
-import { compileWhere } from "./where";
+} from "./shared"
+import { compileWhere } from "./where"
+
+import type { ModelMeta, SchemaIndex } from "../meta"
+import type { IncludeCompiled } from "./include"
+import type { ProjectionSpec } from "./projection"
+import type { Binds } from "./shared"
 
 /** The compiled live statement + its decode spec. */
 export interface CompiledLive {
-  readonly sql: string;
-  readonly projection: ProjectionSpec;
-  readonly diff: boolean;
+  readonly sql: string
+  readonly projection: ProjectionSpec
+  readonly diff: boolean
 }
 
-const LIVE_KEYS = new Set(["where", "select", "diff", "fetch", "meta"]);
+const LIVE_KEYS = new Set(["where", "select", "diff", "fetch", "meta"])
 
 /** Compile `LIVE SELECT [DIFF] <projeção> FROM <tabela> [WHERE …] [FETCH …]`. */
 export function compileLive(
@@ -41,78 +45,81 @@ export function compileLive(
   operation = "live",
   options: { readonly index?: SchemaIndex } = {},
 ): CompiledLive {
-  if (args !== undefined && !isPlainObject(args))
+  if (args !== undefined && !isPlainObject(args)) {
     throw compileError(
       "ValidationError",
       `${operation}: args must be an object with where/select/diff/fetch (got ${describeValue(args)}).`,
       { operation, table: meta.name },
-    );
-  const spec = (args ?? {}) as Record<string, unknown>;
-  for (const key of Object.keys(spec))
-    if (!LIVE_KEYS.has(key))
+    )
+  }
+  const spec = args ?? {}
+  for (const key of Object.keys(spec)) {
+    if (!LIVE_KEYS.has(key)) {
       throw compileError(
         "ClauseNotSupportedInLive",
         `${operation}: "${key}" is not supported in a live query — live accepts where, select, diff, fetch, meta (ORDER BY/LIMIT/GROUP/SPLIT/include have no meaning in LIVE SELECT).`,
         { operation, table: meta.name },
-      );
-  const diff = spec.diff === true;
-  if (spec.diff !== undefined && typeof spec.diff !== "boolean")
+      )
+    }
+  }
+  const diff = spec.diff === true
+  if (spec.diff !== undefined && typeof spec.diff !== "boolean") {
     throw compileError(
       "ValidationError",
       `${operation}: "diff" must be a boolean (got ${describeValue(spec.diff)}).`,
       { operation, table: meta.name },
-    );
-  if (diff && spec.select !== undefined)
+    )
+  }
+  if (diff && spec.select !== undefined) {
     throw compileError(
       "ClauseNotSupportedInLive",
       `${operation}: "diff" and "select" cannot combine — \`LIVE SELECT DIFF\` takes no projection (docs/orm-syntax-map.md §7).`,
       { operation, table: meta.name },
-    );
+    )
+  }
 
   // `fetch` rides the SAME link-fetch lowering as a read `include` (projection + hydration spec).
-  const fetchList = pathList(spec.fetch, "fetch", operation);
-  let fetched: IncludeCompiled | undefined;
+  const fetchList = pathList(spec.fetch, "fetch", operation)
+  let fetched: IncludeCompiled | undefined
   if (fetchList.length > 0) {
-    if (!options.index)
+    if (!options.index) {
       throw compileError(
         "ValidationError",
         `${operation}: fetch needs the schema index (internal).`,
         { operation, table: meta.name },
-      );
+      )
+    }
     fetched = compileIncludes({
       meta,
       include: Object.fromEntries(fetchList.map((field) => [field, true])),
       binds,
       index: options.index,
       operation,
-    });
+    })
   }
   const { text, spec: baseSpec } = compileProjection(
-    meta,
-    spec.select,
-    undefined,
-    false,
-    binds,
-    operation,
-    undefined,
-    { parts: fetched?.parts ?? [], passthrough: fetched?.passthrough ?? [] },
-  );
-  const projection: ProjectionSpec = {
-    ...baseSpec,
-    includes: fetched?.specs ?? [],
-  };
-  const parts = [
-    `LIVE SELECT ${diff ? "DIFF" : text}`,
-    `FROM ${escapeIdent(meta.name)}`,
-  ];
-  const where = compileWhere(spec.where, binds, {
-    ...(isTableMeta(meta) ? { meta } : {}),
-    ...(options.index ? { index: options.index } : {}),
-    operation,
-  });
-  if (where) parts.push(`WHERE ${where}`);
+      meta,
+      spec.select,
+      undefined,
+      false,
+      binds,
+      operation,
+      undefined,
+      { parts: fetched?.parts ?? [], passthrough: fetched?.passthrough ?? [] },
+    ),
+    projection: ProjectionSpec = {
+      ...baseSpec,
+      includes: fetched?.specs ?? [],
+    },
+    parts = [`LIVE SELECT ${diff ? "DIFF" : text}`, `FROM ${escapeIdent(meta.name)}`],
+    where = compileWhere(spec.where, binds, {
+      ...(isTableMeta(meta) ? { meta } : {}),
+      ...(options.index ? { index: options.index } : {}),
+      operation,
+    })
+  if (where) parts.push(`WHERE ${where}`)
   if (fetched && fetched.fetch.length > 0)
-    parts.push(`FETCH ${fetched.fetch.map(renderPath).join(", ")}`);
+    parts.push(`FETCH ${fetched.fetch.map(renderPath).join(", ")}`)
 
-  return { sql: parts.join(" "), projection, diff };
+  return { sql: parts.join(" "), projection, diff }
 }

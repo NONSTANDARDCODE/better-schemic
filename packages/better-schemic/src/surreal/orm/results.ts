@@ -8,42 +8,41 @@
  * `attachThrow` mirrors better-drizzle's `attachThrow` (`shared/client/hooks.ts:314-385`): the
  * thenable is augmented in place, so there is zero cost when `.throw()` is never called.
  */
-import type { QueryResponse } from "surrealdb";
-import {
-  BetterSchemicError,
-  type BetterSchemicErrorOptions,
-  normalizeError,
-} from "./errors";
+import type { QueryResponse } from "surrealdb"
+
+import { BetterSchemicError, normalizeError } from "./errors"
+
+import type { BetterSchemicErrorOptions } from "./errors"
 
 /** Context handed to `.throw()` factories so error messages can name the target. */
 export interface NotFoundInfo {
   /** The table/edge the operation targeted (physical name). */
-  readonly table: string;
+  readonly table: string
   /** The delegate operation, e.g. `"findUnique"` / `"update"` / `"delete"`. */
-  readonly operation: string;
+  readonly operation: string
   /** The filter that matched nothing (verbatim, for the factory). */
-  readonly where?: unknown;
+  readonly where?: unknown
   /** The SurrealQL emitted for the statement. */
-  readonly surql?: string;
+  readonly surql?: string
   /** The bound variables of the statement. */
-  readonly vars?: Record<string, unknown>;
+  readonly vars?: Record<string, unknown>
 }
 
 /** A read/write that may miss: `await` yields `T | null`; `.throw()` yields `T` or throws. */
 export type ThrowingResult<T> = Promise<T | null> & {
-  throw(factory?: (info: NotFoundInfo) => Error): Promise<T>;
-};
+  throw: (factory?: (info: NotFoundInfo) => Error) => Promise<T>
+}
 
 /** Short, safe rendering of a filter for the default not-found message. */
 function describeWhere(where: unknown): string {
-  if (where === undefined) return "";
-  let text: string;
+  if (where === undefined) return ""
+  let text: string
   try {
-    text = JSON.stringify(where) ?? String(where);
+    text = JSON.stringify(where) ?? String(where)
   } catch {
-    text = String(where);
+    text = String(where)
   }
-  return ` matching ${text.length > 200 ? `${text.slice(0, 200)}…` : text}`;
+  return ` matching ${text.length > 200 ? `${text.slice(0, 200)}…` : text}`
 }
 
 /**
@@ -54,13 +53,13 @@ export function attachThrow<T>(
   promise: Promise<T | null>,
   info: NotFoundInfo | (() => NotFoundInfo),
 ): ThrowingResult<T> {
-  const getInfo = typeof info === "function" ? info : () => info;
+  const getInfo = typeof info === "function" ? info : () => info
   return Object.assign(promise, {
-    throw(factory?: (info: NotFoundInfo) => Error): Promise<T> {
+    async throw(factory?: (info: NotFoundInfo) => Error): Promise<T> {
       return promise.then((value) => {
         if (value === null || value === undefined) {
-          const notFound = getInfo();
-          if (factory) throw factory(notFound);
+          const notFound = getInfo()
+          if (factory) throw factory(notFound)
           throw new BetterSchemicError(
             "ResultNotFound",
             `${notFound.table}: no record matched ${notFound.operation}${describeWhere(notFound.where)}`,
@@ -71,12 +70,12 @@ export function attachThrow<T>(
               vars: notFound.vars,
               details: notFound.where,
             },
-          );
+          )
         }
-        return value;
-      });
+        return value
+      })
     },
-  }) as ThrowingResult<T>;
+  })
 }
 
 /**
@@ -84,52 +83,43 @@ export function attachThrow<T>(
  * so `.explain()` can inspect the compiled statements without executing the query. Compilation
  * itself stays eager — a bad arg throws at call time, not as an unhandled rejection.
  */
-export function lazyResult<T>(run: () => Promise<T>): Promise<T> {
-  let started: Promise<T> | undefined;
-  const get = () => (started ??= run());
-  // A `Promise` needs exactly then/catch/finally + the tag, so the annotation IS the contract.
-  const thenable: Promise<T> = {
-    // biome-ignore lint/suspicious/noThenProperty: a lazy thenable is the point — await starts it.
-    then: <TResult1 = T, TResult2 = never>(
-      onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
-      onrejected?:
-        | ((reason: unknown) => TResult2 | PromiseLike<TResult2>)
-        | null,
-    ): Promise<TResult1 | TResult2> => get().then(onfulfilled, onrejected),
-    catch: <TResult = never>(
-      onrejected?: ((reason: unknown) => TResult | PromiseLike<TResult>) | null,
-    ): Promise<T | TResult> => get().catch(onrejected),
-    finally: (onfinally?: (() => void) | null): Promise<T> =>
-      get().finally(onfinally),
-    [Symbol.toStringTag]: "Promise",
-  };
-  return thenable;
+export async function lazyResult<T>(run: () => Promise<T>): Promise<T> {
+  let started: Promise<T> | undefined
+  const get = async () => (started ??= run()),
+    // A `Promise` needs exactly then/catch/finally + the tag, so the annotation IS the contract.
+    thenable: Promise<T> = {
+      then: async <TResult1 = T, TResult2 = never>(
+        onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
+        onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+      ): Promise<TResult1 | TResult2> => get().then(onfulfilled, onrejected),
+      catch: async <TResult = never>(
+        onrejected?: ((reason: unknown) => TResult | PromiseLike<TResult>) | null,
+      ): Promise<T | TResult> => get().catch(onrejected),
+      finally: async (onfinally?: (() => void) | null): Promise<T> => get().finally(onfinally),
+      [Symbol.toStringTag]: "Promise",
+    }
+  return thenable
 }
 
 /** The statement roles an {@link ExplainResult} can carry. */
 export type ExplainKey =
-  | "data"
-  | "total"
-  | "count"
-  | "exists"
-  | "probe:hasNext"
-  | "probe:hasPrevious";
+  "data" | "total" | "count" | "exists" | "probe:hasNext" | "probe:hasPrevious"
 
 /** One explained statement: the exact SurrealQL, its binds, and the server's plan. */
 export interface ExplainStatement {
-  readonly key: ExplainKey;
-  readonly surql: string;
-  readonly vars: Record<string, unknown>;
-  readonly plan: unknown;
+  readonly key: ExplainKey
+  readonly surql: string
+  readonly vars: Record<string, unknown>
+  readonly plan: unknown
 }
 
 /** The diagnostic plan of a read — `.explain()` / `explain: true` never executes the real query. */
 export interface ExplainResult {
-  readonly driver: "surrealdb";
-  readonly operation: string;
-  readonly statements: readonly ExplainStatement[];
+  readonly driver: "surrealdb"
+  readonly operation: string
+  readonly statements: readonly ExplainStatement[]
   /** Options the plan can't express (kept for parity; today always empty). */
-  readonly ignoredOptions: readonly string[];
+  readonly ignoredOptions: readonly string[]
 }
 
 /**
@@ -139,8 +129,8 @@ export interface ExplainResult {
 export function attachExplain<T>(
   result: Promise<T>,
   explain: () => Promise<ExplainResult>,
-): Promise<T> & { explain(): Promise<ExplainResult> } {
-  return Object.assign(result, { explain });
+): Promise<T> & { explain: () => Promise<ExplainResult> } {
+  return Object.assign(result, { explain })
 }
 
 /** The envelope of a batch operation. `count` = affected records; `data` only when RETURN yields rows. */
@@ -149,24 +139,24 @@ export interface BatchResult<T = unknown> {
    * How many records the operation affected (`data.length`). `undefined` when the operation ran
    * with `return: 'none'` — the server returns no rows, so the affected count is genuinely unknown.
    */
-  readonly count?: number;
+  readonly count?: number
   /** The returned rows (`return` handed them back, or the driver supports RETURNING). */
-  readonly data?: readonly T[];
+  readonly data?: readonly T[]
   /** Items intentionally skipped (e.g. `onEmpty: 'return'`, duplicates with `ignore`). */
-  readonly skipped?: number;
+  readonly skipped?: number
   /** How many statements the operation compiled into (telemetry). */
-  readonly statements: number;
+  readonly statements: number
 }
 
 /** One statement's outcome in a batch `$query` / executor run. */
 export interface StatementResult<T = unknown> {
   /** The statement's rows (or `undefined` when it failed). */
-  readonly result: T;
-  readonly status: "OK" | "ERR";
+  readonly result: T
+  readonly status: "OK" | "ERR"
   /** Server-reported execution time (e.g. `"1.2ms"`), when stats are available. */
-  readonly time?: string;
+  readonly time?: string
   /** The NORMALIZED failure, present iff `status === "ERR"`. */
-  readonly error?: BetterSchemicError;
+  readonly error?: BetterSchemicError
 }
 
 /**
@@ -179,19 +169,17 @@ export function statementResult<T = unknown>(
   context: BetterSchemicErrorOptions = {},
 ): StatementResult<T> {
   if (response.success) {
-    const duration = response.stats?.duration;
+    const duration = response.stats?.duration
     return {
       result: response.result,
       status: "OK",
-      ...(duration !== undefined ? { time: String(duration) } : {}),
-    };
+      ...(duration === undefined ? {} : { time: String(duration) }),
+    }
   }
   return {
     result: undefined as T,
     status: "ERR",
     error: normalizeError(response.error, context),
-    ...(response.stats?.duration !== undefined
-      ? { time: String(response.stats.duration) }
-      : {}),
-  };
+    ...(response.stats?.duration === undefined ? {} : { time: String(response.stats.duration) }),
+  }
 }

@@ -1,4 +1,4 @@
-import { defineBuild } from "../../scripts/build";
+import { defineBuild } from "../../scripts/build"
 
 export default defineBuild({
   entry: [
@@ -30,4 +30,4 @@ export default defineBuild({
   // Only the CLI entry is a bin — the shebang must NOT land on the library entries.
   shebang: true,
   shebangEntries: ["src/cli/index.ts"],
-});
+})

@@ -1,17 +1,18 @@
-import { existsSync, statSync } from "node:fs";
-import { createRequire } from "node:module";
-import { basename, dirname, resolve } from "node:path";
-import type { BetterSchemicConfig } from "../config";
-import type { ConnectionConfigBase, ResolveContext } from "../connection";
+import { existsSync, statSync } from "node:fs"
+import { createRequire } from "node:module"
+import { basename, dirname, resolve } from "node:path"
+
+import type { BetterSchemicConfig } from "../config"
+import type { ConnectionConfigBase, ResolveContext } from "../connection"
 
 // `jiti` (its transpiler + babel) is ~60ms of module init that `sc --help`, `sc snapshot` and other
-// schema-less commands never need. Load it on FIRST config/schema read (createRequire keeps
+// Schema-less commands never need. Load it on FIRST config/schema read (createRequire keeps
 // `makeJiti` synchronous, so no call site changes) instead of at barrel import.
-const require_ = createRequire(import.meta.url);
-let jitiModule: typeof import("jiti") | undefined;
+const require_ = createRequire(import.meta.url)
+let jitiModule: typeof import("jiti") | undefined
 
 // `better-schemic.ts` is the scaffolded name (the config IS the app's DB module — `betterSchemic.connect()`);
-// the legacy `schemic.config.*` / `schemic.ts` spellings keep working. Checked LAST + shape-guarded, so an unrelated
+// The legacy `schemic.config.*` / `schemic.ts` spellings keep working. Checked LAST + shape-guarded, so an unrelated
 // `./better-schemic.ts` helper module in a project never shadows a real `better-schemic.config.ts`.
 const CONFIG_NAMES = [
   "better-schemic.config.ts",
@@ -23,15 +24,15 @@ const CONFIG_NAMES = [
   "schemic.config.mjs",
   "schemic.config.js",
   "schemic.ts",
-];
+]
 
 /**
  * Is the schema path a single file (vs a directory of schema modules)? Determined by `stat` when
  * it exists, else inferred from a `.ts`/`.js`-ish extension.
  */
 function schemaIsFilePath(path: string): boolean {
-  if (existsSync(path)) return statSync(path).isFile();
-  return /\.[mc]?[jt]s$/.test(path);
+  if (existsSync(path)) return statSync(path).isFile()
+  return /\.[mc]?[jt]s$/.test(path)
 }
 
 /**
@@ -41,16 +42,16 @@ function schemaIsFilePath(path: string): boolean {
  */
 function loadDotEnv(dir: string): void {
   const proc = process as typeof process & {
-    loadEnvFile?: (path: string) => void;
-  };
-  if (typeof proc.loadEnvFile !== "function") return;
+    loadEnvFile?: (path: string) => void
+  }
+  if (typeof proc.loadEnvFile !== "function") return
   for (const name of [".env.local", ".env"]) {
-    const file = resolve(dir, name);
-    if (!existsSync(file)) continue;
+    const file = resolve(dir, name)
+    if (!existsSync(file)) continue
     try {
-      proc.loadEnvFile(file);
+      proc.loadEnvFile(file)
     } catch {
-      // ignore a malformed .env file
+      // Ignore a malformed .env file
     }
   }
 }
@@ -62,25 +63,25 @@ function loadDotEnv(dir: string): void {
  */
 export interface ResolvedConfig {
   /** Resolved connection name (e.g. `default`, or `tenants:abc` within a collection). */
-  connection: string;
+  connection: string
   /** The driver this connection uses (the package the CLI dynamically loads). */
-  driver: string;
+  driver: string
   /** Project root (the directory containing the config file). */
-  root: string;
+  root: string
   /** Absolute schema path — a single `.ts` module, or a directory of them. */
-  schemaPath: string;
+  schemaPath: string
   /** Whether `schemaPath` is a single file (vs a directory of schema modules). */
-  schemaIsFile: boolean;
+  schemaIsFile: boolean
   /** Absolute migrations directory (per connection's schema). */
-  migrationsDir: string;
+  migrationsDir: string
   /** Absolute migration meta directory (the snapshot). */
-  metaDir: string;
+  metaDir: string
   /** Name of the table that records applied migrations. */
-  migrationsTable: string;
+  migrationsTable: string
   /** Driver-specific connection params (url/namespace/… or whatever the driver defines). Opaque to core. */
-  params: Record<string, unknown>;
+  params: Record<string, unknown>
   /** Optional seed script (project-level). */
-  seed?: string;
+  seed?: string
 }
 
 /**
@@ -88,75 +89,69 @@ export interface ResolvedConfig {
  * edited schema files. (The engine's own modules are native-imported, so registries stay shared.)
  */
 export function makeJiti() {
-  if (!jitiModule) jitiModule = require_("jiti") as typeof import("jiti");
-  const { createJiti } = jitiModule;
+  if (!jitiModule) jitiModule = require_("jiti") as typeof import("jiti")
+  const { createJiti } = jitiModule
   // ONE instance per process (its caches are off, so `--watch` still re-reads edited files).
-  if (!sharedJiti)
+  if (!sharedJiti) {
     sharedJiti = createJiti(import.meta.url, {
       interopDefault: true,
       fsCache: false,
       moduleCache: false,
-    });
-  return sharedJiti;
+    })
+  }
+  return sharedJiti
 }
 
-let sharedJiti: ReturnType<typeof import("jiti").createJiti> | undefined;
+let sharedJiti: ReturnType<typeof import("jiti").createJiti> | undefined
 
 /** Find + load `better-schemic.ts` / `better-schemic.config.ts` (legacy `schemic.*` aliases included) into the dialect-neutral {@link BetterSchemicConfig}. */
 export async function loadProject(opts?: {
-  config?: string;
-  cwd?: string;
+  config?: string
+  cwd?: string
 }): Promise<{ config: BetterSchemicConfig; root: string }> {
-  const cwd = opts?.cwd ?? process.cwd();
-  const candidates = opts?.config
-    ? [resolve(cwd, opts.config)]
-    : CONFIG_NAMES.map((n) => resolve(cwd, n)).filter((p) => existsSync(p));
-  if (!candidates.length || !existsSync(candidates[0])) {
+  const cwd = opts?.cwd ?? process.cwd(),
+    candidates = opts?.config
+      ? [resolve(cwd, opts.config)]
+      : CONFIG_NAMES.map((n) => resolve(cwd, n)).filter((p) => existsSync(p))
+  if (candidates.length === 0 || !existsSync(candidates[0])) {
     throw new Error(
       "No better-schemic.ts / better-schemic.config.ts found — run `better-schemic init` first.",
-    );
+    )
   }
-  const jiti = makeJiti();
+  const jiti = makeJiti()
   for (const path of candidates) {
-    const root = dirname(path);
-    loadDotEnv(root); // populate process.env before the config module's explicit reads
+    const root = dirname(path)
+    loadDotEnv(root) // Populate process.env before the config module's explicit reads
     const loaded = (await jiti.import(path)) as {
-      default?: BetterSchemicConfig;
-      betterSchemic?: BetterSchemicConfig;
-      schemic?: BetterSchemicConfig;
-    } & BetterSchemicConfig;
-    // Accept a default export OR the named `betterSchemic` export (legacy: `schemic`) — the scaffolded
-    // form is the NAMED one (`export const betterSchemic = defineConfig(...)`), so app code auto-imports
-    // a deterministic identifier (`import { betterSchemic } from "./better-schemic.config"` ->
-    // `betterSchemic.connect()`). Selected by SHAPE, not presence: jiti's interopDefault makes
-    // `loaded.default` a truthy proxy even when the module has no real default export, so a presence
-    // chain would shadow the named export.
-    const config = [
-      loaded.default,
-      loaded.betterSchemic,
-      loaded.schemic,
-      loaded,
-    ].find(
-      (c): c is BetterSchemicConfig =>
-        !!c && typeof c === "object" && "connections" in c,
-    );
-    if (config?.connections && Object.keys(config.connections).length > 0) {
-      return { config, root };
-    }
+        default?: BetterSchemicConfig
+        betterSchemic?: BetterSchemicConfig
+        schemic?: BetterSchemicConfig
+      } & BetterSchemicConfig,
+      // Accept a default export OR the named `betterSchemic` export (legacy: `schemic`) — the scaffolded
+      // Form is the NAMED one (`export const betterSchemic = defineConfig(...)`), so app code auto-imports
+      // A deterministic identifier (`import { betterSchemic } from "./better-schemic.config"` ->
+      // `betterSchemic.connect()`). Selected by SHAPE, not presence: jiti's interopDefault makes
+      // `loaded.default` a truthy proxy even when the module has no real default export, so a presence
+      // Chain would shadow the named export.
+      config = [loaded.default, loaded.betterSchemic, loaded.schemic, loaded].find(
+        (c): c is BetterSchemicConfig => Boolean(c) && typeof c === "object" && "connections" in c,
+      )
+    if (config?.connections && Object.keys(config.connections).length > 0) return { config, root }
+
     // An AUTO-discovered bare `better-schemic.ts` (or legacy `schemic.ts`) without a connections map is
-    // an unrelated helper module, not a config — skip it (an explicitly-passed or `*.config.*` file
-    // still errors loudly).
+    // An unrelated helper module, not a config — skip it (an explicitly-passed or `*.config.*` file
+    // Still errors loudly).
     if (
       !opts?.config &&
-      (basename(path) === "better-schemic.ts" ||
-        basename(path) === "schemic.ts")
+      (basename(path) === "better-schemic.ts" || basename(path) === "schemic.ts")
     )
-      continue;
-    throw new Error(`Invalid config at ${path}: expected a "connections" map.`);
+      continue
+
+    throw new Error(`Invalid config at ${path}: expected a "connections" map.`)
   }
   throw new Error(
     'No Better-schemic config found — ./better-schemic.ts exists but doesn\'t export a config with a "connections" map. Run `better-schemic init`, or export one via defineConfig.',
-  );
+  )
 }
 
 /**
@@ -175,16 +170,14 @@ export function resolveConnectionConfig(
   driver: string,
   root: string,
 ): ResolvedConfig {
-  const { schema, migrations, key, ...params } = conn;
-  const schemaPath = resolve(root, schema);
-  // Default migrations dir is RELATIVE TO THE SCHEMA (the documented contract): the sibling
-  // `migrations` dir next to the schema dir (or next to a single-file schema). For the standard
-  // scaffold (`schema: "./database/schema"`) that is `./database/migrations`, unchanged; a nested
-  // schema (`./src/database/schema`) correctly gets `./src/database/migrations` instead of a
-  // root-fixed default that split state across two locations.
-  const migrationsDir = migrations
-    ? resolve(root, migrations)
-    : resolve(schemaPath, "..", "migrations");
+  const { schema, migrations, key, ...params } = conn,
+    schemaPath = resolve(root, schema),
+    // Default migrations dir is RELATIVE TO THE SCHEMA (the documented contract): the sibling
+    // `migrations` dir next to the schema dir (or next to a single-file schema). For the standard
+    // Scaffold (`schema: "./database/schema"`) that is `./database/migrations`, unchanged; a nested
+    // Schema (`./src/database/schema`) correctly gets `./src/database/migrations` instead of a
+    // Root-fixed default that split state across two locations.
+    migrationsDir = migrations ? resolve(root, migrations) : resolve(schemaPath, "..", "migrations")
   return {
     connection: key ? `${connection}:${key}` : connection,
     driver,
@@ -194,9 +187,9 @@ export function resolveConnectionConfig(
     migrationsDir,
     metaDir: resolve(migrationsDir, "meta"),
     migrationsTable: config.migrationsTable ?? "_migrations",
-    params: params as Record<string, unknown>,
+    params,
     seed: config.seed,
-  };
+  }
 }
 
 /**
@@ -205,35 +198,34 @@ export function resolveConnectionConfig(
  * here a static default connection is resolved with an empty context.)
  */
 export async function loadConfig(opts?: {
-  config?: string;
-  cwd?: string;
+  config?: string
+  cwd?: string
 }): Promise<ResolvedConfig> {
-  const { config, root } = await loadProject(opts);
-  const names = Object.keys(config.connections);
-  const name =
-    config.defaultConnection ?? (names.length === 1 ? names[0] : "default");
-  const entry = config.connections[name];
+  const { config, root } = await loadProject(opts),
+    names = Object.keys(config.connections),
+    name = config.defaultConnection ?? (names.length === 1 ? names[0] : "default"),
+    entry = config.connections[name]
   if (!entry) {
     throw new Error(
       `No connection named "${name}". Set "defaultConnection" or pass --connection. Known: ${names.join(", ")}.`,
-    );
+    )
   }
-  const ctx: ResolveContext = { connections: {}, env: process.env };
-  const resolved = await entry.resolve(ctx);
+  const ctx: ResolveContext = { connections: {}, env: process.env },
+    resolved = await entry.resolve(ctx)
   if (resolved.length !== 1) {
     throw new Error(
       `Connection "${name}" resolved to ${resolved.length} connections (a collection); pass --connection ${name}:<key>.`,
-    );
+    )
   }
-  return resolveConnectionConfig(config, name, resolved[0], entry.driver, root);
+  return resolveConnectionConfig(config, name, resolved[0], entry.driver, root)
 }
 
 /** Per-command connection flag overrides (CLI args, applied by the driver over `params`). */
 export interface ConnectionOverrides {
-  url?: string;
-  namespace?: string;
-  database?: string;
-  username?: string;
-  password?: string;
-  authLevel?: string;
+  url?: string
+  namespace?: string
+  database?: string
+  username?: string
+  password?: string
+  authLevel?: string
 }

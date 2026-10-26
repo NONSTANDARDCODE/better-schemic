@@ -1,5 +1,6 @@
-import { defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "String-format builders (reverse to the builder on pull)",
@@ -16,4 +17,4 @@ DEFINE FIELD id2 ON TABLE fmt TYPE string ASSERT string::is_ulid($value);`,
     ip: s.ipv4(),
     id2: s.ulid(),
   }),
-});
+})

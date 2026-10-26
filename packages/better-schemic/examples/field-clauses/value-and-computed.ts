@@ -1,5 +1,6 @@
-import { defineTable, s, surql } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s, surql } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "VALUE and COMPUTED",
@@ -14,4 +15,4 @@ DEFINE FIELD full ON TABLE c TYPE string COMPUTED name.first + ' ' + name.last;`
     }),
     full: s.string().$computed(surql`name.first + ' ' + name.last`),
   }),
-});
+})

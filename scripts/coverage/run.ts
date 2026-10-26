@@ -15,17 +15,17 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-const root = resolve(import.meta.dir, "../..");
-const dir = join(root, ".coverage");
+const root = resolve(import.meta.dir, "../.."),
+ dir = join(root, ".coverage");
 
 // A built `lib/` makes the e2e CLI children resolve `better-schemic` to `lib/…js` instead of the
-// instrumented `src/*.ts`, silently collapsing e2e coverage (introspect/pull/driver/surreal). The CI
-// coverage job never builds, so it's unaffected — but warn a local dev who did.
+// Instrumented `src/*.ts`, silently collapsing e2e coverage (introspect/pull/driver/surreal). The CI
+// Coverage job never builds, so it's unaffected — but warn a local dev who did.
 for (const pkg of ["packages/better-schemic"]) {
   if (existsSync(join(root, pkg, "lib")))
-    console.warn(
+    {console.warn(
       `[coverage] WARNING: ${pkg}/lib exists — e2e child coverage will be undercounted. Run \`rm -rf ${pkg}/lib\` first (or use a clean checkout).`,
-    );
+    );}
 }
 
 rmSync(dir, { recursive: true, force: true });
@@ -34,16 +34,16 @@ mkdirSync(dir, { recursive: true });
 const include = [
   join(root, "packages/better-schemic/src/surreal"),
   join(root, "packages/better-schemic/src/core"),
-].join(":");
+].join(":"),
 
-const env = {
+ env = {
   ...process.env,
   COVERAGE: "1",
   COVERAGE_DIR: dir,
   COVERAGE_INCLUDE: include,
-};
+},
 
-const tests = spawnSync("bun", ["test", ...process.argv.slice(2)], {
+ tests = spawnSync("bun", ["test", ...process.argv.slice(2)], {
   cwd: root,
   stdio: "inherit",
   env,
@@ -58,9 +58,9 @@ const check = spawnSync("bun", ["run", join(import.meta.dir, "check.ts")], {
   cwd: root,
   stdio: "inherit",
   env,
-});
+}),
 // MC/DC decision inventory + reconcile over the same fragments (Tier-1 `auto` vs Tier-2 `table`).
-const mcdc = spawnSync(
+ mcdc = spawnSync(
   "bun",
   ["run", join(root, "scripts/mcdc/reconcile.ts")],
   {

@@ -1,5 +1,6 @@
-import { defineTable, s, surql } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s, surql } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "VALUE computes — a parent mapping fills nested keys",
@@ -29,4 +30,4 @@ DEFINE FIELD products.*.costPriceAtOrder ON TABLE order TYPE number;`,
         },
       ),
   }),
-});
+})

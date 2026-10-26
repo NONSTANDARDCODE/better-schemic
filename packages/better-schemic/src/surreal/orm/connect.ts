@@ -7,57 +7,54 @@
  * Kept separate from `./client` (the runtime + BYO factory) so the lifecycle code and the
  * connection-boot policies live in one place.
  */
-import type { ResolvedConfig } from "../../core";
-import { Surreal } from "surrealdb";
-import { redactUrl, connect as surrealConnect } from "../connect";
-import { escapeIdentSafe as escapeIdent } from "../ident";
-import {
-  type BetterSchemicOptions,
-  buildClient,
-  type Client,
-  type SchemaArg,
-} from "./client";
-import { normalizeError } from "./errors";
-import type { Plugin } from "./types/plugins";
-import type { SchemaInput } from "./types/schema";
+import type { ResolvedConfig } from "../../core"
+
+import { Surreal } from "surrealdb"
+
+import { redactUrl, connect as surrealConnect } from "../connect"
+import { escapeIdentSafe as escapeIdent } from "../ident"
+
+import { buildClient } from "./client"
+import { normalizeError } from "./errors"
+
+import type { BetterSchemicOptions, Client, SchemaArg } from "./client"
+import type { Plugin } from "./types/plugins"
+import type { SchemaInput } from "./types/schema"
 
 /** Authentication for {@link createBetterSchemic}: a system user, or a record-access signin. */
 export type BetterSchemicAuth =
   | { readonly username: string; readonly password: string }
-  | { readonly access: string; readonly variables: Record<string, unknown> };
+  | { readonly access: string; readonly variables: Record<string, unknown> }
 
 /** Options for {@link createBetterSchemic} — the managed (connect + authenticate + use) sugar. */
-export interface CreateBetterSchemicOptions<S extends SchemaInput>
-  extends BetterSchemicOptions {
+export interface CreateBetterSchemicOptions<S extends SchemaInput> extends BetterSchemicOptions {
   /** The WebSocket/HTTP endpoint, e.g. `wss://localhost:8000/rpc`. */
-  readonly url: string;
-  readonly namespace?: string;
-  readonly database?: string;
-  readonly auth?: BetterSchemicAuth;
+  readonly url: string
+  readonly namespace?: string
+  readonly database?: string
+  readonly auth?: BetterSchemicAuth
   /** Give up (and close) if the connection handshake doesn't complete in time. */
-  readonly connectTimeoutMs?: number;
-  readonly schema: SchemaArg<S>;
+  readonly connectTimeoutMs?: number
+  readonly schema: SchemaArg<S>
 }
 
-function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  message: string,
-): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), ms);
-    timer.unref?.();
+    const timer = setTimeout(() => {
+      reject(new Error(message))
+    }, ms)
+    timer.unref?.()
     promise.then(
       (value) => {
-        clearTimeout(timer);
-        resolve(value);
+        clearTimeout(timer)
+        resolve(value)
       },
       (error) => {
-        clearTimeout(timer);
-        reject(error);
+        clearTimeout(timer)
+        reject(error)
       },
-    );
-  });
+    )
+  })
 }
 
 /**
@@ -78,56 +75,46 @@ export async function createBetterSchemic<
 >(
   options: CreateBetterSchemicOptions<S> & { readonly plugins?: P },
 ): Promise<Client<S, Surreal, P>> {
-  const conn = new Surreal();
+  const conn = new Surreal()
   try {
-    const connecting = conn.connect(options.url, { reconnect: false });
+    const connecting = conn.connect(options.url, { reconnect: false })
     await (options.connectTimeoutMs === undefined
       ? connecting
       : withTimeout(
           connecting,
           options.connectTimeoutMs,
           `createBetterSchemic: connect to ${redactUrl(options.url)} timed out after ${options.connectTimeoutMs}ms.`,
-        ));
+        ))
     if (options.auth) {
-      if ("access" in options.auth)
+      if ("access" in options.auth) {
         await conn.signin({
           access: options.auth.access,
           variables: options.auth.variables,
-        });
-      else
+        })
+      } else {
         await conn.signin({
           username: options.auth.username,
           password: options.auth.password,
-        });
+        })
+      }
     }
     // Best-effort: create the namespace/database when we likely have the rights, then select them.
     // (A database user can't define either; a namespace user can define databases; root can do both.)
-    const { namespace, database } = options;
+    const { namespace, database } = options
     try {
       if (namespace) {
-        await conn.query(
-          `DEFINE NAMESPACE IF NOT EXISTS ${escapeIdent(namespace)};`,
-        );
-        await conn.use({ namespace });
+        await conn.query(`DEFINE NAMESPACE IF NOT EXISTS ${escapeIdent(namespace)};`)
+        await conn.use({ namespace })
       }
-      if (database) {
-        await conn.query(
-          `DEFINE DATABASE IF NOT EXISTS ${escapeIdent(database)};`,
-        );
-      }
+      if (database) await conn.query(`DEFINE DATABASE IF NOT EXISTS ${escapeIdent(database)};`)
     } catch {
-      // insufficient privileges — assume the namespace/database already exist
+      // Insufficient privileges — assume the namespace/database already exist
     }
-    if (namespace || database) await conn.use({ namespace, database });
-    return buildClient(
-      conn,
-      options.schema,
-      true,
-      options,
-    ) as unknown as Client<S, Surreal, P>;
-  } catch (e) {
-    await conn.close().catch(() => {});
-    throw normalizeError(e, { operation: "connect" });
+    if (namespace || database) await conn.use({ namespace, database })
+    return buildClient(conn, options.schema, true, options) as unknown as Client<S, Surreal, P>
+  } catch (error) {
+    await conn.close().catch(() => {})
+    throw normalizeError(error, { operation: "connect" })
   }
 }
 
@@ -143,6 +130,6 @@ export async function createBetterSchemic<
 export async function clientFromConfig(
   config: ResolvedConfig,
 ): Promise<Client<SchemaInput, Surreal>> {
-  const conn = await surrealConnect(config);
-  return buildClient(conn, {} as SchemaInput, true, {});
+  const conn = await surrealConnect(config)
+  return buildClient(conn, {}, true, {})
 }

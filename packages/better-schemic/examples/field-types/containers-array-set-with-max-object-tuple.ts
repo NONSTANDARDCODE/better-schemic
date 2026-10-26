@@ -1,5 +1,6 @@
-import { defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "Containers — array / set (with max), object, tuple",
@@ -19,4 +20,4 @@ DEFINE FIELD meta.n ON TABLE containers TYPE int;`,
     coords: s.tuple([s.float(), s.float()]),
     meta: s.object({ k: s.string(), n: s.int() }),
   }),
-});
+})

@@ -1,50 +1,47 @@
 // SurrealDB connection runtime — the DRIVER's `connect` implementation (connect + authenticate +
-// best-effort DEFINE/select NS/DB), shared by the engine (`driver/surreal.ts`) and the app-facing
+// Best-effort DEFINE/select NS/DB), shared by the engine (`driver/surreal.ts`) and the app-facing
 // `/orm` client (`orm/client.ts`). Deliberately free of CLI/engine imports so `/orm` stays lean.
 
-import type { ConnectionOverrides, ResolvedConfig } from "../core";
-import { escapeIdent, Surreal } from "surrealdb";
-import type { AuthLevel, SurrealParams } from "./config";
+import { Surreal, escapeIdent } from "surrealdb"
 
-const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+import type { ConnectionOverrides, ResolvedConfig } from "../core"
+import type { AuthLevel, SurrealParams } from "./config"
+
+const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 /** Strip credentials from a URL before it reaches a message/log (`wss://user:pass@host`). */
 export function redactUrl(url: string): string {
   try {
-    const u = new URL(url);
+    const u = new URL(url)
     if (u.username || u.password) {
-      u.username = u.username ? "***" : "";
-      u.password = u.password ? "***" : "";
+      u.username = u.username ? "***" : ""
+      u.password = u.password ? "***" : ""
     }
-    return u.toString();
+    return u.toString()
   } catch {
-    return url.replace(/\/\/[^/@]*@/, "//***@");
+    return url.replace(/\/\/[^/@]*@/, "//***@")
   }
 }
 
 const envMs = (name: string, fallback: number): number => {
-  // Legacy `SCHEMIC_*` spellings still work; the `BETTER_SCHEMIC_*` spelling wins when both are set.
-  const raw =
-    process.env[name] ??
-    process.env[name.replace("BETTER_SCHEMIC_", "SCHEMIC_")];
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-};
-
-/**
- * Ceiling on the SDK's websocket connect. Generous ON PURPOSE: a busy machine can take many
- * seconds to complete the handshake against a perfectly healthy server, and a tight ceiling turns
- * that into a spurious "is the server running?" — under a loaded parallel test gate `sc migrate`
- * aborted at the old 5s while the server was up and answering.
- *
- * A DOWN server is not what this bounds; {@link assertReachable} catches that in ~a second. (The
- * SDK does not reject promptly on a refused port even with `reconnect: false` — measured: a closed
- * port burned the whole ceiling — so this alone cannot distinguish "down" from "slow".)
- */
-const CONNECT_TIMEOUT_MS = envMs("BETTER_SCHEMIC_CONNECT_TIMEOUT_MS", 30_000);
-
-/** How long the pre-flight TCP probe waits before declaring the host unreachable. */
-const PROBE_TIMEOUT_MS = envMs("BETTER_SCHEMIC_PROBE_TIMEOUT_MS", 2_000);
+    // Legacy `SCHEMIC_*` spellings still work; the `BETTER_SCHEMIC_*` spelling wins when both are set.
+    const raw = process.env[name] ?? process.env[name.replace("BETTER_SCHEMIC_", "SCHEMIC_")],
+      n = Number(raw)
+    return Number.isFinite(n) && n > 0 ? n : fallback
+  },
+  /**
+   * Ceiling on the SDK's websocket connect. Generous ON PURPOSE: a busy machine can take many
+   * seconds to complete the handshake against a perfectly healthy server, and a tight ceiling turns
+   * that into a spurious "is the server running?" — under a loaded parallel test gate `sc migrate`
+   * aborted at the old 5s while the server was up and answering.
+   *
+   * A DOWN server is not what this bounds; {@link assertReachable} catches that in ~a second. (The
+   * SDK does not reject promptly on a refused port even with `reconnect: false` — measured: a closed
+   * port burned the whole ceiling — so this alone cannot distinguish "down" from "slow".)
+   */
+  CONNECT_TIMEOUT_MS = envMs("BETTER_SCHEMIC_CONNECT_TIMEOUT_MS", 30_000),
+  /** How long the pre-flight TCP probe waits before declaring the host unreachable. */
+  PROBE_TIMEOUT_MS = envMs("BETTER_SCHEMIC_PROBE_TIMEOUT_MS", 2000)
 
 /**
  * Pre-flight: can we even open a TCP socket to the endpoint? This is what makes a DOWN server fail
@@ -53,54 +50,51 @@ const PROBE_TIMEOUT_MS = envMs("BETTER_SCHEMIC_PROBE_TIMEOUT_MS", 2_000);
  * URL we can't parse) are not probed — they simply skip to the SDK connect.
  */
 async function assertReachable(url: string): Promise<void> {
-  let host: string;
-  let port: number;
+  let host: string, port: number
   try {
-    const u = new URL(url);
-    if (!/^(wss?|https?):$/.test(u.protocol)) return; // not a TCP endpoint — nothing to probe
-    host = u.hostname;
-    port = Number(u.port) || (/^(wss|https):$/.test(u.protocol) ? 443 : 80);
+    const u = new URL(url)
+    if (!/^(wss?|https?):$/.test(u.protocol)) return // Not a TCP endpoint — nothing to probe
+    host = u.hostname
+    port = Number(u.port) || (/^(wss|https):$/.test(u.protocol) ? 443 : 80)
   } catch {
-    return; // unparseable — let the SDK produce the error
+    return // Unparseable — let the SDK produce the error
   }
-  const { Socket } = await import("node:net");
+  const { Socket } = await import("node:net")
   await new Promise<void>((resolve, reject) => {
-    const sock = new Socket();
-    const done = (err?: Error) => {
-      sock.destroy();
-      err ? reject(err) : resolve();
-    };
-    sock.setTimeout(PROBE_TIMEOUT_MS, () =>
-      done(
-        new Error(
-          `no response from ${host}:${port} within ${PROBE_TIMEOUT_MS}ms`,
-        ),
-      ),
-    );
-    sock.once("error", (e) => done(e));
-    sock.connect(port, host, () => done());
-  });
+    const sock = new Socket(),
+      done = (err?: Error) => {
+        sock.destroy()
+        err ? reject(err) : resolve()
+      }
+    sock.setTimeout(PROBE_TIMEOUT_MS, () => {
+      done(new Error(`no response from ${host}:${port} within ${PROBE_TIMEOUT_MS}ms`))
+    })
+    sock.once("error", (e) => {
+      done(e)
+    })
+    sock.connect(port, host, () => {
+      done()
+    })
+  })
 }
 
 /** Reject if `promise` doesn't settle within `ms` — guards against a hung connect. */
-function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  message: string,
-): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), ms);
+    const timer = setTimeout(() => {
+      reject(new Error(message))
+    }, ms)
     promise.then(
       (v) => {
-        clearTimeout(timer);
-        resolve(v);
+        clearTimeout(timer)
+        resolve(v)
       },
-      (e) => {
-        clearTimeout(timer);
-        reject(e);
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
       },
-    );
-  });
+    )
+  })
 }
 
 /** Connect + authenticate + select the namespace/database. Caller closes the handle. */
@@ -108,36 +102,33 @@ export async function connect(
   config: ResolvedConfig,
   over: ConnectionOverrides = {},
 ): Promise<Surreal> {
-  const params = config.params as unknown as SurrealParams;
-  const url = over.url ?? params.url;
-  const namespace = over.namespace ?? params.namespace;
-  const database = over.database ?? params.database;
-  const username = over.username ?? params.username;
-  const password = over.password ?? params.password;
-  const level: AuthLevel = (over.authLevel ??
-    params.authLevel ??
-    "root") as AuthLevel;
-
-  const db = new Surreal();
+  const params = config.params as unknown as SurrealParams,
+    url = over.url ?? params.url,
+    namespace = over.namespace ?? params.namespace,
+    database = over.database ?? params.database,
+    username = over.username ?? params.username,
+    password = over.password ?? params.password,
+    level: AuthLevel = (over.authLevel ?? params.authLevel ?? "root") as AuthLevel,
+    db = new Surreal()
   // On ANY failure, close the handle before throwing — otherwise the SDK's reconnect timer
-  // keeps the event loop alive and the command hangs instead of exiting.
+  // Keeps the event loop alive and the command hangs instead of exiting.
   try {
     try {
       // A DOWN host fails here, fast — the SDK's connect does NOT reject promptly on a refused
-      // port (even with `reconnect: false`), so without this probe "server is down" and "server is
-      // slow" are indistinguishable and both cost the full ceiling.
-      await assertReachable(url);
+      // Port (even with `reconnect: false`), so without this probe "server is down" and "server is
+      // Slow" are indistinguishable and both cost the full ceiling.
+      await assertReachable(url)
       // `reconnect: false` so a failed connect doesn't enter a retry loop; `withTimeout` bounds a
-      // host that accepts the socket but never finishes the handshake.
+      // Host that accepts the socket but never finishes the handshake.
       await withTimeout(
         db.connect(url, { reconnect: false }),
         CONNECT_TIMEOUT_MS,
         `connection timed out after ${CONNECT_TIMEOUT_MS}ms`,
-      );
-    } catch (e) {
+      )
+    } catch (error) {
       throw new Error(
-        `Can't reach SurrealDB at ${redactUrl(url)} — is the server running? (${errMsg(e)})`,
-      );
+        `Can't reach SurrealDB at ${redactUrl(url)} — is the server running? (${errMsg(error)})`,
+      )
     }
     if (username && password) {
       // Scope the signin to the requested level (mirrors `surreal sql --auth-level`).
@@ -146,43 +137,39 @@ export async function connect(
           ? { username, password }
           : level === "namespace"
             ? { namespace, username, password }
-            : { namespace, database, username, password };
+            : { namespace, database, username, password }
       try {
-        await db.signin(auth);
-      } catch (e) {
+        await db.signin(auth)
+      } catch (error) {
         throw new Error(
-          `Authentication failed (auth level "${level}") — check SURREAL_USER / SURREAL_PASS. (${errMsg(e)})`,
-        );
+          `Authentication failed (auth level "${level}") — check SURREAL_USER / SURREAL_PASS. (${errMsg(error)})`,
+        )
       }
     }
     // Best-effort: create the namespace/database when we likely have the rights. A `database`
-    // user can't define either; a `namespace` user can define databases; `root` can do both.
+    // User can't define either; a `namespace` user can define databases; `root` can do both.
     try {
-      if (level === "root") {
-        await db.query(
-          `DEFINE NAMESPACE IF NOT EXISTS ${escapeIdent(namespace)};`,
-        );
-      }
+      if (level === "root")
+        await db.query(`DEFINE NAMESPACE IF NOT EXISTS ${escapeIdent(namespace)};`)
+
       if (level !== "database") {
-        await db.use({ namespace });
-        await db.query(
-          `DEFINE DATABASE IF NOT EXISTS ${escapeIdent(database)};`,
-        );
+        await db.use({ namespace })
+        await db.query(`DEFINE DATABASE IF NOT EXISTS ${escapeIdent(database)};`)
       }
     } catch {
-      // insufficient privileges — assume the namespace/database already exist
+      // Insufficient privileges — assume the namespace/database already exist
     }
     try {
-      await db.use({ namespace, database });
-    } catch (e) {
+      await db.use({ namespace, database })
+    } catch (error) {
       throw new Error(
-        `Couldn't select ${namespace}/${database} — does it exist and do you have access? (${errMsg(e)})`,
-      );
+        `Couldn't select ${namespace}/${database} — does it exist and do you have access? (${errMsg(error)})`,
+      )
     }
-    return db;
-  } catch (e) {
+    return db
+  } catch (error) {
     // Fire-and-forget: closing a half-open socket can be slow; don't block the error path.
-    void db.close().catch(() => {});
-    throw e;
+    void db.close().catch(() => {})
+    throw error
   }
 }

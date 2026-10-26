@@ -1,5 +1,6 @@
-import { defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "UNIQUE (single field, inline via field.$unique())",
@@ -8,4 +9,4 @@ export default example(import.meta.url, {
 DEFINE FIELD email ON TABLE u2 TYPE string ASSERT string::is_email($value);
 DEFINE INDEX u2_email_idx ON TABLE u2 FIELDS email UNIQUE;`,
   def: defineTable("u2", { id: s.string(), email: s.email().$unique() }),
-});
+})

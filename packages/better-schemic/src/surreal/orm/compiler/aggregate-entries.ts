@@ -10,14 +10,12 @@
  * {@link ColumnResolver}. That keeps ONE loop instead of two edited in lockstep, so a new aggregator
  * or a changed operator table can no longer land in one half and silently disagree with the other.
  */
-import { escapeIdentSafe as escapeIdent } from "../../ident";
-import type { AggregateArgs } from "./aggregate";
-import type { ModelMeta } from "../meta";
-import { type ProjectedField, projectedFieldFor } from "./projection";
-import { assertAggregateOperand } from "./aggregate-operand";
-import { compileOrderBy } from "./select";
+import { escapeIdentSafe as escapeIdent } from "../../ident"
+
+import { assertAggregateOperand } from "./aggregate-operand"
+import { projectedFieldFor } from "./projection"
+import { compileOrderBy } from "./select"
 import {
-  type Binds,
   compileError,
   datetimeLiteral,
   describeValue,
@@ -25,11 +23,16 @@ import {
   isLowerableValue,
   isPlainObject,
   nonNegativeInt,
-  pathSegments,
   pathList,
+  pathSegments,
   renderPath,
   renderValue,
-} from "./shared";
+} from "./shared"
+
+import type { AggregateArgs } from "./aggregate"
+import type { ModelMeta } from "../meta"
+import type { ProjectedField } from "./projection"
+import type { Binds } from "./shared"
 
 /**
  * The math aggregators (API name -> `math::<fn>`). `avg` maps to `math::mean`: SurrealDB 3.x has no
@@ -43,22 +46,22 @@ export const MATH_OPS: Readonly<Record<string, string>> = {
   median: "median",
   stddev: "stddev",
   variance: "variance",
-} as const;
+} as const
 
 /** The value aggregators: `collect` keeps every value, `distinct` deduplicates. */
 export const VALUE_OPS: Readonly<Record<string, string>> = {
   collect: "array::group",
   distinct: "array::distinct",
-} as const;
+} as const
 
 /** `min`/`max` return ONE value of the field's own type; every other math op returns a number. */
 function scalarOp(op: string): boolean {
-  return op === "min" || op === "max";
+  return op === "min" || op === "max"
 }
 
 /** True when `op` is an aggregator this compiler knows (so the guard and the call agree). */
 function isAggregator(op: string): boolean {
-  return MATH_OPS[op] !== undefined || VALUE_OPS[op] !== undefined;
+  return MATH_OPS[op] !== undefined || VALUE_OPS[op] !== undefined
 }
 
 /**
@@ -74,9 +77,9 @@ function isAggregator(op: string): boolean {
  *   `int` codec of `age` rejects the server's own answer — so the leaf is deliberately blank.
  */
 function aggregatedLeaf(op: string, leaf: ProjectedField): ProjectedField {
-  if (VALUE_OPS[op] !== undefined) return { ...leaf, each: true };
-  if (scalarOp(op)) return leaf;
-  return { out: leaf.out, source: leaf.source, expr: "", each: false };
+  if (VALUE_OPS[op] !== undefined) return { ...leaf, each: true }
+  if (scalarOp(op)) return leaf
+  return { out: leaf.out, source: leaf.source, expr: "", each: false }
 }
 
 /**
@@ -84,15 +87,15 @@ function aggregatedLeaf(op: string, leaf: ProjectedField): ProjectedField {
  * The column is the caller's job, so both lowerings share the operator table.
  */
 function aggregateCall(op: string, column: string, operation: string): string {
-  const math = MATH_OPS[op];
-  if (math !== undefined) return `math::${math}(${column})`;
-  const value = VALUE_OPS[op];
-  if (value !== undefined) return `${value}(${column})`;
+  const math = MATH_OPS[op]
+  if (math !== undefined) return `math::${math}(${column})`
+  const value = VALUE_OPS[op]
+  if (value !== undefined) return `${value}(${column})`
   throw compileError(
     "ValidationError",
     `${operation}: unknown aggregator "${op}" — use ${[...Object.keys(MATH_OPS), ...Object.keys(VALUE_OPS)].join("/")}, or a surql fragment.`,
     { operation },
-  );
+  )
 }
 
 /**
@@ -106,28 +109,28 @@ export interface ColumnResolver {
    * OUTPUT KEY `out`. `out` matters: a `groupBy` names the output key, so only the resolver can tell
    * a group key (kept as-is) from an operand (flattened under a reserved column).
    */
-  of(path: string, out: string): string;
+  of: (path: string, out: string) => string
   /** The SQL the SPLIT subquery must project for `path`/`out`; absent when there is no inner query. */
-  inner?(path: string, out: string): string;
+  inner?: (path: string, out: string) => string
   /**
    * Extra path segments every decode leaf inherits — the split ELEMENT's prefix, so
    * `products[*].price` decodes with the element's codec rather than the array field's.
    */
-  prefix(): readonly string[];
+  prefix: () => readonly string[]
   /**
    * The SQL the inner SPLIT subquery must project. REQUIRED (the plain lowering passes `[]`): the
    * resolver owns the list because a `fragment` entry contributes to it mid-loop, so an optional
    * field here would mean a silent empty list for a lowering that forgot to provide one.
    */
-  readonly inners: string[];
+  readonly inners: string[]
   /** Refuse an operand the schema knows to be un-aggregatable (teaching error). */
-  guard?(key: string, op: string, operand: string, operation: string): void;
+  guard?: (key: string, op: string, operand: string, operation: string) => void
   /**
    * A server-side expression entry. The plain lowering evaluates it once per group; the split
    * lowering evaluates it once per split ROW (inside the subquery), which is the only way a fragment
    * can read the element. Returns the SQL for the OUTER select.
    */
-  fragment?(expr: string, key: string): string;
+  fragment?: (expr: string, key: string) => string
 }
 
 /**
@@ -139,27 +142,28 @@ export function directColumns(meta: ModelMeta): ColumnResolver {
     inners: [],
     of: (path) => renderPath(path),
     prefix: () => [],
-    guard: (key, op, operand, operation) =>
-      assertAggregateOperand(meta, key, op, operand, operation),
-  };
+    guard: (key, op, operand, operation) => {
+      assertAggregateOperand(meta, key, op, operand, operation)
+    },
+  }
 }
 
 /** The compiled `select`: the projected SQL, the decode leaves, and the group-key spellings. */
 export interface CompiledSelect {
   /** The `SELECT` list, each entry aliased to its own key. */
-  parts: string[];
+  parts: string[]
   /** One decode leaf per entry, in entry order. */
-  fields: ProjectedField[];
+  fields: ProjectedField[]
   /**
    * Every spelling a `groupBy` key may take: the OUTPUT key of an alias AND the path it projects.
    * SurrealDB accepts both (`SELECT tenant AS t … GROUP BY t` and `… GROUP BY tenant` — live 3.3.4),
    * so an aliased group key must not be rejected for "not being its own path".
    */
-  projectedKeys: Set<string>;
+  projectedKeys: Set<string>
   /** Whether any entry is a server-side expression (then the group-key check is the server's). */
-  hasExpression: boolean;
+  hasExpression: boolean
   /** What the SPLIT subquery must project; empty for a plain aggregate. */
-  inners: string[];
+  inners: string[]
 }
 
 /**
@@ -178,90 +182,88 @@ export function compileAggregateSelect(
   operation: string,
   columns: ColumnResolver,
 ): CompiledSelect {
-  const parts: string[] = [];
-  const fields: ProjectedField[] = [];
-  const projectedKeys = new Set<string>();
-  const { inners } = columns;
-  let hasExpression = false;
-  const prefix = columns.prefix();
-  /** Project `path` under the output name `out`, recording the inner SQL the split needs. */
-  const column = (path: string, out: string): string => {
-    const inner = columns.inner?.(path, out);
-    if (inner !== undefined) inners.push(inner);
-    const expr = columns.of(path, out);
-    // One rule for both lowerings: an output name identical to its expression is not re-aliased.
-    return expr === escapeIdent(out) ? expr : `${expr} AS ${escapeIdent(out)}`;
-  };
+  const parts: string[] = [],
+    fields: ProjectedField[] = [],
+    projectedKeys = new Set<string>(),
+    { inners } = columns
+  let hasExpression = false
+  const prefix = columns.prefix(),
+    /** Project `path` under the output name `out`, recording the inner SQL the split needs. */
+    column = (path: string, out: string): string => {
+      const inner = columns.inner?.(path, out)
+      if (inner !== undefined) inners.push(inner)
+
+      const expr = columns.of(path, out)
+      // One rule for both lowerings: an output name identical to its expression is not re-aliased.
+      return expr === escapeIdent(out) ? expr : `${expr} AS ${escapeIdent(out)}`
+    }
 
   for (const [key, entry] of Object.entries(select)) {
-    if (entry === undefined || entry === false) continue;
+    if (entry === undefined || entry === false) continue
     if (entry === true) {
       // `_count` is the count() shorthand; any other `true` projects the field itself.
       if (key === "_count") {
-        parts.push("count() AS _count");
-        fields.push({ out: [key], source: [key], expr: "count()", each: false });
-        projectedKeys.add(key);
-        continue;
+        parts.push("count() AS _count")
+        fields.push({ out: [key], source: [key], expr: "count()", each: false })
+        projectedKeys.add(key)
+        continue
       }
-      parts.push(column(key, key));
-      projectedKeys.add(key);
-      fields.push(projectedFieldFor(meta, [key], [key], [key]));
-      continue;
+      parts.push(column(key, key))
+      projectedKeys.add(key)
+      fields.push(projectedFieldFor(meta, [key], [key], [key]))
+      continue
     }
     if (typeof entry === "string") {
       // `{ customerName: "customer.name" }` — the ALIAS is the output key; the path it projects is a
-      // valid group key too (the server accepts both spellings).
-      parts.push(column(entry, key));
-      projectedKeys.add(key);
-      projectedKeys.add(entry);
-      fields.push(projectedFieldFor(meta, [key], [key], pathSegments(entry)));
-      continue;
+      // Valid group key too (the server accepts both spellings).
+      parts.push(column(entry, key))
+      projectedKeys.add(key)
+      projectedKeys.add(entry)
+      fields.push(projectedFieldFor(meta, [key], [key], pathSegments(entry)))
+      continue
     }
     if (isPlainObject(entry)) {
-      const ops = Object.entries(entry).filter(([, v]) => v !== undefined);
-      if (ops.length !== 1)
+      const ops = Object.entries(entry).filter(([, v]) => v !== undefined)
+      if (ops.length !== 1) {
         throw compileError(
           "ValidationError",
           `${operation}: select."${key}" must be one aggregator (got ${describeValue(entry)}).`,
           { operation },
-        );
-      const [op, operand] = ops[0] as [string, unknown];
-      if (typeof operand !== "string" || !operand)
+        )
+      }
+      const [op, operand] = ops[0]
+      if (typeof operand !== "string" || !operand) {
         throw compileError(
           "ValidationError",
           `${operation}: select."${key}".${op} must be a field path.`,
           { operation },
-        );
-      if (isAggregator(op)) columns.guard?.(key, op, operand, operation);
-      const leaf = projectedFieldFor(meta, [key], [key], [
-        ...prefix,
-        ...pathSegments(operand),
-      ]);
-      parts.push(
-        `${aggregateCall(op, columns.of(operand, key), operation)} AS ${escapeIdent(key)}`,
-      );
-      projectedKeys.add(key);
-      const inner = columns.inner?.(operand, key);
-      if (inner !== undefined) inners.push(inner);
-      fields.push(aggregatedLeaf(op, leaf));
-      continue;
+        )
+      }
+      if (isAggregator(op)) columns.guard?.(key, op, operand, operation)
+      const leaf = projectedFieldFor(meta, [key], [key], [...prefix, ...pathSegments(operand)])
+      parts.push(`${aggregateCall(op, columns.of(operand, key), operation)} AS ${escapeIdent(key)}`)
+      projectedKeys.add(key)
+      const inner = columns.inner?.(operand, key)
+      if (inner !== undefined) inners.push(inner)
+      fields.push(aggregatedLeaf(op, leaf))
+      continue
     }
     if (isLowerableValue(entry)) {
-      hasExpression = true;
-      const expr = renderValue(entry, binds, binds.ctx());
-      parts.push(columns.fragment?.(expr, key) ?? `${expr} AS ${escapeIdent(key)}`);
-      projectedKeys.add(key);
-      fields.push({ out: [key], source: [key], expr, each: false });
-      continue;
+      hasExpression = true
+      const expr = renderValue(entry, binds, binds.ctx())
+      parts.push(columns.fragment?.(expr, key) ?? `${expr} AS ${escapeIdent(key)}`)
+      projectedKeys.add(key)
+      fields.push({ out: [key], source: [key], expr, each: false })
+      continue
     }
     throw compileError(
       "ValidationError",
       `${operation}: select entry "${key}" must be true, a path, an aggregator object or a fragment (got ${describeValue(entry)}).`,
       { operation },
-    );
+    )
   }
 
-  return { parts, fields, projectedKeys, hasExpression, inners };
+  return { parts, fields, projectedKeys, hasExpression, inners }
 }
 
 /**
@@ -277,21 +279,22 @@ export function aggregateTail(
   options: { readonly version?: boolean } = {},
 ): string[] {
   const tail: string[] = [
-    groupBy.length > 0
-      ? `GROUP BY ${groupBy.map(renderPath).join(", ")}`
-      : "GROUP ALL",
-  ];
-  if (args.orderBy !== undefined)
-    tail.push(compileOrderBy(args.orderBy, binds, operation));
+    groupBy.length > 0 ? `GROUP BY ${groupBy.map(renderPath).join(", ")}` : "GROUP ALL",
+  ]
+  if (args.orderBy !== undefined) tail.push(compileOrderBy(args.orderBy, binds, operation))
+
   if (args.limit !== undefined)
-    tail.push(`LIMIT ${binds.add(nonNegativeInt(args.limit, "limit", operation))}`);
+    tail.push(`LIMIT ${binds.add(nonNegativeInt(args.limit, "limit", operation))}`)
+
   if (args.start !== undefined)
-    tail.push(`START ${binds.add(nonNegativeInt(args.start, "start", operation))}`);
+    tail.push(`START ${binds.add(nonNegativeInt(args.start, "start", operation))}`)
+
   if (options.version === true && args.version !== undefined)
-    tail.push(`VERSION ${datetimeLiteral(args.version, operation)}`);
-  if (args.timeout !== undefined)
-    tail.push(`TIMEOUT ${durationLiteral(args.timeout, operation)}`);
-  return tail;
+    tail.push(`VERSION ${datetimeLiteral(args.version, operation)}`)
+
+  if (args.timeout !== undefined) tail.push(`TIMEOUT ${durationLiteral(args.timeout, operation)}`)
+
+  return tail
 }
 
 /**
@@ -299,24 +302,23 @@ export function aggregateTail(
  * `groupAll` are alternatives (never both), and `select` is a non-empty object. Returns the group
  * keys so the caller doesn't re-validate them.
  */
-export function assertAggregateShape(
-  args: AggregateArgs,
-  operation: string,
-): string[] {
-  const groupBy = [...pathList(args.groupBy, "groupBy", operation)];
-  if (groupBy.length > 0 && args.groupAll === true)
+export function assertAggregateShape(args: AggregateArgs, operation: string): string[] {
+  const groupBy = [...pathList(args.groupBy, "groupBy", operation)]
+  if (groupBy.length > 0 && args.groupAll === true) {
     throw compileError(
       "ClauseNotSupported",
       `${operation}: pass "groupBy" OR "groupAll", not both.`,
       { operation },
-    );
-  if (!isPlainObject(args.select) || Object.keys(args.select).length === 0)
+    )
+  }
+  if (!isPlainObject(args.select) || Object.keys(args.select).length === 0) {
     throw compileError(
       "ValidationError",
       `${operation}: select must be a non-empty object of aggregators/group keys (got ${describeValue(args.select)}).`,
       { operation },
-    );
-  return groupBy;
+    )
+  }
+  return groupBy
 }
 
 /**
@@ -329,12 +331,14 @@ export function assertGroupKeysProjected(
   hasExpression: boolean,
   operation: string,
 ): void {
-  if (groupBy.length === 0 || hasExpression) return;
-  for (const key of groupBy)
-    if (!projectedKeys.has(key))
+  if (groupBy.length === 0 || hasExpression) return
+  for (const key of groupBy) {
+    if (!projectedKeys.has(key)) {
       throw compileError(
         "ValidationError",
         `${operation}: groupBy key "${key}" is missing from select — add it as \`${key}: "${key}"\` (SurrealDB requires every group key in the projection).`,
         { operation },
-      );
+      )
+    }
+  }
 }

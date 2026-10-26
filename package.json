@@ -16,7 +16,8 @@
     "test:types": "bun run scripts/type-bench.ts",
     "test:mutation": "bun run scripts/mutation/run.ts",
     "test:mutation:update": "bun run scripts/mutation/run.ts --update",
-    "skills-install": "bunx skills experimental_install"
+    "skills-install": "bunx skills experimental_install",
+    "lint": "bun lint --fix --max-warnings 0"
   },
   "dependencies": {
     "skills": "^1.7.2"

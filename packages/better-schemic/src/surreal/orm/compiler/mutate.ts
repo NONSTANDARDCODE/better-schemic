@@ -5,29 +5,27 @@
  * creates when a target is absent and creates outright when there is none. Batches set
  * `transactional: true` for atomicity.
  */
-import { RecordId } from "surrealdb";
-import { escapeIdentSafe as escapeIdent } from "../../ident";
-import { hasRefDeep } from "../../pure";
-import type { ModelMeta, SchemaIndex } from "../meta";
+import { RecordId } from "surrealdb"
+
+import { escapeIdentSafe as escapeIdent } from "../../ident"
+import { hasRefDeep } from "../../pure"
+
 import {
-  type Binds,
   coerceRecordValue,
   compileError,
   describeValue,
   isPlainObject,
   recordTargets,
   renderPath,
-} from "./shared";
-import { requireUniqueField, type UniqueTarget, uniqueTarget } from "./unique";
-import { mergeScope, scopePredicate, scopeWhere } from "./where";
+} from "./shared"
+import { requireUniqueField, uniqueTarget } from "./unique"
+import { mergeScope, scopePredicate, scopeWhere } from "./where"
 import {
   assertProjectable,
   assignmentList,
   compileWriteProjection,
   createId,
   createTarget,
-  type DeleteManyRuntimeArgs,
-  type DeleteRuntimeArgs,
   deltaTail,
   encodeData,
   encodedBody,
@@ -35,7 +33,6 @@ import {
   generatedTarget,
   isRecordColumn,
   mutationTail,
-  type ProjectionPlan,
   patchOps,
   payload,
   readReturn,
@@ -48,21 +45,30 @@ import {
   selectMode,
   singleTarget,
   toRecord,
-  type UpdateEachRuntimeArgs,
-  type UpdateManyRuntimeArgs,
-  type UpdateRuntimeArgs,
-  type UpsertDeltaRuntimeArgs,
-  type UpsertManyRuntimeArgs,
-  type UpsertRuntimeArgs,
   unsetList,
   updatableFields,
   updateBody,
   updateMode,
-  type WriteMode,
-  type WritePlan,
-  type WriteRet,
   whereSql,
-} from "./write-shared";
+} from "./write-shared"
+
+import type { Binds } from "./shared"
+import type { UniqueTarget } from "./unique"
+import type { ModelMeta, SchemaIndex } from "../meta"
+import type {
+  DeleteManyRuntimeArgs,
+  DeleteRuntimeArgs,
+  ProjectionPlan,
+  UpdateEachRuntimeArgs,
+  UpdateManyRuntimeArgs,
+  UpdateRuntimeArgs,
+  UpsertDeltaRuntimeArgs,
+  UpsertManyRuntimeArgs,
+  UpsertRuntimeArgs,
+  WriteMode,
+  WritePlan,
+  WriteRet,
+} from "./write-shared"
 
 // --- update / patch ------------------------------------------------------------------------------
 
@@ -74,14 +80,8 @@ export function compileUpdate(
   operation = "update",
   options: { readonly index?: SchemaIndex } = {},
 ): WritePlan {
-  const { target, where } = singleTarget(
-    meta,
-    args,
-    binds,
-    operation,
-    options.index,
-  );
-  return compileMutation(meta, target, where, args, binds, operation, "row");
+  const { target, where } = singleTarget(meta, args, binds, operation, options.index)
+  return compileMutation(meta, target, where, args, binds, operation, "row")
 }
 
 /** Compile `updateMany` — every matching row (`where` optional; `rules` guards land in M6). */
@@ -92,21 +92,8 @@ export function compileUpdateMany(
   operation = "updateMany",
   options: { readonly index?: SchemaIndex } = {},
 ): WritePlan {
-  const where = whereSql(
-    mergeScope(args.where, args.scope),
-    binds,
-    meta,
-    options.index,
-  );
-  return compileMutation(
-    meta,
-    escapeIdent(meta.name),
-    where,
-    args,
-    binds,
-    operation,
-    "many",
-  );
+  const where = whereSql(mergeScope(args.where, args.scope), binds, meta, options.index)
+  return compileMutation(meta, escapeIdent(meta.name), where, args, binds, operation, "many")
 }
 
 /** Compile `patch` — JSON Patch by unique target (`UPDATE … PATCH $ops`). */
@@ -117,22 +104,8 @@ export function compilePatch(
   operation = "patch",
   options: { readonly index?: SchemaIndex } = {},
 ): WritePlan {
-  const { target, where } = singleTarget(
-    meta,
-    args,
-    binds,
-    operation,
-    options.index,
-  );
-  return compileMutation(
-    meta,
-    target,
-    where,
-    { ...args, mode: "patch" },
-    binds,
-    operation,
-    "row",
-  );
+  const { target, where } = singleTarget(meta, args, binds, operation, options.index)
+  return compileMutation(meta, target, where, { ...args, mode: "patch" }, binds, operation, "row")
 }
 
 /** The `UPDATE` mutation shared by `update`, `updateMany` and `patch`. */
@@ -145,82 +118,76 @@ function compileMutation(
   operation: string,
   cardinality: "row" | "many",
 ): WritePlan {
-  const ret = readReturn(
-    args.return,
-    operation,
-    ["after", "before", "diff", "none"],
-    "after",
-  );
-  const proj = compileWriteProjection(meta, args, binds, operation);
-  assertProjectable(proj, ret, operation, meta);
-  const sel = selectMode(proj, ret, operation, meta);
-  const mode = updateMode(
-    args.mode,
-    operation,
-    args.patches !== undefined && args.data === undefined ? "patch" : "merge",
-  );
-  const hasData = args.data !== undefined;
-  const hasPatches = args.patches !== undefined;
-  const unset = unsetList(args.unset, meta, operation);
-  const hasUnset = unset.length > 0;
+  const ret = readReturn(args.return, operation, ["after", "before", "diff", "none"], "after"),
+    proj = compileWriteProjection(meta, args, binds, operation)
+  assertProjectable(proj, ret, operation, meta)
+  const sel = selectMode(proj, ret, operation, meta),
+    mode = updateMode(
+      args.mode,
+      operation,
+      args.patches !== undefined && args.data === undefined ? "patch" : "merge",
+    ),
+    hasData = args.data !== undefined,
+    hasPatches = args.patches !== undefined,
+    unset = unsetList(args.unset, meta, operation),
+    hasUnset = unset.length > 0
 
-  if (hasData && hasPatches)
-    throw compileError(
-      "ValidationError",
-      `${operation}: pass "data" OR "patches", not both.`,
-      { operation, table: meta.name },
-    );
-  if (!hasData && !hasPatches && !hasUnset)
+  if (hasData && hasPatches) {
+    throw compileError("ValidationError", `${operation}: pass "data" OR "patches", not both.`, {
+      operation,
+      table: meta.name,
+    })
+  }
+  if (!hasData && !hasPatches && !hasUnset) {
     throw compileError(
       "ValidationError",
       `${operation}: nothing to write — pass "data", "patches" or "unset".`,
       { operation, table: meta.name },
-    );
-  if (mode === "patch" && !hasPatches)
+    )
+  }
+  if (mode === "patch" && !hasPatches) {
     throw compileError(
       "ValidationError",
       `${operation}: mode "patch" needs "patches" (an array of JSON Patch ops).`,
       { operation, table: meta.name },
-    );
-  if (mode !== "patch" && hasPatches)
+    )
+  }
+  if (mode !== "patch" && hasPatches) {
     throw compileError(
       "ValidationError",
       `${operation}: "patches" requires mode "patch" (got "${mode}").`,
       { operation, table: meta.name },
-    );
-  if (hasData && isPlainObject(args.data) && args.data.id !== undefined)
+    )
+  }
+  if (hasData && isPlainObject(args.data) && args.data.id !== undefined) {
     throw compileError(
       "ValidationError",
       `${operation}: "id" cannot be updated (it is the record identity) — use upsert to target-or-create.`,
       { operation, table: meta.name, field: "id" },
-    );
+    )
+  }
 
-  const projText = sel?.mode === "server" ? sel.proj.text : undefined;
-  const tail = mutationTail(ret, args.timeout, operation, projText);
-  const steps: string[] = [];
+  const projText = sel?.mode === "server" ? sel.proj.text : undefined,
+    tail = mutationTail(ret, args.timeout, operation, projText),
+    steps: string[] = []
   if (hasData) {
     steps.push(
       `UPDATE ${target} ${updateBody(meta, mode, args.data, binds, operation)}${where}${tail}`,
-    );
+    )
   }
-  if (hasPatches)
+  if (hasPatches) {
     steps.push(
       `UPDATE ${target} ${encodedBody("patch", patchOps(args.patches, operation), binds)}${where}${tail}`,
-    );
+    )
+  }
   if (hasUnset)
-    steps.push(
-      `UPDATE ${target} UNSET ${unset.map(renderPath).join(", ")}${where}${tail}`,
-    );
+    steps.push(`UPDATE ${target} UNSET ${unset.map(renderPath).join(", ")}${where}${tail}`)
 
   // `before` reads the FIRST statement (the state before anything changed); `diff` combines every
-  // statement's patch (data + unset); `after` reads the last (the final state).
+  // Statement's patch (data + unset); `after` reads the last (the final state).
   const resultIndexes =
-    ret === "before"
-      ? [0]
-      : ret === "diff"
-        ? steps.map((_, i) => i)
-        : [steps.length - 1];
-  const result = resultOf(ret, cardinality);
+      ret === "before" ? [0] : ret === "diff" ? steps.map((_, i) => i) : [steps.length - 1],
+    result = resultOf(ret, cardinality)
   return {
     statements: steps,
     transactional: steps.length > 1,
@@ -228,7 +195,7 @@ function compileMutation(
     result,
     mayMiss: result === "row",
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
-  };
+  }
 }
 
 // --- upsert --------------------------------------------------------------------------------------
@@ -245,61 +212,58 @@ export function compileUpsert(
   binds: Binds,
   operation = "upsert",
 ): WritePlan {
-  const ret = readReturn(
-    args.return,
-    operation,
-    ["after", "before", "diff", "none"],
-    "after",
-  );
-  const explicit = readOnMissing(args.onMissing, operation);
-  const onMissing = explicit ?? "throw";
-  const hasData = args.data !== undefined;
-  const hasCreate = args.create !== undefined;
-  const hasUpdate = args.update !== undefined;
-  // Resolve the payload shape ONCE (like `upsertDelta`): `anyBranch` gates "which payload" guards.
-  const anyBranch = hasCreate || hasUpdate;
-  if (!hasData && !(hasCreate && hasUpdate))
+  const ret = readReturn(args.return, operation, ["after", "before", "diff", "none"], "after"),
+    explicit = readOnMissing(args.onMissing, operation),
+    onMissing = explicit ?? "throw",
+    hasData = args.data !== undefined,
+    hasCreate = args.create !== undefined,
+    hasUpdate = args.update !== undefined,
+    // Resolve the payload shape ONCE (like `upsertDelta`): `anyBranch` gates "which payload" guards.
+    anyBranch = hasCreate || hasUpdate
+  if (!hasData && !(hasCreate && hasUpdate)) {
     throw compileError(
       "ValidationError",
       `${operation}: pass "data" (one payload for both branches) OR "create" + "update".`,
       { operation, table: meta.name },
-    );
-  if (hasData && anyBranch)
+    )
+  }
+  if (hasData && anyBranch) {
     throw compileError(
       "ValidationError",
       `${operation}: pass "data" OR "create" + "update" — not both.`,
       { operation, table: meta.name },
-    );
-  if (onMissing === "throw" && anyBranch)
+    )
+  }
+  if (onMissing === "throw" && anyBranch) {
     throw compileError(
       "ValidationError",
       `${operation}: onMissing "throw" (the default) is a strict UPDATE — it never creates; pass "data" (applied by the update) or onMissing: "create" to allow the create branch.`,
       { operation, table: meta.name },
-    );
+    )
+  }
 
-  const mode = updateMode(args.mode, operation, "merge");
-  if (mode === "patch")
+  const mode = updateMode(args.mode, operation, "merge")
+  if (mode === "patch") {
     throw compileError(
       "ValidationError",
       `${operation}: mode "patch" is not part of upsert — use patch() or update({ mode: "patch" }).`,
       { operation, table: meta.name },
-    );
-  const proj = compileWriteProjection(meta, args, binds, operation);
-  assertProjectable(proj, ret, operation, meta);
-  const sel = selectMode(proj, ret, operation, meta);
-  const selectExtras = sel
-    ? { select: sel.proj.spec, selectMode: sel.mode }
-    : {};
-  const target = resolveUpsertTarget(meta, args, operation);
+    )
+  }
+  const proj = compileWriteProjection(meta, args, binds, operation)
+  assertProjectable(proj, ret, operation, meta)
+  const sel = selectMode(proj, ret, operation, meta),
+    selectExtras = sel ? { select: sel.proj.spec, selectMode: sel.mode } : {},
+    target = resolveUpsertTarget(meta, args, operation)
 
   if (target === undefined) {
     assertTargetlessCreate(meta, operation, {
       explicit,
       anyBranch,
       mode: args.mode,
-    });
-    const { clean } = extractArithmetic(meta, args.data, operation, false);
-    const encoded = encodeData(meta, clean, "create", operation);
+    })
+    const { clean } = extractArithmetic(meta, args.data, operation, false),
+      encoded = encodeData(meta, clean, "create", operation)
     return {
       statements: [
         `CREATE ${createTarget(meta, args.data, args.only === true, operation)} CONTENT ${payload(encoded, binds)}${mutationTail(ret, args.timeout, operation, sel?.mode === "server" ? sel.proj.text : undefined)}`,
@@ -309,44 +273,33 @@ export function compileUpsert(
       result: resultOf(ret, "row"),
       ...(ret === "after" ? { missError: true } : {}),
       ...selectExtras,
-    };
+    }
   }
 
   if (onMissing === "throw")
-    return compileStrictUpsert(
-      meta,
-      target,
-      args,
-      mode,
-      ret,
-      binds,
-      operation,
-      sel,
-    );
+    return compileStrictUpsert(meta, target, args, mode, ret, binds, operation, sel)
 
   // A create-mode `return: "after"` promises a row (`WrittenResult` = `Promise<App>`): when the
-  // write produced NONE (the target was filtered out by a permission/plugin scope) the decode
-  // raises `ResultNotFound` instead of resolving the contract-breaking `null`.
-  const missError: Pick<WritePlan, "missError"> =
-    ret === "after" ? { missError: true } : {};
-  const only = args.only === true ? "ONLY " : "";
-  const projText = sel?.mode === "server" ? sel.proj.text : undefined;
+  // Write produced NONE (the target was filtered out by a permission/plugin scope) the decode
+  // Raises `ResultNotFound` instead of resolving the contract-breaking `null`.
+  const missError: Pick<WritePlan, "missError"> = ret === "after" ? { missError: true } : {},
+    only = args.only === true ? "ONLY " : "",
+    projText = sel?.mode === "server" ? sel.proj.text : undefined
 
   if (hasData) {
     // The create branch would need an existing value for every adjustment — reject them with the
-    // teaching error instead of writing the marker object.
-    const { clean } = extractArithmetic(meta, args.data, operation, false);
-    const encoded = encodeData(
-      meta,
-      clean,
-      mode === "content" || mode === "replace" ? "create" : "update",
-      operation,
-    );
-    const hasExpressions =
-      isPlainObject(encoded) && Object.values(encoded).some(hasRefDeep);
+    // Teaching error instead of writing the marker object.
+    const { clean } = extractArithmetic(meta, args.data, operation, false),
+      encoded = encodeData(
+        meta,
+        clean,
+        mode === "content" || mode === "replace" ? "create" : "update",
+        operation,
+      ),
+      hasExpressions = isPlainObject(encoded) && Object.values(encoded).some(hasRefDeep)
     if (!hasExpressions) {
       if (target.kind === "id") {
-        const body = encodedBody(mode, encoded, binds);
+        const body = encodedBody(mode, encoded, binds)
         return {
           statements: [
             `UPSERT ${only}${recordTarget(meta, target.id, operation)} ${body}${scopeWhere(args.scope, binds, meta)}${mutationTail(ret, args.timeout, operation, projText)}`,
@@ -356,22 +309,19 @@ export function compileUpsert(
           result: resultOf(ret, "row"),
           ...missError,
           ...selectExtras,
-        };
+        }
       }
       // Unique-field target, no expressions. A payload `id` wins (the plain-table form carries it
-      // in the payload), so only an id-less payload switches to the generated target: injecting the
-      // generated expression into a MERGE against an existing record is a server error (`Found … for
-      // the id field, but a specific record has been specified` — live-probed 3.2; a matching id is
-      // accepted). The subquery resolves the existing record by the unique field, `??` falls back to
+      // In the payload), so only an id-less payload switches to the generated target: injecting the
+      // Generated expression into a MERGE against an existing record is a server error (`Found … for
+      // The id field, but a specific record has been specified` — live-probed 3.2; a matching id is
+      // Accepted). The subquery resolves the existing record by the unique field, `??` falls back to
       // `type::record(<table>, <fn>())` on a miss. One statement, so `RETURN DIFF` stays supported.
       // `encodeData` above already rejected non-object data — while `createId` handles both.
-      const generated =
-        createId(meta, args.data) === undefined
-          ? generatedTarget(meta)
-          : undefined;
+      const generated = createId(meta, args.data) === undefined ? generatedTarget(meta) : undefined
       if (generated !== undefined) {
-        const where = upsertWhere(meta, target, binds, args.scope);
-        const body = encodedBody(mode, encoded, binds);
+        const where = upsertWhere(meta, target, binds, args.scope),
+          body = encodedBody(mode, encoded, binds)
         return {
           statements: [
             `UPSERT ${only}((SELECT VALUE id FROM ${escapeIdent(meta.name)} WHERE ${where} LIMIT 1)[0] ?? ${generated}) ${body}${mutationTail(ret, args.timeout, operation, projText)}`,
@@ -381,9 +331,9 @@ export function compileUpsert(
           result: resultOf(ret, "row"),
           ...missError,
           ...selectExtras,
-        };
+        }
       }
-      const body = encodedBody(mode, encoded, binds);
+      const body = encodedBody(mode, encoded, binds)
       return {
         statements: [
           `UPSERT ${only}${escapeIdent(meta.name)} ${body} WHERE ${upsertWhere(meta, target, binds, args.scope)}${mutationTail(ret, args.timeout, operation, projText)}`,
@@ -393,7 +343,7 @@ export function compileUpsert(
         result: resultOf(ret, "row"),
         ...missError,
         ...selectExtras,
-      };
+      }
     }
     // Expressions can reference the existing row — `UPSERT … WHERE` would evaluate them on the
     // (empty) create branch too, so the LET/IF form distinguishes the branches first.
@@ -409,19 +359,10 @@ export function compileUpsert(
         sel,
       ),
       ...missError,
-    };
+    }
   }
 
-  return compileUpsertBranches(
-    meta,
-    target,
-    args,
-    mode,
-    ret,
-    binds,
-    operation,
-    sel,
-  );
+  return compileUpsertBranches(meta, target, args, mode, ret, binds, operation, sel)
 }
 
 /**
@@ -442,23 +383,24 @@ function compileStrictUpsert(
   operation: string,
   sel?: ProjectionPlan,
 ): WritePlan {
-  if (ret === "diff")
+  if (ret === "diff") {
     throw compileError(
       "ReturnNotSupported",
       `${operation}: RETURN DIFF is not supported on a strict upsert (an empty diff can't tell "no match" from "no change") — use "after"/"before", or onMissing: "create".`,
       { operation, table: meta.name },
-    );
-  const body = updateBody(meta, mode, args.data, binds, operation);
-  const tail = mutationTail(
-    ret === "none" ? "after" : ret,
-    args.timeout,
-    operation,
-    sel?.mode === "server" ? sel.proj.text : undefined,
-  );
-  const sql =
-    target.kind === "id"
-      ? `UPDATE ONLY ${recordTarget(meta, target.id, operation)} ${body}${scopeWhere(args.scope, binds, meta)}${tail}`
-      : `UPDATE ${escapeIdent(meta.name)} ${body} WHERE ${upsertWhere(meta, target, binds, args.scope)}${tail}`;
+    )
+  }
+  const body = updateBody(meta, mode, args.data, binds, operation),
+    tail = mutationTail(
+      ret === "none" ? "after" : ret,
+      args.timeout,
+      operation,
+      sel?.mode === "server" ? sel.proj.text : undefined,
+    ),
+    sql =
+      target.kind === "id"
+        ? `UPDATE ONLY ${recordTarget(meta, target.id, operation)} ${body}${scopeWhere(args.scope, binds, meta)}${tail}`
+        : `UPDATE ${escapeIdent(meta.name)} ${body} WHERE ${upsertWhere(meta, target, binds, args.scope)}${tail}`
   return {
     statements: [sql],
     transactional: false,
@@ -467,7 +409,7 @@ function compileStrictUpsert(
     missError: true,
     strictMiss: true,
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
-  };
+  }
 }
 
 /** The LET/IF `WHERE` for a resolved unique target (`id = $record` / `uniq = $value`), ANDed with
@@ -481,36 +423,32 @@ function upsertWhere(
   operation = "upsert",
 ): string {
   const base =
-    target.kind === "id"
-      ? `id = ${binds.add(new RecordId(meta.name, target.id))}`
-      : target.kind === "index"
-        ? // A composite unique target: every field of the index, ANDed — the conjunction IS the key.
-          target.entries
-            .map(([field, value]) =>
-              `${renderPath(field)} = ${binds.add(
-                isRecordColumn(meta, field)
-                  ? coerceRecordValue(
-                      value,
-                      recordTargets(meta, field),
-                      operation,
-                      field,
-                    )
-                  : value,
-              )}`,
-            )
-            .join(" AND ")
-        : `${renderPath(target.field)} = ${binds.add(
-            isRecordColumn(meta, target.field)
-              ? coerceRecordValue(
-                  target.value,
-                  recordTargets(meta, target.field),
-                  operation,
-                  target.field,
-                )
-              : target.value,
-          )}`;
-  const scoped = scopePredicate(scope, binds, meta);
-  return scoped ? `${base} AND ${scoped}` : base;
+      target.kind === "id"
+        ? `id = ${binds.add(new RecordId(meta.name, target.id))}`
+        : target.kind === "index"
+          ? // A composite unique target: every field of the index, ANDed — the conjunction IS the key.
+            target.entries
+              .map(
+                ([field, value]) =>
+                  `${renderPath(field)} = ${binds.add(
+                    isRecordColumn(meta, field)
+                      ? coerceRecordValue(value, recordTargets(meta, field), operation, field)
+                      : value,
+                  )}`,
+              )
+              .join(" AND ")
+          : `${renderPath(target.field)} = ${binds.add(
+              isRecordColumn(meta, target.field)
+                ? coerceRecordValue(
+                    target.value,
+                    recordTargets(meta, target.field),
+                    operation,
+                    target.field,
+                  )
+                : target.value,
+            )}`,
+    scoped = scopePredicate(scope, binds, meta)
+  return scoped ? `${base} AND ${scoped}` : base
 }
 
 /** `create` + `update` distinct: `INSERT … ON DUPLICATE` (literal update) or `LET`/`IF`. */
@@ -525,59 +463,51 @@ function compileUpsertBranches(
   sel?: ProjectionPlan,
 ): WritePlan {
   // The create branch has no previous value — adjustments there are rejected with the teaching
-  // error (the update branch adjusts fine, through the LET/IF updateBody below).
-  const { clean: createClean } = extractArithmetic(
-    meta,
-    args.create,
-    operation,
-    false,
-  );
-  const { clean: updateClean, steps } = extractArithmetic(
-    meta,
-    args.update,
-    operation,
-    true,
-  );
-  const updateEncoded = encodeData(meta, updateClean, "update", operation);
+  // Error (the update branch adjusts fine, through the LET/IF updateBody below).
+  const { clean: createClean } = extractArithmetic(meta, args.create, operation, false),
+    { clean: updateClean, steps } = extractArithmetic(meta, args.update, operation, true),
+    updateEncoded = encodeData(meta, updateClean, "update", operation)
   if (target.kind === "id") {
-    const createId = isPlainObject(args.create) ? args.create.id : undefined;
-    if (createId === undefined)
+    const createId = isPlainObject(args.create) ? args.create.id : undefined
+    if (createId === undefined) {
       throw compileError(
         "ValidationError",
         `${operation}: "create" must include the "id" when targeting one.`,
         { operation, table: meta.name },
-      );
-    if (recordIdText(createId) !== recordIdText(target.id))
+      )
+    }
+    if (recordIdText(createId) !== recordIdText(target.id)) {
       throw compileError(
         "ValidationError",
         `${operation}: "create.id" (${String(createId)}) must match where.id (${String(target.id)}).`,
         { operation, table: meta.name },
-      );
+      )
+    }
   }
   // Adjustments need to read the existing row, which `ON DUPLICATE KEY UPDATE` can't do — they
-  // take the LET/IF form like expression updates.
+  // Take the LET/IF form like expression updates.
   const needsBranches =
     steps.length > 0 ||
-    (isPlainObject(updateEncoded) &&
-      Object.values(updateEncoded).some(hasRefDeep));
+    (isPlainObject(updateEncoded) && Object.values(updateEncoded).some(hasRefDeep))
   if (target.kind === "id" && !needsBranches) {
-    if (args.scope !== undefined)
+    if (args.scope !== undefined) {
       throw compileError(
         "UnsupportedCapability",
         `${operation}: a plugin scope can't be applied to the INSERT … ON DUPLICATE KEY UPDATE path — pass "data" (a single payload) instead of "create" + "update", or use $withoutPlugins().`,
         { operation, table: meta.name },
-      );
-    const createEncoded = encodeData(meta, createClean, "create", operation);
-    const assignments = assignmentList(updateEncoded, binds);
-    if (!assignments)
-      throw compileError(
-        "ValidationError",
-        `${operation}: "update" needs at least one field.`,
-        { operation, table: meta.name },
-      );
+      )
+    }
+    const createEncoded = encodeData(meta, createClean, "create", operation),
+      assignments = assignmentList(updateEncoded, binds)
+    if (!assignments) {
+      throw compileError("ValidationError", `${operation}: "update" needs at least one field.`, {
+        operation,
+        table: meta.name,
+      })
+    }
     const sql =
       `INSERT INTO ${escapeIdent(meta.name)} ${payload(createEncoded, binds)} ` +
-      `ON DUPLICATE KEY UPDATE ${assignments}${mutationTail(ret, args.timeout, operation, sel?.mode === "server" ? sel.proj.text : undefined)}`;
+      `ON DUPLICATE KEY UPDATE ${assignments}${mutationTail(ret, args.timeout, operation, sel?.mode === "server" ? sel.proj.text : undefined)}`
     return {
       statements: [sql],
       transactional: false,
@@ -585,7 +515,7 @@ function compileUpsertBranches(
       result: resultOf(ret, "row"),
       ...(ret === "after" ? { missError: true } : {}),
       ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
-    };
+    }
   }
   return compileUpsertIfElse(
     meta,
@@ -596,7 +526,7 @@ function compileUpsertBranches(
     binds,
     operation,
     sel,
-  );
+  )
 }
 
 /**
@@ -615,35 +545,30 @@ function compileUpsertIfElse(
   operation: string,
   sel?: ProjectionPlan,
 ): WritePlan {
-  if (ret === "diff")
+  if (ret === "diff") {
     throw compileError(
       "ReturnNotSupported",
       `${operation}: RETURN DIFF is not supported when expressions must read the existing row (LET/IF) — use "after"/"before"/"none".`,
       { operation, table: meta.name },
-    );
+    )
+  }
   // `CREATE … RETURN BEFORE` has no prior state; NONE is the honest empty answer.
-  const projText = sel?.mode === "server" ? sel.proj.text : undefined;
-  const afterTail = projText === undefined ? "" : ` RETURN ${projText}`;
-  const plan = compileIfElse(
-    meta,
-    where,
-    args.create,
-    args.update,
-    mode,
-    binds,
-    operation,
-    ret === "after" ? afterTail : " RETURN NONE",
-    ret === "after"
-      ? afterTail
-      : ret === "before"
-        ? " RETURN BEFORE"
-        : " RETURN NONE",
-    resultOf(ret, "row"),
-  );
-  const withSelect = sel
-    ? { ...plan, select: sel.proj.spec, selectMode: sel.mode }
-    : plan;
-  return ret === "after" ? { ...withSelect, missError: true } : withSelect;
+  const projText = sel?.mode === "server" ? sel.proj.text : undefined,
+    afterTail = projText === undefined ? "" : ` RETURN ${projText}`,
+    plan = compileIfElse(
+      meta,
+      where,
+      args.create,
+      args.update,
+      mode,
+      binds,
+      operation,
+      ret === "after" ? afterTail : " RETURN NONE",
+      ret === "after" ? afterTail : ret === "before" ? " RETURN BEFORE" : " RETURN NONE",
+      resultOf(ret, "row"),
+    ),
+    withSelect = sel ? { ...plan, select: sel.proj.spec, selectMode: sel.mode } : plan
+  return ret === "after" ? { ...withSelect, missError: true } : withSelect
 }
 
 /**
@@ -663,24 +588,19 @@ function compileIfElse(
   updateTail: string,
   result: WritePlan["result"],
 ): WritePlan {
-  const table = escapeIdent(meta.name);
-  const { clean: createClean } = extractArithmetic(
-    meta,
-    create,
-    operation,
-    false,
-  );
-  const createEncoded = encodeData(meta, createClean, "create", operation);
-  const steps = [
-    `LET $__existing = (SELECT VALUE id FROM ${table} WHERE ${where} LIMIT 1);`,
-    `IF array::len($__existing) = 0 THEN CREATE ${createTarget(meta, create, false, operation)} CONTENT ${payload(createEncoded, binds)}${createTail} ELSE UPDATE $__existing[0] ${updateBody(meta, mode, update, binds, operation)}${updateTail} END;`,
-  ];
+  const table = escapeIdent(meta.name),
+    { clean: createClean } = extractArithmetic(meta, create, operation, false),
+    createEncoded = encodeData(meta, createClean, "create", operation),
+    steps = [
+      `LET $__existing = (SELECT VALUE id FROM ${table} WHERE ${where} LIMIT 1);`,
+      `IF array::len($__existing) = 0 THEN CREATE ${createTarget(meta, create, false, operation)} CONTENT ${payload(createEncoded, binds)}${createTail} ELSE UPDATE $__existing[0] ${updateBody(meta, mode, update, binds, operation)}${updateTail} END;`,
+    ]
   return {
     statements: steps,
     transactional: true,
     resultIndexes: [1],
     result,
-  };
+  }
 }
 
 // --- upsertDelta ---------------------------------------------------------------------------------
@@ -699,58 +619,60 @@ export function compileUpsertDelta(
   binds: Binds,
   operation = "upsertDelta",
 ): WritePlan {
-  const explicit = readOnMissing(args.onMissing, operation);
-  const onMissing = explicit ?? "throw";
-  const hasData = args.data !== undefined;
-  const hasCreate = args.create !== undefined;
-  const hasUpdate = args.update !== undefined;
-  // Resolve the payload shape ONCE: `both` gates the distinct-branch form, `anyBranch` the
-  // "which payload" guards. Keeping them as named booleans avoids unreachable short-circuit arms.
-  const both = hasCreate && hasUpdate;
-  const anyBranch = hasCreate || hasUpdate;
-  if (!hasData && !both)
+  const explicit = readOnMissing(args.onMissing, operation),
+    onMissing = explicit ?? "throw",
+    hasData = args.data !== undefined,
+    hasCreate = args.create !== undefined,
+    hasUpdate = args.update !== undefined,
+    // Resolve the payload shape ONCE: `both` gates the distinct-branch form, `anyBranch` the
+    // "which payload" guards. Keeping them as named booleans avoids unreachable short-circuit arms.
+    both = hasCreate && hasUpdate,
+    anyBranch = hasCreate || hasUpdate
+  if (!hasData && !both) {
     throw compileError(
       "ValidationError",
       `${operation}: pass "data" (one payload for both branches) OR "create" + "update".`,
       { operation, table: meta.name },
-    );
-  if (hasData && anyBranch)
+    )
+  }
+  if (hasData && anyBranch) {
     throw compileError(
       "ValidationError",
       `${operation}: pass "data" OR "create" + "update" — not both.`,
       { operation, table: meta.name },
-    );
-  if (onMissing === "throw" && anyBranch)
+    )
+  }
+  if (onMissing === "throw" && anyBranch) {
     throw compileError(
       "ValidationError",
       `${operation}: onMissing "throw" (the default) is a strict UPDATE — it never creates, so pass "data" (applied by the update) or onMissing: "create" for distinct "create"/"update" branches.`,
       { operation, table: meta.name },
-    );
-  const mode = updateMode(args.mode, operation, "merge");
-  if (mode === "patch")
+    )
+  }
+  const mode = updateMode(args.mode, operation, "merge")
+  if (mode === "patch") {
     throw compileError(
       "ValidationError",
       `${operation}: mode "patch" is not part of upsertDelta — use patch() or update({ mode: "patch" }).`,
       { operation, table: meta.name },
-    );
-  const target = resolveUpsertTarget(meta, args, operation);
-  const tail = deltaTail(args.timeout, operation);
-  // The `{ before, after }` envelope is decoded client-side, so its projection is always
-  // client-applied (paths/aliases; expression entries are rejected by `selectMode`).
-  const proj = compileWriteProjection(meta, args, binds, operation);
-  const sel = selectMode(proj, "after", operation, meta, { clientOnly: true });
-  const selectExtras = sel
-    ? { select: sel.proj.spec, selectMode: sel.mode }
-    : {};
+    )
+  }
+  const target = resolveUpsertTarget(meta, args, operation),
+    tail = deltaTail(args.timeout, operation),
+    // The `{ before, after }` envelope is decoded client-side, so its projection is always
+    // Client-applied (paths/aliases; expression entries are rejected by `selectMode`).
+    proj = compileWriteProjection(meta, args, binds, operation),
+    sel = selectMode(proj, "after", operation, meta, { clientOnly: true }),
+    selectExtras = sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}
 
   if (target === undefined) {
     assertTargetlessCreate(meta, operation, {
       explicit,
       anyBranch,
       mode: args.mode,
-    });
-    const { clean } = extractArithmetic(meta, args.data, operation, false);
-    const encoded = encodeData(meta, clean, "create", operation);
+    })
+    const { clean } = extractArithmetic(meta, args.data, operation, false),
+      encoded = encodeData(meta, clean, "create", operation)
     return {
       statements: [
         `CREATE ${createTarget(meta, args.data, false, operation)} CONTENT ${payload(encoded, binds)}${tail}`,
@@ -759,15 +681,15 @@ export function compileUpsertDelta(
       resultIndexes: [0],
       result: "delta",
       ...selectExtras,
-    };
+    }
   }
 
   if (onMissing === "throw") {
     // Strict update: never a create branch. `UPDATE ONLY t:id` misses as NONE; the unique-field
-    // form misses as [] — the runtime treats "no envelope" as the miss either way. `strictMiss`
-    // keeps the "it never creates" message honest for that miss.
-    const body = updateBody(meta, mode, args.data, binds, operation);
-    if (target.kind === "id")
+    // Form misses as [] — the runtime treats "no envelope" as the miss either way. `strictMiss`
+    // Keeps the "it never creates" message honest for that miss.
+    const body = updateBody(meta, mode, args.data, binds, operation)
+    if (target.kind === "id") {
       return {
         statements: [
           `UPDATE ONLY ${recordTarget(meta, target.id, operation)} ${body}${scopeWhere(args.scope, binds, meta)}${tail}`,
@@ -778,7 +700,8 @@ export function compileUpsertDelta(
         mayMiss: true,
         strictMiss: true,
         ...selectExtras,
-      };
+      }
+    }
     return {
       statements: [
         `UPDATE ${escapeIdent(meta.name)} ${body} WHERE ${upsertWhere(meta, target, binds, args.scope)}${tail}`,
@@ -789,23 +712,21 @@ export function compileUpsertDelta(
       mayMiss: true,
       strictMiss: true,
       ...selectExtras,
-    };
+    }
   }
 
   if (hasData) {
-    const { clean } = extractArithmetic(meta, args.data, operation, false);
-    const encoded = encodeData(
-      meta,
-      clean,
-      mode === "content" || mode === "replace" ? "create" : "update",
-      operation,
-    );
-    const hasExpressions = Object.values(
-      encoded as Record<string, unknown>,
-    ).some(hasRefDeep);
+    const { clean } = extractArithmetic(meta, args.data, operation, false),
+      encoded = encodeData(
+        meta,
+        clean,
+        mode === "content" || mode === "replace" ? "create" : "update",
+        operation,
+      ),
+      hasExpressions = Object.values(encoded as Record<string, unknown>).some(hasRefDeep)
     if (!hasExpressions) {
       if (target.kind === "id") {
-        const body = encodedBody(mode, encoded, binds);
+        const body = encodedBody(mode, encoded, binds)
         return {
           statements: [
             `UPSERT ${recordTarget(meta, target.id, operation)} ${body}${scopeWhere(args.scope, binds, meta)}${tail}`,
@@ -814,18 +735,15 @@ export function compileUpsertDelta(
           resultIndexes: [0],
           result: "delta",
           ...selectExtras,
-        };
+        }
       }
       // Unique-field target, no expressions: a payload `id` wins (the plain-table form carries it
-      // in the payload), so only an id-less payload switches to the generated target — the subquery
-      // resolves the existing record, `??` falls back to `type::record(<table>, <fn>())` on a miss.
-      const generated =
-        createId(meta, args.data) === undefined
-          ? generatedTarget(meta)
-          : undefined;
+      // In the payload), so only an id-less payload switches to the generated target — the subquery
+      // Resolves the existing record, `??` falls back to `type::record(<table>, <fn>())` on a miss.
+      const generated = createId(meta, args.data) === undefined ? generatedTarget(meta) : undefined
       if (generated !== undefined) {
-        const where = upsertWhere(meta, target, binds, args.scope);
-        const body = encodedBody(mode, encoded, binds);
+        const where = upsertWhere(meta, target, binds, args.scope),
+          body = encodedBody(mode, encoded, binds)
         return {
           statements: [
             `UPSERT ((SELECT VALUE id FROM ${escapeIdent(meta.name)} WHERE ${where} LIMIT 1)[0] ?? ${generated}) ${body}${tail}`,
@@ -834,9 +752,9 @@ export function compileUpsertDelta(
           resultIndexes: [0],
           result: "delta",
           ...selectExtras,
-        };
+        }
       }
-      const body = encodedBody(mode, encoded, binds);
+      const body = encodedBody(mode, encoded, binds)
       return {
         statements: [
           `UPSERT ${escapeIdent(meta.name)} ${body} WHERE ${upsertWhere(meta, target, binds, args.scope)}${tail}`,
@@ -845,7 +763,7 @@ export function compileUpsertDelta(
         resultIndexes: [0],
         result: "delta",
         ...selectExtras,
-      };
+      }
     }
     // Expressions can reference the existing row — branch first, then write (envelope per branch).
     return {
@@ -862,12 +780,12 @@ export function compileUpsertDelta(
         "delta",
       ),
       ...selectExtras,
-    };
+    }
   }
 
   // Distinct `create` + `update` payloads: always the LET/IF form (per-branch envelope + TIMEOUT,
-  // scope support), never `INSERT … ON DUPLICATE` — see `docs/orm-syntax-map.md` §2.3/2.4.
-  assertDeltaCreateId(meta, target, args.create, operation);
+  // Scope support), never `INSERT … ON DUPLICATE` — see `docs/orm-syntax-map.md` §2.3/2.4.
+  assertDeltaCreateId(meta, target, args.create, operation)
   return {
     ...compileIfElse(
       meta,
@@ -882,24 +800,22 @@ export function compileUpsertDelta(
       "delta",
     ),
     ...selectExtras,
-  };
+  }
 }
 
 /** Validate `onMissing`; `undefined` passes through — each caller applies its own default
  *  (`upsert`/`upsertDelta` are STRICT on a targeted call; a target-less call is a plain create,
  *  which only an explicit `"throw"` forbids). */
-function readOnMissing(
-  value: unknown,
-  operation: string,
-): "create" | "throw" | undefined {
-  if (value === undefined) return undefined;
-  if (value !== "create" && value !== "throw")
+function readOnMissing(value: unknown, operation: string): "create" | "throw" | undefined {
+  if (value === undefined) return undefined
+  if (value !== "create" && value !== "throw") {
     throw compileError(
       "ValidationError",
       `${operation}: onMissing must be "create" or "throw" (got ${describeValue(value)}).`,
       { operation },
-    );
-  return value;
+    )
+  }
+  return value
 }
 
 /**
@@ -913,23 +829,25 @@ function resolveUpsertTarget(
   operation: string,
 ): UniqueTarget | undefined {
   if (args.where !== undefined) {
-    const target = uniqueTarget(meta, args.where, operation);
+    const target = uniqueTarget(meta, args.where, operation)
     if (
       target.kind === "id" &&
       isPlainObject(args.data) &&
       args.data.id !== undefined &&
       recordIdText(args.data.id) !== target.id
-    )
+    ) {
       throw compileError(
         "ValidationError",
         `${operation}: "data.id" (${String(args.data.id)}) must match where.id (${String((args.where as { id?: unknown }).id)}) — they name the same record.`,
         { operation, table: meta.name, field: "id" },
-      );
-    return target;
+      )
+    }
+    return target
   }
   if (isPlainObject(args.data) && args.data.id !== undefined)
-    return uniqueTarget(meta, { id: args.data.id }, operation);
-  return undefined;
+    return uniqueTarget(meta, { id: args.data.id }, operation)
+
+  return undefined
 }
 
 /**
@@ -942,29 +860,32 @@ function assertTargetlessCreate(
   meta: ModelMeta,
   operation: string,
   args: {
-    readonly explicit: "create" | "throw" | undefined;
-    readonly anyBranch: boolean;
-    readonly mode: unknown;
+    readonly explicit: "create" | "throw" | undefined
+    readonly anyBranch: boolean
+    readonly mode: unknown
   },
 ): void {
-  if (args.explicit === "throw")
+  if (args.explicit === "throw") {
     throw compileError(
       "ValidationError",
       `${operation}: onMissing "throw" needs a target — pass "where" (or let "data.id" infer it).`,
       { operation, table: meta.name },
-    );
-  if (args.anyBranch)
+    )
+  }
+  if (args.anyBranch) {
     throw compileError(
       "ValidationError",
       `${operation}: distinct "create"/"update" payloads need a target — pass "where" (or "data" with an "id").`,
       { operation, table: meta.name },
-    );
-  if (args.mode !== undefined)
+    )
+  }
+  if (args.mode !== undefined) {
     throw compileError(
       "ValidationError",
       `${operation}: "mode" only applies to the update branch — a target-less call is a plain create.`,
       { operation, table: meta.name },
-    );
+    )
+  }
 }
 
 /** Validate the distinct `create` branch against an id target (parity with `upsert`). */
@@ -974,20 +895,22 @@ function assertDeltaCreateId(
   create: unknown,
   operation: string,
 ): void {
-  if (target.kind !== "id") return;
-  const createId = isPlainObject(create) ? create.id : undefined;
-  if (createId === undefined)
+  if (target.kind !== "id") return
+  const createId = isPlainObject(create) ? create.id : undefined
+  if (createId === undefined) {
     throw compileError(
       "ValidationError",
       `${operation}: "create" must include the "id" when targeting one.`,
       { operation, table: meta.name },
-    );
-  if (recordIdText(createId) !== recordIdText(target.id))
+    )
+  }
+  if (recordIdText(createId) !== recordIdText(target.id)) {
     throw compileError(
       "ValidationError",
       `${operation}: "create.id" (${String(createId)}) must match where.id (${String(target.id)}).`,
       { operation, table: meta.name },
-    );
+    )
+  }
 }
 
 /** Compile `upsertMany` — ids → one `INSERT … ON DUPLICATE`; conflict field → per-row upserts. */
@@ -997,121 +920,112 @@ export function compileUpsertMany(
   binds: Binds,
   operation = "upsertMany",
 ): WritePlan {
-  const ret = readReturn(
-    args.return,
-    operation,
-    ["after", "before", "diff", "none"],
-    "after",
-  );
-  const proj = compileWriteProjection(meta, args, binds, operation);
-  assertProjectable(proj, ret, operation, meta);
-  const sel = selectMode(proj, ret, operation, meta);
-  const projText = sel?.mode === "server" ? sel.proj.text : undefined;
-  const selectExtras = sel
-    ? { select: sel.proj.spec, selectMode: sel.mode }
-    : {};
-  const data = requireArray(args.data, "data", operation);
-  // Items are create payloads — no previous value to adjust.
-  const encoded = data.map((item) =>
-    encodeData(
-      meta,
-      extractArithmetic(meta, item, operation, false).clean,
-      "create",
-      operation,
+  const ret = readReturn(args.return, operation, ["after", "before", "diff", "none"], "after"),
+    proj = compileWriteProjection(meta, args, binds, operation)
+  assertProjectable(proj, ret, operation, meta)
+  const sel = selectMode(proj, ret, operation, meta),
+    projText = sel?.mode === "server" ? sel.proj.text : undefined,
+    selectExtras = sel ? { select: sel.proj.spec, selectMode: sel.mode } : {},
+    data = requireArray(args.data, "data", operation),
+    // Items are create payloads — no previous value to adjust.
+    encoded = data.map((item) =>
+      encodeData(meta, extractArithmetic(meta, item, operation, false).clean, "create", operation),
     ),
-  );
-  const ids = encoded.map((item) =>
-    isPlainObject(item) ? item.id : undefined,
-  );
-  const withIds = ids.filter((id) => id !== undefined).length;
-  if (withIds > 0 && withIds !== encoded.length)
+    ids = encoded.map((item) => (isPlainObject(item) ? item.id : undefined)),
+    withIds = ids.filter((id) => id !== undefined).length
+  if (withIds > 0 && withIds !== encoded.length) {
     throw compileError(
       "ValidationError",
       `${operation}: either EVERY item carries an id or none does (found ${withIds} of ${encoded.length}).`,
       { operation, table: meta.name },
-    );
-  const updateMap = explicitUpdateMap(meta, args.update, operation);
+    )
+  }
+  const updateMap = explicitUpdateMap(meta, args.update, operation)
 
   if (withIds === encoded.length) {
-    if (args.scope !== undefined)
+    if (args.scope !== undefined) {
       throw compileError(
         "UnsupportedCapability",
         `${operation}: a plugin scope can't be applied to the all-ids INSERT … ON DUPLICATE KEY UPDATE path — provide rows without ids plus "conflict", or use $withoutPlugins().`,
         { operation, table: meta.name },
-      );
+      )
+    }
     const assignments = updateMap
       ? assignmentList(updateMap, binds)
       : updatableFields(encoded)
           .map((field) => `${renderPath(field)} = $input.${renderPath(field)}`)
-          .join(", ");
-    if (!assignments)
+          .join(", ")
+    if (!assignments) {
       throw compileError(
         "ValidationError",
         `${operation}: no updatable fields — pass "update" explicitly or include fields in the payload.`,
         { operation, table: meta.name },
-      );
-    const sql = `INSERT INTO ${escapeIdent(meta.name)} ${payload(encoded, binds)} ON DUPLICATE KEY UPDATE ${assignments}${mutationTail(ret, undefined, operation, projText)}`;
+      )
+    }
+    const sql = `INSERT INTO ${escapeIdent(meta.name)} ${payload(encoded, binds)} ON DUPLICATE KEY UPDATE ${assignments}${mutationTail(ret, undefined, operation, projText)}`
     return {
       statements: [sql],
       transactional: false,
       resultIndexes: [0],
       result: resultOf(ret, "many"),
       ...selectExtras,
-    };
+    }
   }
 
-  const conflict = args.conflict;
-  if (typeof conflict !== "string" || !conflict)
+  const { conflict } = args
+  if (typeof conflict !== "string" || !conflict) {
     throw compileError(
       "ValidationError",
       `${operation}: items without an id need "conflict" (the unique field that resolves each row), e.g. conflict: "email".`,
       { operation, table: meta.name },
-    );
-  requireColumn(meta, conflict, operation);
-  requireUniqueField(meta, conflict, operation);
-  if (ret === "diff" && updateMap)
+    )
+  }
+  requireColumn(meta, conflict, operation)
+  requireUniqueField(meta, conflict, operation)
+  if (ret === "diff" && updateMap) {
     throw compileError(
       "ReturnNotSupported",
       `${operation}: RETURN DIFF is not supported with an explicit "update" map (per-item LET/IF) — use "after"/"before"/"none".`,
       { operation, table: meta.name },
-    );
+    )
+  }
 
-  const table = escapeIdent(meta.name);
-  const updatePayload = updateMap ? payload(updateMap, binds) : undefined;
-  // `RETURN <proj>` on EACH branch when the server can carry it (after-state without OMIT).
-  const afterTail = projText === undefined ? "" : ` RETURN ${projText}`;
-  // Reaching this path means NO item carries an id (`withIds` is 0, else the all-ids form ran or
-  // the mixed guard threw), so the generated target is the same for every item.
-  const generated = generatedTarget(meta);
-  const scope = scopePredicate(args.scope, binds, meta);
-  const statements: string[] = [];
-  const resultIndexes: number[] = [];
+  const table = escapeIdent(meta.name),
+    updatePayload = updateMap ? payload(updateMap, binds) : undefined,
+    // `RETURN <proj>` on EACH branch when the server can carry it (after-state without OMIT).
+    afterTail = projText === undefined ? "" : ` RETURN ${projText}`,
+    // Reaching this path means NO item carries an id (`withIds` is 0, else the all-ids form ran or
+    // The mixed guard threw), so the generated target is the same for every item.
+    generated = generatedTarget(meta),
+    scope = scopePredicate(args.scope, binds, meta),
+    statements: string[] = [],
+    resultIndexes: number[] = []
   encoded.forEach((item, i) => {
-    const itemBind = binds.add(item);
-    const baseWhere = `${renderPath(conflict)} = ${itemBind}.${renderPath(conflict)}`;
-    const where = scope ? `${baseWhere} AND ${scope}` : baseWhere;
+    const itemBind = binds.add(item),
+      baseWhere = `${renderPath(conflict)} = ${itemBind}.${renderPath(conflict)}`,
+      where = scope ? `${baseWhere} AND ${scope}` : baseWhere
     if (updatePayload === undefined) {
       statements.push(
-        generated !== undefined
-          ? `UPSERT ((SELECT VALUE id FROM ${table} WHERE ${where} LIMIT 1)[0] ?? ${generated}) MERGE ${itemBind}${mutationTail(ret, undefined, operation, projText)};`
-          : `UPSERT ${table} MERGE ${itemBind} WHERE ${where}${mutationTail(ret, undefined, operation, projText)};`,
-      );
+        generated === undefined
+          ? `UPSERT ${table} MERGE ${itemBind} WHERE ${where}${mutationTail(ret, undefined, operation, projText)};`
+          : `UPSERT ((SELECT VALUE id FROM ${table} WHERE ${where} LIMIT 1)[0] ?? ${generated}) MERGE ${itemBind}${mutationTail(ret, undefined, operation, projText)};`,
+      )
     } else {
       // Expressions must read the existing row → LET/IF (`ON DUPLICATE` evaluates them on create).
       statements.push(
         `LET $__e${i} = (SELECT VALUE id FROM ${table} WHERE ${where} LIMIT 1);`,
         `IF array::len($__e${i}) = 0 THEN CREATE ${createTarget(meta, item, false, operation)} CONTENT ${itemBind}${ret === "after" ? afterTail : " RETURN NONE"} ELSE UPDATE $__e${i}[0] MERGE ${updatePayload}${ret === "after" ? afterTail : ret === "before" ? " RETURN BEFORE" : " RETURN NONE"} END;`,
-      );
+      )
     }
-    resultIndexes.push(statements.length - 1);
-  });
+    resultIndexes.push(statements.length - 1)
+  })
   return {
     statements,
     transactional: statements.length > 1,
     resultIndexes,
     result: resultOf(ret, "many"),
     ...selectExtras,
-  };
+  }
 }
 
 /**
@@ -1123,32 +1037,31 @@ function explicitUpdateMap(
   update: unknown,
   operation: string,
 ): Record<string, unknown> | undefined {
-  if (update === undefined || update === "all") return undefined;
-  if (!isPlainObject(update))
+  if (update === undefined || update === "all") return undefined
+  if (!isPlainObject(update)) {
     throw compileError(
       "ValidationError",
       `${operation}: "update" must be "all" or a map of fields (got ${describeValue(update)}).`,
       { operation, table: meta.name },
-    );
+    )
+  }
   // The map rides `ON DUPLICATE KEY UPDATE`/per-item `MERGE`, which can't read the existing row.
-  const { clean, steps } = extractArithmetic(meta, update, operation, true);
-  if (steps.length > 0)
+  const { clean, steps } = extractArithmetic(meta, update, operation, true)
+  if (steps.length > 0) {
     throw compileError(
       "ValidationError",
       `${operation}: the "update" map can't carry { increment/decrement: … } — arithmetic needs a WHERE-resolved row. Use updateMany/updateEach per row, or pass them per item.`,
       { operation, table: meta.name },
-    );
-  const encoded = encodeData(meta, clean, "update", operation) as Record<
-    string,
-    unknown
-  >;
-  if (Object.keys(encoded).length === 0)
-    throw compileError(
-      "ValidationError",
-      `${operation}: the "update" map is empty.`,
-      { operation, table: meta.name },
-    );
-  return encoded;
+    )
+  }
+  const encoded = encodeData(meta, clean, "update", operation) as Record<string, unknown>
+  if (Object.keys(encoded).length === 0) {
+    throw compileError("ValidationError", `${operation}: the "update" map is empty.`, {
+      operation,
+      table: meta.name,
+    })
+  }
+  return encoded
 }
 // --- delete --------------------------------------------------------------------------------------
 
@@ -1160,14 +1073,14 @@ export function compileDelete(
   operation = "delete",
   options: { readonly index?: SchemaIndex } = {},
 ): WritePlan {
-  const ret = readReturn(args.return, operation, ["before", "none"], "before");
-  const proj = compileWriteProjection(meta, args, binds, operation);
-  const sel = selectMode(proj, ret, operation, meta);
-  const target = uniqueTarget(meta, args.where, operation);
-  const sql =
-    target.kind === "id"
-      ? `DELETE ${recordTarget(meta, target.id, operation)}${scopeWhere(args.scope, binds, meta, options.index)}`
-      : `DELETE FROM ${escapeIdent(meta.name)}${whereSql(mergeScope(args.where, args.scope), binds, meta, options.index)}`;
+  const ret = readReturn(args.return, operation, ["before", "none"], "before"),
+    proj = compileWriteProjection(meta, args, binds, operation),
+    sel = selectMode(proj, ret, operation, meta),
+    target = uniqueTarget(meta, args.where, operation),
+    sql =
+      target.kind === "id"
+        ? `DELETE ${recordTarget(meta, target.id, operation)}${scopeWhere(args.scope, binds, meta, options.index)}`
+        : `DELETE FROM ${escapeIdent(meta.name)}${whereSql(mergeScope(args.where, args.scope), binds, meta, options.index)}`
   return {
     statements: [`${sql}${mutationTail(ret, args.timeout, operation)}`],
     transactional: false,
@@ -1175,7 +1088,7 @@ export function compileDelete(
     result: ret === "none" ? "none" : "row",
     mayMiss: ret !== "none",
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
-  };
+  }
 }
 
 /** Compile `deleteMany` — `where` or `all: true`; the count comes from `RETURN BEFORE`. */
@@ -1186,27 +1099,23 @@ export function compileDeleteMany(
   operation = "deleteMany",
   options: { readonly index?: SchemaIndex } = {},
 ): WritePlan {
-  const ret = readReturn(args.return, operation, ["before", "none"], "before");
-  const where = whereSql(
-    mergeScope(args.where, args.scope),
-    binds,
-    meta,
-    options.index,
-  );
-  if (!where && args.all !== true)
+  const ret = readReturn(args.return, operation, ["before", "none"], "before"),
+    where = whereSql(mergeScope(args.where, args.scope), binds, meta, options.index)
+  if (!where && args.all !== true) {
     throw compileError(
       "UnsafeMutation",
       `${operation}: no "where" deletes EVERY record of "${meta.name}". Confirm with all: true (or add a where).`,
       { operation, table: meta.name },
-    );
+    )
+  }
   const sql = where
     ? `DELETE FROM ${escapeIdent(meta.name)}${where}`
-    : `DELETE ${escapeIdent(meta.name)}`;
+    : `DELETE ${escapeIdent(meta.name)}`
   return {
     statements: [`${sql}${mutationTail(ret, args.timeout, operation)}`],
     transactional: false,
     result: ret === "none" ? "none" : "many",
-  };
+  }
 }
 
 // --- updateEach ----------------------------------------------------------------------------------
@@ -1222,63 +1131,60 @@ export function compileUpdateEach(
   binds: Binds,
   operation = "updateEach",
 ): WritePlan {
-  const ret = readReturn(args.return, operation, ["after", "none"], "after");
-  if (
-    args.onEmpty !== undefined &&
-    args.onEmpty !== "return" &&
-    args.onEmpty !== "throw"
-  )
+  const ret = readReturn(args.return, operation, ["after", "none"], "after")
+  if (args.onEmpty !== undefined && args.onEmpty !== "return" && args.onEmpty !== "throw") {
     throw compileError(
       "ValidationError",
       `${operation}: onEmpty must be "return" or "throw" (got ${describeValue(args.onEmpty)}).`,
       { operation, table: meta.name },
-    );
-  if (ret === "none" && args.onEmpty === "throw")
+    )
+  }
+  if (ret === "none" && args.onEmpty === "throw") {
     throw compileError(
       "ValidationError",
       `${operation}: "onEmpty: throw" needs rows back — use return: "after" (RETURN NONE can't tell a miss from a match).`,
       { operation, table: meta.name },
-    );
-  const proj = compileWriteProjection(meta, args, binds, operation);
-  const sel = selectMode(proj, ret, operation, meta);
-  const data = requireArray(args.data, "data", operation);
-  const by =
-    args.by === undefined ? "id" : requireString(args.by, "by", operation);
-  requireColumn(meta, by, operation);
-  const mode = updateMode(args.mode, operation, "merge");
-  const rows = buildEachRows(meta, data, mode, args.patches, by, operation);
-  const table = escapeIdent(meta.name);
-  const tail = mutationTail(
-    ret,
-    args.timeout,
-    operation,
-    sel?.mode === "server" ? sel.proj.text : undefined,
-  );
-  const scope = scopePredicate(args.scope, binds, meta);
-  const statements = rows.map((row) => {
-    const target = `${renderPath(by)} = ${binds.add(row.by)}${scope ? ` AND ${scope}` : ""}`;
-    const body =
-      mode === "patch"
-        ? encodedBody("patch", patchOps(row.patches, operation), binds)
-        : updateBody(meta, mode, row.fields ?? {}, binds, operation);
-    return `UPDATE ${table} ${body} WHERE ${target}${tail}`;
-  });
+    )
+  }
+  const proj = compileWriteProjection(meta, args, binds, operation),
+    sel = selectMode(proj, ret, operation, meta),
+    data = requireArray(args.data, "data", operation),
+    by = args.by === undefined ? "id" : requireString(args.by, "by", operation)
+  requireColumn(meta, by, operation)
+  const mode = updateMode(args.mode, operation, "merge"),
+    rows = buildEachRows(meta, data, mode, args.patches, by, operation),
+    table = escapeIdent(meta.name),
+    tail = mutationTail(
+      ret,
+      args.timeout,
+      operation,
+      sel?.mode === "server" ? sel.proj.text : undefined,
+    ),
+    scope = scopePredicate(args.scope, binds, meta),
+    statements = rows.map((row) => {
+      const target = `${renderPath(by)} = ${binds.add(row.by)}${scope ? ` AND ${scope}` : ""}`,
+        body =
+          mode === "patch"
+            ? encodedBody("patch", patchOps(row.patches, operation), binds)
+            : updateBody(meta, mode, row.fields ?? {}, binds, operation)
+      return `UPDATE ${table} ${body} WHERE ${target}${tail}`
+    })
   // `select` is compiled with the plan — a bad projection throws at the call site, before the
-  // write runs. The server projects when it can (AFTER without OMIT); otherwise the decode applies
-  // it client-side (`selectMode`).
+  // Write runs. The server projects when it can (AFTER without OMIT); otherwise the decode applies
+  // It client-side (`selectMode`).
   return {
     statements,
     transactional: statements.length > 1,
     result: resultOf(ret, "many"),
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
-  };
+  }
 }
 
 /** One `updateEach` item ready for lowering: the normalized `by` value + its raw payload/patches. */
 interface EachRow {
-  readonly by: unknown;
-  readonly fields?: unknown;
-  readonly patches?: readonly unknown[];
+  readonly by: unknown
+  readonly fields?: unknown
+  readonly patches?: readonly unknown[]
 }
 
 /** Build the per-item rows: the normalized `by` value + the raw `fields` (or `patches`). */
@@ -1290,56 +1196,59 @@ function buildEachRows(
   by: string,
   operation: string,
 ): readonly EachRow[] {
-  const seen = new Set<string>();
-  const patchItems =
-    mode === "patch"
-      ? (requireArray(patches, "patches", operation) as readonly unknown[])
-      : undefined;
-  if (patchItems && patchItems.length !== data.length)
+  const seen = new Set<string>(),
+    patchItems = mode === "patch" ? requireArray(patches, "patches", operation) : undefined
+  if (patchItems && patchItems.length !== data.length) {
     throw compileError(
       "ValidationError",
       `${operation}: "patches" must have one entry per data item (${patchItems.length} vs ${data.length}).`,
       { operation, table: meta.name },
-    );
+    )
+  }
   return data.map((item, i) => {
-    if (!isPlainObject(item))
+    if (!isPlainObject(item)) {
       throw compileError(
         "ValidationError",
         `${operation}: every data item must be an object, got ${describeValue(item)}.`,
         { operation, table: meta.name },
-      );
-    const byValue = item[by];
-    if (byValue === undefined)
+      )
+    }
+    const byValue = item[by]
+    if (byValue === undefined) {
       throw compileError(
         "ValidationError",
         `${operation}: item ${i} is missing the "by" field "${by}".`,
         { operation, table: meta.name, field: by },
-      );
-    const key = String(byValue);
-    if (seen.has(key))
+      )
+    }
+    const key = String(byValue)
+    if (seen.has(key)) {
       throw compileError(
         "ValidationError",
         `${operation}: duplicate "${by}" value ${describeValue(byValue)} — each item must target a distinct row.`,
         { operation, table: meta.name, field: by },
-      );
-    seen.add(key);
-    const fields: Record<string, unknown> = {};
-    for (const [field, value] of Object.entries(item))
-      if (field !== by) fields[field] = value;
-    if (fields.id !== undefined)
+      )
+    }
+    seen.add(key)
+    const fields: Record<string, unknown> = {}
+    for (const [field, value] of Object.entries(item)) if (field !== by) fields[field] = value
+
+    if (fields.id !== undefined) {
       throw compileError(
         "ValidationError",
         `${operation}: "id" cannot be updated — use by: "id" to target the record.`,
         { operation, table: meta.name, field: "id" },
-      );
+      )
+    }
     const normalizedBy = isRecordColumn(meta, by)
       ? toRecord(byValue, operation, recordTargets(meta, by))
-      : byValue;
-    if (mode === "patch")
+      : byValue
+    if (mode === "patch") {
       return {
         by: normalizedBy,
         patches: patchOps(patchItems?.[i], operation),
-      };
-    return { by: normalizedBy, fields };
-  });
+      }
+    }
+    return { by: normalizedBy, fields }
+  })
 }

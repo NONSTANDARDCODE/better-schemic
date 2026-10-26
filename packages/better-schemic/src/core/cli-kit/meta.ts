@@ -1,17 +1,12 @@
-import { createHash } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
-import { join } from "node:path";
-import type { KindSnapshot } from "../kind";
+import { createHash } from "node:crypto"
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
+
+import type { KindSnapshot } from "../kind"
 
 // The legacy STATEMENT snapshot types (Snapshot/SnapshotStatement/EMPTY_SNAPSHOT) now live in
-// cli/structure.ts (the SurrealDB module that produces them) — this file is the NEUTRAL stored-
-// snapshot + migration-file engine.
+// Cli/structure.ts (the SurrealDB module that produces them) — this file is the NEUTRAL stored-
+// Snapshot + migration-file engine.
 
 /**
  * The STORED snapshot (`_snapshot.json`): the canonical schema is portable objects grouped by kind
@@ -22,25 +17,25 @@ import type { KindSnapshot } from "../kind";
  * is treated as empty (regenerate via `better-schemic gen --baseline`).
  */
 export interface StoredSnapshot {
-  version: 3;
+  version: 3
   /** The driver that authored this snapshot ("surrealdb"). */
-  driver: string;
+  driver: string
   /** Portable objects grouped by kind. */
-  schema: KindSnapshot;
-  files?: Record<string, string>;
+  schema: KindSnapshot
+  files?: Record<string, string>
 }
 
 /** A migration file on disk. The filename is the source of truth — there's no journal. */
 export interface Migration {
   /** Filename without the `.surql` extension, e.g. `20260607153045_add_users`. */
-  tag: string;
+  tag: string
   /** Filename, e.g. `20260607153045_add_users.surql`. */
-  file: string;
+  file: string
 }
 
-const SNAPSHOT_FILE = "_snapshot.json";
-/** Fallback migration extension when a caller has no driver to hand (the driver provides the real one). */
-const DEFAULT_MIGRATION_EXT = ".surql";
+const DEFAULT_MIGRATION_EXT = ".surql",
+  /** Fallback migration extension when a caller has no driver to hand (the driver provides the real one). */
+  SNAPSHOT_FILE = "_snapshot.json"
 
 /** A fresh empty STORED snapshot. Fresh each call so callers can't alias shared empty state. */
 function emptyStored(): StoredSnapshot {
@@ -49,71 +44,63 @@ function emptyStored(): StoredSnapshot {
     driver: "surrealdb",
     schema: { kinds: {} },
     files: {},
-  };
+  }
 }
 
 /** The empty STORED snapshot — used as `prev` for a `--baseline` generate (diff against nothing). */
-export const EMPTY_STORED: StoredSnapshot = emptyStored();
+export const EMPTY_STORED: StoredSnapshot = emptyStored()
 
 /**
  * Read the stored snapshot. Pre-launch: any snapshot that isn't the current `version: 3` shape (a
  * pre-portable v1/v2, or absent) is treated as EMPTY — regenerate with `better-schemic gen --baseline`.
  */
 export function readSnapshot(metaDir: string): StoredSnapshot {
-  const path = join(metaDir, SNAPSHOT_FILE);
-  if (!existsSync(path)) return emptyStored();
-  let raw: unknown;
+  const path = join(metaDir, SNAPSHOT_FILE)
+  if (!existsSync(path)) return emptyStored()
+  let raw: unknown
   try {
-    raw = JSON.parse(readFileSync(path, "utf8"));
-  } catch (e) {
+    raw = JSON.parse(readFileSync(path, "utf8"))
+  } catch (error) {
     throw new Error(
-      `better-schemic: ${SNAPSHOT_FILE} is not valid JSON (${(e as Error).message}). Restore it or regenerate with \`better-schemic gen --baseline\`.`,
-    );
+      `better-schemic: ${SNAPSHOT_FILE} is not valid JSON (${(error as Error).message}). Restore it or regenerate with \`better-schemic gen --baseline\`.`,
+    )
   }
-  if (isValidStoredSnapshot(raw)) return { files: {}, ...raw };
-  return emptyStored();
+  if (isValidStoredSnapshot(raw)) return { files: {}, ...raw }
+  return emptyStored()
 }
 
-const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"])
 
 /** Runtime validation of a stored snapshot — a doctored file must not reach the diff/plan walkers. */
 function isValidStoredSnapshot(v: unknown): v is StoredSnapshot {
-  if (typeof v !== "object" || v === null) return false;
-  const snap = v as Partial<StoredSnapshot>;
-  if (snap.version !== 3 || typeof snap.driver !== "string") return false;
-  const schema = snap.schema as { kinds?: unknown } | undefined;
-  if (typeof schema !== "object" || schema === null) return false;
-  const kinds = schema.kinds;
-  if (typeof kinds !== "object" || kinds === null || Array.isArray(kinds))
-    return false;
+  if (typeof v !== "object" || v === null) return false
+  const snap = v as Partial<StoredSnapshot>
+  if (snap.version !== 3 || typeof snap.driver !== "string") return false
+  const schema = snap.schema as { kinds?: unknown } | undefined
+  if (typeof schema !== "object" || schema === null) return false
+  const { kinds } = schema
+  if (typeof kinds !== "object" || kinds === null || Array.isArray(kinds)) return false
+
   for (const [kind, items] of Object.entries(kinds)) {
-    if (UNSAFE_KEYS.has(kind) || !Array.isArray(items)) return false;
+    if (UNSAFE_KEYS.has(kind) || !Array.isArray(items)) return false
     for (const item of items) {
-      if (typeof item !== "object" || item === null) return false;
-      const obj = item as { kind?: unknown; name?: unknown };
-      if (typeof obj.kind !== "string" || typeof obj.name !== "string")
-        return false;
+      if (typeof item !== "object" || item === null) return false
+      const obj = item as { kind?: unknown; name?: unknown }
+      if (typeof obj.kind !== "string" || typeof obj.name !== "string") return false
     }
   }
   if (snap.files !== undefined) {
-    if (
-      typeof snap.files !== "object" ||
-      snap.files === null ||
-      Array.isArray(snap.files)
-    )
-      return false;
-    for (const value of Object.values(snap.files))
-      if (typeof value !== "string") return false;
+    if (typeof snap.files !== "object" || snap.files === null || Array.isArray(snap.files))
+      return false
+
+    for (const value of Object.values(snap.files)) if (typeof value !== "string") return false
   }
-  return true;
+  return true
 }
 
 export function writeSnapshot(metaDir: string, snapshot: StoredSnapshot): void {
-  mkdirSync(metaDir, { recursive: true });
-  writeFileSync(
-    join(metaDir, SNAPSHOT_FILE),
-    `${JSON.stringify(snapshot, null, 2)}\n`,
-  );
+  mkdirSync(metaDir, { recursive: true })
+  writeFileSync(join(metaDir, SNAPSHOT_FILE), `${JSON.stringify(snapshot, null, 2)}\n`)
 }
 
 /**
@@ -126,29 +113,24 @@ export function listMigrations(
   migrationsDir: string,
   ext: string = DEFAULT_MIGRATION_EXT,
 ): Migration[] {
-  if (!existsSync(migrationsDir)) return [];
+  if (!existsSync(migrationsDir)) return []
   return readdirSync(migrationsDir)
     .filter((f) => f.endsWith(ext))
     .sort()
-    .map((file) => ({ tag: file.slice(0, -ext.length), file }));
+    .map((file) => ({ tag: file.slice(0, -ext.length), file }))
 }
 
 /** A sortable UTC timestamp prefix for a new migration, e.g. `20260607153045`. */
 export function timestamp(date: Date): string {
-  const p = (n: number) => String(n).padStart(2, "0");
-  return (
-    `${date.getUTCFullYear()}` +
-    p(date.getUTCMonth() + 1) +
-    p(date.getUTCDate()) +
-    p(date.getUTCHours()) +
-    p(date.getUTCMinutes()) +
-    p(date.getUTCSeconds())
-  );
+  const p = (n: number) => String(n).padStart(2, "0")
+  return `${date.getUTCFullYear()}${p(date.getUTCMonth() + 1)}${p(date.getUTCDate())}${p(
+    date.getUTCHours(),
+  )}${p(date.getUTCMinutes())}${p(date.getUTCSeconds())}`
 }
 
-/** sha256 of a migration file's contents (drift detection / apply-time bookkeeping). */
+/** Sha256 of a migration file's contents (drift detection / apply-time bookkeeping). */
 export function checksum(content: string): string {
-  return createHash("sha256").update(content).digest("hex").slice(0, 16);
+  return createHash("sha256").update(content).digest("hex").slice(0, 16)
 }
 
 /** Turn a free-form migration name into a filename-safe slug. */
@@ -157,7 +139,7 @@ export function slug(name: string): string {
     name
       .trim()
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "") || "migration"
-  );
+      .replaceAll(/[^a-z0-9]+/g, "_")
+      .replaceAll(/^_+|_+$/g, "") || "migration"
+  )
 }

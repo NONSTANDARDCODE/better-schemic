@@ -1,7 +1,7 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
-import type { Authored, AuthoredDef } from "../index";
+import { existsSync, readdirSync, statSync } from "node:fs"
+import { join } from "node:path"
 import { makeJiti } from "./config";
+import type { Authored, AuthoredDef } from "../index";
 
 /**
  * The NEUTRAL view of a loaded table the engine reads — just `name` plus the `config.relation` flag
@@ -15,17 +15,17 @@ async function importSchemaModule(
   file: string,
 ): Promise<unknown> {
   try {
-    return await jiti.import(file);
-  } catch (err) {
+    return await jiti.import(file)
+  } catch (error) {
     throw new Error(
-      `failed to load schema module ${file}: ${err instanceof Error ? err.message : String(err)}`,
-      { cause: err },
-    );
+      `failed to load schema module ${file}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    )
   }
 }
 
 export interface AnyTable extends Authored {
-  readonly config: { readonly relation?: unknown };
+  readonly config: { readonly relation?: unknown }
 }
 
 /**
@@ -35,7 +35,7 @@ export interface AnyTable extends Authored {
  */
 function isTableDef(v: unknown): v is AnyTable {
   if (!v || typeof v !== "object") return false;
-  const t = v as Record<string, unknown>;
+  const t = v as Record<string, unknown>
   return (
     typeof t.name === "string" &&
     typeof t.fields === "object" &&
@@ -43,7 +43,7 @@ function isTableDef(v: unknown): v is AnyTable {
     typeof t.config === "object" &&
     t.config !== null &&
     typeof t.record === "function"
-  );
+  )
 }
 
 /**
@@ -54,28 +54,25 @@ function isTableDef(v: unknown): v is AnyTable {
  */
 function isStandaloneDef(v: unknown): v is AuthoredDef {
   if (!v || typeof v !== "object") return false;
-  const d = v as Record<string, unknown>;
-  return (
-    typeof d.kind === "string" &&
-    d.kind.length > 0 &&
-    typeof d.name === "string"
-  );
+  const d = v as Record<string, unknown>
+  return typeof d.kind === "string" && d.kind.length > 0 && typeof d.name === "string"
 }
 
 function tsFiles(dir: string): string[] {
-  const out: string[] = [];
+  const out: string[] = []
   for (const entry of readdirSync(dir).sort()) {
-    const p = join(dir, entry);
+    const p = join(dir, entry)
     if (statSync(p).isDirectory()) out.push(...tsFiles(p));
-    else if (/\.(ts|mts|js|mjs)$/.test(entry) && !entry.endsWith(".d.ts"))
-      out.push(p);
+    } else if (/\.(ts|mts|js|mjs)$/.test(entry) && !entry.endsWith(".d.ts")) {
+      out.push(p)
+    }
   }
-  return out;
+  return out
 }
 
 /** The schema module file(s) for a path: the file itself, or every module under the directory. */
 function schemaFiles(path: string): string[] {
-  return statSync(path).isFile() ? [path] : tsFiles(path);
+  return statSync(path).isFile() ? [path] : tsFiles(path)
 }
 
 /**
@@ -84,69 +81,71 @@ function schemaFiles(path: string): string[] {
  * defs (any non-table `{ kind, name }` definable — the driver's registry owns the kinds). One pass.
  */
 export async function loadDefs(schemaPath: string): Promise<{
-  tables: AnyTable[];
-  defs: AuthoredDef[];
+  tables: AnyTable[]
+  defs: AuthoredDef[]
   /** Absolute source file each table/def was loaded from (for `diff`'s file annotations). */
-  fileOf: Map<AnyTable | AuthoredDef, string>;
+  fileOf: Map<AnyTable | AuthoredDef, string>
   /** Table names defined in more than one file (same-name defs collapse; this is how `check`/
    *  `doctor` surface the conflict). A file repeats when it defines the same name twice. */
-  duplicates: Map<string, string[]>;
+  duplicates: Map<string, string[]>
   /** Per-file exported entities (see {@link LocalFileEntities}) — collected in the SAME pass so
    *  `pull` never re-imports every module to scan exports. */
-  localEntities: Map<string, LocalFileEntities>;
+  localEntities: Map<string, LocalFileEntities>
 }> {
-  if (!existsSync(schemaPath)) {
+  if (!existsSync(schemaPath)) 
     throw new Error(`Schema path not found: ${schemaPath}`);
-  }
-  const jiti = makeJiti();
-  const tables = new Map<string, AnyTable>();
-  const defs: AuthoredDef[] = [];
-  const fileOf = new Map<AnyTable | AuthoredDef, string>();
-  const seen = new Map<string, string[]>();
-  const localEntities = new Map<string, LocalFileEntities>();
+  
+  const jiti = makeJiti(),
+    tables = new Map<string, AnyTable>(),
+    defs: AuthoredDef[] = [],
+    fileOf = new Map<AnyTable | AuthoredDef, string>(),
+    seen = new Map<string, string[]>(),
+    localEntities = new Map<string, LocalFileEntities>()
   for (const file of schemaFiles(schemaPath)) {
     const entries = Object.entries(
-      (await importSchemaModule(jiti, file)) as Record<string, unknown>,
-    );
-    const entities: LocalFileEntities["entities"] = [];
+        (await importSchemaModule(jiti, file)) as Record<string, unknown>,
+      ),
+      entities: LocalFileEntities["entities"] = []
     for (const [exportName, value] of entries) {
       if (isTableDef(value)) {
-        const files = seen.get(value.name);
+        const files = seen.get(value.name)
         if (files) files.push(file);
-        else seen.set(value.name, [file]);
-        tables.set(value.name, value); // last def of a name wins
-        fileOf.set(value, file);
-        entities.push({ exportName, name: value.name, kind: "table" });
+        } else {
+          seen.set(value.name, [file])
+        }
+        tables.set(value.name, value) // Last def of a name wins
+        fileOf.set(value, file)
+        entities.push({ exportName, name: value.name, kind: "table" })
       } else if (isStandaloneDef(value)) {
-        defs.push(value);
-        fileOf.set(value, file);
-        if (value.kind === "function" || value.kind === "access")
-          entities.push({ exportName, name: value.name, kind: "def" });
+        defs.push(value)
+        fileOf.set(value, file)
+        if (value.kind === "function" || value.kind === "access") {
+          entities.push({ exportName, name: value.name, kind: "def" })
+        }
       }
     }
-    if (entities.length)
+    if (entities.length > 0) {
       localEntities.set(file, {
         entities,
         pureSchema: entities.length === entries.length,
-      });
+      })
+    }
   }
-  const rank = (t: AnyTable) => (t.config.relation ? 1 : 0);
-  const sorted = [...tables.values()].sort(
-    (a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name),
-  );
+  const rank = (t: AnyTable) => (t.config.relation ? 1 : 0),
+    sorted = [...tables.values()].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
   return {
     tables: sorted,
     defs,
     fileOf,
     duplicates: new Map([...seen].filter(([, files]) => files.length > 1)),
     localEntities,
-  };
+  }
 }
 
 /** A schema file's exported entities (tables/functions/accesses) and whether it holds ONLY those. */
 export interface LocalFileEntities {
   /** Each schema entity by its export-const identifier + its DB name (table/function/access name). */
-  entities: { exportName: string; name: string; kind: "table" | "def" }[];
+  entities: { exportName: string; name: string; kind: "table" | "def" }[]
   /** True when EVERY runtime export of the file is a schema entity (no helpers / other exports). */
-  pureSchema: boolean;
+  pureSchema: boolean
 }

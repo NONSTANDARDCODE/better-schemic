@@ -1,42 +1,40 @@
 // Secret references for secret-bearing DDL (e.g. SurrealDB `DEFINE ACCESS` keys). A `SecretRef` is an
-// authoring-time PLACEHOLDER — it never carries the secret value. The value is resolved at APPLY time by
-// the CLI through a `SecretProvider` and handed to the database as a BOUND PARAMETER (never spliced into
-// the DDL string), so secrets stay out of the schema source, the snapshot, and the migration files.
+// Authoring-time PLACEHOLDER — it never carries the secret value. The value is resolved at APPLY time by
+// The CLI through a `SecretProvider` and handed to the database as a BOUND PARAMETER (never spliced into
+// The DDL string), so secrets stay out of the schema source, the snapshot, and the migration files.
 //
-//   key: env("JWT_SECRET")            // resolved from process.env at apply
-//   key: secret("jwt/signing-key")    // resolved from the configured SecretProvider at apply
+//   Key: env("JWT_SECRET")            // resolved from process.env at apply
+//   Key: secret("jwt/signing-key")    // resolved from the configured SecretProvider at apply
 //
 // The clause carrying a `SecretRef` is marked `writeOnly` in the IR (diff-excluded + snapshot-omitted),
-// so a redacted secret never reads as drift; because the diff can't see the value, rotation is the
-// explicit `apply --rotate-keys` (it can't be auto-detected).
+// So a redacted secret never reads as drift; because the diff can't see the value, rotation is the
+// Explicit `apply --rotate-keys` (it can't be auto-detected).
 
 /** An author-time reference to a secret, resolved to its value at apply time — never the value itself. */
 export interface SecretRef {
   /** `env` → resolved from `process.env`; `secret` → resolved from the configured {@link SecretProvider}. */
-  readonly kind: "env" | "secret";
+  readonly kind: "env" | "secret"
   /** The environment-variable / secret name to resolve at apply. */
-  readonly name: string;
+  readonly name: string
 }
 
 /** Bind a value to an environment variable, resolved at apply from `process.env[name]`. */
 export function env(name: string): SecretRef {
-  return { kind: "env", name };
+  return { kind: "env", name }
 }
 
 /** Bind a value to a named secret, resolved at apply from the configured {@link SecretProvider}. */
 export function secret(name: string): SecretRef {
-  return { kind: "secret", name };
+  return { kind: "secret", name }
 }
 
 /** Runtime guard: is `v` a {@link SecretRef} (vs a raw `string` literal key)? */
 export function isSecretRef(v: unknown): v is SecretRef {
-  if (typeof v !== "object" || v === null) return false;
-  const r = v as Partial<SecretRef>;
+  if (typeof v !== "object" || v === null) return false
+  const r = v as Partial<SecretRef>
   return (
-    (r.kind === "env" || r.kind === "secret") &&
-    typeof r.name === "string" &&
-    r.name.length > 0
-  );
+    (r.kind === "env" || r.kind === "secret") && typeof r.name === "string" && r.name.length > 0
+  )
 }
 
 /**
@@ -46,14 +44,14 @@ export function isSecretRef(v: unknown): v is SecretRef {
  * PARAMETER — never string-spliced into the DDL.
  */
 export interface SecretProvider {
-  resolve(ref: SecretRef): string | Promise<string>;
+  resolve: (ref: SecretRef) => string | Promise<string>
 }
 
 /** Default provider: resolves every {@link SecretRef} from `process.env[ref.name]`; throws if unset. */
 export const envSecretProvider: SecretProvider = {
   resolve(ref: SecretRef): string {
     // `Object.hasOwn` (not `in`/direct index): inherited members like `constructor`/`toString`
-    // would otherwise resolve to non-string functions despite the `string` return type.
+    // Would otherwise resolve to non-string functions despite the `string` return type.
     if (
       ref.name.length === 0 ||
       !Object.hasOwn(process.env, ref.name) ||
@@ -61,8 +59,8 @@ export const envSecretProvider: SecretProvider = {
     ) {
       throw new Error(
         `better-schemic: secret ${ref.kind}(${JSON.stringify(ref.name)}) is not set in the environment`,
-      );
+      )
     }
-    return process.env[ref.name] as string;
+    return process.env[ref.name]!
   },
-};
+}

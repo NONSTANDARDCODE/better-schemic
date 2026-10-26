@@ -9,16 +9,14 @@
  * A ref does: `interface SomeRef<T> extends FieldRefBase<T> { … }`. `brandRef` is the sanctioned
  * runtime bridge (the symbol is module-private, so drivers can't forge it).
  */
-declare const REF_VALUE: unique symbol;
+declare const REF_VALUE: unique symbol
 
 export interface FieldRefBase<T> {
   /** Phantom — the decoded app-value type this ref projects to. Never present at runtime. */
-  readonly [REF_VALUE]: T;
+  readonly [REF_VALUE]: T
 }
 
 /** Brand a ref implementation with the neutral {@link FieldRefBase} carrier. */
-export function brandRef<I extends object, T = unknown>(
-  impl: I,
-): I & FieldRefBase<T> {
-  return impl as I & FieldRefBase<T>;
+export function brandRef<I extends object, T = unknown>(impl: I): I & FieldRefBase<T> {
+  return impl as I & FieldRefBase<T>
 }

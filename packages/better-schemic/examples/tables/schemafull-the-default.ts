@@ -1,5 +1,6 @@
-import { defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "SCHEMAFULL (the default)",
@@ -7,4 +8,4 @@ export default example(import.meta.url, {
   ddl: `DEFINE TABLE account TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD name ON TABLE account TYPE string;`,
   def: defineTable("account", { id: s.string(), name: s.string() }),
-});
+})

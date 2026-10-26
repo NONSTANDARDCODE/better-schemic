@@ -1,16 +1,14 @@
 // The neutral foundation for the bound ORM CLIENT (P1) — the runtime read/write handle each driver
-// builds on. Core owns only the dialect-agnostic parts: the disposable lifecycle contract and the
-// managed-connection resolution. A driver's client (`@better-schemic/<driver>/client`) extends `OrmClientBase`,
-// binds its native connection, and adds its TYPED `select`/`call` (+ writes in P2). See
-// docs/proposals/managed-connections-and-orm-client.md.
+// Builds on. Core owns only the dialect-agnostic parts: the disposable lifecycle contract and the
+// Managed-connection resolution. A driver's client (`@better-schemic/<driver>/client`) extends `OrmClientBase`,
+// Binds its native connection, and adds its TYPED `select`/`call` (+ writes in P2). See
+// Docs/proposals/managed-connections-and-orm-client.md.
 
-import {
-  loadProject,
-  type ResolvedConfig,
-  resolveConnectionConfig,
-} from "./cli-kit/config";
-import type { BetterSchemicConfig } from "./config";
-import type { AnyConnectionEntry, ResolveContext } from "./connection";
+import { loadProject, resolveConnectionConfig } from "./cli-kit/config"
+
+import type { ResolvedConfig } from "./cli-kit/config"
+import type { BetterSchemicConfig } from "./config"
+import type { AnyConnectionEntry, ResolveContext } from "./connection"
 
 /**
  * The neutral bound-client contract. A driver's client extends this and adds its typed query surface.
@@ -22,30 +20,27 @@ import type { AnyConnectionEntry, ResolveContext } from "./connection";
  */
 export interface OrmClientBase extends AsyncDisposable {
   /** Close the underlying connection (managed only; a BYO client is a no-op — see the dispose rule). */
-  close(): Promise<void>;
+  close: () => Promise<void>
 }
 
 /** Mixin the default `[Symbol.asyncDispose]` (= `close`) onto a client class's prototype. */
-export function asyncDisposable<T extends { close(): Promise<void> }>(
-  proto: T,
-): void {
-  (proto as { [Symbol.asyncDispose]?: () => Promise<void> })[
-    Symbol.asyncDispose
-  ] = function (this: T) {
-    return this.close();
-  };
+export function asyncDisposable<T extends { close: () => Promise<void> }>(proto: T): void {
+  ;(proto as { [Symbol.asyncDispose]?: () => Promise<void> })[Symbol.asyncDispose] =
+    async function (this: T) {
+      return this.close()
+    }
 }
 
 /** Options for {@link resolveConnection}: which connection, and where the config lives. */
 export interface ResolveConnectionOptions {
   /** Connection name; defaults to `defaultConnection`, else the sole connection, else `"default"`. */
-  name?: string;
+  name?: string
   /** Path to `better-schemic.config.ts` (else auto-discovered from `cwd`). */
-  config?: string;
+  config?: string
   /** Working directory to discover the config + resolve relative paths from. */
-  cwd?: string;
+  cwd?: string
   /** The resolver's typed args (its declared 2nd param) for a PARAMETERIZED connection. */
-  args?: unknown;
+  args?: unknown
 }
 
 /**
@@ -54,92 +49,80 @@ export interface ResolveConnectionOptions {
  * fleet), with CYCLE detection; everything opened during resolution is closed when it settles.
  */
 function makeRuntimeContext(config: BetterSchemicConfig, root: string) {
-  const opened = new Map<string, Promise<unknown>>();
-  const resolving = new Set<string>();
-
-  const open = async (name: string): Promise<unknown> => {
-    if (resolving.has(name)) {
-      throw new Error(
-        `cyclic connection resolution: "${name}" is already resolving (a resolver reached back into itself via ctx.connections)`,
-      );
-    }
-    const entry = Object.hasOwn(config.connections, name)
-      ? config.connections[name]
-      : undefined;
-    if (!entry) throw new Error(`ctx.connections.${name}: no such connection`);
-    if (!entry.client) {
-      throw new Error(
-        `ctx.connections.${name}: the "${entry.driver}" connection factory predates runtime cross-connection access — update @better-schemic/${entry.driver}`,
-      );
-    }
-    resolving.add(name);
-    try {
-      const bases = await entry.resolve(context, undefined);
-      if (bases.length !== 1) {
+  const opened = new Map<string, Promise<unknown>>(),
+    resolving = new Set<string>(),
+    open = async (name: string): Promise<unknown> => {
+      if (resolving.has(name)) {
         throw new Error(
-          `ctx.connections.${name}: resolved to ${bases.length} configs — a sibling reached via ctx.connections must resolve to exactly one`,
-        );
+          `cyclic connection resolution: "${name}" is already resolving (a resolver reached back into itself via ctx.connections)`,
+        )
       }
-      const rc = resolveConnectionConfig(
-        config,
-        name,
-        bases[0],
-        entry.driver,
-        root,
-      );
-      return await entry.client(rc);
-    } finally {
-      resolving.delete(name);
-    }
-  };
+      const entry = Object.hasOwn(config.connections, name) ? config.connections[name] : undefined
+      if (!entry) throw new Error(`ctx.connections.${name}: no such connection`)
 
-  const context: ResolveContext = {
-    env: process.env,
-    connections: new Proxy(
-      {},
-      {
-        get(_t, name: string) {
-          const openOnce = () => {
-            let client = opened.get(name);
-            if (!client) {
-              client = open(name);
-              opened.set(name, client);
-            }
-            return client;
-          };
-          // The handle is THENABLE to the sibling's FULL ORM client (typed in the chained form:
-          // `const main = await ctx.connections.main; main.select(...)`) and keeps a direct
-          // `.query` for the neutral/literal form. Do NOT stash the client past resolution — it is
-          // closed when resolution settles.
-          return {
-            query: async (sql: string, vars?: Record<string, unknown>) => {
-              const db = (await openOnce()) as {
-                query(sql: string, vars?: unknown): Promise<unknown>;
-              };
-              return db.query(sql, vars);
-            },
-            then: (
-              onOk?: (v: unknown) => unknown,
-              onErr?: (e: unknown) => unknown,
-            ) => openOnce().then(onOk, onErr),
-          };
-        },
-      },
-    ) as ResolveContext["connections"],
-  };
-
-  const closeOpened = async () => {
-    for (const c of opened.values()) {
+      if (!entry.client) {
+        throw new Error(
+          `ctx.connections.${name}: the "${entry.driver}" connection factory predates runtime cross-connection access — update @better-schemic/${entry.driver}`,
+        )
+      }
+      resolving.add(name)
       try {
-        await ((await c) as { close?: () => Promise<void> }).close?.();
-      } catch {
-        // best-effort cleanup of resolution-time siblings
+        const bases = await entry.resolve(context, undefined)
+        if (bases.length !== 1) {
+          throw new Error(
+            `ctx.connections.${name}: resolved to ${bases.length} configs — a sibling reached via ctx.connections must resolve to exactly one`,
+          )
+        }
+        const rc = resolveConnectionConfig(config, name, bases[0], entry.driver, root)
+        return await entry.client(rc)
+      } finally {
+        resolving.delete(name)
       }
+    },
+    context: ResolveContext = {
+      env: process.env,
+      connections: new Proxy(
+        {},
+        {
+          get(_t, name: string) {
+            const openOnce = async () => {
+              let client = opened.get(name)
+              if (!client) {
+                client = open(name)
+                opened.set(name, client)
+              }
+              return client
+            }
+            // The handle is THENABLE to the sibling's FULL ORM client (typed in the chained form:
+            // `const main = await ctx.connections.main; main.select(...)`) and keeps a direct
+            // `.query` for the neutral/literal form. Do NOT stash the client past resolution — it is
+            // Closed when resolution settles.
+            return {
+              query: async (sql: string, vars?: Record<string, unknown>) => {
+                const db = (await openOnce()) as {
+                  query: (sql: string, vars?: unknown) => Promise<unknown>
+                }
+                return db.query(sql, vars)
+              },
+              then: async (onOk?: (v: unknown) => unknown, onErr?: (e: unknown) => unknown) =>
+                openOnce().then(onOk, onErr),
+            }
+          },
+        },
+      ),
+    },
+    closeOpened = async () => {
+      for (const c of opened.values()) {
+        try {
+          await ((await c) as { close?: () => Promise<void> }).close?.()
+        } catch {
+          // Best-effort cleanup of resolution-time siblings
+        }
+      }
+      opened.clear()
     }
-    opened.clear();
-  };
 
-  return { context, closeOpened, resolving };
+  return { context, closeOpened, resolving }
 }
 
 /**
@@ -153,10 +136,8 @@ export async function resolveConnection(
   const { config, root } = await loadProject({
     config: opts.config,
     cwd: opts.cwd,
-  });
-  return exactlyOne(
-    await resolveFromConfig(config, root, { name: opts.name, args: opts.args }),
-  );
+  })
+  return exactlyOne(await resolveFromConfig(config, root, { name: opts.name, args: opts.args }))
 }
 
 /**
@@ -172,58 +153,48 @@ export async function resolveFromConfig(
   root: string,
   opts: { name?: string; args?: unknown } = {},
 ): Promise<{
-  entry: AnyConnectionEntry;
-  name: string;
-  resolved: ResolvedConfig[];
-  labels: string[];
+  entry: AnyConnectionEntry
+  name: string
+  resolved: ResolvedConfig[]
+  labels: string[]
 }> {
-  const names = Object.keys(config.connections);
-  const name =
-    opts.name ??
-    config.defaultConnection ??
-    (names.length === 1 ? names[0] : "default");
-  const entry = Object.hasOwn(config.connections, name as string)
-    ? config.connections[name as string]
-    : undefined;
+  const names = Object.keys(config.connections),
+    name = opts.name ?? config.defaultConnection ?? (names.length === 1 ? names[0] : "default"),
+    entry = Object.hasOwn(config.connections, name) ? config.connections[name] : undefined
   if (!entry) {
     throw new Error(
       `connection "${name}" is not defined in the config (have: ${names.join(", ") || "none"})`,
-    );
+    )
   }
 
-  const rt = makeRuntimeContext(config, root);
-  rt.resolving.add(name); // the target itself is mid-resolution — a self-reference is a cycle
+  const rt = makeRuntimeContext(config, root)
+  rt.resolving.add(name) // The target itself is mid-resolution — a self-reference is a cycle
   try {
-    const bases = await entry.resolve(rt.context, opts.args);
-    if (!bases.length) {
-      throw new Error(`connection "${name}" resolved to no config`);
-    }
-    const resolved = bases.map((b) =>
-      resolveConnectionConfig(config, name, b, entry.driver, root),
-    );
-    const labels = resolved.map(
-      (rc, i) => bases[i].key ?? entry.label?.(rc) ?? `${name}[${i}]`,
-    );
-    return { entry, name, resolved, labels };
+    const bases = await entry.resolve(rt.context, opts.args)
+    if (bases.length === 0) throw new Error(`connection "${name}" resolved to no config`)
+
+    const resolved = bases.map((b) => resolveConnectionConfig(config, name, b, entry.driver, root)),
+      labels = resolved.map((rc, i) => bases[i].key ?? entry.label?.(rc) ?? `${name}[${i}]`)
+    return { entry, name, resolved, labels }
   } finally {
-    rt.resolving.delete(name);
-    await rt.closeOpened();
+    rt.resolving.delete(name)
+    await rt.closeOpened()
   }
 }
 
 /** Single-config resolution or a TEACHING error — bulk (array) resolutions must be arg-selected. */
 function exactlyOne(r: {
-  name: string;
-  resolved: ResolvedConfig[];
-  labels: string[];
+  name: string
+  resolved: ResolvedConfig[]
+  labels: string[]
 }): ResolvedConfig {
   if (r.resolved.length !== 1) {
     throw new Error(
       `connection "${r.name}" resolved to ${r.resolved.length} configs (${r.labels.join(", ")}) — ` +
         `a parameterized/bulk connection. Pass args selecting exactly one, e.g. betterSchemic.connect("${r.name}", { ... }).`,
-    );
+    )
   }
-  return r.resolved[0];
+  return r.resolved[0]
 }
 
 /**
@@ -237,12 +208,12 @@ export async function connectFromConfig(
   name?: string,
   args?: unknown,
 ): Promise<unknown> {
-  const r = await resolveFromConfig(config, process.cwd(), { name, args });
-  const resolved = exactlyOne(r);
+  const r = await resolveFromConfig(config, process.cwd(), { name, args }),
+    resolved = exactlyOne(r)
   if (!r.entry.client) {
     throw new Error(
       `the "${r.entry.driver}" connection factory predates config.connect() — update @better-schemic/${r.entry.driver} to a version whose ${r.entry.driver}Connection embeds a client opener`,
-    );
+    )
   }
-  return r.entry.client(resolved);
+  return r.entry.client(resolved)
 }

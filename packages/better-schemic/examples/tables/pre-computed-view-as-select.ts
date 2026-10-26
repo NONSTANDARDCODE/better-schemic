@@ -1,5 +1,6 @@
-import { defineView, s, surql } from "better-schemic";
-import { example } from "../_kit";
+import { defineView, s, surql } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "Pre-computed VIEW (AS SELECT)",
@@ -8,4 +9,4 @@ export default example(import.meta.url, {
   def: defineView("adults", { name: s.string(), age: s.number() }).as(
     surql`SELECT name, age FROM user WHERE age >= 18`,
   ),
-});
+})

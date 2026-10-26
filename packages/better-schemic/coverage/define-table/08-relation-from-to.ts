@@ -1,8 +1,8 @@
 import { defineRelation, defineTable, s } from "better-schemic";
 import { cover } from "../_kit";
 
-const Person = defineTable("person", { id: s.string() });
-const Product = defineTable("product", { id: s.string() });
+const Person = defineTable("person", { id: s.string() }),
+ Product = defineTable("product", { id: s.string() });
 
 export default cover(import.meta.url, {
   title: "TYPE RELATION FROM/TO — restricted endpoints",

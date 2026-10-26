@@ -24,7 +24,7 @@
  * // client.sessionKey.delete({ where: { id } }) -> DELETE session_key:…
  * ```
  */
-import { definePlugin } from "../orm/plugins";
+import { definePlugin } from "../orm/plugins"
 
 /** The `hard-delete` plugin options. */
 export interface HardDeleteOptions {
@@ -32,17 +32,17 @@ export interface HardDeleteOptions {
    * The tables this plugin owns. Omitted = every table in the schema. Listing them makes the
    * destructive intent greppable — and lets a soft-deleted table keep its tombstones.
    */
-  readonly tables?: readonly string[];
+  readonly tables?: readonly string[]
   /** A one-line reason recorded on the operation (shows up in the query log). */
-  readonly reason?: string;
+  readonly reason?: string
 }
 
 /** The plugin id (a second instance with different tables is a distinct plugin). */
-const PLUGIN_ID = "better-schemic/hard-delete";
+const PLUGIN_ID = "better-schemic/hard-delete"
 
 /** The optional reason, as the meta fragment that carries it (empty when none was given). */
 function hardDeleteReason(reason: string | undefined): Record<string, string> {
-  return reason === undefined ? {} : { hardDeleteReason: reason };
+  return reason === undefined ? {} : { hardDeleteReason: reason }
 }
 
 /**
@@ -53,22 +53,22 @@ function hardDeleteReason(reason: string | undefined): Record<string, string> {
  * the `rules` plugin/hook payload carries that intent (`meta.hardDelete`).
  */
 export function hardDelete(options: HardDeleteOptions = {}) {
-  const owned = options.tables ? new Set(options.tables) : undefined;
+  const owned = options.tables ? new Set(options.tables) : undefined
   return definePlugin({
     id: PLUGIN_ID,
     name: "Hard delete",
     description: "delete removes the row for good — no tombstone, no restore.",
     config: { tables: options.tables ?? [], reason: options.reason },
     transform(op) {
-      if (op.kind !== "delete" && op.kind !== "deleteMany") return;
-      if (owned && !owned.has(op.table)) return;
+      if (op.kind !== "delete" && op.kind !== "deleteMany") return
+      if (owned && !owned.has(op.table)) return
       // The intent travels with the operation: hooks, the rules plugin and the query log all see
-      // that this DELETE is permanent (and why, when a reason was given).
+      // That this DELETE is permanent (and why, when a reason was given).
       op.meta = {
-        ...(op.meta ?? {}),
+        ...op.meta,
         hardDelete: true,
         ...hardDeleteReason(options.reason),
-      };
+      }
     },
-  });
+  })
 }

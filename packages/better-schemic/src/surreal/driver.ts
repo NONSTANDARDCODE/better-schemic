@@ -8,18 +8,21 @@
 
 // Side-effect: register `surrealDriver` with the core registry on import. Kept in the BARREL (not
 // `driver/surreal.ts`) so importing the driver runtime for `connect` never registers the driver —
-// the ORM's `clientFromConfig` imports the runtime, not this CLI/engine entry.
-import { type Driver, registerDriver } from "../core";
-import { surrealDriver } from "./driver/surreal";
+// The ORM's `clientFromConfig` imports the runtime, not this CLI/engine entry.
+import { registerDriver } from "../core"
 
-registerDriver(surrealDriver as Driver<unknown>);
+import { surrealDriver } from "./driver/surreal"
+
+import type { Driver } from "../core"
+
+registerDriver(surrealDriver)
 
 /** The registry name of the built-in driver. */
-export const DRIVER_NAME = "surrealdb";
+export const DRIVER_NAME = "surrealdb"
 
 // Pretty-print SurrealQL for display/codegen (whitespace-only; normalize makes it drift-free).
-export { formatSurql } from "./cli/format";
-export type { DefineOptions, DefineStatement, FieldInfo } from "./ddl";
+export { formatSurql } from "./cli/format"
+export type { DefineOptions, DefineStatement, FieldInfo } from "./ddl"
 export {
   alterField,
   alterTable,
@@ -36,5 +39,5 @@ export {
   inline,
   overwriteStatement,
   removeStatement,
-} from "./ddl";
-export { surrealDriver } from "./driver/surreal";
+} from "./ddl"
+export { surrealDriver } from "./driver/surreal"

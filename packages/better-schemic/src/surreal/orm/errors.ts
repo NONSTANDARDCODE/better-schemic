@@ -10,9 +10,9 @@
 
 /** Every structured failure code the `/orm` layer can report. */
 export type BetterSchemicErrorCode =
-  // results
+  // Results
   | "ResultNotFound"
-  // server / transport
+  // Server / transport
   | "DatabaseError"
   | "ParseError"
   | "AssertionFailed"
@@ -22,22 +22,22 @@ export type BetterSchemicErrorCode =
   | "SerializationFailure"
   | "PermissionDenied"
   | "NotAuthenticated"
-  // client-side validation
+  // Client-side validation
   | "ValidationError"
   | "UnsafeDisabled"
   | "UnsupportedCapability"
   | "UnknownField"
   | "SchemaInvalid"
-  // tenant row-level security (the `plugins/tenant` preset + runtime plugin)
+  // Tenant row-level security (the `plugins/tenant` preset + runtime plugin)
   | "TenantRequired"
   | "TenantViolation"
-  // create-only / append-only tables (the `plugins/create-only` runtime guard)
+  // Create-only / append-only tables (the `plugins/create-only` runtime guard)
   | "CreateOnlyViolation"
-  // live
+  // Live
   | "LiveQueryUnsupported"
   | "ClauseNotSupportedInLive"
   | "LiveInTransaction"
-  // transactions
+  // Transactions
   | "TransactionAlreadyActive"
   | "TransactionRollback"
   // API contract
@@ -49,7 +49,7 @@ export type BetterSchemicErrorCode =
   | "ClauseNotSupported"
   | "RepositoryNotFound"
   | "PluginError"
-  | "UnsafeMutation";
+  | "UnsafeMutation"
 
 /** HTTP-like default status per code — a server/SDK status wins when present. */
 const DEFAULT_STATUS: Record<BetterSchemicErrorCode, number> = {
@@ -85,28 +85,28 @@ const DEFAULT_STATUS: Record<BetterSchemicErrorCode, number> = {
   RepositoryNotFound: 404,
   PluginError: 500,
   UnsafeMutation: 403,
-};
+}
 
 /** The context an operation attaches to a {@link BetterSchemicError}. */
 export interface BetterSchemicErrorOptions {
   /** HTTP-like status — defaults per {@link BetterSchemicErrorCode}. */
-  status?: number;
+  status?: number
   /** The table/edge the operation targeted (physical name). */
-  table?: string;
+  table?: string
   /** The field involved, when the failure is field-scoped. */
-  field?: string;
+  field?: string
   /** The delegate operation, e.g. `"findMany"` / `"create"`. */
-  operation?: string;
+  operation?: string
   /** Index of the failing statement inside a multi-statement batch. */
-  statementIndex?: number;
+  statementIndex?: number
   /** The SurrealQL emitted for the failing statement (values never inlined). */
-  surql?: string;
+  surql?: string
   /** The bound variables of the failing statement (omitted unless `debug: true`). */
-  vars?: Record<string, unknown>;
+  vars?: Record<string, unknown>
   /** The raw server/SDK payload, for debugging. */
-  details?: unknown;
+  details?: unknown
   /** The underlying error. */
-  cause?: unknown;
+  cause?: unknown
 }
 
 /**
@@ -114,32 +114,32 @@ export interface BetterSchemicErrorOptions {
  * `status` is HTTP-like for API layers; the context fields are populated as the operation unwinds.
  */
 export class BetterSchemicError extends Error {
-  readonly code: BetterSchemicErrorCode;
-  readonly status: number;
-  readonly table?: string;
-  readonly field?: string;
-  readonly operation?: string;
-  readonly statementIndex?: number;
-  readonly surql?: string;
-  readonly vars?: Record<string, unknown>;
-  readonly details?: unknown;
+  readonly code: BetterSchemicErrorCode
+  readonly status: number
+  readonly table?: string
+  readonly field?: string
+  readonly operation?: string
+  readonly statementIndex?: number
+  readonly surql?: string
+  readonly vars?: Record<string, unknown>
+  readonly details?: unknown
 
   constructor(
     code: BetterSchemicErrorCode,
     message: string,
     options: BetterSchemicErrorOptions = {},
   ) {
-    super(message, { cause: options.cause });
-    this.name = "BetterSchemicError";
-    this.code = code;
-    this.status = options.status ?? DEFAULT_STATUS[code];
-    this.table = options.table;
-    this.field = options.field;
-    this.operation = options.operation;
-    this.statementIndex = options.statementIndex;
-    this.surql = options.surql;
-    this.vars = options.vars;
-    this.details = options.details;
+    super(message, { cause: options.cause })
+    this.name = "BetterSchemicError"
+    this.code = code
+    this.status = options.status ?? DEFAULT_STATUS[code]
+    this.table = options.table
+    this.field = options.field
+    this.operation = options.operation
+    this.statementIndex = options.statementIndex
+    this.surql = options.surql
+    this.vars = options.vars
+    this.details = options.details
   }
 
   /**
@@ -152,123 +152,105 @@ export class BetterSchemicError extends Error {
    * catch (e) { throw BetterSchemicError.from(e, { table, operation: "findMany", surql }); }
    * ```
    */
-  static from(
-    error: unknown,
-    context: BetterSchemicErrorOptions = {},
-  ): BetterSchemicError {
-    return normalizeError(error, context);
+  static from(error: unknown, context: BetterSchemicErrorOptions = {}): BetterSchemicError {
+    return normalizeError(error, context)
   }
 }
 
 /** The structural slice of an SDK `ServerError` the normalizer reads (no runtime import needed). */
 interface ServerErrorLike {
-  kind: string;
-  code?: number;
-  details?: { kind?: string; details?: unknown } | null;
-  cause?: unknown;
-  message: string;
+  kind: string
+  code?: number
+  details?: { kind?: string; details?: unknown } | null
+  cause?: unknown
+  message: string
   /** Convenience getters present on the typed subclasses. */
-  tableName?: string;
-  recordId?: string;
-  isParseError?: boolean;
-  isCancelled?: boolean;
-  isTimedOut?: boolean;
-  isNotExecuted?: boolean;
-  isLiveQueryNotSupported?: boolean;
+  tableName?: string
+  recordId?: string
+  isParseError?: boolean
+  isCancelled?: boolean
+  isTimedOut?: boolean
+  isNotExecuted?: boolean
+  isLiveQueryNotSupported?: boolean
 }
 
 const isServerErrorLike = (e: unknown): e is Error & ServerErrorLike =>
-  e instanceof Error && typeof (e as { kind?: unknown }).kind === "string";
-
-const hasIssues = (e: unknown): e is { issues: unknown[]; message: string } =>
-  typeof e === "object" &&
-  e !== null &&
-  typeof (e as { message?: unknown }).message === "string" &&
-  Array.isArray((e as { issues?: unknown }).issues);
-
-/** SDK error `kind` -> our code (refined by the structured details below). */
-const KIND_CODES: Record<string, BetterSchemicErrorCode> = {
-  AlreadyExists: "RecordAlreadyExists",
-  NotFound: "RecordNotFound",
-  Validation: "ValidationError",
-  Configuration: "UnsupportedCapability",
-  Thrown: "AssertionFailed",
-  Query: "DatabaseError",
-  Serialization: "SerializationFailure",
-  NotAllowed: "PermissionDenied",
-  Connection: "DatabaseError",
-  Internal: "DatabaseError",
-};
-
-/** Message heuristics — the fallback when the kind is generic (Query/Internal) or absent. */
-const MESSAGE_CODES: readonly (readonly [RegExp, BetterSchemicErrorCode])[] = [
-  [/already exists/i, "RecordAlreadyExists"],
-  [/write conflict|transaction conflict/i, "WriteConflict"],
-  [/cancelled transaction/i, "TransactionRollback"],
-  [
-    /not executed due to a (?:failed|cancelled) transaction/i,
-    "TransactionRollback",
-  ],
-  [
-    /does not support|not supported|unsupported|is not supported/i,
-    "UnsupportedCapability",
-  ],
-  [/parse error|unexpected token/i, "ParseError"],
-  [/couldn't coerce|expected .* but found|assertion/i, "AssertionFailed"],
-  [/permission|not allowed|forbidden|denied/i, "PermissionDenied"],
-  [
-    /not authenticated|invalid auth|token expired|session expired|missing user or pass/i,
-    "NotAuthenticated",
-  ],
-  [/does not exist|not found/i, "RecordNotFound"],
-];
+    e instanceof Error && typeof (e as { kind?: unknown }).kind === "string",
+  hasIssues = (e: unknown): e is { issues: unknown[]; message: string } =>
+    typeof e === "object" &&
+    e !== null &&
+    typeof (e as { message?: unknown }).message === "string" &&
+    Array.isArray((e as { issues?: unknown }).issues),
+  /** SDK error `kind` -> our code (refined by the structured details below). */
+  KIND_CODES: Record<string, BetterSchemicErrorCode> = {
+    AlreadyExists: "RecordAlreadyExists",
+    NotFound: "RecordNotFound",
+    Validation: "ValidationError",
+    Configuration: "UnsupportedCapability",
+    Thrown: "AssertionFailed",
+    Query: "DatabaseError",
+    Serialization: "SerializationFailure",
+    NotAllowed: "PermissionDenied",
+    Connection: "DatabaseError",
+    Internal: "DatabaseError",
+  },
+  /** Message heuristics — the fallback when the kind is generic (Query/Internal) or absent. */
+  MESSAGE_CODES: readonly (readonly [RegExp, BetterSchemicErrorCode])[] = [
+    [/already exists/i, "RecordAlreadyExists"],
+    [/write conflict|transaction conflict/i, "WriteConflict"],
+    [/cancelled transaction/i, "TransactionRollback"],
+    [/not executed due to a (?:failed|cancelled) transaction/i, "TransactionRollback"],
+    [/does not support|not supported|unsupported|is not supported/i, "UnsupportedCapability"],
+    [/parse error|unexpected token/i, "ParseError"],
+    [/couldn't coerce|expected .* but found|assertion/i, "AssertionFailed"],
+    [/permission|not allowed|forbidden|denied/i, "PermissionDenied"],
+    [
+      /not authenticated|invalid auth|token expired|session expired|missing user or pass/i,
+      "NotAuthenticated",
+    ],
+    [/does not exist|not found/i, "RecordNotFound"],
+  ]
 
 function codeFromMessage(message: string): BetterSchemicErrorCode {
-  for (const [re, code] of MESSAGE_CODES) if (re.test(message)) return code;
-  return "DatabaseError";
+  for (const [re, code] of MESSAGE_CODES) if (re.test(message)) return code
+
+  return "DatabaseError"
 }
 
 /** The table a server error names, when the structured details carry one. */
 function tableFrom(error: ServerErrorLike): string | undefined {
-  if (typeof error.tableName === "string" && error.tableName)
-    return error.tableName;
-  const kind = error.details?.kind;
-  const inner = error.details?.details as
-    | { name?: unknown; id?: unknown }
-    | undefined;
-  if (kind === "Table" && typeof inner?.name === "string") return inner.name;
-  if (kind === "Record" && typeof inner?.id === "string")
-    return inner.id.split(":")[0];
-  if (typeof error.recordId === "string" && error.recordId)
-    return error.recordId.split(":")[0];
-  return undefined;
+  if (typeof error.tableName === "string" && error.tableName) return error.tableName
+
+  const kind = error.details?.kind,
+    inner = error.details?.details as { name?: unknown; id?: unknown } | undefined
+  if (kind === "Table" && typeof inner?.name === "string") return inner.name
+  if (kind === "Record" && typeof inner?.id === "string") return inner.id.split(":")[0]
+
+  if (typeof error.recordId === "string" && error.recordId) return error.recordId.split(":")[0]
+
+  return undefined
 }
 
 /** Refine the kind-derived code with the structured `details.kind`. */
-function refineCode(
-  error: ServerErrorLike,
-  code: BetterSchemicErrorCode,
-): BetterSchemicErrorCode {
-  const detail = error.details?.kind;
-  if (error.isParseError === true || detail === "Parse") return "ParseError";
-  if (
-    error.isLiveQueryNotSupported === true ||
-    detail === "LiveQueryNotSupported"
-  )
-    return "LiveQueryUnsupported";
-  if (error.kind === "NotAllowed" && detail === "Auth")
-    return "NotAuthenticated";
-  if (error.isCancelled === true || detail === "Cancelled")
-    return "TransactionRollback";
+function refineCode(error: ServerErrorLike, code: BetterSchemicErrorCode): BetterSchemicErrorCode {
+  const detail = error.details?.kind
+  if (error.isParseError === true || detail === "Parse") return "ParseError"
+  if (error.isLiveQueryNotSupported === true || detail === "LiveQueryNotSupported")
+    return "LiveQueryUnsupported"
+
+  if (error.kind === "NotAllowed" && detail === "Auth") return "NotAuthenticated"
+
+  if (error.isCancelled === true || detail === "Cancelled") return "TransactionRollback"
+
   if (error.isNotExecuted === true || detail === "NotExecuted") {
     // A statement skipped because a sibling failed — but a write conflict can arrive under this
-    // shape too, and the message is the only discriminator.
-    const byMessage = codeFromMessage(error.message);
-    return byMessage === "DatabaseError" ? "TransactionRollback" : byMessage;
+    // Shape too, and the message is the only discriminator.
+    const byMessage = codeFromMessage(error.message)
+    return byMessage === "DatabaseError" ? "TransactionRollback" : byMessage
   }
-  if (error.isTimedOut === true || detail === "TimedOut")
-    return "DatabaseError";
-  return code;
+  if (error.isTimedOut === true || detail === "TimedOut") return "DatabaseError"
+
+  return code
 }
 
 /**
@@ -279,51 +261,44 @@ export function normalizeError(
   error: unknown,
   context: BetterSchemicErrorOptions = {},
 ): BetterSchemicError {
-  if (isBetterSchemicError(error)) return error;
+  if (isBetterSchemicError(error)) return error
 
   if (hasIssues(error)) {
-    const first = error.issues[0] as
-      | { message?: string; path?: unknown[] }
-      | undefined;
-    const path = first?.path?.join(".");
+    const first = error.issues[0] as { message?: string; path?: unknown[] } | undefined,
+      path = first?.path?.join(".")
     return new BetterSchemicError(
       "ValidationError",
       first?.message
         ? `Validation failed${path ? ` at "${path}"` : ""}: ${first.message}`
         : error.message,
       { ...context, details: context.details ?? error.issues, cause: error },
-    );
+    )
   }
 
   if (isServerErrorLike(error)) {
-    const byKind = KIND_CODES[error.kind] ?? "DatabaseError";
-    const refined = refineCode(error, byKind);
-    const code =
-      refined === "DatabaseError" ? codeFromMessage(error.message) : refined;
+    const byKind = KIND_CODES[error.kind] ?? "DatabaseError",
+      refined = refineCode(error, byKind),
+      code = refined === "DatabaseError" ? codeFromMessage(error.message) : refined
     return new BetterSchemicError(code, error.message, {
       ...context,
       table: context.table ?? tableFrom(error),
       details: context.details ?? error.details,
       cause: context.cause ?? error.cause ?? error,
-    });
+    })
   }
 
   if (error instanceof Error) {
-    return new BetterSchemicError(
-      codeFromMessage(error.message),
-      error.message,
-      {
-        ...context,
-        cause: error,
-      },
-    );
+    return new BetterSchemicError(codeFromMessage(error.message), error.message, {
+      ...context,
+      cause: error,
+    })
   }
 
   return new BetterSchemicError(
     "DatabaseError",
     typeof error === "string" ? error : `Non-Error thrown: ${String(error)}`,
     { ...context, details: context.details ?? error },
-  );
+  )
 }
 
 /** Narrow to a {@link BetterSchemicError} (cross-realm safe: checks name + code shape). */
@@ -332,70 +307,59 @@ export function isBetterSchemicError(e: unknown): e is BetterSchemicError {
     e instanceof Error &&
     e.name === "BetterSchemicError" &&
     typeof (e as { code?: unknown }).code === "string"
-  );
+  )
 }
 
 // --- predicates — match on `code`, never on a message string ------------------------------------
 
 const codeOf = (e: unknown): BetterSchemicErrorCode | undefined =>
-  isBetterSchemicError(e) ? e.code : undefined;
+  isBetterSchemicError(e) ? e.code : undefined
 
 /** A record/duplicate-id conflict (`CREATE`/`INSERT` on an existing id). */
-export const isUniqueViolation = (e: unknown): boolean =>
-  codeOf(e) === "RecordAlreadyExists";
+export const isUniqueViolation = (e: unknown): boolean => codeOf(e) === "RecordAlreadyExists"
 
 /** A schema `ASSERT`/`TYPE` violation (or the codec rejecting a value server-side). */
-export const isAssertionFailed = (e: unknown): boolean =>
-  codeOf(e) === "AssertionFailed";
+export const isAssertionFailed = (e: unknown): boolean => codeOf(e) === "AssertionFailed"
 
 /** Permissions / record access denied. */
-export const isPermissionDenied = (e: unknown): boolean =>
-  codeOf(e) === "PermissionDenied";
+export const isPermissionDenied = (e: unknown): boolean => codeOf(e) === "PermissionDenied"
 
 /**
  * A tenant-scope guard from `plugins/tenant` — no scope for a tenant-tagged table
  * (`TenantRequired`) or a scope/payload that diverges from it (`TenantViolation`). Both 403.
  */
 export const isTenantViolation = (e: unknown): boolean => {
-  const code = codeOf(e);
-  return code === "TenantRequired" || code === "TenantViolation";
-};
+  const code = codeOf(e)
+  return code === "TenantRequired" || code === "TenantViolation"
+}
 
 /**
  * A create-only (`plugins/create-only`) table rejected a write that could update records —
  * `CreateOnlyViolation`, 403. The operation never reached the database.
  */
-export const isCreateOnlyViolation = (e: unknown): boolean =>
-  codeOf(e) === "CreateOnlyViolation";
+export const isCreateOnlyViolation = (e: unknown): boolean => codeOf(e) === "CreateOnlyViolation"
 
 /** Optimistic-concurrency conflict — retryable inside a transaction. */
-export const isWriteConflict = (e: unknown): boolean =>
-  codeOf(e) === "WriteConflict";
+export const isWriteConflict = (e: unknown): boolean => codeOf(e) === "WriteConflict"
 
 /** A serialization failure — retryable inside a transaction. */
-export const isSerializationFailure = (e: unknown): boolean =>
-  codeOf(e) === "SerializationFailure";
+export const isSerializationFailure = (e: unknown): boolean => codeOf(e) === "SerializationFailure"
 
 /** An explicit `tx.rollback(...)` (or a cancelled transaction). */
-export const isTransactionRollback = (e: unknown): boolean =>
-  codeOf(e) === "TransactionRollback";
+export const isTransactionRollback = (e: unknown): boolean => codeOf(e) === "TransactionRollback"
 
 /** No record matched (`ResultNotFound` from `.throw()`, or a server `NotFound`). */
 export const isNotFound = (e: unknown): boolean =>
-  codeOf(e) === "ResultNotFound" || codeOf(e) === "RecordNotFound";
+  codeOf(e) === "ResultNotFound" || codeOf(e) === "RecordNotFound"
 
 /** Any client/server validation failure (Zod, asserts, SurrealQL parse). */
 export const isValidationError = (e: unknown): boolean => {
-  const code = codeOf(e);
-  return (
-    code === "ValidationError" ||
-    code === "AssertionFailed" ||
-    code === "ParseError"
-  );
-};
+  const code = codeOf(e)
+  return code === "ValidationError" || code === "AssertionFailed" || code === "ParseError"
+}
 
 /** The server (or the schema/connection) cannot express this operation. */
 export const isUnsupportedCapability = (e: unknown): boolean => {
-  const code = codeOf(e);
-  return code === "UnsupportedCapability" || code === "LiveQueryUnsupported";
-};
+  const code = codeOf(e)
+  return code === "UnsupportedCapability" || code === "LiveQueryUnsupported"
+}

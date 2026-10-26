@@ -7,24 +7,24 @@
  * No-op when `SURREAL_URL` is already set (an external DB) or the `surreal` binary is unavailable
  * (CI without the binary — the suites then skip as before).
  */
-import { spawnEphemeralServer, surrealBinaryAvailable } from "../../src/surreal/cli/engine";
+import { spawnEphemeralServer, surrealBinaryAvailable } from "../../src/surreal/cli/engine"
 
 if (!process.env.SURREAL_URL && surrealBinaryAvailable()) {
-  const server = await spawnEphemeralServer();
-  process.env.SURREAL_URL = server.url;
-  process.env.SURREAL_USER = server.username;
-  process.env.SURREAL_PASS = server.password;
+  const server = await spawnEphemeralServer()
+  process.env.SURREAL_URL = server.url
+  process.env.SURREAL_USER = server.username
+  process.env.SURREAL_PASS = server.password
 
-  let stopped = false;
+  let stopped = false
   const stop = (): void => {
-    if (stopped) return;
-    stopped = true;
-    void server.stop().catch(() => {});
-  };
+    if (stopped) return
+    stopped = true
+    void server.stop().catch(() => {})
+  }
   try {
-    const { afterAll } = await import("bun:test");
-    afterAll(stop);
+    const { afterAll } = await import("bun:test")
+    afterAll(stop)
   } catch {
-    process.on("exit", stop);
+    process.on("exit", stop)
   }
 }

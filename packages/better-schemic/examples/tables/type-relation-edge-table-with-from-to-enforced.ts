@@ -1,5 +1,6 @@
-import { defineRelation, defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineRelation, defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "TYPE RELATION (edge table) with FROM / TO / ENFORCED",
@@ -10,4 +11,4 @@ DEFINE FIELD since ON TABLE likes TYPE datetime;`,
     .from(defineTable("user", { id: s.string() }))
     .to(defineTable("post", { id: s.string() }))
     .enforced(),
-});
+})

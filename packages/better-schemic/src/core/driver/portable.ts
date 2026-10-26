@@ -2,13 +2,13 @@
 //
 // Today the Struct-IR carries a field's type as a SurrealQL type-expression STRING
 // (`StructField.kind`, e.g. `option<int>`, `array<record<user>, 3>`). That string is a dialect leak:
-// equality and rendering both have to understand SurrealQL grammar. This module defines the
-// dialect-INDEPENDENT replacement — a structured type that every driver translates to/from.
+// Equality and rendering both have to understand SurrealQL grammar. This module defines the
+// Dialect-INDEPENDENT replacement — a structured type that every driver translates to/from.
 //
 // STATUS (Milestone 1): defined but NOT yet wired into `StructField`. Milestone 2 replaces
 // `kind: string` with `type: PortableType`, makes `inferField` (src/ddl.ts) produce it, and flips
-// diff equality to a structured deep-compare over the normalized IR. Until then this is the target
-// shape, kept in code so the Surreal driver's `emitType`/`parseType` can be built against it.
+// Diff equality to a structured deep-compare over the normalized IR. Until then this is the target
+// Shape, kept in code so the Surreal driver's `emitType`/`parseType` can be built against it.
 
 /**
  * The portable scalar set — the common denominator every driver maps to a concrete column type and
@@ -22,12 +22,12 @@ export type ScalarName =
   | "int"
   | "float"
   | "decimal"
-  | "number" // a numeric whose int/float/decimal-ness is unconstrained
+  | "number" // A numeric whose int/float/decimal-ness is unconstrained
   | "datetime"
   | "duration"
   | "uuid"
   | "bytes"
-  | "null"; // the unit type of SQL NULL / Surreal `null` (distinct from `option`'s absence)
+  | "null" // The unit type of SQL NULL / Surreal `null` (distinct from `option`'s absence)
 
 /**
  * A dialect-independent field type. Drivers translate this to their own type expression (`emitType`)
@@ -73,7 +73,7 @@ export type PortableType =
    * `params` carries the type's parameters for parameterized natives — `numeric(p,s)`, `varchar(n)`,
    * `timestamp(p)` — so a driver round-trips `numeric(10,2)` exactly. Order matters; ignored when empty.
    */
-  | { t: "native"; db: string; name: string; params?: (string | number)[] };
+  | { t: "native"; db: string; name: string; params?: (string | number)[] }
 
 export type GeometryKind =
   | "feature"
@@ -83,42 +83,42 @@ export type GeometryKind =
   | "multipoint"
   | "multiline"
   | "multipolygon"
-  | "collection";
+  | "collection"
 
 // --- Constructors (ergonomic, and a single place to enforce the fold invariants) ----------------
 
 export const scalar = (name: ScalarName): PortableType => ({
   t: "scalar",
   name,
-});
+})
 export const literal = (value: string | number | boolean): PortableType => ({
   t: "literal",
   value,
-});
+})
 
 /** `option<T>` — but `option<any>` collapses to `any` (any already admits NONE), matching ddl.ts. */
 export const option = (inner: PortableType): PortableType =>
-  inner.t === "scalar" && inner.name === "any" ? inner : { t: "option", inner };
+  inner.t === "scalar" && inner.name === "any" ? inner : { t: "option", inner }
 
 /**
  * `T | null` — with the fold rule `nullable(option(X))` -> `option(nullable(X))` so
  * `.optional().nullable()` ≡ `.nullish()`, and `nullable(any)` collapses to `any`.
  */
 export const nullable = (inner: PortableType): PortableType => {
-  if (inner.t === "scalar" && inner.name === "any") return inner;
-  if (inner.t === "option")
-    return { t: "option", inner: nullable(inner.inner) };
-  return { t: "nullable", inner };
-};
+  if (inner.t === "scalar" && inner.name === "any") return inner
+  if (inner.t === "option") return { t: "option", inner: nullable(inner.inner) }
+
+  return { t: "nullable", inner }
+}
 
 export const array = (elem: PortableType, size?: number): PortableType => ({
   t: "array",
   elem,
-  ...(size !== undefined ? { size } : {}),
-});
+  ...(size === undefined ? {} : { size }),
+})
 export const union = (members: PortableType[]): PortableType =>
-  members.length === 1 ? members[0] : { t: "union", members };
+  members.length === 1 ? members[0] : { t: "union", members }
 export const record = (tables: string[]): PortableType => ({
   t: "record",
   tables,
-});
+})

@@ -1,5 +1,6 @@
-import { defineAnalyzer, defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineAnalyzer, defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "FULLTEXT search index + DEFINE ANALYZER",
@@ -10,15 +11,9 @@ DEFINE TABLE doc TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD content ON TABLE doc TYPE string;
 DEFINE INDEX ft ON TABLE doc FIELDS content FULLTEXT ANALYZER english HIGHLIGHTS;`,
   def: [
-    defineAnalyzer("english")
-      .tokenizers("blank")
-      .filters("lowercase", "snowball(english)"),
-    defineTable("doc", { id: s.string(), content: s.string() }).index(
-      "ft",
-      ["content"],
-      {
-        fulltext: { analyzer: "english", highlights: true },
-      },
-    ),
+    defineAnalyzer("english").tokenizers("blank").filters("lowercase", "snowball(english)"),
+    defineTable("doc", { id: s.string(), content: s.string() }).index("ft", ["content"], {
+      fulltext: { analyzer: "english", highlights: true },
+    }),
   ],
-});
+})

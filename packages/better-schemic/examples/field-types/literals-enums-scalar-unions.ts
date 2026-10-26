@@ -1,5 +1,6 @@
-import { defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "Literals, enums, scalar unions",
@@ -13,4 +14,4 @@ DEFINE FIELD idOrName ON TABLE choice TYPE int | string;`,
     status: s.enum(["draft", "live", "archived"]),
     idOrName: s.union([s.int(), s.string()]),
   }),
-});
+})

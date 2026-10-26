@@ -15,77 +15,78 @@
  * server semantics) is proven separately by `test/live/orm-*.test.ts`.
  */
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import type { QueryResponse } from "surrealdb";
+import { readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import { RecordId, Uuid } from "surrealdb";
 import type { Client } from "../../src/surreal/orm/client";
 import { betterSchemic } from "../../src/surreal/orm/client";
 import type { Queryable } from "../../src/surreal/orm/execute";
 import { schema } from "./_schema";
+import type { QueryResponse } from "surrealdb";
 
-export type OrmClient = Client<typeof schema>;
+export type OrmClient = Client<typeof schema>
 
 /** The exact runtime SurrealQL a delegate call produces. */
 export interface OrmStatement {
   /** The statement text (control statements separated by `\n`). */
-  sql: string;
+  sql: string
   /** The bound values (`$p0`, `$p1`, …), JSON-stable (`RecordId` → `table:id`). */
-  vars: Record<string, unknown>;
+  vars: Record<string, unknown>
 }
 
 /** One catalog entry: the delegate-call snippet, the golden statement, and a note. */
 export interface OrmExample {
   /** The operation this entry demonstrates (also the test name). */
-  title: string;
+  title: string
   /** Optional caveat — a divergence, a guard, or a `[~]`/`[ ]` note from ORM-COVERAGE.md. */
-  note?: string;
+  note?: string
   /** The verbatim `def` snippet, extracted from the example file's source (the website gallery renders this). */
-  code: string;
+  code: string
   /** The delegate call, re-run by `capture` at test/generation time. */
-  def: (client: OrmClient) => unknown;
+  def: (client: OrmClient) => unknown
   /** The exact SurrealQL the call emits (golden). */
-  sql: string;
+  sql: string
   /** The exact bindings the call emits (golden). */
-  vars: Record<string, unknown>;
+  vars: Record<string, unknown>
 }
 
 /** A named group of ORM examples (one source file in this folder). */
 export interface OrmGroup {
   /** The file these examples live in (the test's `describe` label / the manifest group slug). */
-  file: string;
+  file: string
   /** What the file covers. */
-  about: string;
-  examples: OrmExample[];
+  about: string
+  examples: OrmExample[]
 }
 
 /** Advance `i` past a string/template literal starting at `src[i]` (the opening quote). */
 function skipString(src: string, i: number, quote: string): number {
-  i++;
+  i++
   while (i < src.length) {
     if (src[i] === "\\") {
-      i += 2;
-      continue;
+      i += 2
+      continue
     }
     if (src[i] === quote) return i + 1;
     if (quote === "`" && src[i] === "$" && src[i + 1] === "{") {
-      i += 2;
-      let d = 1;
+      i += 2
+      let d = 1
       while (i < src.length && d > 0) {
         if (src[i] === "{") d++;
-        else if (src[i] === "}") d--;
-        i++;
+        } else if (src[i] === "}") {
+          d--
+        }
+        i++
       }
-      continue;
+      continue
     }
-    i++;
+    i++
   }
-  return i;
+  return i
 }
 
 /** Escape a string for use inside a RegExp. */
-const escapeRe = (s: string): string =>
-  s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRe = (s: string): string => s.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)
 
 /**
  * Extract the verbatim source of the `def:` property of ONE `ormExample(import.meta.url, { … })` call
@@ -97,39 +98,37 @@ const escapeRe = (s: string): string =>
  */
 function extractDefSource(src: string, title: string): string {
   // Whitespace-tolerant: a formatter may wrap `title:` and its string onto separate lines.
-  const anchorMatch = new RegExp(
-    `title:\\s*${escapeRe(JSON.stringify(title))}`,
-  ).exec(src);
-  if (!anchorMatch)
+  const anchorMatch = new RegExp(`title:\\s*${escapeRe(JSON.stringify(title))}`).exec(src)
+  if (!anchorMatch) {
     throw new Error(
       `orm example file has no \`title: ${JSON.stringify(title)}\` to anchor its \`def:\` snippet`,
-    );
-  const anchor = anchorMatch.index;
-  const m = /\bdef:\s*/.exec(src.slice(anchor));
-  if (!m)
-    throw new Error(
-      "orm example file has no `def:` property to render as `code`",
-    );
-  const start = anchor + m.index + m[0].length;
-  let i = start;
-  let depth = 0;
+    )
+  }
+  const anchor = anchorMatch.index,
+    m = /\bdef:\s*/.exec(src.slice(anchor))
+  if (!m) {
+    throw new Error("orm example file has no `def:` property to render as `code`")
+  }
+  const start = anchor + m.index + m[0].length
+  let i = start,
+    depth = 0
   while (i < src.length) {
-    const c = src[i];
+    const c = src[i]
     if (c === '"' || c === "'" || c === "`") {
-      i = skipString(src, i, c);
-      continue;
+      i = skipString(src, i, c)
+      continue
     }
     if (c === "(" || c === "[" || c === "{") depth++;
-    else if (c === ")" || c === "]" || c === "}") {
+    } else if (c === ")" || c === "]" || c === "}") {
       if (depth === 0) break;
-      depth--;
+      depth--
     } else if (c === "," && depth === 0) break;
-    i++;
+    i++
   }
   return src
     .slice(start, i)
-    .replace(/^[ \t]*\/\/ biome-ignore.*\r?\n/gm, "")
-    .trim();
+    .replaceAll(/^[ \t]*\/\/ biome-ignore.*\r?\n/gm, "")
+    .trim()
 }
 
 /**
@@ -140,64 +139,57 @@ function extractDefSource(src: string, title: string): string {
 export function ormExample(
   metaUrl: string,
   e: {
-    title: string;
-    note?: string;
-    def: (client: OrmClient) => unknown;
-    sql: string;
-    vars?: Record<string, unknown>;
+    title: string
+    note?: string
+    def: (client: OrmClient) => unknown
+    sql: string
+    vars?: Record<string, unknown>
   },
 ): OrmExample {
   return {
     title: e.title,
     note: e.note,
-    code: extractDefSource(
-      readFileSync(fileURLToPath(metaUrl), "utf8"),
-      e.title,
-    ),
+    code: extractDefSource(readFileSync(fileURLToPath(metaUrl), "utf8"), e.title),
     def: e.def,
     sql: e.sql,
     vars: e.vars ?? {},
-  };
+  }
 }
 
 /** Assemble a group from its per-file examples (one real `.ts` module each). */
-export function group(
-  file: string,
-  about: string,
-  examples: OrmExample[],
-): OrmGroup {
-  return { file, about, examples };
+export function group(file: string, about: string, examples: OrmExample[]): OrmGroup {
+  return { file, about, examples }
 }
 
 // --- capture --------------------------------------------------------------------------------------
 
-const ok = (result: unknown): QueryResponse<unknown> => ({
+const ok = (result: unknown): QueryResponse => ({
   success: true,
   result,
   type: "other",
-});
+})
 
 /** A recording fake connection — answers every statement, records the last `query()` call. */
 function recordingConn(): {
-  conn: Queryable;
-  last: () => { sql: string; vars: Record<string, unknown> };
+  conn: Queryable
+  last: () => { sql: string; vars: Record<string, unknown> }
 } {
   let last: { sql: string; vars: Record<string, unknown> } = {
     sql: "",
     vars: {},
-  };
+  }
   const conn: Queryable = {
     query(sql: string, vars?: Record<string, unknown>) {
-      last = { sql, vars: vars ?? {} };
+      last = { sql, vars: vars ?? {} }
       const responses = sql.split("\n").map((line) =>
         // A LIVE statement needs a live-query id back; every other statement is answered empty
         // (the capture only reads the compiled statement, never the rows).
         line.trimStart().startsWith("LIVE SELECT") ? ok([Uuid.v4()]) : ok([]),
-      );
-      return { responses: async () => responses };
+      )
+      return { responses: async () => responses }
     },
-  } as unknown as Queryable;
-  return { conn, last: () => last };
+  } as unknown as Queryable
+  return { conn, last: () => last }
 }
 
 /** JSON-stable rendering of a bound value: `RecordId` → `table:id`, `Date` → ISO, plain recursively. */
@@ -206,11 +198,11 @@ export function renderBound(value: unknown): unknown {
   if (value instanceof Date) return value.toISOString();
   if (Array.isArray(value)) return value.map(renderBound);
   if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
+    const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(value)) out[k] = renderBound(v);
-    return out;
+    return out
   }
-  return value;
+  return value
 }
 
 /**
@@ -220,17 +212,17 @@ export function renderBound(value: unknown): unknown {
  * what ships.
  */
 export async function capture(ex: OrmExample): Promise<OrmStatement> {
-  const { conn, last } = recordingConn();
-  const client = betterSchemic(conn, { schema }) as OrmClient;
+  const { conn, last } = recordingConn(),
+    client = betterSchemic(conn, { schema }) as OrmClient
   try {
-    await ex.def(client);
+    await ex.def(client)
   } catch {
     // A guarded operation may throw eagerly (a teaching error) — the statement is still recorded for
-    // the ops that compile a plan before the guard fires. Swallow here; the reference test asserts on
+    // The ops that compile a plan before the guard fires. Swallow here; the reference test asserts on
     // `{ sql, vars }` for examples that capture cleanly, and on the code for guard examples.
   }
-  const { sql, vars } = last();
-  const rendered: Record<string, unknown> = {};
+  const { sql, vars } = last(),
+    rendered: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(vars)) rendered[k] = renderBound(v);
-  return { sql, vars: rendered };
+  return { sql, vars: rendered }
 }

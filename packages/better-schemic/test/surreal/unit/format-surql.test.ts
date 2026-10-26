@@ -1,44 +1,45 @@
-// formatSurql — pretty-prints generated SurrealQL (INFO returns bodies single-line): statements
-// per line, nested blocks indented, wide object literals one entry per line. Whitespace-only:
-// normalize canonicalizes formatting, so formatted output NEVER phantom-diffs.
-import { describe, expect, test } from "bun:test";
-import { formatSurql } from "../../../src/surreal/cli/format";
-import { normalizeFunction } from "../../../src/surreal/cli/struct";
-import { renderSchemaToTS } from "../../../src/surreal/cli/pull";
+// FormatSurql — pretty-prints generated SurrealQL (INFO returns bodies single-line): statements
+// Per line, nested blocks indented, wide object literals one entry per line. Whitespace-only:
+// Normalize canonicalizes formatting, so formatted output NEVER phantom-diffs.
+import { describe, expect, test } from "bun:test"
+
+import { formatSurql } from "../../../src/surreal/cli/format"
+import { renderSchemaToTS } from "../../../src/surreal/cli/pull"
+import { normalizeFunction } from "../../../src/surreal/cli/struct"
 
 const FN =
-  "{ LET $html = string::concat('<b>', $code); LET $res = http::post('https://x.dev/emails', { from: 'Game Backlog <verify@example.dev>', to: [$email], subject: 'Your code', html: $html }, { Authorization: string::concat('Bearer ', $key) }); IF $res.id = NONE { THROW 'send failed; retry'; }; RETURN $res.id != NONE }";
+  "{ LET $html = string::concat('<b>', $code); LET $res = http::post('https://x.dev/emails', { from: 'Game Backlog <verify@example.dev>', to: [$email], subject: 'Your code', html: $html }, { Authorization: string::concat('Bearer ', $key) }); IF $res.id = NONE { THROW 'send failed; retry'; }; RETURN $res.id != NONE }"
 
 describe("formatSurql", () => {
   test("statement-per-line, nested blocks indent, wide objects wrap", () => {
-    const out = formatSurql(FN);
-    expect(out).toContain("{\n  LET $html = string::concat('<b>', $code);");
-    // prettier-style: a too-wide CALL breaks one arg per line (trailing comma; normalize strips)
-    expect(out).toContain("LET $res = http::post(\n    'https://x.dev/emails',");
-    expect(out).toContain("    {\n      from:");
-    expect(out).toContain("IF $res.id = NONE {\n    THROW 'send failed; retry';\n  };");
-    expect(out.endsWith("\n}")).toBe(true);
-    // short calls/objects stay inline
-    expect(out).toContain("{ Authorization: string::concat('Bearer ', $key) },");
-  });
+    const out = formatSurql(FN)
+    expect(out).toContain("{\n  LET $html = string::concat('<b>', $code);")
+    // Prettier-style: a too-wide CALL breaks one arg per line (trailing comma; normalize strips)
+    expect(out).toContain("LET $res = http::post(\n    'https://x.dev/emails',")
+    expect(out).toContain("    {\n      from:")
+    expect(out).toContain("IF $res.id = NONE {\n    THROW 'send failed; retry';\n  };")
+    expect(out.endsWith("\n}")).toBe(true)
+    // Short calls/objects stay inline
+    expect(out).toContain("{ Authorization: string::concat('Bearer ', $key) },")
+  })
 
   test("idempotent; string literals with ;{} untouched", () => {
-    const once = formatSurql(FN);
-    expect(formatSurql(once)).toBe(once);
-    expect(formatSurql("RETURN 'a; {b}'")).toBe("RETURN 'a; {b}'");
-  });
+    const once = formatSurql(FN)
+    expect(formatSurql(once)).toBe(once)
+    expect(formatSurql("RETURN 'a; {b}'")).toBe("RETURN 'a; {b}'")
+  })
 
   test("whitespace-only: normalize(format(x)) === normalize(x) — can't phantom-diff", () => {
-    const a = normalizeFunction({ name: "f", args: [], block: FN });
-    const b = normalizeFunction({ name: "f", args: [], block: formatSurql(FN) });
-    expect(b.block).toBe(a.block);
-  });
+    const a = normalizeFunction({ name: "f", args: [], block: FN }),
+      b = normalizeFunction({ name: "f", args: [], block: formatSurql(FN) })
+    expect(b.block).toBe(a.block)
+  })
 
   test("short expressions come back unchanged (safe everywhere)", () => {
-    expect(formatSurql("$event = 'CREATE'")).toBe("$event = 'CREATE'");
-    expect(formatSurql("time::now()")).toBe("time::now()");
-  });
-});
+    expect(formatSurql("$event = 'CREATE'")).toBe("$event = 'CREATE'")
+    expect(formatSurql("time::now()")).toBe("time::now()")
+  })
+})
 
 describe("pull renders formatted bodies", () => {
   test("a single-line fn block regenerates multi-line; events expand when long", () => {
@@ -66,10 +67,10 @@ describe("pull renders formatted bodies", () => {
       accesses: [],
       analyzers: [],
       params: [],
-    });
-    expect(ts).toContain(".body(surql`{\n    LET $html =");
-    expect(ts).toContain('.event("onc", {\n');
-    expect(ts).toContain("then: surql`{\n");
-    expect(ts).toContain("      LET $c = rand::string(8);");
-  });
-});
+    })
+    expect(ts).toContain(".body(surql`{\n    LET $html =")
+    expect(ts).toContain('.event("onc", {\n')
+    expect(ts).toContain("then: surql`{\n")
+    expect(ts).toContain("      LET $c = rand::string(8);")
+  })
+})

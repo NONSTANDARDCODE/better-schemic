@@ -7,9 +7,8 @@
  * forms: flat `<link>_<path>` aliases for links, `out.<path>` for wildcard targets, and the
  * per-target `ProjectionSpec`s the decoder consumes.
  */
-import { escapeIdentSafe as escapeIdent } from "../../../ident";
-import type { SchemalessMeta, TableMeta } from "../../meta";
-import { compileProjection, type ProjectionSpec } from "../projection";
+import { escapeIdentSafe as escapeIdent } from "../../../ident"
+import { compileProjection } from "../projection"
 import {
   compileError,
   describeValue,
@@ -20,35 +19,33 @@ import {
   pathSegments,
   renderPath,
   renderValue,
-} from "../shared";
-import type {
-  CompileCtx,
-  EdgeProjection,
-  LinkLeafSpec,
-  TargetProjection,
-} from "./specs";
+} from "../shared"
+
+import type { SchemalessMeta, TableMeta } from "../../meta"
+import type { ProjectionSpec } from "../projection"
+import type { CompileCtx, EdgeProjection, LinkLeafSpec, TargetProjection } from "./specs"
 
 /** The projection meta of an undeclared/wildcard target (no codec, passes through). */
 const SCHEMALESS_TARGET: SchemalessMeta = {
   key: "",
   name: "",
   schemaless: true,
-};
+}
 
 /** One selected leaf: how it nests in the remounted object and where it lives in the raw row. */
 export interface ProjectionLeaf {
-  readonly out: readonly string[];
-  readonly source: readonly string[];
+  readonly out: readonly string[]
+  readonly source: readonly string[]
 }
 
 /** `*` handling + the leaf callback for {@link walkProjection}. */
 interface WalkOptions {
   /** Label for teaching messages (`include."author.select"`). */
-  readonly label: string;
-  readonly onLeaf: (leaf: ProjectionLeaf) => void;
+  readonly label: string
+  readonly onLeaf: (leaf: ProjectionLeaf) => void
   readonly star:
     | { readonly mode: "no"; readonly error: string }
-    | { readonly mode: "top"; readonly onStar: () => void };
+    | { readonly mode: "top"; readonly onStar: () => void }
 }
 
 /**
@@ -63,63 +60,65 @@ function walkProjection(select: unknown, options: WalkOptions): void {
     sourceBase: readonly string[],
   ): void => {
     for (const [key, entry] of Object.entries(obj)) {
-      if (entry === undefined || entry === false) continue;
+      if (entry === undefined || entry === false) continue
       if (key === "*") {
-        const star = options.star;
-        if (star.mode === "no")
-          throw compileError("ClauseNotSupported", star.error);
-        if (outBase.length > 0)
+        const { star } = options
+        if (star.mode === "no") throw compileError("ClauseNotSupported", star.error)
+
+        if (outBase.length > 0) {
           throw compileError(
             "ValidationError",
             `${options.label} only supports "*" at the top level of the projection.`,
-          );
-        star.onStar();
-        continue;
+          )
+        }
+        star.onStar()
+        continue
       }
-      const out = [...outBase, ...pathSegments(key)];
+      const out = [...outBase, ...pathSegments(key)]
       if (entry === true) {
-        options.onLeaf({ out, source: [...sourceBase, key] });
-        continue;
+        options.onLeaf({ out, source: [...sourceBase, key] })
+        continue
       }
       if (typeof entry === "string") {
-        options.onLeaf({ out, source: [...sourceBase, ...entry.split(".")] });
-        continue;
+        options.onLeaf({ out, source: [...sourceBase, ...entry.split(".")] })
+        continue
       }
       if (isPlainObject(entry)) {
-        visit(entry, out, [...sourceBase, key]);
-        continue;
+        visit(entry, out, [...sourceBase, key])
+        continue
       }
       throw compileError(
         "ValidationError",
         `${options.label} entry "${key}" must be true, a path string or a nested object, got ${describeValue(entry)}.`,
-      );
+      )
     }
-  };
+  }
 
   if (Array.isArray(select)) {
     for (const field of select) {
-      if (typeof field !== "string")
+      if (typeof field !== "string") {
         throw compileError(
           "ValidationError",
           `${options.label} array entries must be field names, got ${describeValue(field)}.`,
-        );
-      options.onLeaf({ out: pathSegments(field), source: field.split(".") });
+        )
+      }
+      options.onLeaf({ out: pathSegments(field), source: field.split(".") })
     }
-    return;
+    return
   }
   if (isPlainObject(select)) {
-    visit(select, [], []);
-    return;
+    visit(select, [], [])
+    return
   }
   throw compileError(
     "ValidationError",
     `${options.label} must be an array of fields or a projection object, got ${describeValue(select)}.`,
-  );
+  )
 }
 
 /** Is this leaf path exactly the target's `id`? */
 function isIdPath(source: readonly string[]): boolean {
-  return source.length === 1 && source[0] === "id";
+  return source.length === 1 && source[0] === "id"
 }
 
 /**
@@ -133,94 +132,90 @@ export function compileLinkSelect(
   ctx: CompileCtx,
   presence: boolean,
 ): { parts: { sql: string; flatKey: string }[]; leaves: LinkLeafSpec[] } {
-  const { operation } = ctx;
-  const label = `${operation}: include."${key}.select"`;
-  if (select === undefined || select === null)
+  const { operation } = ctx,
+    label = `${operation}: include."${key}.select"`
+  if (select === undefined || select === null) {
     throw compileError(
       "ValidationError",
       `${operation}: include."${key}" needs "select" (or pass true to FETCH the whole link).`,
       { operation, field: key },
-    );
+    )
+  }
 
-  const parts: { sql: string; flatKey: string }[] = [];
-  const leaves: LinkLeafSpec[] = [];
-  const seen = new Set<string>();
-  const add = (out: readonly string[], source: readonly string[]): void => {
-    const flatKey = `${key}_${out.join("_")}`;
-    if (seen.has(flatKey))
-      throw compileError(
-        "ValidationError",
-        `${label} produces "${flatKey}" twice — alias the fields so each leaf is unique.`,
-        { operation, field: key },
-      );
-    seen.add(flatKey);
-    parts.push({
-      sql: `${renderPath([key, ...source].join("."))} AS ${escapeIdent(flatKey)}`,
-      flatKey,
-    });
-    leaves.push({ out, source: flatKey, schemaPath: source });
-  };
+  const parts: { sql: string; flatKey: string }[] = [],
+    leaves: LinkLeafSpec[] = [],
+    seen = new Set<string>(),
+    add = (out: readonly string[], source: readonly string[]): void => {
+      const flatKey = `${key}_${out.join("_")}`
+      if (seen.has(flatKey)) {
+        throw compileError(
+          "ValidationError",
+          `${label} produces "${flatKey}" twice — alias the fields so each leaf is unique.`,
+          { operation, field: key },
+        )
+      }
+      seen.add(flatKey)
+      parts.push({
+        sql: `${renderPath([key, ...source].join("."))} AS ${escapeIdent(flatKey)}`,
+        flatKey,
+      })
+      leaves.push({ out, source: flatKey, schemaPath: source })
+    }
 
   walkProjection(select, {
     label,
-    onLeaf: ({ out, source }) => add(out, source),
+    onLeaf: ({ out, source }) => {
+      add(out, source)
+    },
     star: {
       mode: "no",
       error: `${label} cannot mix "*" with explicit fields — use true to FETCH the whole link.`,
     },
-  });
+  })
 
-  if (parts.length === 0)
-    throw compileError(
-      "ValidationError",
-      `${label} is empty — project at least one field.`,
-      { operation, field: key },
-    );
+  if (parts.length === 0) {
+    throw compileError("ValidationError", `${label} is empty — project at least one field.`, {
+      operation,
+      field: key,
+    })
+  }
 
-  const presenceKey = `${key}_id`;
-  if (
-    presence &&
-    !seen.has(presenceKey) &&
-    !leaves.some((leaf) => isIdPath(leaf.schemaPath))
-  ) {
-    seen.add(presenceKey);
+  const presenceKey = `${key}_id`
+  if (presence && !seen.has(presenceKey) && !leaves.some((leaf) => isIdPath(leaf.schemaPath))) {
+    seen.add(presenceKey)
     parts.push({
       sql: `${renderPath(`${key}.id`)} AS ${escapeIdent(presenceKey)}`,
       flatKey: presenceKey,
-    });
-    leaves.push({ out: [], source: presenceKey, schemaPath: ["id"] });
+    })
+    leaves.push({ out: [], source: presenceKey, schemaPath: ["id"] })
   }
-  return { parts, leaves };
+  return { parts, leaves }
 }
 
 /** The projection text of a wildcard target (`out.*` / `out.<path>` — the target is undeclared). */
-export function wildcardTargetText(
-  rawSelect: unknown,
-  alias: string,
-  ctx: CompileCtx,
-): string {
-  if (rawSelect === undefined || rawSelect === true) return `${alias}.*`;
-  if (!Array.isArray(rawSelect) && !isPlainObject(rawSelect))
+export function wildcardTargetText(rawSelect: unknown, alias: string, ctx: CompileCtx): string {
+  if (rawSelect === undefined || rawSelect === true) return `${alias}.*`
+  if (!Array.isArray(rawSelect) && !isPlainObject(rawSelect)) {
     throw compileError(
       "ValidationError",
       `${ctx.operation}: a wildcard target projection must be true, { select } or a field list (got ${describeValue(rawSelect)}).`,
-    );
-  const parts: string[] = [];
+    )
+  }
+  const parts: string[] = []
   walkProjection(rawSelect, {
     label: `${ctx.operation}: a wildcard target projection`,
     onLeaf: ({ out, source }) => {
-      parts.push(
-        `${alias}.${renderPath(source.join("."))} AS ${escapeIdent(out.join("_"))}`,
-      );
+      parts.push(`${alias}.${renderPath(source.join("."))} AS ${escapeIdent(out.join("_"))}`)
     },
     star: { mode: "top", onStar: () => parts.push(`${alias}.*`) },
-  });
-  if (parts.length === 0)
+  })
+  if (parts.length === 0) {
     throw compileError(
       "ValidationError",
       `${ctx.operation}: a wildcard target projection is empty — project at least one field.`,
-    );
-  return parts.join(", ");
+    )
+  }
+  return parts.join(", ")
 }
 
 /** Compile the target projection (`select`/`target`/`true`) + its per-table decode specs. */
@@ -229,19 +224,20 @@ export function compileTargetProjection(
   rawSelect: unknown,
   ctx: CompileCtx,
 ): { text: string; projection: TargetProjection } {
-  const { binds, operation } = ctx;
+  const { binds, operation } = ctx
   if (
     rawSelect !== undefined &&
     rawSelect !== true &&
     !isPlainObject(rawSelect) &&
     !Array.isArray(rawSelect)
-  )
+  ) {
     throw compileError(
       "ValidationError",
       `${operation}: a target projection must be true, { select } or a field list (got ${describeValue(rawSelect)}).`,
       { operation },
-    );
-  const select = rawSelect === true ? undefined : rawSelect;
+    )
+  }
+  const select = rawSelect === true ? undefined : rawSelect
   if (targets.length === 0) {
     // Wildcard/undeclared targets — project and pass through.
     const { text, spec } = compileProjection(
@@ -251,31 +247,24 @@ export function compileTargetProjection(
       false,
       binds,
       operation,
-    );
+    )
     return {
       text,
       projection: { entries: [{ name: "", spec }], wildcard: true },
-    };
+    }
   }
   const compiled = targets.map((meta) => {
-    const { text, spec } = compileProjection(
-      meta,
-      select,
-      undefined,
-      false,
-      binds,
-      operation,
-    );
-    return { name: meta.name, meta, spec, text };
-  });
-  const first = compiled[0] as (typeof compiled)[number];
+      const { text, spec } = compileProjection(meta, select, undefined, false, binds, operation)
+      return { name: meta.name, meta, spec, text }
+    }),
+    first = compiled[0]
   return {
     text: first.text,
     projection: {
       entries: compiled.map(({ name, meta, spec }) => ({ name, meta, spec })),
       wildcard: false,
     },
-  };
+  }
 }
 
 /** Compile the `edge:` projection (`true` = full edge, `{ select }` = projected). */
@@ -284,46 +273,45 @@ export function compileEdgeProjection(
   edgeMeta: TableMeta | undefined,
   ctx: CompileCtx,
 ): { text: string; spec: ProjectionSpec; projection: EdgeProjection } {
-  const { binds, operation } = ctx;
-  const select = isPlainObject(edge) ? edge.select : undefined;
-  const { text, spec } = compileProjection(
-    edgeMeta ?? SCHEMALESS_TARGET,
-    select,
-    undefined,
-    false,
-    binds,
-    operation,
-  );
+  const { binds, operation } = ctx,
+    select = isPlainObject(edge) ? edge.select : undefined,
+    { text, spec } = compileProjection(
+      edgeMeta ?? SCHEMALESS_TARGET,
+      select,
+      undefined,
+      false,
+      binds,
+      operation,
+    )
   return {
     text,
     spec,
-    projection: edgeMeta
-      ? { meta: edgeMeta, spec, wildcard: false }
-      : { spec, wildcard: true },
-  };
+    projection: edgeMeta ? { meta: edgeMeta, spec, wildcard: false } : { spec, wildcard: true },
+  }
 }
 
 /** Assemble a correlated subquery (`SELECT <proj> FROM <from> [WHERE] [ORDER] [LIMIT] [START]`). */
 export function subquery(args: {
-  readonly projection: string;
-  readonly from: string;
-  readonly where?: string;
-  readonly orderBy?: string;
-  readonly limit?: unknown;
-  readonly start?: unknown;
-  readonly binds: CompileCtx["binds"];
-  readonly operation: string;
+  readonly projection: string
+  readonly from: string
+  readonly where?: string
+  readonly orderBy?: string
+  readonly limit?: unknown
+  readonly start?: unknown
+  readonly binds: CompileCtx["binds"]
+  readonly operation: string
 }): string {
-  const { projection, from, where, orderBy, limit, start, binds, operation } =
-    args;
-  const parts = [`SELECT ${projection} FROM ${from}`];
-  if (where) parts.push(`WHERE ${where}`);
-  if (orderBy) parts.push(orderBy);
+  const { projection, from, where, orderBy, limit, start, binds, operation } = args,
+    parts = [`SELECT ${projection} FROM ${from}`]
+  if (where) parts.push(`WHERE ${where}`)
+  if (orderBy) parts.push(orderBy)
   if (limit !== undefined)
-    parts.push(`LIMIT ${binds.add(nonNegativeInt(limit, "limit", operation))}`);
+    parts.push(`LIMIT ${binds.add(nonNegativeInt(limit, "limit", operation))}`)
+
   if (start !== undefined)
-    parts.push(`START ${binds.add(nonNegativeInt(start, "start", operation))}`);
-  return paren(parts.join(" "));
+    parts.push(`START ${binds.add(nonNegativeInt(start, "start", operation))}`)
+
+  return paren(parts.join(" "))
 }
 
 /** `ORDER BY …` inside an include subquery — the order idiom must be in the projection. */
@@ -334,47 +322,50 @@ export function compileIncludeOrderBy(
   key: string,
   scope: "edge" | "target",
 ): string | undefined {
-  if (orderBy === undefined) return undefined;
-  const entries = Array.isArray(orderBy) ? orderBy : [orderBy];
-  const star = spec?.star === true;
-  const projected = new Set<string>();
+  if (orderBy === undefined) return undefined
+  const entries = Array.isArray(orderBy) ? orderBy : [orderBy],
+    star = spec?.star === true,
+    projected = new Set<string>()
   for (const field of spec?.fields ?? []) {
-    projected.add(field.out.join("."));
-    projected.add(field.source.join("."));
+    projected.add(field.out.join("."))
+    projected.add(field.source.join("."))
   }
-  const parts: string[] = [];
+  const parts: string[] = []
   for (const entry of entries) {
-    if (entry === undefined) continue;
+    if (entry === undefined) continue
     if (isLowerableValue(entry)) {
-      parts.push(renderValue(entry, ctx.binds, ctx.binds.ctx()));
-      continue;
+      parts.push(renderValue(entry, ctx.binds, ctx.binds.ctx()))
+      continue
     }
-    if (!isPlainObject(entry))
+    if (!isPlainObject(entry)) {
       throw compileError(
         "ValidationError",
         `${ctx.operation}: include."${key}.orderBy" entries must be { field: "asc" | "desc" } or a fragment, got ${describeValue(entry)}.`,
         { operation: ctx.operation, field: key },
-      );
+      )
+    }
     for (const [field, dir] of Object.entries(entry)) {
-      if (dir === undefined) continue;
+      if (dir === undefined) continue
       if (
         typeof dir !== "string" ||
         (dir.toUpperCase() !== "ASC" && dir.toUpperCase() !== "DESC")
-      )
+      ) {
         throw compileError(
           "ValidationError",
           `${ctx.operation}: include."${key}.orderBy.${field}" must be "asc" or "desc" (got ${describeValue(dir)}).`,
           { operation: ctx.operation, field: key },
-        );
-      if (!star && !projected.has(field))
+        )
+      }
+      if (!star && !projected.has(field)) {
         throw compileError(
           "ValidationError",
           `${ctx.operation}: include."${key}.orderBy" field "${field}" is not in the ${scope} projection — SurrealDB requires the order idiom in the selection (project "*" or add the field to "select").`,
           { operation: ctx.operation, field },
-        );
-      parts.push(`${renderPath(field)} ${dir.toUpperCase()}`);
+        )
+      }
+      parts.push(`${renderPath(field)} ${dir.toUpperCase()}`)
     }
   }
-  if (parts.length === 0) return undefined;
-  return `ORDER BY ${parts.join(", ")}`;
+  if (parts.length === 0) return undefined
+  return `ORDER BY ${parts.join(", ")}`
 }

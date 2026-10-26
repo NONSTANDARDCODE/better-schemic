@@ -1,5 +1,6 @@
-import { defineAnalyzer } from "better-schemic";
-import { example } from "../_kit";
+import { defineAnalyzer } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "Analyzer with tokenizers + filters",
@@ -7,4 +8,4 @@ export default example(import.meta.url, {
   def: defineAnalyzer("english")
     .tokenizers("blank", "class")
     .filters((f) => [f.lowercase, f.snowball("english")]),
-});
+})

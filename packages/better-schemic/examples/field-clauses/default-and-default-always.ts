@@ -1,5 +1,6 @@
-import { defineTable, s, surql } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s, surql } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "DEFAULT and DEFAULT ALWAYS",
@@ -14,4 +15,4 @@ DEFINE FIELD touched ON TABLE d TYPE datetime DEFAULT ALWAYS time::now();`,
     seen: s.int().$default(0),
     touched: s.datetime().$defaultAlways(surql`time::now()`),
   }),
-});
+})

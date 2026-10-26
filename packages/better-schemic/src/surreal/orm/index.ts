@@ -24,13 +24,13 @@ export {
   type Client,
   ClientRuntime,
   type SchemaArg,
-} from "./client";
+} from "./client"
 export {
   type BetterSchemicAuth,
   type CreateBetterSchemicOptions,
   clientFromConfig,
   createBetterSchemic,
-} from "./connect";
+} from "./connect"
 export {
   createDelegate,
   type Delegate,
@@ -39,7 +39,7 @@ export {
   type ModelInfo,
   type ModelKind,
   type RelationDelegate,
-} from "./delegate";
+} from "./delegate"
 export {
   BetterSchemicError,
   type BetterSchemicErrorCode,
@@ -56,15 +56,15 @@ export {
   isValidationError,
   isWriteConflict,
   normalizeError,
-} from "./errors";
+} from "./errors"
 export {
   type ExecuteOptions,
   type ExecuteResult,
   execute,
   type Queryable,
   type Statement,
-} from "./execute";
-export { createQueryLogger, resolveLogger } from "./logger";
+} from "./execute"
+export { createQueryLogger, resolveLogger } from "./logger"
 export type {
   ColumnMeta,
   EdgeRef,
@@ -77,13 +77,9 @@ export type {
   SchemaIndex,
   SchemalessMeta,
   TableMeta,
-} from "./meta";
-export {
-  definePlugin,
-  isPlugin,
-  type PluginPipeline,
-} from "./plugins";
-export type { RawOperations, RawQueryTag, RawTag } from "./raw";
+} from "./meta"
+export { definePlugin, isPlugin, type PluginPipeline } from "./plugins"
+export type { RawOperations, RawQueryTag, RawTag } from "./raw"
 export {
   attachThrow,
   type BatchResult,
@@ -92,8 +88,8 @@ export {
   type StatementResult,
   statementResult,
   type ThrowingResult,
-} from "./results";
-export { buildSchemaIndex, defineSchema, isSchemaDef } from "./schema";
+} from "./results"
+export { buildSchemaIndex, defineSchema, isSchemaDef } from "./schema"
 export type {
   AdminOperations,
   DbInfo,
@@ -102,13 +98,9 @@ export type {
   RootInfo,
   ServerVersion,
   TableInfo,
-} from "./types/admin";
-export type {
-  ApiBodyOptions,
-  ApiOperations,
-  ApiRequestOptions,
-} from "./types/api";
-export type { AuthOperations } from "./types/auth";
+} from "./types/admin"
+export type { ApiBodyOptions, ApiOperations, ApiRequestOptions } from "./types/api"
+export type { AuthOperations } from "./types/auth"
 export type {
   ChangeAction,
   ChangeDefined,
@@ -119,21 +111,15 @@ export type {
   ChangesArgs,
   ChangesSince,
   ChangeWritten,
-} from "./types/changes";
+} from "./types/changes"
 export type {
   CallContext,
   ContextAuth,
   ContextScope,
   OperationContext,
   ResolvedContext,
-} from "./types/context";
-export type {
-  FnArgs,
-  FnCall,
-  FnMethod,
-  FnReturn,
-  FnSurface,
-} from "./types/fn";
+} from "./types/context"
+export type { FnArgs, FnCall, FnMethod, FnReturn, FnSurface } from "./types/fn"
 export type {
   AfterHookPayload,
   CreateOperation,
@@ -152,7 +138,7 @@ export type {
   TransactionHookPayload,
   TransactionRollbackHookPayload,
   UpdateOperation,
-} from "./types/hooks";
+} from "./types/hooks"
 export type {
   CountIncludeOptions,
   EdgeIncludeArg,
@@ -161,7 +147,7 @@ export type {
   LinkIncludeArg,
   LinkIncludeOptions,
   WithIncludes,
-} from "./types/include";
+} from "./types/include"
 export type {
   LiveArgs,
   LiveChange,
@@ -174,7 +160,7 @@ export type {
   LiveResult,
   LiveRow,
   LiveSubscription,
-} from "./types/live";
+} from "./types/live"
 export type {
   ExplainPolicy,
   LogContext,
@@ -189,7 +175,7 @@ export type {
   QueryLogEvent,
   QueryLogger,
   ResolvedLoggerOptions,
-} from "./types/logger";
+} from "./types/logger"
 export type {
   Operation,
   OperationArgsMap,
@@ -203,14 +189,8 @@ export type {
   PluginSetupContext,
   PluginSpec,
   PluginState,
-} from "./types/plugins";
-export type {
-  RawDefaults,
-  RawMeta,
-  RawOptions,
-  RawSource,
-  RawStatements,
-} from "./types/raw";
+} from "./types/plugins"
+export type { RawDefaults, RawMeta, RawOptions, RawSource, RawStatements } from "./types/raw"
 export type {
   AdjacentEdgeAliases,
   EdgeAliases,
@@ -224,7 +204,7 @@ export type {
   LinkTargetNames,
   ManyLinkKeys,
   SingleLinkKeys,
-} from "./types/relations";
+} from "./types/relations"
 export type {
   AnyFunctionDef,
   AnyRelationDef,
@@ -247,7 +227,7 @@ export type {
   SchemaOf,
   TableAt,
   TableKeys,
-} from "./types/schema";
+} from "./types/schema"
 export type {
   AggField,
   AggregateArgs,
@@ -276,7 +256,7 @@ export type {
   SelectObject,
   Simplify,
   WithArg,
-} from "./types/select";
+} from "./types/select"
 export type {
   RetryOptions,
   RetryReason,
@@ -284,7 +264,7 @@ export type {
   TransactionDefaults,
   TransactionOptions,
   UnsupportedPolicy,
-} from "./types/transaction";
+} from "./types/transaction"
 export type {
   AnyFilter,
   ArrayFilter,
@@ -307,7 +287,7 @@ export type {
   Where,
   WhereInput,
   WherePaths,
-} from "./types/where";
+} from "./types/where"
 export type {
   ArithmeticAdjustment,
   ArithmeticValue,
@@ -355,4 +335,4 @@ export type {
   WriteReturn,
   WriteValue,
   WrittenResult,
-} from "./types/write";
+} from "./types/write"

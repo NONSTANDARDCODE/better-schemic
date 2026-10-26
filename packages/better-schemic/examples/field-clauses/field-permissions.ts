@@ -1,5 +1,6 @@
-import { defineTable, s, surql } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s, surql } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "Field PERMISSIONS",
@@ -13,4 +14,4 @@ DEFINE FIELD secret ON TABLE fp TYPE string PERMISSIONS FOR select WHERE $auth.a
       update: surql`false`,
     }),
   }),
-});
+})

@@ -15,7 +15,6 @@ import { fileURLToPath } from "node:url";
 import type { DefineOptions } from "../src/surreal/ddl";
 import type { StandaloneDef, TableDef } from "../src/surreal/pure";
 
-// biome-ignore lint/suspicious/noExplicitAny: heterogeneous coverage tables — the Shape varies.
 export type AnyTable = TableDef<string, any>;
 
 /** A coverage `def` — a table (asserted via `emitTable`) or a standalone def (via `emitDefStatement`):
@@ -49,13 +48,13 @@ function skipString(src: string, i: number, quote: string): number {
       i += 2;
       continue;
     }
-    if (src[i] === quote) return i + 1;
+    if (src[i] === quote) {return i + 1;}
     if (quote === "`" && src[i] === "$" && src[i + 1] === "{") {
       i += 2;
       let d = 1;
       while (i < src.length && d > 0) {
-        if (src[i] === "{") d++;
-        else if (src[i] === "}") d--;
+        if (src[i] === "{") {d++;}
+        else if (src[i] === "}") {d--;}
         i++;
       }
       continue;
@@ -69,26 +68,26 @@ function skipString(src: string, i: number, quote: string): number {
  *  LAST) — a balanced-delimiter scan to its terminating `,`/closer at depth 0 (strings/templates skipped). */
 function extractDefSource(src: string): string {
   const m = /\bdef:\s*/.exec(src);
-  if (!m) throw new Error("coverage file has no `def:` property");
+  if (!m) {throw new Error("coverage file has no `def:` property");}
   const start = m.index + m[0].length;
-  let i = start;
-  let depth = 0;
+  let i = start,
+   depth = 0;
   while (i < src.length) {
     const c = src[i];
     if (c === '"' || c === "'" || c === "`") {
       i = skipString(src, i, c);
       continue;
     }
-    if (c === "(" || c === "[" || c === "{") depth++;
+    if (c === "(" || c === "[" || c === "{") {depth++;}
     else if (c === ")" || c === "]" || c === "}") {
-      if (depth === 0) break;
+      if (depth === 0) {break;}
       depth--;
-    } else if (c === "," && depth === 0) break;
+    } else if (c === "," && depth === 0) {break;}
     i++;
   }
   return src
     .slice(start, i)
-    .replace(/^[ \t]*\/\/ biome-ignore.*\r?\n/gm, "")
+    .replaceAll(/^[ \t]*\/\/ biome-ignore.*\r?\n/gm, "")
     .trim();
 }
 

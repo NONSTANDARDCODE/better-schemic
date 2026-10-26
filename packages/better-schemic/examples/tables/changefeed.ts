@@ -1,5 +1,6 @@
-import { defineTable, s } from "better-schemic";
-import { example } from "../_kit";
+import { defineTable, s } from "better-schemic"
+
+import { example } from "../_kit"
 
 export default example(import.meta.url, {
   title: "CHANGEFEED",
@@ -8,4 +9,4 @@ export default example(import.meta.url, {
   def: defineTable("audited", { id: s.string() }).changefeed("7d", {
     includeOriginal: true,
   }),
-});
+})

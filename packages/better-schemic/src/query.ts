@@ -1,2 +1,2 @@
 /** `better-schemic/query` — the opt-in typed query builder (procedural SurrealQL). */
-export * from "./surreal/query";
+export * from "./surreal/query"

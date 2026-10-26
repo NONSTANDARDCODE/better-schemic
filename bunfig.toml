@@ -5,3 +5,159 @@ preload = [
   "./scripts/coverage/preload.ts",
   "./packages/better-schemic/test/surreal/preload-server.ts",
 ]
+
+[lint]
+typeCheck = true
+# As regras type-aware estão listadas em [lint.rules]; `typeAware = true` ligaria o set
+# recommended inteiro, que o Bun também rebaixa para `warn`.
+ignorePatterns = [
+  "**/coverage/**",
+  "**/.coverage/**",
+  "**/.lcov/**",
+  "**/.mutation/**",
+  "**/build/**",
+  "**/dist/**",
+]
+
+[lint.categories]
+correctness = "error"
+suspicious = "error"
+pedantic = "error"
+perf = "error"
+style = "error"
+restriction = "error"
+nursery = "error"
+
+[lint.rules]
+# Toda regra é `error` de propósito: o Bun rebaixa para `warn` o que vem do `ts-recommended`.
+# As opções espelham o `.prettierrc`; a regra compara o arquivo já formatado pelo `bun fmt`.
+"prettier/prettier" = ["error", { semi = false, tabWidth = 2, useTabs = false, printWidth = 100 }]
+
+# Types
+"@typescript-eslint/no-explicit-any" = "error"
+"@typescript-eslint/consistent-type-imports" = "error"
+"@typescript-eslint/no-unused-vars" = [
+  "error",
+  { argsIgnorePattern = "^_", varsIgnorePattern = "^_", ignoreRestSiblings = true },
+]
+
+# Type-aware: as regras estão listadas uma a uma porque `typeAware = true` ligaria o
+# set recommended inteiro (que o Bun ainda rebaixa para `warn`).
+"@typescript-eslint/require-await" = "error"
+"@typescript-eslint/await-thenable" = "error"
+"@typescript-eslint/no-unsafe-return" = "error"
+"@typescript-eslint/no-misused-promises" = "error"
+"@typescript-eslint/no-floating-promises" = "error"
+
+# Coerção e branches mortos: `no-base-to-string` pega `String(unknown)`, que viraria
+# `[object Object]` num id de assinatura.
+"@typescript-eslint/no-base-to-string" = "error"
+"@typescript-eslint/no-unnecessary-condition" = "error"
+"@typescript-eslint/no-unnecessary-type-assertion" = "error"
+"@typescript-eslint/no-unnecessary-type-conversion" = "error"
+"@typescript-eslint/use-unknown-in-catch-callback-variable" = "error"
+"@typescript-eslint/switch-exhaustiveness-check" = "error"
+"@typescript-eslint/consistent-return" = "error"
+
+# Promessa: executor que retorna valor, callback de `then` que não devolve nada (a cadeia
+# não espera o async que ele iniciou — ver `agent/queue.ts`) e `new Promise(async …)`.
+no-promise-executor-return = "error"
+no-async-promise-executor = "error"
+"promise/always-return" = "error"
+"promise/valid-params" = "error"
+
+# Regex e string: sem a flag `u` o padrão casa unidades de 16 bits, então
+# `/^.$/` não cases emoji (WhatsApp é cheio deles) e `\a` vira escape inútil.
+require-unicode-regexp = "error"
+"unicorn/prefer-regexp-test" = "error"
+"unicorn/prefer-code-point" = "error"
+"unicorn/prefer-number-properties" = "error"
+"unicorn/prefer-at" = "error"
+"unicorn/prefer-negative-index" = "error"
+"unicorn/no-length-as-slice-end" = "error"
+"unicorn/prefer-string-slice" = "error"
+"unicorn/no-instanceof-array" = "error"
+"unicorn/no-nested-ternary" = "error"
+"unicorn/no-useless-spread" = "error"
+"unicorn/prefer-single-call" = "error"
+"unicorn/prefer-includes" = "error"
+"unicorn/prefer-set-has" = "error"
+"unicorn/prefer-global-this" = "error"
+"unicorn/prefer-native-coercion-functions" = "error"
+
+# Fetch e DOM: opção inválida de `fetch` é ignorada em silêncio (header de auth typosado
+# simplesmente não vai); `postMessage` sem `targetOrigin` entrega a payload pra qualquer origin.
+"unicorn/no-invalid-fetch-options" = "error"
+"unicorn/require-post-message-target-origin" = "error"
+"unicorn/no-document-cookie" = "error"
+
+# Bugs clássicos que o `recommended` não pega.
+no-prototype-builtins = "error"
+no-template-curly-in-string = "error"
+no-self-compare = "error"
+no-compare-neg-zero = "error"
+prefer-regex-literals = "error"
+
+# Style
+"@typescript-eslint/no-non-null-assertion" = "error"
+"@typescript-eslint/no-unused-expressions" = "error"
+"@typescript-eslint/no-magic-numbers" = [
+  "error",
+  {
+    ignore = [-1, 0, 1],
+    ignoreArrayIndexes = true,
+    ignoreDefaultValues = true,
+    ignoreEnums = true,
+    ignoreNumericLiteralTypes = true,
+    ignoreReadonlyClassProperties = true,
+  },
+]
+"import/order" = [
+  "error",
+  {
+    groups = ["builtin", "external", "internal", "parent", "sibling", "index", "object", "type"],
+    "newlines-between" = "always",
+    alphabetize = { order = "asc", caseInsensitive = true },
+  },
+]
+curly = ["error", "multi-or-nest"]
+
+"@typescript-eslint/ban-ts-comment" = "error"
+"@typescript-eslint/no-array-constructor" = "error"
+"@typescript-eslint/no-duplicate-enum-values" = "error"
+"@typescript-eslint/no-empty-object-type" = "error"
+"@typescript-eslint/no-extra-non-null-assertion" = "error"
+"@typescript-eslint/no-misused-new" = "error"
+"@typescript-eslint/no-namespace" = "error"
+"@typescript-eslint/no-non-null-asserted-optional-chain" = "error"
+"@typescript-eslint/no-require-imports" = "error"
+"@typescript-eslint/no-this-alias" = "error"
+"@typescript-eslint/no-unnecessary-type-constraint" = "error"
+"@typescript-eslint/no-unsafe-declaration-merging" = "error"
+"@typescript-eslint/no-unsafe-function-type" = "error"
+"@typescript-eslint/no-wrapper-object-types" = "error"
+"@typescript-eslint/prefer-as-const" = "error"
+"@typescript-eslint/prefer-namespace-keyword" = "error"
+"@typescript-eslint/triple-slash-reference" = "error"
+no-var = "error"
+prefer-const = "error"
+prefer-rest-params = "error"
+prefer-spread = "error"
+
+# Equivalente ao biome.json removido
+# formatter: indentStyle = space, quoteStyle = double
+# linter: enabled = true, rules.recommended = true
+# assist: enabled = true, actions.source.organizeImports = on
+# vcs: enabled = true, clientKind = git, useIgnoreFile = true
+
+[fmt]
+useTabs = false
+singleQuote = false
+semi = true
+
+[assist]
+source = { organize_imports = "on" }
+
+[[lint.overrides]]
+files = ["**/*.test.ts"]
+rules = { "no-console" = "off" }
