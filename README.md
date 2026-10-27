@@ -10,7 +10,15 @@ Upstream stopped shipping. This fork finished the part they left open — a full
 
 [Docs](https://github.com/NONSTANDARDCODE/better-schemic) &nbsp;•&nbsp; [Examples](packages/better-schemic/examples) &nbsp;•&nbsp; [GitHub](https://github.com/NONSTANDARDCODE/better-schemic)
 
-[![npm](https://img.shields.io/npm/v/better-schemic)](https://www.npmjs.com/package/better-schemic) &nbsp; [![published](https://img.shields.io/npm/last-update/better-schemic)](https://www.npmjs.com/package/better-schemic?activeTab=versions) &nbsp; [![downloads](https://img.shields.io/npm/dm/better-schemic)](https://www.npmjs.com/package/better-schemic) &nbsp; [![CI](https://github.com/NONSTANDARDCODE/better-schemic/actions/workflows/ci.yml/badge.svg)](https://github.com/NONSTANDARDCODE/better-schemic/actions/workflows/ci.yml) &nbsp; [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![npm](https://img.shields.io/npm/v/better-schemic)](https://www.npmjs.com/package/better-schemic)
+[![published](https://img.shields.io/npm/last-update/better-schemic)](https://www.npmjs.com/package/better-schemic?activeTab=versions)
+[![downloads](https://img.shields.io/npm/dm/better-schemic)](https://www.npmjs.com/package/better-schemic)
+
+[![install size](https://packagephobia.now.sh/badge?p=better-schemic)](https://packagephobia.com/result?p=better-schemic)
+[![npm unpacked size](https://img.shields.io/npm/unpacked-size/better-schemic)](https://www.npmjs.com/package/better-schemic)
+![npm min size](https://img.shields.io/bundlephobia/min/better-schemic)
+![npm minzip size](https://img.shields.io/bundlephobia/minzip/better-schemic)
+
 
 **54** DDL features round-tripped &nbsp;·&nbsp; **125** SurrealQL facts live-probed &nbsp;·&nbsp; **106** verified examples
 
