@@ -122,7 +122,7 @@ export const defineOtelInstrumentation = (
           span.setAttributes({ "db.success": false, "db.duration_ms": durationMs, "error.type": error.name });
           if (sql) span.setAttributes({ "db.statement": sql.substring(0, config.maxQueryTextLength ?? 1000) });
           span.recordException(error);
-          span.setStatus({ code: 2, message: error.message }); // SpanStatusCode.ERROR
+          (span as any).setStatus({ code: 2, message: error.message }); // SpanStatusCode.ERROR
           if (config.responseHook) {
             config.responseHook({ operation: op.kind, table: op.table, sql: sql ? sql.substring(0, config.maxQueryTextLength ?? 1000) : undefined, durationMs, success: false, error });
           }
