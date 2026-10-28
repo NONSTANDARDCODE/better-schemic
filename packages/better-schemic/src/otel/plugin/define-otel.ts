@@ -1,5 +1,6 @@
 /** OTEL instrumentation plugin — defines the instrumentation pipeline for ORM operations. */
-import { definePlugin, type PluginSpec } from "../../surreal/orm/plugins";
+import { definePlugin } from "../../surreal/orm/plugins";
+import type { PluginSpec } from "../../surreal/orm/types/plugins";
 import type { SchemaIndex } from "../../surreal/orm/meta";
 import type { OperationKind, Hooks } from "../../surreal/orm/types/hooks";
 import type { RuntimeOperation } from "../../surreal/orm/plugins";
@@ -83,7 +84,7 @@ export const defineOtelInstrumentation = (
           startTime: Date.now(),
         });
         if (config.requestHook) {
-          config.requestHook({ operation: op.kind, table: op.table, sql: sql ? sql.substring(0, config.maxQueryTextLength ?? 1000) : undefined, vars: op.args?.vars });
+          config.requestHook({ operation: op.kind, table: op.table, sql: sql ? sql.substring(0, config.maxQueryTextLength ?? 1000) : undefined, vars: (op.args?.vars as any) });
         }
         const meta = (op.meta ??= {}) as any;
         meta[Symbol.for("better-schemic/otel/span")] = span;
@@ -104,7 +105,7 @@ export const defineOtelInstrumentation = (
           if (config.responseHook) {
             config.responseHook({ operation: op.kind, table: op.table, sql: sql ? sql.substring(0, config.maxQueryTextLength ?? 1000) : undefined, durationMs, success: true, rows: Array.isArray(result) ? result.length : undefined });
           }
-          span.end();
+          span?.end();
           recordOperation({ operation: op.kind, table: op.table, durationMs, success: true, sql: sql ? sql.substring(0, config.maxQueryTextLength ?? 1000) : undefined });
         }
         return result;
@@ -125,12 +126,12 @@ export const defineOtelInstrumentation = (
           if (config.responseHook) {
             config.responseHook({ operation: op.kind, table: op.table, sql: sql ? sql.substring(0, config.maxQueryTextLength ?? 1000) : undefined, durationMs, success: false, error });
           }
-          span.end();
+          span?.end();
           recordOperation({ operation: op.kind, table: op.table, durationMs, success: false, error, sql: sql ? sql.substring(0, config.maxQueryTextLength ?? 1000) : undefined });
         }
         return error;
       },
-    } satisfies Hooks,
+    } as any satisfies Hooks,
 
     extendClient(ctx: unknown) {
       if (!enabled) return {};
@@ -139,5 +140,5 @@ export const defineOtelInstrumentation = (
         $otelTrace: (opName: string) => tracer.startSpan(`client.${opName}`, { attributes: { "db.system": config.dbSystem ?? "surrealdb" } }),
       };
     },
-  }) as OtelInstrumentationSpec;
+  }) as unknown as OtelInstrumentationSpec;
 };
