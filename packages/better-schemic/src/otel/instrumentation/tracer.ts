@@ -7,7 +7,7 @@ export interface TracerSpan {
   end(): void;
   setAttributes(attrs: Record<string, unknown>): void;
   recordException(err: Error): void;
-  setStatus?(status: { code: number; message?: string }): void;
+  setStatus(status: { code: number; message?: string }): void;
 }
 
 export interface Tracer {
@@ -22,7 +22,7 @@ class RealTracer implements Tracer {
   }
   startSpan(name: string, opts?: { attributes?: Record<string, unknown>; startTime?: number }): TracerSpan {
     if (Math.random() > this.sampleRate) {
-      return { end() {}, setAttributes() {}, recordException() {} };
+      return { end() {}, setAttributes() {}, recordException() {}, setStatus() {} };
     }
     const tracer = trace.getTracer("better-schemic");
     // Fallback: se não existe provider, spans ainda funcionam via no-op
