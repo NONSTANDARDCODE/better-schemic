@@ -5,7 +5,9 @@ import type { OperationKind, Hooks } from "../../surreal/orm/types/hooks";
 import type { RuntimeOperation } from "../../surreal/orm/plugins";
 import { OTEL_BRAND, type OtelPluginConfig } from "../types/index";
 import { getTracer, recordOperation } from "../instrumentation/tracer";
+import type { TracerSpan } from "../instrumentation/tracer";
 
+export type { OtelPluginConfig } from "../types/index";
 export interface OtelInstrumentationSpec extends PluginSpec<OtelPluginConfig> {
   readonly [OTEL_BRAND]: true;
 }
@@ -76,7 +78,7 @@ export const defineOtelInstrumentation = (
         const tracer = getTracer(config.serviceName);
         const sql = extractSql(op);
         const spanName = `db.${sqlOp(op.kind)}`.toLowerCase();
-        const span = tracer.startSpan(spanName, {
+        const span: TracerSpan = tracer.startSpan(spanName, {
           attributes: buildSpanAttrs(config, op, sql),
           startTime: Date.now(),
         });
@@ -92,7 +94,7 @@ export const defineOtelInstrumentation = (
       after(op: RuntimeOperation, result: unknown, ctx?: unknown) {
         if (!enabled) return;
         const meta = op.meta ?? {};
-        const span = meta[Symbol.for("better-schemic/otel/span")];
+        const span = meta[Symbol.for("better-schemic/otel/span")] as TracerSpan | undefined;
         if (span) {
           const start = meta[Symbol.for("better-schemic/otel/request-start")] ?? Date.now();
           const durationMs = Date.now() - start;
@@ -111,7 +113,7 @@ export const defineOtelInstrumentation = (
       error(op: RuntimeOperation, error: Error, ctx?: unknown) {
         if (!enabled) return;
         const meta = op.meta ?? {};
-        const span = meta[Symbol.for("better-schemic/otel/span")];
+        const span = meta[Symbol.for("better-schemic/otel/span")] as TracerSpan | undefined;
         if (span) {
           const start = meta[Symbol.for("better-schemic/otel/request-start")] ?? Date.now();
           const durationMs = Date.now() - start;

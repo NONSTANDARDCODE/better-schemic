@@ -6,6 +6,7 @@ export interface TracerSpan {
   end(): void;
   setAttributes(attrs: Record<string, unknown>): void;
   recordException(err: Error): void;
+  setStatus?(status: { code: number; message?: string }): void;
 }
 
 export interface Tracer {
@@ -70,6 +71,6 @@ export const withOtelTraces = <T extends (...args: any[]) => any>(fn: T, cfg: Ot
   }) as T;
 };
 
-export const recordOperation = (meta: { operation: string; table?: string; durationMs: number; success: boolean; error?: unknown }) => {
+export const recordOperation = (meta: { operation: string; table?: string; durationMs: number; success: boolean; error?: unknown; sql?: string }) => {
   // Capturado pelo OTEL automaticamente via spans — não precisa de ação extra
 };

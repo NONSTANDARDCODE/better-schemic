@@ -11,7 +11,7 @@ export interface OrmOtelHookSpec extends HookDispatcher {
 }
 
 const isOp = (v: unknown): v is RuntimeOperation =>
-  typeof v === "object" && v !== null && v[Symbol.for("better-schemic/otel")] !== undefined;
+  typeof v === "object" && v !== null && (v as Record<symbol, unknown>)[Symbol.for("better-schemic/otel")] !== undefined;
 
 export function withOtelOrmHooks<T extends OrmOtelHookSpec>(spec: T): T & { $disable: () => void } {
   if ((spec as OrmOtelHookSpec).__otelDisabled) return spec as T & { $disable: () => void };

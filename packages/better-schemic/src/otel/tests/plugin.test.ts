@@ -21,14 +21,14 @@ describe("OTEL Plugin — Configuration", () => {
       enabled: false,
       spanAttributes: { env: "test" },
     });
-    expect(plugin.id).toBe("@better-schemic/otel");
-    expect(plugin.config.serviceName).toBe("test-service");
+    expect((plugin as any).id).toBe("@better-schemic/otel");
+    expect((plugin as any).config.serviceName).toBe("test-service");
   });
 
   it("deve ter enabled=false como default seguro (zero overhead)", () => {
     const plugin = defineOtelInstrumentation({ serviceName: "test" });
-    expect(plugin.config.enabled).toBeUndefined();
-    expect(plugin.config.serviceName).toBe("test");
+    expect((plugin as any).config.enabled).toBeUndefined();
+    expect((plugin as any).config.serviceName).toBe("test");
   });
 });
 
@@ -37,14 +37,14 @@ describe("OTEL Plugin — Hooks", () => {
     const plugin = defineOtelInstrumentation({ serviceName: "test", enabled: false });
     const op = { kind: "findMany", table: "user", meta: {} } as any;
     // Quando desabilitado, hooks não transformam (zero overhead)
-    const beforeFn = plugin.hooks?.before ?? ((o: any) => o);
+    const beforeFn = (plugin as any).hooks?.before ?? ((o: any) => o);
     const result = beforeFn(op);
     expect(result === undefined || result === op).toBe(true);
   });
 
   it("deve registrar operação quando habilitado", () => {
     const plugin = defineOtelInstrumentation({ serviceName: "test", enabled: true, sampleRate: 1.0 });
-    expect(plugin.config.serviceName).toBe("test");
+    expect((plugin as any).config.serviceName).toBe("test");
   });
 });
 

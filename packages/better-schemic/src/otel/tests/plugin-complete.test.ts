@@ -29,32 +29,32 @@ describe("CONFIG — Zero Overhead / Typed", () => {
 
   it("aceita config mínima", () => {
     const p = defineOtelInstrumentation({ serviceName: "svc" });
-    expect(p.id).toBe("@better-schemic/otel");
+    expect((p as any).id).toBe("@better-schemic/otel");
   });
 
   it("default enabled é undefined (não ativa automaticamente)", () => {
     const p = defineOtelInstrumentation({ serviceName: "s" });
-    expect(p.config.enabled).toBeUndefined();
+    expect((p as any).config.enabled).toBeUndefined();
   });
 
   it("aceita sampleRate 0 (desliga amostragem)", () => {
     const p = defineOtelInstrumentation({ serviceName: "s", enabled: true, sampleRate: 0 });
-    expect(p.config.sampleRate).toBe(0);
+    expect((p as any).config.sampleRate).toBe(0);
   });
 
   it("aceita spanAttributes vazio e não-vazio", () => {
     const p1 = defineOtelInstrumentation({ serviceName: "s", spanAttributes: { env: "dev" } });
-    expect(p1.config.spanAttributes).toEqual({ env: "dev" });
+    expect((p1 as any).config.spanAttributes).toEqual({ env: "dev" });
   });
 
   it("propagation aceita w3c", () => {
     const p = defineOtelInstrumentation({ serviceName: "s", propagation: "w3c" });
-    expect(p.config.propagation).toBe("w3c");
+    expect((p as any).config.propagation).toBe("w3c");
   });
 
   it("aceita debugExport", () => {
     const p = defineOtelInstrumentation({ serviceName: "s", debugExport: true });
-    expect(p.config.debugExport).toBe(true);
+    expect((p as any).config.debugExport).toBe(true);
   });
 });
 
@@ -65,51 +65,51 @@ describe("PLUGINS — Hooks Before/After/Error", () => {
   it("before sem crash com enabled false", () => {
     const p = defineOtelInstrumentation({ serviceName: "h", enabled: false });
     const op: MockOp = { kind: "findMany", table: "t", meta: {} };
-    const result = p.hooks?.before?.(op);
+    const result = (p as any).hooks?.before?.(op);
     expect(result === op || result === undefined).toBe(true);
   });
 
   it("before sem crash com enabled true", () => {
     const p = defineOtelInstrumentation({ serviceName: "h", enabled: true, sampleRate: 1 });
     const op: MockOp = { kind: "findMany", table: "t", meta: {} };
-    const result = p.hooks?.before?.(op);
+    const result = (p as any).hooks?.before?.(op);
     expect(result === op).toBe(true);
   });
 
   it("after sem crash", () => {
     const p = defineOtelInstrumentation({ serviceName: "h", enabled: false });
     const op = { kind: "create", table: "t", meta: {} };
-    expect(() => p.hooks?.after?.(op, [{ id: "1" }])).not.toThrow();
+    expect(() => (p as any).hooks?.after?.(op, [{ id: "1" }])).not.toThrow();
   });
 
   it("error sem crash", () => {
     const p = defineOtelInstrumentation({ serviceName: "h", enabled: false });
     const op = { kind: "update", table: "t", meta: {} };
     const err = new Error("fail");
-    expect(() => p.hooks?.error?.(op, err)).not.toThrow();
+    expect(() => (p as any).hooks?.error?.(op, err)).not.toThrow();
   });
 
   it("transform não quebra sem meta", () => {
     const p = defineOtelInstrumentation({ serviceName: "h", enabled: true, sampleRate: 1 });
     const op: MockOp = { kind: "delete", table: "t", meta: undefined };
-    expect(() => p.transform(op)).not.toThrow();
+    expect(() => (p as any).transform(op)).not.toThrow();
   });
 
   it("transform adiciona meta quando habilitado", () => {
     const p = defineOtelInstrumentation({ serviceName: "h", enabled: true, sampleRate: 1 });
     const op = { kind: "count", table: "t", meta: {} };
-    p.transform(op);
+    (p as any).transform(op);
     expect(op.meta).toBeDefined();
   });
 
   it("setup sem crash", () => {
     const p = defineOtelInstrumentation({ serviceName: "h", enabled: true, sampleRate: 1 });
-    expect(() => p.setup?.({ tables: new Map(), schemaless: new Map() } as any)).not.toThrow();
+    expect(() => (p as any).setup?.({ tables: new Map(), schemaless: new Map() } as any)).not.toThrow();
   });
 
   it("setup com index vazio não quebra", () => {
     const p = defineOtelInstrumentation({ serviceName: "h", enabled: true });
-    expect(() => p.setup?.({} as any)).not.toThrow();
+    expect(() => (p as any).setup?.({} as any)).not.toThrow();
   });
 });
 
@@ -201,23 +201,23 @@ describe("EXPORTER — Console", () => {
 describe("INTEGRAÇÃO — Plugin + ORM", () => {
   it("plugin pode ser passado para client (simulado)", () => {
     const plugin = defineOtelInstrumentation({ serviceName: "orm-test", enabled: false });
-    expect(plugin.id).toBe("@better-schemic/otel");
+    expect((plugin as any).id).toBe("@better-schemic/otel");
     // Verifica que o plugin tem todos os métodos necessários
-    expect(typeof plugin.setup).toBe("function");
-    expect(typeof plugin.transform).toBe("function");
-    expect(plugin.hooks).toBeDefined();
-    expect(typeof plugin.extendClient).toBe("function");
+    expect(typeof (plugin as any).setup).toBe("function");
+    expect(typeof (plugin as any).transform).toBe("function");
+    expect((plugin as any).hooks).toBeDefined();
+    expect(typeof (plugin as any).extendClient).toBe("function");
   });
 
   it("extendClient retorna objeto vazio quando desabilitado", () => {
     const plugin = defineOtelInstrumentation({ serviceName: "ext", enabled: false });
-    const result = plugin.extendClient?.({} as any);
+    const result = (plugin as any).extendClient?.({} as any);
     expect(typeof result).toBe("object");
   });
 
   it("extendClient retorna $otelTrace quando habilitado", () => {
     const plugin = defineOtelInstrumentation({ serviceName: "ext", enabled: true, sampleRate: 1 });
-    const result = plugin.extendClient?.({ index: new Map() } as any);
+    const result = (plugin as any).extendClient?.({ index: new Map() } as any);
     expect(result).toHaveProperty("$otelTrace");
     expect(typeof result?.$otelTrace).toBe("function");
   });
@@ -247,13 +247,13 @@ describe("SEGURANÇA — Ataques / Isolamento", () => {
   it("transform não quebra com meta malformada", () => {
     const p = defineOtelInstrumentation({ serviceName: "bad", enabled: true, sampleRate: 1 });
     const op = { kind: "findMany", table: "t", meta: null };
-    expect(() => p.transform(op)).not.toThrow();
+    expect(() => (p as any).transform(op)).not.toThrow();
   });
 
   it("transform com meta existente preserva dados", () => {
     const p = defineOtelInstrumentation({ serviceName: "preserve", enabled: true, sampleRate: 1 });
     const op = { kind: "findMany", table: "t", meta: { existing: true } };
-    p.transform(op);
+    (p as any).transform(op);
     expect(op.meta?.existing).toBe(true);
   });
 });
@@ -282,30 +282,30 @@ describe("EDGE CASES", () => {
   it("before retorna mesmo op quando meta está vazio", () => {
     const p = defineOtelInstrumentation({ serviceName: "edge", enabled: true, sampleRate: 1 });
     const op = { kind: "findFirst", table: "t", meta: {} };
-    const r = p.hooks?.before?.(op);
+    const r = (p as any).hooks?.before?.(op);
     expect(r).toBeDefined();
   });
 
   it("plugin funciona com kind desconhecido", () => {
     const p = defineOtelInstrumentation({ serviceName: "edge", enabled: false });
     const op = { kind: "unknownKind", table: "t", meta: {} };
-    expect(() => p.hooks?.before?.(op)).not.toThrow();
+    expect(() => (p as any).hooks?.before?.(op)).not.toThrow();
   });
 
   it("after funciona quando result é array vazio", () => {
     const p = defineOtelInstrumentation({ serviceName: "edge", enabled: false });
     const op: MockOp = { kind: "findMany", table: "t", meta: {} };
-    expect(() => p.hooks?.after?.(op, [])).not.toThrow();
+    expect(() => (p as any).hooks?.after?.(op, [])).not.toThrow();
   });
 
   it("after funciona quando result é null", () => {
     const p = defineOtelInstrumentation({ serviceName: "edge", enabled: false });
     const op = { kind: "findOne", table: "t", meta: {} };
-    expect(() => p.hooks?.after?.(op, null)).not.toThrow();
+    expect(() => (p as any).hooks?.after?.(op, null)).not.toThrow();
   });
 
   it("plugin aceita plugins vazios no array (não usado diretamente mas seguro)", () => {
     const p = defineOtelInstrumentation({ serviceName: "safe" });
-    expect(p.config).toBeDefined();
+    expect((p as any).config).toBeDefined();
   });
 });
