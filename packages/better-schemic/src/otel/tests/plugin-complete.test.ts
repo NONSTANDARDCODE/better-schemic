@@ -4,6 +4,13 @@ import { defineOtelInstrumentation } from "../plugin/define-otel";
 import { getTracer, withOtelTraces, recordOperation } from "../instrumentation/tracer";
 import { otelConsoleExporter } from "../exporters/console";
 
+interface MockOp {
+  kind: string;
+  table?: string;
+  meta?: Record<string, unknown> | null;
+  args?: { sql?: string; vars?: Record<string, unknown> };
+}
+
 beforeEach(() => {
   // Reset internal state
 });
@@ -57,40 +64,40 @@ describe("CONFIG — Zero Overhead / Typed", () => {
 describe("PLUGINS — Hooks Before/After/Error", () => {
   it("before sem crash com enabled false", () => {
     const p = defineOtelInstrumentation({ serviceName: "h", enabled: false });
-    const op = { kind: "findMany", table: "t", meta: {} } as any;
+    const op: MockOp = { kind: "findMany", table: "t", meta: {} };
     const result = p.hooks?.before?.(op);
     expect(result === op || result === undefined).toBe(true);
   });
 
   it("before sem crash com enabled true", () => {
     const p = defineOtelInstrumentation({ serviceName: "h", enabled: true, sampleRate: 1 });
-    const op = { kind: "findMany", table: "t", meta: {} } as any;
+    const op: MockOp = { kind: "findMany", table: "t", meta: {} };
     const result = p.hooks?.before?.(op);
     expect(result === op).toBe(true);
   });
 
   it("after sem crash", () => {
     const p = defineOtelInstrumentation({ serviceName: "h", enabled: false });
-    const op = { kind: "create", table: "t", meta: {} } as any;
+    const op = { kind: "create", table: "t", meta: {} };
     expect(() => p.hooks?.after?.(op, [{ id: "1" }])).not.toThrow();
   });
 
   it("error sem crash", () => {
     const p = defineOtelInstrumentation({ serviceName: "h", enabled: false });
-    const op = { kind: "update", table: "t", meta: {} } as any;
+    const op = { kind: "update", table: "t", meta: {} };
     const err = new Error("fail");
     expect(() => p.hooks?.error?.(op, err)).not.toThrow();
   });
 
   it("transform não quebra sem meta", () => {
     const p = defineOtelInstrumentation({ serviceName: "h", enabled: true, sampleRate: 1 });
-    const op = { kind: "delete", table: "t", meta: undefined } as any;
+    const op: MockOp = { kind: "delete", table: "t", meta: undefined };
     expect(() => p.transform(op)).not.toThrow();
   });
 
   it("transform adiciona meta quando habilitado", () => {
     const p = defineOtelInstrumentation({ serviceName: "h", enabled: true, sampleRate: 1 });
-    const op = { kind: "count", table: "t", meta: {} } as any;
+    const op = { kind: "count", table: "t", meta: {} };
     p.transform(op);
     expect(op.meta).toBeDefined();
   });
@@ -239,13 +246,13 @@ describe("SEGURANÇA — Ataques / Isolamento", () => {
 
   it("transform não quebra com meta malformada", () => {
     const p = defineOtelInstrumentation({ serviceName: "bad", enabled: true, sampleRate: 1 });
-    const op = { kind: "findMany", table: "t", meta: null } as any;
+    const op = { kind: "findMany", table: "t", meta: null };
     expect(() => p.transform(op)).not.toThrow();
   });
 
   it("transform com meta existente preserva dados", () => {
     const p = defineOtelInstrumentation({ serviceName: "preserve", enabled: true, sampleRate: 1 });
-    const op = { kind: "findMany", table: "t", meta: { existing: true } } as any;
+    const op = { kind: "findMany", table: "t", meta: { existing: true } };
     p.transform(op);
     expect(op.meta?.existing).toBe(true);
   });
@@ -274,26 +281,26 @@ describe("METRICS — recordOperation", () => {
 describe("EDGE CASES", () => {
   it("before retorna mesmo op quando meta está vazio", () => {
     const p = defineOtelInstrumentation({ serviceName: "edge", enabled: true, sampleRate: 1 });
-    const op = { kind: "findFirst", table: "t", meta: {} } as any;
+    const op = { kind: "findFirst", table: "t", meta: {} };
     const r = p.hooks?.before?.(op);
     expect(r).toBeDefined();
   });
 
   it("plugin funciona com kind desconhecido", () => {
     const p = defineOtelInstrumentation({ serviceName: "edge", enabled: false });
-    const op = { kind: "unknownKind", table: "t", meta: {} } as any;
+    const op = { kind: "unknownKind", table: "t", meta: {} };
     expect(() => p.hooks?.before?.(op)).not.toThrow();
   });
 
   it("after funciona quando result é array vazio", () => {
     const p = defineOtelInstrumentation({ serviceName: "edge", enabled: false });
-    const op = { kind: "findMany", table: "t", meta: {} } as any;
+    const op: MockOp = { kind: "findMany", table: "t", meta: {} };
     expect(() => p.hooks?.after?.(op, [])).not.toThrow();
   });
 
   it("after funciona quando result é null", () => {
     const p = defineOtelInstrumentation({ serviceName: "edge", enabled: false });
-    const op = { kind: "findOne", table: "t", meta: {} } as any;
+    const op = { kind: "findOne", table: "t", meta: {} };
     expect(() => p.hooks?.after?.(op, null)).not.toThrow();
   });
 

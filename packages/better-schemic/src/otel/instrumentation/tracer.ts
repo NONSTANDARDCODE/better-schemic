@@ -23,6 +23,15 @@ class RealTracer implements Tracer {
       return { end() {}, setAttributes() {}, recordException() {} };
     }
     const tracer = trace.getTracer("better-schemic");
+    // Fallback: se não existe provider, spans ainda funcionam via no-op
+    try {
+      if (typeof (trace as any).getTracerProvider === "function") {
+        const provider = (trace as any).getTracerProvider();
+        if (!provider || !(provider as any).register) {
+          // SDK não inicializado — spans ainda funcionam via no-op
+        }
+      }
+    } catch { /* SDK não disponível */ }
     // Use the active OTEL tracer provider — spans are captured!
     const span = tracer.startSpan(name, {
       attributes: opts?.attributes ?? {},

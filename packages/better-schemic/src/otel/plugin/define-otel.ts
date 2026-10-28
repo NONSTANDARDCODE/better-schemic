@@ -10,6 +10,38 @@ export interface OtelInstrumentationSpec extends PluginSpec<OtelPluginConfig> {
   readonly [OTEL_BRAND]: true;
 }
 
+const SQL_MAP: Record<string, string> = {
+  findMany: "SELECT", findFirst: "SELECT", findOne: "SELECT", findUnique: "SELECT",
+  count: "SELECT", exists: "SELECT", aggregate: "SELECT", paginate: "SELECT", cursor: "SELECT",
+  create: "INSERT", insert: "INSERT", insertMany: "INSERT",
+  update: "UPDATE", updateMany: "UPDATE", updateEach: "UPDATE", patch: "UPDATE",
+  delete: "DELETE", deleteMany: "DELETE",
+  upsert: "UPSERT",
+  relate: "RELATE", unrelate: "UNRELATE",
+  createRelate: "CREATE RELATE",
+};
+
+function sqlOp(kind: string) { return SQL_MAP[kind] ?? kind; }
+
+function extractSql(op: RuntimeOperation): string {
+  const metaSql = (op.meta as Record<string, unknown> | undefined)?.sql;
+  return typeof metaSql === "string" ? metaSql : (op.args?.sql ?? "") as string;
+}
+
+function buildSpanAttrs(config: OtelPluginConfig, op: RuntimeOperation, sql?: string) {
+  const maxLen = config.maxQueryTextLength ?? 1000;
+  return {
+    "db.system": config.dbSystem ?? "surrealdb",
+    "db.operation.name": sqlOp(op.kind),
+    "db.collection.name": op.table,
+    ...(config.dbNamespace ? { "db.namespace": config.dbNamespace } : {}),
+    ...(config.dbName ? { "db.name": config.dbName } : {}),
+    ...(sql ? { "db.statement": sql.substring(0, maxLen) } : {}),
+    "service.name": config.serviceName,
+    ...(config.spanAttributes ?? {}),
+  };
+}
+
 export const defineOtelInstrumentation = (
   config: OtelPluginConfig,
 ): OtelInstrumentationSpec => {
@@ -42,19 +74,10 @@ export const defineOtelInstrumentation = (
       before(op: RuntimeOperation, ctx?: unknown) {
         if (!enabled) return;
         const tracer = getTracer(config.serviceName);
-        const sql = (op.meta as any)?.sql ?? (op.args?.sql ?? "");
-        const spanName = `orm.${op.kind}`;
+        const sql = extractSql(op);
+        const spanName = `db.${sqlOp(op.kind)}`.toLowerCase();
         const span = tracer.startSpan(spanName, {
-          attributes: {
-            "db.system": config.dbSystem ?? "surrealdb",
-            "db.operation.name": op.kind,
-            "db.collection.name": op.table,
-            ...(config.dbNamespace ? { "db.namespace": config.dbNamespace } : {}),
-            ...(config.dbName ? { "db.name": config.dbName } : {}),
-            ...(sql ? { "db.statement": sql.substring(0, config.maxQueryTextLength ?? 1000) } : {}),
-            "service.name": config.serviceName,
-            ...(config.spanAttributes ?? {}),
-          },
+          attributes: buildSpanAttrs(config, op, sql),
           startTime: Date.now(),
         });
         if (config.requestHook) {
@@ -73,7 +96,7 @@ export const defineOtelInstrumentation = (
         if (span) {
           const start = meta[Symbol.for("better-schemic/otel/request-start")] ?? Date.now();
           const durationMs = Date.now() - start;
-          const sql = (op.meta as any)?.sql ?? "";
+          const sql = extractSql(op);
           span.setAttributes({ "db.success": true, "db.duration_ms": durationMs });
           if (sql) span.setAttributes({ "db.statement": sql.substring(0, config.maxQueryTextLength ?? 1000) });
           if (config.responseHook) {
@@ -92,7 +115,7 @@ export const defineOtelInstrumentation = (
         if (span) {
           const start = meta[Symbol.for("better-schemic/otel/request-start")] ?? Date.now();
           const durationMs = Date.now() - start;
-          const sql = (op.meta as any)?.sql ?? "";
+          const sql = extractSql(op);
           span.setAttributes({ "db.success": false, "db.duration_ms": durationMs, "error.type": error.name });
           if (sql) span.setAttributes({ "db.statement": sql.substring(0, config.maxQueryTextLength ?? 1000) });
           span.recordException(error);
