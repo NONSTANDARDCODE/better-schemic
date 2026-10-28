@@ -328,7 +328,7 @@ describe("COBERTURA — branches OTEL", () => {
     expect(() => (p as any).hooks.after(op, [{ id: "1" }])).not.toThrow();
   });
 
-  it("error com span e setStatus", () => {
+  it("error não quebra sem span prévia", () => {
     const p = defineOtelInstrumentation({ serviceName: "cov", enabled: true });
     const op = { kind: "findMany", table: "t", meta: {}, args: {} } as any;
     expect(() => (p as any).hooks.error(op, new Error("x"))).not.toThrow();
