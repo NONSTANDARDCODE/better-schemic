@@ -116,6 +116,13 @@
         "default": "./lib/plugins/create-only.js"
       }
     },
+    "./otel": {
+      "bun": "./src/otel/index.ts",
+      "import": {
+        "types": "./lib/otel/index.d.ts",
+        "default": "./lib/otel/index.js"
+      }
+    },
     "./plugins/tenant": {
       "bun": "./src/plugins/tenant.ts",
       "import": {
@@ -179,12 +186,20 @@
     "zod": "^4.6.7"
   },
   "peerDependencies": {
-    "@surrealdb/node": "*"
+    "@surrealdb/node": "*",
+    "@opentelemetry/api": "^1.10.0",
+    "@opentelemetry/exporter-otlp-http": "^0.26.0",
+    "@opentelemetry/sdk-trace-base": "^2.12.0",
+    "@opentelemetry/sdk-trace-node": "^2.12.0"
   },
   "peerDependenciesMeta": {
     "@surrealdb/node": {
       "optional": true
-    }
+    },
+    "@opentelemetry/api": { "optional": true },
+    "@opentelemetry/exporter-otlp-http": { "optional": true },
+    "@opentelemetry/sdk-trace-base": { "optional": true },
+    "@opentelemetry/sdk-trace-node": { "optional": true }
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.3",

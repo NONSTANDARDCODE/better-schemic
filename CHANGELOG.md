@@ -18,6 +18,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+### Added
+- **OTEL instrumentation (`better-schemic/otel`)** — plugin-based OpenTelemetry instrumentation with zero overhead when `enabled: false`. Includes `defineOtelInstrumentation()`, typed ORM hooks (`before`/`after`/`error`), minimal tracer (`getTracer`), console exporter (`otelConsoleExporter`), and full test coverage (`test:plugin`). Service identification via typed `serviceName`. No magic variables — all typed via `OtelPluginConfig`.
+
 ### Changed
 - Upgrade the SurrealDB SDK to `^2.1.1` (was pinned at 2.0.3 by a root `overrides`); remove the Renovate `surrealdb` disable rule.
 - Fix the ORM logger's `isStringly`/`isRecordId` to use `instanceof` against the SDK classes instead of fragile `constructor.name`/`"tb"` duck typing (SDK 2.1 renames `RecordId` to `RecordId$1` and drops the `tb` field).

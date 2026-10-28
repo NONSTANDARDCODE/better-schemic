@@ -395,6 +395,37 @@ const logged = betterSchemic(db, {
   },
 });
 
+## OTEL instrumentation (`better-schemic/otel`)
+
+Plugin-based OpenTelemetry tracing for the ORM. Zero overhead when disabled.
+
+```ts
+import { defineOtelInstrumentation } from "better-schemic/otel";
+
+const otel = defineOtelInstrumentation({
+  serviceName: "my-app",
+  enabled: true,               // false = zero overhead
+  dbSystem: "surrealdb",
+  dbName: "app",
+  captureQueryText: true,     // includes SQL in spans
+  maxQueryTextLength: 1000,
+  sampleRate: 1.0,
+  requestHook: (info) => console.log("query", info.operation, info.sql),
+  responseHook: (info) => console.log("response", info.durationMs, info.success),
+});
+
+const client = betterSchemic(db, { schema, plugins: [otel] });
+```
+
+Requires OTEL SDK initialization (one-time, in app entry):
+```ts
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+const provider = new NodeTracerProvider();
+provider.register();
+```
+
+Spans are captured with `db.system`, `db.collection.name`, `db.operation.name`, `db.statement`, `service.name`, and full `requestHook`/`responseHook` support (like `pg`/`drizzle`).
+
 // Plugins (M6) — mutate operations, add typed args, extend the client/delegates:
 import { definePlugin, surql } from "better-schemic/orm";
 const softDelete = definePlugin({

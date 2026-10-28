@@ -28,7 +28,7 @@
         "commander": "^15.0.0",
         "jiti": "^2.7.0",
         "magicast": "^0.5.5",
-        "surrealdb": "^2.2.0",
+        "surrealdb": "^2.1.1",
         "zod": "^4.6.7",
       },
       "devDependencies": {
@@ -37,9 +37,17 @@
         "@typescript/native-preview": "7.0.0-dev.20260707.2",
       },
       "peerDependencies": {
+        "@opentelemetry/api": "^1.10.0",
+        "@opentelemetry/exporter-otlp-http": "^0.26.0",
+        "@opentelemetry/sdk-trace-base": "^2.12.0",
+        "@opentelemetry/sdk-trace-node": "^2.12.0",
         "@surrealdb/node": "*",
       },
       "optionalPeers": [
+        "@opentelemetry/api",
+        "@opentelemetry/exporter-otlp-http",
+        "@opentelemetry/sdk-trace-base",
+        "@opentelemetry/sdk-trace-node",
         "@surrealdb/node",
       ],
     },
