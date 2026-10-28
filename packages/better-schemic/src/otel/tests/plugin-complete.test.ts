@@ -309,3 +309,35 @@ describe("EDGE CASES", () => {
     expect((p as any).config).toBeDefined();
   });
 });
+
+describe("COBERTURA — branches OTEL", () => {
+  it("setup não inicializa quando disabled", () => {
+    const p = defineOtelInstrumentation({ serviceName: "cov", enabled: false });
+    expect(() => (p as any).setup?.({})).not.toThrow();
+  });
+
+  it("before com requestHook e sql", () => {
+    const p = defineOtelInstrumentation({ serviceName: "cov", enabled: true, requestHook: () => {} });
+    const op = { kind: "findMany", table: "t", meta: {}, args: { sql: "SELECT * FROM t" } } as any;
+    expect(() => (p as any).hooks.before(op)).not.toThrow();
+  });
+
+  it("after com responseHook e sql", () => {
+    const p = defineOtelInstrumentation({ serviceName: "cov", enabled: true, responseHook: () => {} });
+    const op = { kind: "findMany", table: "t", meta: {}, args: {} } as any;
+    expect(() => (p as any).hooks.after(op, [{ id: "1" }])).not.toThrow();
+  });
+
+  it("error com span e setStatus", () => {
+    const p = defineOtelInstrumentation({ serviceName: "cov", enabled: true });
+    const op = { kind: "findMany", table: "t", meta: {}, args: {} } as any;
+    expect(() => (p as any).hooks.error(op, new Error("x"))).not.toThrow();
+  });
+
+  it("extendClient quando habilitado retorna $otelTrace", () => {
+    const p = defineOtelInstrumentation({ serviceName: "cov", enabled: true });
+    const res = (p as any).extendClient?.({});
+    expect(res).toBeDefined();
+    expect(typeof res.$otelTrace).toBe("function");
+  });
+});
