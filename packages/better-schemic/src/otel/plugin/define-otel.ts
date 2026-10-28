@@ -105,7 +105,7 @@ export const defineOtelInstrumentation = (
           if (config.responseHook) {
             config.responseHook({ operation: op.kind, table: op.table, sql: sql ? sql.substring(0, config.maxQueryTextLength ?? 1000) : undefined, durationMs, success: true, rows: Array.isArray(result) ? result.length : undefined });
           }
-          span?.end();
+          if (span) span.end();
           recordOperation({ operation: op.kind, table: op.table, durationMs, success: true, sql: sql ? sql.substring(0, config.maxQueryTextLength ?? 1000) : undefined });
         }
         return result;
@@ -126,7 +126,7 @@ export const defineOtelInstrumentation = (
           if (config.responseHook) {
             config.responseHook({ operation: op.kind, table: op.table, sql: sql ? sql.substring(0, config.maxQueryTextLength ?? 1000) : undefined, durationMs, success: false, error });
           }
-          span?.end();
+          if (span) span.end();
           recordOperation({ operation: op.kind, table: op.table, durationMs, success: false, error, sql: sql ? sql.substring(0, config.maxQueryTextLength ?? 1000) : undefined });
         }
         return error;

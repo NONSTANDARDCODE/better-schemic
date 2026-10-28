@@ -3,7 +3,7 @@ import type { RuntimeOperation } from "../../surreal/orm/plugins";
 import type { HookDispatcher } from "../../surreal/orm/hooks";
 import type { OperationKind } from "../../surreal/orm/types/hooks";
 
-export interface OrmOtelHookSpec extends HookDispatcher {
+export interface OrmOtelHookSpec {
   __otelDisabled?: boolean;
   before(op: RuntimeOperation): RuntimeOperation | Promise<RuntimeOperation>;
   after(op: RuntimeOperation, result: unknown): unknown;
