@@ -85,7 +85,7 @@ export const defineOtelInstrumentation = (
         if (config.requestHook) {
           config.requestHook({ operation: op.kind, table: op.table, sql: sql ? sql.substring(0, config.maxQueryTextLength ?? 1000) : undefined, vars: op.args?.vars });
         }
-        const meta = (op.meta ??= {});
+        const meta = (op.meta ??= {}) as any;
         meta[Symbol.for("better-schemic/otel/span")] = span;
         meta[Symbol.for("better-schemic/otel/request-start")] = Date.now();
         return op;
@@ -93,7 +93,7 @@ export const defineOtelInstrumentation = (
 
       after(op: RuntimeOperation, result: unknown, ctx?: unknown) {
         if (!enabled) return;
-        const meta = op.meta ?? {};
+        const meta = (op.meta ?? {}) as any;
         const span = meta[Symbol.for("better-schemic/otel/span")] as TracerSpan | undefined;
         if (span) {
           const start = meta[Symbol.for("better-schemic/otel/request-start")] ?? Date.now();
@@ -112,7 +112,7 @@ export const defineOtelInstrumentation = (
 
       error(op: RuntimeOperation, error: Error, ctx?: unknown) {
         if (!enabled) return;
-        const meta = op.meta ?? {};
+        const meta = (op.meta ?? {}) as any;
         const span = meta[Symbol.for("better-schemic/otel/span")] as TracerSpan | undefined;
         if (span) {
           const start = meta[Symbol.for("better-schemic/otel/request-start")] ?? Date.now();

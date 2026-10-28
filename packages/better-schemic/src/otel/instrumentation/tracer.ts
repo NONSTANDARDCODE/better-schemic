@@ -1,6 +1,7 @@
 /** OTEL tracer — REAL SDK integration (agora captura pelo OTEL). */
 import { trace, context, SpanStatusCode } from "@opentelemetry/api";
 import type { OtelSpanConfig } from "../types/index";
+export type { OtelSpanConfig };
 
 export interface TracerSpan {
   end(): void;
