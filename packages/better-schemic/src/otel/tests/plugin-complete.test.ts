@@ -325,12 +325,14 @@ describe("COBERTURA — branches OTEL", () => {
   it("after com responseHook e sql", () => {
     const p = defineOtelInstrumentation({ serviceName: "cov", enabled: true, responseHook: () => {} });
     const op = { kind: "findMany", table: "t", meta: {}, args: {} } as any;
+    (p as any).hooks.before(op);
     expect(() => (p as any).hooks.after(op, [{ id: "1" }])).not.toThrow();
   });
 
   it("error não quebra sem span prévia", () => {
     const p = defineOtelInstrumentation({ serviceName: "cov", enabled: true });
     const op = { kind: "findMany", table: "t", meta: {}, args: {} } as any;
+    (p as any).hooks.before(op);
     expect(() => (p as any).hooks.error(op, new Error("x"))).not.toThrow();
   });
 
