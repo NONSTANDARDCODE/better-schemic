@@ -589,7 +589,10 @@ new NodeSDK({
 Spans use the stable database semantic conventions: `db.system.name` (`surrealdb`),
 `db.operation.name` (`SELECT`, `BATCH SELECT`, `EXPLAIN`, …), `db.collection.name`,
 `db.namespace` (`namespace|database`), `db.query.text` (opt-out), `db.operation.batch.size`, and
-`error.type` + `db.response.status_code` on failure. Binds are **never** captured.
+on failure `error.type` + `db.response.status_code`. `error.type` is the error class — the SDK
+`kind` (`"Thrown"`, `"Validation"`, `"Internal"`, ...) or the normalized code (`"ParseError"`,
+`"ValidationError"`, ...) — never a high-cardinality message; `db.response.status_code` is the raw
+SurrealDB code (`-32000`, `ERR_LOCKED`, ...). Binds are **never** captured.
 
 > **PII:** `db.query.text` is the compiled SurrealQL. ORM statements are parameterized (`$p0`), but a
 > `$raw`/`$unsafe` statement can contain literals — set `captureQueryText: false` when that matters.

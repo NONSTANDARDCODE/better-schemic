@@ -102,28 +102,66 @@ function failureOf(event: QueryLogEvent): unknown {
   return event.results.find((result) => result.status === "ERR")?.error;
 }
 
-/** The server error code, when the error carries one (`ERR_…`, `DatabaseError`, …). */
-function codeOf(error: unknown): string | undefined {
+/**
+ * The SurrealDB error class (`kind`: `"Thrown"`, `"Validation"`, `"Internal"`, ...), when the SDK
+ * error carries one. This is the natural, low-cardinality `error.type`.
+ */
+function kindOf(error: unknown): string | undefined {
+  if (error === null || typeof error !== "object") return undefined;
+  const kind = (error as { kind?: unknown }).kind;
+  return typeof kind === "string" && kind.length > 0 ? kind : undefined;
+}
+
+/** The `cause` an error wraps (a normalized `BetterSchemicError` carries the raw SDK error there). */
+function causeOf(error: unknown): unknown {
+  if (error === null || typeof error !== "object") return undefined;
+  return (error as { cause?: unknown }).cause;
+}
+
+/** A non-empty STRING code on one error object (`ERR_LOCKED`, `ParseError`, ...). */
+function symbolicCodeOf(error: unknown): string | undefined {
   if (error === null || typeof error !== "object") return undefined;
   const code = (error as { code?: unknown }).code;
-  return typeof code === "string" || typeof code === "number"
-    ? String(code)
-    : undefined;
+  return typeof code === "string" && code.length > 0 ? code : undefined;
+}
+
+/** A NON-ZERO numeric code on one error object (JSON-RPC codes like `-32000`); `0` means "none". */
+function numericCodeOf(error: unknown): number | undefined {
+  if (error === null || typeof error !== "object") return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "number" && code !== 0 ? code : undefined;
 }
 
 /**
- * Semconv `error.type`: the server code, else the error class name, else `Error`. A thrown string
- * is a message, not a type — never emit it as `error.type` (that would be high-cardinality).
+ * Semconv `error.type` — the class of error (low cardinality): the SDK `kind`, else a STRING code
+ * (the normalized `BetterSchemicError.code`, or a raw server code), else a numeric code, else the
+ * class name. A thrown string is a message, not a type — never emit it as `error.type`.
  */
 function errorTypeOf(error: unknown): string {
-  const code = codeOf(error);
-  if (code !== undefined) return code;
+  const kind = kindOf(error);
+  if (kind !== undefined) return kind;
+  const symbolic = symbolicCodeOf(error);
+  if (symbolic !== undefined) return symbolic;
+  const numeric = numericCodeOf(error);
+  if (numeric !== undefined) return String(numeric);
   if (error instanceof Error) return error.name;
   if (error !== null && typeof error === "object") {
     const name = (error as { name?: unknown }).name;
     if (typeof name === "string") return name;
   }
   return "Error";
+}
+
+/**
+ * Semconv `db.response.status_code`: the raw server code. The numeric SurrealDB code wins — from
+ * the error itself, or from the `cause` of a normalized wrapper; a bare `0` is "no code". A raw
+ * string code is used only when nothing was normalized around it.
+ */
+function statusCodeOf(error: unknown): string | undefined {
+  const numeric = numericCodeOf(error) ?? numericCodeOf(causeOf(error));
+  if (numeric !== undefined) return String(numeric);
+  if (causeOf(error) === undefined) return symbolicCodeOf(error);
+  return undefined;
 }
 
 /** A readable error message (status description + exception recording). */
@@ -142,18 +180,16 @@ function exceptionOf(error: unknown): Exception {
   if (error instanceof Error) return error;
   if (error !== null && typeof error === "object") {
     const record = error as {
-      code?: unknown;
       name?: unknown;
       message?: unknown;
       stack?: unknown;
     };
+    const code = statusCodeOf(error);
     return {
       message: messageOf(error),
       ...(typeof record.name === "string" ? { name: record.name } : {}),
       ...(typeof record.stack === "string" ? { stack: record.stack } : {}),
-      ...(typeof record.code === "string" || typeof record.code === "number"
-        ? { code: record.code }
-        : {}),
+      ...(code !== undefined ? { code } : {}),
     };
   }
   return String(error);
@@ -240,10 +276,10 @@ export function createOtelLogger(config: OtelLoggerConfig = {}): QueryLogger {
         const failure = failureOf(event);
         if (failure !== undefined) {
           const message = messageOf(failure).slice(0, MAX_STATUS_MESSAGE);
-          const code = codeOf(failure);
+          const statusCode = statusCodeOf(failure);
           span.setAttribute("error.type", errorTypeOf(failure));
-          if (code !== undefined)
-            span.setAttribute("db.response.status_code", code);
+          if (statusCode !== undefined)
+            span.setAttribute("db.response.status_code", statusCode);
           span.recordException(exceptionOf(failure), event.time);
           span.setStatus({ code: SpanStatusCode.ERROR, message });
         }

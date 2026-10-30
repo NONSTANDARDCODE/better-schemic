@@ -18,6 +18,7 @@ import type { QueryResponse } from "surrealdb";
 import { createOtelLogger } from "../../../src/otel/logger";
 import { defineTable, s } from "../../../src/surreal";
 import { betterSchemic } from "../../../src/surreal/orm/client";
+import { BetterSchemicError } from "../../../src/surreal/orm/errors";
 import { defineSchema } from "../../../src/surreal/orm/schema";
 import { caught, fakeConn, lines, ok } from "../../surreal/orm-fixtures";
 
@@ -316,6 +317,76 @@ describe("createOtelLogger — failures", () => {
     expect(exception?.attributes?.["exception.message"]).toBe(
       "the table is locked",
     );
+  });
+
+  test("a raw SDK error's `kind` is error.type; a bare 0 code is not a status", async () => {
+    const { conn } = fakeConn((sql) =>
+      lines(sql).map(
+        () =>
+          ({
+            success: false,
+            error: { kind: "Thrown", code: 0, message: "boom" },
+          }) as unknown as QueryResponse<unknown>,
+      ),
+    );
+    const client = betterSchemic(conn, {
+      schema,
+      logger: createOtelLogger(),
+    });
+
+    await caught(() => client.users.findMany());
+
+    const span = onlySpan();
+    expect(span.status.code).toBe(SpanStatusCode.ERROR);
+    expect(span.status.message).toContain("boom");
+    const attrs = span.attributes as Attributes;
+    expect(attrs["error.type"]).toBe("Thrown");
+    expect(attrs["db.response.status_code"]).toBeUndefined();
+  });
+
+  test("a non-zero numeric code is the status code (and the error.type fallback)", async () => {
+    const { conn } = fakeConn((sql) =>
+      lines(sql).map(
+        () =>
+          ({
+            success: false,
+            error: { code: -32000, message: "parse error" },
+          }) as unknown as QueryResponse<unknown>,
+      ),
+    );
+    const client = betterSchemic(conn, {
+      schema,
+      logger: createOtelLogger(),
+    });
+
+    await caught(() => client.users.findMany());
+
+    const attrs = onlySpan().attributes as Attributes;
+    expect(attrs["db.response.status_code"]).toBe("-32000");
+    expect(attrs["error.type"]).toBe("-32000");
+  });
+
+  test("a normalized error uses its code for error.type and the raw cause code as status", async () => {
+    const cause = Object.assign(new Error("boom"), {
+      kind: "Validation",
+      code: -32000,
+    });
+    const conn = {
+      query() {
+        throw new BetterSchemicError("ParseError", "boom", { cause });
+      },
+      close: () => Promise.resolve(),
+    };
+    const client = betterSchemic(conn as never, {
+      schema,
+      logger: createOtelLogger(),
+    });
+
+    await caught(() => client.users.findMany());
+
+    const attrs = onlySpan().attributes as Attributes;
+    expect(attrs["error.type"]).toBe("ParseError");
+    expect(attrs["db.response.status_code"]).toBe("-32000");
   });
 
   test("a transport rejection still ends an ERROR span", async () => {
