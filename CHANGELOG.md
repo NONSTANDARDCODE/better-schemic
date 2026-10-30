@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+## [0.1.0-beta.4] - 2026-10-30
+
 ### Added
 - **OTEL tracing (`better-schemic/otel`) — `createOtelLogger()`** — implements the `QueryLogger`
   executor seam, so one **`CLIENT` span per round-trip** covers delegates,
