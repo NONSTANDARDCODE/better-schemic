@@ -1217,8 +1217,3 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   (app-vs-driver version drift created dual SDK copies whose nominal `#private` classes are
   incompatible), and `` surql`…`.as<T>() `` replaces the separate `surql.expr` tag (a second tag name
   broke editor syntax highlighting).
-=== CHANGELOG UNRELEASED ===
-
-## Unreleased
-
-- Added: upgrade surrealdb SDK to ^2.1.1; fix logger/pure instance checks; update escapeIdent/idPart expectations; remove Renovate surrealdb disable rule
