@@ -60,7 +60,7 @@ original design prototype disagreed, the server wins.
 | `$withContext` com NS/DB "sem estado global" via `USE` | `USE NS … DB …;` no MESMO script escopa as statements seguintes e **não muda a sessão** (a conexão continua no NS/DB anterior) | prefixar `USE NS … DB …;` em toda operação do clone (1 round-trip, zero estado global); `auth` não cabe no prefixo → overload assíncrono que forka a sessão |
 | `client.fn.call` via `db.run` | `run`/`api`/`export`/`import`/`auth` usam o NS/DB da **sessão** — um clone por prefixo miraria o DB errado | `fn.call` compila `RETURN fn::x($p…)` (context-aware); `api`/`auth`/`export`/`live` falham rápido (`UnsupportedCapability`) em clone por prefixo |
 | `client.import(dump)` via SDK | o `import()` do SDK **quebra sobre WebSocket** (`JSON Parse error: Unexpected identifier "undefined"`) | `import` reexecuta o dump por `query()` (funciona em WS e respeita o contexto) |
-| `client.ping()` via `health()` | sobre WebSocket o servidor não tem o método (`NotFoundError: Method not found`) | `ping()` faz um round-trip `RETURN true` (uniforme em WS/HTTP) |
+| `client.ping()` via `health()` | `health()` resolve sobre WebSocket no SDK 2.2.0 / server 3.2.0; `ping()` mantém `RETURN true` (uniforme em WS/HTTP) | `ping()` faz um round-trip `RETURN true` (uniforme em WS/HTTP) |
 | `client.api.*` lança em erro HTTP | o SDK resolve o envelope `{ status, body, headers, request_id }` **sem rejeitar** em 4xx/5xx | o ORM inspeciona `status >= 400` e lança `DatabaseError` com `status` + `details.body` |
 | `raw.timeoutMs` aplica `TIMEOUT` a qualquer raw | `TIMEOUT` só é aceito por SELECT/UPDATE/CREATE/DELETE/INSERT/UPSERT/RELATE (RETURN/LET/SLEEP/INFO/SHOW CHANGES/DEFINE dão parse error) | aplicar só a statement única com verbo compatível; caso contrário deixar intacto (documentado) |
 
@@ -653,7 +653,7 @@ SELECT vector::similarity::cosine(embedding, $q) AS sim FROM vec;
 | `DEFINE API '/x' FOR get THEN {…} FOR post THEN {…};` | multi-método em **um** `DEFINE API`; cada `THEN` devolve `{ status, body, headers? }` |
 | `db.api().get('/x')` | resolve `{ status, body, headers, request_id }` (não rejeita em 4xx/5xx) |
 | `db.version()` | `{ version: "surrealdb-3.2.0" }` |
-| `db.health()` | sobre WebSocket: `NotFoundError: Method not found` |
+| `db.health()` | sobre WebSocket: resolve (SDK 2.2.0 / server 3.2.0) |
 | `db.import(dump)` (SDK) | sobre WebSocket: quebra (`JSON Parse error`); `db.query(dump)` funciona |
 | `db.run`/`export`/`import`/`api`/`auth` | presos à SESSÃO (NS/DB da conexão), não ao contexto do clone |
 

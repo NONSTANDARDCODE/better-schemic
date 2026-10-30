@@ -2323,9 +2323,9 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
         expect(await caught(run(sql))).not.toBeNull();
     });
 
-    test("DEFINE API returns an ApiResponse envelope; db.health() is WS-unsupported", async () => {
+    test("DEFINE API returns an ApiResponse envelope; db.health() is WS-supported", async () => {
       await run(
-        "DEFINE API '/probe' FOR get THEN { RETURN { status: 200, body: { ok: true } }; };",
+        `DEFINE API '/probe' FOR get THEN { RETURN { status: 200, headers: { 'content-type': 'application/json' }, body: '{"ok":true}' }; };`,
       );
       const api = db.api() as unknown as {
         get(path: string): Promise<unknown>;
@@ -2335,8 +2335,8 @@ IF array::len($__existing) = 0 THEN CREATE type::record(s"user", rand::ulid()) C
         status: 200,
         body: { ok: true },
       });
-      // `health()` is an HTTP-endpoint concept — over WebSocket the server has no such method.
-      expect(await caught(db.health())).not.toBeNull();
+      // `health()` now resolves over WebSocket (SDK 2.2.0 / server 3.2.0).
+      expect(await caught(db.health())).toBeNull();
     });
   });
 

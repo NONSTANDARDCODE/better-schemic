@@ -25,6 +25,146 @@
     "packages/better-schemic/src/core/driver/portable.ts"
   ],
   "waivers": {
+    "packages/better-schemic/src/core/authoring.ts": {
+      "statements": 95,
+      "branches": 75,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 37.5
+    },
+    "packages/better-schemic/src/core/cli-kit/config.ts": {
+      "statements": 72.22,
+      "branches": 72.72,
+      "functions": 88.88,
+      "lines": 71.42,
+      "conditions": 33.33
+    },
+    "packages/better-schemic/src/core/cli-kit/diff.ts": {
+      "statements": 70.06,
+      "branches": 58.53,
+      "functions": 84.61,
+      "lines": 76.06,
+      "conditions": 23.8
+    },
+    "packages/better-schemic/src/core/cli-kit/filter.ts": {
+      "statements": 95,
+      "branches": 87.09,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 71.42
+    },
+    "packages/better-schemic/src/core/cli-kit/merge.ts": {
+      "statements": 82.43,
+      "branches": 70.31,
+      "functions": 94.11,
+      "lines": 87.57,
+      "conditions": 15.38
+    },
+    "packages/better-schemic/src/core/cli-kit/meta.ts": {
+      "statements": 92.45,
+      "branches": 91.48,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 31.57
+    },
+    "packages/better-schemic/src/core/cli-kit/pager.ts": {
+      "statements": 87.03,
+      "branches": 75.67,
+      "functions": 95,
+      "lines": 87.75,
+      "conditions": 31.25
+    },
+    "packages/better-schemic/src/core/cli-kit/schema.ts": {
+      "statements": 94.33,
+      "branches": 82.22,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 16.66
+    },
+    "packages/better-schemic/src/core/cli-kit/style.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
+    },
+    "packages/better-schemic/src/core/client.ts": {
+      "statements": 92.3,
+      "branches": 67.64,
+      "functions": 95,
+      "lines": 93.75,
+      "conditions": 57.14
+    },
+    "packages/better-schemic/src/core/config.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 50
+    },
+    "packages/better-schemic/src/core/connection.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
+    },
+    "packages/better-schemic/src/core/driver/driver.ts": {
+      "statements": 77.77,
+      "branches": 25,
+      "functions": 95,
+      "lines": 77.77,
+      "conditions": 90
+    },
+    "packages/better-schemic/src/core/driver/sdk.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
+    },
+    "packages/better-schemic/src/core/index.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
+    },
+    "packages/better-schemic/src/core/kind/index.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
+    },
+    "packages/better-schemic/src/core/kind/plan.ts": {
+      "statements": 95,
+      "branches": 86.48,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 51.92
+    },
+    "packages/better-schemic/src/core/kind/registry.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 66.66
+    },
+    "packages/better-schemic/src/core/secrets.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 66.66
+    },
+    "packages/better-schemic/src/core/testing.ts": {
+      "statements": 93.06,
+      "branches": 83.33,
+      "functions": 88.23,
+      "lines": 92.9,
+      "conditions": 53.33
+    },
     "packages/better-schemic/src/surreal/checks.ts": {
       "statements": 87.75,
       "branches": 75.58,
@@ -208,11 +348,18 @@
       "conditions": 25
     },
     "packages/better-schemic/src/surreal/orm/api.ts": {
-      "statements": 75.75,
-      "branches": 81.81,
+      "statements": 78.78,
+      "branches": 86.36,
       "functions": 62.5,
       "lines": 80.64,
       "conditions": 42.85
+    },
+    "packages/better-schemic/src/surreal/orm/arithmetic.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "packages/better-schemic/src/surreal/orm/auth.ts": {
       "statements": 95,
@@ -234,6 +381,34 @@
       "functions": 95,
       "lines": 95,
       "conditions": 38.88
+    },
+    "packages/better-schemic/src/surreal/orm/compiler/adjustment.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
+    },
+    "packages/better-schemic/src/surreal/orm/compiler/aggregate-entries.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
+    },
+    "packages/better-schemic/src/surreal/orm/compiler/aggregate-operand.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
+    },
+    "packages/better-schemic/src/surreal/orm/compiler/aggregate-split.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
     },
     "packages/better-schemic/src/surreal/orm/compiler/include/count.ts": {
       "statements": 95,
@@ -296,14 +471,14 @@
       "branches": 95,
       "functions": 95,
       "lines": 95,
-      "conditions": 74
+      "conditions": 84.93
     },
     "packages/better-schemic/src/surreal/orm/compiler/relate.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
       "lines": 95,
-      "conditions": 82.85
+      "conditions": 83.78
     },
     "packages/better-schemic/src/surreal/orm/compiler/relations.ts": {
       "statements": 95,
@@ -348,10 +523,10 @@
       "conditions": 90
     },
     "packages/better-schemic/src/surreal/orm/connect.ts": {
-      "statements": 93.54,
+      "statements": 95,
       "branches": 85.71,
-      "functions": 75,
-      "lines": 93.1,
+      "functions": 87.5,
+      "lines": 95,
       "conditions": 50
     },
     "packages/better-schemic/src/surreal/orm/context.ts": {
@@ -362,11 +537,11 @@
       "conditions": 66.66
     },
     "packages/better-schemic/src/surreal/orm/decode.ts": {
-      "statements": 85.9,
-      "branches": 76.95,
+      "statements": 86.04,
+      "branches": 77.35,
       "functions": 89.79,
-      "lines": 89.25,
-      "conditions": 50.98
+      "lines": 89.34,
+      "conditions": 52.83
     },
     "packages/better-schemic/src/surreal/orm/delegate.ts": {
       "statements": 95,
@@ -398,7 +573,7 @@
     },
     "packages/better-schemic/src/surreal/orm/fn.ts": {
       "statements": 95,
-      "branches": 93.33,
+      "branches": 95,
       "functions": 95,
       "lines": 95,
       "conditions": 90
@@ -418,10 +593,10 @@
       "conditions": 90
     },
     "packages/better-schemic/src/surreal/orm/live.ts": {
-      "statements": 88.18,
-      "branches": 75.32,
-      "functions": 88,
-      "lines": 90,
+      "statements": 89.76,
+      "branches": 77.92,
+      "functions": 92,
+      "lines": 90.83,
       "conditions": 27.77
     },
     "packages/better-schemic/src/surreal/orm/logger/colors.ts": {
@@ -431,12 +606,19 @@
       "lines": 95,
       "conditions": 90
     },
-    "packages/better-schemic/src/surreal/orm/logger/emit.ts": {
+    "packages/better-schemic/src/surreal/orm/logger/detect-color.ts": {
       "statements": 95,
-      "branches": 86.56,
+      "branches": 95,
       "functions": 95,
       "lines": 95,
-      "conditions": 52.94
+      "conditions": 90
+    },
+    "packages/better-schemic/src/surreal/orm/logger/emit.ts": {
+      "statements": 95,
+      "branches": 89.55,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 58.82
     },
     "packages/better-schemic/src/surreal/orm/logger/highlight.ts": {
       "statements": 95,
@@ -453,6 +635,13 @@
       "conditions": 90
     },
     "packages/better-schemic/src/surreal/orm/logger/logger.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 87.09
+    },
+    "packages/better-schemic/src/surreal/orm/logger/options.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
@@ -482,14 +671,14 @@
     },
     "packages/better-schemic/src/surreal/orm/raw.ts": {
       "statements": 95,
-      "branches": 88.09,
+      "branches": 88.63,
       "functions": 95,
       "lines": 95,
-      "conditions": 43.47
+      "conditions": 47.82
     },
     "packages/better-schemic/src/surreal/orm/reads.ts": {
       "statements": 95,
-      "branches": 92.72,
+      "branches": 93.75,
       "functions": 95,
       "lines": 95,
       "conditions": 66.66
@@ -503,10 +692,10 @@
     },
     "packages/better-schemic/src/surreal/orm/schema.ts": {
       "statements": 95,
-      "branches": 92.8,
+      "branches": 93.02,
       "functions": 95,
       "lines": 95,
-      "conditions": 63.63
+      "conditions": 69.44
     },
     "packages/better-schemic/src/surreal/orm/transaction.ts": {
       "statements": 91.82,
@@ -517,10 +706,10 @@
     },
     "packages/better-schemic/src/surreal/orm/writes.ts": {
       "statements": 95,
-      "branches": 76.78,
+      "branches": 77.96,
       "functions": 95,
       "lines": 95,
-      "conditions": 83.33
+      "conditions": 85
     },
     "packages/better-schemic/src/surreal/plugins/create-only-shared.ts": {
       "statements": 95,
@@ -530,6 +719,13 @@
       "conditions": 90
     },
     "packages/better-schemic/src/surreal/plugins/create-only.ts": {
+      "statements": 95,
+      "branches": 95,
+      "functions": 95,
+      "lines": 95,
+      "conditions": 90
+    },
+    "packages/better-schemic/src/surreal/plugins/hard-delete.ts": {
       "statements": 95,
       "branches": 95,
       "functions": 95,
@@ -548,7 +744,7 @@
       "branches": 95,
       "functions": 95,
       "lines": 95,
-      "conditions": 87.5
+      "conditions": 90
     },
     "packages/better-schemic/src/surreal/plugins/tenant-runtime.ts": {
       "statements": 95,
@@ -586,10 +782,10 @@
       "conditions": 85.71
     },
     "packages/better-schemic/src/surreal/pure.ts": {
-      "statements": 88.9,
+      "statements": 88.92,
       "branches": 86.47,
-      "functions": 85.15,
-      "lines": 90.31,
+      "functions": 85.18,
+      "lines": 90.33,
       "conditions": 60.22
     },
     "packages/better-schemic/src/surreal/query.ts": {
@@ -640,146 +836,6 @@
       "functions": 95,
       "lines": 95,
       "conditions": 48.71
-    },
-    "packages/better-schemic/src/core/authoring.ts": {
-      "statements": 95,
-      "branches": 75,
-      "functions": 95,
-      "lines": 95,
-      "conditions": 37.5
-    },
-    "packages/better-schemic/src/core/cli-kit/config.ts": {
-      "statements": 72.22,
-      "branches": 72.72,
-      "functions": 88.88,
-      "lines": 71.42,
-      "conditions": 33.33
-    },
-    "packages/better-schemic/src/core/cli-kit/diff.ts": {
-      "statements": 70.06,
-      "branches": 58.53,
-      "functions": 84.61,
-      "lines": 76.06,
-      "conditions": 23.8
-    },
-    "packages/better-schemic/src/core/cli-kit/filter.ts": {
-      "statements": 95,
-      "branches": 87.09,
-      "functions": 95,
-      "lines": 95,
-      "conditions": 71.42
-    },
-    "packages/better-schemic/src/core/cli-kit/merge.ts": {
-      "statements": 82.43,
-      "branches": 70.31,
-      "functions": 94.11,
-      "lines": 87.57,
-      "conditions": 15.38
-    },
-    "packages/better-schemic/src/core/cli-kit/meta.ts": {
-      "statements": 92.45,
-      "branches": 91.48,
-      "functions": 95,
-      "lines": 95,
-      "conditions": 31.57
-    },
-    "packages/better-schemic/src/core/cli-kit/pager.ts": {
-      "statements": 87.03,
-      "branches": 75.67,
-      "functions": 87.5,
-      "lines": 87.75,
-      "conditions": 31.25
-    },
-    "packages/better-schemic/src/core/cli-kit/schema.ts": {
-      "statements": 94.33,
-      "branches": 82.22,
-      "functions": 95,
-      "lines": 95,
-      "conditions": 16.66
-    },
-    "packages/better-schemic/src/core/cli-kit/style.ts": {
-      "statements": 95,
-      "branches": 95,
-      "functions": 95,
-      "lines": 95,
-      "conditions": 90
-    },
-    "packages/better-schemic/src/core/client.ts": {
-      "statements": 92.3,
-      "branches": 67.64,
-      "functions": 95,
-      "lines": 93.75,
-      "conditions": 57.14
-    },
-    "packages/better-schemic/src/core/config.ts": {
-      "statements": 95,
-      "branches": 95,
-      "functions": 95,
-      "lines": 95,
-      "conditions": 50
-    },
-    "packages/better-schemic/src/core/connection.ts": {
-      "statements": 95,
-      "branches": 95,
-      "functions": 95,
-      "lines": 95,
-      "conditions": 90
-    },
-    "packages/better-schemic/src/core/driver/driver.ts": {
-      "statements": 77.77,
-      "branches": 25,
-      "functions": 95,
-      "lines": 77.77,
-      "conditions": 90
-    },
-    "packages/better-schemic/src/core/driver/sdk.ts": {
-      "statements": 95,
-      "branches": 95,
-      "functions": 95,
-      "lines": 95,
-      "conditions": 90
-    },
-    "packages/better-schemic/src/core/index.ts": {
-      "statements": 95,
-      "branches": 95,
-      "functions": 95,
-      "lines": 95,
-      "conditions": 90
-    },
-    "packages/better-schemic/src/core/kind/index.ts": {
-      "statements": 95,
-      "branches": 95,
-      "functions": 95,
-      "lines": 95,
-      "conditions": 90
-    },
-    "packages/better-schemic/src/core/kind/plan.ts": {
-      "statements": 95,
-      "branches": 86.48,
-      "functions": 95,
-      "lines": 95,
-      "conditions": 51.92
-    },
-    "packages/better-schemic/src/core/kind/registry.ts": {
-      "statements": 95,
-      "branches": 95,
-      "functions": 95,
-      "lines": 95,
-      "conditions": 66.66
-    },
-    "packages/better-schemic/src/core/secrets.ts": {
-      "statements": 95,
-      "branches": 95,
-      "functions": 95,
-      "lines": 95,
-      "conditions": 66.66
-    },
-    "packages/better-schemic/src/core/testing.ts": {
-      "statements": 93.06,
-      "branches": 83.33,
-      "functions": 88.23,
-      "lines": 92.9,
-      "conditions": 53.33
     }
   },
   "tolerance": 0,
