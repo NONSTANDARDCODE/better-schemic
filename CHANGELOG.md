@@ -19,9 +19,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 ## [Unreleased]
 
 ### Added
-- **OTEL tracing (`better-schemic/otel`)** — `createOtelLogger()` implements the `QueryLogger` executor seam, so one OpenTelemetry **client span per round-trip** covers delegates, `$raw`/`$query`/`$unsafe`, `fn`, admin, changes, live setup and `.explain()` plans. Spans follow the stable DB semantic conventions (`db.system.name`, `db.operation.name`, `db.collection.name`, `db.namespace`, `db.query.text`, `db.operation.batch.size`, `error.type`, `db.response.status_code`); binds are never captured and `captureQueryText`/`maxQueryTextLength` are enforced. `@opentelemetry/api` is the only OTEL peer (optional), and an absent logger keeps the executor's zero-overhead path. The `logger` client option now also accepts a pre-built `QueryLogger`.
+- **OTEL tracing (`better-schemic/otel`) — `createOtelLogger()`** — implements the `QueryLogger`
+  executor seam, so one **`CLIENT` span per round-trip** covers delegates,
+  `$raw`/`$query`/`$unsafe`, `fn`, admin, changes, live setup and `.explain()` plans.
+  - Stable DB semconv: `db.system.name` (`surrealdb`), `db.operation.name` (`SELECT`,
+    `BATCH SELECT`, `EXPLAIN`, …), `db.collection.name`, `db.namespace` (`namespace|database`),
+    `db.query.text` (opt-out), `db.operation.batch.size`, plus
+    `surrealdb.transactional`/`surrealdb.in_transaction`. Binds are **never** captured.
+  - Failures: `ERROR` status + `error.type` (the class — the SDK `kind` such as
+    `Thrown`/`Validation`, or the normalized code such as `ParseError`/`ValidationError`; never the
+    message) and `db.response.status_code` (the raw SurrealDB code, read from the `cause` when the
+    error is normalized; `0` means "no code" and is omitted), with `recordException`.
+  - Config: `enabled` (fast path), `captureQueryText`, `maxQueryTextLength` (validated),
+    `tracerName`, and static `attributes` (computed attributes win on a clash). `service.name` is a
+    **resource** attribute owned by the app SDK — the logger never sets it.
+  - `@opentelemetry/api` is the only OTEL peer (optional); with no logger attached the executor
+    keeps its zero-overhead path. Telemetry is best-effort: a span/export failure is reported via
+    the OTel `diag` logger and never changes the query's result or error.
+  - The client `logger` option now also accepts a pre-built `QueryLogger` (used as-is).
+  - Covered by `test/otel/unit/otel-logger.test.ts` (drives the real client against an in-memory
+    exporter — no mocks of the OTel API) and the core logger suite.
 
 ### Changed
+- **`better-schemic/otel` was reworked before release**: the plugin-based draft (whose
+  `before`/`after`/`error` hooks never matched the real `Hooks` keys, so no span ever fired) is
+  replaced by the `QueryLogger` above; the tracer wrapper, console exporter and ORM hooks were
+  removed. `@opentelemetry/api` is the only remaining OTEL dependency (optional peer).
 - Upgrade the SurrealDB SDK to `^2.1.1` (was pinned at 2.0.3 by a root `overrides`); remove the Renovate `surrealdb` disable rule.
 - Fix the ORM logger's `isStringly`/`isRecordId` to use `instanceof` against the SDK classes instead of fragile `constructor.name`/`"tb"` duck typing (SDK 2.1 renames `RecordId` to `RecordId$1` and drops the `tb` field).
 - Fix `stringIdCodec` in `pure.ts` with an `isRecordIdValue` type guard — `instanceof RecordId` no longer narrows the `string | RecordId` union under SDK 2.1.
