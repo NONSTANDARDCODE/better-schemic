@@ -28,14 +28,9 @@ import type {
   QueryLogger,
   ResolvedLoggerOptions,
 } from "../types/logger";
-import {
-  createPalette,
-  detectColor,
-  type Palette,
-  padEnd,
-  visibleWidth,
-} from "./colors";
+import { createPalette, type Palette, padEnd, visibleWidth } from "./colors";
 import { sqlLines } from "./highlight";
+import { resolveLoggerOptions } from "./options";
 import { renderPlan } from "./plan";
 
 /** The default minimum inner width of a pretty box. */
@@ -153,33 +148,12 @@ function envOptions(
     : undefined;
 }
 
-/** Resolve a defaulted options bag (env overrides are merged in by {@link resolveLogger}). */
-function resolveOptions(options: LoggerOptions = {}): ResolvedLoggerOptions {
-  return {
-    level: options.level ?? "debug",
-    format: options.format ?? "pretty",
-    colors: detectColor(options.colors),
-    icons: options.icons ?? true,
-    time: options.time ?? true,
-    counter: options.counter ?? true,
-    slowMs: options.slowMs ?? 100,
-    verbose: options.verbose ?? false,
-    maxRows: options.maxRows ?? 3,
-    maxValueLength: options.maxValueLength ?? 160,
-    prettySql: options.prettySql ?? true,
-    explain: options.explain ?? false,
-    stack: options.stack ?? false,
-    redact: options.redact ?? false,
-    write: options.write ?? ((line: string) => console.log(line)),
-  };
-}
-
 /**
  * Build a {@link QueryLogger}. The engine reads neither the env nor the client — use
  * {@link resolveLogger} for the `logger` option resolution.
  */
 export function createQueryLogger(options: LoggerOptions = {}): QueryLogger {
-  const resolved = resolveOptions(options);
+  const resolved = resolveLoggerOptions(options);
   const palette = createPalette(resolved.colors);
   const enabled = resolved.format !== "silent" && resolved.level !== "silent";
   let counter = 0;
@@ -232,10 +206,23 @@ export function createQueryLogger(options: LoggerOptions = {}): QueryLogger {
   };
 }
 
+/** Is this option an already-built logger (as opposed to a rendering-options bag)? */
+function isQueryLogger(value: LoggerOption): value is QueryLogger {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "emit" in value &&
+    typeof value.emit === "function" &&
+    "planStatement" in value &&
+    typeof value.planStatement === "function"
+  );
+}
+
 /**
  * Resolve the `logger` client option into a {@link QueryLogger} (or `undefined` when off). `false`
  * disables it explicitly; `undefined` falls back to `BETTER_SCHEMIC_LOG`; `true`/a preset/a config
- * enables it (`BETTER_SCHEMIC_LOG_LEVEL`/`_SLOW_MS` fill any field the input leaves unset).
+ * enables it (`BETTER_SCHEMIC_LOG_LEVEL`/`_SLOW_MS` fill any field the input leaves unset). An
+ * already-built {@link QueryLogger} is used as-is (the env never rewrites it).
  */
 export function resolveLogger(
   option: LoggerOption | undefined,
@@ -248,6 +235,7 @@ export function resolveLogger(
     input = fromEnv;
   }
   if (input === false) return undefined;
+  if (isQueryLogger(input)) return input;
   const base = envOptions(env);
   if (input === true) return createQueryLogger(base ?? {});
   if (typeof input === "string")

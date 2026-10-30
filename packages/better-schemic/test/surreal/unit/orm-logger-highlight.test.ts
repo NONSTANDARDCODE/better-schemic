@@ -241,8 +241,10 @@ describe("palette & width helpers", () => {
     expect(detectColor("auto", { FORCE_COLOR: "0" })).toBe(false);
     expect(detectColor("auto", { FORCE_COLOR: "" })).toBe(false);
     expect(detectColor("auto", { TERM: "dumb" })).toBe(false);
-    // No signals at all: falls through to the (non-TTY here) stdout check.
-    expect(detectColor(undefined, {})).toBe(false);
+    // No signals at all: falls through to the TTY check (injected so the test is deterministic).
+    expect(detectColor(undefined, {}, false)).toBe(false);
+    expect(detectColor(undefined, {}, true)).toBe(true);
+    expect(detectColor(undefined, { NO_COLOR: "1" }, true)).toBe(false);
   });
 
   test("a disabled palette is the identity", () => {

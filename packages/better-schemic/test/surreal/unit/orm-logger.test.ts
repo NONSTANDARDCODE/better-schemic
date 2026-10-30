@@ -7,7 +7,11 @@ import { createQueryLogger, resolveLogger } from "../../../src/surreal/logger";
 import { betterSchemic, type Client } from "../../../src/surreal/orm/client";
 import { visibleWidth } from "../../../src/surreal/orm/logger/colors";
 import { defineSchema } from "../../../src/surreal/orm/schema";
-import type { QueryLogEvent } from "../../../src/surreal/orm/types/logger";
+import type {
+  LoggerOption,
+  QueryLogEvent,
+  QueryLogger,
+} from "../../../src/surreal/orm/types/logger";
 import { defineTable, s } from "../../../src/surreal/pure";
 
 const User = defineTable("user", { name: s.string(), age: s.int() });
@@ -174,6 +178,44 @@ describe("resolveLogger — the flag / env", () => {
     expect(typeof o.write).toBe("function");
   });
 
+  test("every explicit option is preserved (no silent drops)", () => {
+    const sink = () => {};
+    const o = createQueryLogger({
+      level: "warn",
+      format: "json",
+      colors: false,
+      icons: false,
+      time: false,
+      counter: false,
+      slowMs: 7,
+      verbose: true,
+      maxRows: 1,
+      maxValueLength: 12,
+      prettySql: false,
+      explain: "all",
+      stack: true,
+      redact: true,
+      write: sink,
+    }).options;
+    expect(o).toMatchObject({
+      level: "warn",
+      format: "json",
+      colors: false,
+      icons: false,
+      time: false,
+      counter: false,
+      slowMs: 7,
+      verbose: true,
+      maxRows: 1,
+      maxValueLength: 12,
+      prettySql: false,
+      explain: "all",
+      stack: true,
+      redact: true,
+    });
+    expect(o.write).toBe(sink);
+  });
+
   test("the default write goes to console.log", () => {
     const original = console.log;
     const seen: unknown[] = [];
@@ -184,6 +226,34 @@ describe("resolveLogger — the flag / env", () => {
       console.log = original;
     }
     expect(seen).toHaveLength(1);
+  });
+
+  test("a pre-built QueryLogger is used as-is (no env/option rewriting)", () => {
+    const built: QueryLogger = {
+      enabled: true,
+      options: createQueryLogger().options,
+      emit: () => {},
+      planStatement: () => undefined,
+    };
+    expect(resolveLogger(built, { BETTER_SCHEMIC_LOG_LEVEL: "warn" })).toBe(
+      built,
+    );
+    // Non-loggers are never mistaken for one: they fall back to options resolution.
+    const malformed = {
+      emit: "not-a-function",
+      planStatement: 42,
+    } as unknown as QueryLogger;
+    expect(resolveLogger(malformed, {})?.options.format).toBe("pretty");
+    expect(
+      resolveLogger(null as unknown as LoggerOption, {})?.options.format,
+    ).toBe("pretty");
+    expect(resolveLogger({} as LoggerOption, {})?.options.format).toBe(
+      "pretty",
+    );
+    expect(
+      resolveLogger({ emit: () => {} } as unknown as LoggerOption, {})?.options
+        .format,
+    ).toBe("pretty");
   });
 });
 

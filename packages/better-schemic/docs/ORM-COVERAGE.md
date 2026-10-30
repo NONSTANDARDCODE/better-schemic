@@ -301,13 +301,14 @@ Runtime `errors.ts`, `results.ts`.
 
 ## 9. Logging & observability (M9)
 
-Runtime `src/surreal/orm/logger/*` (`colors`/`highlight`/`plan`/`logger`); public subpath
-`better-schemic/logger` + the `logger` client option. The logger observes the executor
-(`runScript`), so it sees every round-trip — including `.explain()` (which fires no hooks).
+Runtime `src/surreal/orm/logger/*` (`colors`/`highlight`/`plan`/`options`/`logger`); public subpaths
+`better-schemic/logger` + `better-schemic/otel`, and the `logger` client option. The logger observes
+the executor (`runScript`), so it sees every round-trip — including `.explain()` (which fires no
+hooks).
 
 | Feature | Status | Surface / test |
 |---|---|---|
-| `logger` option — `true` / preset / `LoggerOptions`; `BETTER_SCHEMIC_LOG` env fallback | `[x]` | `test/surreal/unit/orm-logger.test.ts` (resolveLogger); `test/surreal/types/orm-logger.assert.ts` |
+| `logger` option — `true` / preset / `LoggerOptions` / a pre-built `QueryLogger` (used as-is); `BETTER_SCHEMIC_LOG` env fallback | `[x]` | `test/surreal/unit/orm-logger.test.ts` (resolveLogger); `test/surreal/types/orm-logger.assert.ts` |
 | `pretty` frame — box, icons, syntax highlight, binds, rows, duration, counter, timestamp | `[x]` | `test/surreal/unit/orm-logger.test.ts`; `test/surreal/unit/orm-logger-highlight.test.ts` |
 | `compact` / `json` formats (log-shipper friendly, JSON-safe vars) | `[x]` | `test/surreal/unit/orm-logger.test.ts` |
 | Level gating (`debug`/`info`/`warn`/`silent`) + `slowMs` slow badge | `[x]` | `test/surreal/unit/orm-logger.test.ts` |
@@ -316,7 +317,8 @@ Runtime `src/surreal/orm/logger/*` (`colors`/`highlight`/`plan`/`logger`); publi
 | `.explain()` / `explain: true` plan logging (no hooks fired) | `[x]` | `test/surreal/unit/orm-logger.test.ts`; `test/surreal/live/orm-logger.test.ts` |
 | Auto-explain — `explain: "slow" \| "all" \| "analyze"` (`EXPLAIN [ANALYZE] FORMAT JSON`) | `[x]` | `test/surreal/unit/orm-logger.test.ts`; `test/surreal/live/orm-logger.test.ts` |
 | Coverage — reads/writes/`$raw`/`fn`/admin/changes/live/transactions + `$withContext` scope + errors | `[x]` | `test/surreal/unit/orm-logger.test.ts` |
-| Zero-overhead when absent / `silent` | `[x]` | `test/surreal/unit/orm-logger.test.ts` |
+| OTEL (`better-schemic/otel`) — `createOtelLogger(config)` as a `QueryLogger`: ONE `CLIENT` span per round-trip, stable DB semconv (`db.system.name`/`db.operation.name`/`db.collection.name`/`db.namespace`/`db.query.text`/`db.operation.batch.size`), error status + `error.type`/`db.response.status_code`, `captureQueryText`/`maxQueryTextLength`, static attributes, `enabled: false` fast path | `[x]` | `test/otel/unit/otel-logger.test.ts` |
+| Zero-overhead when absent / `silent` / `enabled: false` | `[x]` | `test/surreal/unit/orm-logger.test.ts`; `test/otel/unit/otel-logger.test.ts` |
 
 ## 10. Errors-guard vocabulary (teaching errors by code)
 
@@ -374,7 +376,7 @@ the mode (like `idStrategy`); raw `db.query()`, `live` and `changes` still retur
 | Raw/admin/auth/api/fn/session | `[x]` — `$unsafe` gated |
 | Context/multi-connection (`$withContext`, `meta`, `forkSession`, `extends`) | `[x]` |
 | Hooks/plugins (families, `definePlugin`, F1 `rules`/`zod`, F2 `timestamps`/`soft-delete`, F3 `tenant`) | `[x]` |
-| Logger (`logger: true`/presets, `EXPLAIN` plan rendering, auto-explain, `better-schemic/logger`) | `[x]` |
+| Logger (`logger: true`/presets, `EXPLAIN` plan rendering, auto-explain, `better-schemic/logger`) + OTEL tracing (`better-schemic/otel`) | `[x]` |
 | String ids (`TableDef.stringIds()` / `s.recordId(…).stringIds()`, bare app strings; DDL unchanged) | `[x]` — raw `db.query`/`live`/`changes` keep `RecordId` |
 | Types/errors/results (28 codes, predicates, throwing/lazy results, explain) | `[x]` |
 

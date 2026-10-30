@@ -12,7 +12,8 @@ live parity suites (`test/surreal/parity/{struct,live,canonical}-parity.test.ts`
 (`test/surreal/e2e/{three-state,lifecycle,pull}.e2e.test.ts`), probed against **SurrealDB 3.1.3**.
 
 > Scope: this tracks the **schema/DDL** surface (the things a migration defines). Runtime query
-> features (SELECT/graph traversal/LIVE/etc.) are out of scope — they belong to the query layer.
+> features (SELECT/graph traversal/LIVE/etc.) are out of scope — they belong to the query layer and
+> are tracked in [`ORM-COVERAGE.md`](./ORM-COVERAGE.md) (including logging and OTEL tracing).
 
 > **Worked examples:** every `[x]` feature below has a runnable, verified entry in the
 > [reference cookbook](../examples) (`examples/*.ts`) pairing the `s.*` / `define*` authoring with the

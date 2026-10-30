@@ -17,24 +17,9 @@ export interface Palette {
   paint(code: string, text: string): string;
 }
 
-/** Is a TTY/color-capable output present for the current process? */
-export function detectColor(
-  preference: boolean | "auto" | undefined,
-  env: Record<string, string | undefined> = process.env,
-): boolean {
-  if (preference === true) return true;
-  if (preference === false) return false;
-  if (env.NO_COLOR !== undefined && env.NO_COLOR !== "") return false;
-  if (
-    env.FORCE_COLOR !== undefined &&
-    env.FORCE_COLOR !== "" &&
-    env.FORCE_COLOR !== "0"
-  )
-    return true;
-  if (env.TERM === "dumb") return false;
-  const stream = process.stdout as { isTTY?: boolean } | undefined;
-  return stream?.isTTY === true;
-}
+// Re-exported here for the renderer's existing imports; the implementation lives in its own module
+// so non-rendering observers never bundle the palette (see `detect-color.ts`).
+export { detectColor } from "./detect-color";
 
 /** Build a palette; a disabled palette's `paint` returns its input unchanged. */
 export function createPalette(enabled: boolean): Palette {

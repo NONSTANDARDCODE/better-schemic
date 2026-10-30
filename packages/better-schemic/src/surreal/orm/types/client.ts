@@ -15,7 +15,6 @@ import type { ChangeRow, ChangeSet, ChangesArgs } from "./changes";
 import type { ContextAuth, ContextScope, OperationContext } from "./context";
 import type { FnSurface } from "./fn";
 import type { Hooks } from "./hooks";
-import type { LoggerOption } from "./logger";
 import type {
   LiveArgs,
   LiveDefaults,
@@ -25,6 +24,7 @@ import type {
   LiveRow,
   LiveSubscription,
 } from "./live";
+import type { LoggerOption } from "./logger";
 import type { Plugin, PluginClientExtras, PluginList } from "./plugins";
 import type { RawDefaults } from "./raw";
 import type {
@@ -63,10 +63,12 @@ export interface BetterSchemicOptions {
    */
   readonly plugins?: readonly Plugin[];
   /**
-   * Query logger — `true`, a preset (`"pretty"`/`"json"`/`"compact"`/`"silent"`) or
-   * {@link LoggerOptions}. It observes every executor round-trip (delegate reads/writes, `$raw`,
-   * `fn`, admin, changes, live and `.explain()` plans) without changing anything. `undefined` falls
-   * back to `BETTER_SCHEMIC_LOG`; `false` disables it. Default output is a framed terminal box.
+   * Query logger — `true`, a preset (`"pretty"`/`"json"`/`"compact"`/`"silent"`),
+   * {@link LoggerOptions}, or an already-built {@link QueryLogger} (e.g. `createOtelLogger(...)`
+   * from `better-schemic/otel`). It observes every executor round-trip (delegate reads/writes,
+   * `$raw`, `fn`, admin, changes, live and `.explain()` plans) without changing anything.
+   * `undefined` falls back to `BETTER_SCHEMIC_LOG`; `false` disables it. Default output is a framed
+   * terminal box.
    */
   readonly logger?: LoggerOption;
 }

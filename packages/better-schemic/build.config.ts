@@ -9,6 +9,7 @@ export default defineBuild({
     "src/connection.ts",
     "src/query.ts",
     "src/logger.ts",
+    "src/otel/index.ts",
     "src/orm/index.ts",
     "src/plugins/rules.ts",
     "src/plugins/zod.ts",

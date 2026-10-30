@@ -142,12 +142,17 @@ export interface LoggerOptions {
   readonly write?: (line: string) => void;
 }
 
-/** The `logger` option on `betterSchemic`/`createBetterSchemic`: a preset, a config, or a flag. */
-export type LoggerOption = boolean | LoggerPreset | LoggerOptions;
+/**
+ * The `logger` option on `betterSchemic`/`createBetterSchemic`: a flag, a preset, an options bag,
+ * or an already-built {@link QueryLogger} (e.g. `createOtelLogger(...)`), which the client uses
+ * as-is.
+ */
+export type LoggerOption = boolean | LoggerPreset | LoggerOptions | QueryLogger;
 
 /**
- * The runtime logger threaded into the executor. Built by {@link createQueryLogger}; the runtime
- * only calls {@link QueryLogger.emit} (and reads {@link QueryLogger.enabled}/{@link QueryLogger.planStatement}).
+ * The runtime logger threaded into the executor. Built by `createQueryLogger` (terminal rendering)
+ * or `createOtelLogger` (`better-schemic/otel`); the runtime only calls {@link QueryLogger.emit}
+ * (and reads {@link QueryLogger.enabled}/{@link QueryLogger.planStatement}).
  */
 export interface QueryLogger {
   /** `false` for the `"silent"` format/level — the executor then skips all event building. */

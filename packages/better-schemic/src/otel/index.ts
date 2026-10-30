@@ -1,5 +1,11 @@
-/** OTEL instrumentation for better-schemic — plugin-based, zero-overhead when disabled. */
-export { defineOtelInstrumentation, type OtelPluginConfig } from "./plugin/define-otel";
-export { withOtelTraces, type OtelSpanConfig } from "./instrumentation/tracer";
-export { otelConsoleExporter } from "./exporters/console";
-export type { OtelOperationSpan } from "./types/index";
+/**
+ * `better-schemic/otel` — OpenTelemetry tracing for every ORM round-trip.
+ *
+ * ```ts
+ * import { createOtelLogger } from "better-schemic/otel";
+ * const client = betterSchemic(db, { schema, logger: createOtelLogger() });
+ * ```
+ *
+ * `@opentelemetry/api` is an optional peer dependency: install it only when you use this subpath.
+ */
+export { createOtelLogger, type OtelLoggerConfig } from "./logger";

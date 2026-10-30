@@ -28,6 +28,9 @@ app code still bundles only what it imports:
 - `better-schemic/orm` — the repository-style ORM client (`betterSchemic`/`createBetterSchemic`,
   one delegate per schema entry, `repository`, `$sdk`).
 - `better-schemic/config` — `defineConfig` (the project config).
+- `better-schemic/logger` — the query logger (`createQueryLogger`, presets, env resolution).
+- `better-schemic/otel` — OpenTelemetry tracing as a `QueryLogger` (`createOtelLogger`); the
+  `@opentelemetry/api` peer is optional and an unattached logger costs nothing.
 - `better-schemic/plugins/*` — the authoring plugins.
 - `better-schemic/driver` — the `Driver` impl + `emit*`/`lower`/`introspect` + the **`registerDriver`
   side-effect** (CLI/engine-only; keep `emit*` etc. OUT of the authoring index).

@@ -33,6 +33,7 @@ replay into — `npm i -D @surrealdb/node`).
 | `better-schemic/query` | fragments & procedural SurrealQL |
 | `better-schemic/plugins/*` | the authoring plugins |
 | `better-schemic/logger` | the query logger |
+| `better-schemic/otel` | OpenTelemetry tracing (`createOtelLogger`) |
 | `better-schemic/driver` | the engine entry (CLI/engine-only — pulls in the DDL emitter) |
 
 ## Quick start
@@ -395,37 +396,6 @@ const logged = betterSchemic(db, {
   },
 });
 
-## OTEL instrumentation (`better-schemic/otel`)
-
-Plugin-based OpenTelemetry tracing for the ORM. Zero overhead when disabled.
-
-```ts
-import { defineOtelInstrumentation } from "better-schemic/otel";
-
-const otel = defineOtelInstrumentation({
-  serviceName: "my-app",
-  enabled: true,               // false = zero overhead
-  dbSystem: "surrealdb",
-  dbName: "app",
-  captureQueryText: true,     // includes SQL in spans
-  maxQueryTextLength: 1000,
-  sampleRate: 1.0,
-  requestHook: (info) => console.log("query", info.operation, info.sql),
-  responseHook: (info) => console.log("response", info.durationMs, info.success),
-});
-
-const client = betterSchemic(db, { schema, plugins: [otel] });
-```
-
-Requires OTEL SDK initialization (one-time, in app entry):
-```ts
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
-const provider = new NodeTracerProvider();
-provider.register();
-```
-
-Spans are captured with `db.system`, `db.collection.name`, `db.operation.name`, `db.statement`, `service.name`, and full `requestHook`/`responseHook` support (like `pg`/`drizzle`).
-
 // Plugins (M6) — mutate operations, add typed args, extend the client/delegates:
 import { definePlugin, surql } from "better-schemic/orm";
 const softDelete = definePlugin({
@@ -580,6 +550,54 @@ import { createQueryLogger } from "better-schemic/logger";
 const client = betterSchemic(db, { schema, logger: createQueryLogger({ format: "json" }) });
 ```
 
+### OTEL tracing (`better-schemic/otel`)
+
+One OpenTelemetry **client span per executor round-trip** — delegates, `$raw`/`$query`/`$unsafe`,
+`fn`, admin, changes, live setup and `.explain()` plans. No plugin and no hook wiring: the OTEL
+logger is a `QueryLogger` on the same executor seam as `better-schemic/logger`, so it observes
+exactly what runs and nothing else.
+
+```bash
+bun add better-schemic @opentelemetry/api
+```
+
+```ts
+import { createOtelLogger } from "better-schemic/otel";
+
+const client = betterSchemic(db, {
+  schema,
+  logger: createOtelLogger({
+    captureQueryText: true, // default; false omits db.query.text entirely
+    maxQueryTextLength: 1000, // default
+    attributes: { "deployment.environment.name": "production" },
+  }),
+});
+```
+
+Register the SDK once in the app entry. `service.name` is a **resource** attribute, not a span
+attribute — the logger never sets it for you:
+
+```ts
+import { NodeSDK } from "@opentelemetry/sdk-node";
+import { resourceFromAttributes } from "@opentelemetry/resources";
+
+new NodeSDK({
+  resource: resourceFromAttributes({ "service.name": "my-app" }),
+}).start();
+```
+
+Spans use the stable database semantic conventions: `db.system.name` (`surrealdb`),
+`db.operation.name` (`SELECT`, `BATCH SELECT`, `EXPLAIN`, …), `db.collection.name`,
+`db.namespace` (`namespace|database`), `db.query.text` (opt-out), `db.operation.batch.size`, and
+`error.type` + `db.response.status_code` on failure. Binds are **never** captured.
+
+> **PII:** `db.query.text` is the compiled SurrealQL. ORM statements are parameterized (`$p0`), but a
+> `$raw`/`$unsafe` statement can contain literals — set `captureQueryText: false` when that matters.
+
+- `enabled: false` keeps the option in place while the executor skips every event (zero overhead).
+- It is a normal `logger:` option, so it composes with any custom `QueryLogger`; only one logger can
+  be attached per client.
+- OTEL does not auto-`EXPLAIN`; an explicit `.explain()` is traced as its own span.
 
 `client.users.$model` is the delegate metadata; `client.repository("user")` looks
 up by schema key OR physical name; `client.tables` lists the keys; `client.$sdk`

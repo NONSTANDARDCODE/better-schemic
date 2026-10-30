@@ -19,7 +19,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 ## [Unreleased]
 
 ### Added
-- **OTEL instrumentation (`better-schemic/otel`)** — plugin-based OpenTelemetry instrumentation with zero overhead when `enabled: false`. Includes `defineOtelInstrumentation()`, typed ORM hooks (`before`/`after`/`error`), minimal tracer (`getTracer`), console exporter (`otelConsoleExporter`), and full test coverage (`test:plugin`). Service identification via typed `serviceName`. No magic variables — all typed via `OtelPluginConfig`.
+- **OTEL tracing (`better-schemic/otel`)** — `createOtelLogger()` implements the `QueryLogger` executor seam, so one OpenTelemetry **client span per round-trip** covers delegates, `$raw`/`$query`/`$unsafe`, `fn`, admin, changes, live setup and `.explain()` plans. Spans follow the stable DB semantic conventions (`db.system.name`, `db.operation.name`, `db.collection.name`, `db.namespace`, `db.query.text`, `db.operation.batch.size`, `error.type`, `db.response.status_code`); binds are never captured and `captureQueryText`/`maxQueryTextLength` are enforced. `@opentelemetry/api` is the only OTEL peer (optional), and an absent logger keeps the executor's zero-overhead path. The `logger` client option now also accepts a pre-built `QueryLogger`.
 
 ### Changed
 - Upgrade the SurrealDB SDK to `^2.1.1` (was pinned at 2.0.3 by a root `overrides`); remove the Renovate `surrealdb` disable rule.

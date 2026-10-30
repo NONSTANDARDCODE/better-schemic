@@ -1,7 +1,17 @@
-/** OTEL Plugin Example — verified, compiles, runs. */
-import { s, defineTable, Surreal } from "better-schemic";
+/**
+ * OTEL tracing — one span per executor round-trip (delegates, `$raw`, `fn`, admin, live, explain).
+ *
+ * `@opentelemetry/api` is an optional peer dependency. The APP registers the SDK once at startup
+ * (`service.name` is a resource attribute, not a span attribute):
+ *
+ * ```ts
+ * const sdk = new NodeSDK({ resource: resourceFromAttributes({ "service.name": "my-app" }) });
+ * sdk.start();
+ * ```
+ */
+import { defineTable, Surreal, s } from "better-schemic";
 import { betterSchemic } from "better-schemic/orm";
-import { defineOtelInstrumentation } from "better-schemic/otel";
+import { createOtelLogger } from "better-schemic/otel";
 
 const schema = {
   user: defineTable("user", {
@@ -10,17 +20,6 @@ const schema = {
   }),
 };
 
-// Plugin OTEL — zero overhead quando disabled, alta performance quando ativo
-const otelPlugin = defineOtelInstrumentation({
-  serviceName: "my-app",
-  enabled: true,
-  sampleRate: 1.0,
-  spanAttributes: {
-    env: "development",
-    team: "platform",
-  },
-});
-
 export async function main() {
   const db = new Surreal();
   await db.connect("memory://");
@@ -28,10 +27,13 @@ export async function main() {
 
   const client = betterSchemic(db, {
     schema,
-    plugins: [otelPlugin],
+    // Zero overhead when omitted; `enabled: false` keeps the option but skips every span.
+    logger: createOtelLogger({
+      tracerName: "my-app",
+      captureQueryText: true, // default; false keeps literal SQL out of spans
+      attributes: { "deployment.environment.name": "development" },
+    }),
   });
 
-  // Cada operação ORM agora gera spans OTEL automaticamente
-  const user = await client.user.findMany({ limit: 10 });
-  return user;
+  return client.user.findMany({ limit: 10 });
 }

@@ -3,7 +3,10 @@
 // values the types reject. Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
 import { describe, it } from "node:test";
 import { assertType } from "../../../../../scripts/type-assert";
-import { createQueryLogger, type resolveLogger } from "../../../src/surreal/logger";
+import {
+  createQueryLogger,
+  type resolveLogger,
+} from "../../../src/surreal/logger";
 import type { Client } from "../../../src/surreal/orm/client";
 import { betterSchemic } from "../../../src/surreal/orm/client";
 import type { Queryable } from "../../../src/surreal/orm/execute";
@@ -18,7 +21,6 @@ import type {
   ResolvedLoggerOptions,
 } from "../../../src/surreal/orm/types/logger";
 import { defineTable, s } from "../../../src/surreal/pure";
-
 
 const User = defineTable("user", { name: s.string() });
 const schema = defineSchema({ users: User });
@@ -36,13 +38,20 @@ describe("logger option — accepted shapes", () => {
     assertType<Client<typeof schema>, ReturnType<typeof bag>>();
   });
 
-  it("LoggerOption is exactly boolean | preset | options", () => {
+  it("LoggerOption is exactly boolean | preset | options | a built QueryLogger", () => {
     assertType<true, boolean extends LoggerOption ? true : false>();
     assertType<true, "pretty" extends LoggerOption ? true : false>();
     assertType<true, "json" extends LoggerOption ? true : false>();
     assertType<true, "compact" extends LoggerOption ? true : false>();
     assertType<true, "silent" extends LoggerOption ? true : false>();
     assertType<true, LoggerOptions extends LoggerOption ? true : false>();
+    assertType<true, QueryLogger extends LoggerOption ? true : false>();
+  });
+
+  it("a pre-built QueryLogger typechecks on the client", () => {
+    const built = (conn: Queryable) =>
+      betterSchemic(conn, { schema, logger: createQueryLogger() });
+    assertType<Client<typeof schema>, ReturnType<typeof built>>();
   });
 
   it("options fields are the narrow unions", () => {
@@ -54,9 +63,15 @@ describe("logger option — accepted shapes", () => {
   });
 
   it("rejects unknown levels/formats/explain policies and non-option flags", () => {
-    assertType<false, { level: "trace" } extends LoggerOptions ? true : false>();
+    assertType<
+      false,
+      { level: "trace" } extends LoggerOptions ? true : false
+    >();
     assertType<false, { format: "xml" } extends LoggerOptions ? true : false>();
-    assertType<false, { explain: "always" } extends LoggerOptions ? true : false>();
+    assertType<
+      false,
+      { explain: "always" } extends LoggerOptions ? true : false
+    >();
     assertType<false, 123 extends LoggerOption ? true : false>();
     assertType<false, "verbose" extends LoggerOption ? true : false>();
   });

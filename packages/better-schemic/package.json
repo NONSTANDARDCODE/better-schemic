@@ -171,7 +171,7 @@
     "build": "bun run ../../scripts/build.ts",
     "prepack": "bun run build",
     "test": "bun test",
-    "test:unit": "bun test test/core/unit test/cli/unit test/surreal/unit",
+    "test:unit": "bun test test/core/unit test/cli/unit test/surreal/unit test/otel/unit",
     "test:live": "bun test test/surreal/live",
     "test:e2e": "bun test test/surreal/e2e",
     "test:types": "bun run ../../scripts/type-bench.ts packages/better-schemic",
@@ -187,22 +187,20 @@
   },
   "peerDependencies": {
     "@surrealdb/node": "*",
-    "@opentelemetry/api": "^1.10.0",
-    "@opentelemetry/exporter-otlp-http": "^0.26.0",
-    "@opentelemetry/sdk-trace-base": "^2.12.0",
-    "@opentelemetry/sdk-trace-node": "^2.12.0"
+    "@opentelemetry/api": "^1.10.0"
   },
   "peerDependenciesMeta": {
     "@surrealdb/node": {
       "optional": true
     },
-    "@opentelemetry/api": { "optional": true },
-    "@opentelemetry/exporter-otlp-http": { "optional": true },
-    "@opentelemetry/sdk-trace-base": { "optional": true },
-    "@opentelemetry/sdk-trace-node": { "optional": true }
+    "@opentelemetry/api": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.3",
+    "@opentelemetry/api": "^1.10.0",
+    "@opentelemetry/sdk-trace": "^2.12.0",
     "@types/bun": "latest",
     "@typescript/native-preview": "7.0.0-dev.20260707.2"
   }
