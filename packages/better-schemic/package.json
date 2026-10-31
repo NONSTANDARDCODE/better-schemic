@@ -200,7 +200,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.6.4",
     "@opentelemetry/api": "^1.10.0",
-    "@opentelemetry/sdk-trace": "^2.12.0",
+    "@opentelemetry/sdk-trace": "^3.0.0",
     "@types/bun": "latest",
     "@typescript/native-preview": "7.0.0-dev.20260707.2"
   }
