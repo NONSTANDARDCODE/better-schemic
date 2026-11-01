@@ -353,7 +353,7 @@
       "total": 59,
       "auto": 56,
       "table": 0,
-      "unknown": 3
+      "unknown": 4
     },
     "packages/better-schemic/src/surreal/orm/compiler/include/count.ts": {
       "total": 26,
