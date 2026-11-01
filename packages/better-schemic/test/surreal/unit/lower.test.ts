@@ -5,21 +5,21 @@ import { normalizeTable } from "../../../src/surreal/cli/struct";
 import {
   defineAccess,
   defineFunction,
-  defineRelation,
-  defineTable,
+  relation,
   s,
+  table,
 } from "../../../src/surreal/pure";
 
 // fromTableDef lowers an in-memory TableDef to the raw Struct IR; normalizeTable then folds it to
 // the canonical form both lowerings converge on. We assert the NORMALIZED struct (the comparable
 // shape), exercising the paths/clauses fromTableDef must populate. No live DB required.
 
-const User = defineTable("user", { name: s.string() });
-const Post = defineTable("post", { title: s.string() });
+const User = table("user", { name: s.string() });
+const Post = table("post", { title: s.string() });
 
 describe("fromTableDef", () => {
   test("plain table: primitives + optional + default + assert", () => {
-    const t = defineTable("user", {
+    const t = table("user", {
       email: s.string().$assert(surql`string::is_email($value)`),
       age: s.int().optional(),
       // optional + default: normalize strips `option<>` to `int` (a defaulted field is always
@@ -48,7 +48,7 @@ describe("fromTableDef", () => {
   });
 
   test("nested object field flattens to dotted paths (parent-before-child)", () => {
-    const t = defineTable("account", {
+    const t = table("account", {
       address: s.object({ city: s.string(), zip: s.string().optional() }),
     });
     expect(normalizeTable(fromTableDef(t)).fields).toEqual([
@@ -59,14 +59,14 @@ describe("fromTableDef", () => {
   });
 
   test("array of primitive -> array<T> (no `.*`)", () => {
-    const t = defineTable("post", { tags: s.array(s.string()) });
+    const t = table("post", { tags: s.array(s.string()) });
     expect(normalizeTable(fromTableDef(t)).fields).toEqual([
       { name: "tags", kind: "array<string>", table: "post" },
     ]);
   });
 
   test("array of object emits `.*` element folded into the parent, keeps `.*` subfield", () => {
-    const t = defineTable("post", {
+    const t = table("post", {
       authors: s.array(s.object({ handle: s.string() })),
     });
     expect(normalizeTable(fromTableDef(t)).fields).toEqual([
@@ -76,7 +76,7 @@ describe("fromTableDef", () => {
   });
 
   test("record reference with ON DELETE", () => {
-    const t = defineTable("comment", {
+    const t = table("comment", {
       author: s.recordId("user").$reference({ onDelete: "cascade" }),
     });
     expect(normalizeTable(fromTableDef(t)).fields).toEqual([
@@ -90,9 +90,7 @@ describe("fromTableDef", () => {
   });
 
   test("relation: in/out land in kind, not as fields", () => {
-    const wrote = defineRelation("wrote", { at: s.datetime() })
-      .from(User)
-      .to(Post);
+    const wrote = relation("wrote", { at: s.datetime() }).from(User).to(Post);
     const out = normalizeTable(fromTableDef(wrote));
     expect(out.kind).toEqual({ kind: "RELATION", in: ["user"], out: ["post"] });
     expect(out.fields).toEqual([
@@ -101,7 +99,7 @@ describe("fromTableDef", () => {
   });
 
   test("field with non-default permissions is kept", () => {
-    const t = defineTable("secret", {
+    const t = table("secret", {
       data: s.string().$permissions({ select: false }),
     });
     expect(normalizeTable(fromTableDef(t)).fields).toEqual([
@@ -115,7 +113,7 @@ describe("fromTableDef", () => {
   });
 
   test("single-field index + table comment/changefeed", () => {
-    const t = defineTable("user", {
+    const t = table("user", {
       email: s.string().$unique(),
     })
       .comment("users")
@@ -129,7 +127,7 @@ describe("fromTableDef", () => {
   });
 
   test("field .$fulltext()/.$hnsw() lower to a structured index carrying the spec", () => {
-    const t = defineTable("doc", {
+    const t = table("doc", {
       id: s.string(),
       body: s
         .string()

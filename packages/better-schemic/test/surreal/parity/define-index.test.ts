@@ -26,7 +26,12 @@ import { introspectStructured } from "../../../src/surreal/cli/structure";
 import { emitDefStatement, emitTable } from "../../../src/surreal/ddl";
 import { introspectAll } from "../../../src/surreal/kinds/explode";
 import { lowerAll, surrealKinds } from "../../../src/surreal/kinds/registry";
-import { defineAnalyzer, defineTable, s, type TableDef } from "../../../src/surreal/pure";
+import {
+  defineAnalyzer,
+  s,
+  type TableDef,
+  table,
+} from "../../../src/surreal/pure";
 
 // The workspace gate runs every package's suite IN PARALLEL — parallel-suite CPU contention can slow a live
 // connect/DDL past bun's 5s DEFAULT hook timeout, failing the `beforeEach`/`afterAll` below as an
@@ -110,7 +115,7 @@ afterAll(async () => {
 
 live("plain / UNIQUE / COUNT / COMMENT", () => {
   test("plain composite index round-trips", async () => {
-    const t = defineTable("ix1", {
+    const t = table("ix1", {
       id: s.string(),
       a: s.string(),
       b: s.string(),
@@ -119,7 +124,7 @@ live("plain / UNIQUE / COUNT / COMMENT", () => {
   });
 
   test("UNIQUE round-trips", async () => {
-    const t = defineTable("ix2", { id: s.string(), email: s.string() }).index(
+    const t = table("ix2", { id: s.string(), email: s.string() }).index(
       "uq",
       ["email"],
       { unique: true },
@@ -130,7 +135,7 @@ live("plain / UNIQUE / COUNT / COMMENT", () => {
   });
 
   test("a custom field-index name (field.$unique(name)) round-trips", async () => {
-    const t = defineTable("ix2b", {
+    const t = table("ix2b", {
       id: s.string(),
       email: s.string().$unique("custom_email_uq"),
     });
@@ -141,7 +146,7 @@ live("plain / UNIQUE / COUNT / COMMENT", () => {
   });
 
   test("COUNT round-trips", async () => {
-    const t = defineTable("ix3", { id: s.string() }).index("rows", [], {
+    const t = table("ix3", { id: s.string() }).index("rows", [], {
       count: true,
     });
     expect(await roundTrip(t, "ix3")).toContain(
@@ -150,7 +155,7 @@ live("plain / UNIQUE / COUNT / COMMENT", () => {
   });
 
   test("COMMENT round-trips", async () => {
-    const t = defineTable("ix4", { id: s.string(), email: s.string() }).index(
+    const t = table("ix4", { id: s.string(), email: s.string() }).index(
       "uq",
       ["email"],
       { unique: true, comment: "email is unique" },
@@ -163,7 +168,7 @@ live("plain / UNIQUE / COUNT / COMMENT", () => {
 
 live("HNSW vector index", () => {
   test("minimal (only DIMENSION) round-trips — defaults stripped", async () => {
-    const t = defineTable("v1", {
+    const t = table("v1", {
       id: s.string(),
       emb: s.array(s.float()),
     }).index("vec", ["emb"], { hnsw: { dimension: 4 } });
@@ -173,7 +178,7 @@ live("HNSW vector index", () => {
   });
 
   test("tuned (DIST/TYPE/EFC/M) round-trips", async () => {
-    const t = defineTable("v2", {
+    const t = table("v2", {
       id: s.string(),
       emb: s.array(s.float()),
     }).index("vec", ["emb"], {
@@ -187,7 +192,7 @@ live("HNSW vector index", () => {
 
 live("DISKANN vector index", () => {
   test("minimal round-trips — defaults stripped", async () => {
-    const t = defineTable("d1", {
+    const t = table("d1", {
       id: s.string(),
       emb: s.array(s.float()),
     }).index("vec", ["emb"], { diskann: { dimension: 4 } });
@@ -197,7 +202,7 @@ live("DISKANN vector index", () => {
   });
 
   test("tuned (DIST/DEGREE/L_BUILD/ALPHA) round-trips", async () => {
-    const t = defineTable("d2", {
+    const t = table("d2", {
       id: s.string(),
       emb: s.array(s.float()),
     }).index("vec", ["emb"], {
@@ -220,7 +225,7 @@ live("FULLTEXT search index + DEFINE ANALYZER", () => {
     const english = defineAnalyzer("english")
       .tokenizers("blank", "class")
       .filters("lowercase", "snowball(english)");
-    const Doc = defineTable("ftdoc", {
+    const Doc = table("ftdoc", {
       id: s.string(),
       content: s.string(),
     }).index("ft", ["content"], {
@@ -256,7 +261,7 @@ live("FULLTEXT search index + DEFINE ANALYZER", () => {
 
   test("a tuned BM25 fulltext index round-trips (non-default kept)", async () => {
     const a = defineAnalyzer("simple").tokenizers("blank");
-    const Doc = defineTable("ftdoc2", {
+    const Doc = table("ftdoc2", {
       id: s.string(),
       body: s.string(),
     }).index("ft", ["body"], {
@@ -284,7 +289,7 @@ live("FULLTEXT search index + DEFINE ANALYZER", () => {
   test("a bare FULLTEXT index (no analyzer) round-trips — `like` default stripped", async () => {
     // SurrealDB injects its built-in `like` analyzer + BM25(1.2,0.75); both are stripped from the
     // canonical form, so authored `FULLTEXT` matches the materialized `FULLTEXT ANALYZER like BM25(…)`.
-    const Doc = defineTable("ftbare", {
+    const Doc = table("ftbare", {
       id: s.string(),
       body: s.string(),
     }).index("ft", ["body"], { fulltext: {} });
@@ -311,7 +316,7 @@ live("FULLTEXT search index + DEFINE ANALYZER", () => {
 live("field-level special indexes (.$fulltext / .$hnsw / .$diskann)", () => {
   test(".$fulltext() round-trips identically to the table-level form", async () => {
     const a = defineAnalyzer("simple").tokenizers("blank").filters("lowercase");
-    const Doc = defineTable("ftf", {
+    const Doc = table("ftf", {
       id: s.string(),
       // object form + the AnalyzerDef passed directly (not its name string).
       body: s.string().$fulltext({ analyzer: a, highlights: true }),
@@ -340,7 +345,7 @@ live("field-level special indexes (.$fulltext / .$hnsw / .$diskann)", () => {
   });
 
   test(".$hnsw() round-trips (derived name, defaults stripped)", async () => {
-    const t = defineTable("hnf", {
+    const t = table("hnf", {
       id: s.string(),
       emb: s.array(s.float()).$hnsw({ dimension: 4, dist: "cosine" }),
     });
@@ -350,7 +355,7 @@ live("field-level special indexes (.$fulltext / .$hnsw / .$diskann)", () => {
   });
 
   test(".$diskann() round-trips (derived name)", async () => {
-    const t = defineTable("dkf", {
+    const t = table("dkf", {
       id: s.string(),
       emb: s.array(s.float()).$diskann({ dimension: 4 }),
     });

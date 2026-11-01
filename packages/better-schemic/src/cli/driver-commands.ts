@@ -7,6 +7,7 @@
 // registration runs (async) before `program.parse()`. With no config (e.g. `sc init`), it no-ops.
 
 import { createInterface } from "node:readline/promises";
+import type { Command } from "commander";
 import {
   type CommandContext,
   type CommandIo,
@@ -19,7 +20,6 @@ import {
   type ParsedCommandArgs,
   style,
 } from "../core";
-import type { Command } from "commander";
 import { runAction } from "./action";
 import { registerInspectVerbs } from "./inspect";
 import { assertDriverAvailable, type ResolveOpts, resolveOne } from "./resolve";

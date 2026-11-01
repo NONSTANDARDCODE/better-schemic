@@ -1,5 +1,5 @@
 /**
- * `defineSchema` + the runtime `SchemaIndex` — the ONE metadata pass every `/orm` surface reads:
+ * `schema` + the runtime `SchemaIndex` — the ONE metadata pass every `/orm` surface reads:
  * typed tables/edges (columns, record links, graph adjacency), schemaless entries, and DB functions.
  *
  * Built once per schema object (WeakMap-cached) and validated fail-fast, so a bad schema module
@@ -10,7 +10,7 @@
 import type { z } from "zod";
 import { type IdStrategy, stringIdsOf } from "../pure";
 import { type FieldInfo, inferField, zodDef } from "../wire";
-import { BetterSchemicError } from "./errors";
+import { OrmError } from "./errors";
 import type {
   ColumnMeta,
   EdgeRef,
@@ -40,7 +40,7 @@ const INDEX_CACHE = new WeakMap<object, SchemaIndex>();
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null;
 
-/** Is this a `defineSchema(...)` artifact (vs. a plain `{ key: def }` literal)? */
+/** Is this a `schema(...)` artifact (vs. a plain `{ key: def }` literal)? */
 export function isSchemaDef(v: unknown): v is SchemaDef {
   return isObject(v) && (v as Record<symbol, unknown>)[SCHEMA_DEF] === true;
 }
@@ -50,21 +50,19 @@ export function isSchemaDef(v: unknown): v is SchemaDef {
  * import time (with `SchemaInvalid`) instead of at the first query.
  *
  * ```ts
- * export const schema = defineSchema({
+ * export const schemaDef = schema({
  *   users: User, likes: Likes, sendMail, audit: "audit_log",
  * });
  * ```
  */
-export function defineSchema<const S extends SchemaInput>(
-  entries: S,
-): SchemaDef<S> {
-  const schema: SchemaDef<S> = { [SCHEMA_DEF]: true, entries };
-  buildSchemaIndex(schema);
-  return schema;
+export function schema<const S extends SchemaInput>(entries: S): SchemaDef<S> {
+  const schemaDef: SchemaDef<S> = { [SCHEMA_DEF]: true, entries };
+  buildSchemaIndex(schemaDef);
+  return schemaDef;
 }
 
 /**
- * Build (or return the cached) {@link SchemaIndex} for a schema — accepts a `defineSchema` artifact
+ * Build (or return the cached) {@link SchemaIndex} for a schema — accepts a `schema` artifact
  * OR a plain `{ key: def }` literal (both are supported; the brand just adds eager validation).
  */
 export function buildSchemaIndex(input: SchemaDef | SchemaInput): SchemaIndex {
@@ -88,7 +86,7 @@ function schemaOf(v: unknown): z.ZodType {
     if (isZodLike(inner)) return inner;
   }
   if (isZodLike(v)) return v;
-  throw new BetterSchemicError(
+  throw new OrmError(
     "SchemaInvalid",
     "expected an s.* field or a Zod schema, got a value with no `.schema`.",
   );
@@ -122,13 +120,9 @@ function isRelationLike(def: AnyTableDef): def is AnyRelationDef {
 
 function invalid(
   message: string,
-  options: ConstructorParameters<typeof BetterSchemicError>[2] = {},
-): BetterSchemicError {
-  return new BetterSchemicError(
-    "SchemaInvalid",
-    `defineSchema: ${message}`,
-    options,
-  );
+  options: ConstructorParameters<typeof OrmError>[2] = {},
+): OrmError {
+  return new OrmError("SchemaInvalid", `schema: ${message}`, options);
 }
 
 function columnMeta(name: string, field: unknown, table: string): ColumnMeta {
@@ -365,7 +359,7 @@ function build(entries: SchemaInput): SchemaIndex {
       continue;
     }
     throw invalid(
-      `entry "${key}" is not a table/edge/function or a schemaless name (got ${typeof entry}). Pass the def itself (e.g. defineTable(...)) or a string for a schemaless table.`,
+      `entry "${key}" is not a table/edge/function or a schemaless name (got ${typeof entry}). Pass the def itself (e.g. table(...)) or a string for a schemaless table.`,
     );
   }
 

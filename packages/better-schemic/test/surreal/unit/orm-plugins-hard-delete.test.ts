@@ -2,23 +2,23 @@
 // explicit in the bootstrap and travels on the operation (hooks + query log). Offline.
 import { describe, expect, test } from "bun:test";
 import { RecordId } from "surrealdb";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { orm } from "../../../src/surreal/orm/client";
 import { definePlugin } from "../../../src/surreal/orm/plugins";
+import { schema } from "../../../src/surreal/orm/schema";
 import { hardDelete } from "../../../src/surreal/plugins/hard-delete";
 import { softDelete } from "../../../src/surreal/plugins/soft-delete";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { s, table } from "../../../src/surreal/pure";
 import { fakeConn, lines, ok } from "../orm-fixtures";
 
-const SessionKey = defineTable("session_key", {
+const SessionKey = table("session_key", {
   signal: s.string(),
   payload: s.string(),
 });
-const User = defineTable("user", { name: s.string() });
-const schema = defineSchema({ keys: SessionKey, users: User });
+const User = table("user", { name: s.string() });
+const schemaDef = schema({ keys: SessionKey, users: User });
 
 const clientOver = (
-  plugins: Parameters<typeof betterSchemic>[1]["plugins"],
+  plugins: Parameters<typeof orm>[1]["plugins"],
   row: Record<string, unknown> = {
     id: new RecordId("session_key", 1),
     signal: "s",
@@ -34,7 +34,7 @@ const clientOver = (
       ),
     ),
   );
-  return { client: betterSchemic(conn, { schema, plugins }), calls };
+  return { client: orm(conn, { schema: schemaDef, plugins }), calls };
 };
 
 describe("hard-delete — writes", () => {
@@ -135,19 +135,19 @@ describe("hard-delete — composition", () => {
 });
 
 describe("hard-delete — the reason/meta arms", () => {
-  const key = defineTable("hd_key", { signal: s.string() });
-  const schema = defineSchema({ keys: key });
+  const key = table("hd_key", { signal: s.string() });
+  const schemaDef = schema({ keys: key });
   const clientOver = (
-    plugins: Parameters<typeof betterSchemic>[1]["plugins"],
+    plugins: Parameters<typeof orm>[1]["plugins"],
     seen: Record<string, unknown>[] = [],
   ) => {
     const { conn, calls } = fakeConn((sql) =>
-      sql.split("\n").map(() =>
-        ok([{ id: new RecordId("hd_key", 1), signal: "s" }]),
-      ),
+      sql
+        .split("\n")
+        .map(() => ok([{ id: new RecordId("hd_key", 1), signal: "s" }])),
     );
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       plugins: [
         ...(plugins ?? []),
         definePlugin({
@@ -164,7 +164,10 @@ describe("hard-delete — the reason/meta arms", () => {
   test("existing meta on the call is preserved, the marker is added", async () => {
     const seen: Record<string, unknown>[] = [];
     const { client } = clientOver([hardDelete()], seen);
-    await client.keys.delete({ where: { id: "hd_key:1" }, meta: { actor: "u1" } });
+    await client.keys.delete({
+      where: { id: "hd_key:1" },
+      meta: { actor: "u1" },
+    });
     expect(seen[0]).toEqual({ actor: "u1", hardDelete: true });
   });
 

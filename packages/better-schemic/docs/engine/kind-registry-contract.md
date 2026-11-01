@@ -14,7 +14,7 @@
 Core stops hard-coding object kinds (`tables`/`functions`/`accesses`/…). Each driver **registers
 KINDS** on a `KindRegistry`; core orchestrates **generically** over the registry and never names a
 kind. What stays in core is the **field/type vocabulary** (`s.*` Zod drop-in, `PortableType`, codecs) —
-the *substrate* every kind builds on. **Fields/types are NOT a kind.**
+the _substrate_ every kind builds on. **Fields/types are NOT a kind.**
 
 > **Each database is its own world — kinds are NOT cross-driver compatible, and that's by design.** A
 > driver's kinds, their portable forms, their DDL, and their `native` payloads are **its own**; nothing
@@ -22,7 +22,7 @@ the *substrate* every kind builds on. **Fields/types are NOT a kind.**
 > "match" another DB's, don't reach for a neutral cross-DB shape, and don't expect a schema authored for
 > one driver to mean anything to another. The shared field/type substrate (above) is the **single,
 > deliberate** exception — it ports across drivers because that's the whole point of the type model; the
-> portable IR is "portable" so *core* can handle any kind uniformly, **not** so kinds port between DBs.
+> portable IR is "portable" so _core_ can handle any kind uniformly, **not** so kinds port between DBs.
 > Practical upshot: model your kinds for YOUR database's real DDL, full stop. Use `native` payloads
 > freely; carry dialect clauses verbatim; never compromise fidelity for an imagined cross-DB common
 > denominator.
@@ -31,20 +31,20 @@ the *substrate* every kind builds on. **Fields/types are NOT a kind.**
 
 ```ts
 import {
-  KindRegistry,          // per-driver registry; build it once in your package
-  type KindEngine,       // the behavior core needs per kind
-  type Definable,        // { kind: string; name: string } — your authoring object's neutral bound
-  type PortableObject,   // { kind: string; name: string } — your kind's portable form's neutral bound
-  type Ref,              // { kind: string; name: string } — a dependency edge
-  lowerSchema,           // (registry, defs: Definable[]) -> PortableObject[]  — author -> portable
-  planKinds,             // (registry, prevP, nextP) -> { up, down }           — diff two PORTABLE sides
-  buildKindDiff,         // (registry, prevP, nextP) -> Diff                    — up/down + items + full
-  emitKinds,             // (registry, schemaP: PortableObject[]) -> string[]  — fresh-apply DDL
-  type KindSnapshot,     // { kinds: Record<string, PortableObject[]> }        — the stored snapshot
-  snapshotKinds,         // (schemaP) -> KindSnapshot  ·  snapshotObjects(snap) -> PortableObject[]
+  KindRegistry, // per-driver registry; build it once in your package
+  type KindEngine, // the behavior core needs per kind
+  type Definable, // { kind: string; name: string } — your authoring object's neutral bound
+  type PortableObject, // { kind: string; name: string } — your kind's portable form's neutral bound
+  type Ref, // { kind: string; name: string } — a dependency edge
+  lowerSchema, // (registry, defs: Definable[]) -> PortableObject[]  — author -> portable
+  planKinds, // (registry, prevP, nextP) -> { up, down }           — diff two PORTABLE sides
+  buildKindDiff, // (registry, prevP, nextP) -> Diff                    — up/down + items + full
+  emitKinds, // (registry, schemaP: PortableObject[]) -> string[]  — fresh-apply DDL
+  type KindSnapshot, // { kinds: Record<string, PortableObject[]> }        — the stored snapshot
+  snapshotKinds, // (schemaP) -> KindSnapshot  ·  snapshotObjects(snap) -> PortableObject[]
   snapshotObjects,
-  introspectKinds,       // (registry, conn) -> PortableObject[] — reverse, fanned out per kind
-  orderObjects,          // the dependency-graph topo-sort (exposed for testing)
+  introspectKinds, // (registry, conn) -> PortableObject[] — reverse, fanned out per kind
+  orderObjects, // the dependency-graph topo-sort (exposed for testing)
 } from "better-schemic/core";
 ```
 
@@ -61,15 +61,15 @@ consume (`up`/`down`/`items`/`full`), so a migrated kind drops straight into the
 
 ```ts
 interface KindEngine<A extends Definable, P extends PortableObject> {
-  lower(authored: A): P;                          // authoring -> NORMALIZED portable (both sides converge here)
-  emit(portable: P): string[];                    // CREATE DDL (fresh apply / added object's `up`)
-  remove(portable: P): string[];                  // DROP DDL (removed object's `up`, added object's `down`)
-  overwrite?(prev: P, next: P): string[];         // in-place CHANGE prev->next; omit => recreate (remove+emit)
-  canonical?(portable: P): string;                // change-detection key; omit => emit(p).join("\n")
-  displayItems?(prev: P|undefined, next: P|undefined): DiffItem[];  // per-field DISPLAY items; omit => 1 whole-object item
-  deps?(portable: P): Ref[];                       // objects this must emit AFTER (cross-kind edges)
-  owner?(portable: P): Ref | undefined;           // cluster next to this (readability only; never beats deps)
-  introspect?(conn: unknown): Promise<P[]>;       // live conn -> all objects of THIS kind (reverse)
+  lower(authored: A): P; // authoring -> NORMALIZED portable (both sides converge here)
+  emit(portable: P): string[]; // CREATE DDL (fresh apply / added object's `up`)
+  remove(portable: P): string[]; // DROP DDL (removed object's `up`, added object's `down`)
+  overwrite?(prev: P, next: P): string[]; // in-place CHANGE prev->next; omit => recreate (remove+emit)
+  canonical?(portable: P): string; // change-detection key; omit => emit(p).join("\n")
+  displayItems?(prev: P | undefined, next: P | undefined): DiffItem[]; // per-field DISPLAY items; omit => 1 whole-object item
+  deps?(portable: P): Ref[]; // objects this must emit AFTER (cross-kind edges)
+  owner?(portable: P): Ref | undefined; // cluster next to this (readability only; never beats deps)
+  introspect?(conn: unknown): Promise<P[]>; // live conn -> all objects of THIS kind (reverse)
 }
 ```
 
@@ -93,11 +93,11 @@ Semantics core relies on:
 - **`displayItems` keeps per-field diff DISPLAY** (optional). The spine's default display is ONE item
   per portable object — so a table change shows as a single `table:…` item. A structured kind overrides
   `displayItems` to decompose a change into per-SUB-OBJECT items (per-FIELD: `field:user:name`), each
-   carrying its owner `table` so `better-schemic diff` GROUPS them hierarchically under their table — preserving
-   today's per-field output. Called `(prev, next)` for a change; `(undefined, next)` lists the object's
-   sub-items as adds (the `--full` projection). **DISPLAY ONLY** — never affects up/down DDL
-   (`emit`/`overwrite`). Reuse the per-field diff you already compute (Surreal `diffSnapshots().items`).
-   Manuel's call: per-field display is the product behavior; the driver implements `displayItems` at the flip so the diff UX is unchanged.
+  carrying its owner `table` so `better-schemic diff` GROUPS them hierarchically under their table — preserving
+  today's per-field output. Called `(prev, next)` for a change; `(undefined, next)` lists the object's
+  sub-items as adds (the `--full` projection). **DISPLAY ONLY** — never affects up/down DDL
+  (`emit`/`overwrite`). Reuse the per-field diff you already compute (Surreal `diffSnapshots().items`).
+  Manuel's call: per-field display is the product behavior; the driver implements `displayItems` at the flip so the diff UX is unchanged.
 
 ### `KindRegistry.define` — registration preserves your DX
 
@@ -108,7 +108,7 @@ stable tie-break among independent objects), so register coarse-to-fine: `table`
 ```ts
 export const registry = new KindRegistry();
 
-export const defineTable = registry.define({
+export const table = registry.define({
   name: "table",
   build: <Name extends string, S extends Shape>(name: Name, shape: S) => /* your TableDef */,
   lower, emit, remove, overwrite, deps, owner, introspect,
@@ -156,13 +156,13 @@ legend as the DDL-syntax map: `[ ]` not done · `[~]` partial · `[x]` full roun
 kind your DB supports, including ones you haven't registered yet, so the gaps are explicit. Suggested
 columns: `kind name` · `createKind'd?` · `emit` · `introspect` · `diff` · notes.
 
-Seed lists to start from (driver owner corrects/extends — these are the *expected/possible* kinds, not
+Seed lists to start from (driver owner corrects/extends — these are the _expected/possible_ kinds, not
 a claim of completeness):
 
 - **SurrealDB** — `table` (NORMAL/RELATION/ANY), `field`*, `index` (UNIQUE/SEARCH/MTREE/HNSW), `event`,
   `function` (`fn::`), `access` (RECORD/JWT), `param` (`DEFINE PARAM`), `analyzer`, `user`, `model`
   (`DEFINE MODEL`), `namespace`/`database` (if in scope), `config` (`DEFINE CONFIG GRAPHQL/API`),
-   `api`/`bucket` (3.x, if targeted). *`field` is **substrate nested in `table`**, not its own kind.
+  `api`/`bucket` (3.x, if targeted). *`field` is **substrate nested in `table`**, not its own kind.
 
 Mark a kind `[x]` only when it **round-trips** (author → emit → introspect → diff = zero). The
 inventory is what tells us — at a glance — how far each driver is through the migration.
@@ -245,7 +245,7 @@ This is §8's last step; it's driven by core against your **real, green** kind e
   the field-level delta.
 - **Authoring fan-out (one authored object → many kind objects) — DRIVER-SIDE EXPLODE, no contract
    hook.** A dialect that authors indexes/events/constraints **inline** on the table (Surreal does)
-   expands one authored `TableDef` into `[table, ...index, ...event]` `Definable`s (each tagged with its
+  expands one authored `TableDef` into `[table, ...index, ...event]` `Definable`s (each tagged with its
   `kind`) **inside its own `Driver.lower`, before calling `lowerSchema`**. `KindEngine.lower` stays a
   clean 1:1; the fan-out is dialect-specific authoring, and `lowerSchema` takes `Definable[]` so the
   driver preprocesses freely. Keep source-file linkage driver-side — exploded children inherit the

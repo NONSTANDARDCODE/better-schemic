@@ -47,7 +47,9 @@ function order(objs: Obj[]): Obj[] {
   const done = new Set<string>();
   let group: string | undefined; // the last unowned object emitted = the open cluster
   while (out.length < objs.length) {
-    const ready = objs.filter((o) => !done.has(key(o)) && indeg.get(key(o)) === 0);
+    const ready = objs.filter(
+      (o) => !done.has(key(o)) && indeg.get(key(o)) === 0,
+    );
     if (!ready.length) throw new Error("dependency cycle");
     ready.sort((a, b) => {
       const ao = a.owner && key(a.owner) === group ? 0 : 1; // prefer the open cluster
@@ -65,14 +67,22 @@ function order(objs: Obj[]): Obj[] {
 }
 
 /* --- scenario: FK ordering + per-table grouping + the function-before-table case --- */
-const T = (name: string, deps: Ref[] = []): Obj => ({ kind: "table", name, deps });
+const T = (name: string, deps: Ref[] = []): Obj => ({
+  kind: "table",
+  name,
+  deps,
+});
 const I = (name: string, table: string): Obj => ({
   kind: "index",
   name,
   deps: [{ kind: "table", name: table }],
   owner: { kind: "table", name: table },
 });
-const F = (name: string, deps: Ref[] = []): Obj => ({ kind: "function", name, deps });
+const F = (name: string, deps: Ref[] = []): Obj => ({
+  kind: "function",
+  name,
+  deps,
+});
 
 const objs: Obj[] = [
   T("user"),

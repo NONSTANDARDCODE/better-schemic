@@ -1,4 +1,4 @@
-import { defineTable, s, surql } from "better-schemic";
+import { s, surql, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -9,7 +9,7 @@ DEFINE FIELD age ON TABLE a TYPE int ASSERT $value >= 0 AND $value <= 120;
 DEFINE FIELD name ON TABLE a TYPE string ASSERT string::len($value) == 64;
 DEFINE FIELD score ON TABLE a TYPE float ASSERT $value >= 0 AND $value <= 1;
 DEFINE FIELD slug ON TABLE a TYPE string ASSERT $value = /^[a-z-]+$/;`,
-  def: defineTable("a", {
+  def: table("a", {
     id: s.string(),
     age: s.int().$min(0).$max(120),
     name: s.string().$length(64),

@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { s, table } from "better-schemic";
 import { example } from "../_kit";
 
 /** A domain type with no wire representation of its own — the codec below maps it to/from a string. */
@@ -14,7 +14,7 @@ export default example(import.meta.url, {
   note: "App type = Money, wire/DDL type = string; the codec maps both ways. Clears the no-DDL brand.",
   ddl: `DEFINE TABLE wallet TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD price ON TABLE wallet TYPE string;`,
-  def: defineTable("wallet", {
+  def: table("wallet", {
     id: s.string(),
     price: s.instanceof(Money).$surreal(s.string(), {
       encode: (m) => m.toString(),

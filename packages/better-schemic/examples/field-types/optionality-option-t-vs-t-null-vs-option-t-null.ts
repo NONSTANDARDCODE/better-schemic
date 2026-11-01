@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { s, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -8,7 +8,7 @@ export default example(import.meta.url, {
 DEFINE FIELD maybe ON TABLE opt TYPE option<string>;
 DEFINE FIELD nullable ON TABLE opt TYPE string | null;
 DEFINE FIELD both ON TABLE opt TYPE option<string | null>;`,
-  def: defineTable("opt", {
+  def: table("opt", {
     id: s.string(),
     maybe: s.string().optional(),
     nullable: s.string().nullable(),

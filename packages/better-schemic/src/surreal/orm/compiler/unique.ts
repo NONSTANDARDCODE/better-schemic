@@ -46,9 +46,10 @@ export function uniqueTarget(
       where,
       operation,
     );
-  const entries = Object.entries(where).filter(
-    ([, v]) => v !== undefined,
-  ) as [string, unknown][];
+  const entries = Object.entries(where).filter(([, v]) => v !== undefined) as [
+    string,
+    unknown,
+  ][];
   if (entries.length === 0)
     throw uniqueError(
       meta,
@@ -58,8 +59,7 @@ export function uniqueTarget(
     );
   if (entries.length === 1) {
     const [key, value] = entries[0] as [string, unknown];
-    if (key === "id")
-      return { kind: "id", id: idText(meta, value, operation) };
+    if (key === "id") return { kind: "id", id: idText(meta, value, operation) };
     if (uniqueFields(meta).includes(key)) {
       return {
         kind: "field",
@@ -108,7 +108,8 @@ function compositeTarget(
   if (!isTableMeta(meta)) return undefined;
   const keys = new Set(entries.map(([key]) => key));
   for (const group of meta.uniqueGroups) {
-    const covers = group.length === entries.length && group.every((f) => keys.has(f));
+    const covers =
+      group.length === entries.length && group.every((f) => keys.has(f));
     if (!covers) continue;
     const byName = new Map(entries);
     return {
@@ -159,9 +160,7 @@ function uniqueError(
   // `[tenant_id, name]` index), so the message names the composite group instead of leaving the
   // caller to guess that a compound index would have made their `where` a valid target.
   const groups = isTableMeta(meta) ? meta.uniqueGroups : [];
-  const composite = groups
-    .map((group) => `[${group.join(", ")}]`)
-    .join(", ");
+  const composite = groups.map((group) => `[${group.join(", ")}]`).join(", ");
   const suffix = composite
     ? ` Available unique targets: ${targets.join(", ")}. Composite UNIQUE index: ${composite} — pass EVERY field of one group in "where".`
     : ` Available unique targets: ${targets.join(", ")}.`;

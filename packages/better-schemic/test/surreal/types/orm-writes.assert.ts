@@ -4,12 +4,15 @@
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
 import { describe, it } from "node:test";
 import { assertType } from "../../../../../scripts/type-assert";
+import { relation, s, surql, table } from "../../../src/surreal";
 import type { Surql } from "../../../src/surreal/frag";
-import { defineRelation, defineTable, s, surql } from "../../../src/surreal";
 import type { Client } from "../../../src/surreal/orm/client";
 import type { ModelDelegate } from "../../../src/surreal/orm/delegate";
-import type { BatchResult, ThrowingResult } from "../../../src/surreal/orm/results";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import type {
+  BatchResult,
+  ThrowingResult,
+} from "../../../src/surreal/orm/results";
+import { schema } from "../../../src/surreal/orm/schema";
 import type {
   BatchWriteResult,
   CreatedResult,
@@ -25,7 +28,7 @@ import type {
 } from "../../../src/surreal/orm/types/write";
 import type { App } from "../../../src/surreal/pure";
 
-const User = defineTable("user", {
+const User = table("user", {
   name: s.string(),
   email: s.string(),
   age: s.int(),
@@ -33,12 +36,12 @@ const User = defineTable("user", {
   tags: s.array(s.string()),
   address: s.object({ city: s.string(), country: s.string() }),
 }).index("uniq_email", ["email"], { unique: true });
-const Post = defineTable("post", { title: s.string() });
-const Likes = defineRelation("likes", { score: s.int() }).from(User).to(Post);
-const schema = defineSchema({ users: User, posts: Post, likes: Likes });
+const Post = table("post", { title: s.string() });
+const Likes = relation("likes", { score: s.int() }).from(User).to(Post);
+const schemaDef = schema({ users: User, posts: Post, likes: Likes });
 type U = typeof User;
 type Row = App<U>;
-type C = Client<typeof schema>;
+type C = Client<typeof schemaDef>;
 type Users = C["users"];
 type Likess = C["likes"];
 type L = typeof Likes;

@@ -48,7 +48,9 @@ describe("excludeFromMigrations", () => {
   test("registry.isExcludedFromMigrations reflects the flag (per object)", () => {
     expect(registry.isExcludedFromMigrations(access)).toBe(true);
     expect(registry.isExcludedFromMigrations(table)).toBe(false);
-    expect(registry.isExcludedFromMigrations({ kind: "unregistered", name: "x" })).toBe(false);
+    expect(
+      registry.isExcludedFromMigrations({ kind: "unregistered", name: "x" }),
+    ).toBe(false);
   });
 
   test("skipsIntrospection is true only for the boolean flag", () => {

@@ -9,15 +9,22 @@ process.env.NO_COLOR = "1";
 const { formatDiff, formatItems, formatPatch } = await import(
   "../../../src/core/cli-kit/diff"
 );
+
 import type { Diff, DiffItem } from "../../../src/core/cli-kit/diff";
 
 const MULTI = "DEFINE FUNCTION fn::hello() {\n  RETURN 1;\n}";
 const MULTI_AFTER = "DEFINE FUNCTION fn::hello() {\n  RETURN 2;\n}";
 
 function item(op: DiffItem["op"]): DiffItem {
-  const base = { key: "fn:hello", table: "hello", kind: "function", file: "fns.ts" };
+  const base = {
+    key: "fn:hello",
+    table: "hello",
+    kind: "function",
+    file: "fns.ts",
+  };
   if (op === "add") return { ...base, op, ddl: MULTI };
-  if (op === "remove") return { ...base, op, ddl: "REMOVE FUNCTION fn::hello", old: MULTI };
+  if (op === "remove")
+    return { ...base, op, ddl: "REMOVE FUNCTION fn::hello", old: MULTI };
   return { ...base, op, before: MULTI, after: MULTI_AFTER };
 }
 
@@ -48,8 +55,12 @@ describe("multi-line diff rendering", () => {
     const patch = formatPatch({ up: ["x"], down: [], items: [item("change")] });
     expect(patch).toContain("@@ -1,3 +1,3 @@");
     const body = patch.split("\n");
-    expect(body.filter((l) => l.startsWith("-".repeat(1)) && !l.startsWith("---"))).toHaveLength(3);
-    expect(body.filter((l) => l.startsWith("+") && !l.startsWith("+++"))).toHaveLength(3);
+    expect(
+      body.filter((l) => l.startsWith("-".repeat(1)) && !l.startsWith("---")),
+    ).toHaveLength(3);
+    expect(
+      body.filter((l) => l.startsWith("+") && !l.startsWith("+++")),
+    ).toHaveLength(3);
   });
 
   test("patch: removal counts the dropped object's prior lines", () => {

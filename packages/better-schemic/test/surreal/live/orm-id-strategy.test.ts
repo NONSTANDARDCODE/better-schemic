@@ -7,15 +7,15 @@ import { setDefaultTimeout } from "bun:test";
 setDefaultTimeout(120_000);
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { RecordId, Surreal } from "surrealdb";
+import { type RecordId, Surreal } from "surrealdb";
+import { defineSingleton, s, table } from "../../../src/surreal";
 import {
   type EphemeralServer,
   spawnEphemeralServer,
   surrealBinaryAvailable,
 } from "../../../src/surreal/cli/engine";
-import { defineSingleton, defineTable, s } from "../../../src/surreal";
-import { betterSchemic, type Client } from "../../../src/surreal/orm/client";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { type Client, orm } from "../../../src/surreal/orm/client";
+import { schema } from "../../../src/surreal/orm/schema";
 
 const ENABLED = surrealBinaryAvailable();
 const live = describe.skipIf(!ENABLED);
@@ -27,18 +27,18 @@ const UUID_V7 =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const RAND_ID = /^[0-9a-z]{20}$/;
 
-const Default = defineTable("is_default", {
+const Default = table("is_default", {
   name: s.string(),
   email: s.string(),
 }).index("uq_is_default_email", ["email"], { unique: true });
-const Uuid = defineTable("is_uuid", { name: s.string(), email: s.string() })
+const Uuid = table("is_uuid", { name: s.string(), email: s.string() })
   .idStrategy("uuid")
   .index("uq_is_uuid_email", ["email"], { unique: true });
-const Rand = defineTable("is_rand", { name: s.string() }).idStrategy("rand");
+const Rand = table("is_rand", { name: s.string() }).idStrategy("rand");
 /** A table name needing an escaped identifier — proves `type::record(s"…")` escaping. */
-const Weird = defineTable("is-weird", { name: s.string() });
+const Weird = table("is-weird", { name: s.string() });
 const Config = defineSingleton("is_config", { value: s.string() });
-const schema = defineSchema({
+const schemaDef = schema({
   defaults: Default,
   uuids: Uuid,
   rands: Rand,
@@ -55,7 +55,7 @@ const idTable = (row: { id: RecordId }): string => row.id.table.name;
 live("orm id strategy — live", () => {
   let server: EphemeralServer;
   let db: Surreal;
-  let client: Client<typeof schema>;
+  let client: Client<typeof schemaDef>;
 
   beforeAll(async () => {
     server = await spawnEphemeralServer();
@@ -81,7 +81,7 @@ live("orm id strategy — live", () => {
       DEFINE FIELD value ON is_config TYPE string;
       DEFINE TABLE is_audit SCHEMALESS;
     `);
-    client = betterSchemic(db, { schema });
+    client = orm(db, { schema: schemaDef });
   });
 
   afterAll(async () => {

@@ -6,8 +6,9 @@
  * names, so `{ total }` autocompletes, renames safely and cannot be passed out of order. The runtime
  * lowers it to the positional call the server expects (`fn::customer_tier($p0, …)`).
  */
-import type { App, FunctionDef } from "../../pure";
+
 import type { Surql } from "../../frag";
+import type { App, FunctionDef } from "../../pure";
 import type {
   AnyFunctionDef,
   EntriesOf,
@@ -43,9 +44,10 @@ export type FnCall = <R = unknown>(
  * This is what makes a repo's own `fn::…` (or `search::…`) usable inside a typed read instead of a
  * hand-written `$query`.
  */
-export type FnFragment<F> = FnArgs<F> extends Record<string, never>
-  ? () => Surql
-  : (args: { [K in keyof FnArgs<F>]: FnArgInput<FnArgs<F>[K]> }) => Surql;
+export type FnFragment<F> =
+  FnArgs<F> extends Record<string, never>
+    ? () => Surql
+    : (args: { [K in keyof FnArgs<F>]: FnArgInput<FnArgs<F>[K]> }) => Surql;
 
 /** A fragment argument: the app value, a `surql` fragment, or the `RecordId` form of a link. */
 type FnArgInput<T> = T | Surql | (T extends string ? string | number : never);

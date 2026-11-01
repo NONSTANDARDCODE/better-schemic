@@ -16,14 +16,14 @@ import {
 } from "@opentelemetry/sdk-trace";
 import type { QueryResponse } from "surrealdb";
 import { createOtelLogger } from "../../../src/otel/logger";
-import { defineTable, s } from "../../../src/surreal";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import { BetterSchemicError } from "../../../src/surreal/orm/errors";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { s, table } from "../../../src/surreal";
+import { orm } from "../../../src/surreal/orm/client";
+import { OrmError } from "../../../src/surreal/orm/errors";
+import { schema } from "../../../src/surreal/orm/schema";
 import { caught, fakeConn, lines, ok } from "../../surreal/orm-fixtures";
 
-const User = defineTable("user", { name: s.string(), age: s.int() });
-const schema = defineSchema({ users: User });
+const User = table("user", { name: s.string(), age: s.int() });
+const schemaDef = schema({ users: User });
 
 let exporter: InMemorySpanExporter;
 let provider: TracerProvider;
@@ -61,10 +61,7 @@ const ms = (time: readonly [number, number]): number =>
 describe("createOtelLogger — executor wiring", () => {
   test("a findMany emits one CLIENT span with the DB semconv attributes", async () => {
     const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok([])));
-    const client = betterSchemic(conn, {
-      schema,
-      logger: createOtelLogger(),
-    });
+    const client = orm(conn, { schema: schemaDef, logger: createOtelLogger() });
 
     await client.users.findMany({ where: { age: { gte: 18 } } });
 
@@ -96,8 +93,8 @@ describe("createOtelLogger — executor wiring", () => {
       },
       close: () => Promise.resolve(),
     };
-    const client = betterSchemic(conn as never, {
-      schema,
+    const client = orm(conn as never, {
+      schema: schemaDef,
       logger: createOtelLogger(),
     });
 
@@ -110,10 +107,7 @@ describe("createOtelLogger — executor wiring", () => {
 
   test("context namespaces are joined (ns|db) and control statements are excluded from the text", async () => {
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok([])));
-    const client = betterSchemic(conn, {
-      schema,
-      logger: createOtelLogger(),
-    });
+    const client = orm(conn, { schema: schemaDef, logger: createOtelLogger() });
 
     const tenant = client.$withContext({
       namespace: "tenant_a",
@@ -132,10 +126,7 @@ describe("createOtelLogger — executor wiring", () => {
         line.includes("count()") ? ok([{ count: 3 }]) : ok([]),
       ),
     );
-    const client = betterSchemic(conn, {
-      schema,
-      logger: createOtelLogger(),
-    });
+    const client = orm(conn, { schema: schemaDef, logger: createOtelLogger() });
 
     await client.users.paginate({ limit: 10, start: 0 });
 
@@ -152,10 +143,7 @@ describe("createOtelLogger — executor wiring", () => {
     const { conn } = fakeConn((sql) =>
       lines(sql).map(() => ok([{ plan: "TableScan" }])),
     );
-    const client = betterSchemic(conn, {
-      schema,
-      logger: createOtelLogger(),
-    });
+    const client = orm(conn, { schema: schemaDef, logger: createOtelLogger() });
 
     await client.users.findMany().explain();
 
@@ -170,8 +158,8 @@ describe("createOtelLogger — executor wiring", () => {
 describe("createOtelLogger — security & config", () => {
   test("captureQueryText: false never sets db.query.text", async () => {
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok([])));
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       logger: createOtelLogger({ captureQueryText: false }),
     });
 
@@ -184,8 +172,8 @@ describe("createOtelLogger — security & config", () => {
 
   test("maxQueryTextLength truncates the captured SQL", async () => {
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok([])));
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       logger: createOtelLogger({ maxQueryTextLength: 8 }),
     });
 
@@ -207,8 +195,8 @@ describe("createOtelLogger — security & config", () => {
 
   test("static attributes are merged; computed attributes win a clash", async () => {
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok([])));
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       logger: createOtelLogger({
         attributes: {
           "deployment.environment.name": "test",
@@ -226,8 +214,8 @@ describe("createOtelLogger — security & config", () => {
 
   test("tracerName selects the instrumentation scope", async () => {
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok([])));
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       logger: createOtelLogger({ tracerName: "my-app" }),
     });
 
@@ -246,7 +234,7 @@ describe("createOtelLogger — security & config", () => {
         },
       } as Attributes,
     });
-    const client = betterSchemic(conn, { schema, logger });
+    const client = orm(conn, { schema: schemaDef, logger });
 
     const rows = await client.users.findMany();
     expect(rows).toEqual([]);
@@ -257,7 +245,7 @@ describe("createOtelLogger — security & config", () => {
     const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok([])));
     const logger = createOtelLogger({ enabled: false });
     expect(logger.enabled).toBe(false);
-    const client = betterSchemic(conn, { schema, logger });
+    const client = orm(conn, { schema: schemaDef, logger });
 
     await client.users.findMany();
 
@@ -271,10 +259,7 @@ describe("createOtelLogger — failures", () => {
     const { conn } = fakeConn((sql) =>
       lines(sql).map(() => failr("ERR_LOCKED", "the table is locked")),
     );
-    const client = betterSchemic(conn, {
-      schema,
-      logger: createOtelLogger(),
-    });
+    const client = orm(conn, { schema: schemaDef, logger: createOtelLogger() });
 
     const error = await caught(() => client.users.findMany());
     expect(error).not.toBeNull();
@@ -302,10 +287,7 @@ describe("createOtelLogger — failures", () => {
           }) as unknown as QueryResponse<unknown>,
       ),
     );
-    const client = betterSchemic(conn, {
-      schema,
-      logger: createOtelLogger(),
-    });
+    const client = orm(conn, { schema: schemaDef, logger: createOtelLogger() });
 
     await caught(() => client.users.findMany());
 
@@ -329,10 +311,7 @@ describe("createOtelLogger — failures", () => {
           }) as unknown as QueryResponse<unknown>,
       ),
     );
-    const client = betterSchemic(conn, {
-      schema,
-      logger: createOtelLogger(),
-    });
+    const client = orm(conn, { schema: schemaDef, logger: createOtelLogger() });
 
     await caught(() => client.users.findMany());
 
@@ -354,10 +333,7 @@ describe("createOtelLogger — failures", () => {
           }) as unknown as QueryResponse<unknown>,
       ),
     );
-    const client = betterSchemic(conn, {
-      schema,
-      logger: createOtelLogger(),
-    });
+    const client = orm(conn, { schema: schemaDef, logger: createOtelLogger() });
 
     await caught(() => client.users.findMany());
 
@@ -373,12 +349,12 @@ describe("createOtelLogger — failures", () => {
     });
     const conn = {
       query() {
-        throw new BetterSchemicError("ParseError", "boom", { cause });
+        throw new OrmError("ParseError", "boom", { cause });
       },
       close: () => Promise.resolve(),
     };
-    const client = betterSchemic(conn as never, {
-      schema,
+    const client = orm(conn as never, {
+      schema: schemaDef,
       logger: createOtelLogger(),
     });
 
@@ -396,8 +372,8 @@ describe("createOtelLogger — failures", () => {
       },
       close: () => Promise.resolve(),
     };
-    const client = betterSchemic(conn as never, {
-      schema,
+    const client = orm(conn as never, {
+      schema: schemaDef,
       logger: createOtelLogger(),
     });
 

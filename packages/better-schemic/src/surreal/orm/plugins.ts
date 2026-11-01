@@ -13,7 +13,7 @@
  * call site); async work belongs in a hook. Plugins are resolved once per client; each delegate
  * carries its own `state` (mutated via `$withState`, disabled via `$withoutPlugins`).
  */
-import { BetterSchemicError } from "./errors";
+import { OrmError } from "./errors";
 import type { SchemaIndex } from "./meta";
 import type { Hooks, OperationKind } from "./types/hooks";
 import {
@@ -63,9 +63,9 @@ function pluginFailure(
   plugin: Plugin,
   phase: string,
   cause: unknown,
-): BetterSchemicError {
-  if (cause instanceof BetterSchemicError) return cause;
-  return new BetterSchemicError(
+): OrmError {
+  if (cause instanceof OrmError) return cause;
+  return new OrmError(
     "PluginError",
     `plugin "${plugin.id}": ${phase} failed${cause instanceof Error ? ` — ${cause.message}` : ""}.`,
     { operation: phase, cause },
@@ -97,12 +97,9 @@ function validatePlugins(plugins: readonly Plugin[]): void {
   const seen = new Set<string>();
   for (const plugin of plugins) {
     if (typeof plugin.id !== "string" || plugin.id.length === 0)
-      throw new BetterSchemicError(
-        "PluginError",
-        "every plugin needs a non-empty `id`.",
-      );
+      throw new OrmError("PluginError", "every plugin needs a non-empty `id`.");
     if (seen.has(plugin.id))
-      throw new BetterSchemicError(
+      throw new OrmError(
         "PluginError",
         `duplicate plugin id "${plugin.id}" — plugin ids must be unique.`,
       );

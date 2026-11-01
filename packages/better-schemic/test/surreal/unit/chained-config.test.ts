@@ -10,8 +10,8 @@ setDefaultTimeout(120_000);
 
 import { describe, expect, test } from "bun:test";
 import { defineConfig } from "better-schemic/config";
+import { s, table } from "../../../src/surreal";
 import { surrealConnection } from "../../../src/surreal/connection";
-import { defineTable, s } from "../../../src/surreal";
 import type { Client } from "../../../src/surreal/orm/client";
 
 const URL = process.env.SURREAL_URL;
@@ -24,9 +24,9 @@ const base = {
   authLevel: "root" as const,
 };
 
-const Org = defineTable("chain_org", { slug: s.string() });
+const Org = table("chain_org", { slug: s.string() });
 
-const betterSchemic = defineConfig()
+const orm = defineConfig()
   .connection("main", surrealConnection, {
     ...base,
     namespace: "chain_main",
@@ -60,7 +60,7 @@ type Equal<A, B> =
 type Expect<T extends true> = T;
 
 // connect() types per entry: main takes no args; tenant takes { org?: string }.
-type MainClient = Awaited<ReturnType<typeof betterSchemic.connect<"main">>>;
+type MainClient = Awaited<ReturnType<typeof orm.connect<"main">>>;
 type _mainClient = Expect<Equal<MainClient, Client>>;
 
 const _typedCtx = () =>
@@ -79,25 +79,25 @@ const _typedCtx = () =>
     });
 
 const _argsTyping = () => {
-  void betterSchemic.connect("tenant", { org: "acme" });
+  void orm.connect("tenant", { org: "acme" });
   // @ts-expect-error — wrong args shape for tenant
-  void betterSchemic.connect("tenant", { org: 5 });
+  void orm.connect("tenant", { org: 5 });
   // @ts-expect-error — unknown connection name
-  void betterSchemic.connect("nope");
+  void orm.connect("nope");
 };
 
 describe("chained defineConfig with surrealConnection as the driver marker", () => {
   test("the chain accumulates entries with the surreal driver tag", () => {
-    expect(Object.keys(betterSchemic.connections)).toEqual(["main", "tenant"]);
-    expect(betterSchemic.connections.main.driver).toBe("surrealdb");
-    expect(betterSchemic.connections.tenant.driver).toBe("surrealdb");
-    expect(typeof betterSchemic.connections.tenant.client).toBe("function");
-    expect(typeof betterSchemic.connections.main.label).toBe("function");
+    expect(Object.keys(orm.connections)).toEqual(["main", "tenant"]);
+    expect(orm.connections.main.driver).toBe("surrealdb");
+    expect(orm.connections.tenant.driver).toBe("surrealdb");
+    expect(typeof orm.connections.tenant.client).toBe("function");
+    expect(typeof orm.connections.main.label).toBe("function");
   });
 
   test("a chained parameterized resolver receives its typed args", async () => {
     const ctx = { env: process.env, connections: {} };
-    const bases = await betterSchemic.connections.tenant.resolve(ctx as never, {
+    const bases = await orm.connections.tenant.resolve(ctx as never, {
       org: "acme",
     });
     expect(bases).toHaveLength(1);
@@ -108,24 +108,24 @@ describe("chained defineConfig with surrealConnection as the driver marker", () 
 describe.skipIf(!URL)("chained cross-connection resolution (live)", () => {
   test("the tenant resolver enumerates the fleet via the TYPED main client", async () => {
     {
-      await using main = await betterSchemic.connect("main");
+      await using main = await orm.connect("main");
       await main.$sdk.query(
         "REMOVE TABLE IF EXISTS chain_org; CREATE chain_org:a SET slug = 'acme'; CREATE chain_org:b SET slug = 'beta';",
       );
     }
     // No org -> the resolver awaits ctx.connections.main and selects the fleet (typed path).
-    await expect(betterSchemic.connect("tenant", {})).rejects.toThrow(
+    await expect(orm.connect("tenant", {})).rejects.toThrow(
       /resolved to 2 configs \(acme, beta\)/,
     );
     // With org -> single config, connectable.
     {
-      await using db = await betterSchemic.connect("tenant", { org: "acme" });
+      await using db = await orm.connect("tenant", { org: "acme" });
       // SDK-faithful: the per-statement result array (typed via the surql tag when used).
       const result = await db.$sdk.query("RETURN 1");
       expect(result).toEqual([1]);
     }
     {
-      await using main = await betterSchemic.connect("main");
+      await using main = await orm.connect("main");
       await main.$sdk.query("REMOVE TABLE IF EXISTS chain_org;");
     }
   });

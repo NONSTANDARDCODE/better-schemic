@@ -1,6 +1,6 @@
+import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, describe, expect, test } from "bun:test";
 import { asyncDisposable, resolveConnection } from "../../../src/core/client";
 
 describe("asyncDisposable mixin", () => {
@@ -49,7 +49,9 @@ describe("resolveConnection", () => {
     );
 
   test("resolves the sole connection (no name)", async () => {
-    writeConfig(`export default defineConfig({ connections: { default: conn() } });`);
+    writeConfig(
+      `export default defineConfig({ connections: { default: conn() } });`,
+    );
     const rc = await resolveConnection({ cwd: dir });
     expect(rc.connection).toBe("default");
     expect(rc.driver).toBe("testdriver");
@@ -61,13 +63,15 @@ describe("resolveConnection", () => {
       `export default defineConfig({ defaultConnection: "primary", connections: { primary: conn(), reporting: conn() } });`,
     );
     expect((await resolveConnection({ cwd: dir })).connection).toBe("primary");
-    expect((await resolveConnection({ cwd: dir, name: "reporting" })).connection).toBe(
-      "reporting",
-    );
+    expect(
+      (await resolveConnection({ cwd: dir, name: "reporting" })).connection,
+    ).toBe("reporting");
   });
 
   test("throws for an unknown connection name", async () => {
-    writeConfig(`export default defineConfig({ connections: { default: conn() } });`);
+    writeConfig(
+      `export default defineConfig({ connections: { default: conn() } });`,
+    );
     await expect(resolveConnection({ cwd: dir, name: "nope" })).rejects.toThrow(
       'connection "nope" is not defined',
     );

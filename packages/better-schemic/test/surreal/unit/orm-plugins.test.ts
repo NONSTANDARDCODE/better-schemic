@@ -3,24 +3,24 @@
 import { describe, expect, test } from "bun:test";
 import { RecordId } from "surrealdb";
 import { surql } from "../../../src/surreal";
-import { betterSchemic } from "../../../src/surreal/orm/client";
+import { orm } from "../../../src/surreal/orm/client";
 import type { Delegate } from "../../../src/surreal/orm/delegate";
-import { BetterSchemicError, isBetterSchemicError } from "../../../src/surreal/orm/errors";
+import { isOrmError, OrmError } from "../../../src/surreal/orm/errors";
 import {
   createPluginPipeline,
   definePlugin,
   isPlugin,
   RuntimeOperation,
 } from "../../../src/surreal/orm/plugins";
-import { defineSchema } from "../../../src/surreal/orm/schema";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { schema } from "../../../src/surreal/orm/schema";
+import { s, table } from "../../../src/surreal/pure";
 import { fakeConn, lines, ok } from "../orm-fixtures";
 
-const User = defineTable("user", {
+const User = table("user", {
   name: s.string(),
   flag: s.boolean().optional(),
 });
-const schema = defineSchema({ users: User });
+const schemaDef = schema({ users: User });
 
 const row = () => [{ id: new RecordId("user", 1), name: "A", flag: false }];
 
@@ -39,7 +39,7 @@ describe("definePlugin — transforms", () => {
       },
     });
     const { conn: c, calls } = conn();
-    const client = betterSchemic(c, { schema, plugins: [timestamps] });
+    const client = orm(c, { schema: schemaDef, plugins: [timestamps] });
     await client.users.create({ data: { name: "A" } });
     expect(calls[0]?.sql).toContain("createdAt: time::now()");
   });
@@ -56,7 +56,7 @@ describe("definePlugin — transforms", () => {
       },
     });
     const { conn: c, calls } = conn();
-    const client = betterSchemic(c, { schema, plugins: [softDelete] });
+    const client = orm(c, { schema: schemaDef, plugins: [softDelete] });
     await client.users.delete({ where: { id: "user:1" } });
     expect(calls[0]?.sql).toContain("UPDATE");
     expect(calls[0]?.sql).not.toContain("DELETE");
@@ -70,7 +70,7 @@ describe("definePlugin — transforms", () => {
       },
     });
     const { conn: c, calls } = conn();
-    const client = betterSchemic(c, { schema, plugins: [stamper] });
+    const client = orm(c, { schema: schemaDef, plugins: [stamper] });
     await client.users.create({ data: { name: "A" } });
     expect(calls[0]?.vars?.p0).toEqual({ name: "A" });
     calls.length = 0;
@@ -88,7 +88,7 @@ describe("definePlugin — transforms", () => {
       },
     });
     const { conn: c, calls } = conn();
-    const client = betterSchemic(c, { schema, plugins: [timestamps] });
+    const client = orm(c, { schema: schemaDef, plugins: [timestamps] });
     await client.users.$withoutPlugins().create({ data: { name: "A" } });
     expect(calls[0]?.sql).not.toContain("time::now()");
   });
@@ -99,7 +99,7 @@ describe("definePlugin — transforms", () => {
       transform: () => false,
     });
     const { conn: c, calls } = conn();
-    const client = betterSchemic(c, { schema, plugins: [skipper] });
+    const client = orm(c, { schema: schemaDef, plugins: [skipper] });
     const result = await client.users.findMany({});
     expect(result).toBeUndefined();
     expect(calls).toHaveLength(0);
@@ -118,8 +118,8 @@ describe("definePlugin — hooks and extensions", () => {
       },
     });
     const { conn: c } = conn();
-    const client = betterSchemic(c, {
-      schema,
+    const client = orm(c, {
+      schema: schemaDef,
       plugins: [observer],
       hooks: {
         beforeQuery: () => {
@@ -139,7 +139,7 @@ describe("definePlugin — hooks and extensions", () => {
       },
     });
     const { conn: c } = conn();
-    const client = betterSchemic(c, { schema, plugins: [ext] });
+    const client = orm(c, { schema: schemaDef, plugins: [ext] });
     expect((client as unknown as { hello(): string }).hello()).toBe("hi");
   });
 
@@ -159,7 +159,7 @@ describe("definePlugin — hooks and extensions", () => {
       },
     });
     const { conn: c, calls } = conn();
-    const client = betterSchemic(c, { schema, plugins: [soft] });
+    const client = orm(c, { schema: schemaDef, plugins: [soft] });
     const delegate = client.users as unknown as {
       restore(args: { where: unknown }): Promise<unknown>;
     };
@@ -180,7 +180,7 @@ describe("definePlugin — bootstrap validation", () => {
       },
     });
     const { conn: c } = conn();
-    betterSchemic(c, { schema, plugins: [plugin] });
+    orm(c, { schema: schemaDef, plugins: [plugin] });
     expect(setups).toBe(1);
   });
 
@@ -188,10 +188,10 @@ describe("definePlugin — bootstrap validation", () => {
     const plugin = definePlugin({ id: "dup" });
     const { conn: c } = conn();
     try {
-      betterSchemic(c, { schema, plugins: [plugin, plugin] });
+      orm(c, { schema: schemaDef, plugins: [plugin, plugin] });
       throw new Error("expected a PluginError");
     } catch (e) {
-      expect(isBetterSchemicError(e)).toBe(true);
+      expect(isOrmError(e)).toBe(true);
       expect((e as { code: string }).code).toBe("PluginError");
     }
   });
@@ -205,10 +205,10 @@ describe("definePlugin — bootstrap validation", () => {
     });
     const { conn: c } = conn();
     try {
-      betterSchemic(c, { schema, plugins: [plugin] });
+      orm(c, { schema: schemaDef, plugins: [plugin] });
       throw new Error("expected a PluginError");
     } catch (e) {
-      expect(isBetterSchemicError(e)).toBe(true);
+      expect(isOrmError(e)).toBe(true);
       expect((e as { code: string }).code).toBe("PluginError");
     }
   });
@@ -222,7 +222,7 @@ describe("definePlugin — bootstrap validation", () => {
     });
     const { conn: c } = conn();
     try {
-      betterSchemic(c, { schema, plugins: [plugin] });
+      orm(c, { schema: schemaDef, plugins: [plugin] });
       throw new Error("expected a PluginError");
     } catch (e) {
       expect((e as { code?: string }).code).toBe("PluginError");
@@ -253,8 +253,8 @@ describe("plugin runtime — edge paths", () => {
     expect(pipeline.transform(op)).toBe(false);
   });
 
-  test("a BetterSchemicError thrown by a plugin method is returned unchanged", () => {
-    const mine = new BetterSchemicError("PluginError", "custom");
+  test("a OrmError thrown by a plugin method is returned unchanged", () => {
+    const mine = new OrmError("PluginError", "custom");
     const plugin = definePlugin({
       id: "p",
       setup() {

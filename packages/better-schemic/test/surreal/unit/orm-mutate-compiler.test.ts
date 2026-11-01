@@ -2,7 +2,7 @@
 // branchy lowering (return indexes, LET/IF, ON DUPLICATE). Direct calls pin each failure code.
 import { describe, expect, test } from "bun:test";
 import { surql } from "../../../src/surreal";
-import { betterSchemic } from "../../../src/surreal/orm/client";
+import { orm } from "../../../src/surreal/orm/client";
 import {
   compileDelete,
   compileDeleteMany,
@@ -15,7 +15,7 @@ import {
 } from "../../../src/surreal/orm/compiler/mutate";
 import { createBinds } from "../../../src/surreal/orm/compiler/shared";
 import { fakeConn, ok } from "../orm-fixtures";
-import { schema } from "./orm-writes-fixtures";
+import { schemaDef } from "./orm-writes-fixtures";
 
 const code = (fn: () => unknown): string | undefined => {
   try {
@@ -27,7 +27,7 @@ const code = (fn: () => unknown): string | undefined => {
 };
 
 const { conn } = fakeConn(() => [ok([])]);
-const client = betterSchemic(conn, { schema });
+const client = orm(conn, { schema: schemaDef });
 const meta = client.$index.tables.get("users")!;
 const b = () => createBinds();
 const sql = (plan: { statements: readonly string[] }): string =>
@@ -870,14 +870,26 @@ describe("plugin scope — singular targets", () => {
     // `null` is a valid "no filter" for `where` — the scope alone must compile (regression: it
     // used to become `AND[null, scope]` and throw "empty filter").
     expect(
-      sql(compileUpdateMany(meta, { data: { name: "B" }, where: null, scope }, b())),
+      sql(
+        compileUpdateMany(
+          meta,
+          { data: { name: "B" }, where: null, scope },
+          b(),
+        ),
+      ),
     ).toContain("WHERE org_id = ");
     expect(
       sql(compileDeleteMany(meta, { where: null, scope, all: true }, b())),
     ).toContain("DELETE FROM user WHERE org_id = ");
     // A lazily-created EMPTY scope bag is a no-op, not an empty AND branch.
     expect(
-      sql(compileUpdateMany(meta, { data: { name: "B" }, where: { active: true }, scope: {} }, b())),
+      sql(
+        compileUpdateMany(
+          meta,
+          { data: { name: "B" }, where: { active: true }, scope: {} },
+          b(),
+        ),
+      ),
     ).toContain("active = ");
   });
 

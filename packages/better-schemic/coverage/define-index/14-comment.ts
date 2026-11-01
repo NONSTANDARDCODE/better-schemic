@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { table, s } from "better-schemic";
 import { cover } from "../_kit";
 
 export default cover(import.meta.url, {
@@ -7,7 +7,7 @@ export default cover(import.meta.url, {
   ddl: `DEFINE TABLE product TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD sku ON TABLE product TYPE string;
 DEFINE INDEX product_sku_idx ON TABLE product FIELDS sku COMMENT "sku lookup";`,
-  def: defineTable("product", { sku: s.string() })
+  def: table("product", { sku: s.string() })
     .schemafull()
     .index("product_sku_idx", ["sku"], { comment: "sku lookup" }),
 });

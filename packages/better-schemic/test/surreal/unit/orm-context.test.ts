@@ -2,21 +2,21 @@
 // `extends` reapplication across clones/transactions and `forkSession` isolation. Offline — the
 // "connection" is a recording fake (with optional session getters / fork support).
 import { describe, expect, test } from "bun:test";
-import { defineFunction, defineTable, s } from "../../../src/surreal";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import { isBetterSchemicError } from "../../../src/surreal/orm/errors";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { defineFunction, s, table } from "../../../src/surreal";
+import { orm } from "../../../src/surreal/orm/client";
+import { isOrmError } from "../../../src/surreal/orm/errors";
+import { schema } from "../../../src/surreal/orm/schema";
 import { caught, fakeConn, ok } from "../orm-fixtures";
 
-const User = defineTable("user", { name: s.string() });
-const schema = defineSchema({ users: User });
+const User = table("user", { name: s.string() });
+const schemaDef = schema({ users: User });
 
 const echo = (sql: string) => sql.split("\n").map((line) => ok(line));
 
 describe("$withContext — prefix scope", () => {
   test("reads are prefixed with USE NS … DB … in the same round-trip", async () => {
     const { conn, calls } = fakeConn(echo);
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const tenant = client.$withContext({
       namespace: "tenant_a",
       database: "app",
@@ -28,7 +28,7 @@ describe("$withContext — prefix scope", () => {
   test("a missing side is inherited from the session", async () => {
     const { conn, calls } = fakeConn(echo);
     Object.assign(conn, { namespace: "tenant_a", database: "app" });
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const tenant = client.$withContext({ namespace: "other" });
     await tenant.users.findMany();
     expect(calls[0]?.sql).toContain("USE NS other DB app;");
@@ -36,7 +36,7 @@ describe("$withContext — prefix scope", () => {
 
   test("a per-call context overrides the clone", async () => {
     const { conn, calls } = fakeConn(echo);
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const tenant = client.$withContext({
       namespace: "tenant_a",
       database: "app",
@@ -47,15 +47,15 @@ describe("$withContext — prefix scope", () => {
 
   test("no namespace/database anywhere is a teaching ValidationError", async () => {
     const { conn } = fakeConn(echo);
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const tenant = client.$withContext({ namespace: "tenant_a" });
     const error = await caught(() => tenant.users.findMany());
-    expect(isBetterSchemicError(error) && error.code).toBe("ValidationError");
+    expect(isOrmError(error) && error.code).toBe("ValidationError");
   });
 
   test("an unknown option fails fast", () => {
     const { conn } = fakeConn(echo);
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     expect(() =>
       client.$withContext({
         namespace: "a",
@@ -67,7 +67,7 @@ describe("$withContext — prefix scope", () => {
 
   test("changes is context-aware (SHOW CHANGES rides the USE prefix)", async () => {
     const { conn, calls } = fakeConn(echo);
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const tenant = client.$withContext({
       namespace: "tenant_a",
       database: "app",
@@ -83,7 +83,7 @@ describe("$withContext — prefix scope", () => {
 
   test("session-bound operations are rejected on a prefix clone", async () => {
     const { conn } = fakeConn(echo);
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const tenant = client.$withContext({
       namespace: "tenant_a",
       database: "app",
@@ -97,9 +97,7 @@ describe("$withContext — prefix scope", () => {
       () => tenant.kill("00000000-0000-0000-0000-000000000000"),
     ]) {
       const error = await caught(call);
-      expect(isBetterSchemicError(error) && error.code).toBe(
-        "UnsupportedCapability",
-      );
+      expect(isOrmError(error) && error.code).toBe("UnsupportedCapability");
     }
   });
 });
@@ -125,7 +123,7 @@ describe("$withContext — auth overload", () => {
         closeSession: async () => {},
       }),
     });
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const scoped = await client.$withContext({
       namespace: "tenant_a",
       database: "app",
@@ -145,8 +143,8 @@ describe("fn — key guard", () => {
     const { conn } = fakeConn(echo);
     const Call = defineFunction("call");
     expect(() =>
-      betterSchemic(conn, {
-        schema: defineSchema({ users: User, call: Call }),
+      orm(conn, {
+        schema: schema({ users: User, call: Call }),
       }),
     ).toThrow(/would shadow/);
   });
@@ -155,7 +153,7 @@ describe("fn — key guard", () => {
 describe("extends — reapplication", () => {
   test("helpers are re-applied on clones and inside transactions", async () => {
     const { conn } = fakeConn(echo);
-    const client = betterSchemic(conn, { schema }).extends({
+    const client = orm(conn, { schema: schemaDef }).extends({
       helper: () => "ok",
     });
     const tenant = client.$withContext({
@@ -172,7 +170,7 @@ describe("extends — reapplication", () => {
         cancel: async () => {},
       }),
     };
-    const txClient = betterSchemic(txConn as never, { schema }).extends({
+    const txClient = orm(txConn as never, { schema: schemaDef }).extends({
       helper: () => "ok",
     });
     const inTx = await txClient.transaction(async (tx) => {
@@ -183,7 +181,7 @@ describe("extends — reapplication", () => {
 
   test("a colliding helper fails fast", () => {
     const { conn } = fakeConn(echo);
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     expect(() => client.extends({ users: 1 })).toThrow(/collides/);
   });
 });

@@ -8,6 +8,15 @@
  */
 import { escapeIdentSafe as escapeIdent } from "../../ident";
 import type { ModelMeta, SchemaIndex } from "../meta";
+import {
+  aggregateTail,
+  assertAggregateShape,
+  assertGroupKeysProjected,
+  compileAggregateSelect,
+  directColumns,
+} from "./aggregate-entries";
+import { assertAggregateOperand } from "./aggregate-operand";
+import { compileSplitAggregate } from "./aggregate-split";
 import type { ProjectionSpec } from "./projection";
 import {
   type Binds,
@@ -22,15 +31,6 @@ import {
   renderPath,
 } from "./shared";
 import { compileWhere, mergeScope } from "./where";
-import {
-  aggregateTail,
-  assertAggregateShape,
-  assertGroupKeysProjected,
-  compileAggregateSelect,
-  directColumns,
-} from "./aggregate-entries";
-import { assertAggregateOperand } from "./aggregate-operand";
-import { compileSplitAggregate } from "./aggregate-split";
 
 /** The clauses `count`/`exists` accept (no projection/order — they don't apply). */
 export interface CountArgs {
@@ -187,13 +187,14 @@ export function compileAggregate(
   }
 
   const groupBy = assertAggregateShape(args, operation);
-  const { parts, fields, projectedKeys, hasExpression } = compileAggregateSelect(
-    meta,
-    args.select as Record<string, unknown>,
-    binds,
-    operation,
-    directColumns(meta),
-  );
+  const { parts, fields, projectedKeys, hasExpression } =
+    compileAggregateSelect(
+      meta,
+      args.select as Record<string, unknown>,
+      binds,
+      operation,
+      directColumns(meta),
+    );
   if (parts.length === 0)
     throw compileError(
       "ValidationError",

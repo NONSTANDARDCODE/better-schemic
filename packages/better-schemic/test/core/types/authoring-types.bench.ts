@@ -5,8 +5,9 @@
 // The budget guards REGRESSION — a change that makes a generic materially more expensive blows the
 // threshold and fails. Absolute counts include the imported type surface (~zod's floor), so watch
 // the DELTA, not the magnitude. Re-baseline intentionally (`bun run scripts/type-bench.ts --update`).
-import { bench } from "../../../../../scripts/type-bench";
+
 import type * as z from "zod";
+import { bench } from "../../../../../scripts/type-bench";
 import type { InnerOf, SchemaOf } from "../../../src/core/authoring";
 
 bench("InnerOf unwraps one wrapper level", () => {

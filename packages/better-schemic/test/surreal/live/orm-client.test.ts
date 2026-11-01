@@ -1,4 +1,4 @@
-// M0.5 — the /orm bootstrap against a REAL server: managed `createBetterSchemic` (connect + auth +
+// M0.5 — the /orm bootstrap against a REAL server: managed `createOrm` (connect + auth +
 // namespace/database), the managed-close rule, and `forkSession`. Ephemeral server; skipped when no
 // `surreal` binary is available.
 import { setDefaultTimeout } from "bun:test";
@@ -6,23 +6,23 @@ import { setDefaultTimeout } from "bun:test";
 setDefaultTimeout(120_000);
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { s, table } from "../../../src/surreal";
 import {
   type EphemeralServer,
   spawnEphemeralServer,
   surrealBinaryAvailable,
 } from "../../../src/surreal/cli/engine";
-import { defineTable, s } from "../../../src/surreal";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import { createBetterSchemic } from "../../../src/surreal/orm/connect";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { orm } from "../../../src/surreal/orm/client";
+import { createOrm } from "../../../src/surreal/orm/connect";
+import { schema } from "../../../src/surreal/orm/schema";
 
 const ENABLED = surrealBinaryAvailable();
 const live = describe.skipIf(!ENABLED);
 if (!ENABLED)
   console.warn("[orm-client] `surreal` binary unavailable — skipping");
 
-const User = defineTable("oc_user", { name: s.string(), age: s.int() });
-const schema = defineSchema({ users: User });
+const User = table("oc_user", { name: s.string(), age: s.int() });
+const schemaDef = schema({ users: User });
 
 live("orm client — live", () => {
   let server: EphemeralServer;
@@ -35,13 +35,13 @@ live("orm client — live", () => {
     await server?.stop();
   });
 
-  test("createBetterSchemic connects, authenticates and exposes the delegates", async () => {
-    const client = await createBetterSchemic({
+  test("createOrm connects, authenticates and exposes the delegates", async () => {
+    const client = await createOrm({
       url: server.url,
       namespace: "orm_client",
       database: "live",
       auth: { username: server.username, password: server.password },
-      schema,
+      schema: schemaDef,
     });
     expect(client.users.$model.name).toBe("oc_user");
     await client.$sdk.query(
@@ -71,7 +71,7 @@ live("orm client — live", () => {
     });
     await conn.use({ namespace: "orm_client", database: "byo" });
 
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     await client.close();
     // Still usable after close(): we don't own it.
     expect(await conn.query("RETURN 1")).toEqual([1]);
@@ -79,12 +79,12 @@ live("orm client — live", () => {
   });
 
   test("forkSession() scopes a session; closing the fork leaves the parent open", async () => {
-    const client = await createBetterSchemic({
+    const client = await createOrm({
       url: server.url,
       namespace: "orm_client",
       database: "fork",
       auth: { username: server.username, password: server.password },
-      schema,
+      schema: schemaDef,
     });
     const forked = await client.forkSession();
     expect(forked.$sdk).not.toBe(client.$sdk);

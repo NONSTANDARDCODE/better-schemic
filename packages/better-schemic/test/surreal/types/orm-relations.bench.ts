@@ -5,12 +5,12 @@
 // change that makes a generic materially more expensive blows the +20% threshold and fails.
 // Re-baseline intentionally (`bun run scripts/type-bench.ts --update`) when a change is a known, justified cost.
 import { bench } from "../../../../../scripts/type-bench";
-import { defineRelation, defineTable, s } from "../../../src/surreal";
+import { relation, s, table } from "../../../src/surreal";
 import type { IncludeArg } from "../../../src/surreal/orm/types/include";
 import type { ResultOf } from "../../../src/surreal/orm/types/select";
 import type { Where } from "../../../src/surreal/orm/types/where";
 
-const UserBase = defineTable("user", { name: s.string(), age: s.int() });
+const UserBase = table("user", { name: s.string(), age: s.int() });
 const User = UserBase.extend({
   mentor: s.recordId(() => UserBase).optional(),
   friends: s
@@ -18,12 +18,12 @@ const User = UserBase.extend({
     .array()
     .optional(),
 });
-const Post = defineTable("post", {
+const Post = table("post", {
   title: s.string(),
   published: s.boolean(),
   author: s.recordId(User),
 });
-const Likes = defineRelation("likes", { score: s.int() }).from(User).to(Post);
+const Likes = relation("likes", { score: s.int() }).from(User).to(Post);
 const schema = {
   users: User,
   posts: Post,

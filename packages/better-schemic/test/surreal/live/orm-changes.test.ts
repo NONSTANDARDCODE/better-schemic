@@ -7,13 +7,13 @@ setDefaultTimeout(120_000);
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { RecordId, type Surreal } from "surrealdb";
+import { s, table } from "../../../src/surreal";
 import {
   type EphemeralServer,
   surrealBinaryAvailable,
 } from "../../../src/surreal/cli/engine";
-import { defineTable, s } from "../../../src/surreal";
-import { betterSchemic, type Client } from "../../../src/surreal/orm/client";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { type Client, orm } from "../../../src/surreal/orm/client";
+import { schema } from "../../../src/surreal/orm/schema";
 import { startLiveServer } from "./harness";
 
 const ENABLED = surrealBinaryAvailable();
@@ -21,14 +21,14 @@ const live = describe.skipIf(!ENABLED);
 if (!ENABLED)
   console.warn("[orm-changes] `surreal` binary unavailable — skipping");
 
-const Plain = defineTable("cf_plain", { name: s.string() });
-const Orig = defineTable("cf_orig", { name: s.string() });
-const schema = defineSchema({ plain: Plain, orig: Orig });
+const Plain = table("cf_plain", { name: s.string() });
+const Orig = table("cf_orig", { name: s.string() });
+const schemaDef = schema({ plain: Plain, orig: Orig });
 
 live("orm changes — live", () => {
   let server: EphemeralServer;
   let db: Surreal;
-  let client: Client<typeof schema>;
+  let client: Client<typeof schemaDef>;
 
   beforeAll(async () => {
     const started = await startLiveServer({
@@ -43,7 +43,7 @@ live("orm changes — live", () => {
     });
     server = started.server;
     db = started.db;
-    client = betterSchemic(db, { schema });
+    client = orm(db, { schema: schemaDef });
   });
 
   afterAll(async () => {

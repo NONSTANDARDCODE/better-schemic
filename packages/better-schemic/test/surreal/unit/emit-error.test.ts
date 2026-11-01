@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import { surql } from "../../../src/surreal";
 import { fromStandalone } from "../../../src/surreal/cli/lower";
 import { buildSnapshot } from "../../../src/surreal/cli/surreal-diff";
 import { emitDefStatement, emitTable } from "../../../src/surreal/driver";
-import { surql } from "../../../src/surreal";
 import {
   defineAccess,
   defineAnalyzer,
   defineFunction,
-  defineTable,
   RecordAccessDef,
   type StandaloneDef,
   s,
+  table,
 } from "../../../src/surreal/pure";
 
 test("DEFINE ACCESS scope is a type-enforced first step (.onDatabase()/.onNamespace())", () => {
@@ -130,9 +130,9 @@ describe("incomplete definitions", () => {
 });
 
 test("a non-Surreal field type error names the field + table", () => {
-  const Bad = defineTable("widget", {
+  const Bad = table("widget", {
     id: s.string(),
-    // s.custom() has no SurrealQL mapping — defineTable rejects it at compile time (that's the
+    // s.custom() has no SurrealQL mapping — table rejects it at compile time (that's the
     // point); here we assert the RUNTIME error pins the field + table.
     // @ts-expect-error intentional no-DDL field
     blob: s.custom(),
@@ -144,7 +144,7 @@ test("a non-Surreal field type error names the field + table", () => {
 // --- DEFINE FIELD validation guards (reject combos SurrealDB's parser rejects, at gen not apply) ---
 describe("field validation guards", () => {
   const T = (field: s.Field, schemafull = true) => {
-    const t = defineTable("t", { x: field });
+    const t = table("t", { x: field });
     return () => emitTable(schemafull ? t.schemafull() : t.schemaless());
   };
 
@@ -175,7 +175,7 @@ describe("field validation guards", () => {
     // a real record link is fine:
     expect(() =>
       emitTable(
-        defineTable("t", { x: s.recordId("post").$reference() }).schemafull(),
+        table("t", { x: s.recordId("post").$reference() }).schemafull(),
       ),
     ).not.toThrow();
   });
@@ -186,7 +186,7 @@ describe("field validation guards", () => {
     );
     expect(() =>
       emitTable(
-        defineTable("t", {
+        table("t", {
           x: s.object({ a: s.string() }).flexible(),
         }).schemafull(),
       ),
@@ -196,7 +196,7 @@ describe("field validation guards", () => {
   test("a valid $computed field (alone) still emits", () => {
     expect(
       emitTable(
-        defineTable("t", {
+        table("t", {
           full: s.string().$computed(surql`a + b`),
         }).schemafull(),
       ),

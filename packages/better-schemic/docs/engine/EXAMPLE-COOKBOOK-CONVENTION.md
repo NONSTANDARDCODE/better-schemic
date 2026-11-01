@@ -69,13 +69,13 @@ emits one flat catalog:
   "source": { "commit": "<git sha>", "hash": "<content hash of entries>" },
   "entries": [
     {
-      "driver": "surrealdb",        // driver slug
-      "group": "tables",            // feature area (derived from the group file)
+      "driver": "surrealdb", // driver slug
+      "group": "tables", // feature area (derived from the group file)
       "title": "SCHEMAFULL table",
-      "note": "…",                  // optional
-      "code": "defineTable(\"user\", { … })",  // authoring source
+      "note": "…", // optional
+      "code": "table(\"user\", { … })", // authoring source
       "ddl": "DEFINE TABLE user SCHEMAFULL …", // the golden
-      "lang": "surrealql"           // DDL language for syntax highlight (surrealql | sql)
+      "lang": "surrealql" // DDL language for syntax highlight (surrealql | sql)
     }
   ]
 }

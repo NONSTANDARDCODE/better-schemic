@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { s, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -7,5 +7,5 @@ export default example(import.meta.url, {
   ddl: `DEFINE TABLE doc3 TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD body ON TABLE doc3 TYPE string;
 DEFINE INDEX doc3_body_idx ON TABLE doc3 FIELDS body FULLTEXT;`,
-  def: defineTable("doc3", { id: s.string(), body: s.string().$fulltext() }),
+  def: table("doc3", { id: s.string(), body: s.string().$fulltext() }),
 });

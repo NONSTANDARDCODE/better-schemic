@@ -8,11 +8,11 @@ setDefaultTimeout(120_000);
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Decimal, RecordId } from "surrealdb";
+import { s, surql, table } from "../../../src/surreal";
 import { surrealBinaryAvailable } from "../../../src/surreal/cli/engine";
-import { defineTable, s, surql } from "../../../src/surreal";
-import { betterSchemic, type Client } from "../../../src/surreal/orm/client";
-import type { BetterSchemicError } from "../../../src/surreal/orm/errors";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { type Client, orm } from "../../../src/surreal/orm/client";
+import type { OrmError } from "../../../src/surreal/orm/errors";
+import { schema } from "../../../src/surreal/orm/schema";
 import { caught } from "../orm-fixtures";
 import { type LiveServer, startLiveServer } from "./harness";
 
@@ -21,8 +21,8 @@ const live = describe.skipIf(!ENABLED);
 if (!ENABLED)
   console.warn("[orm-writes-delta] `surreal` binary unavailable — skipping");
 
-const Owner = defineTable("dl_owner", { name: s.string() });
-const Account = defineTable("dl_account", {
+const Owner = table("dl_owner", { name: s.string() });
+const Account = table("dl_account", {
   name: s.string(),
   balance: s.decimal(),
   count: s.int(),
@@ -30,11 +30,11 @@ const Account = defineTable("dl_account", {
   at: s.datetime().optional(),
   owner: s.recordId(() => Owner).optional(),
 }).index("dl_account_name", ["name"], { unique: true });
-const schema = defineSchema({ accounts: Account, owners: Owner });
+const schemaDef = schema({ accounts: Account, owners: Owner });
 
 live("orm upsertDelta — live", () => {
   let live_: LiveServer;
-  let client: Client<typeof schema>;
+  let client: Client<typeof schemaDef>;
 
   const base = (name: string) => ({
     name,
@@ -59,7 +59,7 @@ live("orm upsertDelta — live", () => {
         DEFINE INDEX dl_account_name ON dl_account FIELDS name UNIQUE;
       `,
     });
-    client = betterSchemic(live_.db, { schema });
+    client = orm(live_.db, { schema: schemaDef });
   });
 
   afterAll(async () => {
@@ -144,7 +144,7 @@ live("orm upsertDelta — live", () => {
         where: { id: "dl_account:strict" },
         data: base("Strict"),
       }),
-    )) as BetterSchemicError;
+    )) as OrmError;
     expect(error.code).toBe("ResultNotFound");
     expect(error.table).toBe("dl_account");
     expect(error.operation).toBe("upsertDelta");

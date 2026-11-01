@@ -1,12 +1,13 @@
 // Driver conformance — asserts the better-schemic/core Driver contract (registration + IR/exec ops) and the
 // Zod drop-in philosophy (s.* is a Zod superset with the canonical type set). Shared suite lives in
 // better-schemic/testing; each driver wires it to its own s / driver / defineEntity.
+
+import { s, table } from "better-schemic";
+import { surrealDriver } from "better-schemic/driver";
 import {
   type DriverConformanceOptions,
   describeDriverConformance,
 } from "better-schemic/testing";
-import { defineTable, s } from "better-schemic";
-import { surrealDriver } from "better-schemic/driver";
 
 describeDriverConformance({
   name: "surrealdb",
@@ -14,5 +15,5 @@ describeDriverConformance({
   // loose `Record<string, fn>` shape. The suite duck-types the canonical methods at runtime, so cast.
   s: s as unknown as DriverConformanceOptions["s"],
   driver: surrealDriver,
-  defineEntity: defineTable,
+  defineEntity: table,
 });

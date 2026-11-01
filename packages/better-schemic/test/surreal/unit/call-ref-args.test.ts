@@ -3,10 +3,10 @@
 // block chain. Simple param-path refs splice BARE (`fn::f($code)` — parens there are redundant
 // and INFO's printer strips them, so emitting them would phantom-diff DDL round-trips).
 import { describe, expect, test } from "bun:test";
-import { defineFunction, defineTable, s, surql } from "../../../src/surreal";
+import { defineFunction, s, surql, table } from "../../../src/surreal";
 import { block } from "../../../src/surreal/query";
 
-const Audit = defineTable("cra_audit", {
+const Audit = table("cra_audit", {
   who: s.string(),
   code: s.string(),
 });
@@ -57,13 +57,15 @@ const URL = process.env.SURREAL_URL;
 describe.skipIf(!URL)("call-ref-args live", () => {
   test("event block passes $code + $after refs into the fn; DDL round-trips", async () => {
     const { Surreal } = await import("surrealdb");
-    const { emitDefStatement, emitTable } = await import("../../../src/surreal/ddl");
+    const { emitDefStatement, emitTable } = await import(
+      "../../../src/surreal/ddl"
+    );
     const { explodeSchema, introspectAll } = await import(
       "../../../src/surreal/kinds/explode"
     );
     const { deepEqual } = await import("../../../src/surreal/cli/struct");
 
-    const User = defineTable("cra_user", { email: s.string() });
+    const User = table("cra_user", { email: s.string() });
     const UserV = User.event("cra_on_create", {
       when: (e) => e.event.eq("CREATE"),
       then: (e) =>
@@ -74,7 +76,10 @@ describe.skipIf(!URL)("call-ref-args live", () => {
 
     const c = new Surreal();
     await c.connect(URL as string);
-    await c.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
+    await c.signin({
+      username: process.env.SURREAL_USER ?? "root",
+      password: process.env.SURREAL_PASS ?? "root",
+    });
     await c.use({ namespace: "cra", database: "cra" });
     await c.query(
       "REMOVE TABLE IF EXISTS cra_user; REMOVE TABLE IF EXISTS cra_audit; REMOVE FUNCTION IF EXISTS fn::cra_stamp;",

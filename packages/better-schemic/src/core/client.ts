@@ -9,7 +9,7 @@ import {
   type ResolvedConfig,
   resolveConnectionConfig,
 } from "./cli-kit/config";
-import type { BetterSchemicConfig } from "./config";
+import type { OrmConfig } from "./config";
 import type { AnyConnectionEntry, ResolveContext } from "./connection";
 
 /**
@@ -53,7 +53,7 @@ export interface ResolveConnectionOptions {
  * via ITS entry's embedded client opener (so a resolver can query another connection to enumerate a
  * fleet), with CYCLE detection; everything opened during resolution is closed when it settles.
  */
-function makeRuntimeContext(config: BetterSchemicConfig, root: string) {
+function makeRuntimeContext(config: OrmConfig, root: string) {
   const opened = new Map<string, Promise<unknown>>();
   const resolving = new Set<string>();
 
@@ -168,7 +168,7 @@ export async function resolveConnection(
  * {@link resolveConnection} (disk-discovered config) and {@link connectFromConfig} (`config.connect`).
  */
 export async function resolveFromConfig(
-  config: BetterSchemicConfig,
+  config: OrmConfig,
   root: string,
   opts: { name?: string; args?: unknown } = {},
 ): Promise<{
@@ -220,7 +220,7 @@ function exactlyOne(r: {
   if (r.resolved.length !== 1) {
     throw new Error(
       `connection "${r.name}" resolved to ${r.resolved.length} configs (${r.labels.join(", ")}) — ` +
-        `a parameterized/bulk connection. Pass args selecting exactly one, e.g. betterSchemic.connect("${r.name}", { ... }).`,
+        `a parameterized/bulk connection. Pass args selecting exactly one, e.g. orm.connect("${r.name}", { ... }).`,
     );
   }
   return r.resolved[0];
@@ -230,10 +230,10 @@ function exactlyOne(r: {
  * The runtime behind `config.connect(name, args?)` (see `defineConfig`): resolve the entry from the
  * in-memory config and open its bound ORM client via the factory-embedded
  * {@link AnyConnectionEntry.client} opener. The static return type is the entry's own client type
- * (inferred per entry in `BetterSchemicProject`).
+ * (inferred per entry in `OrmProject`).
  */
 export async function connectFromConfig(
-  config: BetterSchemicConfig,
+  config: OrmConfig,
   name?: string,
   args?: unknown,
 ): Promise<unknown> {

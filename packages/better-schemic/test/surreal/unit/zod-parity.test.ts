@@ -3,8 +3,8 @@
 // drop-in for z.*, with DDL mapping to the wire/input type.
 
 import { describe, expect, test } from "bun:test";
+import { s, table } from "../../../src/surreal";
 import { emitTable } from "../../../src/surreal/driver";
-import { defineTable, s } from "../../../src/surreal";
 
 const field = (t: Parameters<typeof emitTable>[0], name: string): string =>
   emitTable(t)
@@ -13,13 +13,13 @@ const field = (t: Parameters<typeof emitTable>[0], name: string): string =>
     ?.trim()
     .replace(/ PERMISSIONS.*/, "") ?? "";
 
-const User = defineTable("user", { id: s.string(), name: s.string() });
-const Service = defineTable("service", { id: s.string() });
-const Post = defineTable("post", { id: s.string() });
+const User = table("user", { id: s.string(), name: s.string() });
+const Service = table("service", { id: s.string() });
+const Post = table("post", { id: s.string() });
 
 describe("recordId accepts table defs (no hardcoded names)", () => {
   test("single def, def array, and string back-compat", () => {
-    const T = defineTable("t", {
+    const T = table("t", {
       id: s.string(),
       a: s.recordId(User),
       b: s.recordId([User, Service]),
@@ -39,7 +39,7 @@ describe("recordId accepts table defs (no hardcoded names)", () => {
 
 describe(".or() / .and() combinators (Zod parity)", () => {
   test(".or() unions; record links compose via .record().or()", () => {
-    const T = defineTable("t", {
+    const T = table("t", {
       id: s.string(),
       u: s.string().or(s.int()),
       link: User.record().or(Post.record()),
@@ -51,7 +51,7 @@ describe(".or() / .and() combinators (Zod parity)", () => {
   });
 
   test(".or() composes with optional()", () => {
-    const T = defineTable("t", {
+    const T = table("t", {
       id: s.string(),
       m: s.recordId([User, Service]).optional(),
     });
@@ -66,12 +66,12 @@ describe("native Zod passthrough", () => {
     const name = s.string().refine((s) => s.length >= 2, "too short");
     expect(name.safeDecode("ab").success).toBe(true);
     expect(name.safeDecode("a").success).toBe(false);
-    const T = defineTable("t", { id: s.string(), name });
+    const T = table("t", { id: s.string(), name });
     expect(field(T, "name")).toBe("DEFINE FIELD name ON TABLE t TYPE string;");
   });
 
   test("a format's baked ASSERT survives a refine", () => {
-    const T = defineTable("t", {
+    const T = table("t", {
       id: s.string(),
       email: s.email().refine((s) => s.includes("@")),
     });
@@ -83,12 +83,12 @@ describe("native Zod passthrough", () => {
   test("transform changes the decoded value; DDL keeps the wire type", () => {
     const up = s.string().transform((s) => s.toUpperCase());
     expect(up.decode("hi")).toBe("HI");
-    const T = defineTable("t", { id: s.string(), up });
+    const T = table("t", { id: s.string(), up });
     expect(field(T, "up")).toBe("DEFINE FIELD up ON TABLE t TYPE string;");
   });
 
   test("brand / readonly are app-side only — DDL maps to the base type", () => {
-    const T = defineTable("t", {
+    const T = table("t", {
       id: s.string(),
       tag: s.string().brand("Tag"),
       ro: s.int().readonly(),
@@ -102,7 +102,7 @@ describe("native Zod chain methods (Tier-2: app-side, DDL unchanged)", () => {
   // The bedrock invariant: non-$ chain methods validate APP-SIDE only and must NOT touch the DDL.
   // (The $-forms remain the DB-ASSERT channel — guarded below.)
   test("string formats/length/transforms emit NO DB clause", () => {
-    const T = defineTable("t", {
+    const T = table("t", {
       id: s.string(),
       a: s.string().email(),
       b: s.string().min(3).max(10),
@@ -126,7 +126,7 @@ describe("native Zod chain methods (Tier-2: app-side, DDL unchanged)", () => {
   });
 
   test("the $-forms STILL push the DB ASSERT (two-channel split intact)", () => {
-    const T = defineTable("t", {
+    const T = table("t", {
       id: s.string(),
       m: s.string().$min(3),
       g: s.int().$gt(0),
@@ -140,7 +140,7 @@ describe("native Zod chain methods (Tier-2: app-side, DDL unchanged)", () => {
   });
 
   test("chain preserves SurrealMeta + flags (rebuild carries native forward)", () => {
-    const T = defineTable("t", {
+    const T = table("t", {
       id: s.string(),
       // $default (create-optional flag + DB DEFAULT) survives a following app-side .min()
       d: s.string().$default("x").min(1),
@@ -171,7 +171,7 @@ describe("object composition (Tier-2: SObjectField, mirrors Zod's ZodObject)", (
   const base = s.object({ a: s.string(), b: s.int().$default(0) });
 
   test(".extend() adds fields AND preserves nested $-clauses (registry maintained)", () => {
-    const T = defineTable("t", {
+    const T = table("t", {
       id: s.string(),
       o: base.extend({ c: s.boolean() }),
     });
@@ -184,8 +184,8 @@ describe("object composition (Tier-2: SObjectField, mirrors Zod's ZodObject)", (
   });
 
   test(".pick() / .omit() select keys", () => {
-    const P = defineTable("t", { id: s.string(), o: base.pick({ a: true }) });
-    const O = defineTable("t", { id: s.string(), o: base.omit({ a: true }) });
+    const P = table("t", { id: s.string(), o: base.pick({ a: true }) });
+    const O = table("t", { id: s.string(), o: base.omit({ a: true }) });
     expect(lines(P, "o")).toEqual([
       "DEFINE FIELD o ON TABLE t TYPE object;",
       "DEFINE FIELD o.a ON TABLE t TYPE string;",
@@ -197,7 +197,7 @@ describe("object composition (Tier-2: SObjectField, mirrors Zod's ZodObject)", (
   });
 
   test(".partial() makes fields optional, keeping clauses", () => {
-    const T = defineTable("t", { id: s.string(), o: base.partial() });
+    const T = table("t", { id: s.string(), o: base.partial() });
     expect(lines(T, "o")).toEqual([
       "DEFINE FIELD o ON TABLE t TYPE object;",
       "DEFINE FIELD o.a ON TABLE t TYPE option<string>;",
@@ -206,7 +206,7 @@ describe("object composition (Tier-2: SObjectField, mirrors Zod's ZodObject)", (
   });
 
   test("result stays composable + .flexible() composes (FLEXIBLE + extend)", () => {
-    const T = defineTable("t", {
+    const T = table("t", {
       id: s.string(),
       o: base.flexible().extend({ c: s.boolean() }),
     });
@@ -250,7 +250,7 @@ describe("date / enum / array Zod parity (Tier-2 last edges)", () => {
       false,
     );
     // app-side only — DDL stays `datetime` (the $-channel would be the DB form, but dates have none)
-    const T = defineTable("t", {
+    const T = table("t", {
       id: s.string(),
       w: s
         .datetime()
@@ -265,7 +265,7 @@ describe("date / enum / array Zod parity (Tier-2 last edges)", () => {
     expect(role.exclude(["guest"]).safeDecode("guest").success).toBe(false);
     expect(role.exclude(["guest"]).safeDecode("admin").success).toBe(true);
     expect(role.extract(["admin"]).safeDecode("user").success).toBe(false);
-    const T = defineTable("t", {
+    const T = table("t", {
       id: s.string(),
       ex: role.exclude(["guest"]),
       ex2: role.extract(["admin"]),
@@ -282,7 +282,7 @@ describe("date / enum / array Zod parity (Tier-2 last edges)", () => {
     expect(s.array(s.string()).length(2).safeDecode(["a", "b"]).success).toBe(
       true,
     );
-    const T = defineTable("t", {
+    const T = table("t", {
       id: s.string(),
       a: s.array(s.string()).min(2),
     });

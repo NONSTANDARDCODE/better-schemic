@@ -6,7 +6,7 @@ import {
   RecordIdRange,
 } from "surrealdb";
 import { z } from "zod";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { s, table } from "../../../src/surreal/pure";
 
 describe("recordId schema validation", () => {
   test("single table restriction", () => {
@@ -71,7 +71,7 @@ describe(".range", () => {
 
 describe("TableDef.record()", () => {
   test("derives a record<name> link carrying the id value type", () => {
-    const User = defineTable("user", { id: z.string(), name: s.string() });
+    const User = table("user", { id: z.string(), name: s.string() });
     const link = User.record();
     expect(link.tables).toEqual(["user"]);
     expect(link.for("x").table.name).toBe("user");
@@ -81,7 +81,7 @@ describe("TableDef.record()", () => {
   });
 
   test("defaults to RecordIdValue when no id field is declared", () => {
-    const Post = defineTable("post", { title: s.string() });
+    const Post = table("post", { title: s.string() });
     const link = Post.record();
     expect(link.tables).toEqual(["post"]);
     expect(link.schema.safeParse(new RecordId("post", 5)).success).toBe(true);

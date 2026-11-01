@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { buildSnapshot } from "../../../src/surreal/cli/surreal-diff";
 import { surql } from "../../../src/surreal";
+import { buildSnapshot } from "../../../src/surreal/cli/surreal-diff";
 import { defineAnalyzer, defineFunction, s } from "../../../src/surreal/pure";
 
 // An analyzer's inline `.function(input => surql`…`)` auto-defines an `<analyzer>_fn` function. That

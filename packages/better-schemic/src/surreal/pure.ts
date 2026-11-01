@@ -1,7 +1,6 @@
 // Type-only (erased at runtime, so the authoring index stays side-effect-free): a `DEFINE ACCESS` key
 // may be an env()/secret() reference instead of an inline literal.
-import type { SecretRef } from "../core";
-import { isSecretRef } from "../core/authoring";
+
 import {
   type Bound,
   BoundExcluded,
@@ -23,6 +22,8 @@ import {
   Uuid,
 } from "surrealdb";
 import { z } from "zod";
+import type { SecretRef } from "../core";
+import { isSecretRef } from "../core/authoring";
 import {
   boundedFamily,
   type CheckMethod,
@@ -1774,7 +1775,7 @@ const toZod = (v: AnyField | z.ZodType): z.ZodType =>
 
 /**
  * Internal `Flags` brand for a field with no SurrealQL mapping. It rides the `Flags` channel,
- * so it survives every wrapper (`.optional()`/`.array()`/…); `defineTable`/`defineRelation`
+ * so it survives every wrapper (`.optional()`/`.array()`/…); `table`/`relation`
  * reject a branded field at compile time, and `.$surreal(...)` clears it. (Runtime `inferField`
  * is the backstop for nested/dynamic shapes.)
  */
@@ -1834,7 +1835,7 @@ export class SObjectField<
   /** This object's native per-field SField map — the real fields (with their SurrealDB DDL metadata),
    *  the inverse of {@link SObjectField.shape} (which returns the erased Zod shape). Stays in sync
    *  through `.extend`/`.merge`/`.pick`/`.omit`/`.partial`, and can be fed straight into
-   *  {@link defineTable} (e.g. to compose base/meta columns). */
+   *  {@link table} (e.g. to compose base/meta columns). */
   get fields(): S {
     return this.sourceFields as unknown as S;
   }
@@ -1966,9 +1967,9 @@ export class SEnumField<
  * arrow in the `s` literal) so `RecordRefName<T>`'s inference never resolves through the very
  * object literal it is being inferred for.
  */
-function recordIdField<
-  T extends string | AnyTable | (() => AnyTable),
->(table?: T | readonly T[]): RecordIdField<RecordRefName<T>> {
+function recordIdField<T extends string | AnyTable | (() => AnyTable)>(
+  table?: T | readonly T[],
+): RecordIdField<RecordRefName<T>> {
   const targets = (
     table === undefined ? [] : Array.isArray(table) ? table : [table]
   ) as readonly (string | (() => unknown) | { readonly name: string })[];
@@ -2470,7 +2471,7 @@ type RequiredShape<S extends Shape> = { [K in keyof S]: Unwrap<Fields<S>[K]> };
 /**
  * Renameable field-name refs for the `.index(name, t => [t.a, t.b])` callback form. A HOMOMORPHIC
  * mapped type (`{ [K in keyof S]: K }`), so the LSP links each `t.<field>` back to its definition in
- * the `defineTable(…)` shape — enabling go-to-definition and rename, which a `["a","b"]` string array
+ * the `table(…)` shape — enabling go-to-definition and rename, which a `["a","b"]` string array
  * cannot. Each property's value IS its own name, so the callback returns plain field-name strings.
  */
 export type FieldRefs<S extends Shape> = { readonly [K in keyof S]: K };
@@ -3131,9 +3132,9 @@ export interface PresetIndex extends IndexOptions {
 /**
  * A reusable, composable table PRESET — a bundle of `columns` + `permissions` + `events` + `indexes`
  * stamped onto a table via {@link TableDef.use}. A preset EMITS nothing on its own (it composes onto a
- * table), which is why it hangs off {@link defineTable.preset} rather than the `define*` family.
+ * table), which is why it hangs off {@link table.preset} rather than the `define*` family.
  * Configurable presets are plain functions returning one:
- * `const tenant = (field: string) => defineTable.preset({ columns: { [field]: … }, permissions: … })`.
+ * `const tenant = (field: string) => table.preset({ columns: { [field]: … }, permissions: … })`.
  */
 export interface TablePreset<Cols extends Shape = {}> {
   /** Columns the preset adds — typed-merged into the table. A name clash with the table or another
@@ -3159,7 +3160,7 @@ type IsAny<T> = 0 extends 1 & T ? true : false;
 /** Surfaced (as a compile error on the `.use(...)` argument) when a preset column collides with a table
  *  column. `.use` still returns a plain `TableDef`, so it stays a clean `AnyTable` subtype. */
 export interface PresetColumnConflict<K> {
-  readonly __betterSchemicPresetColumnConflict: K;
+  readonly __ormPresetColumnConflict: K;
 }
 /** Constrain a `.use(...)` argument: if the preset's columns clash with the table's, intersect the
  *  marker so the passed preset no longer matches (a compile error naming the conflicting key). The
@@ -3486,9 +3487,7 @@ export class TableDef<
   }
 
   // --- DDL config (chainable, immutable) ---
-  private withConfig(
-    config: Partial<TableConfig>,
-  ): TableDef<Name, S, Unique> {
+  private withConfig(config: Partial<TableConfig>): TableDef<Name, S, Unique> {
     return new TableDef<Name, S, Unique>(this.name, this.fields, {
       ...this.config,
       ...config,
@@ -3533,7 +3532,7 @@ export class TableDef<
    *
    * An explicit `id` in the payload ALWAYS wins, singleton tables keep their fixed id, and an
    * explicit `id: s.uuid()`/`s.ulid()` field defaults to the matching strategy (a conflicting
-   * `.idStrategy(...)` is rejected by `defineSchema`). Generation happens on the SERVER
+   * `.idStrategy(...)` is rejected by `schema`). Generation happens on the SERVER
    * (`type::record(<table>, rand::ulid())` / an `id` expression field), so it needs no client
    * dependency. It emits NO DDL: `sc diff`/migrations never see it, raw SQL and writes outside
    * the ORM keep the server default, and `sc pull` cannot recover it from the database.
@@ -3618,7 +3617,7 @@ export class TableDef<
   // --- Shape ops (mirror Zod's object methods; carry DDL metadata + config) ---
   /** Add columns — a typed, cast-free column mixin. Accepts a raw field map OR an `s.object()` (its
    *  native `.fields` are used); added columns win on key conflict, the smart `id` is preserved. Use
-   *  it to compose reusable base/meta columns: `defineTable("customer", fields).extend(auditColumns)`. */
+   *  it to compose reusable base/meta columns: `table("customer", fields).extend(auditColumns)`. */
   extend<E extends Shape>(
     ext: E | SObjectField<E>,
   ): TableDef<Name, Omit<S, keyof E> & E> {
@@ -3635,7 +3634,7 @@ export class TableDef<
   }
   /**
    * Apply a {@link TablePreset | preset} — a reusable bundle of columns + permissions + events + indexes
-   * (`defineTable("post", fields).use(tenant("org_id")).use(timestamps())`). Its columns typed-merge into
+   * (`table("post", fields).use(tenant("org_id")).use(timestamps())`). Its columns typed-merge into
    * the table (fully typed at any depth — **chain** `.use(a).use(b)` for several); permissions per-op
    * AND-combine (narrow, never widen); events + indexes append (a `{table}` placeholder in their
    * names interpolates to the table name); opaque `meta` merges (later presets win per key). A
@@ -4112,15 +4111,15 @@ type RejectBadId<S extends Shape> = "id" extends keyof S
       }
   : unknown;
 
-// biome-ignore lint/complexity/noBannedTypes: `{}` is the empty default shape — a bare table (just `id`), like defineRelation.
-export function defineTable<Name extends string, S extends Shape = {}>(
+// biome-ignore lint/complexity/noBannedTypes: `{}` is the empty default shape — a bare table (just `id`), like relation.
+export function table<Name extends string, S extends Shape = {}>(
   name: Name,
   // A no-DDL field / bad id in the raw-map form is rejected at compile time (`RejectNoDdl` +
   // `RejectBadId`); the callback form keeps its precise `S` inference (a `& RejectNoDdl<S>` in a
   // function-return position collapses it), so a no-DDL field there is caught by the runtime
   // `inferField` backstop instead. The `s.object()` form is accepted too (its native `.fields` map is
   // unwrapped) so a schema can be composed then turned into a table. Omitting `shape` gives a bare
-  // table (just the implicit `id`) — same as `defineRelation(name)`.
+  // table (just the implicit `id`) — same as `relation(name)`.
   shape?:
     | (S & RejectNoDdl<S> & RejectBadId<S>)
     | ((self: RecordIdField<Name>) => S)
@@ -4184,7 +4183,7 @@ export type SingletonIdOf<TD> =
  * The fixed key types through the shape (the id field's value type is the string literal), so
  * the id-optional overloads survive presets and chaining.
  */
-// biome-ignore lint/complexity/noBannedTypes: `{}` is the empty default shape, like defineTable.
+// biome-ignore lint/complexity/noBannedTypes: `{}` is the empty default shape, like table.
 export function defineSingleton<
   Name extends string,
   S extends Shape = {},
@@ -4220,10 +4219,10 @@ export function defineSingleton<
 /**
  * Define a reusable {@link TablePreset} — a composable bundle of `columns` / `permissions` / `events` /
  * `indexes` applied to a table via {@link TableDef.use}. Wrap it in a plain function to make it
- * configurable: `const tenant = (field: string) => defineTable.preset({ … })`. (It hangs off
- * `defineTable` rather than being a `define*` of its own because a preset emits no DDL by itself.)
+ * configurable: `const tenant = (field: string) => table.preset({ … })`. (It hangs off
+ * `table` rather than being a `define*` of its own because a preset emits no DDL by itself.)
  */
-defineTable.preset = <Cols extends Shape = {}>(
+table.preset = <Cols extends Shape = {}>(
   preset: TablePreset<Cols>,
 ): TablePreset<Cols> => preset;
 
@@ -4539,7 +4538,7 @@ export class RelationDef<
  * Define a graph relation (edge table). Endpoints are optional — the result is a usable table
  * right away; chain `.from(X).to(Y)` to restrict the `in`/`out` records.
  */
-export function defineRelation<Name extends string, S extends Shape = {}>(
+export function relation<Name extends string, S extends Shape = {}>(
   name: Name,
   fields?: S & RejectNoDdl<S>,
 ): RelationDef<Name, S> {

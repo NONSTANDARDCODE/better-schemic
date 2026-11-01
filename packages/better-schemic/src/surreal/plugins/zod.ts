@@ -5,7 +5,7 @@
  *
  * ```ts
  * import { zod } from "./zod";
- * const client = betterSchemic(db, {
+ * const client = orm(db, {
  *   schema,
  *   plugins: [zod({ schemas: { user: z.object({ email: z.email() }) } })],
  * });
@@ -13,7 +13,7 @@
  */
 import type { z } from "zod";
 import { stripAdjustments } from "../orm/arithmetic";
-import { BetterSchemicError } from "../orm/errors";
+import { OrmError } from "../orm/errors";
 import { isCreateOperation, isUpdateOperation } from "../orm/hooks";
 import { definePlugin } from "../orm/plugins";
 import type { Plugin } from "../orm/types/plugins";
@@ -43,7 +43,7 @@ function validateData(
     const issue = result.error.issues[0];
     const path = issue?.path?.join(".");
     const where = Array.isArray(data) ? ` (item ${index})` : "";
-    throw new BetterSchemicError(
+    throw new OrmError(
       "ValidationError",
       `zod: ${operation} on "${table}"${where}${path ? ` at "${path}"` : ""}: ${issue?.message ?? "invalid data"}.`,
       { operation, table, field: path, details: result.error.issues },

@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { s, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -8,7 +8,7 @@ export default example(import.meta.url, {
 DEFINE FIELD a ON TABLE pr TYPE string;
 DEFINE FIELD b ON TABLE pr TYPE string;
 DEFINE INDEX ab ON TABLE pr FIELDS a, b;`,
-  def: defineTable("pr", {
+  def: table("pr", {
     id: s.string(),
     a: s.string(),
     b: s.string(),

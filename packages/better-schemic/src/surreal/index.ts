@@ -146,15 +146,6 @@ export const surql: typeof surqlTag & {
   >,
   fn,
 });
-// Secret references for `DEFINE ACCESS` keys — `.jwt({ key: env("JWT_SECRET") })`. Re-exported from
-// core's SIDE-EFFECT-FREE authoring subpath (so this index stays side-effect-free); the value resolves
-// at apply via a SecretProvider and is never in source or migration files.
-export {
-  env,
-  isSecretRef,
-  type SecretRef,
-  secret,
-} from "../core/authoring";
 export type { RecordIdValue, SurrealSession } from "surrealdb";
 // The SDK surface apps need, re-exported so an app never has to depend on "surrealdb" directly —
 // importing it from HERE guarantees a SINGLE package instance (the SDK's #private classes are
@@ -173,6 +164,15 @@ export {
   Table,
   Uuid,
 } from "surrealdb";
+// Secret references for `DEFINE ACCESS` keys — `.jwt({ key: env("JWT_SECRET") })`. Re-exported from
+// core's SIDE-EFFECT-FREE authoring subpath (so this index stays side-effect-free); the value resolves
+// at apply via a SecretProvider and is never in source or migration files.
+export {
+  env,
+  isSecretRef,
+  type SecretRef,
+  secret,
+} from "../core/authoring";
 // The catalog's arg/result types — `Frag<T>` is the typed-fragment alias (the `[T]` rule).
 export type { FnArg, Frag } from "./fn";
 export type {
@@ -231,10 +231,8 @@ export {
   defineEvent,
   defineFunction,
   defineParam,
-  defineRelation,
   defineSequence,
   defineSingleton,
-  defineTable,
   defineView,
   EventDef,
   FunctionDef,
@@ -253,12 +251,14 @@ export {
   RecordIdField,
   RelationDef,
   range,
+  relation,
   SequenceDef,
   SField,
   SystemView,
   s,
   surrealTypeRegistry,
   TableDef,
+  table,
   UnscopedAccessDef,
   ViewBuilder,
 } from "./pure";

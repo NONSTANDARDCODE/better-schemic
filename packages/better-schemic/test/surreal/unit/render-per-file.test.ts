@@ -53,7 +53,7 @@ describe("renderPerFile", () => {
     expect(post).toContain(`import { User } from "./user";`);
     expect(post).toContain("author: User.record()");
     const user = files.get("tables/user.ts") ?? "";
-    expect(user).toContain("export const User = defineTable(");
+    expect(user).toContain("export const User = table(");
     expect(user).not.toContain("import { User }");
   });
 
@@ -101,9 +101,7 @@ describe("renderPerFile", () => {
     expect(out).not.toContain(".$default(surql`false`)");
     // surql is imported from surrealdb, NOT folded into the better-schemic/core import.
     expect(out).toContain(`import { surql } from "surrealdb";`);
-    expect(out).toContain(
-      `import { s, defineTable } from "better-schemic";`,
-    );
+    expect(out).toContain(`import { s, table } from "better-schemic";`);
   });
 
   test("a record field's REFERENCE round-trips to .$reference(...) (VALUE preserved)", () => {
@@ -298,7 +296,7 @@ describe("pull reverses native codecs / string formats", () => {
       params: [],
     };
     const out = renderPerFile(db, (_k, n) => `${n}.ts`).get("order.ts") ?? "";
-    expect(out).toContain("export const Order = defineTable(");
+    expect(out).toContain("export const Order = table(");
     expect(out).toContain('in: s.recordId("person")');
     expect(out).toContain('out: s.recordId("product")');
   });
@@ -325,7 +323,7 @@ describe("pull reverses native codecs / string formats", () => {
       params: [],
     };
     const out = renderPerFile(db, (_k, n) => `${n}.ts`).get("likes.ts") ?? "";
-    expect(out).toContain("export const Likes = defineRelation(");
+    expect(out).toContain("export const Likes = relation(");
     expect(out).toContain("since: s.datetime()");
     expect(out).not.toContain("in: s.recordId");
     expect(out).not.toContain("out: s.recordId");

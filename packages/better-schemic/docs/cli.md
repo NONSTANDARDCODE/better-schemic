@@ -31,22 +31,22 @@ sc status           # show applied vs pending
 
 ## Commands
 
-| Command | What it does |
-| --- | --- |
-| `init` | Scaffold a project — config, schema, seed, `.env.example`. |
-| `gen [name]` | Write a migration from the schema diff. |
-| `migrate [count]` | Apply pending migrations — all, the next N, or `--to <tag>` (alias: `up`). |
-| `rollback [count]` | Revert applied migrations, newest first (alias: `down`). |
-| `status` | Show applied vs pending migrations (`--json` for machine output). |
-| `diff` | Preview pending changes without writing a migration (`--live` to compare against the database). |
-| `push` | Apply the schema directly — no migration files (alias: `sync`). |
-| `pull` | Introspect a live database back into your schema files. |
-| `new <kind> <name>` | Scaffold a blank, hand-written migration. |
-| `check` | Replay migrations in a throwaway engine to confirm they reproduce the schema. |
-| `seed` | Run the project's seed script against a connection. |
-| `doctor` | Print the resolved config and test the connection. |
-| `snapshot reset` | Clear the migration snapshot. |
-| `unlock` | Release a stale migration lock. |
+| Command             | What it does                                                                                    |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| `init`              | Scaffold a project — config, schema, seed, `.env.example`.                                      |
+| `gen [name]`        | Write a migration from the schema diff.                                                         |
+| `migrate [count]`   | Apply pending migrations — all, the next N, or `--to <tag>` (alias: `up`).                      |
+| `rollback [count]`  | Revert applied migrations, newest first (alias: `down`).                                        |
+| `status`            | Show applied vs pending migrations (`--json` for machine output).                               |
+| `diff`              | Preview pending changes without writing a migration (`--live` to compare against the database). |
+| `push`              | Apply the schema directly — no migration files (alias: `sync`).                                 |
+| `pull`              | Introspect a live database back into your schema files.                                         |
+| `new <kind> <name>` | Scaffold a blank, hand-written migration.                                                       |
+| `check`             | Replay migrations in a throwaway engine to confirm they reproduce the schema.                   |
+| `seed`              | Run the project's seed script against a connection.                                             |
+| `doctor`            | Print the resolved config and test the connection.                                              |
+| `snapshot reset`    | Clear the migration snapshot.                                                                   |
+| `unlock`            | Release a stale migration lock.                                                                 |
 
 Run `sc <command> --help` for flags.
 

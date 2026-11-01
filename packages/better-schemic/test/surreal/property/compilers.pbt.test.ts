@@ -16,7 +16,10 @@ import { describe, expect, test } from "bun:test";
 import fc from "fast-check";
 import { escapeIdent } from "surrealdb";
 import { formatAssert, formatForAssert } from "../../../src/surreal/checks";
-import { emitSurqlType, parseSurqlType } from "../../../src/surreal/driver/surql-type";
+import {
+  emitSurqlType,
+  parseSurqlType,
+} from "../../../src/surreal/driver/surql-type";
 import { escapeIdentSafe, unescapeIdPart } from "../../../src/surreal/ident";
 import {
   createBinds,
@@ -32,7 +35,7 @@ import {
   splitRecordId,
 } from "../../../src/surreal/orm/compiler/shared";
 import { compileWhere } from "../../../src/surreal/orm/compiler/where";
-import { BetterSchemicError } from "../../../src/surreal/orm/errors";
+import { OrmError } from "../../../src/surreal/orm/errors";
 
 const RUNS = Number(process.env.PBT_RUNS ?? 100);
 const SEED = process.env.PBT_SEED ? Number(process.env.PBT_SEED) : undefined;
@@ -130,13 +133,13 @@ describe("compileWhere — pure compiler invariants", () => {
     );
   });
 
-  test("malformed input fails only with a teaching BetterSchemicError (never a TypeError)", () => {
+  test("malformed input fails only with a teaching OrmError (never a TypeError)", () => {
     check(
       fc.property(fc.jsonValue(), (input) => {
         try {
           compileWhere(input, createBinds());
         } catch (error) {
-          expect(error).toBeInstanceOf(BetterSchemicError);
+          expect(error).toBeInstanceOf(OrmError);
         }
       }),
     );
@@ -164,7 +167,7 @@ describe("compileWhere — pure compiler invariants", () => {
         try {
           sql = compileWhere({ [field]: { [op]: value } }, binds);
         } catch (error) {
-          expect(error).toBeInstanceOf(BetterSchemicError);
+          expect(error).toBeInstanceOf(OrmError);
           return;
         }
         expectBindTotality(sql as string, binds.vars);

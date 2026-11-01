@@ -24,9 +24,9 @@ afterAll(async () => {
 }, 120_000); // EXPLICIT: the harness's setDefaultTimeout only reaches the FIRST file (see harness.ts)
 
 const T = 180_000; // headroom for gate parallelism (parallel-suite CPU contention)
-const POST = `import { s, defineTable } from "better-schemic";
+const POST = `import { s, table } from "better-schemic";
 
-export const Post = defineTable("post", {
+export const Post = table("post", {
   id: s.string(),
   title: s.string(),
 });
@@ -254,9 +254,9 @@ e2e("3-state divergence matrix", () => {
       H.write(
         root,
         "database/schema/tables/doc.ts",
-        `import { s, defineTable } from "better-schemic";
+        `import { s, table } from "better-schemic";
 
-export const Doc = defineTable("doc", {
+export const Doc = table("doc", {
   id: s.string(),
   tags: s.object({}).loose().array(),
 });

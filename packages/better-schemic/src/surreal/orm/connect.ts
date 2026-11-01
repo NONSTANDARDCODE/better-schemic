@@ -7,33 +7,33 @@
  * Kept separate from `./client` (the runtime + BYO factory) so the lifecycle code and the
  * connection-boot policies live in one place.
  */
-import type { ResolvedConfig } from "../../core";
+
 import { Surreal } from "surrealdb";
+import type { ResolvedConfig } from "../../core";
 import { redactUrl, connect as surrealConnect } from "../connect";
 import { escapeIdentSafe as escapeIdent } from "../ident";
 import {
-  type BetterSchemicOptions,
   buildClient,
   type Client,
+  type OrmOptions,
   type SchemaArg,
 } from "./client";
 import { normalizeError } from "./errors";
 import type { Plugin } from "./types/plugins";
 import type { SchemaInput } from "./types/schema";
 
-/** Authentication for {@link createBetterSchemic}: a system user, or a record-access signin. */
-export type BetterSchemicAuth =
+/** Authentication for {@link createOrm}: a system user, or a record-access signin. */
+export type OrmAuth =
   | { readonly username: string; readonly password: string }
   | { readonly access: string; readonly variables: Record<string, unknown> };
 
-/** Options for {@link createBetterSchemic} — the managed (connect + authenticate + use) sugar. */
-export interface CreateBetterSchemicOptions<S extends SchemaInput>
-  extends BetterSchemicOptions {
+/** Options for {@link createOrm} — the managed (connect + authenticate + use) sugar. */
+export interface CreateOrmOptions<S extends SchemaInput> extends OrmOptions {
   /** The WebSocket/HTTP endpoint, e.g. `wss://localhost:8000/rpc`. */
   readonly url: string;
   readonly namespace?: string;
   readonly database?: string;
-  readonly auth?: BetterSchemicAuth;
+  readonly auth?: OrmAuth;
   /** Give up (and close) if the connection handshake doesn't complete in time. */
   readonly connectTimeoutMs?: number;
   readonly schema: SchemaArg<S>;
@@ -65,18 +65,18 @@ function withTimeout<T>(
  * bound ORM client — `close()` closes the connection it opened:
  *
  * ```ts
- * const client = await createBetterSchemic({
+ * const client = await createOrm({
  *   url: "wss://localhost:8000/rpc", namespace: "app", database: "main",
  *   auth: { username: "root", password: "root" },
  *   schema,
  * });
  * ```
  */
-export async function createBetterSchemic<
+export async function createOrm<
   S extends SchemaInput,
   const P extends readonly Plugin[] = readonly [],
 >(
-  options: CreateBetterSchemicOptions<S> & { readonly plugins?: P },
+  options: CreateOrmOptions<S> & { readonly plugins?: P },
 ): Promise<Client<S, Surreal, P>> {
   const conn = new Surreal();
   try {
@@ -86,7 +86,7 @@ export async function createBetterSchemic<
       : withTimeout(
           connecting,
           options.connectTimeoutMs,
-          `createBetterSchemic: connect to ${redactUrl(options.url)} timed out after ${options.connectTimeoutMs}ms.`,
+          `createOrm: connect to ${redactUrl(options.url)} timed out after ${options.connectTimeoutMs}ms.`,
         ));
     if (options.auth) {
       if ("access" in options.auth)
@@ -137,7 +137,7 @@ export async function createBetterSchemic<
  * client. Lazy-imported by the connection factory so authoring a config never pulls the engine.
  *
  * The config carries no schema (the schema modules live with the app), so this client exposes the
- * lifecycle + `repository()` over an EMPTY index; use `betterSchemic(conn, { schema })` for the
+ * lifecycle + `repository()` over an EMPTY index; use `orm(conn, { schema })` for the
  * typed delegates.
  */
 export async function clientFromConfig(

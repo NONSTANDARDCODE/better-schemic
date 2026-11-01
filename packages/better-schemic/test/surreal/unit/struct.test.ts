@@ -5,7 +5,10 @@ import {
   normalizeTable,
   normalizeType,
 } from "../../../src/surreal/cli/struct";
-import type { StructField, StructTable } from "../../../src/surreal/cli/structure";
+import type {
+  StructField,
+  StructTable,
+} from "../../../src/surreal/cli/structure";
 
 const field = (
   name: string,

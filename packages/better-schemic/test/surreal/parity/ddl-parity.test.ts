@@ -24,9 +24,9 @@ import {
   type AnyField,
   defineAccess,
   defineFunction,
-  defineRelation,
-  defineTable,
+  relation,
   s,
+  table,
 } from "../../../src/surreal/pure";
 
 /** DDL for a single standalone field `f` on table `t`. */
@@ -291,38 +291,37 @@ describe("types — GAPS (confirmed against the DB)", () => {
 // SECTION: TABLE CLAUSES — https://surrealdb.com/docs/surrealql/statements/define/table
 // ===========================================================================
 describe("table clauses", () => {
-  const head = (t: ReturnType<typeof defineTable>) =>
-    emitTable(t).split("\n")[0];
+  const head = (t: ReturnType<typeof table>) => emitTable(t).split("\n")[0];
 
   test("default = TYPE NORMAL SCHEMAFULL", () => {
-    expect(head(defineTable("t", { id: z.string() }))).toBe(
+    expect(head(table("t", { id: z.string() }))).toBe(
       "DEFINE TABLE t TYPE NORMAL SCHEMAFULL;",
     );
   });
 
   test("schemaless()", () => {
-    expect(head(defineTable("t", { id: z.string() }).schemaless())).toBe(
+    expect(head(table("t", { id: z.string() }).schemaless())).toBe(
       "DEFINE TABLE t TYPE NORMAL SCHEMALESS;",
     );
   });
 
   test("typeAny() -> TYPE ANY", () => {
-    expect(head(defineTable("t", { id: z.string() }).typeAny())).toBe(
+    expect(head(table("t", { id: z.string() }).typeAny())).toBe(
       "DEFINE TABLE t TYPE ANY SCHEMAFULL;",
     );
   });
 
   test("drop() + comment()", () => {
-    expect(head(defineTable("t", { id: z.string() }).schemaless().drop())).toBe(
+    expect(head(table("t", { id: z.string() }).schemaless().drop())).toBe(
       "DEFINE TABLE t TYPE NORMAL DROP SCHEMALESS;",
     );
-    expect(head(defineTable("t", { id: z.string() }).comment("hi"))).toBe(
+    expect(head(table("t", { id: z.string() }).comment("hi"))).toBe(
       'DEFINE TABLE t TYPE NORMAL SCHEMAFULL COMMENT "hi";',
     );
   });
 
   test("table PERMISSIONS folded into the DEFINE TABLE head", () => {
-    const t = defineTable("t", { id: z.string() }).permissions({
+    const t = table("t", { id: z.string() }).permissions({
       select: true,
       create: surql`$auth.id != NONE`,
     });
@@ -332,7 +331,7 @@ describe("table clauses", () => {
   });
 
   test("OVERWRITE / IF NOT EXISTS prefixes", () => {
-    const t = defineTable("t", { id: z.string() });
+    const t = table("t", { id: z.string() });
     expect(emitTable(t, { exists: "overwrite" }).split("\n")[0]).toBe(
       "DEFINE TABLE OVERWRITE t TYPE NORMAL SCHEMAFULL;",
     );
@@ -344,7 +343,7 @@ describe("table clauses", () => {
   test("CHANGEFEED clause (FIXED batch 1)", () => {
     expect(
       emitTable(
-        defineTable("cf", { id: s.string() }).changefeed("1d", {
+        table("cf", { id: s.string() }).changefeed("1d", {
           includeOriginal: true,
         }),
       ).split("\n")[0],
@@ -352,12 +351,12 @@ describe("table clauses", () => {
   });
   // FIXED (batch 2): TYPE RELATION ... ENFORCED via .enforced().
   test("TYPE RELATION ... ENFORCED via .enforced()", () => {
-    const A = defineTable("usr", { id: z.string() });
-    const rel = defineRelation("friend", {}).from(A).to(A).enforced();
+    const A = table("usr", { id: z.string() });
+    const rel = relation("friend", {}).from(A).to(A).enforced();
     expect(emitTable(rel).split("\n")[0]).toBe(
       "DEFINE TABLE friend TYPE RELATION FROM usr TO usr ENFORCED SCHEMAFULL;",
     );
-    expect(emitTable(defineRelation("rel", {}).enforced()).split("\n")[0]).toBe(
+    expect(emitTable(relation("rel", {}).enforced()).split("\n")[0]).toBe(
       "DEFINE TABLE rel TYPE RELATION ENFORCED SCHEMAFULL;",
     );
   });
@@ -366,8 +365,8 @@ describe("table clauses", () => {
 
 describe("relations", () => {
   test("restricted endpoints -> TYPE RELATION FROM a TO b", () => {
-    const A = defineTable("usr", { id: z.string() });
-    const rel = defineRelation("friend", { weight: s.number() }).from(A).to(A);
+    const A = table("usr", { id: z.string() });
+    const rel = relation("friend", { weight: s.number() }).from(A).to(A);
     const lines = emitTable(rel).split("\n");
     expect(lines[0]).toBe(
       "DEFINE TABLE friend TYPE RELATION FROM usr TO usr SCHEMAFULL;",
@@ -376,7 +375,7 @@ describe("relations", () => {
   });
 
   test("open relation -> bare TYPE RELATION (no FROM/TO)", () => {
-    expect(emitTable(defineRelation("rel", {})).split("\n")[0]).toBe(
+    expect(emitTable(relation("rel", {})).split("\n")[0]).toBe(
       "DEFINE TABLE rel TYPE RELATION SCHEMAFULL;",
     );
   });
@@ -497,14 +496,14 @@ describe("field clauses", () => {
 describe("indexes", () => {
   test("single-field plain index via .$index()", () => {
     const ddl = emitTable(
-      defineTable("t", { id: z.string(), email: s.string().$index() }),
+      table("t", { id: z.string(), email: s.string().$index() }),
     );
     expect(ddl).toContain("DEFINE INDEX t_email_idx ON TABLE t FIELDS email;");
   });
 
   test("single-field UNIQUE via .$unique()", () => {
     const ddl = emitTable(
-      defineTable("t", { id: z.string(), email: s.string().$unique() }),
+      table("t", { id: z.string(), email: s.string().$unique() }),
     );
     expect(ddl).toContain(
       "DEFINE INDEX t_email_idx ON TABLE t FIELDS email UNIQUE;",
@@ -513,7 +512,7 @@ describe("indexes", () => {
 
   test("composite UNIQUE via .index(name, fields, { unique })", () => {
     const ddl = emitTable(
-      defineTable("t", {
+      table("t", {
         id: z.string(),
         a: s.string(),
         b: s.string(),

@@ -3,11 +3,11 @@
 // Return semantics + eager guards live in `orm-writes-returns.test.ts`; fixtures are shared there.
 import { describe, expect, test } from "bun:test";
 import { RecordId } from "surrealdb";
-import { defineRelation, defineTable, s, surql } from "../../../src/surreal";
+import { relation, s, surql, table } from "../../../src/surreal";
 import type { Client } from "../../../src/surreal/orm/client";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import type { BetterSchemicError } from "../../../src/surreal/orm/errors";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { orm } from "../../../src/surreal/orm/client";
+import type { OrmError } from "../../../src/surreal/orm/errors";
+import { schema } from "../../../src/surreal/orm/schema";
 import { caught, fakeConn, ok } from "../orm-fixtures";
 import {
   codeOf,
@@ -17,7 +17,7 @@ import {
   makeClient,
   Post,
   ROW,
-  schema,
+  schemaDef,
   stable,
   User,
 } from "./orm-writes-fixtures";
@@ -99,7 +99,7 @@ describe("create", () => {
         return ok(statement === 1 ? [ROW] : []);
       }),
     );
-    const client = betterSchemic(conn, { schema }) as Client<typeof schema>;
+    const client = orm(conn, { schema: schemaDef }) as Client<typeof schemaDef>;
     const result = await client.users.createMany({
       data: [
         { id: "user:1", ...data },
@@ -119,7 +119,7 @@ describe("create", () => {
     const { conn, calls } = fakeConn((sql) =>
       sql.split("\n").map(() => ok([postRow])),
     );
-    const client = betterSchemic(conn, { schema }) as Client<typeof schema>;
+    const client = orm(conn, { schema: schemaDef }) as Client<typeof schemaDef>;
     await client.posts.create({
       data: { title: "T" },
       relate: [{ from: "user:1", edge: "likes", to: "$self" }],
@@ -569,10 +569,12 @@ describe("upsert", () => {
     expect(row).toMatchObject({ name: "A", age: 30 });
 
     const { conn } = fakeConn((sql) => sql.split("\n").map(() => ok(null)));
-    const filtered = betterSchemic(conn, { schema }) as Client<typeof schema>;
+    const filtered = orm(conn, { schema: schemaDef }) as Client<
+      typeof schemaDef
+    >;
     const error = (await caught(() =>
       filtered.users.upsert({ data }),
-    )) as BetterSchemicError;
+    )) as OrmError;
     expect(error.code).toBe("ResultNotFound");
     expect(error.message).toContain("wrote no row");
     expect(error.message).not.toContain("onMissing");
@@ -580,10 +582,10 @@ describe("upsert", () => {
 
   test("strict targeted miss keeps the onMissing teaching message", async () => {
     const { conn } = fakeConn((sql) => sql.split("\n").map(() => ok(null)));
-    const client = betterSchemic(conn, { schema }) as Client<typeof schema>;
+    const client = orm(conn, { schema: schemaDef }) as Client<typeof schemaDef>;
     const error = (await caught(() =>
       client.users.upsert({ where: { id: "user:missing" }, data: { age: 1 } }),
-    )) as BetterSchemicError;
+    )) as OrmError;
     expect(error.code).toBe("ResultNotFound");
     expect(error.message).toContain('onMissing: "throw"');
   });
@@ -764,7 +766,7 @@ describe("updateEach", () => {
         return ok(statement === 1 ? [ROW] : []);
       }),
     );
-    const client = betterSchemic(conn, { schema }) as Client<typeof schema>;
+    const client = orm(conn, { schema: schemaDef }) as Client<typeof schemaDef>;
     const skipped = await client.users.updateEach({
       data: [
         { id: "user:1", age: 1 },
@@ -897,16 +899,16 @@ describe("relate / unrelate — guards and expressions", () => {
   });
 
   test("a bare endpoint is rejected when the direction has multiple tables", () => {
-    const Multi = defineRelation("multi", { score: s.int() })
+    const Multi = relation("multi", { score: s.int() })
       .from([User, Post])
       .to(Post);
-    const multiSchema = defineSchema({
+    const multiSchema = schema({
       multi: Multi,
       users: User,
       posts: Post,
     });
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: multiSchema });
+    const client = orm(conn, { schema: multiSchema });
     expect(
       codeOf(() =>
         (client.multi as unknown as { relate: (a: unknown) => unknown }).relate(
@@ -1060,48 +1062,58 @@ describe("runtime envelopes + eager execution", () => {
 });
 
 describe("composite UNIQUE target — every upsert lowering", () => {
-  const Acct = defineTable("w_acct", {
+  const Acct = table("w_acct", {
     tenant: s.string(),
     owner: s.recordId(() => User),
     email: s.string(),
     name: s.string(),
   }).index("w_acct_idx", ["tenant", "email"], { unique: true });
-  const multi = defineSchema({ users: User, accts: Acct });
-  const row = [ {
-    id: new RecordId("w_acct", "1"),
-    tenant: "t1",
-    owner: new RecordId("user", "aeon"),
-    email: "a@x",
-    name: "A",
-  } ];
+  const multi = schema({ users: User, accts: Acct });
+  const row = [
+    {
+      id: new RecordId("w_acct", "1"),
+      tenant: "t1",
+      owner: new RecordId("user", "aeon"),
+      email: "a@x",
+      name: "A",
+    },
+  ];
 
   const clientOver = (result: unknown = row) => {
     const { conn, calls } = fakeConn((sql) =>
       sql.split("\n").map(() => ok(result)),
     );
-    return { client: betterSchemic(conn, { schema: multi }), calls };
+    return { client: orm(conn, { schema: multi }), calls };
   };
 
   const where = { tenant: "t1", email: "a@x" };
 
   test("upsert (create-or-update) targets the composite", async () => {
     const { client, calls } = clientOver();
-    await client.accts.upsert({ where, data: { name: "B" }, onMissing: "create" });
-    expect(lastCall(calls).sql).toMatch(/WHERE tenant = \$p\d+ AND email = \$p\d+/);
+    await client.accts.upsert({
+      where,
+      data: { name: "B" },
+      onMissing: "create",
+    });
+    expect(lastCall(calls).sql).toMatch(
+      /WHERE tenant = \$p\d+ AND email = \$p\d+/,
+    );
   });
 
   test("the STRICT upsert (the default) targets the composite too", async () => {
     const { client, calls } = clientOver();
     await client.accts.upsert({ where, data: { name: "B" } });
-    expect(lastCall(calls).sql).toMatch(/WHERE tenant = \$p\d+ AND email = \$p\d+/);
+    expect(lastCall(calls).sql).toMatch(
+      /WHERE tenant = \$p\d+ AND email = \$p\d+/,
+    );
   });
 
   test("a record column inside the group is coerced to RecordId", async () => {
-    const Link = defineTable("w_link", {
+    const Link = table("w_link", {
       tenant: s.string(),
       owner: s.recordId(() => User),
     }).index("w_link_idx", ["tenant", "owner"], { unique: true });
-    const schema = defineSchema({ users: User, links: Link });
+    const schemaDef = schema({ users: User, links: Link });
     const { conn, calls } = fakeConn((sql) =>
       sql.split("\n").map(() =>
         ok([
@@ -1113,7 +1125,7 @@ describe("composite UNIQUE target — every upsert lowering", () => {
         ]),
       ),
     );
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     await client.links.update({
       where: { tenant: "t1", owner: "user:aeon" },
       data: { tenant: "t2" },
@@ -1129,7 +1141,12 @@ describe("composite UNIQUE target — every upsert lowering", () => {
   test("update/delete/patch on the same composite target", async () => {
     for (const op of ["update", "delete"] as const) {
       const { client, calls } = clientOver();
-      await (client.accts as never as Record<string, (a: unknown) => Promise<unknown>>)[op](
+      await (
+        client.accts as never as Record<
+          string,
+          (a: unknown) => Promise<unknown>
+        >
+      )[op](
         op === "update"
           ? { where, data: { name: "B" } }
           : { where, return: "none" },
@@ -1142,12 +1159,12 @@ describe("composite UNIQUE target — every upsert lowering", () => {
 });
 
 describe("composite UNIQUE target — the branch/scope arms", () => {
-  const Stock = defineTable("w_stock", {
+  const Stock = table("w_stock", {
     tenant: s.string(),
     sku: s.string(),
     qty: s.int(),
   }).index("w_stock_idx", ["tenant", "sku"], { unique: true });
-  const schema = defineSchema({ users: User, stock: Stock });
+  const schemaDef = schema({ users: User, stock: Stock });
   const where = { tenant: "t1", sku: "x" };
   const row = [
     {
@@ -1159,8 +1176,10 @@ describe("composite UNIQUE target — the branch/scope arms", () => {
   ];
 
   const clientOver = () => {
-    const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok(row)));
-    return { client: betterSchemic(conn, { schema }), calls };
+    const { conn, calls } = fakeConn((sql) =>
+      sql.split("\n").map(() => ok(row)),
+    );
+    return { client: orm(conn, { schema: schemaDef }), calls };
   };
 
   test("an adjustment on a composite target lowers to the compound assignment", async () => {

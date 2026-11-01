@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { table, s } from "better-schemic";
 import { cover } from "../_kit";
 
 export default cover(import.meta.url, {
@@ -7,5 +7,5 @@ export default cover(import.meta.url, {
   ddl: `DEFINE TABLE user TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD username ON TABLE user TYPE string;
 DEFINE INDEX user_username_idx ON TABLE user FIELDS username UNIQUE;`,
-  def: defineTable("user", { username: s.string().$unique() }).schemafull(),
+  def: table("user", { username: s.string().$unique() }).schemafull(),
 });

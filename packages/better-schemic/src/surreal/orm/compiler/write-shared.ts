@@ -8,13 +8,13 @@ import { BoundQuery, Decimal, RecordId, toSurqlString } from "surrealdb";
 import { escapeIdentSafe as escapeIdent, unescapeIdPart } from "../../ident";
 import { hasRefDeep, type IdStrategy } from "../../pure";
 import { type Adjustment, adjustmentOf } from "../arithmetic";
-import {
-  type ArithmeticStep,
-  extractArithmetic,
-  setBody as buildSetBody,
-} from "./adjustment";
 import { normalizeError } from "../errors";
 import type { ModelMeta, ResolvedIdStrategy, SchemaIndex } from "../meta";
+import {
+  type ArithmeticStep,
+  setBody as buildSetBody,
+  extractArithmetic,
+} from "./adjustment";
 import { compileProjection, type ProjectionSpec } from "./projection";
 import {
   type Binds,
@@ -876,4 +876,9 @@ export function isRecordColumn(meta: ModelMeta, field: string): boolean {
 
 // The adjustment layer lives in `./adjustment`; re-exported here so a caller that already
 // imports the SET builder does not need a second import for the payload split.
-export { type ArithmeticStep, extractArithmetic, setBody, type StepOp } from "./adjustment";
+export {
+  type ArithmeticStep,
+  extractArithmetic,
+  type StepOp,
+  setBody,
+} from "./adjustment";

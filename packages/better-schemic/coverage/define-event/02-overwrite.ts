@@ -1,4 +1,4 @@
-import { defineTable, s, surql } from "better-schemic";
+import { table, s, surql } from "better-schemic";
 import { cover } from "../_kit";
 
 export default cover(import.meta.url, {
@@ -7,7 +7,7 @@ export default cover(import.meta.url, {
   ddl: `DEFINE TABLE OVERWRITE user TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD OVERWRITE email ON TABLE user TYPE string;
 DEFINE EVENT OVERWRITE email_changed ON TABLE user WHEN $before.email != $after.email THEN CREATE log SET user = $value.id;`,
-  def: defineTable("user", { email: s.string() })
+  def: table("user", { email: s.string() })
     .schemafull()
     .event("email_changed", {
       when: surql`$before.email != $after.email`,

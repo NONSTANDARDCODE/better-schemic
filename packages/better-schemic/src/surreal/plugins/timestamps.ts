@@ -12,7 +12,7 @@
  *
  * ```ts
  * import { timestamps } from "./timestamps";
- * const client = betterSchemic(db, { schema, plugins: [timestamps({ createdAt: "createdAt" })] });
+ * const client = orm(db, { schema, plugins: [timestamps({ createdAt: "createdAt" })] });
  * ```
  */
 import { surql } from "../index";

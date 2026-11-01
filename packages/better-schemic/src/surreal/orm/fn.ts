@@ -7,8 +7,9 @@
  * `$withContext` clone (`USE NS … DB …;`) and rides an open transaction. Argument values are lowered
  * by the shared compiler primitives, so a `surql` fragment composes and a plain value binds.
  */
-import { Surql } from "../frag";
+
 import { normalizeFnName } from "../fn-name";
+import { Surql } from "../frag";
 import {
   compileError,
   createBinds,
@@ -119,9 +120,7 @@ function positionalArgs(
       `${label}: pass the arguments as an object, e.g. { ${entry.args.join(", ")} } (got ${describeValue(args)}).`,
       { operation: label.startsWith("fn.expr") ? "fn.expr" : "fn.call" },
     );
-  return entry.args.map(
-    (name) => (args as Record<string, unknown>)[name],
-  );
+  return entry.args.map((name) => (args as Record<string, unknown>)[name]);
 }
 
 /** `x` -> `fn::x`; `mod::x`/`fn::x` stay as written (validated against the segment grammar). */

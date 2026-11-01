@@ -3,43 +3,40 @@
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
 import { describe, it } from "node:test";
 import { assertType } from "../../../../../scripts/type-assert";
-import {
-  defineFunction,
-  defineRelation,
-  defineTable,
-  s,
-} from "../../../src/surreal";
+import { defineFunction, relation, s, table } from "../../../src/surreal";
 import type { Client } from "../../../src/surreal/orm/client";
-import type { Delegate, RelationDelegate } from "../../../src/surreal/orm/delegate";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import type {
+  Delegate,
+  RelationDelegate,
+} from "../../../src/surreal/orm/delegate";
+import { schema } from "../../../src/surreal/orm/schema";
 import type { AnyTableDef } from "../../../src/surreal/orm/types/schema";
 
-
-const User = defineTable("user", { name: s.string() });
-const Post = defineTable("post", {
+const User = table("user", { name: s.string() });
+const Post = table("post", {
   title: s.string(),
   author: s.recordId(User),
 });
-const Likes = defineRelation("likes", { score: s.int() }).from(User).to(Post);
+const Likes = relation("likes", { score: s.int() }).from(User).to(Post);
 const greet = defineFunction("greet", { name: s.string() }).returns(s.string());
 
-const schema = defineSchema({
+const schemaDef = schema({
   users: User,
   posts: Post,
   likes: Likes,
   greet,
   audit: "audit_log",
 });
-type C = Client<typeof schema>;
+type C = Client<typeof schemaDef>;
 
 describe("Client<S> — schema keys -> delegates", () => {
   it("every model key resolves to a Delegate (typed per model)", () => {
-    assertType<Delegate<typeof User, typeof schema>, C["users"]>();
-    assertType<Delegate<typeof Post, typeof schema>, C["posts"]>();
+    assertType<Delegate<typeof User, typeof schemaDef>, C["users"]>();
+    assertType<Delegate<typeof Post, typeof schemaDef>, C["posts"]>();
     // A relation maps to the RelationDelegate (RELATE surface) with the schema-typed args.
-    assertType<RelationDelegate<typeof Likes, typeof schema>, C["likes"]>();
+    assertType<RelationDelegate<typeof Likes, typeof schemaDef>, C["likes"]>();
     // Schemaless entries map to the loosely-typed delegate over unknown rows.
-    assertType<Delegate<AnyTableDef, typeof schema>, C["audit"]>();
+    assertType<Delegate<AnyTableDef, typeof schemaDef>, C["audit"]>();
   });
   it("model keys are part of the client type; function keys are not", () => {
     assertType<true, "users" extends keyof C ? true : false>();
@@ -51,6 +48,9 @@ describe("Client<S> — schema keys -> delegates", () => {
     assertType<readonly string[], C["tables"]>();
     assertType<Delegate, ReturnType<C["repository"]>>();
     assertType<Promise<void>, ReturnType<C["close"]>>();
-    assertType<Promise<Client<typeof schema>>, ReturnType<C["forkSession"]>>();
+    assertType<
+      Promise<Client<typeof schemaDef>>,
+      ReturnType<C["forkSession"]>
+    >();
   });
 });

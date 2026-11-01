@@ -3,7 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import { RecordId } from "surrealdb";
 import { defineParam, range, surql } from "../../../src/surreal";
-import { betterSchemic } from "../../../src/surreal/orm/client";
+import { orm } from "../../../src/surreal/orm/client";
 import {
   coerceRecordId,
   coerceRecordValue,
@@ -33,9 +33,9 @@ import {
   splitRecordId,
   uniqueFields,
 } from "../../../src/surreal/orm/compiler/shared";
-import { buildSchemaIndex, defineSchema } from "../../../src/surreal/orm/schema";
+import { buildSchemaIndex, schema } from "../../../src/surreal/orm/schema";
 import { fakeConn, ok } from "../orm-fixtures";
-import { schema, User } from "./orm-writes-fixtures";
+import { schemaDef, User } from "./orm-writes-fixtures";
 
 const code = (fn: () => unknown): string | undefined => {
   try {
@@ -213,10 +213,10 @@ describe("describeValue", () => {
 });
 
 const { conn } = fakeConn(() => [ok([])]);
-const client = betterSchemic(conn, { schema });
+const client = orm(conn, { schema: schemaDef });
 const meta = client.$index.tables.get("users")!;
-const sm = betterSchemic(fakeConn(() => [ok([])]).conn, {
-  schema: defineSchema({ audit: "audit_log" }),
+const sm = orm(fakeConn(() => [ok([])]).conn, {
+  schema: schema({ audit: "audit_log" }),
 }).$index.schemaless.get("audit")!;
 
 describe("lowering primitives", () => {

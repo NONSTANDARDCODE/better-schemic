@@ -9,7 +9,7 @@
  *
  * ```ts
  * import { createOtelLogger } from "better-schemic/otel";
- * const client = betterSchemic(db, { schema, logger: createOtelLogger() });
+ * const client = orm(db, { schema, logger: createOtelLogger() });
  * ```
  *
  * Zero cost when unused: the module only loads through `better-schemic/otel`, and the executor
@@ -112,7 +112,7 @@ function kindOf(error: unknown): string | undefined {
   return typeof kind === "string" && kind.length > 0 ? kind : undefined;
 }
 
-/** The `cause` an error wraps (a normalized `BetterSchemicError` carries the raw SDK error there). */
+/** The `cause` an error wraps (a normalized `OrmError` carries the raw SDK error there). */
 function causeOf(error: unknown): unknown {
   if (error === null || typeof error !== "object") return undefined;
   return (error as { cause?: unknown }).cause;
@@ -134,7 +134,7 @@ function numericCodeOf(error: unknown): number | undefined {
 
 /**
  * Semconv `error.type` — the class of error (low cardinality): the SDK `kind`, else a STRING code
- * (the normalized `BetterSchemicError.code`, or a raw server code), else a numeric code, else the
+ * (the normalized `OrmError.code`, or a raw server code), else a numeric code, else the
  * class name. A thrown string is a message, not a type — never emit it as `error.type`.
  */
 function errorTypeOf(error: unknown): string {
@@ -238,7 +238,7 @@ function validatedMaxText(value: number | undefined): number {
  * Build a {@link QueryLogger} that emits one OpenTelemetry client span per executor round-trip.
  *
  * ```ts
- * const client = betterSchemic(db, {
+ * const client = orm(db, {
  *   schema,
  *   logger: createOtelLogger({ captureQueryText: true }),
  * });

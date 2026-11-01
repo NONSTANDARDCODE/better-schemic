@@ -7,11 +7,11 @@ makes the **authoring layer** driver-parametric so SurrealDB can be pulled out o
 
 > **Implementation revision (B1).** The `portableBuilders` factory sketched below
 > turned out **not to be cleanly typeable**: a generic `portableBuilders<M>(mk: M)`
-> degrades each factory's return to the *base* type (`SFieldBase`), dropping the
+> degrades each factory's return to the _base_ type (`SFieldBase`), dropping the
 > dialect's `$`-methods — TypeScript has no higher-kinded types, so a generic
 > factory can't preserve the concrete subclass (`SField<Sc>`) across the call.
 > (Verified: `built.string()` types as `SFieldBase<…>`, so `.$default()` is gone.)
-> A mapped-type re-narrowing cast per dialect could recover the *non-generic*
+> A mapped-type re-narrowing cast per dialect could recover the _non-generic_
 > scalar factories, but not the generic ones (`literal`/`enum`/`object`/`array`/…),
 > and it adds `as unknown as As<Dialect>` machinery.
 >
@@ -63,7 +63,7 @@ generic, schema-changing methods is the design challenge.
 ## Approach A (chosen): portable base + dialect subclass
 
 The base class in `better-schemic/core` holds **only portable** methods plus an opaque
-`native` slot. A protected `rebuild` hook constructs the *concrete dialect* class
+`native` slot. A protected `rebuild` hook constructs the _concrete dialect_ class
 at runtime; each dialect subclass adds its native `$`-methods and `declare`-
 retypes the inherited portable wrappers (signature-only — zero runtime cost) so
 chaining preserves the dialect's type.
@@ -123,9 +123,10 @@ export function portableBuilders<F extends SField<z.ZodType, never, unknown>>(
 
 ```ts
 // ========== better-schemic: the dialect extension ==========
-export class SurrealField<S extends z.ZodType, Flags extends string = never>
-  extends SField<S, Flags, SurrealMeta>
-{
+export class SurrealField<
+  S extends z.ZodType,
+  Flags extends string = never,
+> extends SField<S, Flags, SurrealMeta> {
   protected rebuild<S2 extends z.ZodType, F2 extends string>(
     schema: S2,
     native: SurrealMeta,
@@ -141,7 +142,10 @@ export class SurrealField<S extends z.ZodType, Flags extends string = never>
 
   // Native authoring — the surql/$-methods live HERE, exactly as today:
   $default(v: z.output<S> | BoundQuery): SurrealField<S, Flags | "create"> {
-    return new SurrealField(this.schema, { ...this.native, default: toExpr(v) });
+    return new SurrealField(this.schema, {
+      ...this.native,
+      default: toExpr(v),
+    });
   }
   $assert(e?: BoundQuery): SurrealField<S, Flags> {
     /* push to native.asserts */
@@ -166,10 +170,14 @@ export interface SqlMeta {
   generated?: SqlExpr;
 }
 
-export class SqlField<S extends z.ZodType, Flags extends string = never>
-  extends SField<S, Flags, SqlMeta>
-{
-  protected rebuild<S2 extends z.ZodType, F2 extends string>(s: S2, n: SqlMeta) {
+export class SqlField<
+  S extends z.ZodType,
+  Flags extends string = never,
+> extends SField<S, Flags, SqlMeta> {
+  protected rebuild<S2 extends z.ZodType, F2 extends string>(
+    s: S2,
+    n: SqlMeta,
+  ) {
     return new SqlField<S2, F2>(s, n);
   }
   declare optional: () => SqlField<z.ZodOptional<S>, Flags>;
@@ -193,7 +201,7 @@ export const s = {
 ### Why A
 
 - Idiomatic OO; perfect IDE types across the chain.
-- Native method *sets* differ freely per dialect (surreal `$assert` vs sql `$check`)
+- Native method _sets_ differ freely per dialect (surreal `$assert` vs sql `$check`)
   — no forced union, no untyped escape hatch.
 - A new driver's authoring is a parallel ~30-line subclass + its own `s`.
 
@@ -213,15 +221,21 @@ A single `SField<S, Flags, D extends Dialect>`; the `$`-methods delegate to
 
 ```ts
 class SField<S, Flags, D extends Dialect> {
-  constructor(schema: S, readonly d: D, readonly native: D["meta"]) {}
-  optional() { return new SField(this.schema.optional(), this.d, this.native); }
+  constructor(
+    schema: S,
+    readonly d: D,
+    readonly native: D["meta"],
+  ) {}
+  optional() {
+    return new SField(this.schema.optional(), this.d, this.native);
+  }
   $default(v: z.output<S> | D["expr"]) {
     return new SField(this.schema, this.d, this.d.ops.default(this.native, v));
   }
 }
 ```
 
-Rejected: the native method *set* is fixed across all dialects (a union), so
+Rejected: the native method _set_ is fixed across all dialects (a union), so
 surreal-only `$assert` and sql-only `$check` can't coexist cleanly without an
 untyped `.$(patch)` escape hatch — a worse contributor API.
 
@@ -250,12 +264,12 @@ in phase C.
   (here it's named `SField`, not `SurrealField` — keeping the public name minimizes
   churn; it can be renamed at the physical move). No generic `portableBuilders` (see
   the revision note at the top); `s` is unchanged. Behavior identical; tests still
-  `import { s, defineTable } from "better-schemic/core"` and pass unchanged.
+  `import { s, table } from "better-schemic/core"` and pass unchanged.
 - **C — physical extraction.** Move `SField` (the extension) + natives + `ddl.ts` +
   the surreal `cli/*` modules to `better-schemic`; have core publicly export the
   authoring contract (`SFieldBase`/`TableDef`/`Shape`/`StandaloneDef`) + `Driver`/
-   portable types + `ResolvedConfig`; re-point examples/docs/tests. A second driver's authoring
-   follows as the parallel `SqlField extends SFieldBase` subclass
-   with its own per-dialect portable factories.
+  portable types + `ResolvedConfig`; re-point examples/docs/tests. A second driver's authoring
+  follows as the parallel `SqlField extends SFieldBase` subclass
+  with its own per-dialect portable factories.
 
 This is the only phase that touches import paths; B1 does not.

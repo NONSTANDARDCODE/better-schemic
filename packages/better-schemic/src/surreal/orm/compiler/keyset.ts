@@ -13,15 +13,15 @@
  * different values.
  */
 import type { ModelMeta } from "../meta";
-import { compileError, isTableMeta, pathSegments } from "./shared";
 import {
-  type ProjectionForm,
   omittedPaths,
+  type ProjectionForm,
   projectedInPlace,
   projectionForm,
   projectionKeys,
   redefinedPath,
 } from "./projection";
+import { compileError, isTableMeta, pathSegments } from "./shared";
 
 /** Where one `orderBy` field rides in the result row. */
 export interface CursorKey {

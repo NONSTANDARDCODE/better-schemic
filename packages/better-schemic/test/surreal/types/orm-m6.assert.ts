@@ -2,12 +2,12 @@
 // the delegate and `extendClient` on the client.
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
 import { describe, it } from "node:test";
-import { assertType } from "../../../../../scripts/type-assert";
 import type { Surreal } from "surrealdb";
-import { defineTable, s } from "../../../src/surreal";
+import { assertType } from "../../../../../scripts/type-assert";
+import { s, table } from "../../../src/surreal";
 import type { Client } from "../../../src/surreal/orm/client";
 import { definePlugin } from "../../../src/surreal/orm/plugins";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { schema } from "../../../src/surreal/orm/schema";
 import type {
   PluginArgs,
   PluginClientExtras,
@@ -17,9 +17,8 @@ import { createOnlyGuard as createOnlyGuardPlugin } from "../../../src/surreal/p
 import { softDelete as softDeletePlugin } from "../../../src/surreal/plugins/soft-delete";
 import { timestamps as timestampsPlugin } from "../../../src/surreal/plugins/timestamps";
 
-
-const User = defineTable("user", { name: s.string() });
-const schema = defineSchema({ users: User });
+const User = table("user", { name: s.string() });
+const schemaDef = schema({ users: User });
 
 const softDelete = definePlugin({
   id: "soft-delete",
@@ -44,8 +43,8 @@ const withClient = definePlugin({
 
 type Soft = typeof softDelete;
 type WithClient = typeof withClient;
-type C = Client<typeof schema, Surreal, [Soft]>;
-type CC = Client<typeof schema, Surreal, [WithClient]>;
+type C = Client<typeof schemaDef, Surreal, [Soft]>;
+type CC = Client<typeof schemaDef, Surreal, [WithClient]>;
 
 const findManyDeleted = (client: C) =>
   client.users.findMany({ deleted: "with" });
@@ -64,7 +63,7 @@ describe("plugins — official F2 typing", () => {
   type CO = typeof co;
 
   it("softDelete adds `deleted` to reads and restore/restoreById to the delegate", () => {
-    type CSD = Client<typeof schema, Surreal, [SD]>;
+    type CSD = Client<typeof schemaDef, Surreal, [SD]>;
     assertType<
       { deleted?: "with" | "without" | "only" },
       PluginArgs<[SD], "findMany">
@@ -100,7 +99,10 @@ describe("plugins — typing", () => {
       true,
       ReturnType<typeof findManyDeleted> extends object ? true : false
     >();
-    assertType<true, ReturnType<typeof deleteSoft> extends object ? true : false>();
+    assertType<
+      true,
+      ReturnType<typeof deleteSoft> extends object ? true : false
+    >();
   });
 
   it("extendModel methods land on the delegate", () => {

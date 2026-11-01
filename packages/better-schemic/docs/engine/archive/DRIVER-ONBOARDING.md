@@ -26,7 +26,7 @@ core internals. The contract splits into:
 - `name` — the string `config.driver` resolves to.
 - `registry: KindRegistry` — your registered KINDS (§4). Core runs lower/diff/emit/order generically
   over it and never names a kind.
-- `explode(tables, defs) => Definable[]` — fan one authored `defineTable` out into its kinded pieces
+- `explode(tables, defs) => Definable[]` — fan one authored `table` out into its kinded pieces
   (`[table, ...index, ...event/constraint]`), each tagged with `kind`. Core then lowers via
   `lowerSchema(registry, explode(...))`.
 - `introspectAll(conn, exclude?) => Promise<PortableObject[]>` — live DB -> ALL portable objects from
@@ -96,13 +96,13 @@ Fields/types are NOT a kind — they are the shared core substrate every kind co
 
 Purpose-based subpaths, so app code only bundles what it imports (`package.json#exports`):
 
-| Subpath | Contents | Side effects |
-|---|---|---|
-| `@better-schemic/<driver>` | authoring: `s.*`, `define*`, the raw-body tag; SDK value re-exports | **NONE** (pure) |
-| `@better-schemic/<driver>/connection` | the `<driver>Connection(...)` factory | none |
-| `@better-schemic/<driver>/query` | fragments & procedural SurrealQL (`block()`) | none |
-| `@better-schemic/<driver>/orm` | the repository-style ORM client (`betterSchemic`/`createBetterSchemic`, delegates, `repository`) | none |
-| `@better-schemic/<driver>/driver` | the `Driver` impl + `lower`/`emit*`/`introspect` + `registerDriver` | registers |
+| Subpath                               | Contents                                                                     | Side effects    |
+| ------------------------------------- | ---------------------------------------------------------------------------- | --------------- |
+| `@better-schemic/<driver>`            | authoring: `s.*`, `define*`, the raw-body tag; SDK value re-exports          | **NONE** (pure) |
+| `@better-schemic/<driver>/connection` | the `<driver>Connection(...)` factory                                        | none            |
+| `@better-schemic/<driver>/query`      | fragments & procedural SurrealQL (`block()`)                                 | none            |
+| `@better-schemic/<driver>/orm`        | the repository-style ORM client (`orm`/`createOrm`, delegates, `repository`) | none            |
+| `@better-schemic/<driver>/driver`     | the `Driver` impl + `lower`/`emit*`/`introspect` + `registerDriver`          | registers       |
 
 The CLI loader REQUIRES the `/driver` entry (every `@better-schemic` driver ships it since
 `0.1.0-alpha.1`). Keep `emit*`/`lower`/`introspect` OUT of the authoring index so importing `s.*` never
@@ -116,16 +116,16 @@ drags the engine into an app bundle. The SurrealDB source layout is the clean te
   `defineConfig().connection(name, factory, ...)` with accumulated typed `ctx.connections`.
   (`packages/better-schemic/docs/engine/MULTI-CONNECTION.md`.)
 - **Config-as-factory**: `defineConfig` returns the typed `connect(name, args?)`; accept default OR
-  named `betterSchemic` export (legacy: `schemic`); `better-schemic.ts` discovered (`schemic.ts` legacy).
+  named `orm` export (legacy: `schemic`); `better-schemic.ts` discovered (`schemic.ts` legacy).
 - **ORM client** at `/orm` (see the repo's [`ROADMAP.md`](../../../ROADMAP.md) for the milestone plan and
   the driver's [`docs/ORM-COVERAGE.md`](../../../packages/better-schemic/docs/ORM-COVERAGE.md) for the surface):
-  `betterSchemic(conn, { schema })` BYO / `createBetterSchemic({ url, … })` managed (BYO `close` is a
+  `orm(conn, { schema })` BYO / `createOrm({ url, … })` managed (BYO `close` is a
   NO-OP, hard rule), AsyncDisposable, one delegate per schema entry, `repository(name)` by schema key or
-  physical name, `defineSchema` as the single metadata source, `$sdk` as the raw escape hatch.
+  physical name, `schema` as the single metadata source, `$sdk` as the raw escape hatch.
 - **Fragments** at `/query`: `block()` (typed statement blocks) + the `surql` tag from authoring;
   the fluent builder and `better-schemic/core/query` were retired (M0.5).
 - **Table composition + presets**: `s.object().fields`, `TableDef.extend`, derived `.create`/`.update`
-  input schemas; `defineTable.preset(...)` applied via chained single-arg `TableDef.use(a).use(b)` —
+  input schemas; `table.preset(...)` applied via chained single-arg `TableDef.use(a).use(b)` —
   presets MUST preserve the declared id value type (don't re-derive it and drop tuple/literal ids).
 - **`defineSingleton`**: DB-enforced one-record tables with id-optional client sugar.
 - **Secrets**: `env()`/`secret()` -> value never in schema/snapshot/migration; resolved at apply as a
@@ -142,7 +142,7 @@ drags the engine into an app bundle. The SurrealDB source layout is the clean te
   real database round-trip (an ephemeral SurrealDB, a live handshake) blows past under load —
   the whole workspace's suites run sequentially in the land gate, so "under load" is the normal case.
   Prefer your package's `test` **script** (`bun test --timeout=30000`): one line, and a new test file
-  can't forget it. Explicit `setDefaultTimeout(30_000)` at the top of *every* DB-backed file also works,
+  can't forget it. Explicit `setDefaultTimeout(30_000)` at the top of _every_ DB-backed file also works,
   but drifts — the next file added silently reverts to 5s. What does NOT work is a shared harness calling
   `setDefaultTimeout()`: it only takes effect for the FIRST file that imports the harness. A test that
   times out only under load produces spurious gate failures, rolls `main` back, and blames an innocent PR.

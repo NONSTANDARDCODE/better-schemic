@@ -5,15 +5,18 @@ import { describe, expect, test } from "bun:test";
 import { DateTime, RecordId } from "surrealdb";
 import { z } from "zod";
 import { surql } from "../../../src/surreal";
-import { compileRead, type ReadArgs } from "../../../src/surreal/orm/compiler/select";
+import {
+  compileRead,
+  type ReadArgs,
+} from "../../../src/surreal/orm/compiler/select";
 import { createBinds } from "../../../src/surreal/orm/compiler/shared";
 import { decodeRow, decodeRows } from "../../../src/surreal/orm/decode";
-import type { BetterSchemicError } from "../../../src/surreal/orm/errors";
+import type { OrmError } from "../../../src/surreal/orm/errors";
 import type { ModelMeta, TableMeta } from "../../../src/surreal/orm/meta";
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { s, table } from "../../../src/surreal/pure";
 
-const User = defineTable("user", {
+const User = table("user", {
   name: s.string(),
   age: s.int(),
   at: s.datetime(),
@@ -45,7 +48,7 @@ const fullRow = (over: Record<string, unknown> = {}) => ({
 
 // A primitives-only table (fast primitives + an array of primitives) — the compiled full-row
 // decoder's happy path, where Zod is skipped entirely.
-const Plain = defineTable("plain", {
+const Plain = table("plain", {
   name: s.string(),
   count: s.int(),
   ratio: s.number(),
@@ -115,7 +118,7 @@ describe("decode — compiled fast path (full rows)", () => {
           decode({}, [plainRow(bad)], plainMeta);
           return undefined;
         } catch (e) {
-          return e as BetterSchemicError;
+          return e as OrmError;
         }
       })();
       expect(err?.code).toBe("ValidationError");
@@ -129,7 +132,7 @@ describe("decode — compiled fast path (full rows)", () => {
         decode({}, [{ id: new RecordId("plain", "p1"), name: "n" }], plainMeta);
         return undefined;
       } catch (e) {
-        return e as BetterSchemicError;
+        return e as OrmError;
       }
     })();
     expect(err?.code).toBe("ValidationError");
@@ -141,7 +144,7 @@ describe("decode — compiled fast path (full rows)", () => {
         decode({}, [plainRow({ strictTags: [] })], plainMeta);
         return undefined;
       } catch (e) {
-        return e as BetterSchemicError;
+        return e as OrmError;
       }
     })();
     expect(err?.code).toBe("ValidationError");
@@ -342,7 +345,7 @@ describe("decode — failures are teaching errors", () => {
         decode({ select: { at: true } }, [{ at: "not-a-datetime" }]);
         return undefined;
       } catch (e) {
-        return e as BetterSchemicError;
+        return e as OrmError;
       }
     })();
     expect(err?.code).toBe("ValidationError");

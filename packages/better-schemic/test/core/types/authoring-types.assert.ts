@@ -5,10 +5,9 @@
 // utility that silently drifts (a wrapper it stops unwrapping, a flag it drops) turns red here
 // instead of surfacing as a mystery inference bug downstream.
 import { describe, it } from "node:test";
-import { assertType } from "../../../../../scripts/type-assert";
 import type * as z from "zod";
+import { assertType } from "../../../../../scripts/type-assert";
 import type { InnerOf, SchemaOf } from "../../../src/core/authoring";
-
 
 describe("InnerOf — the schema one wrapper down", () => {
   it("unwraps ZodOptional", () => {

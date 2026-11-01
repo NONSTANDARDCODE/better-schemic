@@ -1,4 +1,4 @@
-import { defineTable, s, surql } from "better-schemic";
+import { table, s, surql } from "better-schemic";
 import { cover } from "../_kit";
 
 export default cover(import.meta.url, {
@@ -7,7 +7,7 @@ export default cover(import.meta.url, {
   ddl: `DEFINE TABLE user TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD email ON TABLE user TYPE string;
 DEFINE EVENT touch ON TABLE user THEN UPDATE $value.id SET seen = time::now();`,
-  def: defineTable("user", { email: s.string() })
+  def: table("user", { email: s.string() })
     .schemafull()
     .event("touch", {
       then: surql`UPDATE $value.id SET seen = time::now()`,

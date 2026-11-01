@@ -6,6 +6,10 @@ import {
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { Command, Help, Option } from "commander";
+// The CLI's own version — sourced from package.json (inlined at build) so it never drifts from the
+// published package version the way a hardcoded string does.
+import { version as CLI_VERSION } from "../../package.json";
 import {
   actionLabel,
   applyPull,
@@ -41,10 +45,6 @@ import {
   unifiedDiff,
   writeSnapshot,
 } from "../core";
-import { Command, Help, Option } from "commander";
-// The CLI's own version — sourced from package.json (inlined at build) so it never drifts from the
-// published package version the way a hardcoded string does.
-import { version as CLI_VERSION } from "../../package.json";
 // The SurrealDB driver is BUILT IN: importing its engine entry registers it with the engine registry,
 // so `getDriver("surrealdb")` always resolves. No package to install, nothing to load at runtime.
 import { DRIVER_NAME } from "../surreal/driver";
@@ -67,8 +67,8 @@ import {
 } from "./migrate";
 import { portableDiff } from "./portable-diff";
 import {
-  collectArg,
   assertDriverAvailable,
+  collectArg,
   type ResolveOpts,
   resolveOne,
   resolveTargets,

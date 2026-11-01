@@ -7,21 +7,21 @@ setDefaultTimeout(120_000);
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { RecordId, Surreal } from "surrealdb";
+import { relation, s, surql, table } from "../../../src/surreal";
 import {
   type EphemeralServer,
   spawnEphemeralServer,
   surrealBinaryAvailable,
 } from "../../../src/surreal/cli/engine";
-import { defineRelation, defineTable, s, surql } from "../../../src/surreal";
-import { betterSchemic, type Client } from "../../../src/surreal/orm/client";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { type Client, orm } from "../../../src/surreal/orm/client";
+import { schema } from "../../../src/surreal/orm/schema";
 
 const ENABLED = surrealBinaryAvailable();
 const live = describe.skipIf(!ENABLED);
 if (!ENABLED)
   console.warn("[orm-relations] `surreal` binary unavailable — skipping");
 
-const UserBase = defineTable("rl_user", {
+const UserBase = table("rl_user", {
   name: s.string(),
   age: s.int(),
   home: s.object({ city: s.string(), line: s.string() }).optional(),
@@ -33,20 +33,18 @@ const User = UserBase.extend({
     .array()
     .optional(),
 });
-const Post = defineTable("rl_post", {
+const Post = table("rl_post", {
   title: s.string(),
   published: s.boolean(),
   author: s.recordId(User),
 });
-const Likes = defineRelation("rl_likes", { score: s.int() })
-  .from(User)
-  .to(Post);
-const schema = defineSchema({ users: User, posts: Post, likes: Likes });
+const Likes = relation("rl_likes", { score: s.int() }).from(User).to(Post);
+const schemaDef = schema({ users: User, posts: Post, likes: Likes });
 
 live("orm relations — live", () => {
   let server: EphemeralServer;
   let db: Surreal;
-  let client: Client<typeof schema>;
+  let client: Client<typeof schemaDef>;
 
   beforeAll(async () => {
     server = await spawnEphemeralServer();
@@ -77,7 +75,7 @@ live("orm relations — live", () => {
       RELATE rl_user:bob->rl_likes->rl_post:p1 SET score = 3;
       RELATE rl_user:alice->rl_likes->rl_post:p2 SET score = 4;
     `);
-    client = betterSchemic(db, { schema });
+    client = orm(db, { schema: schemaDef });
   });
 
   afterAll(async () => {
@@ -385,7 +383,9 @@ live("orm relations — live", () => {
       _count: { likes: 2 },
     });
     expect(reduced.pagination.nextCursor).toBeInstanceOf(RecordId);
-    expect((reduced.pagination.nextCursor as RecordId).table?.name).toBe("rl_user");
+    expect((reduced.pagination.nextCursor as RecordId).table?.name).toBe(
+      "rl_user",
+    );
   });
 
   test("M3.5: recursion flows through a surql projection fragment", async () => {

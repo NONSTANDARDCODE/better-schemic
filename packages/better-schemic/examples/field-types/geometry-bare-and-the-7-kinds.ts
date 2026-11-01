@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { s, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -12,7 +12,7 @@ DEFINE FIELD mpt ON TABLE geo TYPE geometry<multipoint>;
 DEFINE FIELD mln ON TABLE geo TYPE geometry<multiline>;
 DEFINE FIELD mpoly ON TABLE geo TYPE geometry<multipolygon>;
 DEFINE FIELD coll ON TABLE geo TYPE geometry<collection>;`,
-  def: defineTable("geo", {
+  def: table("geo", {
     id: s.string(),
     any: s.geometry(),
     pt: s.geometry("point"),

@@ -12,16 +12,16 @@ import {
   defineAnalyzer,
   defineEvent,
   defineFunction,
-  defineRelation,
-  defineTable,
   defineView,
+  relation,
   s,
   TableDef,
+  table,
 } from "../../../src/surreal/pure";
 
 const API = {
-  defineTable,
-  defineRelation,
+  table,
+  relation,
   defineView,
   defineFunction,
   defineAccess,

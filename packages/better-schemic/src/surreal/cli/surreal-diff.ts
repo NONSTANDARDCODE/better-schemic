@@ -177,7 +177,12 @@ export function fmtDiff<
   diff.up = diff.up.map((x) => formatSurql(x));
   diff.down = diff.down.map((x) => formatSurql(x));
   for (const it of diff.items ?? []) {
-    const item = it as { ddl?: string; before?: string; after?: string; old?: string };
+    const item = it as {
+      ddl?: string;
+      before?: string;
+      after?: string;
+      old?: string;
+    };
     if (typeof item.ddl === "string") item.ddl = formatSurql(item.ddl);
     if (typeof item.before === "string") item.before = formatSurql(item.before);
     if (typeof item.after === "string") item.after = formatSurql(item.after);

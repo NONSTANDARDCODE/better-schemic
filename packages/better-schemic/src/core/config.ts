@@ -39,7 +39,7 @@ import type {
   ResolvedConnectionHandle,
 } from "./connection";
 
-export interface BetterSchemicConfig {
+export interface OrmConfig {
   /** Named database connections — each produced by a per-driver `<driver>Connection(...)` factory. */
   connections: Record<string, AnyConnectionEntry>;
   /**
@@ -54,9 +54,9 @@ export interface BetterSchemicConfig {
 }
 
 /**
- * Legacy alias — prefer {@link BetterSchemicConfig}.
+ * Legacy alias — prefer {@link OrmConfig}.
  */
-export type SchemicConfig = BetterSchemicConfig;
+export type SchemicConfig = OrmConfig;
 
 /** The bound ORM client type a {@link ConnectionEntry} opens (inferred from the driver factory). */
 // biome-ignore lint/suspicious/noExplicitAny: matching the erased Args slot.
@@ -73,11 +73,9 @@ export type EntryArgs<E> =
  * (the resolver's declared 2nd param — absent for a static/argless connection), and returns that
  * entry's own client type (a heterogeneous-driver project types per-connection). A PARAMETERIZED
  * connection whose resolver returns an ARRAY is bulk-only: `connect` throws a teaching error — pass
- * `args` selecting ONE config. The client is disposable: `await using db = await betterSchemic.connect()`.
+ * `args` selecting ONE config. The client is disposable: `await using db = await orm.connect()`.
  */
-export interface BetterSchemicProject<
-  Conns extends Record<string, AnyConnectionEntry>,
-> {
+export interface OrmProject<Conns extends Record<string, AnyConnectionEntry>> {
   connect<N extends keyof Conns & string>(
     name?: N,
     args?: EntryArgs<Conns[N]>,
@@ -86,14 +84,14 @@ export interface BetterSchemicProject<
 
 /**
  * Type + enrich a Better-schemic config: returns the config with a typed `connect()` attached — the config
- * itself is the factory. The loader accepts a `default` export OR the NAMED `betterSchemic` export
+ * itself is the factory. The loader accepts a `default` export OR the NAMED `orm` export
  * (`schemic` still loads as a legacy alias); the scaffolded form is the named one
  * (deterministic auto-import, no file rename needed):
  *
  * ```ts
  * // better-schemic.config.ts (better-schemic.ts, schemic.config.ts, and schemic.ts also load)
- * export const betterSchemic = defineConfig({ connections: { ... } });
- * // app code: import { betterSchemic } from "./better-schemic.config";  →  await using db = await betterSchemic.connect();
+ * export const orm = defineConfig({ connections: { ... } });
+ * // app code: import { orm } from "./better-schemic.config";  →  await using db = await orm.connect();
  * ```
  */
 /**
@@ -129,7 +127,7 @@ export interface ChainableDriverFactory<
  * form remains for static maps.
  */
 export interface ChainedConfig<Conns extends Record<string, AnyConnectionEntry>>
-  extends BetterSchemicProject<Conns> {
+  extends OrmProject<Conns> {
   connections: Conns;
   defaultConnection?: string;
   migrationsTable?: string;
@@ -150,24 +148,24 @@ export interface ChainedConfig<Conns extends Record<string, AnyConnectionEntry>>
 
 /** Start a CHAINED config: `defineConfig().connection("main", surrealConnection, {...})`. */
 export function defineConfig(
-  base?: Omit<BetterSchemicConfig, "connections">,
+  base?: Omit<OrmConfig, "connections">,
 ): ChainedConfig<Record<never, never>>;
 /** Type + enrich a literal config — returns it with the typed `connect()` attached. */
-export function defineConfig<const C extends BetterSchemicConfig>(
+export function defineConfig<const C extends OrmConfig>(
   config: C,
-): C & BetterSchemicProject<C["connections"]>;
+): C & OrmProject<C["connections"]>;
 export function defineConfig(
-  config?: BetterSchemicConfig | Omit<BetterSchemicConfig, "connections">,
+  config?: OrmConfig | Omit<OrmConfig, "connections">,
 ): unknown {
   const isLiteral = !!config && "connections" in config;
-  const base: BetterSchemicConfig = isLiteral
-    ? (config as BetterSchemicConfig)
+  const base: OrmConfig = isLiteral
+    ? (config as OrmConfig)
     : {
-        ...(config as Omit<BetterSchemicConfig, "connections"> | undefined),
+        ...(config as Omit<OrmConfig, "connections"> | undefined),
         connections: {},
       };
 
-  const withApi = (cfg: BetterSchemicConfig): unknown => ({
+  const withApi = (cfg: OrmConfig): unknown => ({
     ...cfg,
     async connect(name?: string, args?: unknown) {
       // Lazy: authoring/loading a config stays light; the client machinery loads only when used.
@@ -193,7 +191,7 @@ export function defineConfig(
 }
 
 /**
- * Legacy alias — prefer {@link BetterSchemicProject}.
+ * Legacy alias — prefer {@link OrmProject}.
  */
 export type SchemicProject<Conns extends Record<string, AnyConnectionEntry>> =
-  BetterSchemicProject<Conns>;
+  OrmProject<Conns>;

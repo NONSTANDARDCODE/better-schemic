@@ -12,10 +12,7 @@ import { join, resolve } from "node:path";
 const PKG = resolve(import.meta.dir, "../../..");
 
 /** Build a probe that imports `named` from `entry` and report the SOURCE FILES the bundle pulled in. */
-async function bundledSources(
-  entry: string,
-  named: string,
-): Promise<string[]> {
+async function bundledSources(entry: string, named: string): Promise<string[]> {
   const dir = mkdtempSync(join(tmpdir(), "sc-bundle-"));
   try {
     const probe = join(dir, "probe.ts");
@@ -44,7 +41,7 @@ async function bundledSources(
 
 describe("bundle purity — the authoring entry stays side-effect-free", () => {
   test("importing `s.*` pulls NEITHER the DDL emitter NOR the diff engine NOR the CLI", async () => {
-    const sources = await bundledSources(join(PKG, "src/index.ts"), "defineTable");
+    const sources = await bundledSources(join(PKG, "src/index.ts"), "table");
     const engine = sources.filter(
       (p) =>
         p.includes("/src/surreal/ddl.ts") ||
@@ -58,7 +55,10 @@ describe("bundle purity — the authoring entry stays side-effect-free", () => {
   });
 
   test("the `/driver` engine entry DOES pull the emitter (the split is real)", async () => {
-    const sources = await bundledSources(join(PKG, "src/driver.ts"), "emitTable");
+    const sources = await bundledSources(
+      join(PKG, "src/driver.ts"),
+      "emitTable",
+    );
     expect(sources.some((p) => p.endsWith("/src/surreal/ddl.ts"))).toBe(true);
   });
 });

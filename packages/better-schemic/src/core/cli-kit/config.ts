@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, dirname, resolve } from "node:path";
-import type { BetterSchemicConfig } from "../config";
+import type { OrmConfig } from "../config";
 import type { ConnectionConfigBase, ResolveContext } from "../connection";
 
 // `jiti` (its transpiler + babel) is ~60ms of module init that `sc --help`, `sc snapshot` and other
@@ -10,7 +10,7 @@ import type { ConnectionConfigBase, ResolveContext } from "../connection";
 const require_ = createRequire(import.meta.url);
 let jitiModule: typeof import("jiti") | undefined;
 
-// `better-schemic.ts` is the scaffolded name (the config IS the app's DB module — `betterSchemic.connect()`);
+// `better-schemic.ts` is the scaffolded name (the config IS the app's DB module — `orm.connect()`);
 // the legacy `schemic.config.*` / `schemic.ts` spellings keep working. Checked LAST + shape-guarded, so an unrelated
 // `./better-schemic.ts` helper module in a project never shadows a real `better-schemic.config.ts`.
 const CONFIG_NAMES = [
@@ -102,11 +102,11 @@ export function makeJiti() {
 
 let sharedJiti: ReturnType<typeof import("jiti").createJiti> | undefined;
 
-/** Find + load `better-schemic.ts` / `better-schemic.config.ts` (legacy `schemic.*` aliases included) into the dialect-neutral {@link BetterSchemicConfig}. */
+/** Find + load `better-schemic.ts` / `better-schemic.config.ts` (legacy `schemic.*` aliases included) into the dialect-neutral {@link OrmConfig}. */
 export async function loadProject(opts?: {
   config?: string;
   cwd?: string;
-}): Promise<{ config: BetterSchemicConfig; root: string }> {
+}): Promise<{ config: OrmConfig; root: string }> {
   const cwd = opts?.cwd ?? process.cwd();
   const candidates = opts?.config
     ? [resolve(cwd, opts.config)]
@@ -121,24 +121,18 @@ export async function loadProject(opts?: {
     const root = dirname(path);
     loadDotEnv(root); // populate process.env before the config module's explicit reads
     const loaded = (await jiti.import(path)) as {
-      default?: BetterSchemicConfig;
-      betterSchemic?: BetterSchemicConfig;
-      schemic?: BetterSchemicConfig;
-    } & BetterSchemicConfig;
-    // Accept a default export OR the named `betterSchemic` export (legacy: `schemic`) — the scaffolded
-    // form is the NAMED one (`export const betterSchemic = defineConfig(...)`), so app code auto-imports
-    // a deterministic identifier (`import { betterSchemic } from "./better-schemic.config"` ->
-    // `betterSchemic.connect()`). Selected by SHAPE, not presence: jiti's interopDefault makes
+      default?: OrmConfig;
+      orm?: OrmConfig;
+      schemic?: OrmConfig;
+    } & OrmConfig;
+    // Accept a default export OR the named `orm` export (legacy: `schemic`) — the scaffolded
+    // form is the NAMED one (`export const orm = defineConfig(...)`), so app code auto-imports
+    // a deterministic identifier (`import { orm } from "./better-schemic.config"` ->
+    // `orm.connect()`). Selected by SHAPE, not presence: jiti's interopDefault makes
     // `loaded.default` a truthy proxy even when the module has no real default export, so a presence
     // chain would shadow the named export.
-    const config = [
-      loaded.default,
-      loaded.betterSchemic,
-      loaded.schemic,
-      loaded,
-    ].find(
-      (c): c is BetterSchemicConfig =>
-        !!c && typeof c === "object" && "connections" in c,
+    const config = [loaded.default, loaded.orm, loaded.schemic, loaded].find(
+      (c): c is OrmConfig => !!c && typeof c === "object" && "connections" in c,
     );
     if (config?.connections && Object.keys(config.connections).length > 0) {
       return { config, root };
@@ -169,7 +163,7 @@ export async function loadProject(opts?: {
  * connection config. See docs/MULTI-CONNECTION.md.
  */
 export function resolveConnectionConfig(
-  config: BetterSchemicConfig,
+  config: OrmConfig,
   connection: string,
   conn: ConnectionConfigBase,
   driver: string,

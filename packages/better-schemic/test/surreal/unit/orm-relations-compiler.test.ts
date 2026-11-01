@@ -2,7 +2,7 @@
 // and its fail-fast guards), the edge/target split, logical-group handling and the teaching errors.
 import { describe, expect, test } from "bun:test";
 import { surql } from "../../../src/surreal";
-import { betterSchemic } from "../../../src/surreal/orm/client";
+import { orm } from "../../../src/surreal/orm/client";
 import {
   availableKeys,
   classifyWhereByOwner,
@@ -12,10 +12,10 @@ import {
   resolveEdge,
   targetMetas,
 } from "../../../src/surreal/orm/compiler/relations";
-import { defineSchema } from "../../../src/surreal/orm/schema";
-import { defineRelation, defineTable, s } from "../../../src/surreal/pure";
+import { schema } from "../../../src/surreal/orm/schema";
+import { relation, s, table } from "../../../src/surreal/pure";
 import { fakeConn, ok } from "../orm-fixtures";
-import { schema } from "./orm-writes-fixtures";
+import { schemaDef } from "./orm-writes-fixtures";
 
 const code = (fn: () => unknown): string | undefined => {
   try {
@@ -26,7 +26,7 @@ const code = (fn: () => unknown): string | undefined => {
   }
 };
 
-const client = betterSchemic(fakeConn(() => [ok([])]).conn, { schema });
+const client = orm(fakeConn(() => [ok([])]).conn, { schema: schemaDef });
 const index = client.$index;
 const user = index.tables.get("users")!;
 const post = index.tables.get("posts")!;
@@ -71,12 +71,18 @@ describe("edgeTraversal", () => {
   test("arrow + target rendering (edge-only, single, multi, wildcard)", () => {
     expect(edgeTraversal({ edge: "likes", direction: "out" })).toBe("->likes");
     expect(edgeTraversal({ edge: "likes", direction: "in" })).toBe("<-likes");
-    expect(edgeTraversal({ edge: "likes", direction: "both" })).toBe("<->likes");
+    expect(edgeTraversal({ edge: "likes", direction: "both" })).toBe(
+      "<->likes",
+    );
     expect(
       edgeTraversal({ edge: "likes", direction: "out", targets: ["post"] }),
     ).toBe("->likes->post");
     expect(
-      edgeTraversal({ edge: "likes", direction: "out", targets: ["post", "user"] }),
+      edgeTraversal({
+        edge: "likes",
+        direction: "out",
+        targets: ["post", "user"],
+      }),
     ).toBe("->likes->(post, user)");
     expect(
       edgeTraversal({ edge: "likes", direction: "out", targets: [] }),
@@ -115,7 +121,9 @@ describe("classifyWhereByOwner", () => {
   });
 
   test("edge-only field -> edge; target field -> target; unknown -> UnknownField", () => {
-    expect(classify({ score: { gt: 1 } })).toEqual({ edge: { score: { gt: 1 } } });
+    expect(classify({ score: { gt: 1 } })).toEqual({
+      edge: { score: { gt: 1 } },
+    });
     expect(classify({ name: "A" })).toEqual({ target: { name: "A" } });
     expect(code(() => classify({ nope: 1 }))).toBe("UnknownField");
   });
@@ -126,7 +134,9 @@ describe("classifyWhereByOwner", () => {
   });
 
   test("a homogeneous logical group keeps its owner; empty/mixed are rejected", () => {
-    expect(classify({ AND: [{ score: { gt: 1 } }, { score: { lt: 5 } }] })).toEqual({
+    expect(
+      classify({ AND: [{ score: { gt: 1 } }, { score: { lt: 5 } }] }),
+    ).toEqual({
       edge: { AND: [{ score: { gt: 1 } }, { score: { lt: 5 } }] },
     });
     expect(code(() => classify({ AND: [] }))).toBe("ValidationError");
@@ -149,10 +159,10 @@ describe("classifyWhereByOwner", () => {
   });
 
   test("a field on BOTH edge and target is ambiguous (non-id)", () => {
-    const U = defineTable("amb_user", { name: s.string() });
-    const E = defineRelation("amb_edge", { name: s.string() }).from(U).to(U);
-    const idx = betterSchemic(fakeConn(() => [ok([])]).conn, {
-      schema: defineSchema({ users: U, edges: E }),
+    const U = table("amb_user", { name: s.string() });
+    const E = relation("amb_edge", { name: s.string() }).from(U).to(U);
+    const idx = orm(fakeConn(() => [ok([])]).conn, {
+      schema: schema({ users: U, edges: E }),
     }).$index;
     const edge = idx.tables.get("edges")!;
     expect(
@@ -184,14 +194,14 @@ describe("classifyWhereByOwner", () => {
 
 describe("relations — extra branches", () => {
   test("findEdge matches the schema KEY, and a relation-less table has no known keys", () => {
-    const Solo = defineTable("solo", { name: s.string() });
-    const keyed = betterSchemic(fakeConn(() => [ok([])]).conn, {
-      schema: defineSchema({ users: user.def, posts: post.def, rel: likes.def }),
+    const Solo = table("solo", { name: s.string() });
+    const keyed = orm(fakeConn(() => [ok([])]).conn, {
+      schema: schema({ users: user.def, posts: post.def, rel: likes.def }),
     }).$index;
     const keyedUser = keyed.tables.get("users")!;
     expect(findEdge(keyedUser, "rel")?.name).toBe("likes");
-    const solo = betterSchemic(fakeConn(() => [ok([])]).conn, {
-      schema: defineSchema({ solo: Solo }),
+    const solo = orm(fakeConn(() => [ok([])]).conn, {
+      schema: schema({ solo: Solo }),
     }).$index.tables.get("solo")!;
     expect(code(() => resolveEdge(solo, "ghost", undefined, "op"))).toBe(
       "UnknownField",
@@ -205,20 +215,20 @@ describe("relations — extra branches", () => {
   });
 
   test("targetMetas / edgeMeta skip schemaless entries", () => {
-    const idx = betterSchemic(fakeConn(() => [ok([])]).conn, {
-      schema: defineSchema({ audit_log: "audit_log" }),
+    const idx = orm(fakeConn(() => [ok([])]).conn, {
+      schema: schema({ audit_log: "audit_log" }),
     }).$index;
     expect(targetMetas(idx, ["audit_log"])).toEqual([]);
     expect(edgeMeta(idx, "audit_log")).toBeUndefined();
   });
 
   test("ownsField follows links and edges", () => {
-    const U = defineTable("link_user", {
+    const U = table("link_user", {
       name: s.string(),
       mentor: s.recordId("link_user").optional(),
     });
-    const idx = betterSchemic(fakeConn(() => [ok([])]).conn, {
-      schema: defineSchema({ users: U }),
+    const idx = orm(fakeConn(() => [ok([])]).conn, {
+      schema: schema({ users: U }),
     }).$index;
     const u = idx.tables.get("users")!;
     expect(
@@ -282,8 +292,8 @@ describe("relations — extra branches", () => {
   });
 
   test("resolveEdge matches an incoming edge by its schema KEY", () => {
-    const keyed = betterSchemic(fakeConn(() => [ok([])]).conn, {
-      schema: defineSchema({ users: user.def, posts: post.def, rel: likes.def }),
+    const keyed = orm(fakeConn(() => [ok([])]).conn, {
+      schema: schema({ users: user.def, posts: post.def, rel: likes.def }),
     }).$index;
     const keyedPost = keyed.tables.get("posts")!;
     expect(resolveEdge(keyedPost, "rel", undefined, "op").direction).toBe("in");

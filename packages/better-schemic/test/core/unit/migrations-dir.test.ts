@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { resolveConnectionConfig } from "../../../src/core/cli-kit/config";
-import type { BetterSchemicConfig } from "../../../src/core/config";
+import type { OrmConfig } from "../../../src/core/config";
 
-const config = { connections: {} } as BetterSchemicConfig;
+const config = { connections: {} } as OrmConfig;
 const rc = (conn: { schema: string; migrations?: string }) =>
   resolveConnectionConfig(config, "default", conn, "testdriver", "/proj");
 

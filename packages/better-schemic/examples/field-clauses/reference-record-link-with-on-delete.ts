@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { s, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -6,7 +6,7 @@ export default example(import.meta.url, {
   note: "Reference integrity: REJECT | CASCADE | UNSET | IGNORE | THEN <expr>.",
   ddl: `DEFINE TABLE ref TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD author ON TABLE ref TYPE record<user> REFERENCE ON DELETE CASCADE;`,
-  def: defineTable("ref", {
+  def: table("ref", {
     id: s.string(),
     author: s.recordId("user").$reference({ onDelete: "cascade" }),
   }),

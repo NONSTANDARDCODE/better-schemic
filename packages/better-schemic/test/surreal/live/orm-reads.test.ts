@@ -7,21 +7,21 @@ setDefaultTimeout(120_000);
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { DateTime, RecordId, Surreal } from "surrealdb";
+import { s, surql, table } from "../../../src/surreal";
 import {
   type EphemeralServer,
   spawnEphemeralServer,
   surrealBinaryAvailable,
 } from "../../../src/surreal/cli/engine";
-import { defineTable, s, surql } from "../../../src/surreal";
-import { betterSchemic, type Client } from "../../../src/surreal/orm/client";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { type Client, orm } from "../../../src/surreal/orm/client";
+import { schema } from "../../../src/surreal/orm/schema";
 
 const ENABLED = surrealBinaryAvailable();
 const live = describe.skipIf(!ENABLED);
 if (!ENABLED)
   console.warn("[orm-reads] `surreal` binary unavailable — skipping");
 
-const User = defineTable("rd_user", {
+const User = table("rd_user", {
   name: s.string(),
   age: s.int(),
   active: s.boolean(),
@@ -30,21 +30,21 @@ const User = defineTable("rd_user", {
   address: s.object({ city: s.string() }),
   contacts: s.array(s.object({ type: s.string(), value: s.string() })),
 }).index("rd_idx_name", ["name"], { unique: true });
-const Event = defineTable("rd_event", {
+const Event = table("rd_event", {
   name: s.string(),
   at: s.datetime(),
 });
-const Line = defineTable("rd_line", {
+const Line = table("rd_line", {
   label: s.string(),
   quantity: s.int(),
   price: s.decimal(),
 });
-const Cart = defineTable("rd_cart", {
+const Cart = table("rd_cart", {
   name: s.string(),
   tenant: s.string(),
   lines: s.array(s.recordId(() => Line)),
 });
-const schema = defineSchema({
+const schemaDef = schema({
   users: User,
   events: Event,
   carts: Cart,
@@ -54,7 +54,7 @@ const schema = defineSchema({
 live("orm reads — live", () => {
   let server: EphemeralServer;
   let db: Surreal;
-  let client: Client<typeof schema>;
+  let client: Client<typeof schemaDef>;
 
   beforeAll(async () => {
     server = await spawnEphemeralServer();
@@ -104,7 +104,7 @@ live("orm reads — live", () => {
       CREATE rd_cart:c1 SET name = "Ana", tenant = "t1", lines = [rd_line:l1, rd_line:l2];
       CREATE rd_cart:c2 SET name = "Bo", tenant = "t1", lines = [rd_line:l3];
     `);
-    client = betterSchemic(db, { schema });
+    client = orm(db, { schema: schemaDef });
   });
 
   afterAll(async () => {

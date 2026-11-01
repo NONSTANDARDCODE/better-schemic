@@ -1,12 +1,16 @@
 // The ANSI styling helper — the COLOR-ON path (TTY + NO_COLOR unset) and the color-OFF fallback.
 // `process.stdout.isTTY` is a getter, so it is overridden with `Object.defineProperty` and restored.
 import { afterEach, describe, expect, test } from "bun:test";
-import { colorEnabled, fail, ok, plural, style } from "../../../src/core/cli-kit/style";
+import {
+  colorEnabled,
+  fail,
+  ok,
+  plural,
+  style,
+} from "../../../src/core/cli-kit/style";
 
-const realIsTTY = Object.getOwnPropertyDescriptor(
-  process.stdout,
-  "isTTY",
-)?.value as boolean | undefined;
+const realIsTTY = Object.getOwnPropertyDescriptor(process.stdout, "isTTY")
+  ?.value as boolean | undefined;
 
 function setIsTTY(v: boolean): void {
   Object.defineProperty(process.stdout, "isTTY", {

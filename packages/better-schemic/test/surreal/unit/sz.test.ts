@@ -3,12 +3,12 @@ import { RecordId } from "surrealdb";
 import { z } from "zod";
 import { emitStatements, fieldType } from "../../../src/surreal/ddl";
 import {
-  defineTable,
   objectFieldsRegistry,
   RecordIdField,
   SField,
   s,
   surrealTypeRegistry,
+  table,
 } from "../../../src/surreal/pure";
 
 const defType = (f: SField) => (f.schema._zod.def as { type: string }).type;
@@ -94,7 +94,7 @@ describe("non-Surreal types: present for z.* parity, rejected as table fields", 
     expect(() =>
       emitStatements(
         // @ts-expect-error - s.symbol() is also rejected at the type level
-        defineTable("t", { x: s.symbol() }),
+        table("t", { x: s.symbol() }),
       ),
     ).toThrow(/no SurrealQL type/);
   });
@@ -126,7 +126,7 @@ describe("$surreal — declare a DDL type + optional codec", () => {
     expect(price.decode("199")).toBeInstanceOf(Money);
     // accepted as a table field now that it knows how to serialize:
     expect(() =>
-      emitStatements(defineTable("st", { id: z.string(), price })),
+      emitStatements(table("st", { id: z.string(), price })),
     ).not.toThrow();
   });
 

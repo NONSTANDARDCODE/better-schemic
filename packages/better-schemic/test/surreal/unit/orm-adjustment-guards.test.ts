@@ -4,15 +4,18 @@
 import { describe, expect, test } from "bun:test";
 import { Decimal, RecordId } from "surrealdb";
 import { surql } from "../../../src/surreal";
-import { extractArithmetic, setBody } from "../../../src/surreal/orm/compiler/adjustment";
+import {
+  extractArithmetic,
+  setBody,
+} from "../../../src/surreal/orm/compiler/adjustment";
 import { createBinds } from "../../../src/surreal/orm/compiler/shared";
 import type { TableMeta } from "../../../src/surreal/orm/meta";
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { s, table } from "../../../src/surreal/pure";
 
-const Other = defineTable("other", { name: s.string() });
+const Other = table("other", { name: s.string() });
 
-const Holder = defineTable("adj", {
+const Holder = table("adj", {
   name: s.string(),
   score: s.int(),
   price: s.decimal(),
@@ -120,7 +123,15 @@ describe("adjustment — the target field", () => {
       expect(out.error).toBe("");
       expect(out.steps[0]?.op).toBe("+=");
     }
-    for (const field of ["name", "tags", "when", "blob", "flag", "meta", "owner"]) {
+    for (const field of [
+      "name",
+      "tags",
+      "when",
+      "blob",
+      "flag",
+      "meta",
+      "owner",
+    ]) {
       expect(split({ [field]: { increment: 1 } }).error).toMatch(
         /needs a numeric field/,
       );
@@ -271,7 +282,9 @@ describe("adjustment — the literal-operand type test", () => {
     expect(split({ tags: { append: ["a"] } }).error).toBe("");
     expect(split({ tags: { append: { a: 1 } } }).error).toBe("");
     expect(split({ tags: { append: new Date() } }).error).toBe("");
-    expect(split({ tags: { append: new RecordId("other", "1") } }).error).toBe("");
+    expect(split({ tags: { append: new RecordId("other", "1") } }).error).toBe(
+      "",
+    );
     expect(split({ tags: { append: new Decimal(1) } }).error).toBe("");
     // …and the arm that IS a rejection: an instance of an unknown class.
     class Opaque {

@@ -2,11 +2,11 @@
 // the exact per-action shape and `since` accepts versionstamp/Date/ISO.
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
 import { describe, it } from "node:test";
-import { assertType } from "../../../../../scripts/type-assert";
 import type { RecordId } from "surrealdb";
-import { type App, defineTable, s } from "../../../src/surreal";
+import { assertType } from "../../../../../scripts/type-assert";
+import { type App, s, table } from "../../../src/surreal";
 import type { Client } from "../../../src/surreal/orm/client";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { schema } from "../../../src/surreal/orm/schema";
 import type {
   ChangeDefined,
   ChangeDeleted,
@@ -17,10 +17,9 @@ import type {
 } from "../../../src/surreal/orm/types/changes";
 import type { OperationContext } from "../../../src/surreal/orm/types/context";
 
-
-const User = defineTable("user", { name: s.string() });
-const schema = defineSchema({ users: User });
-type C = Client<typeof schema>;
+const User = table("user", { name: s.string() });
+const schemaDef = schema({ users: User });
+type C = Client<typeof schemaDef>;
 type Row = App<typeof User>;
 
 /** Call shapes (instantiation expressions don't survive esbuild/tsx). */
@@ -49,7 +48,10 @@ describe("changes — typing", () => {
   });
 
   it("since accepts versionstamps, Date and ISO strings", () => {
-    assertType<number | bigint | Date | string | undefined, ChangesArgs["since"]>();
+    assertType<
+      number | bigint | Date | string | undefined,
+      ChangesArgs["since"]
+    >();
     assertType<number | undefined, ChangesArgs["limit"]>();
     assertType<OperationContext | undefined, ChangesArgs["context"]>();
   });

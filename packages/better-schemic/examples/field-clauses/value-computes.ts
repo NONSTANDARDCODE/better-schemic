@@ -1,4 +1,4 @@
-import { defineTable, s, surql } from "better-schemic";
+import { s, surql, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -10,7 +10,7 @@ DEFINE FIELD products.*.product ON TABLE order TYPE string;
 DEFINE FIELD products.*.quantity ON TABLE order TYPE int;
 DEFINE FIELD products.*.sellingPriceAtOrder ON TABLE order TYPE number;
 DEFINE FIELD products.*.costPriceAtOrder ON TABLE order TYPE number;`,
-  def: defineTable("order", {
+  def: table("order", {
     id: s.string(),
     products: s
       .array(

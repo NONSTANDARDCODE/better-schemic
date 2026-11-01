@@ -19,7 +19,7 @@ import { compileError, createBinds, describeValue } from "./compiler/shared";
 import { assertSessionBound } from "./context";
 import { decodeRow } from "./decode";
 import type { DelegateContext } from "./delegate";
-import { BetterSchemicError, normalizeError } from "./errors";
+import { normalizeError, OrmError } from "./errors";
 import { execute, type Queryable } from "./execute";
 import type { ModelMeta, SchemaIndex } from "./meta";
 import type {
@@ -180,7 +180,7 @@ class OrmLiveSubscription<Row> implements LiveSubscription<Row> {
 
   [Symbol.asyncIterator](): AsyncIterator<LiveNotification<Row>> {
     if (!this.#alive)
-      throw new BetterSchemicError(
+      throw new OrmError(
         "ValidationError",
         "live: this subscription was killed — start a new live query.",
         { operation: "live" },
@@ -282,7 +282,7 @@ async function liveOf(
   operation: string,
 ): Promise<SdkLiveSubscription> {
   if (typeof source.liveOf !== "function")
-    throw new BetterSchemicError(
+    throw new OrmError(
       "LiveQueryUnsupported",
       `${operation}: this connection cannot do live queries — live needs the SurrealDB SDK over WebSocket (HTTP engines do not support them).`,
       { operation },
@@ -291,7 +291,7 @@ async function liveOf(
     return await source.liveOf(id);
   } catch (e) {
     if (e instanceof Error && /does not support the feature/i.test(e.message))
-      throw new BetterSchemicError(
+      throw new OrmError(
         "LiveQueryUnsupported",
         `${operation}: the connection does not support live queries (${e.message}).`,
         { operation, cause: e },
@@ -316,7 +316,7 @@ async function startServerLive(
   });
   const id = out.rows[0];
   if (!(id instanceof Uuid))
-    throw new BetterSchemicError(
+    throw new OrmError(
       "DatabaseError",
       `live: the server did not return a live query id (got ${describeValue(id)}).`,
       { operation: "live", table: meta.name },
@@ -352,7 +352,7 @@ export async function startLive(
   operation = "live",
 ): Promise<LiveSubscription<unknown>> {
   if (ctx.inTransaction === true)
-    throw new BetterSchemicError(
+    throw new OrmError(
       "LiveInTransaction",
       `${operation}: live queries cannot run inside a transaction — subscribe outside client.transaction(...).`,
       { operation, table: meta.name },
@@ -419,7 +419,7 @@ function liveIdText(id: LiveId, operation: string): string {
       text,
     )
   )
-    throw new BetterSchemicError(
+    throw new OrmError(
       "ValidationError",
       `${operation}: pass the live query uuid (got ${describeValue(id)}).`,
       { operation },

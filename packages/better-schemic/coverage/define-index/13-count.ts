@@ -1,4 +1,4 @@
-import { defineTable } from "better-schemic";
+import { table } from "better-schemic";
 import { cover } from "../_kit";
 
 export default cover(import.meta.url, {
@@ -6,7 +6,7 @@ export default cover(import.meta.url, {
   note: "`.index(name, [], { count: true })` — a fieldless `COUNT` index that materializes the table's row count for O(1) `count()`.",
   ddl: `DEFINE TABLE page TYPE NORMAL SCHEMAFULL;
 DEFINE INDEX page_count_idx ON TABLE page COUNT;`,
-  def: defineTable("page", {})
+  def: table("page", {})
     .schemafull()
     .index("page_count_idx", [], { count: true }),
 });

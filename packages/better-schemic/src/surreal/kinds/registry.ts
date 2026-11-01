@@ -24,8 +24,8 @@ import {
   type PortableObject,
   type Ref,
 } from "../../core";
-import { EMPTY_SNAPSHOT, type Snapshot } from "../cli/structure";
 import { formatSurql } from "../cli/format";
+import { EMPTY_SNAPSHOT, type Snapshot } from "../cli/structure";
 import { diffSnapshots } from "../cli/surreal-diff";
 import type { DefineStatement } from "../ddl";
 import { overwriteStatement, removeStatement } from "../ddl";

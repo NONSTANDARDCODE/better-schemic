@@ -3,14 +3,14 @@
 // `inTransaction` threading (batches skip their implicit BEGIN) and option validation.
 import { describe, expect, test } from "bun:test";
 import type { QueryResponse } from "surrealdb";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import { BetterSchemicError, isBetterSchemicError } from "../../../src/surreal/orm/errors";
-import { defineSchema } from "../../../src/surreal/orm/schema";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { orm } from "../../../src/surreal/orm/client";
+import { isOrmError, OrmError } from "../../../src/surreal/orm/errors";
+import { schema } from "../../../src/surreal/orm/schema";
+import { s, table } from "../../../src/surreal/pure";
 import { caught, lines, ok } from "../orm-fixtures";
 
-const User = defineTable("user", { name: s.string() });
-const schema = defineSchema({ users: User });
+const User = table("user", { name: s.string() });
+const schemaDef = schema({ users: User });
 
 interface TxCall {
   readonly sql: string;
@@ -77,15 +77,15 @@ function fakeRoot(
 
 const clientOver = (
   conn: ReturnType<typeof fakeRoot>,
-  transaction?: Parameters<typeof betterSchemic>[1]["transaction"],
+  transaction?: Parameters<typeof orm>[1]["transaction"],
 ) =>
-  betterSchemic(conn as never, {
-    schema,
+  orm(conn as never, {
+    schema: schemaDef,
     ...(transaction !== undefined ? { transaction } : {}),
   });
 
 const codeOf = (e: unknown): string | undefined =>
-  isBetterSchemicError(e) ? e.code : undefined;
+  isOrmError(e) ? e.code : undefined;
 
 describe("client.transaction — commit/cancel/rollback", () => {
   test("success commits once, returns the callback value and runs delegates on the tx", async () => {
@@ -112,7 +112,9 @@ describe("client.transaction — commit/cancel/rollback", () => {
       await tx.users.createMany({ data: [{ name: "A" }, { name: "B" }] });
     });
     const sql = conn.transactions[0]?.calls[0]?.sql ?? "";
-    expect(sql).toContain('CREATE type::record(s"user", rand::ulid()) CONTENT $p0;');
+    expect(sql).toContain(
+      'CREATE type::record(s"user", rand::ulid()) CONTENT $p0;',
+    );
     expect(sql).not.toContain("BEGIN TRANSACTION");
     expect(sql).not.toContain("COMMIT TRANSACTION");
   });
@@ -122,7 +124,7 @@ describe("client.transaction — commit/cancel/rollback", () => {
     const client = clientOver(conn);
     const err = await caught(() =>
       client.transaction(async () => {
-        throw new BetterSchemicError("AssertionFailed", "nope");
+        throw new OrmError("AssertionFailed", "nope");
       }),
     );
     expect(codeOf(err)).toBe("AssertionFailed");
@@ -140,7 +142,7 @@ describe("client.transaction — commit/cancel/rollback", () => {
       }),
     );
     expect(codeOf(err)).toBe("TransactionRollback");
-    expect((err as BetterSchemicError).details).toMatchObject({
+    expect((err as OrmError).details).toMatchObject({
       reason: "saldo insuficiente",
     });
     expect(conn.transactions[0]?.cancelled).toBe(1);
@@ -271,7 +273,7 @@ describe("client.transaction — retries and deadline", () => {
     const err = await caught(() =>
       client.transaction(async () => {
         attempts++;
-        throw new BetterSchemicError("WriteConflict", "conflict");
+        throw new OrmError("WriteConflict", "conflict");
       }),
     );
     expect(codeOf(err)).toBe("WriteConflict");
@@ -287,7 +289,7 @@ describe("client.transaction — retries and deadline", () => {
     let attempts = 0;
     const value = await client.transaction(async () => {
       attempts++;
-      if (attempts < 3) throw new BetterSchemicError("WriteConflict", "again");
+      if (attempts < 3) throw new OrmError("WriteConflict", "again");
       return "ok";
     });
     expect(value).toBe("ok");
@@ -305,7 +307,7 @@ describe("client.transaction — retries and deadline", () => {
     await caught(() =>
       client.transaction(async () => {
         attempts++;
-        throw new BetterSchemicError("AssertionFailed", "no retry");
+        throw new OrmError("AssertionFailed", "no retry");
       }),
     );
     expect(attempts).toBe(1);
@@ -320,10 +322,7 @@ describe("client.transaction — retries and deadline", () => {
     const value = await client.transaction(async () => {
       attempts++;
       if (attempts === 1)
-        throw new BetterSchemicError(
-          "DatabaseError",
-          "connection reset by peer",
-        );
+        throw new OrmError("DatabaseError", "connection reset by peer");
       return "recovered";
     });
     expect(value).toBe("recovered");
@@ -343,7 +342,7 @@ describe("client.transaction — retries and deadline", () => {
       ),
     );
     expect(codeOf(err)).toBe("DatabaseError");
-    expect((err as BetterSchemicError).details).toMatchObject({
+    expect((err as OrmError).details).toMatchObject({
       timedOut: true,
       timeoutMs: 20,
     });
@@ -366,7 +365,7 @@ describe("client.transaction — retries and deadline", () => {
     conn.transactions[0]!.commit = () => Promise.reject(new Error("cancelled"));
     const err = await caught(() => started);
     expect(codeOf(err)).toBe("DatabaseError");
-    expect((err as BetterSchemicError).details).toMatchObject({
+    expect((err as OrmError).details).toMatchObject({
       timedOut: true,
     });
     expect(conn.transactions[0]?.cancelled).toBe(1);
@@ -438,7 +437,7 @@ describe("client.transaction — options validation and unsupported features", (
     const bare = {
       query: conn.query,
     };
-    const client = betterSchemic(bare as never, { schema });
+    const client = orm(bare as never, { schema: schemaDef });
     const err = await caught(() => client.transaction(async () => "x"));
     expect(codeOf(err)).toBe("UnsupportedCapability");
   });
@@ -451,7 +450,7 @@ describe("client.transaction — options validation and unsupported features", (
       client.transaction(
         async () => {
           attempts++;
-          throw new BetterSchemicError("WriteConflict", "conflict");
+          throw new OrmError("WriteConflict", "conflict");
         },
         { retries: { attempts: 1 } },
       ),

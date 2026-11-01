@@ -2,13 +2,14 @@
 // connection + hands `run(ctx, parsed)` a CommandContext; THIS file owns the SurrealDB logic. Authored
 // against the landed DriverCommand contract (the engine's driver SDK). The driver validates positional
 // arity itself; use `ctx.io` for all output (never stdio directly).
+
+import { escapeIdent, type Surreal } from "surrealdb";
 import { isSecretRef, loadDefs } from "../core";
 import type {
   CommandContext,
   DriverCommand,
   ParsedCommandArgs,
 } from "../core/driver/sdk";
-import { escapeIdent, type Surreal } from "surrealdb";
 import { lowerAccess } from "./cli/lower";
 import { introspectStructured, type StructAccess } from "./cli/structure";
 import { accessBindings, emitDefStatement, secretParam } from "./ddl";

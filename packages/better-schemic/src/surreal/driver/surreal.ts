@@ -6,6 +6,7 @@
 // `registry` — it never names a kind. The Struct-IR (`DbStructured`) + `diffSnapshots` stay the driver's
 // INTERNAL clause-level engine (the kinds delegate to them); the field/type substrate stays core.
 
+import { escapeIdent, type Surreal } from "surrealdb";
 import type {
   ApplyOptions,
   ConnectionOverrides as CfgOverrides,
@@ -17,7 +18,6 @@ import type {
   ResolvedConfig,
   ShadowCapability,
 } from "../../core";
-import { escapeIdent, type Surreal } from "surrealdb";
 import {
   connectEmbedded,
   spawnEphemeralServer,

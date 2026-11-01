@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { s, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -6,7 +6,7 @@ export default example(import.meta.url, {
   note: "URL has no native SurrealQL type, so it needs a wire type + codec. (A JS Set, by contrast, is native: use s.set() -> set<T>.)",
   ddl: `DEFINE TABLE site TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD homepage ON TABLE site TYPE string;`,
-  def: defineTable("site", {
+  def: table("site", {
     id: s.string(),
     homepage: s.custom<URL>().$surreal(s.string(), {
       encode: (u) => u.href,

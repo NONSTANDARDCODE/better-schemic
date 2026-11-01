@@ -13,21 +13,21 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+  defineAccess,
+  defineAnalyzer,
+  defineFunction,
+  relation,
+  s,
+  surql,
+  table,
+} from "better-schemic";
+import {
   buildKindDiff,
   emitKinds,
   planKinds,
   snapshotKinds,
   snapshotObjects,
 } from "better-schemic/core";
-import {
-  defineAccess,
-  defineAnalyzer,
-  defineFunction,
-  defineRelation,
-  defineTable,
-  s,
-  surql,
-} from "better-schemic";
 import { surrealDriver } from "better-schemic/driver";
 import { schemaStruct } from "../../../src/surreal/cli/lower";
 import { structuredSnapshot } from "../../../src/surreal/cli/structure";
@@ -74,14 +74,14 @@ const parity = (
     legacy(prevT, nextT, prevD, nextD),
   );
 
-const User = () => defineTable("user", { id: s.string(), name: s.string() });
+const User = () => table("user", { id: s.string(), name: s.string() });
 
 describe("table/field kind parity with surrealDriver.diff", () => {
   test("add a field", () => {
     parity(
       [User()],
       [
-        defineTable("user", {
+        table("user", {
           id: s.string(),
           name: s.string(),
           email: s.email(),
@@ -92,15 +92,15 @@ describe("table/field kind parity with surrealDriver.diff", () => {
 
   test("change a field type", () => {
     parity(
-      [defineTable("user", { id: s.string(), name: s.string() })],
-      [defineTable("user", { id: s.string(), name: s.string().optional() })],
+      [table("user", { id: s.string(), name: s.string() })],
+      [table("user", { id: s.string(), name: s.string().optional() })],
     );
   });
 
   test("remove a field", () => {
     parity(
       [
-        defineTable("user", {
+        table("user", {
           id: s.string(),
           name: s.string(),
           legacy: s.string(),
@@ -111,9 +111,9 @@ describe("table/field kind parity with surrealDriver.diff", () => {
   });
 
   test("add a field clause (DEFAULT) -> ALTER FIELD set/drop", () => {
-    const prev = [defineTable("user", { id: s.string(), name: s.string() })];
+    const prev = [table("user", { id: s.string(), name: s.string() })];
     const next = [
-      defineTable("user", {
+      table("user", {
         id: s.string(),
         name: s.string().$default("anon"),
       }),
@@ -124,9 +124,9 @@ describe("table/field kind parity with surrealDriver.diff", () => {
 
   test("COMPUTED change (OVERWRITE fallback inside the table kind)", () => {
     parity(
-      [defineTable("t", { id: s.string(), c: s.string() })],
+      [table("t", { id: s.string(), c: s.string() })],
       [
-        defineTable("t", {
+        table("t", {
           id: s.string(),
           c: s.string().$computed(surql`"x"`),
         }),
@@ -135,31 +135,31 @@ describe("table/field kind parity with surrealDriver.diff", () => {
   });
 
   test("table SCHEMAFULL <-> SCHEMALESS (table-head ALTER)", () => {
-    const t = () => defineTable("t", { id: s.string() });
+    const t = () => table("t", { id: s.string() });
     parity([t()], [t().schemaless()]);
     parity([t().schemaless()], [t()]);
   });
 
   test("table COMMENT add/remove (table-head ALTER)", () => {
-    const t = () => defineTable("t", { id: s.string() });
+    const t = () => table("t", { id: s.string() });
     parity([t()], [t().comment("note")]);
     parity([t().comment("note")], [t()]);
   });
 
   test("table TYPE change (NORMAL -> RELATION) OVERWRITE fallback", () => {
-    parity([defineTable("t", { id: s.string() })], [defineRelation("t", {})]);
+    parity([table("t", { id: s.string() })], [relation("t", {})]);
   });
 
   test("add a whole table (head + fields)", () => {
     parity(
       [User()],
-      [User(), defineTable("post", { id: s.string(), title: s.string() })],
+      [User(), table("post", { id: s.string(), title: s.string() })],
     );
   });
 
   test("remove a whole table", () => {
     parity(
-      [User(), defineTable("post", { id: s.string(), title: s.string() })],
+      [User(), table("post", { id: s.string(), title: s.string() })],
       [User()],
     );
   });
@@ -167,14 +167,14 @@ describe("table/field kind parity with surrealDriver.diff", () => {
   test("mixed field add + change + remove in one table", () => {
     parity(
       [
-        defineTable("user", {
+        table("user", {
           id: s.string(),
           name: s.string(),
           old: s.string(),
         }),
       ],
       [
-        defineTable("user", {
+        table("user", {
           id: s.string(),
           name: s.string().optional(),
           email: s.email(),
@@ -191,40 +191,40 @@ describe("table/field kind parity with surrealDriver.diff", () => {
 describe("index kind parity", () => {
   test("add an index (field .$unique())", () => {
     parity(
-      [defineTable("t", { id: s.string(), code: s.string() })],
-      [defineTable("t", { id: s.string(), code: s.string().$unique() })],
+      [table("t", { id: s.string(), code: s.string() })],
+      [table("t", { id: s.string(), code: s.string().$unique() })],
     );
   });
 
   test("change an index (.$index() -> .$unique()) recreates", () => {
     parity(
-      [defineTable("t", { id: s.string(), a: s.string().$index() })],
-      [defineTable("t", { id: s.string(), a: s.string().$unique() })],
+      [table("t", { id: s.string(), a: s.string().$index() })],
+      [table("t", { id: s.string(), a: s.string().$unique() })],
     );
   });
 
   test("composite table .index() add", () => {
     const base = () =>
-      defineTable("m", { id: s.string(), a: s.string(), b: s.string() });
+      table("m", { id: s.string(), a: s.string(), b: s.string() });
     parity([base()], [base().index("m_ab", ["a", "b"])]);
   });
 });
 
 describe("event kind parity", () => {
   const evented = () =>
-    defineTable("user", { id: s.string(), n: s.int() }).event("on_n", {
+    table("user", { id: s.string(), n: s.int() }).event("on_n", {
       when: surql`$before.n != $after.n`,
       // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable.
       then: surql`UPDATE $after.id SET touched = true`,
     });
 
   test("add an event", () => {
-    parity([defineTable("user", { id: s.string(), n: s.int() })], [evented()]);
+    parity([table("user", { id: s.string(), n: s.int() })], [evented()]);
   });
 
   test("change an event (DEFINE EVENT OVERWRITE)", () => {
     const changed = () =>
-      defineTable("user", { id: s.string(), n: s.int() }).event("on_n", {
+      table("user", { id: s.string(), n: s.int() }).event("on_n", {
         when: surql`$before.n != $after.n`,
         // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable.
         then: surql`UPDATE $after.id SET touched = false`,
@@ -233,7 +233,7 @@ describe("event kind parity", () => {
   });
 
   test("remove an event", () => {
-    parity([evented()], [defineTable("user", { id: s.string(), n: s.int() })]);
+    parity([evented()], [table("user", { id: s.string(), n: s.int() })]);
   });
 });
 
@@ -243,7 +243,7 @@ describe("cross-kind dependency ordering (emitKinds)", () => {
   const idx = (ddl: string[], re: RegExp) => ddl.findIndex((l) => re.test(l));
 
   test("an index + event cluster AFTER their table", () => {
-    const t = defineTable("user", {
+    const t = table("user", {
       id: s.string(),
       email: s.email().$unique(),
     }).event(
@@ -259,9 +259,9 @@ describe("cross-kind dependency ordering (emitKinds)", () => {
   });
 
   test("a RELATION emits AFTER its in/out endpoint tables (deps graph)", () => {
-    const user = defineTable("user", { id: s.string() });
-    const post = defineTable("post", { id: s.string() });
-    const wrote = defineRelation("wrote", {}).from(user).to(post);
+    const user = table("user", { id: s.string() });
+    const post = table("post", { id: s.string() });
+    const wrote = relation("wrote", {}).from(user).to(post);
     const up = headers(emitKinds(surrealKinds, lowerAll([wrote, user, post])));
     const rel = up.findIndex((l) => /DEFINE TABLE wrote/.test(l));
     expect(up.findIndex((l) => /DEFINE TABLE user/.test(l))).toBeLessThan(rel);
@@ -273,12 +273,12 @@ describe("buildKindDiff + snapshot round-trip", () => {
   test("buildKindDiff reports add/change items + full, matching planKinds up/down", () => {
     const prev = lowerAll([User()]);
     const next = lowerAll([
-      defineTable("user", {
+      table("user", {
         id: s.string(),
         name: s.string().optional(),
         email: s.email(),
       }),
-      defineTable("post", { id: s.string(), title: s.string() }),
+      table("post", { id: s.string(), title: s.string() }),
     ]);
     const diff = buildKindDiff(surrealKinds, prev, next);
     expect({ up: diff.up, down: diff.down }).toEqual(
@@ -296,7 +296,7 @@ describe("buildKindDiff + snapshot round-trip", () => {
 
   test("snapshotKinds -> JSON -> snapshotObjects round-trips to a zero diff", () => {
     const portable = lowerAll([
-      defineTable("user", { id: s.string(), email: s.email().$unique() }).event(
+      table("user", { id: s.string(), email: s.email().$unique() }).event(
         "ev",
         // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable.
         { then: surql`UPDATE $after.id SET seen = true` },
@@ -400,7 +400,7 @@ describe("fn:: dependency ordering (function emits before its caller)", () => {
     up.findIndex((l) => /^DEFINE FUNCTION fn::fmt/.test(l));
 
   test("before a table whose field COMPUTED calls it", () => {
-    const t = defineTable("doc", {
+    const t = table("doc", {
       id: s.string(),
       slug: s.string().$computed(surql`fn::fmt(id)`),
     });
@@ -412,7 +412,7 @@ describe("fn:: dependency ordering (function emits before its caller)", () => {
   });
 
   test("before an event whose THEN calls it", () => {
-    const t = defineTable("user", { id: s.string(), n: s.int() }).event("ev", {
+    const t = table("user", { id: s.string(), n: s.int() }).event("ev", {
       // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable.
       then: surql`UPDATE $after.id SET x = fn::fmt("y")`,
     });
@@ -443,7 +443,7 @@ describe("analyzer dependency ordering (analyzer emits before its FULLTEXT index
   const eng = () => defineAnalyzer("eng").tokenizers("blank");
 
   test("table-level .index(fulltext) — analyzer before index", () => {
-    const t = defineTable("doc", { id: s.string(), body: s.string() }).index(
+    const t = table("doc", { id: s.string(), body: s.string() }).index(
       "ft",
       ["body"],
       { fulltext: { analyzer: "eng" } },
@@ -457,7 +457,7 @@ describe("analyzer dependency ordering (analyzer emits before its FULLTEXT index
   });
 
   test("field-level .$fulltext() — analyzer before index", () => {
-    const t = defineTable("doc2", {
+    const t = table("doc2", {
       id: s.string(),
       body: s.string().$fulltext("eng"),
     });
@@ -476,7 +476,7 @@ describe("flipped surrealDriver shape", () => {
     expect(surrealDriver.registry).toBe(surrealKinds);
     const objs = surrealDriver.explode(
       [
-        defineTable("user", {
+        table("user", {
           id: s.string(),
           name: s.string().$unique(),
         }),

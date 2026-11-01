@@ -2,16 +2,16 @@
 // envelope math is golden-asserted. Offline. `cursor` lives in `orm-cursor.test.ts`.
 import { describe, expect, test } from "bun:test";
 import { RecordId } from "surrealdb";
-import { betterSchemic } from "../../../src/surreal/orm/client";
+import { orm } from "../../../src/surreal/orm/client";
 import { compilePaginate } from "../../../src/surreal/orm/compiler/pagination";
 import { createBinds } from "../../../src/surreal/orm/compiler/shared";
-import type { BetterSchemicError } from "../../../src/surreal/orm/errors";
+import type { OrmError } from "../../../src/surreal/orm/errors";
 import type { TableMeta } from "../../../src/surreal/orm/meta";
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { s, table } from "../../../src/surreal/pure";
 import { fakeConn, lines, ok } from "../orm-fixtures";
 
-const User = defineTable("user", {
+const User = table("user", {
   name: s.string(),
   age: s.int(),
   active: s.boolean(),
@@ -40,7 +40,7 @@ function codeOf(fn: () => unknown): string | undefined {
     fn();
     return undefined;
   } catch (e) {
-    return (e as BetterSchemicError).code;
+    return (e as OrmError).code;
   }
 }
 
@@ -140,7 +140,7 @@ describe("paginate — delegate envelope", () => {
         line.includes("count()") ? ok([{ count: 25 }]) : ok(rows),
       ),
     );
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const page = await client.users.paginate({
       where: { active: true },
       limit: 10,
@@ -163,7 +163,7 @@ describe("paginate — delegate envelope", () => {
     const { conn, calls } = fakeConn((sql) =>
       lines(sql).map(() => ok([...rows, fullUser("4")])),
     );
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const page = await client.users.paginate({ limit: 3, count: false });
     expect(calls[0]?.vars).toEqual({ p0: 4 }); // LIMIT n+1
     expect(page.data).toHaveLength(3);
@@ -183,7 +183,7 @@ describe("paginate — delegate envelope", () => {
         line.includes("count()") ? ok([{ count: 2 }]) : ok(rows.slice(0, 2)),
       ),
     );
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const page = await client.users.paginate({ limit: 10, start: 0 });
     expect(page.pagination.hasNext).toBe(false);
     expect(page.pagination.hasPrevious).toBe(false);
@@ -195,7 +195,7 @@ describe("paginate — delegate envelope", () => {
         line.includes("count()") ? ok([{ count: 25 }]) : ok([fullUser("1")]),
       ),
     );
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const page = await client.users.paginate({ limit: 10, start: 5 });
     expect(page.pagination.page).toBe(1);
     expect(page.pagination.hasPrevious).toBe(true);

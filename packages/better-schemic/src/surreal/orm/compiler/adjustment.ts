@@ -25,7 +25,6 @@ import {
 } from "./shared";
 import { flattenAssignments } from "./write-shared";
 
-
 /**
  * How one lowered STEP renders in the `SET` clause. `=` is the internal whole-value replacement
  * (`array::union` is built as a replacement, not a compound assignment).
@@ -60,7 +59,9 @@ export function extractArithmetic(
   if (!isPlainObject(data)) return { clean: data, steps: NO_STEPS };
   // Nothing was accumulated → the payload had no marker at all and passes through untouched. Decided
   // ONCE, up front, so neither the accumulator nor the return needs a fallback.
-  const found = Object.values(data).some((value) => adjustmentOf(value) !== undefined);
+  const found = Object.values(data).some(
+    (value) => adjustmentOf(value) !== undefined,
+  );
   if (!found) return { clean: data, steps: NO_STEPS };
   const steps: ArithmeticStep[] = [];
   const clean: Record<string, unknown> = { ...data };
@@ -169,7 +170,10 @@ function assertAdjustmentOperand(
  * element, the whole array, a record, a date) — the element type is the SCHEMA's business, so the
  * marker parser only rejects what the server could never bind.
  */
-function isLiteralOperand(family: Adjustment["family"], value: unknown): boolean {
+function isLiteralOperand(
+  family: Adjustment["family"],
+  value: unknown,
+): boolean {
   if (family === "number")
     return (
       typeof value === "number" ||
@@ -186,7 +190,6 @@ function isLiteralOperand(family: Adjustment["family"], value: unknown): boolean
     value instanceof Decimal
   );
 }
-
 
 /**
  * One adjustment assignment. `+=`/`-=` are the compound-assignment forms (numeric arithmetic, array

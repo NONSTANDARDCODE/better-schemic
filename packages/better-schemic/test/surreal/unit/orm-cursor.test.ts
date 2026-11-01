@@ -5,16 +5,16 @@
 import { describe, expect, test } from "bun:test";
 import { DateTime, RecordId } from "surrealdb";
 import { surql } from "../../../src/surreal";
-import { betterSchemic } from "../../../src/surreal/orm/client";
+import { orm } from "../../../src/surreal/orm/client";
 import { compileCursor } from "../../../src/surreal/orm/compiler/pagination";
 import { createBinds } from "../../../src/surreal/orm/compiler/shared";
-import type { BetterSchemicError } from "../../../src/surreal/orm/errors";
+import type { OrmError } from "../../../src/surreal/orm/errors";
 import type { TableMeta } from "../../../src/surreal/orm/meta";
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { s, table } from "../../../src/surreal/pure";
 import { fakeConn, lines, ok } from "../orm-fixtures";
 
-const User = defineTable("user", {
+const User = table("user", {
   name: s.string(),
   age: s.int(),
   active: s.boolean(),
@@ -22,7 +22,7 @@ const User = defineTable("user", {
 });
 const meta = buildSchemaIndex({ users: User }).tables.get("users") as TableMeta;
 
-const Place = defineTable("place", {
+const Place = table("place", {
   name: s.string(),
   address: s.object({ city: s.string(), zip: s.string() }),
 });
@@ -30,7 +30,7 @@ const placeMeta = buildSchemaIndex({ places: Place }).tables.get(
   "places",
 ) as TableMeta;
 
-const Home = defineTable("home", {
+const Home = table("home", {
   name: s.string(),
   address: s.object({ city: s.string() }).nullish(),
 });
@@ -55,7 +55,7 @@ function codeOf(fn: () => unknown): string | undefined {
     fn();
     return undefined;
   } catch (e) {
-    return (e as BetterSchemicError).code;
+    return (e as OrmError).code;
   }
 }
 
@@ -163,7 +163,7 @@ describe("cursor — compilation", () => {
         });
         return undefined;
       } catch (e) {
-        return e as BetterSchemicError;
+        return e as OrmError;
       }
     })();
     expect(err?.code).toBe("ValidationError");
@@ -533,7 +533,7 @@ describe("cursor — compilation", () => {
         }),
       ),
     ).toBe("ValidationError");
-    const Reserved = defineTable("reserved", {
+    const Reserved = table("reserved", {
       _keyset_0: s.string(),
       name: s.string(),
     });
@@ -555,7 +555,7 @@ describe("cursor — delegate envelope", () => {
     const { conn } = fakeConn((sql) =>
       lines(sql).map(() => ok([...rows, fullUser("4")])),
     );
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const page = await client.users.cursor({ limit: 3 });
     expect(page.data).toHaveLength(3);
     expect(page.pagination).toEqual({
@@ -570,7 +570,7 @@ describe("cursor — delegate envelope", () => {
   test("a before page is reversed back and exposes both cursors", async () => {
     const rows = [fullUser("9"), fullUser("8"), fullUser("7"), fullUser("6")];
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const page = await client.users.cursor({
       limit: 3,
       before: new RecordId("user", "10"),
@@ -611,7 +611,7 @@ describe("cursor — delegate envelope", () => {
       },
     ];
     const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const page = await client.users.cursor({
       limit: 2,
       select: { name: true },
@@ -634,7 +634,7 @@ describe("cursor — delegate envelope", () => {
       { name: "c", _keyset_0: new RecordId("user", "3") },
     ];
     const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const page = await client.users.cursor({
       limit: 2,
       select: { name: true },
@@ -669,7 +669,7 @@ describe("cursor — delegate envelope", () => {
       },
     ];
     const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const page = await client.users.cursor({
       limit: 2,
       omit: ["age"],
@@ -707,7 +707,7 @@ describe("cursor — delegate envelope", () => {
       },
     ];
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
-    const client = betterSchemic(conn, { schema: { places: Place } });
+    const client = orm(conn, { schema: { places: Place } });
     const page = await client.places.cursor({
       limit: 2,
       select: { name: true },
@@ -727,7 +727,7 @@ describe("cursor — delegate envelope", () => {
       { address: { city: "MG" }, _keyset_1: new RecordId("place", "3") },
     ];
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
-    const client = betterSchemic(conn, { schema: { places: Place } });
+    const client = orm(conn, { schema: { places: Place } });
     const page = await client.places.cursor({
       limit: 2,
       select: { address: { city: true } },
@@ -750,7 +750,7 @@ describe("cursor — delegate envelope", () => {
       { "address.city": "MG", _keyset_1: new RecordId("place", "3") },
     ];
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
-    const client = betterSchemic(conn, { schema: { places: Place } });
+    const client = orm(conn, { schema: { places: Place } });
     const page = await client.places.cursor({
       limit: 2,
       select: { "address.city": "address.city" },
@@ -770,14 +770,14 @@ describe("cursor — delegate envelope", () => {
     const { conn } = fakeConn((sql) =>
       lines(sql).map(() => ok([{ age: 20 }, { age: 21 }, { age: 22 }])),
     );
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const err = (await client.users
       .cursor({
         limit: 2,
         select: { age: true },
         orderBy: [{ age: "asc" }, { id: "asc" }],
       })
-      .catch((e: unknown) => e)) as BetterSchemicError;
+      .catch((e: unknown) => e)) as OrmError;
     expect(err.code).toBe("ValidationError");
     expect(err.message).toContain('"id"');
   });
@@ -788,13 +788,13 @@ describe("cursor — delegate envelope", () => {
       { id: new RecordId("home", "2"), name: "b" },
     ];
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
-    const client = betterSchemic(conn, { schema: { homes: Home } });
+    const client = orm(conn, { schema: { homes: Home } });
     const err = (await client.homes
       .cursor({
         limit: 1,
         orderBy: [{ "address.city": "asc" }, { id: "asc" }],
       })
-      .catch((e: unknown) => e)) as BetterSchemicError;
+      .catch((e: unknown) => e)) as OrmError;
     expect(err.code).toBe("ValidationError");
     expect(err.message).toContain("address.city");
   });
@@ -805,7 +805,7 @@ describe("cursor — delegate envelope", () => {
       { id: new RecordId("home", "2"), name: "b", address: null },
     ];
     const nullConn = fakeConn((sql) => lines(sql).map(() => ok(nullRows)));
-    const nullClient = betterSchemic(nullConn.conn, {
+    const nullClient = orm(nullConn.conn, {
       schema: { homes: Home },
     });
     const nullErr = (await nullClient.homes
@@ -813,13 +813,13 @@ describe("cursor — delegate envelope", () => {
         limit: 1,
         orderBy: [{ "address.city": "asc" }, { id: "asc" }],
       })
-      .catch((e: unknown) => e)) as BetterSchemicError;
+      .catch((e: unknown) => e)) as OrmError;
     expect(nullErr.code).toBe("ValidationError");
 
     // A `*` row whose ordered path runs into an ARRAY (the decoded shape can't be keyed).
     const arrayRows = [fullUser("1"), fullUser("2")];
     const arrayConn = fakeConn((sql) => lines(sql).map(() => ok(arrayRows)));
-    const arrayClient = betterSchemic(arrayConn.conn, {
+    const arrayClient = orm(arrayConn.conn, {
       schema: { users: User },
     });
     const arrayErr = (await arrayClient.users
@@ -827,7 +827,7 @@ describe("cursor — delegate envelope", () => {
         limit: 1,
         orderBy: [{ "tags.length": "asc" }, { id: "asc" }],
       })
-      .catch((e: unknown) => e)) as BetterSchemicError;
+      .catch((e: unknown) => e)) as OrmError;
     expect(arrayErr.code).toBe("ValidationError");
     expect(arrayErr.message).toContain("tags.length");
   });
@@ -835,7 +835,7 @@ describe("cursor — delegate envelope", () => {
   test("a dotted omit + a null ancestor strips defensively when no cursor is built", async () => {
     const rows = [{ id: new RecordId("home", "1"), name: "a", address: null }];
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
-    const client = betterSchemic(conn, { schema: { homes: Home } });
+    const client = orm(conn, { schema: { homes: Home } });
     const page = await client.homes.cursor({
       limit: 2,
       // A dotted omit is outside the typed surface (`omit` is top-level keys) but must not crash.
@@ -855,7 +855,7 @@ describe("cursor — delegate envelope", () => {
       { age: 28, id: new RecordId("user", "3") },
     ];
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const page = await client.users.cursor({
       limit: 2,
       select: { age: true, id: true },
@@ -874,7 +874,7 @@ describe("cursor — delegate envelope", () => {
   test("a schemaless star row rides in place and strips defensively", async () => {
     const rows = ["a", "b", "c"];
     const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
-    const client = betterSchemic(conn, { schema: { audit: "audit_log" } });
+    const client = orm(conn, { schema: { audit: "audit_log" } });
     const page = await client.audit.cursor({ limit: 2 });
     expect(calls[0]?.sql).toBe(
       "SELECT * FROM audit_log ORDER BY id ASC LIMIT $p0;",
@@ -886,7 +886,7 @@ describe("cursor — delegate envelope", () => {
   test("a schemaless row under a keyset alias is read and stripped defensively", async () => {
     const rows = ["a", "b", "c"];
     const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
-    const client = betterSchemic(conn, { schema: { audit: "audit_log" } });
+    const client = orm(conn, { schema: { audit: "audit_log" } });
     const page = await client.audit.cursor({ limit: 2, omit: ["id"] });
     expect(calls[0]?.sql).toBe(
       "SELECT *, id AS _keyset_0 OMIT id FROM audit_log ORDER BY id ASC LIMIT $p0;",
@@ -931,11 +931,9 @@ describe("cursor — guard paths", () => {
   });
 
   test("a single-field UNIQUE order is a valid tiebreaker", () => {
-    const U = defineTable("u2", { email: s.string() }).index(
-      "u2_email",
-      ["email"],
-      { unique: true },
-    );
+    const U = table("u2", { email: s.string() }).index("u2_email", ["email"], {
+      unique: true,
+    });
     const m = buildSchemaIndex({ us: U }).tables.get("us") as TableMeta;
     const plan = compileCursor(
       m,
@@ -967,11 +965,9 @@ describe("cursor — guard paths", () => {
   });
 
   test("a single unique (non-id) field takes an object cursor; id takes an object too", () => {
-    const U = defineTable("u3", { email: s.string() }).index(
-      "u3_email",
-      ["email"],
-      { unique: true },
-    );
+    const U = table("u3", { email: s.string() }).index("u3_email", ["email"], {
+      unique: true,
+    });
     const m = buildSchemaIndex({ us: U }).tables.get("us") as TableMeta;
     expect(
       compileCursor(
@@ -990,7 +986,7 @@ describe("cursor — guard paths", () => {
 });
 
 describe("cursor — raw keyset values (datetime precision)", () => {
-  const Event = defineTable("event", {
+  const Event = table("event", {
     name: s.string(),
     at: s.datetime(),
   });
@@ -1014,7 +1010,7 @@ describe("cursor — raw keyset values (datetime precision)", () => {
       _keyset_1: new RecordId("event", String(ns)),
     }));
     const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
-    const client = betterSchemic(conn, { schema: { events: Event } });
+    const client = orm(conn, { schema: { events: Event } });
     const page = await client.events.cursor({
       limit: 2,
       select: { name: true },
@@ -1047,7 +1043,7 @@ describe("cursor — raw keyset values (datetime precision)", () => {
   test("an in-place datetime decodes to Date but its cursor stays raw", async () => {
     const rows = [eventRow("7", 7), eventRow("6", 6), eventRow("5", 5)];
     const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
-    const client = betterSchemic(conn, { schema: { events: Event } });
+    const client = orm(conn, { schema: { events: Event } });
     const page = await client.events.cursor({
       limit: 2,
       select: { at: true, name: true, id: true },
@@ -1067,7 +1063,7 @@ describe("cursor — raw keyset values (datetime precision)", () => {
   test("a star row decodes `at` to Date and keeps the raw cursor", async () => {
     const rows = [eventRow("7", 7), eventRow("6", 6), eventRow("5", 5)];
     const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
-    const client = betterSchemic(conn, { schema: { events: Event } });
+    const client = orm(conn, { schema: { events: Event } });
     const page = await client.events.cursor({
       limit: 2,
       orderBy: [{ at: "desc" }, { id: "desc" }],
@@ -1084,8 +1080,8 @@ describe("cursor — raw keyset values (datetime precision)", () => {
 });
 
 describe("cursor — app-form coercion (bare strings / Date / record lists)", () => {
-  const Ref = defineTable("ref", { name: s.string() });
-  const Trip = defineTable("trip", {
+  const Ref = table("ref", { name: s.string() });
+  const Trip = table("trip", {
     at: s.datetime(),
     driver: s.recordId(Ref),
     stops: s.array(s.recordId(Ref)),
@@ -1172,7 +1168,7 @@ describe("cursor — app-form coercion (bare strings / Date / record lists)", ()
       { id: new RecordId("audit_log", "a1"), kind: "y" },
     ];
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok(rows)));
-    const client = betterSchemic(conn, { schema: { audit: "audit_log" } });
+    const client = orm(conn, { schema: { audit: "audit_log" } });
     const page = await client.audit.cursor({ limit: 1 });
     expect(page.data).toHaveLength(1);
     expect(page.pagination.nextCursor).toBeInstanceOf(RecordId);

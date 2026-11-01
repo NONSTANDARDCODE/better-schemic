@@ -4,20 +4,20 @@ import { describe, expect, test } from "bun:test";
 import { RecordId } from "surrealdb";
 import { z } from "zod";
 import { surql } from "../../../src/surreal";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { orm } from "../../../src/surreal/orm/client";
+import { schema } from "../../../src/surreal/orm/schema";
 import { zod } from "../../../src/surreal/plugins/zod";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { s, table } from "../../../src/surreal/pure";
 import { fakeConn, lines, ok } from "../orm-fixtures";
 
-const User = defineTable("user", { name: s.string() });
-const schema = defineSchema({ users: User });
+const User = table("user", { name: s.string() });
+const schemaDef = schema({ users: User });
 
 const clientWith = (schemas: Record<string, z.ZodType>) => {
   const { conn } = fakeConn((sql) =>
     lines(sql).map(() => ok([{ id: new RecordId("user", 1), name: "A" }])),
   );
-  return betterSchemic(conn, { schema, plugins: [zod({ schemas })] });
+  return orm(conn, { schema: schemaDef, plugins: [zod({ schemas })] });
 };
 
 const codeOf = async (fn: () => unknown): Promise<string | undefined> => {
@@ -67,8 +67,8 @@ describe("zod — write validation", () => {
     const { conn } = fakeConn((sql) =>
       lines(sql).map(() => ok([{ id: new RecordId("user", 1), name: "A" }])),
     );
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       plugins: [zod({ schemas: schemaFor, validate: { create: false } })],
     });
     expect(
@@ -80,8 +80,8 @@ describe("zod — write validation", () => {
     const { conn } = fakeConn((sql) =>
       lines(sql).map(() => ok([{ id: new RecordId("user", 1), name: "A" }])),
     );
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       plugins: [zod({ schemas: schemaFor, validate: { update: false } })],
     });
     expect(
@@ -129,8 +129,8 @@ describe("zod — write validation", () => {
         ),
       ),
     );
-    const valid = betterSchemic(conn, {
-      schema,
+    const valid = orm(conn, {
+      schema: schemaDef,
       plugins: [zod({ schemas: schemaFor })],
     });
     expect(
@@ -146,8 +146,8 @@ describe("zod — write validation", () => {
 });
 
 describe("zod — numeric adjustments", () => {
-  const Acct = defineTable("acct", { balance: s.int(), name: s.string() });
-  const acctSchema = defineSchema({ accounts: Acct });
+  const Acct = table("acct", { balance: s.int(), name: s.string() });
+  const acctSchema = schema({ accounts: Acct });
   const rules = {
     acct: z.object({
       balance: z.number().min(0).optional(),
@@ -160,7 +160,7 @@ describe("zod — numeric adjustments", () => {
         ok([{ id: new RecordId("acct", 1), balance: 10, name: "A" }]),
       ),
     );
-    return betterSchemic(conn, {
+    return orm(conn, {
       schema: acctSchema,
       plugins: [zod({ schemas: rules })],
     });

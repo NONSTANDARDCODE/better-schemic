@@ -7,10 +7,10 @@ the driver's introspection + the neutral kind registry; core-dev implements the 
 ## Motivation
 
 Today the CLI can act on the schema (`pull`, `diff`, `push`, migrations) but you can't just **look at**
-what's in it. `diff` shows the *delta* between snapshot and DB; there's no way to see the *inventory* of
+what's in it. `diff` shows the _delta_ between snapshot and DB; there's no way to see the _inventory_ of
 either side, or to dump one entity's resolved definition. `ls`/`info` fill that: a read-only inspection
-+ diagnosis surface that composes with the existing commands ("why does `diff` show a change on
-`user`?" → `sc table info user --from both`).
+- diagnosis surface that composes with the existing commands ("why does `diff` show a change on
+  `user`?" → `sc table info user --from both`).
 
 ## Grammar: noun-first, `sc <kind> <verb>`
 
@@ -49,8 +49,8 @@ The point is to inspect **either side** and diagnose drift:
 - `--from both` — **the diagnostic default**: snapshot vs DB side-by-side with a drift marker
   (`=` in sync, `~` differs, `+` only in DB, `-` only in snapshot). Complements `diff` (diff = the
   delta; `ls --from both` = the inventory with drift flags). Degrades to snapshot-only with a note when
-  no connection is configured. *(Default is core-dev's call — `both` is the most diagnostic; `snapshot`
-  is the fastest/offline.)*
+  no connection is configured. _(Default is core-dev's call — `both` is the most diagnostic; `snapshot`
+  is the fastest/offline.)_
 
 ## `info` — one entity's detail
 
@@ -62,7 +62,7 @@ sub-resources and dependencies:
 - `sc access info account` → the `DEFINE ACCESS` DDL (secrets already redacted by introspection).
 
 **Addressing note for table-scoped kinds** (`field`/`index`/`event` belong to a table): `sc index ls`
-lists all indexes *with their table*; `sc index info <table> <name>` (or `<table>.<name>`) addresses
+lists all indexes _with their table_; `sc index info <table> <name>` (or `<table>.<name>`) addresses
 one. The driver's introspection already carries the table context. Exact addressing is core-dev's to
 finalize; the driver supplies whatever key shape the CLI settles on.
 

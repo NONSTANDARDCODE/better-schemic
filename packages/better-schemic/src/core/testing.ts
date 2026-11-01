@@ -2,8 +2,8 @@
 // with `bun:test`. Each driver runs it against its own authoring surface:
 //
 //   import { describeDriverConformance } from "./testing";
-//   import { defineTable, s, surrealDriver } from "../surreal";
-//   describeDriverConformance({ name: "surrealdb", s, driver: surrealDriver, defineEntity: defineTable });
+//   import { table, s, surrealDriver } from "../surreal";
+//   describeDriverConformance({ name: "surrealdb", s, driver: surrealDriver, defineEntity: table });
 //
 // WHY a test, not a type: the zod drop-in builders (`s.string()` = `new <D>Field(z.string())`) are
 // mechanically identical across drivers, but TypeScript has NO higher-kinded types, so a generic core
@@ -40,7 +40,7 @@ export interface DriverConformanceOptions {
   /**
    * Authors the driver's primary fielded definable — a table, collection, node-type, … — from a name
    * and a field shape. Used to lower a probe object through the pipeline. Drivers pass their own
-   * `define*` for this (e.g. `defineEntity: defineTable`); the suite stays shape-agnostic.
+   * `define*` for this (e.g. `defineEntity: table`); the suite stays shape-agnostic.
    */
   // biome-ignore lint/suspicious/noExplicitAny: dialect-specific definable/shape types.
   defineEntity: (name: string, shape: Record<string, any>) => any;

@@ -241,7 +241,7 @@ function requireRelation(meta: ModelMeta, operation: string): void {
   if (isTableMeta(meta) && meta.kind === "relation") return;
   throw compileError(
     "ValidationError",
-    `${operation}: "${meta.name}" is not a relation — call it on the edge delegate whose schema entry is a defineRelation(...).`,
+    `${operation}: "${meta.name}" is not a relation — call it on the edge delegate whose schema entry is a relation(...).`,
     { operation, table: meta.name },
   );
 }
@@ -344,14 +344,14 @@ export function relateSugar(
     if (typeof edgeName !== "string" || !edgeName)
       throw compileError(
         "ValidationError",
-        `${operation}: relate.edge must be the edge table name (or its defineRelation def).`,
+        `${operation}: relate.edge must be the edge table name (or its relation def).`,
         { operation, table: meta.name },
       );
     const edgeMeta = resolveEdge?.(edgeName);
     if (resolveEdge && edgeMeta === undefined)
       throw compileError(
         "ValidationError",
-        `${operation}: relate.edge "${edgeName}" is not part of the schema — use a defineSchema key, the physical table name, or the RelationDef.`,
+        `${operation}: relate.edge "${edgeName}" is not part of the schema — use a schema key, the physical table name, or the RelationDef.`,
         { operation, table: meta.name },
       );
     if (
@@ -361,7 +361,7 @@ export function relateSugar(
     )
       throw compileError(
         "ValidationError",
-        `${operation}: relate.edge "${edgeName}" is a table, not a relation — edges need a defineRelation(...) entry.`,
+        `${operation}: relate.edge "${edgeName}" is a table, not a relation — edges need a relation(...) entry.`,
         { operation, table: meta.name },
       );
     return {

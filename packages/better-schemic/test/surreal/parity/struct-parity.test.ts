@@ -22,7 +22,7 @@ import {
 } from "../../../src/surreal/cli/structure";
 import { emitDefStatement, emitStatements } from "../../../src/surreal/ddl";
 import { createOnly } from "../../../src/surreal/plugins/create-only";
-import { defineFunction, defineRelation, defineTable, s } from "../../../src/surreal/pure";
+import { defineFunction, relation, s, table } from "../../../src/surreal/pure";
 
 // The workspace gate runs every package's suite IN PARALLEL — parallel-suite CPU contention can slow a live
 // connect/DDL past bun's 5s DEFAULT hook timeout, failing the `beforeEach`/`afterAll` below as an
@@ -70,7 +70,7 @@ if (!db) console.warn("[struct-parity] SurrealDB unreachable — skipping");
 
 // A broad corpus exercising the clause space (types, perms, defaults, asserts, index, nested
 // objects, arrays, records, literal unions, relation, function).
-const Big = defineTable("sp_big", {
+const Big = table("sp_big", {
   id: z.string(),
   s: s.string(),
   i: s.int(),
@@ -111,11 +111,9 @@ const Big = defineTable("sp_big", {
   perm: s.string().$permissions({ select: true, update: false }),
   uniq: s.string().$unique(),
 }).permissions({ select: true, create: surql`$auth.id != NONE` });
-const Less = defineTable("sp_less", { id: z.string() })
-  .schemaless()
-  .comment("c");
-const Rel = defineRelation("sp_likes", { id: z.string() }).from(Big).to(Big);
-const CreateOnly = defineTable("sp_create_only", {
+const Less = table("sp_less", { id: z.string() }).schemaless().comment("c");
+const Rel = relation("sp_likes", { id: z.string() }).from(Big).to(Big);
+const CreateOnly = table("sp_create_only", {
   id: z.string(),
   action: s.string(),
 })

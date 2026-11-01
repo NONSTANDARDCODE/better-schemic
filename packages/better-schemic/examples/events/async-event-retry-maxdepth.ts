@@ -1,4 +1,4 @@
-import { defineTable, s, surql } from "better-schemic";
+import { s, surql, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -7,12 +7,9 @@ export default example(import.meta.url, {
   ddl: `DEFINE TABLE job TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD status ON TABLE job TYPE string;
 DEFINE EVENT recompute ON TABLE job ASYNC RETRY 3 MAXDEPTH 5 THEN UPDATE $after.id SET status = 'queued';`,
-  def: defineTable("job", { id: s.string(), status: s.string() }).event(
-    "recompute",
-    {
-      async: { retry: 3, maxDepth: 5 },
-      // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable.
-      then: surql`UPDATE $after.id SET status = 'queued'`,
-    },
-  ),
+  def: table("job", { id: s.string(), status: s.string() }).event("recompute", {
+    async: { retry: 3, maxDepth: 5 },
+    // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable.
+    then: surql`UPDATE $after.id SET status = 'queued'`,
+  }),
 });

@@ -9,7 +9,7 @@
 import type { AccessRecordAuth, AnyAuth, Token, Tokens } from "surrealdb";
 import { assertSessionBound } from "./context";
 import type { DelegateContext } from "./delegate";
-import { BetterSchemicError, normalizeError } from "./errors";
+import { normalizeError, OrmError } from "./errors";
 import type { AuthOperations } from "./types/auth";
 
 /** The structural slice of the SDK session the runtime drives. */
@@ -34,7 +34,7 @@ export function createAuthOperations(ctx: DelegateContext): AuthOperations {
     assertSessionBound(ctx.context, operation);
     const fn = sdk[method];
     if (typeof fn !== "function")
-      throw new BetterSchemicError(
+      throw new OrmError(
         "UnsupportedCapability",
         `${operation} needs the SurrealDB SDK connection — this client wraps an object without \`${method}()\`.`,
         { operation },
@@ -52,7 +52,7 @@ export function createAuthOperations(ctx: DelegateContext): AuthOperations {
         method === "auth" &&
         /single result output when using the ONLY/i.test(normalized.message)
       )
-        throw new BetterSchemicError(
+        throw new OrmError(
           "NotAuthenticated",
           "auth.record(): this session has no authenticated RECORD user — sign in with record access (`auth.signin({ access, variables })`) first.",
           { operation, cause: e },

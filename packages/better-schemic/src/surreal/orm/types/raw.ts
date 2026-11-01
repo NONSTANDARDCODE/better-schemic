@@ -26,7 +26,7 @@ export interface RawOptions {
 /** A raw query source: a plain string, or a `BoundQuery` (`surql`/SDK tag) carrying its binds. */
 export type RawSource = string | BoundQuery;
 
-/** Client-level raw defaults (`betterSchemic(conn, { schema, raw: { … } })`). */
+/** Client-level raw defaults (`orm(conn, { schema, raw: { … } })`). */
 export interface RawDefaults {
   /** Allow `$unsafe` (default `false` — the parameterized hatches are always available). */
   unsafe?: boolean;

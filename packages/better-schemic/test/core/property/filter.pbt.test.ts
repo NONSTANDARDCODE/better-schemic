@@ -4,7 +4,11 @@
 // `inCat` matches its decision (`on && (!names || names.has(name))`).
 import { describe, expect, test } from "bun:test";
 import fc from "fast-check";
-import { type Filter, inCat, parseFilter } from "../../../src/core/cli-kit/filter";
+import {
+  type Filter,
+  inCat,
+  parseFilter,
+} from "../../../src/core/cli-kit/filter";
 
 const RUNS = Number(process.env.PBT_RUNS ?? 100);
 const SEED = process.env.PBT_SEED ? Number(process.env.PBT_SEED) : undefined;

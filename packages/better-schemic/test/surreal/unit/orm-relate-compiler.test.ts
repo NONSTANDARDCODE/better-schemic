@@ -1,7 +1,7 @@
 // The RELATE lowering in isolation: the default operations, endpoint validation, named/empty edge
 // ids and the `create.relate` sugar guards. Direct calls pin the failure codes.
 import { describe, expect, test } from "bun:test";
-import { betterSchemic } from "../../../src/surreal/orm/client";
+import { orm } from "../../../src/surreal/orm/client";
 import {
   compileRelate,
   compileRelateMany,
@@ -11,10 +11,10 @@ import {
   relateSugar,
 } from "../../../src/surreal/orm/compiler/relate";
 import { createBinds } from "../../../src/surreal/orm/compiler/shared";
-import { defineSchema } from "../../../src/surreal/orm/schema";
-import { defineRelation } from "../../../src/surreal/pure";
+import { schema } from "../../../src/surreal/orm/schema";
+import { relation } from "../../../src/surreal/pure";
 import { fakeConn, ok } from "../orm-fixtures";
-import { schema } from "./orm-writes-fixtures";
+import { schemaDef } from "./orm-writes-fixtures";
 
 const code = (fn: () => unknown): string | undefined => {
   try {
@@ -26,7 +26,7 @@ const code = (fn: () => unknown): string | undefined => {
 };
 
 const { conn } = fakeConn(() => [ok([])]);
-const client = betterSchemic(conn, { schema });
+const client = orm(conn, { schema: schemaDef });
 const likes = client.$index.tables.get("likes")!;
 const user = client.$index.tables.get("users")!;
 const b = () => createBinds();
@@ -44,17 +44,15 @@ describe("relate / unrelate — defaults and guards", () => {
       ).statements[0],
     ).toContain("RELATE");
     expect(
-      compileUnrelate(likes, { from: "user:1", to: "post:1" }, b()).statements[0],
+      compileUnrelate(likes, { from: "user:1", to: "post:1" }, b())
+        .statements[0],
     ).toContain("DELETE");
     expect(
       compileUnrelateMany(likes, { all: true }, b()).statements[0],
     ).toContain("DELETE");
     expect(
-      compileRelate(
-        likes,
-        { from: "user:1", to: "post:1", id: "likes:1" },
-        b(),
-      ).statements[0],
+      compileRelate(likes, { from: "user:1", to: "post:1", id: "likes:1" }, b())
+        .statements[0],
     ).toContain("likes:1");
     expect(
       code(() =>
@@ -116,9 +114,9 @@ describe("relate / unrelate — defaults and guards", () => {
   });
 
   test("a relation with no declared endpoints accepts any table", () => {
-    const Bare = defineRelation("bare", {});
-    const c = betterSchemic(fakeConn(() => [ok([])]).conn, {
-      schema: defineSchema({ bare: Bare }),
+    const Bare = relation("bare", {});
+    const c = orm(fakeConn(() => [ok([])]).conn, {
+      schema: schema({ bare: Bare }),
     });
     const bare = c.$index.tables.get("bare")!;
     expect(
@@ -137,7 +135,9 @@ describe("relateSugar", () => {
       )[0]?.edge,
     ).toContain("likes");
     expect(
-      code(() => relateSugar([{ edge: "likes", to: "post:1" }], "create", likes)),
+      code(() =>
+        relateSugar([{ edge: "likes", to: "post:1" }], "create", likes),
+      ),
     ).toBe("ValidationError");
     expect(
       code(() =>
@@ -156,7 +156,11 @@ describe("relateSugar", () => {
     ).toBe("ValidationError");
     expect(
       code(() =>
-        relateSugar([{ from: "user:1", edge: 5, to: "post:1" }], "create", likes),
+        relateSugar(
+          [{ from: "user:1", edge: 5, to: "post:1" }],
+          "create",
+          likes,
+        ),
       ),
     ).toBe("ValidationError");
     expect(

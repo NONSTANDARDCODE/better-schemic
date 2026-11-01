@@ -8,14 +8,14 @@ setDefaultTimeout(120_000);
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Surreal } from "surrealdb";
+import { defineFunction, s, table } from "../../../src/surreal";
 import {
   type EphemeralServer,
   surrealBinaryAvailable,
 } from "../../../src/surreal/cli/engine";
-import { defineFunction, defineTable, s } from "../../../src/surreal";
-import { betterSchemic, type Client } from "../../../src/surreal/orm/client";
-import { isBetterSchemicError } from "../../../src/surreal/orm/errors";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { type Client, orm } from "../../../src/surreal/orm/client";
+import { isOrmError } from "../../../src/surreal/orm/errors";
+import { schema } from "../../../src/surreal/orm/schema";
 import { caught } from "../orm-fixtures";
 import { startLiveServer } from "./harness";
 
@@ -23,22 +23,22 @@ const ENABLED = surrealBinaryAvailable();
 const live = describe.skipIf(!ENABLED);
 if (!ENABLED) console.warn("[orm-raw] `surreal` binary unavailable — skipping");
 
-const Item = defineTable("item", { name: s.string() });
+const Item = table("item", { name: s.string() });
 const Add = defineFunction("add", { a: s.number(), b: s.number() }).returns(
   s.number(),
 );
-const schema = defineSchema({ items: Item, add: Add });
+const schemaDef = schema({ items: Item, add: Add });
 
 /** `[id, name]` pairs — decoded ids are SDK `RecordId` instances. */
 const labelled = async (
-  source: Client<typeof schema>,
+  source: Client<typeof schemaDef>,
 ): Promise<[string, string][]> =>
   (await source.items.findMany()).map((row) => [String(row.id), row.name]);
 
 live("orm raw / context / fn / api / admin — live", () => {
   let server: EphemeralServer;
   let db: Surreal;
-  let client: Client<typeof schema>;
+  let client: Client<typeof schemaDef>;
 
   beforeAll(async () => {
     const started = await startLiveServer({
@@ -69,7 +69,7 @@ live("orm raw / context / fn / api / admin — live", () => {
     });
     server = started.server;
     db = started.db;
-    client = betterSchemic(db, { schema });
+    client = orm(db, { schema: schemaDef });
   });
 
   afterAll(async () => {
@@ -93,17 +93,15 @@ live("orm raw / context / fn / api / admin — live", () => {
 
   test("$unsafe is gated and raw.requireComment enforces a reason", async () => {
     const unsafe = await caught(() => client.$unsafe("SELECT * FROM item"));
-    expect(isBetterSchemicError(unsafe) && unsafe.code).toBe("UnsafeDisabled");
+    expect(isOrmError(unsafe) && unsafe.code).toBe("UnsafeDisabled");
 
-    const open = betterSchemic(db, {
-      schema,
+    const open = orm(db, {
+      schema: schemaDef,
       raw: { unsafe: true, requireComment: true },
     });
     await open.$unsafe("SELECT * FROM item");
     const missing = await caught(() => open.$raw("DELETE item"));
-    expect(isBetterSchemicError(missing) && missing.code).toBe(
-      "ValidationError",
-    );
+    expect(isOrmError(missing) && missing.code).toBe("ValidationError");
     await open.$raw("DELETE item", { meta: { comment: "cleanup" } });
     // The curried tag carries the comment into the template form.
     await open.$raw({
@@ -144,11 +142,9 @@ live("orm raw / context / fn / api / admin — live", () => {
       database: "app",
     });
     const api = await caught(() => tenantA.api.get("/articles"));
-    expect(isBetterSchemicError(api) && api.code).toBe("UnsupportedCapability");
+    expect(isOrmError(api) && api.code).toBe("UnsupportedCapability");
     const dump = await caught(() => tenantA.export());
-    expect(isBetterSchemicError(dump) && dump.code).toBe(
-      "UnsupportedCapability",
-    );
+    expect(isOrmError(dump) && dump.code).toBe("UnsupportedCapability");
 
     await tenantA.import(
       "DELETE item; CREATE item:a CONTENT { name: 'tenant-a' };",
@@ -201,9 +197,9 @@ live("orm raw / context / fn / api / admin — live", () => {
     expect(echoed).toBe("echoed");
 
     const boom = await caught(() => client.api.get("/boom"));
-    expect(isBetterSchemicError(boom) && boom.code).toBe("DatabaseError");
-    expect(isBetterSchemicError(boom) && boom.status).toBe(418);
-    expect(isBetterSchemicError(boom) && boom.details).toBe("teapot");
+    expect(isOrmError(boom) && boom.code).toBe("DatabaseError");
+    expect(isOrmError(boom) && boom.status).toBe(418);
+    expect(isOrmError(boom) && boom.details).toBe("teapot");
   });
 
   test("admin: info/version/ping/export/import", async () => {
@@ -236,6 +232,6 @@ live("orm raw / context / fn / api / admin — live", () => {
 
   test("auth.record() on a non-record session teaches NotAuthenticated", async () => {
     const error = await caught(() => client.auth.record());
-    expect(isBetterSchemicError(error) && error.code).toBe("NotAuthenticated");
+    expect(isOrmError(error) && error.code).toBe("NotAuthenticated");
   });
 });

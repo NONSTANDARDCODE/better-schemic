@@ -3,8 +3,8 @@
 // normalize canonicalizes formatting, so formatted output NEVER phantom-diffs.
 import { describe, expect, test } from "bun:test";
 import { formatSurql } from "../../../src/surreal/cli/format";
-import { normalizeFunction } from "../../../src/surreal/cli/struct";
 import { renderSchemaToTS } from "../../../src/surreal/cli/pull";
+import { normalizeFunction } from "../../../src/surreal/cli/struct";
 
 const FN =
   "{ LET $html = string::concat('<b>', $code); LET $res = http::post('https://x.dev/emails', { from: 'Game Backlog <verify@example.dev>', to: [$email], subject: 'Your code', html: $html }, { Authorization: string::concat('Bearer ', $key) }); IF $res.id = NONE { THROW 'send failed; retry'; }; RETURN $res.id != NONE }";
@@ -14,12 +14,18 @@ describe("formatSurql", () => {
     const out = formatSurql(FN);
     expect(out).toContain("{\n  LET $html = string::concat('<b>', $code);");
     // prettier-style: a too-wide CALL breaks one arg per line (trailing comma; normalize strips)
-    expect(out).toContain("LET $res = http::post(\n    'https://x.dev/emails',");
+    expect(out).toContain(
+      "LET $res = http::post(\n    'https://x.dev/emails',",
+    );
     expect(out).toContain("    {\n      from:");
-    expect(out).toContain("IF $res.id = NONE {\n    THROW 'send failed; retry';\n  };");
+    expect(out).toContain(
+      "IF $res.id = NONE {\n    THROW 'send failed; retry';\n  };",
+    );
     expect(out.endsWith("\n}")).toBe(true);
     // short calls/objects stay inline
-    expect(out).toContain("{ Authorization: string::concat('Bearer ', $key) },");
+    expect(out).toContain(
+      "{ Authorization: string::concat('Bearer ', $key) },",
+    );
   });
 
   test("idempotent; string literals with ;{} untouched", () => {
@@ -30,7 +36,11 @@ describe("formatSurql", () => {
 
   test("whitespace-only: normalize(format(x)) === normalize(x) — can't phantom-diff", () => {
     const a = normalizeFunction({ name: "f", args: [], block: FN });
-    const b = normalizeFunction({ name: "f", args: [], block: formatSurql(FN) });
+    const b = normalizeFunction({
+      name: "f",
+      args: [],
+      block: formatSurql(FN),
+    });
     expect(b.block).toBe(a.block);
   });
 

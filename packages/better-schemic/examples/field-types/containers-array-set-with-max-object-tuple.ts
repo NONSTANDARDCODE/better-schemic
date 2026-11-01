@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { s, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -11,7 +11,7 @@ DEFINE FIELD coords ON TABLE containers TYPE [float, float];
 DEFINE FIELD meta ON TABLE containers TYPE object;
 DEFINE FIELD meta.k ON TABLE containers TYPE string;
 DEFINE FIELD meta.n ON TABLE containers TYPE int;`,
-  def: defineTable("containers", {
+  def: table("containers", {
     id: s.string(),
     tags: s.array(s.string()),
     top3: s.array(s.string(), { max: 3 }),

@@ -4,19 +4,19 @@ import { describe, expect, test } from "bun:test";
 import type { QueryResponse } from "surrealdb";
 import { RecordId, Uuid } from "surrealdb";
 import { createQueryLogger, resolveLogger } from "../../../src/surreal/logger";
-import { betterSchemic, type Client } from "../../../src/surreal/orm/client";
+import { type Client, orm } from "../../../src/surreal/orm/client";
 import { visibleWidth } from "../../../src/surreal/orm/logger/colors";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { schema } from "../../../src/surreal/orm/schema";
 import type {
   LoggerOption,
   QueryLogEvent,
   QueryLogger,
 } from "../../../src/surreal/orm/types/logger";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { s, table } from "../../../src/surreal/pure";
 
-const User = defineTable("user", { name: s.string(), age: s.int() });
-const schema = defineSchema({ users: User });
-type C = Client<typeof schema>;
+const User = table("user", { name: s.string(), age: s.int() });
+const schemaDef = schema({ users: User });
+type C = Client<typeof schemaDef>;
 
 // --- fixtures ----------------------------------------------------------------------------------
 
@@ -630,8 +630,8 @@ describe("client wiring (executor seam)", () => {
   test("logger on logs a read; logger: false logs nothing", async () => {
     const on = capture({ colors: false });
     const { conn } = connOf(() => [okr([])]);
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       logger: { write: sinkOf(on), colors: false },
     }) as unknown as C;
     await client.users.findMany({ where: { name: "A" } });
@@ -640,7 +640,7 @@ describe("client wiring (executor seam)", () => {
 
     const off = capture({});
     const { conn: conn2 } = connOf(() => [okr([])]);
-    const c2 = betterSchemic(conn2, { schema, logger: false }) as unknown as C;
+    const c2 = orm(conn2, { schema: schemaDef, logger: false }) as unknown as C;
     await c2.users.findMany({});
     expect(off.lines).toHaveLength(0);
   });
@@ -653,7 +653,7 @@ describe("client wiring (executor seam)", () => {
     process.env.BETTER_SCHEMIC_LOG = "compact";
     try {
       const { conn } = connOf(() => [okr([])]);
-      const client = betterSchemic(conn, { schema }) as unknown as C;
+      const client = orm(conn, { schema: schemaDef }) as unknown as C;
       await client.users.findMany({});
     } finally {
       console.log = original;
@@ -674,8 +674,8 @@ describe("client wiring (executor seam)", () => {
           ]
         : [okr([])],
     );
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       logger: { write: sinkOf(sink), colors: false },
     }) as unknown as C;
     await client.users.findMany({ where: { age: { gt: 1 } } }).explain();
@@ -686,8 +686,8 @@ describe("client wiring (executor seam)", () => {
   test("explain: true logs the inline plan", async () => {
     const sink = capture({ colors: false });
     const { conn, calls } = connOf(() => [okr("SelectProject [ctx: Db]")]);
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       logger: { write: sinkOf(sink), colors: false },
     }) as unknown as C;
     await client.users.findMany({ where: { name: "A" }, explain: true });
@@ -706,8 +706,8 @@ describe("client wiring (executor seam)", () => {
           ]
         : sql.split("\n").map(() => okr([])),
     );
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       logger: {
         write: sinkOf(sink),
         colors: false,
@@ -732,8 +732,8 @@ describe("client wiring (executor seam)", () => {
     const { conn, calls } = connOf((sql) =>
       sql.startsWith("EXPLAIN") ? [okr("Root [ctx: Db]")] : [okr([])],
     );
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       logger: {
         write: sinkOf(sink),
         format: "compact",
@@ -755,8 +755,8 @@ describe("client wiring (executor seam)", () => {
         return { responses: async () => [okr([])] };
       },
     } as never;
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       logger: {
         write: sinkOf(sink),
         colors: false,
@@ -771,8 +771,8 @@ describe("client wiring (executor seam)", () => {
   test("statement errors and transport failures are logged", async () => {
     const stmt = capture({ colors: false });
     const { conn } = connOf(() => [failr("ParseError", "bad sql")]);
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       logger: { write: sinkOf(stmt), colors: false },
     }) as unknown as C;
     await client.users.findMany({}).catch(() => {});
@@ -784,8 +784,8 @@ describe("client wiring (executor seam)", () => {
         throw new Error("socket closed");
       },
     } as never;
-    const c2 = betterSchemic(boom, {
-      schema,
+    const c2 = orm(boom, {
+      schema: schemaDef,
       logger: { write: sinkOf(transport), colors: false },
     }) as unknown as C;
     await c2.users.findMany({}).catch(() => {});
@@ -795,8 +795,8 @@ describe("client wiring (executor seam)", () => {
   test("$withContext logs the resolved ns/db scope", async () => {
     const sink = capture({ colors: false });
     const { conn } = connOf((sql) => sql.split("\n").map(() => okr([])));
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       logger: { write: sinkOf(sink), colors: false },
     }) as unknown as C;
     const scoped = client.$withContext({ namespace: "app", database: "main" });
@@ -809,8 +809,8 @@ describe("client wiring (executor seam)", () => {
     const { conn } = connOf(() => [
       okr([{ id: "user:1", name: "A" }, { id: "user:2" }]),
     ]);
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       logger: { write: sinkOf(sink), colors: false, verbose: true, maxRows: 1 },
     }) as unknown as C;
     await client.$raw`SELECT * FROM user`;
@@ -831,8 +831,8 @@ describe("client wiring (executor seam)", () => {
       query: () => ({ responses: async () => [okr([])] }),
       beginTransaction: () => Promise.resolve(tx),
     } as never;
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       logger: { write: sinkOf(sink), colors: false },
     }) as unknown as C;
     await client.transaction(async (t) => {
@@ -1043,8 +1043,8 @@ describe("rendering edge cases", () => {
     const { conn } = connOf((sql) =>
       sql.split("\n").map(() => okr([{ id: "user:1" }])),
     );
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       logger: { write: sinkOf(sink), colors: false },
     }) as unknown as C;
     await client.users.exists({ where: { name: "A" } });
@@ -1057,8 +1057,8 @@ describe("rendering edge cases", () => {
     const { conn } = connOf((sql) =>
       sql.split("\n").map(() => okr([{ count: 42 }])),
     );
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       logger: { write: sinkOf(sink), colors: false },
     }) as unknown as C;
     await client.users.count({});
@@ -1068,8 +1068,8 @@ describe("rendering edge cases", () => {
   test("raw control statements are stripped from the logged script", async () => {
     const sink = capture({ colors: false });
     const { conn } = connOf((sql) => sql.split("\n").map(() => okr([])));
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       logger: { write: sinkOf(sink), colors: false },
     }) as unknown as C;
     // A multi-statement script is $query's job now ($raw refuses one — it resolves a single

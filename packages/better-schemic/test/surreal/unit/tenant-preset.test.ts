@@ -2,18 +2,18 @@
 // matching the hand-written multi-tenant recipe line-by-line (zero-diff), with the column typed as
 // a `record<principal>` and `meta.tenant` stamped for the runtime plugin.
 import { describe, expect, test } from "bun:test";
+import { s, surql, table } from "../../../src/surreal";
 import { emitStatements, emitTable } from "../../../src/surreal/ddl";
-import { defineTable, s, surql } from "../../../src/surreal";
 import { tenant } from "../../../src/surreal/plugins/tenant";
 
-const User = defineTable("user", { name: s.string() });
+const User = table("user", { name: s.string() });
 
-const Customer = defineTable("customer", {
+const Customer = table("customer", {
   name: s.string(),
   deletedAt: s.datetime().optional(),
 }).use(tenant(User, { softDelete: true }));
 
-const Order = defineTable("order", { total: s.number() }).use(
+const Order = table("order", { total: s.number() }).use(
   tenant(User, { createOnly: true }),
 );
 
@@ -48,7 +48,7 @@ describe("tenant() — golden DDL (createOnly)", () => {
 
 describe("tenant() — zero-diff against the manual recipe", () => {
   test("the composed table emits exactly the hand-written statements", () => {
-    const manual = defineTable("customer", {
+    const manual = table("customer", {
       name: s.string(),
       deletedAt: s.datetime().optional(),
       tenant_id: User.record()
@@ -74,12 +74,12 @@ describe("tenant() — zero-diff against the manual recipe", () => {
   });
 
   test("the preset NARROWS existing permissions (AND), never widens", () => {
-    const narrowed = defineTable("doc", { title: s.string() })
+    const narrowed = table("doc", { title: s.string() })
       .permissions({ select: true, delete: false })
       .use(tenant(User));
     const emitted = emitStatements(narrowed);
-    const table = emitted.find((s) => s.kind === "table")?.ddl;
-    expect(table).toContain(
+    const tableDdl = emitted.find((s) => s.kind === "table")?.ddl;
+    expect(tableDdl).toContain(
       "PERMISSIONS FOR select, create, update WHERE tenant_id = $auth.id FOR delete NONE",
     );
   });
@@ -87,7 +87,7 @@ describe("tenant() — zero-diff against the manual recipe", () => {
 
 describe("tenant() — options", () => {
   test("custom column name drives the field, permissions and index names", () => {
-    const Doc = defineTable("doc", { title: s.string() }).use(
+    const Doc = table("doc", { title: s.string() }).use(
       tenant(User, { column: "org_id" }),
     );
     const emitted = ddl(Doc);
@@ -102,7 +102,7 @@ describe("tenant() — options", () => {
   });
 
   test("softDelete as a custom column snake-cases the deleted index name", () => {
-    const Doc = defineTable("doc", { removedAt: s.datetime().optional() }).use(
+    const Doc = table("doc", { removedAt: s.datetime().optional() }).use(
       tenant(User, { softDelete: "removedAt" }),
     );
     const emitted = ddl(Doc);
@@ -114,7 +114,7 @@ describe("tenant() — options", () => {
   });
 
   test("names override the derived event/index names ({table} still interpolates)", () => {
-    const Doc = defineTable("doc", { title: s.string() }).use(
+    const Doc = table("doc", { title: s.string() }).use(
       tenant(User, {
         softDelete: true,
         names: {
@@ -137,7 +137,7 @@ describe("tenant() — options", () => {
   });
 
   test("protect: false drops only the event", () => {
-    const Doc = defineTable("doc", {}).use(tenant(User, { protect: false }));
+    const Doc = table("doc", {}).use(tenant(User, { protect: false }));
     const emitted = ddl(Doc);
     expect(emitted.some((s) => s.startsWith("DEFINE EVENT"))).toBe(false);
     expect(emitted).toContain(
@@ -146,7 +146,7 @@ describe("tenant() — options", () => {
   });
 
   test("indexes: false drops only the indexes", () => {
-    const Doc = defineTable("doc", {}).use(tenant(User, { indexes: false }));
+    const Doc = table("doc", {}).use(tenant(User, { indexes: false }));
     const emitted = ddl(Doc);
     expect(emitted.some((s) => s.startsWith("DEFINE INDEX"))).toBe(false);
     expect(emitted.some((s) => s.startsWith("DEFINE EVENT"))).toBe(true);
@@ -154,7 +154,7 @@ describe("tenant() — options", () => {
 
   test("createOnly + softDelete is rejected at the factory (incompatible states)", () => {
     expect(() =>
-      defineTable("doc", {}).use(
+      table("doc", {}).use(
         tenant(User, { createOnly: true, softDelete: true }),
       ),
     ).toThrow(/mutually exclusive/);
@@ -187,20 +187,20 @@ describe("tenant() — meta marker", () => {
   });
 
   test("meta merges with other presets and never emits DDL", () => {
-    const base = defineTable.preset({ meta: { owner: "acme" } });
-    const tagged = defineTable("doc", {}).use(base).use(tenant(User));
+    const base = table.preset({ meta: { owner: "acme" } });
+    const tagged = table("doc", {}).use(base).use(tenant(User));
     expect(tagged.config.meta).toMatchObject({
       owner: "acme",
       tenant: { column: "tenant_id" },
     });
     // meta alone is invisible to the emitter: a meta-only preset table is DDL-identical to a bare one.
-    expect(emitTable(defineTable("doc", {}).use(base))).toBe(
-      emitTable(defineTable("doc", {})),
+    expect(emitTable(table("doc", {}).use(base))).toBe(
+      emitTable(table("doc", {})),
     );
   });
 
   test("chained .use(tenant) keeps the preset column typed and conflict-checked", () => {
-    const Doc = defineTable("doc", { title: s.string() }).use(tenant(User));
+    const Doc = table("doc", { title: s.string() }).use(tenant(User));
     expect(Doc.fields.tenant_id).toBeDefined();
     expect("tenant_id" in Doc.update.shape).toBe(false); // $readonly excludes it
     expect(Doc.create.safeParse({ title: "t" }).success).toBe(true);

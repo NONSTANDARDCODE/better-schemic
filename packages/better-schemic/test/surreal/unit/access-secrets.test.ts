@@ -1,9 +1,9 @@
 // Phase-2a: DEFINE ACCESS keys as env()/secret() references — emitted as bound `$param` placeholders
 // (value never in the DDL), with the `$param -> SecretRef` bindings attached for apply-time resolution.
 import { describe, expect, spyOn, test } from "bun:test";
-import { emitDefStatement } from "../../../src/surreal/driver";
 // env/secret imported from the surrealdb index — verifies the side-effect-free re-export path too.
 import { defineAccess, env, secret } from "../../../src/surreal";
+import { emitDefStatement } from "../../../src/surreal/driver";
 
 const st = (a: unknown) =>
   emitDefStatement(a as Parameters<typeof emitDefStatement>[0]);

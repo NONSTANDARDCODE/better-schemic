@@ -83,6 +83,9 @@ them. Every milestone/PR must leave the docs it touches consistent **in the same
 A change that alters behavior/API without the matching doc update is **incomplete**; call it out in
 review the same way a missing test would be.
 
+**CRITICAL: Always update `CHANGELOG.md` (Unreleased section) for every change — code, rename, fix, or doc.
+Never leave a change unrecorded in the changelog.**
+
 ## Driver coverage docs
 
 The package keeps a **`docs/COVERAGE.md`** tracking **all** of SurrealDB's schema/DDL syntax

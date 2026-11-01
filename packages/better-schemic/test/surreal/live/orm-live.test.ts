@@ -7,14 +7,14 @@ setDefaultTimeout(120_000);
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { RecordId, Surreal } from "surrealdb";
+import { s, table } from "../../../src/surreal";
 import {
   type EphemeralServer,
   surrealBinaryAvailable,
 } from "../../../src/surreal/cli/engine";
-import { defineTable, s } from "../../../src/surreal";
-import { betterSchemic, type Client } from "../../../src/surreal/orm/client";
-import { isBetterSchemicError } from "../../../src/surreal/orm/errors";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { type Client, orm } from "../../../src/surreal/orm/client";
+import { isOrmError } from "../../../src/surreal/orm/errors";
+import { schema } from "../../../src/surreal/orm/schema";
 import type { LiveNotification } from "../../../src/surreal/orm/types/live";
 import { caught } from "../orm-fixtures";
 import { startLiveServer } from "./harness";
@@ -24,19 +24,19 @@ const live = describe.skipIf(!ENABLED);
 if (!ENABLED)
   console.warn("[orm-live] `surreal` binary unavailable — skipping");
 
-const UserBase = defineTable("lv_user", {
+const UserBase = table("lv_user", {
   name: s.string(),
   active: s.boolean(),
 });
 const User = UserBase.extend({
   friend: s.recordId(() => UserBase).optional(),
 });
-const schema = defineSchema({ users: User });
+const schemaDef = schema({ users: User });
 
 live("orm live — live", () => {
   let server: EphemeralServer;
   let db: Surreal;
-  let client: Client<typeof schema>;
+  let client: Client<typeof schemaDef>;
 
   const sleep = (ms: number): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, ms));
@@ -61,7 +61,7 @@ live("orm live — live", () => {
     });
     server = started.server;
     db = started.db;
-    client = betterSchemic(db, { schema });
+    client = orm(db, { schema: schemaDef });
   });
 
   afterAll(async () => {
@@ -192,11 +192,11 @@ live("orm live — live", () => {
     });
     await http.signin({ username: server.username, password: server.password });
     await http.use({ namespace: "orm_live", database: "live" });
-    const httpClient = betterSchemic(http, { schema });
+    const httpClient = orm(http, { schema: schemaDef });
     const err = await caught(() =>
       httpClient.users.live({ where: { active: true } }),
     );
-    expect(isBetterSchemicError(err)).toBe(true);
+    expect(isOrmError(err)).toBe(true);
     expect((err as { code?: string }).code).toBe("LiveQueryUnsupported");
     await http.close();
   });

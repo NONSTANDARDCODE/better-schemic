@@ -4,26 +4,29 @@
 import { describe, expect, test } from "bun:test";
 import { DateTime, Decimal, Duration, RecordId } from "surrealdb";
 import { surql } from "../../../src/surreal";
-import { betterSchemic, type Client } from "../../../src/surreal/orm/client";
+import { type Client, orm } from "../../../src/surreal/orm/client";
 import { compileUpsertDelta } from "../../../src/surreal/orm/compiler/mutate";
 import { createBinds } from "../../../src/surreal/orm/compiler/shared";
-import { computeFieldDelta, equalAppValue } from "../../../src/surreal/orm/delta";
-import type { BetterSchemicError } from "../../../src/surreal/orm/errors";
-import { defineSchema } from "../../../src/surreal/orm/schema";
-import { defineTable, s } from "../../../src/surreal/pure";
+import {
+  computeFieldDelta,
+  equalAppValue,
+} from "../../../src/surreal/orm/delta";
+import type { OrmError } from "../../../src/surreal/orm/errors";
+import { schema } from "../../../src/surreal/orm/schema";
+import { s, table } from "../../../src/surreal/pure";
 import { caught, fakeConn, ok } from "../orm-fixtures";
 import { codeOf } from "./orm-writes-fixtures";
 
-const Ledger = defineTable("delta_ledger", {
+const Ledger = table("delta_ledger", {
   name: s.string(),
   balance: s.decimal(),
   note: s.string().optional(),
   at: s.datetime().optional(),
   owner: s.recordId("delta_user").optional(),
 }).index("uniq_name", ["name"], { unique: true });
-const schema = defineSchema({ ledgers: Ledger });
+const schemaDef = schema({ ledgers: Ledger });
 
-type C = Client<typeof schema>;
+type C = Client<typeof schemaDef>;
 
 /** A client over a fake connection whose every statement answers `respond(line)`. */
 function clientFor(respond: (line: string) => unknown): {
@@ -33,7 +36,7 @@ function clientFor(respond: (line: string) => unknown): {
   const { conn, calls } = fakeConn((script) =>
     script.split("\n").map((line) => ok(respond(line))),
   );
-  return { client: betterSchemic(conn, { schema }) as C, calls };
+  return { client: orm(conn, { schema: schemaDef }) as C, calls };
 }
 
 const client = clientFor(() => null).client;
@@ -635,7 +638,7 @@ describe("upsertDelta — runtime decode", () => {
         where: { id: "delta_ledger:missing" },
         data: { name: "B" },
       }),
-    )) as BetterSchemicError;
+    )) as OrmError;
     expect(error.code).toBe("ResultNotFound");
     expect(error.table).toBe("delta_ledger");
     expect(error.operation).toBe("upsertDelta");
@@ -648,7 +651,7 @@ describe("upsertDelta — runtime decode", () => {
     const { client: c, calls } = clientFor(() => null);
     const error = (await caught(() =>
       c.ledgers.upsertDelta({ data: { name: "A" } }),
-    )) as BetterSchemicError;
+    )) as OrmError;
     expect(error.code).toBe("ResultNotFound");
     expect(calls[0]?.sql).toContain("CREATE");
     expect(error.message).toContain("plugin scope");
@@ -664,7 +667,7 @@ describe("upsertDelta — runtime decode", () => {
         onMissing: "create",
         scope: { owner: { equals: "delta_user:other" } },
       }),
-    )) as BetterSchemicError;
+    )) as OrmError;
     expect(error.code).toBe("ResultNotFound");
     expect(error.message).toContain("plugin scope");
   });
@@ -679,7 +682,7 @@ describe("upsertDelta — runtime decode", () => {
         data: { name: "A" },
         onMissing: "create",
       }),
-    )) as BetterSchemicError;
+    )) as OrmError;
     expect(error.code).toBe("ResultNotFound");
     expect(error.surql).toContain("UPSERT");
   });

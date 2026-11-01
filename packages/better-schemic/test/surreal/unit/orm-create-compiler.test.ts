@@ -3,17 +3,17 @@
 import { describe, expect, test } from "bun:test";
 import { RecordId } from "surrealdb";
 import { defineSingleton, s } from "../../../src/surreal";
-import { betterSchemic } from "../../../src/surreal/orm/client";
+import { orm } from "../../../src/surreal/orm/client";
+import { createBinds } from "../../../src/surreal/orm/compiler/shared";
 import {
   compileCreate,
   compileCreateMany,
   compileInsert,
   compileInsertMany,
 } from "../../../src/surreal/orm/compiler/write";
-import { createBinds } from "../../../src/surreal/orm/compiler/shared";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { schema } from "../../../src/surreal/orm/schema";
 import { fakeConn, ok } from "../orm-fixtures";
-import { schema } from "./orm-writes-fixtures";
+import { schemaDef } from "./orm-writes-fixtures";
 
 const code = (fn: () => unknown): string | undefined => {
   try {
@@ -25,7 +25,7 @@ const code = (fn: () => unknown): string | undefined => {
 };
 
 const { conn } = fakeConn(() => [ok([])]);
-const client = betterSchemic(conn, { schema });
+const client = orm(conn, { schema: schemaDef });
 const meta = client.$index.tables.get("users")!;
 const b = () => createBinds();
 const sql = (plan: { statements: readonly string[] }): string =>
@@ -52,13 +52,19 @@ describe("compileCreate / compileCreateMany", () => {
 
   test("skipDuplicates: id-less rows get the generated id; explicit ids keep the whole bind", () => {
     expect(
-      code(() => compileCreateMany(meta, { data: [5], skipDuplicates: true }, b())),
+      code(() =>
+        compileCreateMany(meta, { data: [5], skipDuplicates: true }, b()),
+      ),
     ).toBe("ValidationError");
     expect(
       sql(
-        compileCreateMany(meta, { data: [{ name: "A" }], skipDuplicates: true }, b()),
+        compileCreateMany(
+          meta,
+          { data: [{ name: "A" }], skipDuplicates: true },
+          b(),
+        ),
       ),
-    ).toContain('INSERT IGNORE INTO user { name: $b0, id: rand::ulid() }');
+    ).toContain("INSERT IGNORE INTO user { name: $b0, id: rand::ulid() }");
     expect(
       sql(
         compileCreateMany(
@@ -79,9 +85,9 @@ describe("compileInsert / compileInsertMany", () => {
     expect(
       code(() => compileInsert(meta, { data: [{ name: "A" }] }, b())),
     ).toBe("ValidationError");
-    expect(sql(compileInsertMany(meta, { data: [{ name: "A" }] }, b()))).toContain(
-      "INSERT",
-    );
+    expect(
+      sql(compileInsertMany(meta, { data: [{ name: "A" }] }, b())),
+    ).toContain("INSERT");
     expect(
       code(() => compileInsertMany(meta, { data: { name: "A" } }, b())),
     ).toBe("ValidationError");
@@ -94,8 +100,8 @@ describe("compileInsert / compileInsertMany", () => {
 describe("create — singleton tables", () => {
   test("a singleton delegate targets its fixed id", () => {
     const Config = defineSingleton("config", { value: s.string() });
-    const c = betterSchemic(fakeConn(() => [ok([])]).conn, {
-      schema: defineSchema({ config: Config }),
+    const c = orm(fakeConn(() => [ok([])]).conn, {
+      schema: schema({ config: Config }),
     });
     const configMeta = c.$index.tables.get("config")!;
     expect(

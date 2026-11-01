@@ -11,7 +11,7 @@ import { escapeIdentSafe as escapeIdent } from "../ident";
 import { compileError } from "./compiler/shared";
 import { assertSessionBound, contextOption } from "./context";
 import type { DelegateContext } from "./delegate";
-import { BetterSchemicError, normalizeError } from "./errors";
+import { normalizeError, OrmError } from "./errors";
 import { execute, runScript, terminate } from "./execute";
 import { statementResult } from "./results";
 import type {
@@ -45,7 +45,7 @@ export function createAdminOperations(ctx: DelegateContext): AdminOperations {
       version?: () => Promise<ServerVersion>;
     };
     if (typeof sdk.version !== "function")
-      throw new BetterSchemicError(
+      throw new OrmError(
         "UnsupportedCapability",
         "version() needs the SurrealDB SDK connection — this client wraps an object without `version()`.",
         { operation: "version" },
@@ -75,7 +75,7 @@ export function createAdminOperations(ctx: DelegateContext): AdminOperations {
       export?: (options?: ExportOptions) => Promise<unknown>;
     };
     if (typeof sdk.export !== "function")
-      throw new BetterSchemicError(
+      throw new OrmError(
         "UnsupportedCapability",
         "export() needs the SurrealDB SDK connection — this client wraps an object without `export()`.",
         { operation: "export" },
@@ -83,7 +83,7 @@ export function createAdminOperations(ctx: DelegateContext): AdminOperations {
     try {
       const dump = await sdk.export(options);
       if (typeof dump !== "string")
-        throw new BetterSchemicError(
+        throw new OrmError(
           "UnsupportedCapability",
           "export(): the connection returned a non-text dump (`.raw()`); use `$sdk.export().raw()` for streaming.",
           { operation: "export" },

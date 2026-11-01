@@ -19,7 +19,7 @@ import view from "./11-view";
 import viewTyped from "./12-view-typed";
 
 /** Every permutation of the `DEFINE TABLE` statement, in grammar order. */
-export const defineTableCoverage = coverage("DEFINE TABLE", [
+export const tableCoverage = coverage("DEFINE TABLE", [
   // [ OVERWRITE | IF NOT EXISTS ] @name
   base,
   overwrite,

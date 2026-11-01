@@ -460,7 +460,9 @@ export interface CursorArgs<TD extends AnyTableDef, S = SchemaInput>
 }
 
 /** One `orderBy` entry of a cursor: a field plus its direction. */
-export type CursorOrderEntry<F extends string = string> = { [K in F]?: "asc" | "desc" };
+export type CursorOrderEntry<F extends string = string> = {
+  [K in F]?: "asc" | "desc";
+};
 
 /**
  * The `orderBy` of a `cursor`, restricted to orderings whose LAST field is unique.
@@ -470,7 +472,9 @@ export type CursorOrderEntry<F extends string = string> = { [K in F]?: "asc" | "
  */
 export type CursorOrderBy<TD extends AnyTableDef, S = SchemaInput> =
   | readonly [
-      order: ReadArgs<TD, S>["orderBy"] extends infer O ? CursorOrderEntries<O> : never,
+      order: ReadArgs<TD, S>["orderBy"] extends infer O
+        ? CursorOrderEntries<O>
+        : never,
       tiebreaker: CursorOrderEntry<UniqueTiebreaker<TD>>,
     ]
   | readonly [tiebreaker: CursorOrderEntry<UniqueTiebreaker<TD>>];
@@ -487,7 +491,7 @@ type CursorOrderEntries<O> = O extends readonly (infer E)[]
 /** `id` plus every field declared with a single-field UNIQUE index. */
 export type UniqueTiebreaker<TD extends AnyTableDef> =
   | "id"
-  | (TD extends TableDef<string, infer _S, infer U> ? (U & string) : never);
+  | (TD extends TableDef<string, infer _S, infer U> ? U & string : never);
 
 /** What `findUnique` resolves to (a thenable that may miss). */
 export type FindUniqueResult<
@@ -501,7 +505,9 @@ export type SplitPath<TD extends AnyTableDef> = ArrayFieldNames<App<TD>>;
 
 /** The array/set column names of a table's app shape. */
 type ArrayFieldNames<A> = {
-  [K in keyof A]-?: NonNullable<A[K]> extends readonly unknown[] ? K & string : never;
+  [K in keyof A]-?: NonNullable<A[K]> extends readonly unknown[]
+    ? K & string
+    : never;
 }[keyof A] &
   string;
 
@@ -521,8 +527,10 @@ type AggValue<TD extends AnyTableDef, F> = F extends keyof App<TD>
     : unknown;
 
 /** The value of a split operand path (`lines[*].label`) against the table's app shape. */
-type SplitElementValue<A, F extends string> = F extends
-  `${infer Head}[*].${infer Rest}`
+type SplitElementValue<
+  A,
+  F extends string,
+> = F extends `${infer Head}[*].${infer Rest}`
   ? Head extends keyof A
     ? ElementOf<NonNullable<A[Head]>> extends infer Elem
       ? Elem extends { [K in Rest]: infer V }
@@ -588,7 +596,11 @@ export interface AggregateArgs<TD extends AnyTableDef, S = SchemaInput> {
 }
 
 /** The shape one aggregate entry contributes. */
-type AggEntryShape<TD extends AnyTableDef, K extends PropertyKey, V> = V extends true
+type AggEntryShape<
+  TD extends AnyTableDef,
+  K extends PropertyKey,
+  V,
+> = V extends true
   ? { [P in K]: K extends "_count" ? number : unknown }
   : V extends string
     ? { [P in K]: PathValue<App<TD>, V> }

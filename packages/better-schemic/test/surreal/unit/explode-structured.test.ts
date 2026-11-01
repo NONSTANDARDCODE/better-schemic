@@ -2,16 +2,19 @@
 // `toStructured` reassembles the `DbStructured` (every opaque kind carrying its `native`), plus the
 // `fn::` dependency-edge dedupe.
 import { describe, expect, test } from "bun:test";
-import { explodeSchema, toStructured } from "../../../src/surreal/kinds/explode";
 import {
   defineAccess,
   defineAnalyzer,
   defineFunction,
   defineParam,
-  defineTable,
   s,
   surql,
+  table,
 } from "../../../src/surreal";
+import {
+  explodeSchema,
+  toStructured,
+} from "../../../src/surreal/kinds/explode";
 
 const F = defineFunction("ex_fn", { a: s.string() })
   .returns(s.string())
@@ -19,7 +22,7 @@ const F = defineFunction("ex_fn", { a: s.string() })
 
 describe("fromStructured / toStructured (all kinds)", () => {
   test("every opaque kind carries its native back through toStructured", () => {
-    const T = defineTable("ex_t", { name: s.string() });
+    const T = table("ex_t", { name: s.string() });
     const A = defineAccess("ex_acc").onDatabase().record();
     const An = defineAnalyzer("ex_an");
     const P = defineParam("ex_p", 25);
@@ -38,14 +41,14 @@ describe("fromStructured / toStructured (all kinds)", () => {
   });
 
   test("depsOf dedupes repeated fn:: references on one object", () => {
-    const T = defineTable("ex_dep", {
+    const T = table("ex_dep", {
       a: s.string().$default(surql`fn::ex_fn('x')`),
       b: s.string().$default(surql`fn::ex_fn('y')`),
     });
-    const table = explodeSchema([T], [F]).find(
+    const tableEntry = explodeSchema([T], [F]).find(
       (o) => o.kind === "table" && o.name === "ex_dep",
     ) as { deps: { kind: string; name: string }[] };
-    expect(table.deps.filter((d) => d.kind === "function")).toEqual([
+    expect(tableEntry.deps.filter((d) => d.kind === "function")).toEqual([
       { kind: "function", name: "ex_fn" },
     ]);
   });

@@ -15,9 +15,9 @@ import type {
   StructAccess,
   StructAnalyzer,
   StructFunction,
-  StructTable,
   StructParam,
   StructSequence,
+  StructTable,
 } from "../cli/structure";
 import type { DefineStatement } from "../ddl";
 

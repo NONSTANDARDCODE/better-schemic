@@ -1,4 +1,4 @@
-import { defineAnalyzer, defineTable, s } from "better-schemic";
+import { defineAnalyzer, s, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -13,7 +13,7 @@ DEFINE INDEX ft ON TABLE doc FIELDS content FULLTEXT ANALYZER english HIGHLIGHTS
     defineAnalyzer("english")
       .tokenizers("blank")
       .filters("lowercase", "snowball(english)"),
-    defineTable("doc", { id: s.string(), content: s.string() }).index(
+    table("doc", { id: s.string(), content: s.string() }).index(
       "ft",
       ["content"],
       {

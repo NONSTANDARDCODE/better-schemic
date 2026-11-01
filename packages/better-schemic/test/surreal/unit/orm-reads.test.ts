@@ -3,29 +3,29 @@
 import { describe, expect, test } from "bun:test";
 import { DateTime, RecordId } from "surrealdb";
 import { surql } from "../../../src/surreal";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import {
-  compileOrderBy,
-  compileRead,
-  type ReadArgs,
-} from "../../../src/surreal/orm/compiler/select";
+import { orm } from "../../../src/surreal/orm/client";
 import {
   compileAggregate,
   compileCount,
   compileExists,
 } from "../../../src/surreal/orm/compiler/aggregate";
+import {
+  compileOrderBy,
+  compileRead,
+  type ReadArgs,
+} from "../../../src/surreal/orm/compiler/select";
 import { createBinds } from "../../../src/surreal/orm/compiler/shared";
 import {
   requireUniqueField,
   uniqueTarget,
 } from "../../../src/surreal/orm/compiler/unique";
-import type { BetterSchemicError } from "../../../src/surreal/orm/errors";
+import type { OrmError } from "../../../src/surreal/orm/errors";
 import type { TableMeta } from "../../../src/surreal/orm/meta";
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { s, table } from "../../../src/surreal/pure";
 import { fakeConn, lines, ok } from "../orm-fixtures";
 
-const User = defineTable("user", {
+const User = table("user", {
   name: s.string(),
   age: s.int(),
   active: s.boolean(),
@@ -68,7 +68,7 @@ function codeOf(fn: () => unknown): string | undefined {
     fn();
     return undefined;
   } catch (e) {
-    return (e as BetterSchemicError).code;
+    return (e as OrmError).code;
   }
 }
 
@@ -252,7 +252,8 @@ describe("read compiler — plugin scope", () => {
   const scopedSql = (
     args: ReadArgs,
     options?: Parameters<typeof compileRead>[4],
-  ): string => compileRead(meta, args, createBinds(), "findUnique", options).sql;
+  ): string =>
+    compileRead(meta, args, createBinds(), "findUnique", options).sql;
 
   test("findMany ANDs the scope into the caller's where", () => {
     expect(compile({ where: { name: "A" }, scope }).sql).toBe(
@@ -264,7 +265,9 @@ describe("read compiler — plugin scope", () => {
     expect(compile({ where: null, scope }).sql).toBe(
       "SELECT * FROM user WHERE active = $p0",
     );
-    expect(compile({ scope }).sql).toBe("SELECT * FROM user WHERE active = $p0");
+    expect(compile({ scope }).sql).toBe(
+      "SELECT * FROM user WHERE active = $p0",
+    );
     // An empty scope bag never reaches the compiler as an AND branch.
     expect(compile({ where: { name: "A" }, scope: {} }).sql).toBe(
       "SELECT * FROM user WHERE name = $p0",
@@ -346,7 +349,7 @@ describe("read compiler — teaching guards", () => {
         compile({ groupBy: ["active"] });
         return undefined;
       } catch (e) {
-        return e as BetterSchemicError;
+        return e as OrmError;
       }
     })();
     expect(err?.code).toBe("ValidationError");
@@ -464,9 +467,9 @@ describe("read compiler — projection edge paths", () => {
     expect(codeOf(() => compile({ select: { "*": 5 } }))).toBe(
       "ValidationError",
     );
-    expect(
-      codeOf(() => compile({ select: { "*": true }, value: true })),
-    ).toBe("ValidationError");
+    expect(codeOf(() => compile({ select: { "*": true }, value: true }))).toBe(
+      "ValidationError",
+    );
   });
 
   test("split on a non-array field fails", () => {
@@ -542,7 +545,7 @@ describe("delegate — findMany", () => {
   const { conn, calls } = fakeConn((sql) =>
     sql.includes("FROM user") ? [ok([fullUser("u1", { name: "Alice" })])] : [],
   );
-  const client = betterSchemic(conn, { schema: { users: User } });
+  const client = orm(conn, { schema: { users: User } });
 
   test("compiles, executes once and decodes the rows", async () => {
     const rows = await client.users.findMany({
@@ -557,7 +560,7 @@ describe("delegate — findMany", () => {
 
   test("is lazy — nothing runs until awaited", async () => {
     const { conn: c2, calls: c2calls } = fakeConn(() => [ok([])]);
-    const lazyClient = betterSchemic(c2, { schema: { users: User } });
+    const lazyClient = orm(c2, { schema: { users: User } });
     const pending = lazyClient.users.findMany({ where: { active: true } });
     expect(c2calls).toHaveLength(0);
     await pending;
@@ -568,7 +571,7 @@ describe("delegate — findMany", () => {
     const { conn: c3 } = fakeConn(() => [
       ok([fullUser("u2", { name: "Bob" })]),
     ]);
-    const c = betterSchemic(c3, { schema: { users: User } });
+    const c = orm(c3, { schema: { users: User } });
     const [row] = (await c.users.findMany()) as { at: Date; id: RecordId }[];
     expect(row?.at).toBeInstanceOf(Date);
     expect(row?.at.toISOString()).toBe("2025-01-02T03:04:05.000Z");
@@ -579,7 +582,7 @@ describe("delegate — findMany", () => {
     const { conn: c4, calls: c4calls } = fakeConn(() => [
       ok([fullUser("u3", { name: "Carol" })]),
     ]);
-    const c = betterSchemic(c4, { schema: { users: User } });
+    const c = orm(c4, { schema: { users: User } });
     const rows = await c.users.findMany({ omit: ["age", "at"] });
     expect(c4calls[0]?.sql).toBe("SELECT * OMIT age, at FROM user;");
     expect(rows).toEqual([
@@ -604,7 +607,7 @@ describe("delegate — findMany", () => {
         },
       ]),
     ]);
-    const c = betterSchemic(c5, { schema: { users: User } });
+    const c = orm(c5, { schema: { users: User } });
     const rows = await c.users.findMany({
       select: { "address.city": true, "contacts[*].type": true },
     });
@@ -622,7 +625,7 @@ describe("delegate — findMany", () => {
         },
       ]),
     ]);
-    const c = betterSchemic(conn, { schema: { users: User } });
+    const c = orm(conn, { schema: { users: User } });
     // A dotted/bracketed array entry is off the typed surface (`keyof App[]`), but the decoder
     // must still find the value the server returns NESTED for the projected path.
     const rows = await c.users.findMany({
@@ -635,14 +638,14 @@ describe("delegate — findMany", () => {
 
   test("only unwraps a single object", async () => {
     const { conn: c6 } = fakeConn(() => [ok(fullUser("u4", { name: "Dan" }))]);
-    const c = betterSchemic(c6, { schema: { users: User } });
+    const c = orm(c6, { schema: { users: User } });
     const row = await c.users.findMany({ only: true });
     expect(String((row as { id: RecordId }).id)).toBe("user:u4");
   });
 
   test("a schemaless delegate passes rows through", async () => {
     const { conn: c7 } = fakeConn(() => [ok([{ anything: 1 }])]);
-    const c = betterSchemic(c7, { schema: { audit: "audit_log" } });
+    const c = orm(c7, { schema: { audit: "audit_log" } });
     expect(await c.audit.findMany({ where: { anything: 1 } })).toEqual([
       { anything: 1 },
     ]);
@@ -652,7 +655,7 @@ describe("delegate — findMany", () => {
 describe("delegate — findFirst/findOne", () => {
   test("forces LIMIT and resolves null on a miss", async () => {
     const { conn, calls } = fakeConn(() => [ok([])]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const missing = await client.users.findFirst({ where: { age: 99 } });
     expect(missing).toBeNull();
     expect(calls[0]?.sql).toBe("SELECT * FROM user WHERE age = $p0 LIMIT $p1;");
@@ -661,14 +664,14 @@ describe("delegate — findFirst/findOne", () => {
 
   test("findOne returns the first decoded row", async () => {
     const { conn } = fakeConn(() => [ok([fullUser("u5", { name: "Eve" })])]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const row = await client.users.findOne({ where: { name: "Eve" } });
     expect(row?.name).toBe("Eve");
   });
 
   test(".throw() resolves the row when it exists", async () => {
     const { conn } = fakeConn(() => [ok([fullUser("u6", { name: "Fay" })])]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const row = await client.users
       .findFirst({ where: { name: "Fay" } })
       .throw();
@@ -677,7 +680,7 @@ describe("delegate — findFirst/findOne", () => {
 
   test(".throw() on a miss throws ResultNotFound with NotFoundInfo", async () => {
     const { conn, calls } = fakeConn(() => [ok([])]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const pending = client.users.findFirst({ where: { name: "Nobody" } });
     expect(calls).toHaveLength(0); // still lazy before .throw()
     const err = (await pending.throw().catch((e: unknown) => e)) as Error & {
@@ -694,7 +697,7 @@ describe("delegate — findFirst/findOne", () => {
 
   test(".throw(factory) receives the NotFoundInfo", async () => {
     const { conn } = fakeConn(() => [ok([])]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const err = (await client.users
       .findOne({ where: { name: "Ghost" } })
       .throw((info) => new Error(`custom:${info.table}:${info.operation}`))
@@ -713,7 +716,7 @@ const fullAccount = (id: string, over: Record<string, unknown> = {}) => ({
 });
 
 describe("delegate — findUnique", () => {
-  const Account = defineTable("account", {
+  const Account = table("account", {
     email: s.string(),
     handle: s.string(),
     org: s.string(),
@@ -727,7 +730,7 @@ describe("delegate — findUnique", () => {
 
   test("by id compiles FROM ONLY <record> and unwraps the object", async () => {
     const { conn, calls } = fakeConn(() => [ok(fullAccount("a1"))]);
-    const client = betterSchemic(conn, { schema: accountSchema });
+    const client = orm(conn, { schema: accountSchema });
     const row = await client.accounts.findUnique({
       where: { id: "account:a1" },
     });
@@ -737,7 +740,7 @@ describe("delegate — findUnique", () => {
 
   test("by id accepts a RecordId and an { equals } wrapper", async () => {
     const { conn, calls } = fakeConn(() => [ok(fullAccount("a2"))]);
-    const client = betterSchemic(conn, { schema: accountSchema });
+    const client = orm(conn, { schema: accountSchema });
     await client.accounts.findUnique({
       where: { id: new RecordId("account", "a2") },
     });
@@ -750,7 +753,7 @@ describe("delegate — findUnique", () => {
 
   test("by a single-field UNIQUE column compiles WHERE + LIMIT 1", async () => {
     const { conn, calls } = fakeConn(() => [ok([fullAccount("a4")])]);
-    const client = betterSchemic(conn, { schema: accountSchema });
+    const client = orm(conn, { schema: accountSchema });
     const row = await client.accounts.findUnique({
       where: { email: "a4@x" },
     });
@@ -762,7 +765,7 @@ describe("delegate — findUnique", () => {
   });
 
   test("a miss resolves null", async () => {
-    const client = betterSchemic(uniqueConn([]), { schema: accountSchema });
+    const client = orm(uniqueConn([]), { schema: accountSchema });
     expect(
       await client.accounts.findUnique({ where: { email: "nope@x" } }),
     ).toBeNull();
@@ -770,7 +773,7 @@ describe("delegate — findUnique", () => {
 
   test("by a single-field UNIQUE column accepts an { equals } wrapper", async () => {
     const { conn, calls } = fakeConn(() => [ok([fullAccount("a5")])]);
-    const client = betterSchemic(conn, { schema: accountSchema });
+    const client = orm(conn, { schema: accountSchema });
     await client.accounts.findUnique({
       where: { email: { equals: "a5@x" } },
     });
@@ -778,13 +781,13 @@ describe("delegate — findUnique", () => {
   });
 
   test("UniqueTargetRequired for non-unique fields, composite indexes and bad shapes", () => {
-    const client = betterSchemic(uniqueConn([]), { schema: accountSchema });
+    const client = orm(uniqueConn([]), { schema: accountSchema });
     const code = (args: unknown) => {
       try {
         client.accounts.findUnique(args as never);
         return undefined;
       } catch (e) {
-        return (e as BetterSchemicError).code;
+        return (e as OrmError).code;
       }
     };
     expect(code({})).toBe("UniqueTargetRequired");
@@ -803,15 +806,17 @@ describe("delegate — findUnique", () => {
     expect(code({ where: { id: "other:a1" } })).toBe("ValidationError");
     // A malformed id value (empty object / nested equals object) is not a record id.
     expect(code({ where: { id: {} } })).toBe("UniqueTargetRequired");
-    expect(code({ where: { id: { equals: {} } } })).toBe("UniqueTargetRequired");
+    expect(code({ where: { id: { equals: {} } } })).toBe(
+      "UniqueTargetRequired",
+    );
   });
 
   test(".throw() on a findUnique miss throws ResultNotFound", async () => {
-    const client = betterSchemic(uniqueConn([]), { schema: accountSchema });
+    const client = orm(uniqueConn([]), { schema: accountSchema });
     const err = (await client.accounts
       .findUnique({ where: { handle: "ghost" } })
       .throw()
-      .catch((e: unknown) => e)) as BetterSchemicError;
+      .catch((e: unknown) => e)) as OrmError;
     expect(err.code).toBe("ResultNotFound");
     expect(err.operation).toBe("findUnique");
   });
@@ -820,7 +825,7 @@ describe("delegate — findUnique", () => {
 describe("delegate — count/exists", () => {
   test("count compiles GROUP ALL and reads the count", async () => {
     const { conn, calls } = fakeConn(() => [ok([{ count: 3 }])]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     expect(await client.users.count({ where: { age: { gte: 18 } } })).toBe(3);
     expect(calls[0]?.sql).toBe(
       "SELECT count() FROM user WHERE age >= $p0 GROUP ALL;",
@@ -830,7 +835,7 @@ describe("delegate — count/exists", () => {
 
   test("count without a filter and with a range", async () => {
     const { conn, calls } = fakeConn(() => [ok([{ count: 0 }])]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     await client.users.count();
     expect(calls[0]?.sql).toBe("SELECT count() FROM user GROUP ALL;");
     await client.users.count({
@@ -841,7 +846,7 @@ describe("delegate — count/exists", () => {
 
   test("exists compiles the VALUE id probe", async () => {
     const { conn, calls } = fakeConn(() => [ok([new RecordId("user", "u1")])]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     expect(await client.users.exists({ where: { name: "Alice" } })).toBe(true);
     expect(calls[0]?.sql).toBe(
       "SELECT VALUE id FROM user WHERE name = $p0 LIMIT $p1;",
@@ -851,13 +856,13 @@ describe("delegate — count/exists", () => {
 
   test("exists is false when the probe is empty", async () => {
     const { conn } = fakeConn(() => [ok([])]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     expect(await client.users.exists({ where: { age: 999 } })).toBe(false);
   });
 
   test("count/exists reject removed args", () => {
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     expect(() => client.users.count({ parallel: true } as never)).toThrow(
       /parallel/,
     );
@@ -866,19 +871,19 @@ describe("delegate — count/exists", () => {
 
   test("count of an empty response is 0", async () => {
     const { conn } = fakeConn(() => [ok([])]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     expect(await client.users.count()).toBe(0);
   });
 
   test("only resolves null on a miss", async () => {
     const { conn } = fakeConn(() => [ok(undefined)]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     expect(await client.users.findMany({ only: true })).toBeNull();
   });
 
   test("count supports with/version/timeout clauses", async () => {
     const { conn, calls } = fakeConn(() => [ok([{ count: 1 }])]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     await client.users.count({
       with: { index: "i" },
       version: new Date("2025-01-01T00:00:00Z"),
@@ -893,7 +898,7 @@ describe("delegate — count/exists", () => {
 describe("delegate — aggregate", () => {
   test("_count alone implies GROUP ALL", async () => {
     const { conn, calls } = fakeConn(() => [ok([{ _count: 3 }])]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const rows = await client.users.aggregate({ select: { _count: true } });
     expect(calls[0]?.sql).toBe("SELECT count() AS _count FROM user GROUP ALL;");
     expect(rows).toEqual([{ _count: 3 }]);
@@ -903,7 +908,7 @@ describe("delegate — aggregate", () => {
     const { conn, calls } = fakeConn(() => [
       ok([{ city: "SP", _count: 2, avgAge: 30, minAge: 20, names: ["a"] }]),
     ]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const rows = await client.users.aggregate({
       where: { active: true },
       select: {
@@ -929,7 +934,7 @@ describe("delegate — aggregate", () => {
 
   test("distinct uses array::distinct; math::median/stddev/variance are supported", async () => {
     const { conn, calls } = fakeConn(() => [ok([])]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     await client.users.aggregate({
       select: {
         tags: { distinct: "tags" },
@@ -955,7 +960,7 @@ describe("delegate — aggregate", () => {
         },
       ]),
     ]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const rows = (await client.users.aggregate({
       select: { names: { collect: "name" }, ats: { collect: "at" } },
     })) as { names: string[]; ats: Date[] }[];
@@ -965,7 +970,7 @@ describe("delegate — aggregate", () => {
 
   test("having is rejected as HavingUnsupported", () => {
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const err = (() => {
       try {
         client.users.aggregate({
@@ -974,7 +979,7 @@ describe("delegate — aggregate", () => {
         } as never);
         return undefined;
       } catch (e) {
-        return e as BetterSchemicError;
+        return e as OrmError;
       }
     })();
     expect(err?.code).toBe("HavingUnsupported");
@@ -983,7 +988,7 @@ describe("delegate — aggregate", () => {
 
   test("split is the UNWIND+GROUP lowering (SPLIT itself moves into a subquery)", async () => {
     const { conn, calls } = fakeConn(() => [ok([{ _count: 3 }])]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     // SurrealDB rejects `SPLIT … GROUP ALL` in one SELECT, so the split runs in an inner subquery
     // and the grouping happens over its rows — see `compileSplitAggregate`.
     const rows = await client.users.aggregate({
@@ -998,7 +1003,7 @@ describe("delegate — aggregate", () => {
 
   test("split + groupBy still groups the OUTER query", () => {
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     expect(() =>
       client.users.aggregate({
         select: { name: "name", _count: true },
@@ -1018,7 +1023,7 @@ describe("delegate — aggregate", () => {
 
   test("a groupBy key missing from select fails with a teaching error", () => {
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const err = (() => {
       try {
         client.users.aggregate({
@@ -1027,7 +1032,7 @@ describe("delegate — aggregate", () => {
         });
         return undefined;
       } catch (e) {
-        return e as BetterSchemicError;
+        return e as OrmError;
       }
     })();
     expect(err?.code).toBe("ValidationError");
@@ -1036,7 +1041,7 @@ describe("delegate — aggregate", () => {
 
   test("unknown aggregators and multi-op entries are rejected", () => {
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     expect(() =>
       client.users.aggregate({
         select: { x: { nope: "age" } },
@@ -1054,7 +1059,7 @@ describe("delegate — aggregate", () => {
 
   test("aggregate supports with/version/timeout and expression entries", async () => {
     const { conn, calls } = fakeConn(() => [ok([{ _count: 1, x: 2 }])]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     await client.users.aggregate({
       select: { _count: true, x: surql`count() + 1` },
       with: { index: "i" },
@@ -1069,7 +1074,7 @@ describe("delegate — aggregate", () => {
 
   test("groupBy + groupAll together is rejected", () => {
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     expect(() =>
       client.users.aggregate({
         select: { _count: true },
@@ -1081,7 +1086,7 @@ describe("delegate — aggregate", () => {
 });
 
 describe("delegate — aggregate aliases and operand guards", () => {
-  const Shop = defineTable("shop", {
+  const Shop = table("shop", {
     name: s.string(),
     revenue: s.decimal(),
     owner: s.recordId("user"),
@@ -1092,7 +1097,7 @@ describe("delegate — aggregate aliases and operand guards", () => {
 
   test("groupBy accepts the ALIAS a select entry created (and the path behind it)", async () => {
     const { conn, calls } = fakeConn(() => [ok([{ name: "Ana", _count: 1 }])]);
-    const client = betterSchemic(conn, { schema: shopSchema });
+    const client = orm(conn, { schema: shopSchema });
     const rows = await client.shops.aggregate({
       select: { name: "name", _count: true },
       groupBy: ["name"],
@@ -1105,7 +1110,7 @@ describe("delegate — aggregate aliases and operand guards", () => {
 
   test("groupBy accepts a nested path projected under an alias", async () => {
     const { conn, calls } = fakeConn(() => [ok([])]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     await client.users.aggregate({
       select: { city: "address.city", _count: true },
       groupBy: ["city"],
@@ -1115,13 +1120,13 @@ describe("delegate — aggregate aliases and operand guards", () => {
 
   test("a non-numeric operand is refused instead of silently answering 0", () => {
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const err = (() => {
       try {
         client.users.aggregate({ select: { total: { sum: "name" } } });
         return undefined;
       } catch (e) {
-        return e as BetterSchemicError;
+        return e as OrmError;
       }
     })();
     expect(err?.code).toBe("ValidationError");
@@ -1131,13 +1136,13 @@ describe("delegate — aggregate aliases and operand guards", () => {
 
   test("sum through a link or an array points at split", () => {
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: shopSchema });
+    const client = orm(conn, { schema: shopSchema });
     const message = (args: unknown) => {
       try {
         client.shops.aggregate(args as never);
         return "";
       } catch (e) {
-        return (e as BetterSchemicError).message ?? "";
+        return (e as OrmError).message ?? "";
       }
     };
     expect(message({ select: { t: { sum: "owner.name" } } })).toContain(
@@ -1149,14 +1154,14 @@ describe("delegate — aggregate aliases and operand guards", () => {
     expect(message({ select: { t: { sum: "seats" } } })).toContain(
       "an array field",
     );
-    expect(message({ select: { t: { sum: "products[*].quantity" } } })).toContain(
-      "split",
-    );
+    expect(
+      message({ select: { t: { sum: "products[*].quantity" } } }),
+    ).toContain("split");
   });
 
   test("min/max stay numeric-only (the server answers null for a string/datetime)", async () => {
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     // Live 3.3.4: math::min/max(string | datetime | bool) -> null, with no error — the same silent
     // lie as sum(0). The teaching error points at array::min(array::group(…)).
     for (const [args, answer] of [
@@ -1168,7 +1173,7 @@ describe("delegate — aggregate aliases and operand guards", () => {
           client.users.aggregate(args as never);
           return undefined;
         } catch (e) {
-          return e as BetterSchemicError;
+          return e as OrmError;
         }
       })();
       expect(err?.code).toBe("ValidationError");
@@ -1178,20 +1183,20 @@ describe("delegate — aggregate aliases and operand guards", () => {
     }
     // The numeric form still compiles.
     const { conn: c2, calls: c2calls } = fakeConn(() => [ok([])]);
-    const client2 = betterSchemic(c2, { schema: { users: User } });
+    const client2 = orm(c2, { schema: { users: User } });
     await client2.users.aggregate({ select: { oldest: { max: "age" } } });
     expect(c2calls[0]?.sql).toContain("math::max(age) AS oldest");
   });
 
   test("an unknown field teaches the field list", () => {
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const err = (() => {
       try {
         client.users.aggregate({ select: { t: { sum: "nope.x" } } });
         return undefined;
       } catch (e) {
-        return e as BetterSchemicError;
+        return e as OrmError;
       }
     })();
     expect(err?.message).toContain('"nope" is not a field of "user"');
@@ -1200,7 +1205,7 @@ describe("delegate — aggregate aliases and operand guards", () => {
 
   test("collect/distinct still accept arrays and links (they are value ops, not math)", async () => {
     const { conn, calls } = fakeConn(() => [ok([])]);
-    const client = betterSchemic(conn, { schema: shopSchema });
+    const client = orm(conn, { schema: shopSchema });
     await client.shops.aggregate({
       select: { seats: { collect: "seats" }, owners: { distinct: "owner" } },
     });
@@ -1210,25 +1215,28 @@ describe("delegate — aggregate aliases and operand guards", () => {
 });
 
 describe("delegate — aggregate over split (UNWIND + GROUP)", () => {
-  const Line = defineTable("line_item", {
+  const Line = table("line_item", {
     label: s.string(),
     quantity: s.int(),
     price: s.decimal(),
   });
-  const Cart = defineTable("cart", {
+  const Cart = table("cart", {
     name: s.string(),
     tenant: s.string(),
     lines: s.array(s.recordId(() => Line)),
   });
   const cartSchema = { carts: Cart, lines: Line };
 
-  const cartClient = () => betterSchemic(fakeConn().conn, { schema: cartSchema });
+  const cartClient = () => orm(fakeConn().conn, { schema: cartSchema });
   type CartAggregate = Parameters<
     ReturnType<typeof cartClient>["carts"]["aggregate"]
   >[0];
-  const perCart = async <R = unknown>(args: CartAggregate, rows: unknown[] = []) => {
+  const perCart = async <R = unknown>(
+    args: CartAggregate,
+    rows: unknown[] = [],
+  ) => {
     const { conn, calls } = fakeConn(() => [ok(rows)]);
-    const client = betterSchemic(conn, { schema: cartSchema });
+    const client = orm(conn, { schema: cartSchema });
     const out = (await client.carts.aggregate(args)) as R;
     return { sql: calls[0]?.sql as string, rows: out };
   };
@@ -1303,7 +1311,7 @@ describe("delegate — aggregate over split (UNWIND + GROUP)", () => {
 
   test("a groupBy key missing from select is still a teaching error", () => {
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: cartSchema });
+    const client = orm(conn, { schema: cartSchema });
     expect(() =>
       client.carts.aggregate({
         split: "lines",
@@ -1315,7 +1323,7 @@ describe("delegate — aggregate over split (UNWIND + GROUP)", () => {
 
   test("a non-string split is refused (an expression has no idiom to satisfy)", () => {
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: cartSchema });
+    const client = orm(conn, { schema: cartSchema });
     expect(() =>
       client.carts.aggregate({
         split: surql`array::distinct(lines)`,
@@ -1339,7 +1347,7 @@ describe("explain", () => {
     const { conn, calls } = fakeConn((sql) =>
       sql.startsWith("EXPLAIN") ? [ok("plan-string")] : [ok([fullUser("u1")])],
     );
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const pending = client.users.findMany({ where: { age: { gte: 18 } } });
     expect(calls).toHaveLength(0);
     const explained = await pending.explain();
@@ -1362,7 +1370,7 @@ describe("explain", () => {
 
   test("explain: true returns the plan inline", async () => {
     const { conn, calls } = fakeConn(() => [ok("plan")]);
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const plan = await client.users.findMany({ explain: true });
     expect(plan.operation).toBe("findMany");
     expect(calls[0]?.sql).toContain("EXPLAIN SELECT * FROM user");
@@ -1370,7 +1378,7 @@ describe("explain", () => {
 
   test("count/exists/paginate/cursor expose their statement keys", async () => {
     const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok("plan")));
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const countPlan = await client.users.count({ explain: true });
     expect(countPlan.statements[0]?.key).toBe("count");
     const existsPlan = await client.users.exists({ explain: true });
@@ -1388,7 +1396,7 @@ describe("explain", () => {
     const { conn } = fakeConn((sql) =>
       sql.startsWith("EXPLAIN") ? [ok("plan")] : [ok([])],
     );
-    const client = betterSchemic(conn, { schema: { users: User } });
+    const client = orm(conn, { schema: { users: User } });
     const pending = client.users.findFirst({ where: { age: 1 } });
     expect(typeof pending.throw).toBe("function");
     expect(typeof pending.explain).toBe("function");
@@ -1399,7 +1407,7 @@ describe("explain", () => {
 });
 
 describe("composite UNIQUE targets", () => {
-  const Account = defineTable("acct", {
+  const Account = table("acct", {
     org: s.string(),
     handle: s.string(),
     email: s.string(),
@@ -1411,7 +1419,7 @@ describe("composite UNIQUE targets", () => {
 
   test("findUnique by every field of a composite index compiles the conjunction", async () => {
     const { conn: c, calls } = fakeConn(() => [ok([])]);
-    const client = betterSchemic(c, { schema: accountSchema });
+    const client = orm(c, { schema: accountSchema });
     await client.accts.findUnique({ where: { org: "acme", handle: "ana" } });
     expect(calls[0]?.sql).toBe(
       "SELECT * FROM acct WHERE org = $p0 AND handle = $p1 LIMIT $p2;",
@@ -1420,13 +1428,13 @@ describe("composite UNIQUE targets", () => {
   });
 
   test("a partial composite where still teaches (it can match many rows)", () => {
-    const client = betterSchemic(conn(), { schema: accountSchema });
+    const client = orm(conn(), { schema: accountSchema });
     const message = (where: unknown) => {
       try {
         client.accts.findUnique({ where } as never);
         return "";
       } catch (e) {
-        return (e as BetterSchemicError).message;
+        return (e as OrmError).message;
       }
     };
     // A composite field alone: unique only together with its partner — and the message says so.
@@ -1434,14 +1442,23 @@ describe("composite UNIQUE targets", () => {
     expect(message({ org: "acme" })).toContain("[org, handle]");
     // Two fields that are NOT the index together: one of them IS in a composite group, so the
     // message points at the group — that is the near-miss worth teaching.
-    expect(message({ handle: "ana", email: "a@x" })).toContain("not a unique target");
+    expect(message({ handle: "ana", email: "a@x" })).toContain(
+      "not a unique target",
+    );
   });
 
   test("upsert targets a composite index (the multi-tenant case)", async () => {
     const { conn: c, calls } = fakeConn(() => [
-      ok([{ id: new RecordId("acct", "1"), org: "acme", handle: "ana", email: "a@x" }]),
+      ok([
+        {
+          id: new RecordId("acct", "1"),
+          org: "acme",
+          handle: "ana",
+          email: "a@x",
+        },
+      ]),
     ]);
-    const client = betterSchemic(c, { schema: accountSchema });
+    const client = orm(c, { schema: accountSchema });
     await client.accts.upsert({
       where: { org: "acme", handle: "ana" },
       data: { email: "a@x" },

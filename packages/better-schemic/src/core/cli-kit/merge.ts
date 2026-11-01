@@ -163,7 +163,9 @@ function defineCall(init: AstNode | null): AstNode | null {
     if (n.type === "CallExpression") {
       if (
         n.callee?.type === "Identifier" &&
-        /^define/.test(n.callee.name ?? "")
+        (/^define/.test(n.callee.name ?? "") ||
+          n.callee.name === "table" ||
+          n.callee.name === "relation")
       )
         return n;
       n =
@@ -177,7 +179,7 @@ function defineCall(init: AstNode | null): AstNode | null {
   return null;
 }
 
-/** The fields ObjectExpression of a `defineTable`/`defineRelation` call (handles the `self` arrow form). */
+/** The fields ObjectExpression of a `table`/`relation` call (handles the `self` arrow form). */
 function fieldsObject(init: AstNode | null): AstNode | null {
   const call = defineCall(init);
   if (!call) return null;

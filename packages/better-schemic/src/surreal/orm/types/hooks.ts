@@ -1,6 +1,6 @@
 /**
  * Observation hooks — the read-only half of the plugin system. Hooks are registered at bootstrap
- * (`betterSchemic(conn, { schema, hooks })`) or contributed by plugins; they observe every operation
+ * (`orm(conn, { schema, hooks })`) or contributed by plugins; they observe every operation
  * and NEVER change its args or result (mutation is the job of a plugin `transform`).
  *
  * Contract: hooks may be async; a throw in a `before*` hook aborts the operation, while a throw in
@@ -131,11 +131,11 @@ export interface TransactionRollbackHookPayload
 }
 
 /**
- * The hook surface accepted by `betterSchemic(conn, { schema, hooks })`. Every hook is optional;
+ * The hook surface accepted by `orm(conn, { schema, hooks })`. Every hook is optional;
  * registering none leaves the client on its zero-overhead fast path.
  *
  * ```ts
- * const client = betterSchemic(db, {
+ * const client = orm(db, {
  *   schema,
  *   hooks: {
  *     beforeQuery: ({ table, operation, surql }) => logger.debug({ table, operation, surql }),

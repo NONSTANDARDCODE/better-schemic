@@ -7,15 +7,15 @@ setDefaultTimeout(120_000);
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { RecordId, Surreal } from "surrealdb";
+import { relation, s, surql, table } from "../../../src/surreal";
 import {
   type EphemeralServer,
   spawnEphemeralServer,
   surrealBinaryAvailable,
 } from "../../../src/surreal/cli/engine";
-import { defineRelation, defineTable, s, surql } from "../../../src/surreal";
-import { betterSchemic, type Client } from "../../../src/surreal/orm/client";
+import { type Client, orm } from "../../../src/surreal/orm/client";
 import { isUniqueViolation } from "../../../src/surreal/orm/errors";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { schema } from "../../../src/surreal/orm/schema";
 import { caught } from "../orm-fixtures";
 
 const ENABLED = surrealBinaryAvailable();
@@ -23,26 +23,23 @@ const live = describe.skipIf(!ENABLED);
 if (!ENABLED)
   console.warn("[orm-writes] `surreal` binary unavailable — skipping");
 
-const User = defineTable("wr_user", {
+const User = table("wr_user", {
   name: s.string(),
   email: s.string(),
   age: s.int(),
   active: s.boolean(),
   tags: s.array(s.string()).optional(),
   address: s.object({ city: s.string() }),
-})
-  .index("wr_idx_email", ["email"], { unique: true });
+}).index("wr_idx_email", ["email"], { unique: true });
 /** The multi-tenant shape: `email` is unique only WITHIN a tenant (a composite index). */
-const Account = defineTable("wr_acct", {
+const Account = table("wr_acct", {
   tenant: s.string(),
   email: s.string(),
   name: s.string(),
 }).index("wr_acct_idx_tenant_email", ["tenant", "email"], { unique: true });
-const Post = defineTable("wr_post", { title: s.string(), views: s.int() });
-const Likes = defineRelation("wr_likes", { score: s.int() })
-  .from(User)
-  .to(Post);
-const schema = defineSchema({
+const Post = table("wr_post", { title: s.string(), views: s.int() });
+const Likes = relation("wr_likes", { score: s.int() }).from(User).to(Post);
+const schemaDef = schema({
   users: User,
   accounts: Account,
   posts: Post,
@@ -61,7 +58,7 @@ const base = (name: string) => ({
 live("orm writes — live", () => {
   let server: EphemeralServer;
   let db: Surreal;
-  let client: Client<typeof schema>;
+  let client: Client<typeof schemaDef>;
 
   beforeAll(async () => {
     server = await spawnEphemeralServer();
@@ -95,7 +92,7 @@ live("orm writes — live", () => {
       DEFINE TABLE wr_likes TYPE RELATION IN wr_user OUT wr_post;
       DEFINE FIELD score ON wr_likes TYPE int;
     `);
-    client = betterSchemic(db, { schema });
+    client = orm(db, { schema: schemaDef });
   });
 
   afterAll(async () => {

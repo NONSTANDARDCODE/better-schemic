@@ -7,29 +7,35 @@ import { assertType } from "../../../../../scripts/type-assert";
 import {
   type App,
   type BareId,
-  defineRelation,
-  defineTable,
   type RecordIdField,
+  relation,
   s,
+  table,
   type Wire,
 } from "../../../src/surreal";
-import { defineSchema } from "../../../src/surreal/orm/schema";
-import type { LinkKeys, RecordIdName } from "../../../src/surreal/orm/types/relations";
+import { schema } from "../../../src/surreal/orm/schema";
+import type {
+  LinkKeys,
+  RecordIdName,
+} from "../../../src/surreal/orm/types/relations";
 import type { CursorArgs } from "../../../src/surreal/orm/types/select";
 import type { WhereInput } from "../../../src/surreal/orm/types/where";
-import type { CreateData, UpdateData } from "../../../src/surreal/orm/types/write";
+import type {
+  CreateData,
+  UpdateData,
+} from "../../../src/surreal/orm/types/write";
 
-const Org = defineTable("org", { name: s.string() }).stringIds();
-const Customer = defineTable("customer", {
+const Org = table("org", { name: s.string() }).stringIds();
+const Customer = table("customer", {
   name: s.string(),
   org: s.recordId(Org),
   meta: s.object({ ref: s.recordId(Org) }),
 }).stringIds();
-const Likes = defineRelation("likes", { score: s.int() })
+const Likes = relation("likes", { score: s.int() })
   .from(Customer)
   .to(Org)
   .stringIds();
-const schema = defineSchema({ orgs: Org, customers: Customer, likes: Likes });
+const schemaDef = schema({ orgs: Org, customers: Customer, likes: Likes });
 
 describe("string ids — types", () => {
   it("App is a bare branded string; Wire accepts string | RecordId", () => {
@@ -49,24 +55,26 @@ describe("string ids — types", () => {
 
   it("link keys survive (relational filters typecheck)", () => {
     assertType<"org", LinkKeys<typeof Customer>>();
-    const w: WhereInput<typeof Customer, typeof schema> = {
+    const w: WhereInput<typeof Customer, typeof schemaDef> = {
       org: { is: { name: "x" } },
     };
     void w;
   });
 
   it("where accepts bare strings, RecordId and operators", () => {
-    const shorthand: WhereInput<typeof Customer, typeof schema> = { org: "o1" };
-    const equals: WhereInput<typeof Customer, typeof schema> = {
+    const shorthand: WhereInput<typeof Customer, typeof schemaDef> = {
+      org: "o1",
+    };
+    const equals: WhereInput<typeof Customer, typeof schemaDef> = {
       org: { equals: "o1" },
     };
-    const list: WhereInput<typeof Customer, typeof schema> = {
+    const list: WhereInput<typeof Customer, typeof schemaDef> = {
       org: { in: ["o1"] },
     };
-    const recordId: WhereInput<typeof Customer, typeof schema> = {
+    const recordId: WhereInput<typeof Customer, typeof schemaDef> = {
       org: new RecordId("org", "o1"),
     };
-    const byId: WhereInput<typeof Customer, typeof schema> = { id: "c1" };
+    const byId: WhereInput<typeof Customer, typeof schemaDef> = { id: "c1" };
     void shorthand;
     void equals;
     void list;
@@ -89,7 +97,7 @@ describe("string ids — types", () => {
   });
 
   it("cursor accepts a bare id / tuple and relation endpoints are bare", () => {
-    const cursor: CursorArgs<typeof Customer, typeof schema> = {
+    const cursor: CursorArgs<typeof Customer, typeof schemaDef> = {
       after: "c1",
       orderBy: [{ id: "asc" }],
       limit: 2,

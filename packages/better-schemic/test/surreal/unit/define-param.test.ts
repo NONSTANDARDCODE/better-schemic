@@ -3,17 +3,17 @@
 // params are OUT-OF-BAND (`sc param push/check`) — SurrealDB stores param values READABLY, so a
 // secret value must never reach a snapshot or migration. `.$` is the typed `$name` reference.
 import { describe, expect, test } from "bun:test";
-import { schemaStruct } from "../../../src/surreal/cli/lower";
-import { normalizeParam } from "../../../src/surreal/cli/struct";
-import { emitDefStatement } from "../../../src/surreal/ddl";
 import {
   defineFunction,
   defineParam,
-  defineTable,
   env,
   s,
   surql,
+  table,
 } from "../../../src/surreal";
+import { schemaStruct } from "../../../src/surreal/cli/lower";
+import { normalizeParam } from "../../../src/surreal/cli/struct";
+import { emitDefStatement } from "../../../src/surreal/ddl";
 import { block } from "../../../src/surreal/query";
 import { lowerExpr, mkRef } from "../../../src/surreal/surql/predicate";
 import type { Ctx } from "../../../src/surreal/surql/render";
@@ -102,9 +102,13 @@ describe.skipIf(!URL)("defineParam live", () => {
     const { explodeSchema, introspectAll } = await import(
       "../../../src/surreal/kinds/explode"
     );
-    const { deepEqual, normalizeDb } = await import("../../../src/surreal/cli/struct");
+    const { deepEqual, normalizeDb } = await import(
+      "../../../src/surreal/cli/struct"
+    );
     const { renderSchemaToTS } = await import("../../../src/surreal/cli/pull");
-    const { introspectStructured } = await import("../../../src/surreal/cli/structure");
+    const { introspectStructured } = await import(
+      "../../../src/surreal/cli/structure"
+    );
 
     const PageSize = defineParam("dp_page_size", 25);
     const ApiBase = defineParam("dp_api_base", "https://x.dev").comment("base");
@@ -113,7 +117,10 @@ describe.skipIf(!URL)("defineParam live", () => {
 
     const c = new Surreal();
     await c.connect(URL as string);
-    await c.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
+    await c.signin({
+      username: process.env.SURREAL_USER ?? "root",
+      password: process.env.SURREAL_PASS ?? "root",
+    });
     await c.use({ namespace: "dp", database: "dp" });
     await c.query(
       "REMOVE PARAM IF EXISTS $dp_page_size; REMOVE PARAM IF EXISTS $dp_api_base; REMOVE PARAM IF EXISTS $dp_secret;",
@@ -202,9 +209,9 @@ describe("the def IS the reference (no .$ needed)", () => {
   });
 
   test("OTHER defs in value positions throw guidance instead of [object Object]", () => {
-    const T = defineTable("pd_t2", { k: s.string() });
+    const T = table("pd_t2", { k: s.string() });
     const F = defineFunction("pd_fn");
-    expect(() => block().return(T).toQuery()).toThrow(/defineTable/);
+    expect(() => block().return(T).toQuery()).toThrow(/table/);
     expect(() => block().return(F).toQuery()).toThrow(/Def\.call/);
   });
 });

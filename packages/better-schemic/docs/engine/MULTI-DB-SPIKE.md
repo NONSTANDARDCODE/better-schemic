@@ -7,7 +7,7 @@ Author: `sdk-v2-developer`. Ground truth for core/CLI: `@sdk-developer`. Target 
 
 Make the schema engine, migration model, and CLI **database-agnostic**, with SurrealDB as the first of
 N pluggable **drivers**. The seam already exists — the [Struct-IR](./STRUCT-IR.md). This spike turns
-that IR into a *portable* one and pushes everything dialect-specific behind a `Driver` interface.
+that IR into a _portable_ one and pushes everything dialect-specific behind a `Driver` interface.
 
 ```
 authoring (sz.*) ──driver.lower()──┐
@@ -32,31 +32,31 @@ Grounded in the code (`cli/structure.ts`, `cli/lower.ts`, `cli/diff.ts`):
    the Surreal driver's `lower`/type-infer will wrap) and carried through `lower.ts` verbatim.
 2. **Equality is canonical-DDL-string based** — `structuredSnapshot()` renders each object to a
    canonical SurrealQL string and `diff.ts` compares `prevS[k].ddl === s.ddl`; structured `deepEqual`
-   is only a *cosmetic-suppression fallback* today, not the authority.
+   is only a _cosmetic-suppression fallback_ today, not the authority.
 
 Everything above these (diff algorithm shape, `merge.ts`, `meta.ts`, the migration model, the jiti
 loader, the commander CLI shell) is already DB-neutral and is reused verbatim.
 
 ## Part 1 — the portable type model (the keystone)
 
-Replace `kind: string` with a structured, dialect-independent type. Drivers translate *to/from* this
+Replace `kind: string` with a structured, dialect-independent type. Drivers translate _to/from_ this
 one model; the diff core compares it structurally.
 
 ```ts
 type PortableType =
-  | { t: "scalar"; name: ScalarName }            // string|int|float|bool|decimal|datetime|uuid|bytes|duration|...
+  | { t: "scalar"; name: ScalarName } // string|int|float|bool|decimal|datetime|uuid|bytes|duration|...
   | { t: "literal"; value: string | number | boolean }
-  | { t: "option"; inner: PortableType }         // may be ABSENT/NONE  — Surreal option<T>, SQL "column omitted"
-  | { t: "nullable"; inner: PortableType }        // may be NULL         — Surreal T | null, SQL NULL
+  | { t: "option"; inner: PortableType } // may be ABSENT/NONE  — Surreal option<T>, SQL "column omitted"
+  | { t: "nullable"; inner: PortableType } // may be NULL         — Surreal T | null, SQL NULL
   | { t: "array"; elem: PortableType; size?: number }
   | { t: "set"; elem: PortableType; size?: number }
-  | { t: "union"; members: PortableType[] }      // members kept canonical-sorted by normalize()
+  | { t: "union"; members: PortableType[] } // members kept canonical-sorted by normalize()
   | { t: "object"; fields: Record<string, PortableType>; flexible?: boolean }
-  | { t: "record"; tables: string[] }            // Surreal-native; SQL → FK column / unsupported.
-                                                 //   NB: the id-VALUE type (RecordIdField's V) is
-                                                 //   intentionally NOT in the IR — DDL `record<user>`
-                                                 //   never encodes it; it's App/Wire-side (TS-only).
-  | { t: "geometry"; kind: GeometryKind }        // Surreal-native; SQL → full-text/vector extension or unsupported
+  | { t: "record"; tables: string[] } // Surreal-native; SQL → FK column / unsupported.
+  //   NB: the id-VALUE type (RecordIdField's V) is
+  //   intentionally NOT in the IR — DDL `record<user>`
+  //   never encodes it; it's App/Wire-side (TS-only).
+  | { t: "geometry"; kind: GeometryKind } // Surreal-native; SQL → full-text/vector extension or unsupported
   | { t: "any" }
   | { t: "never" }
   | { t: "native"; db: string; name: string; params?: unknown }; // escape hatch for DB-specific types
@@ -67,7 +67,7 @@ type PortableType =
   either mapped to a documented fallback or rejected at `lower`/`emit` with a clear error.
 - **`option` and `nullable` are ORTHOGONAL and both equality-relevant** — do not collapse them (this
   was the #1 losslessness catch). In SurrealDB `option<T>` (field may be absent/NONE), `T | null`
-  (field may be NULL), and `option<T | null>` are *three distinct types*; `inferField` (ddl.ts) emits
+  (field may be NULL), and `option<T | null>` are _three distinct types_; `inferField` (ddl.ts) emits
   `.optional()` → `option<…>` and `.nullable()` → `… | null` from separate branches. `normalize()`
   must reproduce the existing **fold rule**: `nullable(option(X))` → `option(nullable(X))` (i.e.
   `option<X> | null` → `option<X | null>`), so `.optional().nullable()` ≡ `.nullish()`. A driver maps
@@ -83,18 +83,22 @@ type PortableType =
 
 ```ts
 interface Driver {
-  readonly name: string;                              // "surrealdb" | "acme-sql"
+  readonly name: string; // "surrealdb" | "acme-sql"
 
-  lower(def: TableDef | StandaloneDef): Struct;        // authoring → IR   (shared walk + driver type-infer)
-  emit(struct: Struct): Statement[];                   // IR → DDL         (the dialect)
-  introspect(conn: Conn): Promise<DbStructured>;       // live → IR
-  normalize(struct: DbStructured): DbStructured;       // canonical IR     (structured, no strings)
+  lower(def: TableDef | StandaloneDef): Struct; // authoring → IR   (shared walk + driver type-infer)
+  emit(struct: Struct): Statement[]; // IR → DDL         (the dialect)
+  introspect(conn: Conn): Promise<DbStructured>; // live → IR
+  normalize(struct: DbStructured): DbStructured; // canonical IR     (structured, no strings)
 
-  connect(config: DriverConfig): Promise<Conn>;        // execution
-  apply(conn: Conn, statements: Statement[], opts?: { transactional?: boolean }): Promise<void>;
+  connect(config: DriverConfig): Promise<Conn>; // execution
+  apply(
+    conn: Conn,
+    statements: Statement[],
+    opts?: { transactional?: boolean },
+  ): Promise<void>;
 
   // Optional capabilities (see Part 5):
-  shadow?(): Promise<ShadowConn>;                      // throwaway instance for round-trip canonicalization
+  shadow?(): Promise<ShadowConn>; // throwaway instance for round-trip canonicalization
 }
 ```
 
@@ -115,7 +119,7 @@ re-exports **all Zod natives** for full drop-in **plus** its own native types.
 
 - **`core`** — portable IR, `Driver` interface + registry, the diff algorithm, `merge.ts`, `meta.ts`,
   the migration model, the jiti loader, the commander CLI shell, and the generic
-  App/Wire/encode/decode *concept* (the builder pattern, sans native identities).
+  App/Wire/encode/decode _concept_ (the builder pattern, sans native identities).
 - **`@surreal-zod/surreal`** — Surreal `Driver`: `ddl.ts`/`structure.ts`/`struct.ts`/`introspect.ts`/
   `pull.ts` + native types & codecs (`recordId`, `datetime`, `uuid`, `duration`, `decimal`, `geometry`,
   bytes/file). `sz` export = all Zod natives + Surreal natives.
@@ -147,7 +151,7 @@ Surreal canonicalizes by round-tripping emitted DDL through a throwaway in-proce
 
 A driver without `shadow()` MUST provide a `normalize()` strong enough to canonicalize purely.
 
-> **`check` is NOT free on a shadowless driver.** Pure-code `normalize()` covers *diff*
+> **`check` is NOT free on a shadowless driver.** Pure-code `normalize()` covers _diff_
 > canonicalization, but `sz check`/`verifyMigrations` **replays every migration into a throwaway** to
 > prove they reproduce the schema — that fundamentally needs a real engine. On a shadowless driver
 > `check` is degraded/unavailable (or requires a throwaway DB instance). Diff/apply still work; only the
@@ -155,8 +159,8 @@ A driver without `shadow()` MUST provide a `normalize()` strong enough to canoni
 
 ## Part 6 — CRITICAL preconditions & caveats (from `@sdk-developer`)
 
-1. **The portable IR must be LOSSLESS for equality.** DDL-string `===` is primary today *precisely
-   because* the Struct is incomplete (folded array elements / older snapshots fall back to the DDL
+1. **The portable IR must be LOSSLESS for equality.** DDL-string `===` is primary today _precisely
+   because_ the Struct is incomplete (folded array elements / older snapshots fall back to the DDL
    compare; struct `deepEqual` is only cosmetic-suppression). Flipping `deepEqual` to primary while the
    IR omits **any** equality-relevant clause yields a **false negative = a missed migration = silent
    drift** — strictly worse than a phantom migration. The IR must capture every clause that affects
@@ -170,13 +174,13 @@ A driver without `shadow()` MUST provide a `normalize()` strong enough to canoni
 2. **The completeness oracle already exists** — `test/parity/struct-parity.test.ts` deep-equals the
    offline-lowered Struct against the live-introspected Struct (proven this session against two
    independent live 3.1.3 servers). **Port it per-driver.** Green parity ⇒ `deepEqual`-as-primary is
-   *provably* safe; it is the empirical guard against IR-incompleteness. This gates the equality flip.
+   _provably_ safe; it is the empirical guard against IR-incompleteness. This gates the equality flip.
 3. **`DEFINE ACCESS` signing keys are REDACTED on introspection.** Equality compares the redacted form
-   (fine), but **apply** needs the real key from the *schema* side. `diffAgainstDb` already swaps the
+   (fine), but **apply** needs the real key from the _schema_ side. `diffAgainstDb` already swaps the
    schema's emit-DDL in for access (the `accessEmit` swap). Rule for every driver: **`emit` sources
    secrets from authoring, never from the introspected IR.**
 
-Downstream that *looks* dialect-coupled but isn't a blocker (confirmed): migrate **checksums** hash the
+Downstream that _looks_ dialect-coupled but isn't a blocker (confirmed): migrate **checksums** hash the
 emitted `.surql` file bytes (below `emit`); **pull** already renders `sz.*` from the introspected Struct
 (structured already); **snapshot** (`meta.ts`) stores `{ddl, struct, file}` today → store the portable
 IR and derive/emit DDL on demand (a manageable snapshot-format migration).
@@ -189,9 +193,9 @@ IR and derive/emit DDL on demand (a manageable snapshot-format migration).
    strings. Flip diff equality to structured `deepEqual` over the normalized portable IR — gated on the
    ported **struct-parity** oracle staying green.
 3. **SQL-driver skeleton**: emit `CREATE TABLE` for a handful of scalar fields + a tiny
-  App/Wire codec set; introspect via the information schema; round-trip a trivial schema through the diff.
+   App/Wire codec set; introspect via the information schema; round-trip a trivial schema through the diff.
 4. **CLI shell + migration model run unmodified** against the SQL driver for a minimal schema (the proof
-  the seam holds end-to-end).
+   the seam holds end-to-end).
 
 ## Spike outcome (built & green)
 
@@ -216,7 +220,7 @@ schema migrates to a real SQL engine and round-trips to zero diff.**
   change-detection are proven in `test/unit/driver-sql.test.ts`.
 
 **Validated findings:**
-- The portable IR is a **rich superset**; each driver's `normalize()` *projects* it onto what the DB
+- The portable IR is a **rich superset**; each driver's `normalize()` _projects_ it onto what the DB
   can represent. The SQL driver collapses `option<T>` and `T | null` into one nullable column (no
   column-level "absent"), folds nested objects into `jsonb`, and drops Surreal-only constructs
   (events/access/functions/relations/changefeed/permissions). All deliberate, none silent.
@@ -245,5 +249,5 @@ authoring surface (`sz.sql.*`); arrays/enums round-trip is partial.
 - **SQL ⇄ Surreal asymmetry** — SQL has types Surreal lacks (enums, `jsonb`, fixed-precision `numeric`,
   composite types) and vice-versa. The portable model must degrade gracefully both directions.
 - **Snapshot-format migration** — moving snapshots from DDL-string to portable IR needs a version bump
-  + read-compat for existing `version: 1` snapshots.
+  - read-compat for existing `version: 1` snapshots.
 - **Brand/umbrella naming** once multi-DB — product call, deferred.

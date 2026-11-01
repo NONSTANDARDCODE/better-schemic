@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { PortableType } from "better-schemic/core";
 import { normalizeType } from "../../../src/surreal/cli/struct";
-import { emitSurqlType, parseSurqlType } from "../../../src/surreal/driver/surql-type";
+import {
+  emitSurqlType,
+  parseSurqlType,
+} from "../../../src/surreal/driver/surql-type";
 
 // Milestone 2 LOSSLESS proof: the SurrealQL type string <-> PortableType bridge must round-trip, so
 // flipping diff equality to a structured deep-compare over PortableType can't produce false negatives

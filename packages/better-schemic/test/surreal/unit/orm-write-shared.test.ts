@@ -4,9 +4,12 @@
 import { describe, expect, test } from "bun:test";
 import { RecordId } from "surrealdb";
 import { surql } from "../../../src/surreal";
-import { betterSchemic } from "../../../src/surreal/orm/client";
+import { orm } from "../../../src/surreal/orm/client";
 import { createBinds } from "../../../src/surreal/orm/compiler/shared";
-import { mergeScope, scopePredicate } from "../../../src/surreal/orm/compiler/where";
+import {
+  mergeScope,
+  scopePredicate,
+} from "../../../src/surreal/orm/compiler/where";
 import {
   assignmentList,
   encodeData,
@@ -24,9 +27,9 @@ import {
   updatableFields,
   updateMode,
 } from "../../../src/surreal/orm/compiler/write-shared";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { schema } from "../../../src/surreal/orm/schema";
 import { fakeConn, ok } from "../orm-fixtures";
-import { schema } from "./orm-writes-fixtures";
+import { schemaDef } from "./orm-writes-fixtures";
 
 const code = (fn: () => unknown): string | undefined => {
   try {
@@ -38,7 +41,7 @@ const code = (fn: () => unknown): string | undefined => {
 };
 
 const { conn } = fakeConn(() => [ok([])]);
-const client = betterSchemic(conn, { schema });
+const client = orm(conn, { schema: schemaDef });
 const meta = client.$index.tables.get("users")!;
 
 describe("encodeData", () => {
@@ -52,8 +55,8 @@ describe("encodeData", () => {
   });
 
   test("a schemaless entry passes the payload through", () => {
-    const S = defineSchema({ audit: "audit_log" });
-    const c = betterSchemic(fakeConn(() => [ok([])]).conn, { schema: S });
+    const S = schema({ audit: "audit_log" });
+    const c = orm(fakeConn(() => [ok([])]).conn, { schema: S });
     const sm = c.$index.schemaless.get("audit")!;
     expect(encodeData(sm, { a: 1 }, "create", "create")).toEqual({ a: 1 });
   });
@@ -161,8 +164,8 @@ describe("readReturn / updateMode / pure helpers", () => {
     const rid = new RecordId("user", "1");
     expect(toRecord(rid, "op")).toBe(rid);
     expect(String(toRecord("user:2", "op"))).toContain("user");
-    const sm = betterSchemic(fakeConn(() => [ok([])]).conn, {
-      schema: defineSchema({ audit: "audit_log" }),
+    const sm = orm(fakeConn(() => [ok([])]).conn, {
+      schema: schema({ audit: "audit_log" }),
     }).$index.schemaless.get("audit")!;
     requireColumn(sm, "anything", "op");
     expect(isRecordColumn(sm, "anything")).toBe(false);

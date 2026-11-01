@@ -2,7 +2,7 @@
 // `QueryResponse` -> `StatementResult` mapping used by the executor's raw multi-statement path.
 import { describe, expect, test } from "bun:test";
 import { ServerError } from "surrealdb";
-import { BetterSchemicError, isNotFound } from "../../../src/surreal/orm/errors";
+import { isNotFound, OrmError } from "../../../src/surreal/orm/errors";
 import {
   attachThrow,
   type BatchResult,
@@ -18,22 +18,20 @@ describe("attachThrow", () => {
     expect(await result).toBeNull();
 
     const err = await result.throw().catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(BetterSchemicError);
-    expect((err as BetterSchemicError).code).toBe("ResultNotFound");
+    expect(err).toBeInstanceOf(OrmError);
+    expect((err as OrmError).code).toBe("ResultNotFound");
     expect((err as Error).message).toContain(
       "user: no record matched findUnique",
     );
-    expect((err as BetterSchemicError).table).toBe("user");
-    expect((err as BetterSchemicError).operation).toBe("findUnique");
+    expect((err as OrmError).table).toBe("user");
+    expect((err as OrmError).operation).toBe("findUnique");
     expect(isNotFound(err)).toBe(true);
   });
 
   test("a `where` is summarized into the message and kept in `details`", async () => {
     const where = { email: "aeon@surreal.db" };
     const result = attachThrow(Promise.resolve(null), { ...info, where });
-    const err = (await result
-      .throw()
-      .catch((e: unknown) => e)) as BetterSchemicError;
+    const err = (await result.throw().catch((e: unknown) => e)) as OrmError;
     expect(err.message).toContain('matching {"email":"aeon@surreal.db"}');
     expect(err.details).toEqual(where);
   });
@@ -44,7 +42,7 @@ describe("attachThrow", () => {
       .throw((i) => new Error(`custom: ${i.table}`))
       .catch((e: unknown) => e)) as Error;
     expect(err.message).toBe("custom: user");
-    expect(err).not.toBeInstanceOf(BetterSchemicError);
+    expect(err).not.toBeInstanceOf(OrmError);
   });
 
   test("a present value resolves through `.throw()`", async () => {
@@ -60,9 +58,7 @@ describe("attachThrow", () => {
       surql: "SELECT * FROM ONLY user:missing",
       vars: { p: 1 },
     });
-    const err = (await result
-      .throw()
-      .catch((e: unknown) => e)) as BetterSchemicError;
+    const err = (await result.throw().catch((e: unknown) => e)) as OrmError;
     expect(err.surql).toBe("SELECT * FROM ONLY user:missing");
     expect(err.vars).toEqual({ p: 1 });
   });
@@ -134,7 +130,7 @@ describe("statementResult — QueryResponse -> StatementResult", () => {
       error: server,
     });
     expect(result.status).toBe("ERR");
-    expect(result.error).toBeInstanceOf(BetterSchemicError);
+    expect(result.error).toBeInstanceOf(OrmError);
     expect(result.error?.code).toBe("RecordAlreadyExists");
     expect(result.time).toBeUndefined();
   });

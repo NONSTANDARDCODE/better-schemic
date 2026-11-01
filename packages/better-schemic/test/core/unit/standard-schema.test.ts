@@ -45,6 +45,8 @@ describe("Standard Schema", () => {
   test("the contract carries across chained wrappers (rebuild keeps it a field)", () => {
     const optional = field.optional();
     expect(optional["~standard"]).toBeDefined();
-    expect(optional["~standard"].validate(undefined)).toEqual({ value: undefined });
+    expect(optional["~standard"].validate(undefined)).toEqual({
+      value: undefined,
+    });
   });
 });

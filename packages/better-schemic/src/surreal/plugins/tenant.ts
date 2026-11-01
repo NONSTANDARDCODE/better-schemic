@@ -8,7 +8,7 @@
  *   (`record<user> DEFAULT $auth.id ASSERT $value != NONE READONLY`), per-op permissions
  *   (`tenant_id = $auth.id`, with the soft-delete tombstone clause), the
  *   `{table}_protect_tenant_id` guard event and the tenant indexes. It composes through
- *   `defineTable(…).use(tenant(userTable))` like any preset (AND-narrowing permissions, typed column).
+ *   `table(…).use(tenant(userTable))` like any preset (AND-narrowing permissions, typed column).
  * - **Runtime plugin** — `tenantRls(options?)` enforces the same scope client-side, for PRIVILEGED
  *   sessions where `$auth`/permissions do not filter. It requires a scope for every tenant-tagged
  *   table (fail-closed), injects it into writes, AND-combines it into every read/update/delete
@@ -18,11 +18,11 @@
  * ```ts
  * import { tenant, tenantRls } from "./tenant";
  *
- * export const Customer = defineTable("customer", { name: s.string(), deletedAt: s.datetime().optional() })
+ * export const Customer = table("customer", { name: s.string(), deletedAt: s.datetime().optional() })
  *   .use(tenant(User, { softDelete: true }));
  *
- * const client = betterSchemic(db, {
- *   schema: defineSchema({ customers: Customer }),
+ * const client = orm(db, {
+ *   schema: schema({ customers: Customer }),
  *   plugins: [tenantRls({ tenant: () => ctx.tenantId })],
  * });
  * await client.customers.$forTenant("user:abc").findMany({});
@@ -35,10 +35,9 @@
 
 import type { RecordIdValue } from "surrealdb";
 import { surql } from "../index";
-import { BetterSchemicError } from "../orm/errors";
+import { OrmError } from "../orm/errors";
 import type { AnyTableDef } from "../orm/types/schema";
 import {
-  defineTable,
   type PresetEvent,
   type PresetIndex,
   paramProxy,
@@ -48,6 +47,7 @@ import {
   type TableDef,
   type TablePermissions,
   type TablePreset,
+  table as tableFn,
 } from "../pure";
 import { CREATE_ONLY_MARKER } from "./create-only-shared";
 import { assertIdent } from "./tenant-shared";
@@ -138,7 +138,7 @@ function snake(name: string): string {
 
 /**
  * The tenant SCOPING preset: tenant column + per-op permissions + guard event + indexes, applied
- * with `defineTable(…).use(tenant(User, options?))`. Zero-diff against the hand-written recipe
+ * with `table(…).use(tenant(User, options?))`. Zero-diff against the hand-written recipe
  * (same field/permissions/event/index names) and typed end-to-end.
  *
  * Permissions (AND-combined with the table's own — a preset only narrows):
@@ -163,7 +163,7 @@ export function tenant<
   const createOnly = options.createOnly === true;
   const softDeleteOption = options.softDelete ?? false;
   if (createOnly && softDeleteOption)
-    throw new BetterSchemicError(
+    throw new OrmError(
       "SchemaInvalid",
       `plugins/tenant: tenant("${table}") — "createOnly" and "softDelete" are mutually exclusive: an append-only table never updates, so the tombstone clause is unreachable.`,
       { table, field: "softDelete" },
@@ -241,7 +241,7 @@ export function tenant<
     .$readonly();
   const columns = { [column]: field } as unknown as TenantColumns<P, C>;
 
-  return defineTable.preset({
+  return tableFn.preset({
     columns,
     permissions,
     events,

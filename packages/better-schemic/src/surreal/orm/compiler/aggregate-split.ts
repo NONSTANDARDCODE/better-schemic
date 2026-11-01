@@ -21,16 +21,16 @@
  * different about a split lives in this file.
  */
 import { escapeIdentSafe as escapeIdent } from "../../ident";
+import type { ModelMeta, SchemaIndex } from "../meta";
 import type { AggregateArgs, CompiledAggregate } from "./aggregate";
 import {
-  type ColumnResolver,
   aggregateTail,
   assertAggregateShape,
   assertGroupKeysProjected,
+  type ColumnResolver,
   compileAggregateSelect,
 } from "./aggregate-entries";
 import { assertAggregateOperand } from "./aggregate-operand";
-import type { ModelMeta, SchemaIndex } from "../meta";
 import {
   type Binds,
   compileError,
@@ -66,7 +66,9 @@ function splitResolver(
     // A group key is named by its OUTPUT KEY (`groupBy: ["customerName"]`), so it keeps that name;
     // everything else is flattened under the reserved column the inner query projects.
     of: (_path, out) =>
-      groupBy.includes(out) ? escapeIdent(out) : escapeIdent(reservedColumn(_path)),
+      groupBy.includes(out)
+        ? escapeIdent(out)
+        : escapeIdent(reservedColumn(_path)),
     inner: (path, out) =>
       groupBy.includes(out)
         ? `${renderPath(path)} AS ${escapeIdent(out)}`
@@ -99,13 +101,14 @@ export function compileSplitAggregate(
   const groupBy = assertAggregateShape(args, operation);
 
   const columns = splitResolver(meta, split, groupBy);
-  const { parts, fields, projectedKeys, hasExpression } = compileAggregateSelect(
-    meta,
-    args.select as Record<string, unknown>,
-    binds,
-    operation,
-    columns,
-  );
+  const { parts, fields, projectedKeys, hasExpression } =
+    compileAggregateSelect(
+      meta,
+      args.select as Record<string, unknown>,
+      binds,
+      operation,
+      columns,
+    );
   const { inners } = columns;
   if (parts.length === 0)
     throw compileError(

@@ -39,11 +39,11 @@ exactly the point SQLite makes about C ("MC/DC and branch coverage are very near
   caps non-critical waivers at that floor, so files settle at 95% rather than being driven to 100%.
 - **Tier 2 — independence pairs (implemented).** `analyzeMcdc`/`describeMcdc` in
   `better-schemic/testing` compute **real** MC/DC: for a decision, every condition must have a
-  **unique-cause independence pair** — two assignments that differ *only* in that condition and flip
+  **unique-cause independence pair** — two assignments that differ _only_ in that condition and flip
   the outcome. The helper enumerates the full truth table (or the explicit `cases` a suite exercises,
   for real coverage) and fails a **named** test when a condition has no pair (a redundant operand
   like `a && a`, or a masked one). Use it on the pure, decision-dense predicates; the `bT` metric
-  proves an operand was seen true *and* false, but never that it *independently* changes the outcome.
+  proves an operand was seen true _and_ false, but never that it _independently_ changes the outcome.
 
   ```ts
   import { describeMcdc } from "better-schemic/testing";
@@ -62,7 +62,7 @@ calling private predicates — which is the point.
 
 ## MC/DC decision inventory
 
-Tier 1 tells you how a decision *scored*; the inventory tells you every decision *exists* and how it
+Tier 1 tells you how a decision _scored_; the inventory tells you every decision _exists_ and how it
 is proven. `scripts/mcdc/{inventory,reconcile}.ts` enumerate every MC/DC-relevant decision in the
 in-scope sources with **`oxc-parser`** (the same Rust parser the coverage instrumenter uses) and
 classify each:
@@ -92,7 +92,7 @@ coverage CI job enforces both.
 
 ## Mutation testing
 
-Coverage proves a line/decision *ran*; mutation proves the tests actually *assert behavior*. The
+Coverage proves a line/decision _ran_; mutation proves the tests actually _assert behavior_. The
 gate runs StrykerJS against the **scoped pure compilers** (the `orm/compiler/*` modules,
 `surql-type-expr`, `driver/surql-type`, `checks`-adjacent string logic and core `cli-kit/filter`) and
 fails on any **per-file mutation-score** regression below `mutation.config.json` (`floors`, a ratchet
@@ -107,27 +107,27 @@ recorded with `bun run test:mutation:update`).
   SurrealDB. Only the offline unit suites are run.
 - **Per-mutant test selection.** `mutation.config.json.testFilesByFile` maps each mutated source to the
   test file(s) that cover it (falling back to `testFiles` — the whole unit suite). Narrowing the test
-  set keeps a mutant's run honest *and* fast; a mutant that only an unrelated suite would kill is a
+  set keeps a mutant's run honest _and_ fast; a mutant that only an unrelated suite would kill is a
   survivor here, which is the signal to write a direct test.
 - **Concurrency.** With `coverageAnalysis: "off"` every mutant is **static**: it must run in a fresh
   process (activated by `__STRYKER_ACTIVE_MUTANT__`), because a static mutant can't be hot-swapped in
-  a loaded environment. Static-ness forces a *reload*, not *serialization* — Stryker's worker pool
+  a loaded environment. Static-ness forces a _reload_, not _serialization_ — Stryker's worker pool
   schedules mutants dynamically across `concurrency` workers, each spawning its own `bun test` child,
   so they run in parallel. `run.ts` sizes the pool at the CPU count (capped at 8); tune with
   `--concurrency <n>` (or `MUTATION_CONCURRENCY`). Dynamic scheduling also load-balances: unlike the
   old static file shards, no worker can end up the straggler.
-- **Equivalent mutants** (a mutation no test *could* distinguish, e.g. reordering a commutative
+- **Equivalent mutants** (a mutation no test _could_ distinguish, e.g. reordering a commutative
   build) are disabled inline with `// Stryker disable next-line <Mutator> -- <reason>` — the reason is
   reviewable, unlike a silent survivor.
 
-| Path | Role |
-| --- | --- |
-| `scripts/mutation/run.ts` | run Stryker (dynamic worker pool) → ratchet |
-| `scripts/mutation/bun-runner.ts` | the `TestRunner` plugin (spawns `bun test`, maps results) |
-| `scripts/mutation/bunfig.mutation.toml` | server-less bunfig for mutant runs |
-| `scripts/mutation/ratchet.ts` | per-file mutation-score gate |
-| `stryker.config.json` | Stryker options + the scoped `mutate` list |
-| `mutation.config.json` | per-file test selection + the score floors (ratchet) |
+| Path                                    | Role                                                      |
+| --------------------------------------- | --------------------------------------------------------- |
+| `scripts/mutation/run.ts`               | run Stryker (dynamic worker pool) → ratchet               |
+| `scripts/mutation/bun-runner.ts`        | the `TestRunner` plugin (spawns `bun test`, maps results) |
+| `scripts/mutation/bunfig.mutation.toml` | server-less bunfig for mutant runs                        |
+| `scripts/mutation/ratchet.ts`           | per-file mutation-score gate                              |
+| `stryker.config.json`                   | Stryker options + the scoped `mutate` list                |
+| `mutation.config.json`                  | per-file test selection + the score floors (ratchet)      |
 
 ## Property-based testing
 
@@ -135,10 +135,10 @@ The pure compilers/parsers take generated, adversarial inputs and assert **invar
 strings — with [fast-check](https://fast-check.dev). These catch whole classes of escaping/binding/
 round-trip bugs that hand-picked examples miss (and they have: see the type-bridge fixes below).
 
-| Path | Covers |
-| --- | --- |
+| Path                                                                  | Covers                                                                                                                                                 |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `packages/better-schemic/test/surreal/property/compilers.pbt.test.ts` | `compileWhere` (injection safety, bind totality, purity), paths/`joinAnd`, record ids, the `SurqlType` bridge, the check/duration/datetime/int bridges |
-| `packages/better-schemic/test/core/property/filter.pbt.test.ts` | `parseFilter` (defaults, token splitting, determinism) + `inCat` |
+| `packages/better-schemic/test/core/property/filter.pbt.test.ts`       | `parseFilter` (defaults, token splitting, determinism) + `inCat`                                                                                       |
 
 Invariants asserted:
 
@@ -157,7 +157,7 @@ so any red run is replayable.
 > Found via PBT (all fixed): `parseSurqlType`/`normalizeType` tested the greedy `option<…>` wrapper
 > BEFORE the top-level union, so `option<int> | string` was mis-parsed; `emitSurqlType` emitted
 > `option<none>` for `option<never>` (re-parsing to `option<option<never>>`); and a nullable union of
-> >1 member sorted `null` last instead of as a flat member.
+> > 1 member sorted `null` last instead of as a flat member.
 
 ## Fuzzing
 
@@ -166,10 +166,10 @@ huge unions and a committed seed corpus, asserting the two properties that matte
 **never throw** (or only a documented error) and **never hang** (no catastrophic backtracking), plus
 the claimed idempotence/round-trips.
 
-| Path | Targets |
-| --- | --- |
+| Path                                                             | Targets                                                                                                                                                                         |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `packages/better-schemic/test/surreal/fuzz/parsers.fuzz.test.ts` | `splitTopUnion`/`topLevelSplitOnce`, `parseSurqlType`/`emitSurqlType`/`normalizeType`, `formatForAssert`, `stripOuterParens`/`toFragment` (bind namespacing), `hasTopLevelSemi` |
-| `packages/better-schemic/test/core/fuzz/filter.fuzz.test.ts` | `parseFilter` at scale (200-token lists, arbitrary bytes) |
+| `packages/better-schemic/test/core/fuzz/filter.fuzz.test.ts`     | `parseFilter` at scale (200-token lists, arbitrary bytes)                                                                                                                       |
 
 A hang is detected by Bun's own per-test timeout (sync code can't be interrupted cooperatively); a
 time-bounded corpus asserts each call finishes well under budget. Budget is `FUZZ_RUNS` (falls back to
@@ -190,20 +190,20 @@ time-bounded corpus asserts each call finishes well under budget. Budget is `FUZ
 
 ## Files
 
-| Path | Role |
-| --- | --- |
-| `scripts/coverage/preload.ts` | Bun plugin: instruments in-scope sources, flushes `__coverage__` per pid |
-| `scripts/coverage/lib.ts` | fragment merge (custom, `bT`-safe), per-file metrics incl. conditions |
-| `scripts/coverage/run.ts` | run the suite under coverage → report → gate |
-| `scripts/coverage/report.ts` | merge + HTML/LCOV/JSON + text table |
-| `scripts/coverage/check.ts` | per-file ratchet gate |
-| `scripts/coverage/gaps.ts` | print uncovered lines/arms/conditions with snippets |
-| `scripts/mcdc/inventory.ts` | enumerate MC/DC decisions via `oxc-parser` |
-| `scripts/mcdc/reconcile.ts` | classify decisions auto/table/unknown + per-file ratchet |
-| `mcdc-manifest.json` | decisions proven by a `describeMcdc` table test |
-| `mcdc.config.json` | per-file unknown-decision floor (ratchet) |
-| `packages/better-schemic/test/surreal/preload-server.ts` | shared ephemeral SurrealDB for live/parity |
-| `coverage.config.json` | include roots, excludes, `critical` (100%), thresholds (95/90), per-file waivers |
+| Path                                                     | Role                                                                             |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `scripts/coverage/preload.ts`                            | Bun plugin: instruments in-scope sources, flushes `__coverage__` per pid         |
+| `scripts/coverage/lib.ts`                                | fragment merge (custom, `bT`-safe), per-file metrics incl. conditions            |
+| `scripts/coverage/run.ts`                                | run the suite under coverage → report → gate                                     |
+| `scripts/coverage/report.ts`                             | merge + HTML/LCOV/JSON + text table                                              |
+| `scripts/coverage/check.ts`                              | per-file ratchet gate                                                            |
+| `scripts/coverage/gaps.ts`                               | print uncovered lines/arms/conditions with snippets                              |
+| `scripts/mcdc/inventory.ts`                              | enumerate MC/DC decisions via `oxc-parser`                                       |
+| `scripts/mcdc/reconcile.ts`                              | classify decisions auto/table/unknown + per-file ratchet                         |
+| `mcdc-manifest.json`                                     | decisions proven by a `describeMcdc` table test                                  |
+| `mcdc.config.json`                                       | per-file unknown-decision floor (ratchet)                                        |
+| `packages/better-schemic/test/surreal/preload-server.ts` | shared ephemeral SurrealDB for live/parity                                       |
+| `coverage.config.json`                                   | include roots, excludes, `critical` (100%), thresholds (95/90), per-file waivers |
 
 ## Workflow
 
@@ -220,12 +220,12 @@ time-bounded corpus asserts each call finishes well under budget. Budget is `FUZ
 
 `.github/workflows/ci.yml` keeps the hot gate fast and puts the heavy, slower gates in separate jobs:
 
-| Job | Runs | Notes |
-| --- | --- | --- |
-| `gate` | build · typecheck · test | includes the PBT + fuzz suites (they're normal `bun test` files) |
-| `coverage` | `bun run test:coverage` | installs the pinned `surreal` binary so live/parity never skip; also enforces the MC/DC reconcile |
-| `mutation` | `bun run test:mutation` | offline (no DB), parallel test-runner workers |
-| `type-bench` | `bun run scripts/type-bench.ts` | `bun check` type-completeness (rides `typecheck`) + per-file instantiation budgets |
+| Job          | Runs                            | Notes                                                                                             |
+| ------------ | ------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `gate`       | build · typecheck · test        | includes the PBT + fuzz suites (they're normal `bun test` files)                                  |
+| `coverage`   | `bun run test:coverage`         | installs the pinned `surreal` binary so live/parity never skip; also enforces the MC/DC reconcile |
+| `mutation`   | `bun run test:mutation`         | offline (no DB), parallel test-runner workers                                                     |
+| `type-bench` | `bun run scripts/type-bench.ts` | `bun check` type-completeness (rides `typecheck`) + per-file instantiation budgets                |
 
 All heavy gates are **separate jobs**: `land.ts` and the `gate` job stay quick, and a regression fails
 the specific job (coverage, mutation or MC/DC) with the per-file detail.

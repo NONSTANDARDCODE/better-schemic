@@ -7,11 +7,11 @@
  * the DECISION, not the connection mock.
  */
 import { RecordId } from "surrealdb";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import type { BetterSchemicError } from "../../../src/surreal/orm/errors";
-import { buildSchemaIndex } from "../../../src/surreal/orm/schema";
+import { orm } from "../../../src/surreal/orm/client";
+import type { OrmError } from "../../../src/surreal/orm/errors";
 import type { ModelMeta, TableMeta } from "../../../src/surreal/orm/meta";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { buildSchemaIndex } from "../../../src/surreal/orm/schema";
+import { s, table } from "../../../src/surreal/pure";
 import { fakeConn, ok } from "../orm-fixtures";
 
 /** A table with a self-referencing `owner` link — the shape the operand walk has to reason about. */
@@ -25,7 +25,7 @@ export const deepShape = {
 };
 
 /** `deep` — a datetime, an `any`, a bare link, a flexible object, an array and a decimal. */
-export const Deep = defineTable("deep", deepShape);
+export const Deep = table("deep", deepShape);
 
 /** A cart whose `items` is a LIST of links — what `aggregate({ split })` unfolds. */
 export const splitItemShape = {
@@ -33,22 +33,23 @@ export const splitItemShape = {
   qty: s.int(),
   tags: s.array(s.string()),
 };
-export const SplitItem = defineTable("split_item", splitItemShape);
+export const SplitItem = table("split_item", splitItemShape);
 
 export const splitHolderShape = {
   name: s.string(),
   items: s.array(s.recordId("split_item")),
   tags: s.array(s.string()),
 };
-export const SplitHolder = defineTable("split_holder", splitHolderShape);
+export const SplitHolder = table("split_holder", splitHolderShape);
 
 /** The schema index for a `{ key: TableDef }` object, typed to the table meta. */
 export function tableMeta(
-  schema: Record<string, ReturnType<typeof defineTable>>,
+  schema: Record<string, ReturnType<typeof table>>,
   key: string,
 ): TableMeta {
   const meta = buildSchemaIndex(schema).tables.get(key);
-  if (meta === undefined) throw new Error(`no table "${key}" in the test schema`);
+  if (meta === undefined)
+    throw new Error(`no table "${key}" in the test schema`);
   return meta as TableMeta;
 }
 
@@ -67,7 +68,7 @@ export async function probeAggregate(
   const { conn, calls } = fakeConn((sql) =>
     sql.split("\n").map(() => ok(rows)),
   );
-  const client = betterSchemic(conn, { schema: schema as never }) as unknown as Record<
+  const client = orm(conn, { schema: schema as never }) as unknown as Record<
     string,
     { aggregate: (a: unknown) => Promise<unknown> }
   >;
@@ -118,4 +119,4 @@ export function row(
   return { id: new RecordId(table, "1"), ...fields };
 }
 
-export { betterSchemic, defineTable, s };
+export { orm, s, table };

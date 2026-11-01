@@ -1,4 +1,4 @@
-import { defineTable, s, surql } from "better-schemic";
+import { table, s, surql } from "better-schemic";
 import { cover } from "../_kit";
 
 export default cover(import.meta.url, {
@@ -6,7 +6,7 @@ export default cover(import.meta.url, {
   note: "`.$defaultAlways(surql`…`)` — emits `DEFAULT ALWAYS`, so the expression is re-applied on every update (not just create) when the field is omitted.",
   ddl: `DEFINE TABLE event TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD updatedAt ON TABLE event TYPE datetime DEFAULT ALWAYS time::now();`,
-  def: defineTable("event", {
+  def: table("event", {
     updatedAt: s.datetime().$defaultAlways(surql`time::now()`),
   }).schemafull(),
 });

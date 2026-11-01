@@ -7,14 +7,14 @@ import {
   normalizeChangeSets,
   sinceLiteral,
 } from "../../../src/surreal/orm/changes";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import { isBetterSchemicError } from "../../../src/surreal/orm/errors";
-import { defineSchema } from "../../../src/surreal/orm/schema";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { orm } from "../../../src/surreal/orm/client";
+import { isOrmError } from "../../../src/surreal/orm/errors";
+import { schema } from "../../../src/surreal/orm/schema";
+import { s, table } from "../../../src/surreal/pure";
 import { caught, lines, ok } from "../orm-fixtures";
 
-const User = defineTable("user", { name: s.string() });
-const schema = defineSchema({ users: User });
+const User = table("user", { name: s.string() });
+const schemaDef = schema({ users: User });
 
 /** A fake conn that answers SHOW CHANGES with `raw`. */
 function fakeConn(raw: unknown) {
@@ -29,9 +29,9 @@ function fakeConn(raw: unknown) {
 }
 
 const codeOf = (e: unknown): string | undefined =>
-  isBetterSchemicError(e) ? e.code : undefined;
+  isOrmError(e) ? e.code : undefined;
 describe("changes — compilation", () => {
-  const index = betterSchemic(fakeConn([]) as never, { schema }).$index;
+  const index = orm(fakeConn([]) as never, { schema: schemaDef }).$index;
 
   test("SHOW CHANGES FOR TABLE (schema key or physical) and FOR DATABASE", () => {
     expect(compileChanges(index, { table: "users", since: 0 })).toBe(
@@ -78,7 +78,7 @@ describe("changes — compilation", () => {
 });
 
 describe("changes — normalization", () => {
-  const index = betterSchemic(fakeConn([]) as never, { schema }).$index;
+  const index = orm(fakeConn([]) as never, { schema: schemaDef }).$index;
 
   test("update / update-with-original / delete / define_table become typed entries", () => {
     const id = new RecordId("user", "u1");
@@ -145,7 +145,7 @@ describe("changes — normalization", () => {
     const conn = fakeConn([
       { versionstamp: 7n, changes: [{ update: { id, name: "A" } }] },
     ]);
-    const client = betterSchemic(conn as never, { schema });
+    const client = orm(conn as never, { schema: schemaDef });
     const out = await client.changes({ table: "users", since: 0, limit: 10 });
     expect(conn.calls[0]?.sql).toBe(
       "SHOW CHANGES FOR TABLE user SINCE 0 LIMIT 10;",
@@ -170,7 +170,7 @@ describe("changes — normalization", () => {
         ],
       },
     ]);
-    const client = betterSchemic(conn as never, { schema });
+    const client = orm(conn as never, { schema: schemaDef });
     const out = await client.changes();
     expect(conn.calls[0]?.sql).toBe("SHOW CHANGES FOR DATABASE SINCE 0;");
     expect(out[0]?.changes[0]).toMatchObject({ value: { name: "A" } });
@@ -180,12 +180,12 @@ describe("changes — normalization", () => {
   });
 
   test("garbage responses normalize to an empty list (never throw)", async () => {
-    const client = betterSchemic(fakeConn("nope") as never, { schema });
+    const client = orm(fakeConn("nope") as never, { schema: schemaDef });
     expect(await client.changes()).toEqual([]);
   });
 
   test("client.changes validates since/limit eagerly", async () => {
-    const client = betterSchemic(fakeConn([]) as never, { schema });
+    const client = orm(fakeConn([]) as never, { schema: schemaDef });
     expect(codeOf(await caught(() => client.changes({ since: -1 })))).toBe(
       "ValidationError",
     );

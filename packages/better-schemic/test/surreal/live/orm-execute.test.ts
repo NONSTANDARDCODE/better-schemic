@@ -12,7 +12,7 @@ import {
   spawnEphemeralServer,
   surrealBinaryAvailable,
 } from "../../../src/surreal/cli/engine";
-import { isBetterSchemicError, isUniqueViolation } from "../../../src/surreal/orm/errors";
+import { isOrmError, isUniqueViolation } from "../../../src/surreal/orm/errors";
 import { execute } from "../../../src/surreal/orm/execute";
 
 const ENABLED = surrealBinaryAvailable();
@@ -97,7 +97,7 @@ live("executor — live probes", () => {
       statementIndex: number;
     };
 
-    expect(isBetterSchemicError(err)).toBe(true);
+    expect(isOrmError(err)).toBe(true);
     expect(isUniqueViolation(err)).toBe(true);
     expect(err.statementIndex).toBe(1);
     // The first CREATE was rolled back by the aborted transaction.

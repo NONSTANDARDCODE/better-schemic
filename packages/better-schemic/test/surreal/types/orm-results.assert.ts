@@ -2,14 +2,13 @@
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
 import { describe, it } from "node:test";
 import { assertType } from "../../../../../scripts/type-assert";
-import type { BetterSchemicError } from "../../../src/surreal/orm/errors";
+import type { OrmError } from "../../../src/surreal/orm/errors";
 import type {
   BatchResult,
   NotFoundInfo,
   StatementResult,
   ThrowingResult,
 } from "../../../src/surreal/orm/results";
-
 
 describe("ThrowingResult<T>", () => {
   it("is a Promise<T | null> augmented with `.throw()` yielding T", () => {
@@ -43,7 +42,7 @@ describe("StatementResult<T>", () => {
         readonly result: number[];
         readonly status: "OK" | "ERR";
         readonly time?: string;
-        readonly error?: BetterSchemicError;
+        readonly error?: OrmError;
       },
       StatementResult<number[]>
     >();

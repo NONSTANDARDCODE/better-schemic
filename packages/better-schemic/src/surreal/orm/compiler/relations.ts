@@ -9,7 +9,7 @@
  * with an explicit `direction: "out" | "in" | "both"` override on the edge surfaces.
  */
 import { escapeIdentSafe as escapeIdent } from "../../ident";
-import { BetterSchemicError } from "../errors";
+import { OrmError } from "../errors";
 import type { EdgeRef, SchemaIndex, TableMeta } from "../meta";
 import { describeValue, isLowerableValue, isPlainObject } from "./shared";
 
@@ -52,10 +52,10 @@ function unknownKey(
   key: string,
   what: string,
   operation: string,
-): BetterSchemicError {
+): OrmError {
   const { links, edges } = availableKeys(meta);
   const known = [...links, ...edges];
-  return new BetterSchemicError(
+  return new OrmError(
     "UnknownField",
     `${operation}: "${key}" is not a relation of "${meta.name}" (${what}). Known relations: ${known.length ? known.join(", ") : "(none)"}.`,
     { table: meta.name, field: key, operation, details: { known } },
@@ -81,8 +81,8 @@ export function resolveEdge(
   if (!outgoing && !incoming)
     throw unknownKey(meta, name, "an edge", operation);
 
-  const requires = (direction: EdgeDirection): BetterSchemicError =>
-    new BetterSchemicError(
+  const requires = (direction: EdgeDirection): OrmError =>
+    new OrmError(
       "ValidationError",
       `${operation}: "${name}" is not a ${direction === "out" ? "FROM" : "TO"} edge of "${meta.name}" — the declared endpoints do not allow direction "${direction}". Use the other direction or fix the relation.`,
       { table: meta.name, field: name, operation },
@@ -246,7 +246,7 @@ export function classifyWhereByOwner(args: {
   if (args.where === undefined || args.where === null) return {};
   if (isLowerableValue(args.where)) return { fragment: args.where };
   if (!isPlainObject(args.where))
-    throw new BetterSchemicError(
+    throw new OrmError(
       "ValidationError",
       `${operation}: ${context} expects a filter object, a fragment or { edge, target }, got ${describeValue(args.where)}.`,
       { operation, details: { where: args.where } },
@@ -264,7 +264,7 @@ export function classifyWhereByOwner(args: {
     const target = ownsTarget(field);
     if (edge && target) {
       if (field === "id") return args.idOwner;
-      throw new BetterSchemicError(
+      throw new OrmError(
         "ValidationError",
         `${operation}: "${field}" exists on both the edge and the target — separate the filter (e.g. a surql fragment) so it is unambiguous.`,
         { operation, field },
@@ -272,7 +272,7 @@ export function classifyWhereByOwner(args: {
     }
     if (edge) return "edge";
     if (target) return "target";
-    throw new BetterSchemicError(
+    throw new OrmError(
       "UnknownField",
       `${operation}: "${field}" is not a column of the edge or the target — check the relation schema.`,
       { operation, field },
@@ -306,13 +306,13 @@ export function classifyWhereByOwner(args: {
       const fields = fieldsIn(value);
       const owners = new Set(fields.map(ownerOf));
       if (fields.length === 0)
-        throw new BetterSchemicError(
+        throw new OrmError(
           "ValidationError",
           `${operation}: ${context}.${key} is empty — nothing to constrain.`,
           { operation },
         );
       if (owners.size !== 1)
-        throw new BetterSchemicError(
+        throw new OrmError(
           "ValidationError",
           `${operation}: ${context}.${key} mixes edge and target fields — split it into "edge"/"target" predicates or use a surql fragment.`,
           { operation },

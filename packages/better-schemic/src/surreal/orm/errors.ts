@@ -1,15 +1,15 @@
 /**
- * The structured error every `/orm` surface throws — one class, a stable {@link BetterSchemicErrorCode}
+ * The structured error every `/orm` surface throws — one class, a stable {@link OrmErrorCode}
  * catalog, and the request context that makes a failure actionable (`table`/`field`/`operation`/
  * `statementIndex`/`surql`/`vars`).
  *
- * M0.2 ships the class + the catalog (so `defineSchema`/`SchemaIndex` can fail with `SchemaInvalid`);
+ * M0.2 ships the class + the catalog (so `schema`/`SchemaIndex` can fail with `SchemaInvalid`);
  * normalization of SDK/server errors and the `is*` predicates land in M0.3 (`errors.ts` grows, the
  * constructor contract does not change).
  */
 
 /** Every structured failure code the `/orm` layer can report. */
-export type BetterSchemicErrorCode =
+export type OrmErrorCode =
   // results
   | "ResultNotFound"
   // server / transport
@@ -52,7 +52,7 @@ export type BetterSchemicErrorCode =
   | "UnsafeMutation";
 
 /** HTTP-like default status per code — a server/SDK status wins when present. */
-const DEFAULT_STATUS: Record<BetterSchemicErrorCode, number> = {
+const DEFAULT_STATUS: Record<OrmErrorCode, number> = {
   ResultNotFound: 404,
   DatabaseError: 500,
   ParseError: 400,
@@ -87,9 +87,9 @@ const DEFAULT_STATUS: Record<BetterSchemicErrorCode, number> = {
   UnsafeMutation: 403,
 };
 
-/** The context an operation attaches to a {@link BetterSchemicError}. */
-export interface BetterSchemicErrorOptions {
-  /** HTTP-like status — defaults per {@link BetterSchemicErrorCode}. */
+/** The context an operation attaches to a {@link OrmError}. */
+export interface OrmErrorOptions {
+  /** HTTP-like status — defaults per {@link OrmErrorCode}. */
   status?: number;
   /** The table/edge the operation targeted (physical name). */
   table?: string;
@@ -113,8 +113,8 @@ export interface BetterSchemicErrorOptions {
  * The one error type the ORM throws. `code` is the stable discriminant (never a message match);
  * `status` is HTTP-like for API layers; the context fields are populated as the operation unwinds.
  */
-export class BetterSchemicError extends Error {
-  readonly code: BetterSchemicErrorCode;
+export class OrmError extends Error {
+  readonly code: OrmErrorCode;
   readonly status: number;
   readonly table?: string;
   readonly field?: string;
@@ -125,12 +125,12 @@ export class BetterSchemicError extends Error {
   readonly details?: unknown;
 
   constructor(
-    code: BetterSchemicErrorCode,
+    code: OrmErrorCode,
     message: string,
-    options: BetterSchemicErrorOptions = {},
+    options: OrmErrorOptions = {},
   ) {
     super(message, { cause: options.cause });
-    this.name = "BetterSchemicError";
+    this.name = "OrmError";
     this.code = code;
     this.status = options.status ?? DEFAULT_STATUS[code];
     this.table = options.table;
@@ -143,19 +143,16 @@ export class BetterSchemicError extends Error {
   }
 
   /**
-   * Normalize ANY thrown value into a {@link BetterSchemicError}: SDK `ServerError`s (by `kind` +
+   * Normalize ANY thrown value into a {@link OrmError}: SDK `ServerError`s (by `kind` +
    * structured details + message heuristics), Zod validation errors, plain `Error`s, and non-Error
-   * throwables. Idempotent — an existing `BetterSchemicError` is returned unchanged.
+   * throwables. Idempotent — an existing `OrmError` is returned unchanged.
    *
    * ```ts
    * try { await conn.query(sql, vars); }
-   * catch (e) { throw BetterSchemicError.from(e, { table, operation: "findMany", surql }); }
+   * catch (e) { throw OrmError.from(e, { table, operation: "findMany", surql }); }
    * ```
    */
-  static from(
-    error: unknown,
-    context: BetterSchemicErrorOptions = {},
-  ): BetterSchemicError {
+  static from(error: unknown, context: OrmErrorOptions = {}): OrmError {
     return normalizeError(error, context);
   }
 }
@@ -187,7 +184,7 @@ const hasIssues = (e: unknown): e is { issues: unknown[]; message: string } =>
   Array.isArray((e as { issues?: unknown }).issues);
 
 /** SDK error `kind` -> our code (refined by the structured details below). */
-const KIND_CODES: Record<string, BetterSchemicErrorCode> = {
+const KIND_CODES: Record<string, OrmErrorCode> = {
   AlreadyExists: "RecordAlreadyExists",
   NotFound: "RecordNotFound",
   Validation: "ValidationError",
@@ -201,7 +198,7 @@ const KIND_CODES: Record<string, BetterSchemicErrorCode> = {
 };
 
 /** Message heuristics — the fallback when the kind is generic (Query/Internal) or absent. */
-const MESSAGE_CODES: readonly (readonly [RegExp, BetterSchemicErrorCode])[] = [
+const MESSAGE_CODES: readonly (readonly [RegExp, OrmErrorCode])[] = [
   [/already exists/i, "RecordAlreadyExists"],
   [/write conflict|transaction conflict/i, "WriteConflict"],
   [/cancelled transaction/i, "TransactionRollback"],
@@ -223,7 +220,7 @@ const MESSAGE_CODES: readonly (readonly [RegExp, BetterSchemicErrorCode])[] = [
   [/does not exist|not found/i, "RecordNotFound"],
 ];
 
-function codeFromMessage(message: string): BetterSchemicErrorCode {
+function codeFromMessage(message: string): OrmErrorCode {
   for (const [re, code] of MESSAGE_CODES) if (re.test(message)) return code;
   return "DatabaseError";
 }
@@ -245,10 +242,7 @@ function tableFrom(error: ServerErrorLike): string | undefined {
 }
 
 /** Refine the kind-derived code with the structured `details.kind`. */
-function refineCode(
-  error: ServerErrorLike,
-  code: BetterSchemicErrorCode,
-): BetterSchemicErrorCode {
+function refineCode(error: ServerErrorLike, code: OrmErrorCode): OrmErrorCode {
   const detail = error.details?.kind;
   if (error.isParseError === true || detail === "Parse") return "ParseError";
   if (
@@ -272,21 +266,21 @@ function refineCode(
 }
 
 /**
- * Normalize a thrown value into a {@link BetterSchemicError}. Exported as a standalone function too,
- * for call sites that prefer it over the static {@link BetterSchemicError.from}.
+ * Normalize a thrown value into a {@link OrmError}. Exported as a standalone function too,
+ * for call sites that prefer it over the static {@link OrmError.from}.
  */
 export function normalizeError(
   error: unknown,
-  context: BetterSchemicErrorOptions = {},
-): BetterSchemicError {
-  if (isBetterSchemicError(error)) return error;
+  context: OrmErrorOptions = {},
+): OrmError {
+  if (isOrmError(error)) return error;
 
   if (hasIssues(error)) {
     const first = error.issues[0] as
       | { message?: string; path?: unknown[] }
       | undefined;
     const path = first?.path?.join(".");
-    return new BetterSchemicError(
+    return new OrmError(
       "ValidationError",
       first?.message
         ? `Validation failed${path ? ` at "${path}"` : ""}: ${first.message}`
@@ -300,7 +294,7 @@ export function normalizeError(
     const refined = refineCode(error, byKind);
     const code =
       refined === "DatabaseError" ? codeFromMessage(error.message) : refined;
-    return new BetterSchemicError(code, error.message, {
+    return new OrmError(code, error.message, {
       ...context,
       table: context.table ?? tableFrom(error),
       details: context.details ?? error.details,
@@ -309,36 +303,32 @@ export function normalizeError(
   }
 
   if (error instanceof Error) {
-    return new BetterSchemicError(
-      codeFromMessage(error.message),
-      error.message,
-      {
-        ...context,
-        cause: error,
-      },
-    );
+    return new OrmError(codeFromMessage(error.message), error.message, {
+      ...context,
+      cause: error,
+    });
   }
 
-  return new BetterSchemicError(
+  return new OrmError(
     "DatabaseError",
     typeof error === "string" ? error : `Non-Error thrown: ${String(error)}`,
     { ...context, details: context.details ?? error },
   );
 }
 
-/** Narrow to a {@link BetterSchemicError} (cross-realm safe: checks name + code shape). */
-export function isBetterSchemicError(e: unknown): e is BetterSchemicError {
+/** Narrow to a {@link OrmError} (cross-realm safe: checks name + code shape). */
+export function isOrmError(e: unknown): e is OrmError {
   return (
     e instanceof Error &&
-    e.name === "BetterSchemicError" &&
+    e.name === "OrmError" &&
     typeof (e as { code?: unknown }).code === "string"
   );
 }
 
 // --- predicates — match on `code`, never on a message string ------------------------------------
 
-const codeOf = (e: unknown): BetterSchemicErrorCode | undefined =>
-  isBetterSchemicError(e) ? e.code : undefined;
+const codeOf = (e: unknown): OrmErrorCode | undefined =>
+  isOrmError(e) ? e.code : undefined;
 
 /** A record/duplicate-id conflict (`CREATE`/`INSERT` on an existing id). */
 export const isUniqueViolation = (e: unknown): boolean =>

@@ -4,7 +4,7 @@
  * `_count` object.
  */
 import { escapeIdentSafe as escapeIdent } from "../../../ident";
-import { BetterSchemicError } from "../../errors";
+import { OrmError } from "../../errors";
 import type { TableMeta } from "../../meta";
 import {
   type EdgeDirection,
@@ -77,7 +77,7 @@ export function compileCount(
       continue;
     }
     if (!findEdge(meta, key))
-      throw new BetterSchemicError(
+      throw new OrmError(
         "UnknownField",
         `${operation}: _count."${key}" is not a link or edge of "${meta.name}".`,
         { table: meta.name, field: key, operation },

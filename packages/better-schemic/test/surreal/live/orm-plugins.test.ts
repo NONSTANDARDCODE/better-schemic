@@ -8,17 +8,20 @@ setDefaultTimeout(120_000);
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { surrealBinaryAvailable } from "../../../src/surreal/cli/engine";
 import { emitTable } from "../../../src/surreal/ddl";
-import { betterSchemic } from "../../../src/surreal/orm/client";
+import { orm } from "../../../src/surreal/orm/client";
 import type { Delegate } from "../../../src/surreal/orm/delegate";
 import {
-  BetterSchemicError,
   isCreateOnlyViolation,
+  OrmError,
 } from "../../../src/surreal/orm/errors";
-import { defineSchema } from "../../../src/surreal/orm/schema";
-import { createOnly, createOnlyGuard } from "../../../src/surreal/plugins/create-only";
+import { schema } from "../../../src/surreal/orm/schema";
+import {
+  createOnly,
+  createOnlyGuard,
+} from "../../../src/surreal/plugins/create-only";
 import { softDelete } from "../../../src/surreal/plugins/soft-delete";
 import { timestamps } from "../../../src/surreal/plugins/timestamps";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { s, table } from "../../../src/surreal/pure";
 import { caught } from "../orm-fixtures";
 import { type LiveServer, startLiveServer } from "./harness";
 
@@ -27,11 +30,11 @@ const live = describe.skipIf(!ENABLED);
 if (!ENABLED)
   console.warn("[orm-plugins] `surreal` binary unavailable — skipping");
 
-const User = defineTable("sd_user", {
+const User = table("sd_user", {
   name: s.string(),
   deletedAt: s.datetime().optional(),
 });
-const schema = defineSchema({ users: User });
+const schemaDef = schema({ users: User });
 
 /** A model with the soft-delete `extendModel` methods. */
 type SoftModel = Delegate<typeof User> & {
@@ -55,7 +58,10 @@ live("orm plugins — live", () => {
   });
 
   test("soft-delete: delete becomes an update and reads hide deleted rows", async () => {
-    const client = betterSchemic(live_.db, { schema, plugins: [softDelete()] });
+    const client = orm(live_.db, {
+      schema: schemaDef,
+      plugins: [softDelete()],
+    });
     const created = await client.users.create({ data: { name: "ada" } });
     expect(created.id).toBeDefined();
 
@@ -84,14 +90,14 @@ live("orm plugins — live", () => {
   });
 
   test("timestamps: app mode stamps createdAt/updatedAt", async () => {
-    const Stamp = defineTable("ts_user", {
+    const Stamp = table("ts_user", {
       name: s.string(),
       createdAt: s.datetime().optional(),
       updatedAt: s.datetime().optional(),
     });
-    const tsSchema = defineSchema({ users: Stamp });
+    const tsSchema = schema({ users: Stamp });
     await live_.db.query("DEFINE TABLE IF NOT EXISTS ts_user SCHEMALESS;");
-    const client = betterSchemic(live_.db, {
+    const client = orm(live_.db, {
       schema: tsSchema,
       plugins: [timestamps()],
     });
@@ -101,13 +107,13 @@ live("orm plugins — live", () => {
   });
 
   test("create-only (soft): create stamps createdAt only; the guard blocks update; $withoutPlugins escapes (root)", async () => {
-    const CoSoft = defineTable("co_soft", {
+    const CoSoft = table("co_soft", {
       action: s.string(),
       createdAt: s.datetime().optional(),
     }).use(createOnly());
-    const coSchema = defineSchema({ logs: CoSoft });
+    const coSchema = schema({ logs: CoSoft });
     await live_.db.query(emitTable(CoSoft));
-    const client = betterSchemic(live_.db, {
+    const client = orm(live_.db, {
       schema: coSchema,
       plugins: [timestamps(), createOnlyGuard()],
     });
@@ -135,13 +141,13 @@ live("orm plugins — live", () => {
   });
 
   test("create-only (hard): the event blocks even $withoutPlugins (root) at the database", async () => {
-    const CoHard = defineTable("co_hard", {
+    const CoHard = table("co_hard", {
       action: s.string(),
       createdAt: s.datetime().optional(),
     }).use(createOnly({ hard: true }));
-    const coSchema = defineSchema({ logs: CoHard });
+    const coSchema = schema({ logs: CoHard });
     await live_.db.query(emitTable(CoHard));
-    const client = betterSchemic(live_.db, {
+    const client = orm(live_.db, {
       schema: coSchema,
       plugins: [timestamps(), createOnlyGuard()],
     });
@@ -165,7 +171,7 @@ live("orm plugins — live", () => {
         data: { action: "logout" },
       }),
     );
-    expect(hardBlocked).toBeInstanceOf(BetterSchemicError);
+    expect(hardBlocked).toBeInstanceOf(OrmError);
     expect(String(hardBlocked)).toContain("append-only");
     const after = await client.logs.findFirst({ where: { id: created.id } });
     expect(after?.action).toBe("login");

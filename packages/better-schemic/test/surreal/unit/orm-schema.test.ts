@@ -1,23 +1,23 @@
-// M0.2 — `defineSchema` + `SchemaIndex`: the runtime metadata pass over an authored schema
+// M0.2 — `schema` + `SchemaIndex`: the runtime metadata pass over an authored schema
 // (columns/families, record links, graph adjacency, singletons, functions, schemaless entries) plus
 // the fail-fast validation that turns a bad schema module into an import-time `SchemaInvalid`.
 import { describe, expect, test } from "bun:test";
-import { BetterSchemicError } from "../../../src/surreal/orm/errors";
+import { OrmError } from "../../../src/surreal/orm/errors";
 import type { TableMeta } from "../../../src/surreal/orm/meta";
 import {
   buildSchemaIndex,
-  defineSchema,
   isSchemaDef,
+  schema,
 } from "../../../src/surreal/orm/schema";
 import {
   defineFunction,
-  defineRelation,
   defineSingleton,
-  defineTable,
+  relation,
   s,
+  table,
 } from "../../../src/surreal/pure";
 
-const User = defineTable("user", {
+const User = table("user", {
   name: s.string(),
   age: s.int(),
   bio: s.string().optional(),
@@ -30,18 +30,18 @@ const User = defineTable("user", {
   role: s.enum(["admin", "member"]),
 });
 
-const Post = defineTable("post", {
+const Post = table("post", {
   title: s.string(),
   author: s.recordId(User),
 });
 
-const Likes = defineRelation("likes", { score: s.int() }).from(User).to(Post);
+const Likes = relation("likes", { score: s.int() }).from(User).to(Post);
 
 const Config = defineSingleton("config", { theme: s.string() });
 
 const greet = defineFunction("greet", { name: s.string() }).returns(s.string());
 
-const schema = defineSchema({
+const schemaDef = schema({
   users: User,
   posts: Post,
   likes: Likes,
@@ -65,12 +65,12 @@ const column = (table: TableMeta, field: string) => {
   return found;
 };
 
-describe("defineSchema — branding and lookup", () => {
+describe("schema — branding and lookup", () => {
   test("brands the artifact and caches the index per schema object", () => {
-    expect(isSchemaDef(schema)).toBe(true);
+    expect(isSchemaDef(schemaDef)).toBe(true);
     expect(isSchemaDef({ users: User })).toBe(false);
-    // defineSchema already validated/built once — buildSchemaIndex returns the SAME index.
-    expect(buildSchemaIndex(schema)).toBe(buildSchemaIndex(schema));
+    // schema already validated/built once — buildSchemaIndex returns the SAME index.
+    expect(buildSchemaIndex(schemaDef)).toBe(buildSchemaIndex(schemaDef));
   });
 
   test("a plain `{ key: def }` literal is accepted (unbranded) and indexed", () => {
@@ -81,7 +81,7 @@ describe("defineSchema — branding and lookup", () => {
   });
 
   test("indexes every key by schema key AND physical name", () => {
-    const index = buildSchemaIndex(schema);
+    const index = buildSchemaIndex(schemaDef);
     expect([...index.tables.keys()].sort()).toEqual([
       "config",
       "likes",
@@ -96,7 +96,7 @@ describe("defineSchema — branding and lookup", () => {
 });
 
 describe("SchemaIndex — columns and field families", () => {
-  const index = buildSchemaIndex(schema);
+  const index = buildSchemaIndex(schemaDef);
   const users = meta(index, "users");
 
   test("classifies scalar families from the DDL walker's wire type", () => {
@@ -165,7 +165,7 @@ describe("SchemaIndex — columns and field families", () => {
   });
 
   test("a bare `record` link has no target restriction", () => {
-    const Any = defineTable("any_link", { ref: s.recordId() });
+    const Any = table("any_link", { ref: s.recordId() });
     const index2 = buildSchemaIndex({ any: Any });
     expect(column(meta(index2, "any"), "ref").record).toEqual({
       list: false,
@@ -175,7 +175,7 @@ describe("SchemaIndex — columns and field families", () => {
 });
 
 describe("SchemaIndex — graph adjacency and relations", () => {
-  const index = buildSchemaIndex(schema);
+  const index = buildSchemaIndex(schemaDef);
   const users = meta(index, "users");
   const posts = meta(index, "posts");
   const likes = meta(index, "likes");
@@ -202,7 +202,7 @@ describe("SchemaIndex — graph adjacency and relations", () => {
   });
 
   test("a relation without endpoints has no adjacency and no endpoints meta", () => {
-    const Free = defineRelation("free");
+    const Free = relation("free");
     const index2 = buildSchemaIndex({ free: Free });
     const free = meta(index2, "free");
     expect(free.kind).toBe("relation");
@@ -211,7 +211,7 @@ describe("SchemaIndex — graph adjacency and relations", () => {
 });
 
 describe("SchemaIndex — singletons and functions", () => {
-  const index = buildSchemaIndex(schema);
+  const index = buildSchemaIndex(schemaDef);
 
   test("singleton tables expose their fixed id key", () => {
     expect(meta(index, "config").singletonId).toBe("default");
@@ -236,8 +236,8 @@ describe("SchemaIndex — fail-fast validation (SchemaInvalid)", () => {
         return e;
       }
     })();
-    expect(err).toBeInstanceOf(BetterSchemicError);
-    expect((err as BetterSchemicError).code).toBe("SchemaInvalid");
+    expect(err).toBeInstanceOf(OrmError);
+    expect((err as OrmError).code).toBe("SchemaInvalid");
     expect((err as Error).message).toMatch(re);
   };
 
@@ -246,13 +246,13 @@ describe("SchemaIndex — fail-fast validation (SchemaInvalid)", () => {
   });
 
   test("rejects duplicate physical table names", () => {
-    const A = defineTable("dup", { x: s.string() });
-    const B = defineTable("dup", { y: s.string() });
+    const A = table("dup", { x: s.string() });
+    const B = table("dup", { y: s.string() });
     bad({ a: A, b: B }, /duplicate table name "dup"/);
   });
 
   test("rejects a schemaless name colliding with a table", () => {
-    const A = defineTable("user", { x: s.string() });
+    const A = table("user", { x: s.string() });
     bad({ a: A, b: "user" }, /duplicate table name "user"/);
   });
 
@@ -263,12 +263,12 @@ describe("SchemaIndex — fail-fast validation (SchemaInvalid)", () => {
   });
 
   test("rejects a relation endpoint that no entry declares", () => {
-    const Ghost = defineRelation("ghost", {}).from("nobody").to("user");
+    const Ghost = relation("ghost", {}).from("nobody").to("user");
     bad({ users: User, ghost: Ghost }, /points to table "nobody"/);
   });
 
   test("accepts a relation endpoint that is a schemaless entry", () => {
-    const Edge = defineRelation("edge", {}).from("user").to("audit_log");
+    const Edge = relation("edge", {}).from("user").to("audit_log");
     const index = buildSchemaIndex({
       users: User,
       audit: "audit_log",
@@ -278,19 +278,19 @@ describe("SchemaIndex — fail-fast validation (SchemaInvalid)", () => {
   });
 
   test("rejects a record-link field that collides with a relation name", () => {
-    const Person = defineTable("person", {
+    const Person = table("person", {
       name: s.string(),
       likes: s.recordId("post"),
     });
-    const Post = defineTable("post", { title: s.string() });
-    const Likes = defineRelation("likes", {}).from(Person).to(Post);
+    const Post = table("post", { title: s.string() });
+    const Likes = relation("likes", {}).from(Person).to(Post);
     bad(
       { person: Person, post: Post, likes: Likes },
       /record-link field "likes"/,
     );
   });
 
-  test("defineSchema validates EAGERLY (import-time failure)", () => {
-    expect(() => defineSchema({ bad: 1 as never })).toThrow(BetterSchemicError);
+  test("schema validates EAGERLY (import-time failure)", () => {
+    expect(() => schema({ bad: 1 as never })).toThrow(OrmError);
   });
 });

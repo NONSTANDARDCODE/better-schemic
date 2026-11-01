@@ -3,14 +3,14 @@
 // "connection" is a recording fake.
 import { describe, expect, test } from "bun:test";
 import { ServerError, surql } from "surrealdb";
-import { defineTable, s } from "../../../src/surreal";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import { isBetterSchemicError } from "../../../src/surreal/orm/errors";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { s, table } from "../../../src/surreal";
+import { orm } from "../../../src/surreal/orm/client";
+import { isOrmError } from "../../../src/surreal/orm/errors";
+import { schema } from "../../../src/surreal/orm/schema";
 import { caught, fail, fakeConn, ok } from "../orm-fixtures";
 
-const User = defineTable("user", { name: s.string() });
-const schema = defineSchema({ users: User });
+const User = table("user", { name: s.string() });
+const schemaDef = schema({ users: User });
 
 const rawResult = (result: unknown) => (sql: string) => [
   ok(result),
@@ -20,7 +20,7 @@ const rawResult = (result: unknown) => (sql: string) => [
 describe("raw — $raw", () => {
   test("a tagged template binds every value as $p<n>", async () => {
     const { conn, calls } = fakeConn(rawResult([{ id: "user:1" }]));
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const rows = await client.$raw<
       { id: string }[]
     >`SELECT * FROM user WHERE name = ${"Aeon"} AND age > ${18}`;
@@ -34,14 +34,14 @@ describe("raw — $raw", () => {
 
   test("a string source takes options (timeout applied to a SELECT)", async () => {
     const { conn, calls } = fakeConn(rawResult(1));
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     await client.$raw("SELECT * FROM user", { timeout: "5s" });
     expect(calls[0]?.sql).toBe("SELECT * FROM user TIMEOUT 5s;");
   });
 
   test("a BoundQuery source keeps its binds", async () => {
     const { conn, calls } = fakeConn(rawResult(1));
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     await client.$raw(surql`SELECT * FROM user WHERE name = ${"Aeon"}`);
     // A BoundQuery keeps its OWN bind names (the SDK tag already lowered them) — the counter is
     // process-global, so assert the shape + the bound value.
@@ -53,24 +53,26 @@ describe("raw — $raw", () => {
 
   test("an invalid source is a teaching ValidationError", async () => {
     const { conn } = fakeConn(rawResult(1));
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const error = await caught(() => client.$raw(42 as never));
-    expect(isBetterSchemicError(error) && error.code).toBe("ValidationError");
+    expect(isOrmError(error) && error.code).toBe("ValidationError");
   });
 
   test("the curried options-tag binds options to a template", async () => {
     const { conn, calls } = fakeConn(rawResult(1));
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     await client.$raw({ timeout: 500 })`SELECT * FROM user`;
     expect(calls[0]?.sql).toBe("SELECT * FROM user TIMEOUT 500ms;");
   });
 
   test("a multi-statement script is refused instead of silently dropping the rest", async () => {
     const { conn, calls } = fakeConn(() => [ok([null]), ok([1])]);
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     // A leading `LET` used to resolve `null` with no error: $raw returned the FIRST result only.
-    const error = await caught(() => client.$raw`LET $a = 1; SELECT * FROM user;`);
-    expect(isBetterSchemicError(error) && error.code).toBe("ValidationError");
+    const error = await caught(
+      () => client.$raw`LET $a = 1; SELECT * FROM user;`,
+    );
+    expect(isOrmError(error) && error.code).toBe("ValidationError");
     const text = (error as Error | undefined)?.message ?? "";
     expect(text).toContain("2 statements");
     expect(text).toContain("$query");
@@ -79,7 +81,7 @@ describe("raw — $raw", () => {
 
   test("a `;` inside a string literal is not a second statement", async () => {
     const { conn, calls } = fakeConn(rawResult("a;b"));
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const out = await client.$raw`RETURN ${"a;b"}`;
     expect(out).toBe("a;b");
     expect(calls).toHaveLength(1);
@@ -87,17 +89,17 @@ describe("raw — $raw", () => {
 
   test("comments and a trailing `;` do not count as statements", async () => {
     const { conn } = fakeConn(rawResult(1));
-    const client = betterSchemic(conn, { schema });
-    await expect(client.$raw`-- pick the user\nSELECT * FROM user;`).resolves.toBe(
-      1,
-    );
+    const client = orm(conn, { schema: schemaDef });
+    await expect(
+      client.$raw`-- pick the user\nSELECT * FROM user;`,
+    ).resolves.toBe(1);
   });
 });
 
 describe("raw — $query", () => {
   test("returns one result per statement", async () => {
     const { conn } = fakeConn(() => [ok([1]), ok([2])]);
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const out = await client.$query<
       [number[], number[]]
     >`SELECT * FROM user; SELECT * FROM post;`;
@@ -107,7 +109,7 @@ describe("raw — $query", () => {
   test("throwOnError:false returns the StatementResult envelopes", async () => {
     const error = new ServerError({ kind: "Query", message: "boom" });
     const { conn } = fakeConn(() => [fail(error)]);
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const out = await client.$query("SELECT * FROM nope", {
       throwOnError: false,
     });
@@ -119,7 +121,7 @@ describe("raw — $query", () => {
   test("the curried options-tag keeps throwOnError:false on a template", async () => {
     const error = new ServerError({ kind: "Query", message: "boom" });
     const { conn } = fakeConn(() => [fail(error)]);
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const out = await client.$query({
       throwOnError: false,
     })`SELECT * FROM nope`;
@@ -130,14 +132,14 @@ describe("raw — $query", () => {
 describe("raw — $unsafe", () => {
   test("is disabled unless raw.unsafe is true", async () => {
     const { conn } = fakeConn(rawResult(1));
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const error = await caught(() => client.$unsafe("SELECT 1"));
-    expect(isBetterSchemicError(error) && error.code).toBe("UnsafeDisabled");
+    expect(isOrmError(error) && error.code).toBe("UnsafeDisabled");
   });
 
   test("runs with raw.unsafe:true and binds params", async () => {
     const { conn, calls } = fakeConn(rawResult(1));
-    const client = betterSchemic(conn, { schema, raw: { unsafe: true } });
+    const client = orm(conn, { schema: schemaDef, raw: { unsafe: true } });
     await client.$unsafe("SELECT * FROM user WHERE id = $id", { id: "user:1" });
     expect(calls[0]?.sql).toBe("SELECT * FROM user WHERE id = $id;");
     expect(calls[0]?.vars).toEqual({ id: "user:1" });
@@ -147,16 +149,16 @@ describe("raw — $unsafe", () => {
 describe("raw — defaults", () => {
   test("requireComment demands meta.comment on a write script", async () => {
     const { conn } = fakeConn(rawResult(1));
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       raw: { requireComment: true },
     });
     const error = await caught(() => client.$raw("DELETE user"));
-    expect(isBetterSchemicError(error) && error.code).toBe("ValidationError");
+    expect(isOrmError(error) && error.code).toBe("ValidationError");
 
     const { conn: okConn } = fakeConn(rawResult(1));
-    const okClient = betterSchemic(okConn, {
-      schema,
+    const okClient = orm(okConn, {
+      schema: schemaDef,
       raw: { requireComment: true },
     });
     await okClient.$raw("DELETE user", { meta: { comment: "cleanup" } });
@@ -165,24 +167,21 @@ describe("raw — defaults", () => {
 
     // The curried tag is the template-form escape hatch for requireComment.
     const { conn: tagConn, calls } = fakeConn(rawResult(1));
-    const tagClient = betterSchemic(tagConn, {
-      schema,
+    const tagClient = orm(tagConn, {
+      schema: schemaDef,
       raw: { requireComment: true },
     });
     await tagClient.$raw({ meta: { comment: "seed" } })`DELETE user`;
     expect(calls[0]?.sql).toBe("DELETE user;");
     const stillMissing = await caught(() => tagClient.$raw`DELETE user`);
-    expect(isBetterSchemicError(stillMissing) && stillMissing.code).toBe(
+    expect(isOrmError(stillMissing) && stillMissing.code).toBe(
       "ValidationError",
     );
   });
 
   test("timeoutMs applies to a single capable statement only", async () => {
     const { conn, calls } = fakeConn(rawResult(1));
-    const client = betterSchemic(conn, {
-      schema,
-      raw: { timeoutMs: 250 },
-    });
+    const client = orm(conn, { schema: schemaDef, raw: { timeoutMs: 250 } });
     await client.$raw("SELECT * FROM user");
     expect(calls[0]?.sql).toBe("SELECT * FROM user TIMEOUT 250ms;");
 
@@ -191,8 +190,8 @@ describe("raw — defaults", () => {
       ok(2),
       ok(3),
     ]);
-    const otherClient = betterSchemic(other, {
-      schema,
+    const otherClient = orm(other, {
+      schema: schemaDef,
       raw: { timeoutMs: 250 },
     });
     await otherClient.$query`LET $a = 1; LET $b = 2; RETURN $a;`;
@@ -205,7 +204,7 @@ describe("raw — context scope", () => {
     const { conn, calls } = fakeConn((sql) =>
       sql.split("\n").map((line) => ok(line)),
     );
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const tenant = client.$withContext({
       namespace: "tenant_a",
       database: "app",
@@ -218,7 +217,7 @@ describe("raw — context scope", () => {
     const { conn, calls } = fakeConn((sql) =>
       sql.split("\n").map((line) => ok(line)),
     );
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const tenant = client.$withContext({
       namespace: "tenant_a",
       database: "app",
@@ -235,7 +234,7 @@ describe("raw — context scope", () => {
     const { conn, calls } = fakeConn((sql) =>
       sql.split("\n").map((line) => ok(line)),
     );
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const tenant = client.$withContext({
       namespace: "tenant_a",
       database: "app",

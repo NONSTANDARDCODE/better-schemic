@@ -3,23 +3,22 @@
 // retries/timeout/isolation, `mode` is "sdk"-only and the root client keeps the after* scope hooks.
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
 import { describe, it } from "node:test";
-import { assertType } from "../../../../../scripts/type-assert";
 import type { SurrealTransaction } from "surrealdb";
-import { defineTable, s } from "../../../src/surreal";
+import { assertType } from "../../../../../scripts/type-assert";
+import { s, table } from "../../../src/surreal";
 import type { Client } from "../../../src/surreal/orm/client";
 import type { Delegate } from "../../../src/surreal/orm/delegate";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { schema } from "../../../src/surreal/orm/schema";
 import type {
   RetryOptions,
   TransactionClient,
   TransactionOptions,
 } from "../../../src/surreal/orm/types/transaction";
 
-
-const User = defineTable("user", { name: s.string(), age: s.int() });
-const schema = defineSchema({ users: User });
-type C = Client<typeof schema>;
-type Tx = TransactionClient<typeof schema>;
+const User = table("user", { name: s.string(), age: s.int() });
+const schemaDef = schema({ users: User });
+type C = Client<typeof schemaDef>;
+type Tx = TransactionClient<typeof schemaDef>;
 
 /** The call shapes (instantiation expressions don't survive esbuild/tsx). */
 const openRoot = (client: C) => client.transaction(async () => 1);
@@ -29,7 +28,7 @@ describe("client.transaction — typing", () => {
   it("the callback receives the transaction client and the call resolves the callback value", () => {
     assertType<Promise<number>, ReturnType<typeof openRoot>>();
     const tx = {} as Tx;
-    assertType<Delegate<typeof User, typeof schema>, Tx["users"]>();
+    assertType<Delegate<typeof User, typeof schemaDef>, Tx["users"]>();
     assertType<SurrealTransaction, Tx["$sdk"]>();
     assertType<(reason?: unknown) => never, Tx["rollback"]>();
     assertType<void, ReturnType<Tx["afterCommit"]>>();

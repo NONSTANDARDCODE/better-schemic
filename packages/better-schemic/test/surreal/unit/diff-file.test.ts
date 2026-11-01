@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { formatItems } from "better-schemic/core";
 import { EMPTY_SNAPSHOT } from "../../../src/surreal/cli/structure";
-import { buildSnapshot, diffSnapshots } from "../../../src/surreal/cli/surreal-diff";
-import { defineTable, s } from "../../../src/surreal/pure";
+import {
+  buildSnapshot,
+  diffSnapshots,
+} from "../../../src/surreal/cli/surreal-diff";
+import { s, table } from "../../../src/surreal/pure";
 
 describe("diff file annotations", () => {
-  const User = defineTable("user", { id: s.string(), email: s.email() });
+  const User = table("user", { id: s.string(), email: s.email() });
   const tables = [User] as unknown as Parameters<typeof buildSnapshot>[0];
   const FILE = "database/schema/tables/user.ts";
   const fileOf = new Map<unknown, string>([[User, `/proj/${FILE}`]]);
@@ -47,7 +50,7 @@ describe("diff file annotations", () => {
 });
 
 describe("struct snapshot (offline diff --ts)", () => {
-  const User = defineTable("user", {
+  const User = table("user", {
     id: s.string(),
     age: s.int().optional(),
   });

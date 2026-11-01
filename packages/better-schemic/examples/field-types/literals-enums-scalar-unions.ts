@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { s, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -7,7 +7,7 @@ export default example(import.meta.url, {
 DEFINE FIELD kind ON TABLE choice TYPE "a";
 DEFINE FIELD status ON TABLE choice TYPE "draft" | "live" | "archived";
 DEFINE FIELD idOrName ON TABLE choice TYPE int | string;`,
-  def: defineTable("choice", {
+  def: table("choice", {
     id: s.string(),
     kind: s.literal("a"),
     status: s.enum(["draft", "live", "archived"]),

@@ -5,12 +5,12 @@ import { escapeIdent, RecordId } from "surrealdb";
 import { surql } from "../../../src/surreal";
 import { createBinds } from "../../../src/surreal/orm/compiler/shared";
 import { compileWhere } from "../../../src/surreal/orm/compiler/where";
-import type { BetterSchemicError } from "../../../src/surreal/orm/errors";
+import type { OrmError } from "../../../src/surreal/orm/errors";
 import type { TableMeta } from "../../../src/surreal/orm/meta";
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema";
-import { defineTable, range, s } from "../../../src/surreal/pure";
+import { range, s, table } from "../../../src/surreal/pure";
 
-const User = defineTable("user", {
+const User = table("user", {
   name: s.string(),
   age: s.int(),
   active: s.boolean(),
@@ -67,7 +67,7 @@ function codeOf(fn: () => unknown): string | undefined {
     fn();
     return undefined;
   } catch (e) {
-    return (e as BetterSchemicError).code;
+    return (e as OrmError).code;
   }
 }
 
@@ -415,7 +415,7 @@ describe("where — teaching errors", () => {
         compile({ age: { nope: 1 } });
         return undefined;
       } catch (e) {
-        return e as BetterSchemicError;
+        return e as OrmError;
       }
     })();
     expect(err?.code).toBe("ValidationError");

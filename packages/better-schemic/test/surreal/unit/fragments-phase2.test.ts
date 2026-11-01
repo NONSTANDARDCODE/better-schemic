@@ -2,17 +2,17 @@
 // field clauses ((f) => ...), function bodies ((a) => ... typed by arg names), permissions
 // ((p) => ...), and .subject(User) authoring metadata on record accesses. Plain Expr forms remain.
 import { describe, expect, test } from "bun:test";
-import { emitDefStatement, emitTable } from "../../../src/surreal/ddl";
 import {
   defineAccess,
   defineEvent,
   defineFunction,
-  defineTable,
   s,
   surql,
+  table,
 } from "../../../src/surreal";
+import { emitDefStatement, emitTable } from "../../../src/surreal/ddl";
 
-const User = defineTable("p2_user", {
+const User = table("p2_user", {
   name: s.string(),
   email: s.string(),
   title: s.string(),
@@ -53,7 +53,7 @@ describe("event callbacks — typed $after/$before/$event", () => {
 
 describe("field-clause callbacks — $value / $this refs", () => {
   test("$value((f) => ...) splices $value; $computed((f) => ...) splices $this.<path>", () => {
-    const T = defineTable("p2_fields", {
+    const T = table("p2_fields", {
       title: s.string(),
       password: s
         .string()
@@ -68,7 +68,7 @@ describe("field-clause callbacks — $value / $this refs", () => {
   });
 
   test("$default and $assert accept callbacks too", () => {
-    const T = defineTable("p2_defaults", {
+    const T = table("p2_defaults", {
       n: s.int().$default((f) => surql`string::len(${f.this.name} ?? '')`),
       name: s.string().$assert((f) => surql`string::len(${f.value}) > 1`),
     });
@@ -99,7 +99,7 @@ describe("function-body callbacks — args typed by NAME", () => {
 
 describe("permissions callbacks — bare row columns + $auth", () => {
   test("(p) => ... : p.row.<col> splices BARE; p.auth.<path> splices $auth.<path>", () => {
-    const T = defineTable("p2_perms", {
+    const T = table("p2_perms", {
       author: s.string(),
       title: s.string(),
     }).permissions((p) => ({
@@ -112,7 +112,7 @@ describe("permissions callbacks — bare row columns + $auth", () => {
 
   test("typed: a wrong column on p.row is a compile error", () => {
     const _bad = () =>
-      defineTable("x", { author: s.string() }).permissions((p) => ({
+      table("x", { author: s.string() }).permissions((p) => ({
         // @ts-expect-error — no such column
         update: surql`${p.row.auther} = ${p.auth.id}`,
       }));

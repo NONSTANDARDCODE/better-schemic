@@ -29,11 +29,11 @@ import { emitTable } from "../../../src/surreal/ddl";
 import { introspectAll } from "../../../src/surreal/kinds/explode";
 import { lowerAll, surrealKinds } from "../../../src/surreal/kinds/registry";
 import {
-  defineRelation,
-  defineTable,
   defineView,
+  relation,
   s,
   type TableDef,
+  table,
 } from "../../../src/surreal/pure";
 
 // The workspace gate runs every package's suite IN PARALLEL — parallel-suite CPU contention can slow a live
@@ -132,7 +132,7 @@ afterAll(async () => {
 });
 
 const Base = (name: string) =>
-  defineTable(name, { id: s.string(), name: s.string() });
+  table(name, { id: s.string(), name: s.string() });
 
 // --- schema mode -------------------------------------------------------------------------------
 
@@ -156,7 +156,7 @@ live("schema mode", () => {
 live("TYPE", () => {
   test("TYPE NORMAL (default) round-trips", async () => {
     const { pulled } = await roundTrip([Base("dt_normal")], "dt_normal");
-    expect(pulled).toContain("defineTable(");
+    expect(pulled).toContain("table(");
   });
 
   test("TYPE ANY round-trips; pull renders .typeAny()", async () => {
@@ -165,17 +165,14 @@ live("TYPE", () => {
   });
 
   test("TYPE RELATION (open, no endpoints) round-trips", async () => {
-    const { pulled } = await roundTrip(
-      [defineRelation("dt_rel", {})],
-      "dt_rel",
-    );
-    expect(pulled).toContain("defineRelation(");
+    const { pulled } = await roundTrip([relation("dt_rel", {})], "dt_rel");
+    expect(pulled).toContain("relation(");
   });
 
   test("TYPE RELATION FROM/TO round-trips; pull renders .from()/.to()", async () => {
     const A = Base("dt_a");
     const B = Base("dt_b");
-    const Edge = defineRelation("dt_edge", {}).from(A).to(B);
+    const Edge = relation("dt_edge", {}).from(A).to(B);
     const { pulled } = await roundTrip([A, B, Edge], "dt_edge");
     expect(pulled).toContain(".from(");
     expect(pulled).toContain(".to(");
@@ -184,7 +181,7 @@ live("TYPE", () => {
   test("TYPE RELATION … ENFORCED round-trips; pull renders .enforced()", async () => {
     const A = Base("dt_ea");
     const B = Base("dt_eb");
-    const Edge = defineRelation("dt_eedge", {}).from(A).to(B).enforced();
+    const Edge = relation("dt_eedge", {}).from(A).to(B).enforced();
     const { pulled } = await roundTrip([A, B, Edge], "dt_eedge");
     expect(pulled).toContain(".enforced()");
   });
@@ -195,15 +192,15 @@ live("TYPE", () => {
     // (DEFINE TABLE order SCHEMAFULL with `in` record<person> / `out` record<product>).
     const Person = Base("dt_person");
     const Product = Base("dt_product");
-    const Order = defineTable("dt_io", {
+    const Order = table("dt_io", {
       id: s.string(),
       currency: s.string(),
       in: s.recordId("dt_person"),
       out: s.recordId("dt_product"),
     });
     const { pulled } = await roundTrip([Person, Product, Order], "dt_io");
-    expect(pulled).toContain("defineTable(");
-    expect(pulled).not.toContain("defineRelation(");
+    expect(pulled).toContain("table(");
+    expect(pulled).not.toContain("relation(");
     // The endpoint tables are in the pull, so the record links render as typed `.record()` refs
     // (same as any record field) — the point is `in`/`out` SURVIVE on a non-relation table.
     expect(pulled).toContain("in: DtPerson.record()");
@@ -299,7 +296,7 @@ live("combinations", () => {
   test("RELATION FROM/TO ENFORCED + CHANGEFEED + COMMENT together", async () => {
     const A = Base("dt_ca");
     const B = Base("dt_cb");
-    const Edge = defineRelation("dt_cedge", { weight: s.int() })
+    const Edge = relation("dt_cedge", { weight: s.int() })
       .from(A)
       .to(B)
       .enforced()
@@ -318,7 +315,7 @@ live("combinations", () => {
 
 live("AS SELECT (pre-computed view)", () => {
   const Person = () =>
-    defineTable("dt_person", {
+    table("dt_person", {
       id: s.string(),
       name: s.string(),
       age: s.int(),
@@ -333,9 +330,7 @@ live("AS SELECT (pre-computed view)", () => {
     expect(pulled).toContain(".as(surql`SELECT name, age");
     expect(pulled).toContain("SELECT name, age FROM dt_person WHERE age >= 18");
     // a view's TS uses no `s.*` — only the factory + surql are imported.
-    expect(pulled).toContain(
-      'import { defineView } from "better-schemic";',
-    );
+    expect(pulled).toContain('import { defineView } from "better-schemic";');
     expect(pulled).not.toContain(".schemaless()");
   });
 

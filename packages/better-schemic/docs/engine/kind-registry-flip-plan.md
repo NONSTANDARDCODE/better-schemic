@@ -21,18 +21,18 @@ the fixed-slot path, so the flip is "swap the engine, keep the behavior."
 The whole-DB IR methods collapse into the registry + a few genuinely driver-level hooks. What each of
 today's `Driver` members becomes:
 
-| today (`Driver`) | after the flip |
-|---|---|
-| `lower(tables, defs): PortableDb` | `explode(tables, defs): Definable[]` (driver) → core `lowerSchema(registry, …)` |
-| `emit(db): Statement[]` | core `emitKinds(registry, schema)` |
-| `diff(prev, next): Diff` | core `buildKindDiff(registry, prev, next)` |
-| `remove(stmt)` / `overwrite(stmt)` | per-kind `KindEngine.remove` / `overwrite` (gone from `Driver`) |
-| `introspect(conn, exclude): PortableDb` | `introspectAll(conn, exclude): PortableObject[]` (driver, one read) → core fans per kind |
-| `normalize(db)` | folded into each `KindEngine.lower` (lower already canonicalizes; introspect must too) |
-| `equal(a, b)` | generic in core (per-kind emit-string / structural compare over `PortableObject[]`) |
-| `upgradeSnapshot?` | **removed** (pre-launch; no legacy snapshots) |
-| `connect`/`apply`/`close` | **unchanged** (connection lifecycle, driver-owned) |
-| `shadow?`/`migrations?` | **unchanged** (capabilities) |
+| today (`Driver`)                                                                                                              | after the flip                                                                             |
+| ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `lower(tables, defs): PortableDb`                                                                                             | `explode(tables, defs): Definable[]` (driver) → core `lowerSchema(registry, …)`            |
+| `emit(db): Statement[]`                                                                                                       | core `emitKinds(registry, schema)`                                                         |
+| `diff(prev, next): Diff`                                                                                                      | core `buildKindDiff(registry, prev, next)`                                                 |
+| `remove(stmt)` / `overwrite(stmt)`                                                                                            | per-kind `KindEngine.remove` / `overwrite` (gone from `Driver`)                            |
+| `introspect(conn, exclude): PortableDb`                                                                                       | `introspectAll(conn, exclude): PortableObject[]` (driver, one read) → core fans per kind   |
+| `normalize(db)`                                                                                                               | folded into each `KindEngine.lower` (lower already canonicalizes; introspect must too)     |
+| `equal(a, b)`                                                                                                                 | generic in core (per-kind emit-string / structural compare over `PortableObject[]`)        |
+| `upgradeSnapshot?`                                                                                                            | **removed** (pre-launch; no legacy snapshots)                                              |
+| `connect`/`apply`/`close`                                                                                                     | **unchanged** (connection lifecycle, driver-owned)                                         |
+| `shadow?`/`migrations?`                                                                                                       | **unchanged** (capabilities)                                                               |
 | command caps (`diffLive`/`syncPlan`/`renderSchema`/`diffTsLive`/`checkReplay`/`planPull`/`serverInfo`/`query`/`initScaffold`) | **kept**, but the ones that build/compare schema re-expressed over the registry internally |
 
 So the post-flip `Driver` ≈ `{ name, registry: KindRegistry, explode(...): Definable[],
@@ -103,15 +103,15 @@ shared CLI can't speak two contracts). So:
 - **Introspect canonicalization parity.** The reverse path (`introspectAll`) must yield objects that
   canonicalize identically to lowering, or every introspect phantom-diffs. This is the exact
   normalize/equal problem the multi-DB spike already solved per-driver; preserve it inside each
-   `KindEngine.lower` + the driver's introspect. The facade's live round-trip tests already guard
-   it — keep them.
+  `KindEngine.lower` + the driver's introspect. The facade's live round-trip tests already guard
+  it — keep them.
 - **`introspectAll` COMPLETENESS (presence parity).** Two distinct phantom-diff failure modes — keep
   them straight: (1) CONTENT — an object present on both sides whose emit carries clauses the DB rewrites
   or doesn't introspect → fixed by `canonical` (strip those clauses from equality). (2) PRESENCE — a
   registered kind that `emit` creates but `introspectAll` doesn't return → a phantom add/remove vs live
   that `canonical` CANNOT touch. **Rule: `introspectAll` must return objects for every registered kind
    that participates in diff** (e.g. unique indexes must be introspected back so the `index` kind
-   round-trips, rather than folding indexes into the table as create-only). A kind that is genuinely
+  round-trips, rather than folding indexes into the table as create-only). A kind that is genuinely
   create-only-and-uninspectable should not be diffed against live at all — flag it to core-dev if such a
   case exists; the default expectation is full round-trip.
 - **CLI breadth.** Many command paths touch `PortableDb`. Mitigate with the in-core fake-driver test

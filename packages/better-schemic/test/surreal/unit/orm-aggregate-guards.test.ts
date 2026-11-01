@@ -7,6 +7,7 @@
 // a reader sees the decision rather than the connection mock.
 import { describe, expect, test } from "bun:test";
 import { surql } from "../../../src/surreal";
+import { orm } from "../../../src/surreal/orm/client";
 import {
   assertGroupKeysProjected,
   compileAggregateSelect,
@@ -18,26 +19,28 @@ import {
   requireUniqueField,
   uniqueTarget,
 } from "../../../src/surreal/orm/compiler/unique";
-import type { BetterSchemicError } from "../../../src/surreal/orm/errors";
+import type { OrmError } from "../../../src/surreal/orm/errors";
 import type { TableMeta } from "../../../src/surreal/orm/meta";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import { buildSchemaIndex, defineSchema } from "../../../src/surreal/orm/schema";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { buildSchemaIndex, schema } from "../../../src/surreal/orm/schema";
+import { s, table } from "../../../src/surreal/pure";
 import { fakeConn, ok } from "../orm-fixtures";
-import { Deep, compiled, refusal } from "./orm-aggregate-fixtures";
+import { compiled, Deep, refusal } from "./orm-aggregate-fixtures";
 
 describe("split idiom — the reserved alias decision table", () => {
-  const Item = defineTable("idiom_item", {
+  const Item = table("idiom_item", {
     label: s.string(),
     tags: s.array(s.string()),
   });
   const typed = buildSchemaIndex({ items: Item });
-  const table = typed.tables.get("items") as TableMeta;
+  const tableMeta = typed.tables.get("items") as TableMeta;
   const schemaless = buildSchemaIndex({ things: "thing" }).schemaless.get(
     "things",
   ) as unknown as TableMeta;
 
-  const aliasOf = (args: Record<string, unknown>, meta: TableMeta = table) => {
+  const aliasOf = (
+    args: Record<string, unknown>,
+    meta: TableMeta = tableMeta,
+  ) => {
     const binds = createBinds();
     const read = compileRead(meta, args as never, binds);
     return { sql: read.sql, hidden: read.projection.hidden ?? [] };
@@ -46,18 +49,24 @@ describe("split idiom — the reserved alias decision table", () => {
   test("a select that does NOT project the split field gets the reserved column", () => {
     const { hidden, sql } = aliasOf({ select: { label: true }, split: "tags" });
     expect(hidden).toEqual(["_split_tags"]);
-    expect(sql).toBe("SELECT label, tags AS _split_tags FROM idiom_item SPLIT tags");
+    expect(sql).toBe(
+      "SELECT label, tags AS _split_tags FROM idiom_item SPLIT tags",
+    );
   });
 
   test("a select that already projects it, or a bare `*`, need no injection", () => {
-    expect(aliasOf({ select: { tags: true }, split: "tags" }).hidden).toEqual([]);
+    expect(aliasOf({ select: { tags: true }, split: "tags" }).hidden).toEqual(
+      [],
+    );
     expect(aliasOf({ split: "tags" }).hidden).toEqual([]);
   });
 
   test("a `*` that OMITS the split field still needs the idiom", () => {
     const { hidden, sql } = aliasOf({ omit: ["tags"], split: "tags" });
     expect(hidden).toEqual(["_split_tags"]);
-    expect(sql).toBe("SELECT *, tags AS _split_tags OMIT tags FROM idiom_item SPLIT tags");
+    expect(sql).toBe(
+      "SELECT *, tags AS _split_tags OMIT tags FROM idiom_item SPLIT tags",
+    );
   });
 
   test("a schemaless entry still gets the column (it has no shape to collide with)", () => {
@@ -76,7 +85,7 @@ describe("split idiom — the reserved alias decision table", () => {
   test("a cursor column already holding the reserved name blocks the injection", () => {
     const binds = createBinds();
     const read = compileRead(
-      table,
+      tableMeta,
       { select: { label: true }, split: "tags" } as never,
       binds,
       "findMany",
@@ -86,13 +95,15 @@ describe("split idiom — the reserved alias decision table", () => {
     // The alias is taken by the caller's own column, so no SECOND copy is appended — and the
     // caller's column is not marked hidden either (the stripper only owns what IT appended).
     expect(read.projection.hidden).toBeUndefined();
-    expect(read.sql).toBe("SELECT label, label AS _split_tags FROM idiom_item SPLIT tags");
+    expect(read.sql).toBe(
+      "SELECT label, label AS _split_tags FROM idiom_item SPLIT tags",
+    );
   });
 });
 
 describe("composite UNIQUE — the where-shape decision table", () => {
   const multi = () =>
-    defineTable("multi", {
+    table("multi", {
       org: s.string(),
       handle: s.string(),
       email: s.string(),
@@ -131,7 +142,7 @@ describe("composite UNIQUE — the where-shape decision table", () => {
   });
 
   test("the composite hint appears only when EVERY provided field is in a group", () => {
-    const two = defineTable("hint_two", {
+    const two = table("hint_two", {
       a: s.string(),
       b: s.string(),
       c: s.string(),
@@ -144,10 +155,10 @@ describe("composite UNIQUE — the where-shape decision table", () => {
     try {
       uniqueTarget(meta, { a: "1", b: "2" } as never, "test");
     } catch (e) {
-      text = (e as BetterSchemicError).message ?? "";
+      text = (e as OrmError).message ?? "";
     }
     // … it resolves, so the two-group case above must use a field pair that is NOT a group
-    const three = defineTable("hint_three", {
+    const three = table("hint_three", {
       a: s.string(),
       b: s.string(),
       c: s.string(),
@@ -156,7 +167,7 @@ describe("composite UNIQUE — the where-shape decision table", () => {
     try {
       uniqueTarget(meta3, { a: "1", b: "2" } as never, "test");
     } catch (e) {
-      text = (e as BetterSchemicError).message ?? "";
+      text = (e as OrmError).message ?? "";
     }
     // `a` is in a group, `b` is not -> the generic message (no composite hint)
     expect(text).not.toContain("COMPOSITE unique index");
@@ -164,7 +175,7 @@ describe("composite UNIQUE — the where-shape decision table", () => {
   });
 
   test("requireUniqueField (the upsertMany conflict target) still takes a SINGLE field", () => {
-    const def = defineTable("conflict", { email: s.string(), org: s.string() })
+    const def = table("conflict", { email: s.string(), org: s.string() })
       .index("conflict_email", ["email"], { unique: true })
       .index("conflict_org_email", ["org", "email"], { unique: true });
     const meta = buildSchemaIndex({ t: def }).tables.get("t") as TableMeta;
@@ -181,7 +192,7 @@ describe("composite UNIQUE — the where-shape decision table", () => {
   test("a MIXED where names the composite only when every field belongs to one", () => {
     // `a` is in [a,b], `c` is in [c,d], `e` is in no group: two of three are grouped, so the
     // hint does NOT claim "they belong to a COMPOSITE index" — only SOME of them do.
-    const mixed = defineTable("mixed_group", {
+    const mixed = table("mixed_group", {
       a: s.string(),
       b: s.string(),
       c: s.string(),
@@ -195,7 +206,7 @@ describe("composite UNIQUE — the where-shape decision table", () => {
     try {
       uniqueTarget(meta, { a: "1", c: "2", e: "3" } as never, "test");
     } catch (e) {
-      text = (e as BetterSchemicError).message ?? "";
+      text = (e as OrmError).message ?? "";
     }
     expect(text).toContain("not a unique target");
     expect(text).not.toContain("COMPOSITE unique index");
@@ -205,7 +216,7 @@ describe("composite UNIQUE — the where-shape decision table", () => {
     try {
       uniqueTarget(meta, { a: "1", c: "2" } as never, "test");
     } catch (e) {
-      all = (e as BetterSchemicError).message ?? "";
+      all = (e as OrmError).message ?? "";
     }
     expect(all).toContain("COMPOSITE unique index");
   });
@@ -224,9 +235,11 @@ describe("composite UNIQUE — the where-shape decision table", () => {
 });
 
 describe("aggregate operand guard — the permissive/decided table", () => {
-  const Loose = defineTable("loose", { name: s.string(), amount: s.int() })
-    .schemaless();
-  const View = defineTable("viewed", { amount: s.int() }).schemaless().typeAny();
+  const Loose = table("loose", {
+    name: s.string(),
+    amount: s.int(),
+  }).schemaless();
+  const View = table("viewed", { amount: s.int() }).schemaless().typeAny();
   // A self-referencing table: `owner` is a bare link back to `Deep`. Typed through a two-step
   // declaration so the initializer does not read its own type.
   const deepShape = {
@@ -241,14 +254,14 @@ describe("aggregate operand guard — the permissive/decided table", () => {
 
   const message = async (schema: unknown, args: Record<string, unknown>) => {
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: schema as never }) as unknown as {
+    const client = orm(conn, { schema: schema as never }) as unknown as {
       deeps: { aggregate: (a: unknown) => Promise<unknown> };
     };
     try {
       await client.deeps.aggregate(args);
       return "";
     } catch (e) {
-      return (e as BetterSchemicError).message ?? "";
+      return (e as OrmError).message ?? "";
     }
   };
 
@@ -294,10 +307,14 @@ describe("aggregate operand guard — the permissive/decided table", () => {
   });
 
   test("the link/array walk messages are asserted verbatim too", async () => {
-    expect(await message(deepSchema, { select: { t: { sum: "owner.x" } } })).toBe(
+    expect(
+      await message(deepSchema, { select: { t: { sum: "owner.x" } } }),
+    ).toBe(
       'aggregate: select."t".sum can\'t run over "owner.x" — "owner" is a record link — math::* aggregates ONE field per grouped row, so it can\'t reach through it. Use `aggregate({ split: "owner", select: { t: { sum: "…owner" } } })` for the per-element total, or a surql fragment with array::flatten.',
     );
-    expect(await message(deepSchema, { select: { t: { sum: "seats.x" } } })).toBe(
+    expect(
+      await message(deepSchema, { select: { t: { sum: "seats.x" } } }),
+    ).toBe(
       'aggregate: select."t".sum can\'t run over "seats.x" — "seats" is an array field — math::* aggregates ONE field per grouped row. Use `aggregate({ split: "seats", … })` to aggregate per element, or a surql fragment with array::flatten.',
     );
   });
@@ -311,7 +328,9 @@ describe("aggregate operand guard — the permissive/decided table", () => {
 
   test("a SCALAR as an intermediate segment stops the walk (the leaf is unknown)", async () => {
     // `at.x` — `at` is a datetime, so nothing below it is knowable from the schema.
-    expect(await message(deepSchema, { select: { t: { sum: "at.x" } } })).toBe("");
+    expect(await message(deepSchema, { select: { t: { sum: "at.x" } } })).toBe(
+      "",
+    );
   });
 
   test("a 3-segment path through a link resolves each step (the walk is not one hop)", async () => {
@@ -326,33 +345,33 @@ describe("aggregate operand guard — the permissive/decided table", () => {
 
   test("the SET (not array) family is refused on the walk, like the array one", async () => {
     // `seats` is an array; a SET field takes the same branch (the `||` right operand).
-    const WithSet = defineTable("with_set", {
+    const WithSet = table("with_set", {
       name: s.string(),
       tags: s.set(s.string()),
     });
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: { w: WithSet } });
+    const client = orm(conn, { schema: { w: WithSet } });
     let text = "";
     try {
       await client.w.aggregate({ select: { t: { sum: "tags.x" } } as never });
     } catch (e) {
-      text = (e as BetterSchemicError).message ?? "";
+      text = (e as OrmError).message ?? "";
     }
     expect(text).toContain("a set field");
   });
 
   test("a flexible object as the LEAF family is permissive (the `||` right arm)", async () => {
-    const ObjLeaf = defineTable("obj_leaf", {
+    const ObjLeaf = table("obj_leaf", {
       name: s.string(),
       meta: s.object({ a: s.string() }),
     });
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: { o: ObjLeaf } });
+    const client = orm(conn, { schema: { o: ObjLeaf } });
     let text = "";
     try {
       await client.o.aggregate({ select: { t: { sum: "meta" } } as never });
     } catch (e) {
-      text = (e as BetterSchemicError).message ?? "";
+      text = (e as OrmError).message ?? "";
     }
     // The leaf IS the object itself: math::* over it is not a numeric leaf, but the object
     // family is deliberately permissive (its subfields are the app's business).
@@ -385,13 +404,16 @@ describe("aggregate operand guard — the permissive/decided table", () => {
   test("checkableThroughSplit: every base-column shape is decided", async () => {
     const probe = (split: string, select: Record<string, unknown>) => {
       const { conn } = fakeConn();
-      const client = betterSchemic(conn, { schema: deepSchema });
+      const client = orm(conn, { schema: deepSchema });
       return (async () => {
         try {
-          await client.deeps.aggregate({ split: split as never, select: select as never });
+          await client.deeps.aggregate({
+            split: split as never,
+            select: select as never,
+          });
           return "";
         } catch (e) {
-          return (e as BetterSchemicError).message ?? "";
+          return (e as OrmError).message ?? "";
         }
       })();
     };
@@ -406,12 +428,12 @@ describe("aggregate operand guard — the permissive/decided table", () => {
   });
 
   test("a BARE record field as the split base stays checkable (it is the parent row)", async () => {
-    const Bare = defineTable("bare_link", {
+    const Bare = table("bare_link", {
       name: s.string(),
       one: s.recordId("bare_link"),
     });
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: { bare: Bare } });
+    const client = orm(conn, { schema: { bare: Bare } });
     let text = "";
     try {
       await client.bare.aggregate({
@@ -419,7 +441,7 @@ describe("aggregate operand guard — the permissive/decided table", () => {
         select: { t: { sum: "one.x" } },
       } as never);
     } catch (e) {
-      text = (e as BetterSchemicError).message ?? "";
+      text = (e as OrmError).message ?? "";
     }
     // A bare link is a parent field, so the walk still refuses to reach through it.
     expect(text).toContain("record link");
@@ -428,22 +450,25 @@ describe("aggregate operand guard — the permissive/decided table", () => {
   test("a split operand on a plain (non-link) field is still checked on the parent", async () => {
     const withSplit = async (select: Record<string, unknown>) => {
       const { conn } = fakeConn();
-      const client = betterSchemic(conn, { schema: deepSchema });
+      const client = orm(conn, { schema: deepSchema });
       try {
-        await client.deeps.aggregate({ split: "seats", select: select as never });
+        await client.deeps.aggregate({
+          split: "seats",
+          select: select as never,
+        });
         return "";
       } catch (e) {
-        return (e as BetterSchemicError).message ?? "";
+        return (e as OrmError).message ?? "";
       }
     };
     // `seats` is a plain (non-link) array, so the PARENT schema still judges it.
     expect(await withSplit({ t: { sum: "seats" } })).toContain("array field");
     // A RECORD-LIST element is the documented escape: the element's table is not this meta, so
     // only the server can judge it (this is the `getTopProducts` shape).
-    const Line = defineTable("lline", { label: s.string() });
-    const Shop = defineTable("shop", { lines: s.array(s.recordId(() => Line)) });
+    const Line = table("lline", { label: s.string() });
+    const Shop = table("shop", { lines: s.array(s.recordId(() => Line)) });
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: { shops: Shop } });
+    const client = orm(conn, { schema: { shops: Shop } });
     let text = "";
     try {
       await client.shops.aggregate({
@@ -451,19 +476,19 @@ describe("aggregate operand guard — the permissive/decided table", () => {
         select: { t: { sum: "lines[*].label" } },
       } as never);
     } catch (e) {
-      text = (e as BetterSchemicError).message ?? "";
+      text = (e as OrmError).message ?? "";
     }
     expect(text).toBe("");
   });
 });
 
 describe("aggregate over split — the entry-shape decision table", () => {
-  const Item = defineTable("split_item", {
+  const Item = table("split_item", {
     name: s.string(),
     qty: s.int(),
     tags: s.array(s.string()),
   });
-  const Holder = defineTable("split_holder", {
+  const Holder = table("split_holder", {
     name: s.string(),
     items: s.array(s.recordId(() => Item)),
     tags: s.array(s.string()),
@@ -472,7 +497,7 @@ describe("aggregate over split — the entry-shape decision table", () => {
 
   const sql = async (args: Record<string, unknown>) => {
     const { conn, calls } = fakeConn(() => [ok([])]);
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema });
     await client.holders.aggregate({ split: "items", ...args } as never);
     return calls[0]?.sql as string;
   };
@@ -485,17 +510,19 @@ describe("aggregate over split — the entry-shape decision table", () => {
 
   test("a schemaless holder never reaches the operand guard (no table to judge)", async () => {
     const { conn, calls } = fakeConn(() => [ok([])]);
-    const client = betterSchemic(conn, { schema: { holders: "holder" } });
+    const client = orm(conn, { schema: { holders: "holder" } });
     await client.holders.aggregate({
       split: "items",
       select: { t: { sum: "anything.at.all" } },
     } as never);
-    expect(calls[0]?.sql).toContain("anything.at.⟨all⟩ AS _split_anything_at_all");
+    expect(calls[0]?.sql).toContain(
+      "anything.at.⟨all⟩ AS _split_anything_at_all",
+    );
   });
 
   test("a schemaless holder still lowers (the where compiles without table meta)", async () => {
     const { conn, calls } = fakeConn(() => [ok([])]);
-    const client = betterSchemic(conn, { schema: { holders: "holder" } });
+    const client = orm(conn, { schema: { holders: "holder" } });
     await client.holders.aggregate({
       split: "items",
       select: { _count: true },
@@ -507,10 +534,8 @@ describe("aggregate over split — the entry-shape decision table", () => {
   });
 
   test("a `true` entry CAN be the group key (it rides its own name, and decodes as a leaf)", async () => {
-    const { conn, calls } = fakeConn(() => [
-      ok([{ name: "A", _count: 2 }]),
-    ]);
-    const client = betterSchemic(conn, { schema });
+    const { conn, calls } = fakeConn(() => [ok([{ name: "A", _count: 2 }])]);
+    const client = orm(conn, { schema });
     const rows = (await client.holders.aggregate({
       split: "items",
       select: { name: true, _count: true },
@@ -530,7 +555,7 @@ describe("aggregate over split — the entry-shape decision table", () => {
 
   test("a `true` entry WITHOUT a groupBy rides a reserved column and is not a decode leaf", async () => {
     const { conn, calls } = fakeConn(() => [ok([{ name: "A" }])]);
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema });
     const rows = await client.holders.aggregate({
       split: "items",
       select: { name: true },
@@ -561,7 +586,7 @@ describe("aggregate over split — the entry-shape decision table", () => {
 
   test("a single-key group alias equals its own name (no redundant AS)", async () => {
     const { conn, calls } = fakeConn(() => [ok([])]);
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema });
     await client.holders.aggregate({
       split: "items",
       select: { holder: "name", total: { sum: "items[*].qty" } },
@@ -576,8 +601,8 @@ describe("aggregate over split — the entry-shape decision table", () => {
 });
 
 describe("aggregate over split — the guard/clause tails", () => {
-  const Item = defineTable("tail_item", { qty: s.int() });
-  const Holder = defineTable("tail_holder", {
+  const Item = table("tail_item", { qty: s.int() });
+  const Holder = table("tail_holder", {
     name: s.string(),
     items: s.array(s.recordId(() => Item)),
   });
@@ -585,18 +610,18 @@ describe("aggregate over split — the guard/clause tails", () => {
 
   const compile = async (args: Record<string, unknown>) => {
     const { conn, calls } = fakeConn(() => [ok([])]);
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema });
     await client.holders.aggregate({ split: "items", ...args } as never);
     return calls[0]?.sql as string;
   };
   const reject = async (args: Record<string, unknown>) => {
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema });
     try {
       await client.holders.aggregate({ split: "items", ...args } as never);
       return "";
     } catch (e) {
-      return (e as BetterSchemicError).message ?? "";
+      return (e as OrmError).message ?? "";
     }
   };
 
@@ -612,17 +637,19 @@ describe("aggregate over split — the guard/clause tails", () => {
   });
 
   test("a nested path THROUGH an object segment stays permissive at the leaf", async () => {
-    const Nested = defineTable("nested_obj", {
+    const Nested = table("nested_obj", {
       name: s.string(),
       inner: s.object({ list: s.array(s.string()) }),
     });
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: { n: Nested } });
+    const client = orm(conn, { schema: { n: Nested } });
     let text = "";
     try {
-      await client.n.aggregate({ select: { t: { sum: "inner.list.x" } } as never });
+      await client.n.aggregate({
+        select: { t: { sum: "inner.list.x" } } as never,
+      });
     } catch (e) {
-      text = (e as BetterSchemicError).message ?? "";
+      text = (e as OrmError).message ?? "";
     }
     // The object segment stops the walk: the leaf below it is genuinely unknown to the schema.
     expect(text).toBe("");
@@ -641,13 +668,21 @@ describe("aggregate over split — the guard/clause tails", () => {
 
   test("groupBy + groupAll together is refused on the split lowering too", async () => {
     expect(
-      await reject({ select: { _count: true }, groupBy: ["name"], groupAll: true }),
+      await reject({
+        select: { _count: true },
+        groupBy: ["name"],
+        groupAll: true,
+      }),
     ).toMatch(/OR "groupAll"/);
   });
 
   test("groupBy + groupAll together, an empty select and a bad split are all refused", async () => {
     expect(
-      await reject({ select: { _count: true }, groupBy: ["name"], groupAll: true }),
+      await reject({
+        select: { _count: true },
+        groupBy: ["name"],
+        groupAll: true,
+      }),
     ).toMatch(/OR "groupAll"/);
     expect(await reject({ select: {} })).toMatch(/non-empty/);
     expect(await reject({ select: { x: 1 } })).toMatch(/must be true, a path/);
@@ -675,7 +710,7 @@ describe("aggregate over split — the guard/clause tails", () => {
 });
 
 describe("aggregate guard — the remaining arms (a/any/link/uuid families)", () => {
-  const Odd = defineTable("odd", {
+  const Odd = table("odd", {
     flag: s.boolean(),
     blob: s.bytes(),
     ident: s.uuid(),
@@ -689,12 +724,12 @@ describe("aggregate guard — the remaining arms (a/any/link/uuid families)", ()
   // `aggregate` is a lazy thenable: the compile (and its guards) only run on await.
   const message = async (select: Record<string, unknown>) => {
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema });
     try {
       await client.odds.aggregate({ select: select as never });
       return "";
     } catch (e) {
-      return (e as BetterSchemicError).message ?? "";
+      return (e as OrmError).message ?? "";
     }
   };
 
@@ -719,49 +754,62 @@ describe("aggregate guard — the remaining arms (a/any/link/uuid families)", ()
   });
 
   test("collect/distinct on any family are value ops — never refused", async () => {
-    for (const field of ["flag", "blob", "ident", "dur", "geo", "links", "one"] as const) {
+    for (const field of [
+      "flag",
+      "blob",
+      "ident",
+      "dur",
+      "geo",
+      "links",
+      "one",
+    ] as const) {
       expect(await message({ t: { collect: field } })).toBe("");
       expect(await message({ t: { distinct: field } })).toBe("");
     }
   });
 
   test("a table with only `id` refuses an unknown field, naming what it does have", async () => {
-    const bare = { odds: defineTable("bare_odd", {}) };
+    const bare = { odds: table("bare_odd", {}) };
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: bare });
+    const client = orm(conn, { schema: bare });
     let text = "";
     try {
-      await client.odds.aggregate({ select: { t: { sum: "nope.y" } } as never });
+      await client.odds.aggregate({
+        select: { t: { sum: "nope.y" } } as never,
+      });
     } catch (e) {
-      text = (e as BetterSchemicError).message ?? "";
+      text = (e as OrmError).message ?? "";
     }
     expect(text).toContain('"nope" is not a field of "bare_odd"');
     expect(text).toContain("Known fields: id");
   });
 
   test("an unknown field is refused with the known-field list (a SCHEMAFULL table rejects it too)", async () => {
-    const empty = { odds: defineTable("empty_odd", {}) };
+    const empty = { odds: table("empty_odd", {}) };
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema: empty });
+    const client = orm(conn, { schema: empty });
     let text = "";
     try {
-      await client.odds.aggregate({ select: { t: { sum: "whatever" } } as never });
+      await client.odds.aggregate({
+        select: { t: { sum: "whatever" } } as never,
+      });
     } catch (e) {
-      text = (e as BetterSchemicError).message ?? "";
+      text = (e as OrmError).message ?? "";
     }
     expect(text).toContain("Known fields: id");
   });
 });
 
-
 describe("aggregate select — the resolver default and the inner projection", () => {
-  const Shop = defineTable("entries_shop", {
+  const Shop = table("entries_shop", {
     name: s.string(),
     score: s.int(),
     lines: s.array(s.recordId("entries_shop")),
   });
   const shopSchema = { shops: Shop };
-  const shopMeta = buildSchemaIndex(shopSchema).tables.get("shops") as TableMeta;
+  const shopMeta = buildSchemaIndex(shopSchema).tables.get(
+    "shops",
+  ) as TableMeta;
 
   test("the plain resolver makes the path the column, with nothing projected in front", () => {
     const { parts, inners } = compileAggregateSelect(
@@ -824,7 +872,9 @@ describe("aggregate select — the entry-shape refusals and the fragment fallbac
       /select must be a non-empty object/,
     );
     // both operands false → the guard does NOT fire, so a different error comes from the loop
-    expect(await refusal({ deeps: Deep }, "deeps", { select: { total: true } })).toBe("");
+    expect(
+      await refusal({ deeps: Deep }, "deeps", { select: { total: true } }),
+    ).toBe("");
   });
 
   test("a plain resolver with no fragment hook falls back to the entry's own alias", () => {
@@ -834,15 +884,17 @@ describe("aggregate select — the entry-shape refusals and the fragment fallbac
       { upper: surql`count() + 1` },
       createBinds(),
       "aggregate",
-      directColumns(buildSchemaIndex({ deeps: Deep }).tables.get("deeps") as TableMeta),
+      directColumns(
+        buildSchemaIndex({ deeps: Deep }).tables.get("deeps") as TableMeta,
+      ),
     );
     expect(parts).toEqual(["(count() + 1) AS upper"]);
   });
 });
 
 describe("aggregate operand — a split over a record SET", () => {
-  const Tag = defineTable("set_line", { label: s.string(), qty: s.int() });
-  const Box = defineTable("set_holder", {
+  const Tag = table("set_line", { label: s.string(), qty: s.int() });
+  const Box = table("set_holder", {
     name: s.string(),
     // A SET of links is an ARRAY-family field AND a record family — the operand walk must treat it
     // as "descends into the element", exactly like a list of links.
@@ -860,7 +912,7 @@ describe("aggregate operand — a split over a record SET", () => {
   });
 
   test("a non-link array base is still the parent's to judge", async () => {
-    const WithList = defineTable("list_holder", {
+    const WithList = table("list_holder", {
       tags: s.array(s.string()),
       score: s.int(),
     });
@@ -876,7 +928,12 @@ describe("aggregate operand — a split over a record SET", () => {
 describe("assertGroupKeysProjected — the three ways out", () => {
   const guard = (groupBy: string[], keys: string[], hasExpression: boolean) => {
     try {
-      assertGroupKeysProjected(groupBy, new Set(keys), hasExpression, "aggregate");
+      assertGroupKeysProjected(
+        groupBy,
+        new Set(keys),
+        hasExpression,
+        "aggregate",
+      );
       return "skipped";
     } catch (e) {
       return (e as Error).message;
@@ -904,8 +961,10 @@ describe("assertGroupKeysProjected — the three ways out", () => {
 });
 
 describe("aggregate select — the decode leaf each aggregator gets", () => {
-  const Numeric = defineTable("leaf_num", { score: s.int(), label: s.string() });
-  const meta = buildSchemaIndex({ nums: Numeric }).tables.get("nums") as TableMeta;
+  const Numeric = table("leaf_num", { score: s.int(), label: s.string() });
+  const meta = buildSchemaIndex({ nums: Numeric }).tables.get(
+    "nums",
+  ) as TableMeta;
   const leaves = (select: Record<string, unknown>) =>
     compileAggregateSelect(
       meta,

@@ -7,23 +7,23 @@ setDefaultTimeout(120_000);
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { RecordId, Surreal } from "surrealdb";
+import { relation, s, table } from "../../../src/surreal";
 import {
   type EphemeralServer,
   spawnEphemeralServer,
   surrealBinaryAvailable,
 } from "../../../src/surreal/cli/engine";
 import { emitTable } from "../../../src/surreal/ddl";
-import { defineRelation, defineTable, s } from "../../../src/surreal";
-import { betterSchemic, type Client } from "../../../src/surreal/orm/client";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { type Client, orm } from "../../../src/surreal/orm/client";
+import { schema } from "../../../src/surreal/orm/schema";
 
 const ENABLED = surrealBinaryAvailable();
 const live = describe.skipIf(!ENABLED);
 if (!ENABLED)
   console.warn("[string-ids] `surreal` binary unavailable — skipping");
 
-const Org = defineTable("si_org", { name: s.string() }).stringIds();
-const Customer = defineTable("si_customer", {
+const Org = table("si_org", { name: s.string() }).stringIds();
+const Customer = table("si_customer", {
   name: s.string(),
   org: s.recordId(Org),
   owner: s.recordId(Org).optional(),
@@ -31,15 +31,15 @@ const Customer = defineTable("si_customer", {
   products: s.array(s.object({ product: s.recordId(Org) })),
   tags: s.array(s.recordId(Org)),
 }).stringIds();
-const Likes = defineRelation("si_likes", { score: s.int() })
+const Likes = relation("si_likes", { score: s.int() })
   .from(Customer)
   .to(Org)
   .stringIds();
-const Event = defineTable("si_event", {
+const Event = table("si_event", {
   at: s.datetime(),
   ref: s.recordId(Org),
 }).stringIds();
-const schema = defineSchema({
+const schemaDef = schema({
   orgs: Org,
   customers: Customer,
   events: Event,
@@ -57,7 +57,7 @@ const data = (name: string, org: string) => ({
 live("string ids — live", () => {
   let server: EphemeralServer;
   let db: Surreal;
-  let client: Client<typeof schema>;
+  let client: Client<typeof schemaDef>;
 
   beforeAll(async () => {
     server = await spawnEphemeralServer();
@@ -68,7 +68,7 @@ live("string ids — live", () => {
     for (const table of [Org, Customer, Event, Likes]) {
       await db.query(emitTable(table, { exists: "overwrite" }));
     }
-    client = betterSchemic(db, { schema });
+    client = orm(db, { schema: schemaDef });
   });
 
   afterAll(async () => {

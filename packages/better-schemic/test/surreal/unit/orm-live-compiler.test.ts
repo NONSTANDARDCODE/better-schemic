@@ -1,12 +1,12 @@
 // The LIVE compiler in isolation: the args shape guard, the live-clause whitelist, diff/select
 // exclusivity, and the `fetch` lowering (which needs the schema index).
 import { describe, expect, test } from "bun:test";
-import { defineTable, s } from "../../../src/surreal";
+import { s, table } from "../../../src/surreal";
 import { compileLive } from "../../../src/surreal/orm/compiler/live";
 import { createBinds } from "../../../src/surreal/orm/compiler/shared";
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema";
 
-const UserBase = defineTable("lu", { name: s.string() });
+const UserBase = table("lu", { name: s.string() });
 const User = UserBase.extend({
   mentor: s.recordId(() => UserBase).optional(),
 });
@@ -57,9 +57,15 @@ describe("compileLive", () => {
     expect(
       code(() => compileLive(meta, { fetch: ["mentor"] }, createBinds())),
     ).toBe("ValidationError");
-    const plan = compileLive(meta, { fetch: ["mentor"] }, createBinds(), "live", {
-      index,
-    });
+    const plan = compileLive(
+      meta,
+      { fetch: ["mentor"] },
+      createBinds(),
+      "live",
+      {
+        index,
+      },
+    );
     expect(plan.sql).toContain("FETCH mentor");
   });
 

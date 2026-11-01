@@ -7,26 +7,26 @@ setDefaultTimeout(120_000);
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Surreal } from "surrealdb";
+import { s, table } from "../../../src/surreal";
 import {
   type EphemeralServer,
   spawnEphemeralServer,
   surrealBinaryAvailable,
 } from "../../../src/surreal/cli/engine";
-import { defineTable, s } from "../../../src/surreal";
-import { betterSchemic, type Client } from "../../../src/surreal/orm/client";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { type Client, orm } from "../../../src/surreal/orm/client";
+import { schema } from "../../../src/surreal/orm/schema";
 
 const ENABLED = surrealBinaryAvailable();
 const live = describe.skipIf(!ENABLED);
 if (!ENABLED)
   console.warn("[orm-logger] `surreal` binary unavailable — skipping");
 
-const User = defineTable("lg_user", {
+const User = table("lg_user", {
   name: s.string(),
   age: s.int(),
   active: s.boolean(),
 }).index("lg_idx_age", ["age"], { unique: true });
-const schema = defineSchema({ users: User });
+const schemaDef = schema({ users: User });
 
 function capturing(overrides: Record<string, unknown> = {}) {
   const lines: string[] = [];
@@ -70,8 +70,8 @@ live("orm logger — live", () => {
 
   test("a read is logged as a framed box with the SQL, rows and duration", async () => {
     const cap = capturing();
-    const client = betterSchemic(db, { schema, logger: cap.option }) as Client<
-      typeof schema
+    const client = orm(db, { schema: schemaDef, logger: cap.option }) as Client<
+      typeof schemaDef
     >;
     const rows = await client.users.findMany({ where: { age: { gte: 25 } } });
     expect(rows).toHaveLength(2);
@@ -84,8 +84,8 @@ live("orm logger — live", () => {
 
   test(".explain() logs the server's real execution plan", async () => {
     const cap = capturing();
-    const client = betterSchemic(db, { schema, logger: cap.option }) as Client<
-      typeof schema
+    const client = orm(db, { schema: schemaDef, logger: cap.option }) as Client<
+      typeof schemaDef
     >;
     const plan = await client.users
       .findMany({ where: { age: { gt: 1 } } })
@@ -98,8 +98,8 @@ live("orm logger — live", () => {
 
   test("auto-explain 'slow' draws the FORMAT JSON plan tree", async () => {
     const cap = capturing({ slowMs: 0, explain: "slow" });
-    const client = betterSchemic(db, { schema, logger: cap.option }) as Client<
-      typeof schema
+    const client = orm(db, { schema: schemaDef, logger: cap.option }) as Client<
+      typeof schemaDef
     >;
     await client.users.findMany({ where: { age: { gt: 1 } } });
     const out = cap.out();
@@ -109,8 +109,8 @@ live("orm logger — live", () => {
 
   test("a server-side error is logged (and still throws)", async () => {
     const cap = capturing();
-    const client = betterSchemic(db, { schema, logger: cap.option }) as Client<
-      typeof schema
+    const client = orm(db, { schema: schemaDef, logger: cap.option }) as Client<
+      typeof schemaDef
     >;
     // A duplicate unique insert fails on the server; the logger shows the error.
     await client.users

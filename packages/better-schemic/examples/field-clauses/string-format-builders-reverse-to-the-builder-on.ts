@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { s, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -9,7 +9,7 @@ DEFINE FIELD email ON TABLE fmt TYPE string ASSERT string::is_email($value);
 DEFINE FIELD site ON TABLE fmt TYPE string ASSERT string::is_url($value);
 DEFINE FIELD ip ON TABLE fmt TYPE string ASSERT string::is_ipv4($value);
 DEFINE FIELD id2 ON TABLE fmt TYPE string ASSERT string::is_ulid($value);`,
-  def: defineTable("fmt", {
+  def: table("fmt", {
     id: s.string(),
     email: s.email(),
     site: s.url(),

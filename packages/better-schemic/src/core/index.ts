@@ -2,7 +2,7 @@
  * The ENGINE — the dialect-neutral core of Better-schemic.
  *
  * The Driver contract + the portable schema IR + the neutral migration/diff/snapshot/CLI-support
- * engine. NO database dialect and NO authoring surface (`s.*`/`defineTable`) live here — those ship
+ * engine. NO database dialect and NO authoring surface (`s.*`/`table`) live here — those ship
  * in the SurrealDB half of this package (`better-schemic`). The CLI and the driver build on the
  * surface re-exported below.
  */
@@ -83,13 +83,13 @@ export {
 } from "./client";
 // --- config-as-factory types (defineConfig lives on the `./config` subpath) --------------------
 export type {
-  BetterSchemicConfig,
-  BetterSchemicProject,
   ChainableDriverFactory,
   ChainCtx,
   ChainedConfig,
   EntryArgs,
   EntryClient,
+  OrmConfig,
+  OrmProject,
   SchemicConfig,
   SchemicProject,
 } from "./config";

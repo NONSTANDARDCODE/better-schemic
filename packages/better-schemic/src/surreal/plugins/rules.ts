@@ -5,11 +5,11 @@
  *
  * ```ts
  * import { recommended } from "./rules";
- * const client = betterSchemic(db, { schema, plugins: [recommended({ maxLimit: 100 })] });
+ * const client = orm(db, { schema, plugins: [recommended({ maxLimit: 100 })] });
  * ```
  */
 
-import { BetterSchemicError } from "../orm/errors";
+import { OrmError } from "../orm/errors";
 import type { SchemaIndex } from "../orm/meta";
 import { definePlugin } from "../orm/plugins";
 import type { Plugin } from "../orm/types/plugins";
@@ -33,7 +33,7 @@ export interface RulesOptions {
 const LOGICAL = new Set(["AND", "OR", "NOT"]);
 
 const fail = (message: string, operation: string, table?: string): never => {
-  throw new BetterSchemicError("UnsafeMutation", message, {
+  throw new OrmError("UnsafeMutation", message, {
     operation,
     ...(table ? { table } : {}),
   });
@@ -69,7 +69,7 @@ function assertFields(
     )
       continue;
     if (!known.has(key))
-      throw new BetterSchemicError(
+      throw new OrmError(
         "UnknownField",
         `${operation}: "${key}" is not a field of "${table}" (${what}). Known: ${[...known].join(", ")}.`,
         { operation, table, field: key },
@@ -89,7 +89,7 @@ export function rules(options: RulesOptions = {}): Plugin {
     hooks: {
       beforeRaw: ({ operation, surql }) => {
         if (options.noRawUnsafe && operation === "$unsafe")
-          throw new BetterSchemicError(
+          throw new OrmError(
             "UnsafeMutation",
             `rules: $unsafe is disabled by the rules plugin — use $raw/$query (parameterized) instead. ${surql}`,
             { operation },

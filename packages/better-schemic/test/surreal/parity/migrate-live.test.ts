@@ -4,15 +4,18 @@
  * Proves the migration engine's clause-level `ALTER FIELD` (and index `REMOVE`+`DEFINE`) deltas
  * are ACCEPTED by a real SurrealDB and round-trip: apply v1, apply the generated up-migration to
  * reach v2 (verified via `INFO FOR TABLE … STRUCTURE`), then the down-migration to revert to v1.
- * Auto-skips when no DB is reachable. Imports `defineTable`/`s` by PACKAGE name so the table
+ * Auto-skips when no DB is reachable. Imports `table`/`s` by PACKAGE name so the table
  * types line up with the `better-schemic/core`-typed diff-engine signatures.
  */
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { defineTable, s } from "better-schemic";
+import { s, table } from "better-schemic";
 import { emitTable } from "better-schemic/driver";
 import { Surreal } from "surrealdb";
 import { z } from "zod";
-import { buildSnapshot, diffSnapshots } from "../../../src/surreal/cli/surreal-diff";
+import {
+  buildSnapshot,
+  diffSnapshots,
+} from "../../../src/surreal/cli/surreal-diff";
 
 // The workspace gate runs every package's suite IN PARALLEL — parallel-suite CPU contention can slow a live
 // connect/DDL past bun's 5s DEFAULT hook timeout, failing the `beforeEach`/`afterAll` below as an
@@ -82,13 +85,13 @@ if (!db)
 
 live("clause-level ALTER migrations apply + round-trip", () => {
   test("ALTER FIELD deltas + index REMOVE/DEFINE, up then down", async () => {
-    const v1 = defineTable("ml_user", {
+    const v1 = table("ml_user", {
       id: z.string(),
       name: s.string(),
       email: s.string(),
       age: s.int().$index(),
     });
-    const v2 = defineTable("ml_user", {
+    const v2 = table("ml_user", {
       id: z.string(),
       name: s.string().optional(), // TYPE string -> option<string>
       email: s.string().$comment("addr"), // + COMMENT
@@ -124,8 +127,8 @@ live("clause-level ALTER migrations apply + round-trip", () => {
   });
 
   test("ALTER TABLE clause deltas (schema mode + comment), up then down", async () => {
-    const v1 = defineTable("ml_t", { id: z.string(), name: s.string() });
-    const v2 = defineTable("ml_t", { id: z.string(), name: s.string() })
+    const v1 = table("ml_t", { id: z.string(), name: s.string() });
+    const v2 = table("ml_t", { id: z.string(), name: s.string() })
       .schemaless()
       .comment("notes");
 

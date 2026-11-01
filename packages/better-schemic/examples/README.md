@@ -9,15 +9,15 @@ Each example is a **real, `tsc`-checked `.ts` file** under its group folder, aut
 
 ```ts
 // examples/tables/schemafull-the-default.ts
-import { defineTable, s } from "better-schemic";
+import { table, s } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
   title: "SCHEMAFULL (the default)",
-  note: "defineTable is SCHEMAFULL by default — fields are constrained to the declared shape.",
+  note: "table is SCHEMAFULL by default — fields are constrained to the declared shape.",
   ddl: `DEFINE TABLE account TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD name ON TABLE account TYPE string;`,
-  def: defineTable("account", { id: s.string(), name: s.string() }), // real code — tsc checks it
+  def: table("account", { id: s.string(), name: s.string() }), // real code — tsc checks it
 });
 ```
 
@@ -42,17 +42,17 @@ parity suites in [`test/parity/`](../test/parity) against SurrealDB 3.1.3. See
 Each group is a folder of example files plus an `index.ts` that assembles them; [`index.ts`](./index.ts)
 collects every group into `allGroups`.
 
-| Group | Covers |
-|---|---|
-| [`tables/`](./tables) | `DEFINE TABLE` head — schema mode, type, permissions, changefeed, comment, drop, relations, views |
-| [`field-types/`](./field-types) | scalars, any/null, optionality, containers, literals/unions, record links, geometry |
+| Group                               | Covers                                                                                                       |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| [`tables/`](./tables)               | `DEFINE TABLE` head — schema mode, type, permissions, changefeed, comment, drop, relations, views            |
+| [`field-types/`](./field-types)     | scalars, any/null, optionality, containers, literals/unions, record links, geometry                          |
 | [`field-clauses/`](./field-clauses) | default/value/computed/assert/`$`-constraints/string-formats/readonly/comment/flexible/permissions/reference |
-| [`indexes/`](./indexes) | `DEFINE INDEX` — plain/unique/composite/count/comment/HNSW/DISKANN/FULLTEXT (+ `DEFINE ANALYZER`) |
-| [`events/`](./events) | `DEFINE EVENT` — inline + standalone, WHEN/THEN |
-| [`functions/`](./functions) | `DEFINE FUNCTION` — args, returns, body, permissions, comment |
-| [`access/`](./access) | `DEFINE ACCESS` — RECORD/JWT/BEARER, DURATION, ON NS/DB |
-| [`analyzers/`](./analyzers) | `DEFINE ANALYZER` — tokenizers + filters |
-| [`escape-hatch/`](./escape-hatch) | `.$surreal(wire, codec)` for app-only types, `.$internal()` |
+| [`indexes/`](./indexes)             | `DEFINE INDEX` — plain/unique/composite/count/comment/HNSW/DISKANN/FULLTEXT (+ `DEFINE ANALYZER`)            |
+| [`events/`](./events)               | `DEFINE EVENT` — inline + standalone, WHEN/THEN                                                              |
+| [`functions/`](./functions)         | `DEFINE FUNCTION` — args, returns, body, permissions, comment                                                |
+| [`access/`](./access)               | `DEFINE ACCESS` — RECORD/JWT/BEARER, DURATION, ON NS/DB                                                      |
+| [`analyzers/`](./analyzers)         | `DEFINE ANALYZER` — tokenizers + filters                                                                     |
+| [`escape-hatch/`](./escape-hatch)   | `.$surreal(wire, codec)` for app-only types, `.$internal()`                                                  |
 
 ## Run / extend
 

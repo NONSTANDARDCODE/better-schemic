@@ -53,7 +53,7 @@ driver's `s.*` **leaf factories SHOULD return precisely-typed fields** (e.g.
 
 ```ts
 // app value -> stored column:
-s.instanceof(Money).$surreal(s.string(), { encode, decode })   // surreal
+s.instanceof(Money).$surreal(s.string(), { encode, decode }); // surreal
 ```
 
 ## Rationale

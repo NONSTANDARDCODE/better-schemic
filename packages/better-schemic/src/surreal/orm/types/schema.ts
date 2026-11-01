@@ -1,10 +1,10 @@
 /**
- * The type-level half of `defineSchema` — the schema artifact the whole `/orm` surface is derived
+ * The type-level half of `schema` — the schema artifact the whole `/orm` surface is derived
  * from. A schema is a plain record of authored defs (`TableDef`/`RelationDef`/`FunctionDef`) plus
  * `string` entries declaring SCHEMALESS tables by physical name:
  *
  * ```ts
- * export const schema = defineSchema({
+ * export const schemaDef = schema({
  *   users: User,                 // TableDef      -> client.users
  *   likes: Likes,                // RelationDef   -> client.likes (an edge delegate)
  *   sendMail,                    // FunctionDef   -> client.fn.sendMail
@@ -45,34 +45,32 @@ export type AnyRelationDef = RelationDef<
 // biome-ignore lint/suspicious/noExplicitAny: FunctionDef's arg shape/return vary per call site.
 export type AnyFunctionDef = FunctionDef<any, any>;
 
-/** One `defineSchema` entry: a table, an edge, a function, or a schemaless table's physical name. */
+/** One `schema` entry: a table, an edge, a function, or a schemaless table's physical name. */
 export type SchemaEntry = AnyTableDef | AnyFunctionDef | string;
 
 /** The authored schema object shape. */
 export type SchemaInput = Record<string, SchemaEntry>;
 
-/** Runtime brand distinguishing a `defineSchema` artifact from a plain `{ key: def }` literal. */
-export const SCHEMA_DEF: unique symbol = Symbol.for(
-  "better-schemic.schema",
-);
+/** Runtime brand distinguishing a `schema` artifact from a plain `{ key: def }` literal. */
+export const SCHEMA_DEF: unique symbol = Symbol.for("better-schemic.schema");
 
 /**
- * A branded schema artifact (the return of `defineSchema`) — carries its entries for inference.
+ * A branded schema artifact (the return of `schema`) — carries its entries for inference.
  * `S` is UNCONSTRAINED on purpose: an inferred const-generic entries object has no string index
  * signature, so `S extends SchemaInput` would make `SchemaDef<typeof entries>` unusable (the
- * constraint is enforced at {@link SchemaInput} consumers instead, e.g. `defineSchema`).
+ * constraint is enforced at {@link SchemaInput} consumers instead, e.g. `schema`).
  */
 export interface SchemaDef<S = SchemaInput> {
   readonly [SCHEMA_DEF]: true;
   readonly entries: S;
 }
 
-/** The authored entries of a schema artifact (`typeof schema` -> the input object). */
+/** The authored entries of a schema artifact (`typeof schemaDef` -> the input object). */
 export type SchemaOf<D extends SchemaDef> = D["entries"];
 
 /**
- * The entries of EITHER a branded schema artifact (`typeof schema`) or a plain input object — every
- * key/lookup helper below is written over this, so `Client<typeof schema>` and `Client<literal>`
+ * The entries of EITHER a branded schema artifact (`typeof schemaDef`) or a plain input object — every
+ * key/lookup helper below is written over this, so `Client<typeof schemaDef>` and `Client<literal>`
  * both work.
  */
 export type EntriesOf<S> = S extends SchemaDef<infer E> ? E : S;

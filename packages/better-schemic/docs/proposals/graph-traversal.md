@@ -14,25 +14,25 @@ Status: **RATIFIED** (design signed off by Manuel). Grounded in the empirical gr
 Everything below is on branch `feat/surrealdb-graph-traversal`. The two showcase files in
 `docs/examples/` only exercise SHIPPED rows.
 
-| Feature | Status |
-|---|---|
-| `RelationDef` endpoint-type capture (foundation) | ✅ shipped |
-| `.out` / `.in` / `.both` + chaining | ✅ shipped |
-| Polymorphic union target emission `->edge->(a, b)` | ✅ shipped |
-| Target narrowing `.out(E, Target)` / subset | ✅ shipped |
-| `.return` projection (flat / destructure / alias / computed / nested) | ✅ shipped |
-| `.all()` (`.*`) | ✅ shipped |
-| Composition (traversals + columns + subqueries in one `.return`) | ✅ shipped |
-| Edge steps `.outEdges`/`.inEdges`/`.bothEdges` + `.node()` bridge | ✅ shipped |
-| Edge fields (`->contains.amount`) + edge filters (`->(E WHERE …)->`) | ✅ shipped |
-| Target filter `.out(E).where(n => …)` (`->E->(node WHERE …)`) | ✅ shipped |
-| WHERE set-ops on a traversal (`.contains`/`.containsAny`/`.containsAll`) | ✅ shipped |
-| `select([A, B])` multi-table roots | ✅ shipped |
-| `.match(Member, …)` member primitive (union `.where`/`.return`) | ✅ shipped |
-| Recursion `.repeat(depth, t => …)` (+collect/+path/+shortest) | ✅ shipped |
-| RELATE writes | ⬜ fast-follow |
+| Feature                                                                  | Status         |
+| ------------------------------------------------------------------------ | -------------- |
+| `RelationDef` endpoint-type capture (foundation)                         | ✅ shipped     |
+| `.out` / `.in` / `.both` + chaining                                      | ✅ shipped     |
+| Polymorphic union target emission `->edge->(a, b)`                       | ✅ shipped     |
+| Target narrowing `.out(E, Target)` / subset                              | ✅ shipped     |
+| `.return` projection (flat / destructure / alias / computed / nested)    | ✅ shipped     |
+| `.all()` (`.*`)                                                          | ✅ shipped     |
+| Composition (traversals + columns + subqueries in one `.return`)         | ✅ shipped     |
+| Edge steps `.outEdges`/`.inEdges`/`.bothEdges` + `.node()` bridge        | ✅ shipped     |
+| Edge fields (`->contains.amount`) + edge filters (`->(E WHERE …)->`)     | ✅ shipped     |
+| Target filter `.out(E).where(n => …)` (`->E->(node WHERE …)`)            | ✅ shipped     |
+| WHERE set-ops on a traversal (`.contains`/`.containsAny`/`.containsAll`) | ✅ shipped     |
+| `select([A, B])` multi-table roots                                       | ✅ shipped     |
+| `.match(Member, …)` member primitive (union `.where`/`.return`)          | ✅ shipped     |
+| Recursion `.repeat(depth, t => …)` (+collect/+path/+shortest)            | ✅ shipped     |
+| RELATE writes                                                            | ⬜ fast-follow |
 
-Only **recursion** and **RELATE writes** remain. Note: projecting a polymorphic *traversal* target
+Only **recursion** and **RELATE writes** remain. Note: projecting a polymorphic _traversal_ target
 (`u.out(Knows).return(…)`) still throws "narrow first" — `.match` covers `select([…])` union rows,
 not yet polymorphic traversal targets (a follow-up can share the same machinery).
 
@@ -40,8 +40,8 @@ not yet polymorphic traversal targets (a follow-up can share the same machinery)
 
 Graph traversal is the marquee query-builder feature. The design principle: **the traversal is
 type-checked against the schema, and each step carries the endpoint type forward.** An edge that
-does not connect to the current node is a *compile error*; a polymorphic edge becomes a *checked
-union*. The authoring grammar mirrors `select`: `.where(...)` filters, `.return(...)` projects — so
+does not connect to the current node is a _compile error_; a polymorphic edge becomes a _checked
+union_. The authoring grammar mirrors `select`: `.where(...)` filters, `.return(...)` projects — so
 once you know the query builder, you know graph traversal.
 
 This is the whole reason to build it as a typed surface rather than a stringly escape hatch.
@@ -51,11 +51,11 @@ This is the whole reason to build it as a typed surface rather than a stringly e
 SurrealDB's grammar makes `->edge` (the edge records) and `->edge->node` (the target nodes) two
 distinct productions; bare `->edge->` is a parse error. So the API has two verb families:
 
-| Verb family | SurQL | Returns |
-|---|---|---|
-| `.out(E)` / `.in(E)` / `.both(E)` | `->E->node` / `<-E<-node` / `<->E<->node` | `NodeTraversal<E.to>` (chainable) |
-| `.outEdges(E)` / `.inEdges(E)` / `.bothEdges(E)` | `->E` / `<-E` / `<->E` | `EdgeTraversal<E>` |
-| `.node(Target?)` (on an EdgeTraversal) | `->node` | bridges an edge step back to nodes |
+| Verb family                                      | SurQL                                     | Returns                            |
+| ------------------------------------------------ | ----------------------------------------- | ---------------------------------- |
+| `.out(E)` / `.in(E)` / `.both(E)`                | `->E->node` / `<-E<-node` / `<->E<->node` | `NodeTraversal<E.to>` (chainable)  |
+| `.outEdges(E)` / `.inEdges(E)` / `.bothEdges(E)` | `->E` / `<-E` / `<->E`                    | `EdgeTraversal<E>`                 |
+| `.node(Target?)` (on an EdgeTraversal)           | `->node`                                  | bridges an edge step back to nodes |
 
 `.out`/`.in`/`.both` are the ~90% node case. `.outEdges` etc. are the home for **edge fields** and
 **edge filtering**, and `.node()` continues from an edge to its target.
@@ -70,10 +70,10 @@ This enrichment is the foundational build step.
 
 ## Filters
 
-| SurQL | Better-schemic |
-|---|---|
-| `->E->(node WHERE …)` | `.out(E).where(n => …)` |
-| `->(E WHERE …)->node` | `.outEdges(E).where(e => …).node()` |
+| SurQL                   | Better-schemic                            |
+| ----------------------- | ----------------------------------------- |
+| `->E->(node WHERE …)`   | `.out(E).where(n => …)`                   |
+| `->(E WHERE …)->node`   | `.outEdges(E).where(e => …).node()`       |
 | `->(E WHERE …)->(a, b)` | `.outEdges(E).where(e => …).node([A, B])` |
 
 Edge filtering lives on the edge step; `.node()` bridges back. No overload collision with target
@@ -84,11 +84,11 @@ narrowing.
 A polymorphic edge `DEFINE TABLE knows TYPE RELATION FROM user TO user|agent|topic` has
 `out: record<user | agent | topic>`. So:
 
-| SurQL | Better-schemic | Result type |
-|---|---|---|
-| `->knows->?` | `u.out(Knows)` | `NodeTraversal<User \| Agent \| Topic>` |
-| `->knows->user` | `u.out(Knows, User)` | `NodeTraversal<User>` |
-| `->knows->(user, agent)` | `u.out(Knows, [User, Agent])` | `NodeTraversal<User \| Agent>` |
+| SurQL                    | Better-schemic                | Result type                             |
+| ------------------------ | ----------------------------- | --------------------------------------- |
+| `->knows->?`             | `u.out(Knows)`                | `NodeTraversal<User \| Agent \| Topic>` |
+| `->knows->user`          | `u.out(Knows, User)`          | `NodeTraversal<User>`                   |
+| `->knows->(user, agent)` | `u.out(Knows, [User, Agent])` | `NodeTraversal<User \| Agent>`          |
 
 The second positional arg of `.out(E, …)` (and `.node(…)`) is **target narrowing** — a `TableDef`
 or array of them. It both filters the query and unlocks the member's fields at the type level.
@@ -99,13 +99,13 @@ Named to match the rest of the surface — `select(...).return(...)`, write `.re
 `block().return(...)` all already mean "reshape the output," and `.return` already nests (subqueries
 drop into `.return` objects) and already handles bare-ref vs object. Traversal reuses it verbatim.
 
-| You want | Better-schemic | Emits |
-|---|---|---|
-| one field (flat) | `.return(i => i.name)` | `->…->ingredient.name` |
-| several / **alias** | `.return(i => ({ title: i.name }))` | `.{ title: name }` |
-| **computed / extra** | `.return(i => ({ up: surql.fn.string.uppercase(i.name) }))` | `.{ up: string::uppercase(name) }` |
+| You want             | Better-schemic                                                  | Emits                                 |
+| -------------------- | --------------------------------------------------------------- | ------------------------------------- |
+| one field (flat)     | `.return(i => i.name)`                                          | `->…->ingredient.name`                |
+| several / **alias**  | `.return(i => ({ title: i.name }))`                             | `.{ title: name }`                    |
+| **computed / extra** | `.return(i => ({ up: surql.fn.string.uppercase(i.name) }))`     | `.{ up: string::uppercase(name) }`    |
 | **nested traversal** | `.return(i => ({ treats: i.out(Treats).return(c => c.name) }))` | `.{ treats: ->treats->concern.name }` |
-| full record | `.return(i => i)` / `.all()` | `.*` |
+| full record          | `.return(i => i)` / `.all()`                                    | `.*`                                  |
 
 **Callback-only** (no bare `u.out(Owns).name`): node/edge refs carry `.out`/`.in`/`.where`/`.node`
 methods, and edge records have real `in`/`out`/`id` fields — property-style field access would
@@ -118,17 +118,17 @@ Bare ref → flat projection; object literal → `.{…}` destructure. Same shap
 A traversal is a set. `x IN ->E->node` / `->E->node CONTAINS x` / `ANYINSIDE […]` map to our already
 ratified array vocabulary:
 
-| SurQL | Better-schemic |
-|---|---|
-| `x IN ->owns->product` | `u.out(Owns).contains(x)` |
-| `->owns->product ANYINSIDE […]` | `u.out(Owns).containsAny([…])` |
-| `count(->E->(n WHERE …)) > 0` | `u.out(E).where(…).count().gt(0)` |
+| SurQL                           | Better-schemic                    |
+| ------------------------------- | --------------------------------- |
+| `x IN ->owns->product`          | `u.out(Owns).contains(x)`         |
+| `->owns->product ANYINSIDE […]` | `u.out(Owns).containsAny([…])`    |
+| `count(->E->(n WHERE …)) > 0`   | `u.out(E).where(…).count().gt(0)` |
 
 ## `select([A, B])` — multi-table roots share the union machinery
 
 SurrealDB `SELECT * FROM user, agent` is a **union (concatenation)**, not a cross join (verified: 2
 users + 1 agent = 3 rows), each row keeping its own shape and self-identifying by `id`. So
-`select([User, Agent])` decodes to `(App<User> | App<Agent>)[]` — the *same union* the polymorphic
+`select([User, Agent])` decodes to `(App<User> | App<Agent>)[]` — the _same union_ the polymorphic
 traversal yields. **One union-ref/union-row machinery serves both** `select([...])` roots and
 `.out(polymorphicEdge)` targets.
 
@@ -138,13 +138,13 @@ A union ref exposes only **common** fields. Member-only access (in `.where` OR `
 through one primitive:
 
 ```ts
-r.match(User, u => u.email.eq("x"))   // -> record::tb(id) = 'user' AND email = 'x'
+r.match(User, (u) => u.email.eq("x")); // -> record::tb(id) = 'user' AND email = 'x'
 ```
 
 `.match(Member, ref => …)` unlocks the member's full field set in the callback and **always emits the
 `record::tb(id)` table guard**. This is not sugar — it is correctness: a bare `WHERE email = 'x'` on
-a union silently narrows via NONE-exclusion, but `WHERE email != 'x'` *leaks the other members
-through* (`NONE != 'x'` is true). The table guard makes both directions correct. Composition:
+a union silently narrows via NONE-exclusion, but `WHERE email != 'x'` _leaks the other members
+through_ (`NONE != 'x'` is true). The table guard makes both directions correct. Composition:
 
 ```ts
 .where(r => r.match(User, u => u.email.eq("x")).or(r.match(Agent, a => a.model.eq("gpt"))))
@@ -162,8 +162,8 @@ number is an exact depth; `{ min?, max? }` a range; `+shortest`'s target binds a
 
 ## RELATE writes (FAST-FOLLOW)
 
-Read traversal is the marquee. `RELATE` write surface is a separate arc. `defineRelation` endpoint
-enrichment (shared with reads) lands now; the write *builder* comes after.
+Read traversal is the marquee. `RELATE` write surface is a separate arc. `relation` endpoint
+enrichment (shared with reads) lands now; the write _builder_ comes after.
 
 ## Core touchpoint
 

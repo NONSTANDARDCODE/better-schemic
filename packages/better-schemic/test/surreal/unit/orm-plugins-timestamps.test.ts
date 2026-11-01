@@ -2,28 +2,29 @@
 // `database` mode strips the managed columns. Offline (expressions splice into the statement text).
 import { describe, expect, test } from "bun:test";
 import { DateTime, RecordId } from "surrealdb";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import { defineSchema } from "../../../src/surreal/orm/schema";
-import { createOnly, createOnlyGuard } from "../../../src/surreal/plugins/create-only";
+import { orm } from "../../../src/surreal/orm/client";
+import { schema } from "../../../src/surreal/orm/schema";
+import {
+  createOnly,
+  createOnlyGuard,
+} from "../../../src/surreal/plugins/create-only";
 import { tenant } from "../../../src/surreal/plugins/tenant";
 import { timestamps } from "../../../src/surreal/plugins/timestamps";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { s, table } from "../../../src/surreal/pure";
 import { fakeConn, lines, ok } from "../orm-fixtures";
 
-const User = defineTable("user", {
+const User = table("user", {
   name: s.string(),
   createdAt: s.datetime().optional(),
   updatedAt: s.datetime().optional(),
 });
-const schema = defineSchema({ users: User });
+const schemaDef = schema({ users: User });
 
-const clientOver = (
-  plugins: Parameters<typeof betterSchemic>[1]["plugins"],
-) => {
+const clientOver = (plugins: Parameters<typeof orm>[1]["plugins"]) => {
   const { conn, calls } = fakeConn((sql) =>
     lines(sql).map(() => ok([{ id: new RecordId("user", 1), name: "A" }])),
   );
-  return { client: betterSchemic(conn, { schema, plugins }), calls };
+  return { client: orm(conn, { schema: schemaDef, plugins }), calls };
 };
 
 describe("timestamps — app mode", () => {
@@ -51,10 +52,7 @@ describe("timestamps — app mode", () => {
         ok(line.startsWith("IF ") ? [{ before, after }] : null),
       ),
     );
-    const client = betterSchemic(conn, {
-      schema,
-      plugins: [timestamps()],
-    });
+    const client = orm(conn, { schema: schemaDef, plugins: [timestamps()] });
     const result = await client.users.upsertDelta({
       where: { id: "user:1" },
       data: { name: "B" },
@@ -71,8 +69,8 @@ describe("timestamps — app mode", () => {
         ok(line.startsWith("IF ") ? [{ after: after }] : null),
       ),
     );
-    const createClient = betterSchemic(fresh.conn, {
-      schema,
+    const createClient = orm(fresh.conn, {
+      schema: schemaDef,
       plugins: [timestamps()],
     });
     const created = await createClient.users.upsertDelta({
@@ -117,20 +115,20 @@ describe("timestamps — database mode", () => {
 
 // --- create-only interop: the marker suppresses `updatedAt`, order-independently ----------------
 
-const Principal = defineTable("principal", { name: s.string() });
-const CreateOnlyLog = defineTable("co_log", {
+const Principal = table("principal", { name: s.string() });
+const CreateOnlyLog = table("co_log", {
   name: s.string(),
   createdAt: s.datetime().optional(),
 }).use(createOnly());
-const TenantLog = defineTable("t_log", {
+const TenantLog = table("t_log", {
   name: s.string(),
   createdAt: s.datetime().optional(),
 }).use(tenant(Principal, { createOnly: true }));
-const coSchema = defineSchema({ logs: CreateOnlyLog, tenantLogs: TenantLog });
+const coSchema = schema({ logs: CreateOnlyLog, tenantLogs: TenantLog });
 
-const coClient = (plugins: Parameters<typeof betterSchemic>[1]["plugins"]) => {
+const coClient = (plugins: Parameters<typeof orm>[1]["plugins"]) => {
   const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok([])));
-  return { client: betterSchemic(conn, { schema: coSchema, plugins }), calls };
+  return { client: orm(conn, { schema: coSchema, plugins }), calls };
 };
 
 describe("timestamps — create-only interop", () => {

@@ -9,11 +9,7 @@
  * thenable is augmented in place, so there is zero cost when `.throw()` is never called.
  */
 import type { QueryResponse } from "surrealdb";
-import {
-  BetterSchemicError,
-  type BetterSchemicErrorOptions,
-  normalizeError,
-} from "./errors";
+import { normalizeError, OrmError, type OrmErrorOptions } from "./errors";
 
 /** Context handed to `.throw()` factories so error messages can name the target. */
 export interface NotFoundInfo {
@@ -61,7 +57,7 @@ export function attachThrow<T>(
         if (value === null || value === undefined) {
           const notFound = getInfo();
           if (factory) throw factory(notFound);
-          throw new BetterSchemicError(
+          throw new OrmError(
             "ResultNotFound",
             `${notFound.table}: no record matched ${notFound.operation}${describeWhere(notFound.where)}`,
             {
@@ -166,7 +162,7 @@ export interface StatementResult<T = unknown> {
   /** Server-reported execution time (e.g. `"1.2ms"`), when stats are available. */
   readonly time?: string;
   /** The NORMALIZED failure, present iff `status === "ERR"`. */
-  readonly error?: BetterSchemicError;
+  readonly error?: OrmError;
 }
 
 /**
@@ -176,7 +172,7 @@ export interface StatementResult<T = unknown> {
  */
 export function statementResult<T = unknown>(
   response: QueryResponse<T>,
-  context: BetterSchemicErrorOptions = {},
+  context: OrmErrorOptions = {},
 ): StatementResult<T> {
   if (response.success) {
     const duration = response.stats?.duration;

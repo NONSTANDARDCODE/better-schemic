@@ -3,12 +3,15 @@
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
 import { describe, it } from "node:test";
 import { assertType } from "../../../../../scripts/type-assert";
+import { s, table } from "../../../src/surreal";
 import type { Surql } from "../../../src/surreal/frag";
-import { defineTable, s } from "../../../src/surreal";
 import type { Client } from "../../../src/surreal/orm/client";
 import type { Delegate } from "../../../src/surreal/orm/delegate";
-import type { ExplainResult, ThrowingResult } from "../../../src/surreal/orm/results";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import type {
+  ExplainResult,
+  ThrowingResult,
+} from "../../../src/surreal/orm/results";
+import { schema } from "../../../src/surreal/orm/schema";
 import type {
   AggregateShape,
   CursorArgs,
@@ -23,8 +26,7 @@ import type {
 import type { Where } from "../../../src/surreal/orm/types/where";
 import type { App } from "../../../src/surreal/pure";
 
-
-const User = defineTable("user", {
+const User = table("user", {
   name: s.string(),
   email: s.string(),
   age: s.int(),
@@ -36,10 +38,10 @@ const User = defineTable("user", {
 })
   .index("user_idx_email", ["email"], { unique: true })
   .index("user_idx_tenant_email", ["name", "email"], { unique: true });
-const schema = defineSchema({ users: User });
+const schemaDef = schema({ users: User });
 type U = typeof User;
 type Row = App<U>;
-type C = Client<typeof schema>;
+type C = Client<typeof schemaDef>;
 type Users = C["users"];
 
 describe("where — family-aware filters and paths", () => {
@@ -62,7 +64,10 @@ describe("where — family-aware filters and paths", () => {
   });
 
   it("rejects wrong-family operators and wrong value types", () => {
-    assertType<false, { age: { contains: "x" } } extends Where<U> ? true : false>();
+    assertType<
+      false,
+      { age: { contains: "x" } } extends Where<U> ? true : false
+    >();
     assertType<
       false,
       { name: { containsAll: ["a"] } } extends Where<U> ? true : false
@@ -226,7 +231,10 @@ describe("read envelopes", () => {
 
   it("cursor: the LAST orderBy field must be unique (typed from the schema)", () => {
     // `id` is unique by construction — the portable tiebreaker.
-    const byId: CursorArgs<U> = { limit: 2, orderBy: [{ age: "desc" }, { id: "asc" }] };
+    const byId: CursorArgs<U> = {
+      limit: 2,
+      orderBy: [{ age: "desc" }, { id: "asc" }],
+    };
     const idOnly: CursorArgs<U> = { limit: 2, orderBy: [{ id: "desc" }] };
     // `email` carries a single-field UNIQUE index, so it is a valid tiebreaker too.
     const byEmail: CursorArgs<U> = {
@@ -236,10 +244,7 @@ describe("read envelopes", () => {
     // @ts-expect-error — `createdAt` is not unique: a keyset page could skip/duplicate a row
     const nonUnique: CursorArgs<U> = { limit: 2, orderBy: [{ createdAt: "desc" }] };
     // The tiebreaker must come LAST: a trailing non-unique field is refused too.
-    const wrongPosition = [
-      { id: "asc" },
-      { age: "desc" },
-    ] as const;
+    const wrongPosition = [{ id: "asc" }, { age: "desc" }] as const;
     const badOrder: CursorArgs<U> = {
       limit: 2,
       // @ts-expect-error — `age` is not unique, so it cannot close the keyset
@@ -278,7 +283,10 @@ describe("read envelopes", () => {
 
   it("explain: true flips count/exists to the plan", () => {
     assertType<Promise<ExplainResult>, ReadResult<number, { explain: true }>>();
-    assertType<Promise<ExplainResult>, ReadResult<boolean, { explain: true }>>();
+    assertType<
+      Promise<ExplainResult>,
+      ReadResult<boolean, { explain: true }>
+    >();
   });
 
   it("the delegate exposes the read surface", () => {

@@ -3,29 +3,35 @@
 // escapes the client guard (the hard event, when declared, blocks the DB side instead). Offline.
 import { describe, expect, test } from "bun:test";
 import { surql } from "../../../src/surreal";
-import { betterSchemic } from "../../../src/surreal/orm/client";
+import { orm } from "../../../src/surreal/orm/client";
 import {
-  type BetterSchemicError,
-  isBetterSchemicError,
   isCreateOnlyViolation,
+  isOrmError,
+  type OrmError,
 } from "../../../src/surreal/orm/errors";
-import { createPluginPipeline, RuntimeOperation } from "../../../src/surreal/orm/plugins";
-import { buildSchemaIndex, defineSchema } from "../../../src/surreal/orm/schema";
-import { createOnly, createOnlyGuard } from "../../../src/surreal/plugins/create-only";
+import {
+  createPluginPipeline,
+  RuntimeOperation,
+} from "../../../src/surreal/orm/plugins";
+import { buildSchemaIndex, schema } from "../../../src/surreal/orm/schema";
+import {
+  createOnly,
+  createOnlyGuard,
+} from "../../../src/surreal/plugins/create-only";
 import { softDelete } from "../../../src/surreal/plugins/soft-delete";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { s, table } from "../../../src/surreal/pure";
 import { caught, fakeConn, lines, ok } from "../orm-fixtures";
 
-const AuditLog = defineTable("audit_log", {
+const AuditLog = table("audit_log", {
   action: s.string(),
   createdAt: s.datetime().optional(),
 }).use(createOnly());
-const HardLog = defineTable("hard_audit", { action: s.string() }).use(
+const HardLog = table("hard_audit", { action: s.string() }).use(
   createOnly({ hard: true }),
 );
-const Plain = defineTable("plain", { name: s.string() });
+const Plain = table("plain", { name: s.string() });
 /** A hand-rolled hard guard event (no preset marker) — the `tables` fallback's hard detection. */
-const EventOnly = defineTable("event_only", { name: s.string() }).event(
+const EventOnly = table("event_only", { name: s.string() }).event(
   "event_only_create_only",
   {
     when: surql`$event = 'UPDATE'`,
@@ -33,18 +39,16 @@ const EventOnly = defineTable("event_only", { name: s.string() }).event(
     then: surql`{ THROW "append-only"; }`,
   },
 );
-const schema = defineSchema({
+const schemaDef = schema({
   logs: AuditLog,
   hardLogs: HardLog,
   plains: Plain,
   rawLogs: "raw_log",
 });
 
-const clientOver = (
-  plugins: Parameters<typeof betterSchemic>[1]["plugins"],
-) => {
+const clientOver = (plugins: Parameters<typeof orm>[1]["plugins"]) => {
   const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok([])));
-  return { client: betterSchemic(conn, { schema, plugins }), calls };
+  return { client: orm(conn, { schema: schemaDef, plugins }), calls };
 };
 
 describe("createOnlyGuard — the update family never reaches the wire", () => {
@@ -71,8 +75,8 @@ describe("createOnlyGuard — the update family never reaches the wire", () => {
     for (const attempt of attempts) {
       const error = await caught(attempt);
       expect(isCreateOnlyViolation(error)).toBe(true);
-      expect((error as BetterSchemicError).table).toBe("audit_log");
-      expect((error as BetterSchemicError).status).toBe(403);
+      expect((error as OrmError).table).toBe("audit_log");
+      expect((error as OrmError).status).toBe(403);
     }
     expect(calls).toHaveLength(0); // every rejection happened BEFORE compiling
   });
@@ -84,8 +88,8 @@ describe("createOnlyGuard — the update family never reaches the wire", () => {
         where: { id: "audit_log:1" },
         data: { action: "b" },
       }),
-    )) as BetterSchemicError;
-    expect(isBetterSchemicError(error)).toBe(true);
+    )) as OrmError;
+    expect(isOrmError(error)).toBe(true);
     expect(error.code).toBe("CreateOnlyViolation");
     expect(error.operation).toBe("update");
     expect(error.message).toContain('"audit_log" is create-only (append-only)');
@@ -101,7 +105,7 @@ describe("createOnlyGuard — the update family never reaches the wire", () => {
         where: { id: "hard_audit:1" },
         data: { action: "b" },
       }),
-    )) as BetterSchemicError;
+    )) as OrmError;
     expect(isCreateOnlyViolation(error)).toBe(true);
     expect(error.message).toContain(
       "the hard guard event blocks $withoutPlugins() and raw SQL too",
@@ -114,7 +118,7 @@ describe("createOnlyGuard — insert conflict policies", () => {
     const { client, calls } = clientOver([createOnlyGuard()]);
     const update = (await caught(() =>
       client.logs.insert({ data: { action: "a" }, onDuplicate: "update" }),
-    )) as BetterSchemicError;
+    )) as OrmError;
     expect(isCreateOnlyViolation(update)).toBe(true);
     expect(update.operation).toBe("insert");
     expect(update.message).toContain('onDuplicate "update" can UPDATE');
@@ -124,7 +128,7 @@ describe("createOnlyGuard — insert conflict policies", () => {
         data: { action: "a" },
         onDuplicate: { action: "b" },
       }),
-    )) as BetterSchemicError;
+    )) as OrmError;
     expect(isCreateOnlyViolation(map)).toBe(true);
     expect(map.message).toContain("onDuplicate {…} can UPDATE");
 
@@ -160,7 +164,7 @@ describe("createOnlyGuard — insert conflict policies", () => {
       }),
     );
     expect(isCreateOnlyViolation(invalid)).toBe(false);
-    expect((invalid as BetterSchemicError).code).toBe("ValidationError");
+    expect((invalid as OrmError).code).toBe("ValidationError");
     expect(calls).toHaveLength(3);
   });
 });
@@ -201,7 +205,7 @@ describe("createOnlyGuard — allowed operations and boundaries", () => {
     const { client, calls } = clientOver([softDelete(), createOnlyGuard()]);
     const error = (await caught(() =>
       client.logs.delete({ where: { id: "audit_log:1" } }),
-    )) as BetterSchemicError;
+    )) as OrmError;
     expect(isCreateOnlyViolation(error)).toBe(true);
     // softDelete rewrote the kind BEFORE the guard saw it: the message names the real mutation.
     expect(error.operation).toBe("update");
@@ -213,8 +217,8 @@ describe("createOnlyGuard — allowed operations and boundaries", () => {
 describe("createOnlyGuard — the `tables` fallback", () => {
   test("extra physical names are guarded (typed + schemaless)", async () => {
     const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok([])));
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       plugins: [createOnlyGuard({ tables: ["plain", "raw_log"] })],
     });
     const typed = await caught(() =>
@@ -233,8 +237,8 @@ describe("createOnlyGuard — the `tables` fallback", () => {
 
   test("a hand-rolled guard event on an entry selects the hard hint", async () => {
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok([])));
-    const client = betterSchemic(conn, {
-      schema: defineSchema({ events: EventOnly, plains: Plain }),
+    const client = orm(conn, {
+      schema: schema({ events: EventOnly, plains: Plain }),
       plugins: [createOnlyGuard({ tables: ["event_only"] })],
     });
     const error = (await caught(() =>
@@ -242,7 +246,7 @@ describe("createOnlyGuard — the `tables` fallback", () => {
         where: { id: "event_only:1" },
         data: { name: "n" },
       }),
-    )) as BetterSchemicError;
+    )) as OrmError;
     expect(isCreateOnlyViolation(error)).toBe(true);
     expect(error.message).toContain("the hard guard event blocks");
   });
@@ -256,14 +260,14 @@ describe("createOnlyGuard — the `tables` fallback", () => {
         where: { id: "hard_audit:1" },
         data: { action: "b" },
       }),
-    )) as BetterSchemicError;
+    )) as OrmError;
     expect(error.message).toContain("the hard guard event blocks");
   });
 
   test("a preset-less, entry-less schema is untouched", async () => {
     const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok([])));
-    const client = betterSchemic(conn, {
-      schema: defineSchema({ plains: Plain }),
+    const client = orm(conn, {
+      schema: schema({ plains: Plain }),
       plugins: [createOnlyGuard()],
     });
     await client.plains.update({
@@ -276,16 +280,16 @@ describe("createOnlyGuard — the `tables` fallback", () => {
   test("an unknown entry fails the bootstrap (SchemaInvalid)", () => {
     let error: unknown;
     try {
-      betterSchemic({} as never, {
-        schema,
+      orm({} as never, {
+        schema: schemaDef,
         plugins: [createOnlyGuard({ tables: ["ghost"] })],
       });
     } catch (e) {
       error = e;
     }
-    expect(isBetterSchemicError(error)).toBe(true);
-    expect((error as BetterSchemicError).code).toBe("SchemaInvalid");
-    expect((error as BetterSchemicError).message).toContain(
+    expect(isOrmError(error)).toBe(true);
+    expect((error as OrmError).code).toBe("SchemaInvalid");
+    expect((error as OrmError).message).toContain(
       '"ghost" is not in the schema',
     );
   });
@@ -298,9 +302,9 @@ describe("createOnlyGuard — the `tables` fallback", () => {
       } catch (e) {
         error = e;
       }
-      expect(isBetterSchemicError(error)).toBe(true);
-      expect((error as BetterSchemicError).code).toBe("PluginError");
-      expect((error as BetterSchemicError).message).toContain(
+      expect(isOrmError(error)).toBe(true);
+      expect((error as OrmError).code).toBe("PluginError");
+      expect((error as OrmError).message).toContain(
         "non-empty physical table name",
       );
     }
@@ -313,16 +317,16 @@ describe("createOnlyGuard — the `tables` fallback", () => {
     } catch (e) {
       error = e;
     }
-    expect(isBetterSchemicError(error)).toBe(true);
-    expect((error as BetterSchemicError).message).toContain(
-      'must be an array of physical table names',
+    expect(isOrmError(error)).toBe(true);
+    expect((error as OrmError).message).toContain(
+      "must be an array of physical table names",
     );
   });
 });
 
 describe("createOnlyGuard — hand-built pipelines + shared instances", () => {
   test("a hand-built pipeline lazily builds (and caches) the tag map", () => {
-    const index = buildSchemaIndex(schema);
+    const index = buildSchemaIndex(schemaDef);
     const pipeline = createPluginPipeline([createOnlyGuard()])!;
     expect(() =>
       pipeline.transform(
@@ -343,8 +347,8 @@ describe("createOnlyGuard — hand-built pipelines + shared instances", () => {
     const { conn: oddConn, calls: oddCalls } = fakeConn((sql) =>
       lines(sql).map(() => ok([])),
     );
-    const b = betterSchemic(oddConn, {
-      schema: defineSchema({ plains: Plain }),
+    const b = orm(oddConn, {
+      schema: schema({ plains: Plain }),
       plugins: [guard],
     });
     await b.plains.update({ where: { id: "plain:1" }, data: { name: "n" } });

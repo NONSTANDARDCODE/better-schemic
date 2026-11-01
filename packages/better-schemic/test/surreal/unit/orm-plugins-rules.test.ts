@@ -2,22 +2,25 @@
 // maxLimit, cursor orderBy and strict fields. Offline.
 import { describe, expect, test } from "bun:test";
 import { RecordId } from "surrealdb";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import { defineSchema } from "../../../src/surreal/orm/schema";
-import { recommended, rules, safe, strict } from "../../../src/surreal/plugins/rules";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { orm } from "../../../src/surreal/orm/client";
+import { schema } from "../../../src/surreal/orm/schema";
+import {
+  recommended,
+  rules,
+  safe,
+  strict,
+} from "../../../src/surreal/plugins/rules";
+import { s, table } from "../../../src/surreal/pure";
 import { fakeConn, lines, ok } from "../orm-fixtures";
 
-const User = defineTable("user", { name: s.string() });
-const schema = defineSchema({ users: User });
+const User = table("user", { name: s.string() });
+const schemaDef = schema({ users: User });
 
-const clientWith = (
-  plugins: Parameters<typeof betterSchemic>[1]["plugins"],
-) => {
+const clientWith = (plugins: Parameters<typeof orm>[1]["plugins"]) => {
   const { conn } = fakeConn((sql) =>
     lines(sql).map(() => ok([{ id: new RecordId("user", 1), name: "A" }])),
   );
-  return betterSchemic(conn, { schema, plugins });
+  return orm(conn, { schema: schemaDef, plugins });
 };
 
 const codeOf = async (fn: () => unknown): Promise<string | undefined> => {
@@ -90,8 +93,8 @@ describe("rules — write/limit guardrails", () => {
 describe("rules — raw guardrail", () => {
   test("noRawUnsafe blocks $unsafe but leaves $raw available", async () => {
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok(null)));
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       plugins: [safe()],
       raw: { unsafe: true },
     });

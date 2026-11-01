@@ -15,7 +15,7 @@
  */
 import type { QueryResponse, Surreal } from "surrealdb";
 import { contextPrefix } from "./context";
-import { BetterSchemicError, normalizeError } from "./errors";
+import { normalizeError, OrmError } from "./errors";
 import { emitRoundTrip } from "./logger/emit";
 import { type StatementResult, statementResult } from "./results";
 import type { ResolvedContext } from "./types/context";
@@ -159,7 +159,7 @@ function mergeVars(statements: readonly Statement[]): Record<string, unknown> {
   for (const [i, statement] of statements.entries()) {
     for (const [name, value] of Object.entries(statement.vars ?? {})) {
       if (name in merged && !Object.is(merged[name], value))
-        throw new BetterSchemicError(
+        throw new OrmError(
           "ParseError",
           `duplicate bind "$${name}" used with different values (statement ${i}) — binds must be unique across a batch.`,
           { statementIndex: i, surql: statement.sql },
@@ -217,7 +217,7 @@ export async function execute<T = unknown>(
   // The server answers every statement (control statements included); a mismatch is a protocol
   // surprise, surfaced with the script rather than silently mis-indexed.
   if (raw.length !== parts.length)
-    throw new BetterSchemicError(
+    throw new OrmError(
       "DatabaseError",
       `expected ${parts.length} statement responses, got ${raw.length}.`,
       { operation: options.operation, table: options.table, surql: script },

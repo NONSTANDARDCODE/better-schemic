@@ -3,30 +3,29 @@
 // returns the FULL typed delegate (`this`), so reads/writes survive the scope clone.
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
 import { describe, it } from "node:test";
-import { assertType } from "../../../../../scripts/type-assert";
 import type { RecordIdValue, Surreal } from "surrealdb";
 import { RecordId } from "surrealdb";
-import { type App, defineTable, s } from "../../../src/surreal";
+import { assertType } from "../../../../../scripts/type-assert";
+import { type App, s, table } from "../../../src/surreal";
 import type { Client } from "../../../src/surreal/orm/client";
 import type { isTenantViolation } from "../../../src/surreal/orm/errors";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { schema } from "../../../src/surreal/orm/schema";
 import type { PluginModelExtras } from "../../../src/surreal/orm/types/plugins";
 import { tenant, tenantRls } from "../../../src/surreal/plugins/tenant";
 
-
-const User = defineTable("user", { name: s.string() });
-const Customer = defineTable("customer", {
+const User = table("user", { name: s.string() });
+const Customer = table("customer", {
   name: s.string(),
   deletedAt: s.datetime().optional(),
 })
   .use(tenant(User, { softDelete: true }))
   .index("by_tenant", (t) => [t.tenant_id]);
-const Org = defineTable("org", {}).use(tenant(User, { column: "org_id" }));
-const schema = defineSchema({ users: User, customers: Customer, orgs: Org });
+const Org = table("org", {}).use(tenant(User, { column: "org_id" }));
+const schemaDef = schema({ users: User, customers: Customer, orgs: Org });
 
 const plugin = tenantRls({ tenant: "user:abc" });
 type P = typeof plugin;
-type C = Client<typeof schema, Surreal, [P]>;
+type C = Client<typeof schemaDef, Surreal, [P]>;
 
 const scoped = (client: C) => client.customers.$forTenant("user:abc");
 const scopedFind = (client: C) =>
@@ -57,7 +56,7 @@ describe("tenant preset — types", () => {
   });
 
   it("a custom column name stays typed and rename-safe in .index() callbacks", () => {
-    const Indexed = defineTable("indexed", {}).use(
+    const Indexed = table("indexed", {}).use(
       tenant(User, { column: "org_id" }),
     );
     const withIndex = Indexed.index("by_org", (t) => [t.org_id]);
@@ -67,7 +66,10 @@ describe("tenant preset — types", () => {
 
 describe("tenantRls — types", () => {
   it("$forTenant lands on every delegate and returns the full typed delegate (`this`)", () => {
-    assertType<true, "$forTenant" extends keyof C["customers"] ? true : false>();
+    assertType<
+      true,
+      "$forTenant" extends keyof C["customers"] ? true : false
+    >();
     assertType<
       true,
       "$forTenant" extends keyof PluginModelExtras<[P]> ? true : false
@@ -81,12 +83,18 @@ describe("tenantRls — types", () => {
   });
 
   it("the scoped delegate keeps the read/write surface and accepts string | RecordId", () => {
-    assertType<true, ReturnType<typeof scopedFind> extends object ? true : false>();
+    assertType<
+      true,
+      ReturnType<typeof scopedFind> extends object ? true : false
+    >();
     assertType<
       true,
       ReturnType<typeof scopedCreate> extends object ? true : false
     >();
-    assertType<true, ReturnType<typeof byRecordId> extends object ? true : false>();
+    assertType<
+      true,
+      ReturnType<typeof byRecordId> extends object ? true : false
+    >();
   });
 
   it("isTenantViolation is a boolean predicate", () => {

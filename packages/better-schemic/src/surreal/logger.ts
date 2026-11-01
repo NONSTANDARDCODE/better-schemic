@@ -1,6 +1,6 @@
 /**
  * `better-schemic/logger` subpath entry — a beautiful, zero-dependency query logger for
- * the ORM. Enable it with the `logger` option (`betterSchemic(conn, { schema, logger: true })`) or
+ * the ORM. Enable it with the `logger` option (`orm(conn, { schema, logger: true })`) or
  * construct one here and pass it as `logger`.
  *
  * Presets: `"pretty"` (framed terminal box), `"compact"` (one line), `"json"` (log shippers),

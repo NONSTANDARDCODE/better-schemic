@@ -1,5 +1,5 @@
 // M0.3 — error normalization: real SDK `ServerError`s (kind + structured details + message
-// heuristics) and arbitrary thrown values all land on the stable `BetterSchemicError` catalog, so
+// heuristics) and arbitrary thrown values all land on the stable `OrmError` catalog, so
 // `code`/predicates never depend on a message string at a call site.
 import { describe, expect, test } from "bun:test";
 import {
@@ -15,12 +15,10 @@ import {
 } from "surrealdb";
 import { z } from "zod";
 import {
-  BetterSchemicError,
-  type BetterSchemicErrorCode,
   isAssertionFailed,
-  isBetterSchemicError,
   isCreateOnlyViolation,
   isNotFound,
+  isOrmError,
   isPermissionDenied,
   isTenantViolation,
   isTransactionRollback,
@@ -29,6 +27,8 @@ import {
   isValidationError,
   isWriteConflict,
   normalizeError,
+  OrmError,
+  type OrmErrorCode,
 } from "../../../src/surreal/orm/errors";
 
 const code = (e: unknown) => normalizeError(e).code;
@@ -153,7 +153,7 @@ describe("normalizeError — SDK ServerError kinds", () => {
 });
 
 describe("normalizeError — message heuristics on plain errors", () => {
-  const cases: [string, BetterSchemicErrorCode][] = [
+  const cases: [string, OrmErrorCode][] = [
     ["Database record `x:y` already exists", "RecordAlreadyExists"],
     ["Couldn't coerce value for field `age`", "AssertionFailed"],
     ["Expected `string` but found `NONE`", "AssertionFailed"],
@@ -209,8 +209,8 @@ describe("normalizeError — zod, context, idempotency", () => {
     });
   });
 
-  test("normalizing a BetterSchemicError is idempotent (identity)", () => {
-    const mine = new BetterSchemicError("ResultNotFound", "nope");
+  test("normalizing a OrmError is idempotent (identity)", () => {
+    const mine = new OrmError("ResultNotFound", "nope");
     expect(norm(mine)).toBe(mine);
   });
 
@@ -221,12 +221,10 @@ describe("normalizeError — zod, context, idempotency", () => {
     expect(err.details).toBe("boom");
   });
 
-  test("isBetterSchemicError narrows", () => {
-    expect(
-      isBetterSchemicError(new BetterSchemicError("ParseError", "x")),
-    ).toBe(true);
-    expect(isBetterSchemicError(new Error("x"))).toBe(false);
-    expect(isBetterSchemicError("x")).toBe(false);
+  test("isOrmError narrows", () => {
+    expect(isOrmError(new OrmError("ParseError", "x"))).toBe(true);
+    expect(isOrmError(new Error("x"))).toBe(false);
+    expect(isOrmError("x")).toBe(false);
   });
 });
 
@@ -265,15 +263,13 @@ describe("predicates", () => {
     expect(isWriteConflict(norm(conflict))).toBe(true);
     expect(isUnsupportedCapability(norm(live))).toBe(true);
     expect(isValidationError(norm(thrown))).toBe(true);
-    expect(
-      isNotFound(norm(new BetterSchemicError("ResultNotFound", "x"))),
-    ).toBe(true);
+    expect(isNotFound(norm(new OrmError("ResultNotFound", "x")))).toBe(true);
     expect(isNotFound(norm(already))).toBe(false);
   });
 
   test("isTenantViolation matches both tenant-scope codes (403)", () => {
-    const required = new BetterSchemicError("TenantRequired", "no scope");
-    const violation = new BetterSchemicError("TenantViolation", "forged");
+    const required = new OrmError("TenantRequired", "no scope");
+    const violation = new OrmError("TenantViolation", "forged");
     expect(isTenantViolation(required)).toBe(true);
     expect(isTenantViolation(violation)).toBe(true);
     expect(required.status).toBe(403);
@@ -281,10 +277,7 @@ describe("predicates", () => {
   });
 
   test("isCreateOnlyViolation matches the append-only guard code (403)", () => {
-    const violation = new BetterSchemicError(
-      "CreateOnlyViolation",
-      "no updates",
-    );
+    const violation = new OrmError("CreateOnlyViolation", "no updates");
     expect(isCreateOnlyViolation(violation)).toBe(true);
     expect(violation.status).toBe(403);
     expect(isCreateOnlyViolation(new Error("x"))).toBe(false);
@@ -343,8 +336,8 @@ describe("normalizeError — refineCode detail flags (isX getters false)", () =>
 });
 
 describe("normalizeError — context passthrough and non-Error shapes", () => {
-  test("BetterSchemicError.from delegates to normalizeError", () => {
-    const err = BetterSchemicError.from(new Error("already exists"), {
+  test("OrmError.from delegates to normalizeError", () => {
+    const err = OrmError.from(new Error("already exists"), {
       operation: "create",
     });
     expect(err.code).toBe("RecordAlreadyExists");
@@ -373,16 +366,14 @@ describe("normalizeError — context passthrough and non-Error shapes", () => {
   });
 
   test("an explicit status wins over the catalog default", () => {
-    expect(
-      new BetterSchemicError("ResultNotFound", "x", { status: 418 }).status,
-    ).toBe(418);
-    expect(new BetterSchemicError("ResultNotFound", "x").status).toBe(404);
+    expect(new OrmError("ResultNotFound", "x", { status: 418 }).status).toBe(
+      418,
+    );
+    expect(new OrmError("ResultNotFound", "x").status).toBe(404);
   });
 
   test("from() with no context uses the empty default", () => {
-    expect(BetterSchemicError.from(new Error("boom")).code).toBe(
-      "DatabaseError",
-    );
+    expect(OrmError.from(new Error("boom")).code).toBe("DatabaseError");
   });
 
   test("null and message-less issues payloads are DatabaseError", () => {
@@ -417,9 +408,9 @@ describe("normalizeError — context passthrough and non-Error shapes", () => {
     expect(norm(42, { details: { d: 1 } }).details).toEqual({ d: 1 });
   });
 
-  test("isBetterSchemicError rejects a same-named Error without a code", () => {
-    const fake = Object.assign(new Error("x"), { name: "BetterSchemicError" });
-    expect(isBetterSchemicError(fake)).toBe(false);
+  test("isOrmError rejects a same-named Error without a code", () => {
+    const fake = Object.assign(new Error("x"), { name: "OrmError" });
+    expect(isOrmError(fake)).toBe(false);
   });
 });
 
@@ -431,19 +422,13 @@ describe("predicates — remaining code branches", () => {
   });
 
   test("isValidationError matches ParseError and AssertionFailed", () => {
-    expect(isValidationError(new BetterSchemicError("ParseError", "x"))).toBe(
-      true,
-    );
-    expect(
-      isValidationError(new BetterSchemicError("AssertionFailed", "x")),
-    ).toBe(true);
+    expect(isValidationError(new OrmError("ParseError", "x"))).toBe(true);
+    expect(isValidationError(new OrmError("AssertionFailed", "x"))).toBe(true);
   });
 
   test("isUnsupportedCapability matches LiveQueryUnsupported", () => {
     expect(
-      isUnsupportedCapability(
-        new BetterSchemicError("LiveQueryUnsupported", "x"),
-      ),
+      isUnsupportedCapability(new OrmError("LiveQueryUnsupported", "x")),
     ).toBe(true);
   });
 });

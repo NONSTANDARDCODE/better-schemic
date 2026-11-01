@@ -22,12 +22,12 @@
  * ```ts
  * import { createOnly, createOnlyGuard } from "./create-only";
  *
- * export const AuditLog = defineTable("audit_log", {
+ * export const AuditLog = table("audit_log", {
  *   action: s.string(),
  *   createdAt: s.datetime().optional(),
  * }).use(createOnly({ hard: true }));
  *
- * const client = betterSchemic(db, { schema, plugins: [timestamps(), createOnlyGuard()] });
+ * const client = orm(db, { schema, plugins: [timestamps(), createOnlyGuard()] });
  * await client.auditLogs.create({ data: { action: "login" } });
  * // client.auditLogs.update(...) -> CreateOnlyViolation (never reaches the server)
  * ```
@@ -41,16 +41,16 @@
  */
 import { surql } from "../index";
 import { describeValue, isPlainObject } from "../orm/compiler/shared";
-import { BetterSchemicError } from "../orm/errors";
+import { OrmError } from "../orm/errors";
 import { operationFamily } from "../orm/hooks";
 import type { SchemaIndex } from "../orm/meta";
 import { definePlugin } from "../orm/plugins";
 import type { Operation } from "../orm/types/plugins";
 import {
-  defineTable,
   type PresetEvent,
   type TablePermissions,
   type TablePreset,
+  table,
 } from "../pure";
 import {
   CREATE_ONLY_EVENT_TEMPLATE,
@@ -96,18 +96,18 @@ const PLUGIN_ID = "better-schemic/create-only";
  * the runtime guard + `timestamps()`. Optional `hard` adds the DB-level event guard.
  *
  * ```ts
- * const AuditLog = defineTable("audit_log", { action: s.string(), createdAt: s.datetime().optional() })
+ * const AuditLog = table("audit_log", { action: s.string(), createdAt: s.datetime().optional() })
  *   .use(createOnly());
  * ```
  */
 export function createOnly(options: CreateOnlyPresetOptions = {}): TablePreset {
   if (options.hard !== undefined && typeof options.hard !== "boolean")
-    throw new BetterSchemicError(
+    throw new OrmError(
       "SchemaInvalid",
       `plugins/create-only: createOnly() "hard" must be a boolean (got ${describeValue(options.hard)}).`,
     );
   const permissions: TablePermissions = { update: false };
-  return defineTable.preset({
+  return table.preset({
     permissions,
     ...(options.hard === true ? { events: [HARD_EVENT] } : {}),
     meta: { [CREATE_ONLY_MARKER]: true },
@@ -137,15 +137,11 @@ function updatesOnDuplicate(onDuplicate: unknown): boolean {
 
 /** The teaching error for a blocked write. The escape hint is hard-aware: with the
  *  `{table}_create_only` event, `$withoutPlugins()` (and raw SQL) are blocked too. */
-function violationError(
-  op: Operation,
-  hard: boolean,
-  what: string,
-): BetterSchemicError {
+function violationError(op: Operation, hard: boolean, what: string): OrmError {
   const hint = hard
     ? 'Use create()/insert({ onDuplicate: "ignore" }) to write; the hard guard event blocks $withoutPlugins() and raw SQL too — drop/alter it for an intentional admin operation.'
     : 'Use create()/insert({ onDuplicate: "ignore" }) to write, or $withoutPlugins() for an intentional admin operation.';
-  return new BetterSchemicError(
+  return new OrmError(
     "CreateOnlyViolation",
     `createOnlyGuard: "${op.table}" is create-only (append-only) — ${what}. ${hint}`,
     { table: op.table, operation: op.kind },
@@ -154,19 +150,19 @@ function violationError(
 
 /**
  * The create-only/append-only runtime GUARD. Fail-fast: a tagged table's update-family call throws
- * {@link BetterSchemicError} `CreateOnlyViolation` BEFORE compiling (403), so a buggy update never
+ * {@link OrmError} `CreateOnlyViolation` BEFORE compiling (403), so a buggy update never
  * round-trips. Untagged tables pass through untouched (zero behavior change).
  */
 export function createOnlyGuard(options: CreateOnlyGuardOptions = {}) {
   if (options.tables !== undefined && !Array.isArray(options.tables))
-    throw new BetterSchemicError(
+    throw new OrmError(
       "PluginError",
       `createOnlyGuard: "tables" must be an array of physical table names (got ${describeValue(options.tables)}).`,
     );
   const extras: readonly string[] = options.tables ?? [];
   for (const name of extras)
     if (typeof name !== "string" || name.length === 0)
-      throw new BetterSchemicError(
+      throw new OrmError(
         "PluginError",
         `createOnlyGuard: every "tables" entry must be a non-empty physical table name (got ${describeValue(name)}).`,
       );
@@ -186,7 +182,7 @@ export function createOnlyGuard(options: CreateOnlyGuardOptions = {}) {
     for (const name of extras) {
       const model = index.byName.get(name);
       if (model === undefined)
-        throw new BetterSchemicError(
+        throw new OrmError(
           "SchemaInvalid",
           `createOnlyGuard: "tables" entry "${name}" is not in the schema — add it or drop the entry.`,
           { table: name, operation: "setup" },

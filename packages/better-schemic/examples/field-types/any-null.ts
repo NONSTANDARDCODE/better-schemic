@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { s, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -6,7 +6,7 @@ export default example(import.meta.url, {
   ddl: `DEFINE TABLE loose TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD anything ON TABLE loose TYPE any;
 DEFINE FIELD nothing ON TABLE loose TYPE null;`,
-  def: defineTable("loose", {
+  def: table("loose", {
     id: s.string(),
     anything: s.any(),
     nothing: s.null(),

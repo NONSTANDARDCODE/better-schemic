@@ -1,5 +1,5 @@
-import type { SeedContext } from "../core";
 import type { Surreal } from "surrealdb";
+import type { SeedContext } from "../core";
 
 /**
  * A seed function — receives the connected `Surreal` client and the {@link SeedContext} (a small

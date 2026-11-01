@@ -4,15 +4,15 @@
 // Entries whose sample is `null` are syntax-verified only (need capabilities/contexts a bare
 // RETURN doesn't have: http, fulltext search, field contexts).
 import { describe, expect, test } from "bun:test";
-import { fn } from "../../../src/surreal/fn";
 import {
   DateTime,
   Duration,
-  defineTable,
   RecordId,
   s,
   surql,
+  table,
 } from "../../../src/surreal";
+import { fn } from "../../../src/surreal/fn";
 
 // --- walk the catalog -------------------------------------------------------------------------
 
@@ -182,7 +182,10 @@ const SAMPLES: Record<string, unknown[] | null> = {
   // `search::rrf` needs real rank lists from a fulltext/knn SELECT; the sample below is the
   // smallest shape the server accepts (two rank lists + the ranking constant k).
   "search.rrf": [
-    [[1, 2], [2, 3]],
+    [
+      [1, 2],
+      [2, 3],
+    ],
     2,
   ],
   "session.db": [],
@@ -373,7 +376,10 @@ describe.skipIf(!URL)("catalog live sweep", () => {
     const { Surreal } = await import("surrealdb");
     const c = new Surreal();
     await c.connect(URL as string);
-    await c.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
+    await c.signin({
+      username: process.env.SURREAL_USER ?? "root",
+      password: process.env.SURREAL_PASS ?? "root",
+    });
     await c.use({ namespace: "fnc", database: "fnc" });
     // record:: probes need the table to exist.
     await c.query("DEFINE TABLE OVERWRITE fnc_probe SCHEMALESS");

@@ -6,13 +6,13 @@
  * overload of `$withContext` (or `forkSession()`) for a scoped session.
  *
  * The SDK resolves an `ApiResponse` envelope for every outcome (it does not reject on 4xx/5xx), so
- * the runtime inspects `status` and throws a {@link BetterSchemicError} carrying the HTTP status and
+ * the runtime inspects `status` and throws a {@link OrmError} carrying the HTTP status and
  * the response body — a failed endpoint can never be mistaken for an empty result.
  */
 import { compileError } from "./compiler/shared";
 import { assertSessionBound } from "./context";
 import type { DelegateContext } from "./delegate";
-import { BetterSchemicError, normalizeError } from "./errors";
+import { normalizeError, OrmError } from "./errors";
 import type {
   ApiBodyOptions,
   ApiOperations,
@@ -81,7 +81,7 @@ export function createApiOperations(ctx: DelegateContext): ApiOperations {
     }
     const status = response?.status ?? 0;
     if (status >= 400)
-      throw new BetterSchemicError(
+      throw new OrmError(
         "DatabaseError",
         `${operation} "${path}" failed with status ${status}: ${describeBody(response.body)}`,
         { operation, status, details: response.body },

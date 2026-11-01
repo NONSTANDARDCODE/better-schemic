@@ -8,7 +8,7 @@
  * edge filter sits in `->(edge WHERE …)`, the target filter in the subquery's `WHERE` (or
  * `WHERE out.<field>` when the row is the edge); `_count` uses NONE-safe `count(...)`.
  */
-import { BetterSchemicError } from "../../errors";
+import { OrmError } from "../../errors";
 import type { ModelMeta, SchemaIndex } from "../../meta";
 import { availableKeys, findEdge } from "../relations";
 import type { Binds } from "../shared";
@@ -123,7 +123,7 @@ export function compileIncludes(args: {
     }
     const { links, edges } = availableKeys(meta);
     const known = [...links.filter((field) => field !== "id"), ...edges];
-    throw new BetterSchemicError(
+    throw new OrmError(
       "UnknownField",
       `${operation}: include."${key}" is not a link or edge of "${meta.name}". Known relations: ${known.length ? known.join(", ") : "(none)"} (plus "_count").`,
       { table: meta.name, field: key, operation, details: { known } },

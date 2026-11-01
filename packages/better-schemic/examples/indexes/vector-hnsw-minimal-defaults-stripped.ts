@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { s, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -7,7 +7,7 @@ export default example(import.meta.url, {
   ddl: `DEFINE TABLE vh TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD emb ON TABLE vh TYPE array<float>;
 DEFINE INDEX vec ON TABLE vh FIELDS emb HNSW DIMENSION 4;`,
-  def: defineTable("vh", { id: s.string(), emb: s.array(s.float()) }).index(
+  def: table("vh", { id: s.string(), emb: s.array(s.float()) }).index(
     "vec",
     ["emb"],
     { hnsw: { dimension: 4 } },

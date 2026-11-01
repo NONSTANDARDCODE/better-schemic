@@ -4,15 +4,15 @@
 // at 100% branch coverage. The inputs are synthesized from the condition assignment, then fed to the
 // REAL predicate, so the proof tracks the shipped logic.
 import { describeMcdc } from "better-schemic/testing";
-import { BetterSchemicError } from "../../../src/surreal/orm/errors";
 import {
   isNotFound,
   isUnsupportedCapability,
   isValidationError,
+  OrmError,
 } from "../../../src/surreal/orm/errors";
 
 const errOf = (code: string | undefined): unknown =>
-  code === undefined ? {} : new BetterSchemicError(code as never, "x");
+  code === undefined ? {} : new OrmError(code as never, "x");
 
 describeMcdc({
   label: "isNotFound",

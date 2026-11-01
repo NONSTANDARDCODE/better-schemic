@@ -1,4 +1,4 @@
-import { defineTable, s, surql } from "better-schemic";
+import { s, surql, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -6,7 +6,7 @@ export default example(import.meta.url, {
   ddl: `DEFINE TABLE account TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD balance ON TABLE account TYPE float;
 DEFINE EVENT overdraft ON TABLE account WHEN $after.balance < 0 THEN CREATE alert SET account = $after.id, kind = 'overdraft';`,
-  def: defineTable("account", { id: s.string(), balance: s.float() }).event(
+  def: table("account", { id: s.string(), balance: s.float() }).event(
     "overdraft",
     {
       when: surql`$after.balance < 0`,

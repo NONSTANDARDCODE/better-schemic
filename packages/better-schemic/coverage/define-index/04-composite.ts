@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { table, s } from "better-schemic";
 import { cover } from "../_kit";
 
 export default cover(import.meta.url, {
@@ -8,7 +8,7 @@ export default cover(import.meta.url, {
 DEFINE FIELD kind ON TABLE event TYPE string;
 DEFINE FIELD at ON TABLE event TYPE datetime;
 DEFINE INDEX event_kind_at_idx ON TABLE event FIELDS kind, at;`,
-  def: defineTable("event", { kind: s.string(), at: s.datetime() })
+  def: table("event", { kind: s.string(), at: s.datetime() })
     .schemafull()
     .index("event_kind_at_idx", ["kind", "at"]),
 });

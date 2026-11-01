@@ -2,7 +2,7 @@
  * Shared helpers of the `plugins/tenant` preset + runtime: the identifier guard that keeps tenant
  * column / event / index names canonical (and rename-safe) on both halves.
  */
-import { BetterSchemicError } from "../orm/errors";
+import { OrmError } from "../orm/errors";
 
 /** Letters/digits/underscore, not starting with a digit. */
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -26,8 +26,8 @@ export function identError(
   name: unknown,
   table: string,
   what: string,
-): BetterSchemicError {
-  return new BetterSchemicError(
+): OrmError {
+  return new OrmError(
     "SchemaInvalid",
     `plugins/tenant: ${what} ${JSON.stringify(name)} of "${table}" must be a plain identifier (letters/digits/underscore, not starting with a digit).`,
     { table, field: typeof name === "string" ? name : undefined },

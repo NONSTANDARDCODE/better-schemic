@@ -185,7 +185,8 @@ function fmtData(
     // entry VALUES may nest further data/blocks
     fmtStatement(e, level + 1, indent, width),
   );
-  const spaced = open === "{" ? `{ ${entries.join(", ")} }` : `[${entries.join(", ")}]`;
+  const spaced =
+    open === "{" ? `{ ${entries.join(", ")} }` : `[${entries.join(", ")}]`;
   if (
     indent.repeat(level).length + spaced.length <= width &&
     !spaced.includes("\n")

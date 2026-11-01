@@ -1,13 +1,16 @@
 // The link branch of the include compiler: bare/union links (no single target), nested FETCH paths
 // and the star-only forms. A tailored schema exercises the shapes the shared fixtures don't have.
 import { describe, expect, test } from "bun:test";
-import { defineTable, s } from "../../../src/surreal";
-import { compileRead, type ReadArgs } from "../../../src/surreal/orm/compiler/select";
+import { s, table } from "../../../src/surreal";
+import {
+  compileRead,
+  type ReadArgs,
+} from "../../../src/surreal/orm/compiler/select";
 import { createBinds } from "../../../src/surreal/orm/compiler/shared";
-import type { BetterSchemicError } from "../../../src/surreal/orm/errors";
+import type { OrmError } from "../../../src/surreal/orm/errors";
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema";
 
-const NodeBase = defineTable("node", {
+const NodeBase = table("node", {
   name: s.string(),
   bare: s.recordId().optional(),
 });
@@ -28,27 +31,32 @@ function codeOf(fn: () => unknown): string | undefined {
     fn();
     return undefined;
   } catch (e) {
-    return (e as BetterSchemicError).code;
+    return (e as OrmError).code;
   }
 }
 
 describe("include — link edge shapes", () => {
   test("onlyStar accepts { '*': false } as a non-star entry", () => {
-    expect(
-      codeOf(() => compile({ include: { bare: { "*": false } } })),
-    ).toBe("ValidationError");
+    expect(codeOf(() => compile({ include: { bare: { "*": false } } }))).toBe(
+      "ValidationError",
+    );
   });
 
   test("a nested include needs a single target table", () => {
     // `bare` has no declared target → length 0 → the "any" label.
     expect(
-      codeOf(() => compile({ include: { bare: { include: { parent: true } } } })),
+      codeOf(() =>
+        compile({ include: { bare: { include: { parent: true } } } }),
+      ),
     ).toBe("ValidationError");
     // a link whose target is schemaless is not a typed table.
-    const Schemaless = defineTable("schemaless", {
+    const Schemaless = table("schemaless", {
       ref: s.recordId("audit_log").optional(),
     });
-    const idx = buildSchemaIndex({ items: Schemaless, audit_log: "audit_log" } as never);
+    const idx = buildSchemaIndex({
+      items: Schemaless,
+      audit_log: "audit_log",
+    } as never);
     const meta = idx.tables.get("items")!;
     expect(
       codeOf(() =>

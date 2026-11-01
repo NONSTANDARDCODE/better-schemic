@@ -178,7 +178,9 @@ export function compileRead(
       passthrough: compiled.passthrough,
       aliases: [
         ...(options.aliases ?? []),
-        ...(splitAlias ? [{ alias: splitAlias, path: args.split as string }] : []),
+        ...(splitAlias
+          ? [{ alias: splitAlias, path: args.split as string }]
+          : []),
       ],
     },
   );
@@ -416,7 +418,8 @@ function splitIdiomAlias(
   // duplicate a column or shadow a field the caller owns.
   if ((aliases ?? []).some((entry) => entry.alias === alias)) return undefined;
   if (isTableMeta(meta)) {
-    const shape = (meta.def.object as { shape?: Record<string, unknown> }).shape;
+    const shape = (meta.def.object as { shape?: Record<string, unknown> })
+      .shape;
     if (alias in (shape ?? {})) return undefined;
   }
   return alias;

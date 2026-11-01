@@ -486,17 +486,18 @@ function upsertWhere(
       : target.kind === "index"
         ? // A composite unique target: every field of the index, ANDed — the conjunction IS the key.
           target.entries
-            .map(([field, value]) =>
-              `${renderPath(field)} = ${binds.add(
-                isRecordColumn(meta, field)
-                  ? coerceRecordValue(
-                      value,
-                      recordTargets(meta, field),
-                      operation,
-                      field,
-                    )
-                  : value,
-              )}`,
+            .map(
+              ([field, value]) =>
+                `${renderPath(field)} = ${binds.add(
+                  isRecordColumn(meta, field)
+                    ? coerceRecordValue(
+                        value,
+                        recordTargets(meta, field),
+                        operation,
+                        field,
+                      )
+                    : value,
+                )}`,
             )
             .join(" AND ")
         : `${renderPath(target.field)} = ${binds.add(

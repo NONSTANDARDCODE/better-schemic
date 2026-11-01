@@ -5,13 +5,16 @@
 // change that makes a generic materially more expensive blows the +20% threshold and fails.
 // Re-baseline intentionally (`bun run scripts/type-bench.ts --update`) when a change is a known, justified cost.
 import { bench } from "../../../../../scripts/type-bench";
+import { s, table } from "../../../src/surreal";
 import type { Surql } from "../../../src/surreal/frag";
-import { defineTable, s } from "../../../src/surreal";
-import type { AggregateShape, ResultOf } from "../../../src/surreal/orm/types/select";
+import type {
+  AggregateShape,
+  ResultOf,
+} from "../../../src/surreal/orm/types/select";
 import type { Where } from "../../../src/surreal/orm/types/where";
 import type { App } from "../../../src/surreal/pure";
 
-const User = defineTable("user", {
+const User = table("user", {
   name: s.string(),
   age: s.int(),
   active: s.boolean(),

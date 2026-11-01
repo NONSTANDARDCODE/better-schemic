@@ -4,7 +4,7 @@
 
 ## Your SurrealDB schema, in the Zod you already know.
 
-One `defineTable` becomes your validator, your types, your DDL, your migrations **and your queries**.
+One `table` becomes your validator, your types, your DDL, your migrations **and your queries**.
 
 Upstream stopped shipping. This fork finished the part they left open — a fully typed query ORM.
 
@@ -51,9 +51,9 @@ Nine lines in. Everything out. **Nothing below is hand-written or maintained twi
 
 ```ts
 // database/schema/tables/user.ts
-import { defineTable, s, surql } from "better-schemic";
+import { table, s, surql } from "better-schemic";
 
-export const User = defineTable("user", {
+export const User = table("user", {
   name: s.string().$min(1).$max(80),
   email: s.email(),
   role: s.string().$default("member"),
@@ -129,9 +129,9 @@ source of truth can always be restored.
 **→ your queries**
 
 ```ts
-import { betterSchemic, defineSchema } from "better-schemic/orm";
+import { orm, schema } from "better-schemic/orm";
 
-const client = betterSchemic(db, { schema: defineSchema({ users: User }) });
+const client = orm(db, { schema: schema({ users: User }) });
 
 await client.users.update({ where: { email: "aeon@nonstandard.dev" }, data: { tags: ["db"] } });
 ```
@@ -176,7 +176,7 @@ red squiggle, not a 500. And a bad payload never reaches the wire — the codec 
 
 ```ts
 await client.users.create({ data: { name: "Aeon", email: "nope", tags: [] } });
-// BetterSchemicError: Validation failed at "email"  (code: "ValidationError")
+// OrmError: Validation failed at "email"  (code: "ValidationError")
 ```
 
 Reads, writes, `upsert`/`upsertDelta`, relations, transactions with `afterCommit`, live queries,
@@ -192,11 +192,11 @@ Everything below is the same authoring API. No extra config, no plugin, no escap
 **The graph is a type, not a traversal.**
 
 ```ts
-const Post = defineTable("post", {
+const Post = table("post", {
   title: s.string(),
   author: s.recordId(User).$reference({ onDelete: "cascade" }),
 });
-const Likes = defineRelation("likes", { score: s.int().$min(0).$max(5) }).from(User).to(Post);
+const Likes = relation("likes", { score: s.int().$min(0).$max(5) }).from(User).to(Post);
 
 await client.likes.relate({ from: "user:1", to: "post:1", data: { score: 5 } });
 // RELATE user:1->likes->post:1 SET score = $p0;
@@ -213,7 +213,7 @@ await client.users.findMany({
 ```ts
 defineAnalyzer("english").tokenizers("blank").filters("lowercase", "snowball(english)");
 
-defineTable("doc", { content: s.string(), embedding: s.array(s.float()) })
+table("doc", { content: s.string(), embedding: s.array(s.float()) })
   .index("ft", ["content"], { fulltext: { analyzer: "english", highlights: true } })
   .index("vec", ["embedding"], { hnsw: { dimension: 1536, dist: "cosine" } });
 ```
@@ -227,7 +227,7 @@ DEFINE INDEX vec ON TABLE doc FIELDS embedding HNSW DIMENSION 1536 DIST COSINE;
 **Permissions and views are schema — not a README you forget.**
 
 ```ts
-defineTable("doc", { id: s.string() }).permissions({
+table("doc", { id: s.string() }).permissions({
   select: surql`true`,
   create: surql`$auth.id != NONE`,
   update: surql`$auth.id = id.owner`,
@@ -241,7 +241,7 @@ defineView("adults", { name: s.string(), age: s.number() })
 **Guardrails ship as plugins, not tribal knowledge.**
 
 ```ts
-betterSchemic(db, {
+orm(db, {
   schema,
   plugins: [
     recommended({ maxLimit: 100 }),                 // no raw-unsafe, no unfiltered writes
@@ -257,7 +257,7 @@ await client.customers.$forTenant("user:abc").findMany({});  // ✓ scoped
 **A query log you'd actually keep on.**
 
 ```ts
-betterSchemic(db, { schema, logger: true });   // or BETTER_SCHEMIC_LOG=1
+orm(db, { schema, logger: true });   // or BETTER_SCHEMIC_LOG=1
 ```
 
 ```text

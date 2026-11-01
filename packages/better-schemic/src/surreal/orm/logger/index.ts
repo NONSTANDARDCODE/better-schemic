@@ -3,10 +3,10 @@
  *
  * ```ts
  * import { createQueryLogger } from "better-schemic/logger";
- * import { betterSchemic } from "better-schemic/orm";
+ * import { orm } from "better-schemic/orm";
  *
- * const client = betterSchemic(conn, { schema, logger: createQueryLogger({ slowMs: 50 }) });
- * // or the shorthand: betterSchemic(conn, { schema, logger: true }) / "json"
+ * const client = orm(conn, { schema, logger: createQueryLogger({ slowMs: 50 }) });
+ * // or the shorthand: orm(conn, { schema, logger: true }) / "json"
  * ```
  */
 

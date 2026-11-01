@@ -18,6 +18,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+### Changed
+- **Renamed public authoring/ORM identifiers** (breaking): `defineTable` → `table`, `defineRelation` → `relation`,
+  `defineSchema` → `schema`, `betterSchemic` → `orm`, `createBetterSchemic` → `createOrm`, and the derived types
+  `BetterSchemic*`/`CreateBetterSchemic*` → `Orm*`/`CreateOrm*`. The package name, subpaths (`better-schemic/orm`),
+  and other `define*` names are unchanged. All docs, examples, tests and manifests updated to the new names.
+
 ## [0.1.0-beta.4] - 2026-10-30
 
 ### Added

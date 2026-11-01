@@ -2,18 +2,17 @@
 // `_count`) and the relational `where` vocabulary, all derived from the authored schema.
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
 import { describe, it } from "node:test";
-import { assertType } from "../../../../../scripts/type-assert";
 import type { RecordId } from "surrealdb";
-import { defineRelation, defineTable, s } from "../../../src/surreal";
+import { assertType } from "../../../../../scripts/type-assert";
+import { relation, s, table } from "../../../src/surreal";
 import type { Client } from "../../../src/surreal/orm/client";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { schema } from "../../../src/surreal/orm/schema";
 import type { IncludeArg } from "../../../src/surreal/orm/types/include";
 import type { ResultOf, Simplify } from "../../../src/surreal/orm/types/select";
 import type { Where } from "../../../src/surreal/orm/types/where";
 import type { App } from "../../../src/surreal/pure";
 
-
-const UserBase = defineTable("user", { name: s.string(), age: s.int() });
+const UserBase = table("user", { name: s.string(), age: s.int() });
 const User = UserBase.extend({
   mentor: s.recordId(() => UserBase).optional(),
   friends: s
@@ -21,16 +20,14 @@ const User = UserBase.extend({
     .array()
     .optional(),
 });
-const Post = defineTable("post", {
+const Post = table("post", {
   title: s.string(),
   published: s.boolean(),
   author: s.recordId(User),
 });
-const Likes = defineRelation("user_likes", { score: s.int() })
-  .from(User)
-  .to(Post);
-const schema = defineSchema({ users: User, posts: Post, likes: Likes });
-type S = typeof schema;
+const Likes = relation("user_likes", { score: s.int() }).from(User).to(Post);
+const schemaDef = schema({ users: User, posts: Post, likes: Likes });
+type S = typeof schemaDef;
 type U = typeof User;
 type P = typeof Post;
 type Row = App<U>;

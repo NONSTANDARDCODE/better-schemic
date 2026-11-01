@@ -41,8 +41,8 @@ import type {
   TransactionOptions,
 } from "./transaction";
 
-/** Options accepted by `betterSchemic(...)` — grows per milestone (plugins/hooks/raw/...). */
-export interface BetterSchemicOptions {
+/** Options accepted by `orm(...)` — grows per milestone (plugins/hooks/raw/...). */
+export interface OrmOptions {
   /** Attach statement `vars` to thrown errors (off by default — vars can hold user data). */
   readonly debug?: boolean;
   /** Defaults for `client.transaction(...)` (mode/retries/timeout/isolation policy). */
@@ -73,7 +73,7 @@ export interface BetterSchemicOptions {
   readonly logger?: LoggerOption;
 }
 
-/** A `defineSchema` artifact or the plain `{ key: def }` literal. */
+/** A `schema` artifact or the plain `{ key: def }` literal. */
 export type SchemaArg<S extends SchemaInput> = SchemaDef<S> | S;
 
 /** A project helper attached with `extends` (an object, or a factory receiving the client). */

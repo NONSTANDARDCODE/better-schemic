@@ -1,14 +1,9 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Diff, ResolvedConfig } from "../../core";
-import {
-  type Filter,
-  listMigrations,
-  loadDefs,
-  parseFilter,
-} from "../../core";
 import { escapeIdent, type Surreal } from "surrealdb";
+import type { Diff, ResolvedConfig } from "../../core";
+import { type Filter, listMigrations, loadDefs, parseFilter } from "../../core";
 import type { SurrealParams } from "../config";
 import { type DefineStatement, overwriteStatement } from "../ddl";
 import { normalizeDb } from "./struct";

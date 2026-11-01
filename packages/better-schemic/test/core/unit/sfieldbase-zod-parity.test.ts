@@ -94,10 +94,14 @@ describe("SFieldBase — codec + Zod passthrough chain", () => {
         .schema.safeParse("").success,
     ).toBe(false);
     expect(
-      field(z.string()).superRefine(() => {}).schema.safeParse("a").success,
+      field(z.string())
+        .superRefine(() => {})
+        .schema.safeParse("a").success,
     ).toBe(true);
     expect(
-      field(z.string()).check(() => {}).schema.safeParse("a").success,
+      field(z.string())
+        .check(() => {})
+        .schema.safeParse("a").success,
     ).toBe(true);
     expect(
       field(z.string())

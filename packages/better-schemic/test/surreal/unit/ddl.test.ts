@@ -3,16 +3,20 @@ import { surql } from "surrealdb";
 import { z } from "zod";
 import { schemaStruct } from "../../../src/surreal/cli/lower";
 import { structuredSnapshot } from "../../../src/surreal/cli/structure";
-import { emitField, emitTable, renderPermissions } from "../../../src/surreal/ddl";
+import {
+  emitField,
+  emitTable,
+  renderPermissions,
+} from "../../../src/surreal/ddl";
 import {
   type AnyField,
-  defineRelation,
-  defineTable,
   defineView,
+  relation,
   SField,
   type Shape,
   s,
   type TableDef,
+  table,
 } from "../../../src/surreal/pure";
 
 /** DDL for a single standalone field `x` on table `t`. */
@@ -693,7 +697,7 @@ describe("recursive types", () => {
 });
 
 describe("emitTable", () => {
-  const User = defineTable("user", {
+  const User = table("user", {
     id: z.string(),
     name: s.string(),
     role: s.enum(["admin", "member"]).$default(surql`"member"`),
@@ -727,7 +731,7 @@ describe("emitTable", () => {
   });
 
   test("an $internal() field is still emitted, with PERMISSIONS NONE", () => {
-    const Account = defineTable("user", {
+    const Account = table("user", {
       email: s.email(),
       passhash: s.string().$internal(),
     });
@@ -802,7 +806,7 @@ describe("emitTable", () => {
   });
 
   test("FLEXIBLE objects keep extra keys on decode (validation matches the DB)", () => {
-    const t = defineTable("t", {
+    const t = table("t", {
       a: s.array(s.object({ x: s.string() })).flexible(),
       o: s.object({ x: s.string() }).flexible(),
     }).schemafull();
@@ -821,7 +825,7 @@ describe("emitTable", () => {
     // The object-mode methods are unguarded (enabling the SObjectField
     // subclass); on a non-object field `applyObjectMode` passes the schema through unchanged, so there
     // is no FLEXIBLE and the field emits exactly as without the call.
-    const T = defineTable("t", {
+    const T = table("t", {
       id: s.string(),
       a: s.string().flexible(),
       b: s.number().loose(),
@@ -851,10 +855,10 @@ describe("emitTable", () => {
   });
 
   describe("relations", () => {
-    const A = defineTable("user", { id: z.string() });
-    const B = defineTable("post", { id: z.string() });
-    const Tag = defineTable("tag", { id: z.string() });
-    const Liked = defineRelation("liked", {
+    const A = table("user", { id: z.string() });
+    const B = table("post", { id: z.string() });
+    const Tag = table("tag", { id: z.string() });
+    const Liked = relation("liked", {
       strength: s.number().$assert(surql`$value >= 0`),
     })
       .from(A)
@@ -873,22 +877,22 @@ describe("emitTable", () => {
     });
 
     test("multi-endpoint relation -> FROM a | b", () => {
-      const Multi = defineRelation("rel").from([A, Tag]).to(B);
+      const Multi = relation("rel").from([A, Tag]).to(B);
       expect(emitTable(Multi as TableDef<string, Shape>).split("\n")[0]).toBe(
         "DEFINE TABLE rel TYPE RELATION FROM user | tag TO post SCHEMAFULL;",
       );
     });
 
     test("endpoints are optional — bare relation is `TYPE RELATION` (no FROM/TO)", () => {
-      expect(emitTable(defineRelation("has", {})).split("\n")[0]).toBe(
+      expect(emitTable(relation("has", {})).split("\n")[0]).toBe(
         "DEFINE TABLE has TYPE RELATION SCHEMAFULL;",
       );
       // partial wiring: only `.from` set
-      expect(emitTable(defineRelation("r").from(A)).split("\n")[0]).toBe(
+      expect(emitTable(relation("r").from(A)).split("\n")[0]).toBe(
         "DEFINE TABLE r TYPE RELATION FROM user SCHEMAFULL;",
       );
       // a bare relation is a usable table (passes the duck-typed checks)
-      const bare = defineRelation("has", {});
+      const bare = relation("has", {});
       expect(bare.kind).toBe("relation");
       expect(typeof bare.record).toBe("function");
     });
@@ -899,7 +903,7 @@ describe("PERMISSIONS", () => {
   /** The first line (table head) of a table's DDL. */
   const head = (t: TableDef<string, Shape>) => emitTable(t).split("\n")[0];
   const tbl = (perms: Parameters<TableDef<string, Shape>["permissions"]>[0]) =>
-    defineTable("t", { name: s.string() }).permissions(perms);
+    table("t", { name: s.string() }).permissions(perms);
 
   describe("renderPermissions algorithm (4 table ops)", () => {
     const ops = ["select", "create", "update", "delete"] as const;
@@ -983,7 +987,7 @@ describe("PERMISSIONS", () => {
     });
 
     test("a shared BoundQuery covers all four ops, after COMMENT", () => {
-      const T = defineTable("t", { name: s.string() })
+      const T = table("t", { name: s.string() })
         .comment("notes")
         .permissions(surql`owner = $auth.id`);
       expect(head(T)).toBe(
@@ -1007,7 +1011,7 @@ describe("PERMISSIONS", () => {
       // Regression: the structured/canonical path (gen/diff/snapshot, via `canonicalPerms`) emitted
       // `FOR select WHERE … FOR update WHERE …` per-op, while the authoring emitter collapsed. Now both
       // collapse — matching SurrealDB's INFO form. (`delete NONE` is the table default, so it's omitted.)
-      const T = defineTable("doc", { id: s.string() }).permissions({
+      const T = table("doc", { id: s.string() }).permissions({
         select: surql`$auth.id = id`,
         update: "same as select",
         create: true,

@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { RecordId } from "surrealdb";
 import { surql } from "../../../src/surreal";
 import type { Client } from "../../../src/surreal/orm/client";
-import { betterSchemic } from "../../../src/surreal/orm/client";
+import { orm } from "../../../src/surreal/orm/client";
 import { fakeConn, ok } from "../orm-fixtures";
 import {
   codeOf,
@@ -14,7 +14,7 @@ import {
   lastCall,
   makeClient,
   ROW,
-  schema,
+  schemaDef,
 } from "./orm-writes-fixtures";
 
 describe("return semantics — before/diff and the batch decode", () => {
@@ -55,7 +55,7 @@ describe("return semantics — before/diff and the batch decode", () => {
         return ok([[{ op: "replace", path: `/s${step}`, value: step }]]);
       }),
     );
-    const client = betterSchemic(conn, { schema }) as Client<typeof schema>;
+    const client = orm(conn, { schema: schemaDef }) as Client<typeof schemaDef>;
     const result = await client.users.update({
       where: { id: "user:1" },
       data: { active: true },
@@ -78,7 +78,7 @@ describe("return semantics — before/diff and the batch decode", () => {
         return ok([[{ op: "add", path: `/f${step}`, value: step }]]);
       }),
     );
-    const client = betterSchemic(conn, { schema }) as Client<typeof schema>;
+    const client = orm(conn, { schema: schemaDef }) as Client<typeof schemaDef>;
     const result = await client.users.createMany({
       data: [data, { ...data, name: "B" }],
       return: "diff",
@@ -137,7 +137,7 @@ describe("return semantics — before/diff and the batch decode", () => {
         return ok(null);
       }),
     );
-    const client = betterSchemic(conn, { schema }) as Client<typeof schema>;
+    const client = orm(conn, { schema: schemaDef }) as Client<typeof schemaDef>;
     const result = await client.users.upsertMany({
       data: [{ ...data }],
       conflict: "email",

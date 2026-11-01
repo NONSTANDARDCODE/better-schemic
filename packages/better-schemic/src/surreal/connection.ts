@@ -38,7 +38,7 @@ export interface SurrealConnectionConfig
 /**
  * Build a SurrealDB {@link ConnectionEntry} for a config's `connections` map: a single static config,
  * or a resolver — `(ctx, args) => config | config[]`. Declare the resolver's `args` as its (typed) 2nd
- * param; `betterSchemic.connect(name, args)` then autocompletes + type-checks them per connection. A single
+ * param; `orm.connect(name, args)` then autocompletes + type-checks them per connection. A single
  * returned config is directly connectable; an ARRAY is a bulk fleet (migrations enumerate it; `connect`
  * throws a teaching error — pass args selecting one). Inside a resolver, `ctx.connections.<sibling>`
  * lazily opens another connection (e.g. query the control-plane DB to enumerate tenants).

@@ -99,7 +99,7 @@ export interface PluginSpec<Cfg = unknown> {
 
 /** The runtime brand key distinguishing a `definePlugin` artifact (a plain literal — nameable in
  * `.d.ts` output, unlike a `unique symbol`). */
-export const PLUGIN_BRAND = "__betterSchemicPlugin" as const;
+export const PLUGIN_BRAND = "__ormPlugin" as const;
 
 /** A ready plugin (what `definePlugin` returns and `plugins: [...]` accepts). */
 export type Plugin<Cfg = unknown> = PluginSpec<Cfg> & {

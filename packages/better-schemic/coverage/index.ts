@@ -10,13 +10,13 @@ import { defineEventCoverage } from "./define-event";
 import { defineFieldCoverage } from "./define-field";
 import { defineFunctionCoverage } from "./define-function";
 import { defineIndexCoverage } from "./define-index";
-import { defineTableCoverage } from "./define-table";
+import { tableCoverage } from "./define-table";
 
 export type { CoverageGroup, CoverageItem } from "./_kit";
 
 /** Every statement's coverage group. The coverage test iterates this. */
 export const allCoverage: CoverageGroup[] = [
-  defineTableCoverage,
+  tableCoverage,
   defineAccessCoverage,
   defineFieldCoverage,
   defineIndexCoverage,

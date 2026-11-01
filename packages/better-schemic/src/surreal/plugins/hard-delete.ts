@@ -20,7 +20,7 @@
  *
  * ```ts
  * import { hardDelete } from "./hard-delete";
- * const client = betterSchemic(db, { schema, plugins: [hardDelete({ tables: ["session_key"] })] });
+ * const client = orm(db, { schema, plugins: [hardDelete({ tables: ["session_key"] })] });
  * // client.sessionKey.delete({ where: { id } }) -> DELETE session_key:…
  * ```
  */

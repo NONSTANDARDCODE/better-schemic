@@ -3,14 +3,20 @@
 // defaults are stripped from canonical DDL so an authored minimal sequence round-trips drift-free.
 import { describe, expect, test } from "bun:test";
 import { parseFilter, planKinds } from "better-schemic/core";
+import { defineSequence } from "../../../src/surreal";
 import { schemaStruct } from "../../../src/surreal/cli/lower";
 import { renderPerFile } from "../../../src/surreal/cli/pull";
-import { structuredSnapshot } from "../../../src/surreal/cli/structure";
 import { normalizeSequence } from "../../../src/surreal/cli/struct";
-import { filterStructured, included } from "../../../src/surreal/cli/surreal-filter";
+import { structuredSnapshot } from "../../../src/surreal/cli/structure";
+import {
+  filterStructured,
+  included,
+} from "../../../src/surreal/cli/surreal-filter";
 import { emitDefStatement, removeStatement } from "../../../src/surreal/ddl";
-import { defineSequence } from "../../../src/surreal";
-import { explodeSchema, toStructured } from "../../../src/surreal/kinds/explode";
+import {
+  explodeSchema,
+  toStructured,
+} from "../../../src/surreal/kinds/explode";
 import { lowerAll, surrealKinds } from "../../../src/surreal/kinds/registry";
 
 describe("authoring", () => {
@@ -44,9 +50,9 @@ describe("DDL", () => {
     expect(kind).toBe("sequence");
     expect(ddl).toBe("DEFINE SEQUENCE invoice;");
     // explicit defaults collapse to the same minimal form
-    expect(
-      emitDefStatement(defineSequence("s").batch(1000).start(0)).ddl,
-    ).toBe("DEFINE SEQUENCE s;");
+    expect(emitDefStatement(defineSequence("s").batch(1000).start(0)).ddl).toBe(
+      "DEFINE SEQUENCE s;",
+    );
   });
 
   test("non-default tunables are emitted in grammar order (BATCH, START, TIMEOUT)", () => {
@@ -61,28 +67,28 @@ describe("DDL", () => {
   });
 
   test("REMOVE SEQUENCE is the inverse", () => {
-    expect(
-      removeStatement({ kind: "sequence", name: "invoice" }),
-    ).toBe("REMOVE SEQUENCE IF EXISTS invoice;");
+    expect(removeStatement({ kind: "sequence", name: "invoice" })).toBe(
+      "REMOVE SEQUENCE IF EXISTS invoice;",
+    );
   });
 });
 
 describe("normalize", () => {
   test("materialized defaults are stripped so authored == introspected", () => {
     // INFO … STRUCTURE reports BATCH 1000 / START 0 explicitly.
-    expect(
-      normalizeSequence({ name: "s", batch: 1000, start: 0 }),
-    ).toEqual({ name: "s" });
+    expect(normalizeSequence({ name: "s", batch: 1000, start: 0 })).toEqual({
+      name: "s",
+    });
     expect(
       normalizeSequence({ name: "s", batch: 10, start: 5, timeout: "2s" }),
     ).toEqual({ name: "s", batch: 10, start: 5, timeout: "2s" });
   });
 
   test("sequences flow through schemaStruct's normalized Struct IR", () => {
-    const db = schemaStruct([], [
-      defineSequence("bare"),
-      defineSequence("tuned").batch(10).timeout("2s"),
-    ]);
+    const db = schemaStruct(
+      [],
+      [defineSequence("bare"), defineSequence("tuned").batch(10).timeout("2s")],
+    );
     expect(db.sequences).toEqual([
       { name: "bare" },
       { name: "tuned", batch: 10, timeout: "2s" },
@@ -92,13 +98,16 @@ describe("normalize", () => {
 
 describe("canonical DDL (every clause variant)", () => {
   test("structuredSnapshot emits BATCH/START/TIMEOUT in grammar order", () => {
-    const db = schemaStruct([], [
-      defineSequence("bare"),
-      defineSequence("b").batch(10),
-      defineSequence("s").start(5),
-      defineSequence("t").timeout("2s"),
-      defineSequence("all").batch(10).start(5).timeout("2s"),
-    ]);
+    const db = schemaStruct(
+      [],
+      [
+        defineSequence("bare"),
+        defineSequence("b").batch(10),
+        defineSequence("s").start(5),
+        defineSequence("t").timeout("2s"),
+        defineSequence("all").batch(10).start(5).timeout("2s"),
+      ],
+    );
     const ddls = Object.values(structuredSnapshot(db).statements)
       .map((s) => s.ddl)
       .sort();
@@ -137,9 +146,9 @@ describe("kind registry: diff (emit / overwrite / remove) + explode round-trip",
     expect(planKinds(surrealKinds, Tuned, []).up.join("\n")).toContain(
       "REMOVE SEQUENCE IF EXISTS k;",
     );
-    expect(planKinds(surrealKinds, Bare, lowerAll([], [defineSequence("k")])).up).toEqual(
-      [],
-    );
+    expect(
+      planKinds(surrealKinds, Bare, lowerAll([], [defineSequence("k")])).up,
+    ).toEqual([]);
   });
 
   test("explode -> toStructured round-trips the sequence native", () => {
@@ -183,18 +192,30 @@ describe.skipIf(!URL)("defineSequence live", () => {
   test("apply → introspect → diff is empty; pull regenerates the fluent call", async () => {
     const { Surreal } = await import("surrealdb");
     const { planKinds } = await import("better-schemic/core");
-    const { introspectAll } = await import("../../../src/surreal/kinds/explode");
-    const { lowerAll, surrealKinds } = await import("../../../src/surreal/kinds/registry");
+    const { introspectAll } = await import(
+      "../../../src/surreal/kinds/explode"
+    );
+    const { lowerAll, surrealKinds } = await import(
+      "../../../src/surreal/kinds/registry"
+    );
     const { normalizeDb } = await import("../../../src/surreal/cli/struct");
     const { renderSchemaToTS } = await import("../../../src/surreal/cli/pull");
-    const { introspectStructured } = await import("../../../src/surreal/cli/structure");
+    const { introspectStructured } = await import(
+      "../../../src/surreal/cli/structure"
+    );
 
     const Bare = defineSequence("dsq_bare");
-    const Tuned = defineSequence("dsq_tuned").batch(50).start(1000).timeout("5s");
+    const Tuned = defineSequence("dsq_tuned")
+      .batch(50)
+      .start(1000)
+      .timeout("5s");
 
     const c = new Surreal();
     await c.connect(URL as string);
-    await c.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
+    await c.signin({
+      username: process.env.SURREAL_USER ?? "root",
+      password: process.env.SURREAL_PASS ?? "root",
+    });
     await c.use({ namespace: "dsq", database: "dsq" });
     await c.query(
       "REMOVE SEQUENCE IF EXISTS dsq_bare; REMOVE SEQUENCE IF EXISTS dsq_tuned;",

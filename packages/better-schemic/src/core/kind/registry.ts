@@ -184,7 +184,7 @@ function slugify(s: string): string {
 /**
  * A driver's set of registered kinds + the generic behavior the spine reads off them. Built once per
  * driver; `define` registers a kind and returns the driver's OWN `build` function UNCHANGED — so the
- * driver writes `export const defineTable = registry.define({ name: "table", build, ...engine })` and
+ * driver writes `export const table = registry.define({ name: "table", build, ...engine })` and
  * keeps full type-safety + DX (TS preserves a generic `build`'s parameters across the passthrough).
  */
 export class KindRegistry {

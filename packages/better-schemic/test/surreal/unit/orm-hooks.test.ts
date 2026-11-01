@@ -3,20 +3,23 @@
 // path. Offline (recording fake connection).
 import { describe, expect, test } from "bun:test";
 import { AlreadyExistsError, RecordId } from "surrealdb";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import { createHookDispatcher, resultCount } from "../../../src/surreal/orm/hooks";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { orm } from "../../../src/surreal/orm/client";
+import {
+  createHookDispatcher,
+  resultCount,
+} from "../../../src/surreal/orm/hooks";
+import { schema } from "../../../src/surreal/orm/schema";
 import type {
   AfterHookPayload,
   ErrorHookPayload,
   HookPayload,
 } from "../../../src/surreal/orm/types/hooks";
-import { defineRelation, defineTable, s } from "../../../src/surreal/pure";
+import { relation, s, table } from "../../../src/surreal/pure";
 import { fail, fakeConn, lines, ok } from "../orm-fixtures";
 
-const User = defineTable("user", { name: s.string(), age: s.int() });
-const Likes = defineRelation("likes", { score: s.int() }).from(User).to(User);
-const schema = defineSchema({ users: User, likes: Likes });
+const User = table("user", { name: s.string(), age: s.int() });
+const Likes = relation("likes", { score: s.int() }).from(User).to(User);
+const schemaDef = schema({ users: User, likes: Likes });
 
 const dup = () =>
   new AlreadyExistsError({
@@ -37,8 +40,8 @@ describe("hooks — read operations", () => {
   test("beforeQuery/afterQuery carry table/operation/surql/vars/count/durationMs", async () => {
     const seen: { before?: HookPayload; after?: AfterHookPayload } = {};
     const { conn } = clientWith();
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       hooks: {
         beforeQuery: (info) => {
           seen.before = info;
@@ -66,8 +69,8 @@ describe("hooks — read operations", () => {
   test("count/exists/aggregate route to beforeQuery too", async () => {
     const ops: string[] = [];
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok([])));
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       hooks: {
         beforeQuery: ({ operation }) => {
           ops.push(operation);
@@ -83,8 +86,8 @@ describe("hooks — read operations", () => {
   test("meta merges $withContext scope then the per-call value (call wins)", async () => {
     let meta: Record<string, unknown> | undefined;
     const { conn } = clientWith();
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       hooks: {
         beforeQuery: (info) => {
           meta = info.meta;
@@ -99,8 +102,8 @@ describe("hooks — read operations", () => {
   test("explain: true does NOT fire hooks", async () => {
     let fired = 0;
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok([])));
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       hooks: {
         beforeQuery: () => {
           fired++;
@@ -120,8 +123,8 @@ describe("hooks — write operations", () => {
   test("beforeCreate/afterCreate carry data and result", async () => {
     const seen: { before?: HookPayload; after?: AfterHookPayload } = {};
     const { conn } = clientWith();
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       hooks: {
         beforeCreate: (info) => {
           seen.before = info;
@@ -140,8 +143,8 @@ describe("hooks — write operations", () => {
   test("update/delete route to beforeUpdate/beforeDelete with where", async () => {
     const ops: string[] = [];
     const { conn } = clientWith();
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       hooks: {
         beforeUpdate: ({ operation }) => {
           ops.push(operation);
@@ -169,8 +172,8 @@ describe("hooks — write operations", () => {
         ok(line.startsWith("UPSERT") ? [{ before, after }] : null),
       ),
     );
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       hooks: {
         beforeUpdate: (info) => {
           seen.before = info;
@@ -208,8 +211,8 @@ describe("hooks — write operations", () => {
         ),
       ),
     );
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       hooks: {
         beforeUpdate: ({ operation }) => {
           ops.push(`before:${operation}`);
@@ -235,8 +238,8 @@ describe("hooks — write operations", () => {
         ok(line.startsWith("IF ") ? [{ before, after }] : null),
       ),
     );
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       hooks: {
         beforeUpdate: (info) => {
           data = info.data;
@@ -255,8 +258,8 @@ describe("hooks — write operations", () => {
   test("relate/unrelate route to beforeRelate", async () => {
     const ops: string[] = [];
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok([])));
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       hooks: {
         beforeRelate: ({ operation }) => {
           ops.push(operation);
@@ -273,8 +276,8 @@ describe("hooks — errors, raw and transactions", () => {
   test("onError fires with the normalized failure and rethrows", async () => {
     const seen: ErrorHookPayload[] = [];
     const { conn } = clientWith();
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       hooks: {
         onError: (info) => {
           seen.push(info);
@@ -293,8 +296,8 @@ describe("hooks — errors, raw and transactions", () => {
   test("beforeRaw/afterRaw fire around $raw; onRawError on a failed script", async () => {
     const events: string[] = [];
     const { conn } = clientWith();
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       hooks: {
         beforeRaw: ({ operation }) => {
           events.push(`before:${operation}`);
@@ -330,8 +333,8 @@ describe("hooks — errors, raw and transactions", () => {
       query: () => ({ responses: async () => [] }),
       beginTransaction: () => Promise.resolve(tx),
     };
-    const client = betterSchemic(root as never, {
-      schema,
+    const client = orm(root as never, {
+      schema: schemaDef,
       hooks: {
         beforeTransaction: () => {
           events.push("before");
@@ -361,8 +364,8 @@ describe("hooks — errors, raw and transactions", () => {
       query: () => ({ responses: async () => [] }),
       beginTransaction: () => Promise.resolve(tx),
     };
-    const client = betterSchemic(root as never, {
-      schema,
+    const client = orm(root as never, {
+      schema: schemaDef,
       hooks: {
         afterTransactionRollback: () => {
           events.push("rollback");
@@ -391,8 +394,8 @@ describe("hooks — fast path and after-hook failures", () => {
   test("an after-hook failure is routed to onError and never fails the operation", async () => {
     const seen: ErrorHookPayload[] = [];
     const { conn } = clientWith();
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       hooks: {
         afterQuery: () => {
           throw new Error("metrics down");
@@ -411,8 +414,8 @@ describe("hooks — fast path and after-hook failures", () => {
 
   test("a before-hook failure aborts the operation", async () => {
     const { conn } = clientWith();
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       hooks: {
         beforeQuery: () => {
           throw new Error("blocked");
@@ -428,8 +431,8 @@ describe("hooks — fast path and after-hook failures", () => {
     console.error = () => {};
     try {
       const { conn } = clientWith();
-      const client = betterSchemic(conn, {
-        schema,
+      const client = orm(conn, {
+        schema: schemaDef,
         hooks: {
           afterQuery: () => {
             throw new Error("metrics down");
@@ -447,8 +450,8 @@ describe("hooks — fast path and after-hook failures", () => {
     console.error = () => {};
     try {
       const { conn } = clientWith();
-      const client = betterSchemic(conn, {
-        schema,
+      const client = orm(conn, {
+        schema: schemaDef,
         hooks: {
           afterQuery: () => {
             throw new Error("after");

@@ -1,4 +1,4 @@
-// M8 — `createBetterSchemic` edge paths: the `connectTimeoutMs` wrapper (resolve + timeout), a
+// M8 — `createOrm` edge paths: the `connectTimeoutMs` wrapper (resolve + timeout), a
 // namespace-only config (no database), and the managed-close-on-failure path. Ephemeral server;
 // skipped when the `surreal` binary is unavailable.
 import { setDefaultTimeout } from "bun:test";
@@ -6,22 +6,22 @@ import { setDefaultTimeout } from "bun:test";
 setDefaultTimeout(120_000);
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { s, table } from "../../../src/surreal";
 import {
   type EphemeralServer,
   spawnEphemeralServer,
   surrealBinaryAvailable,
 } from "../../../src/surreal/cli/engine";
-import { defineTable, s } from "../../../src/surreal";
-import { createBetterSchemic } from "../../../src/surreal/orm/connect";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { createOrm } from "../../../src/surreal/orm/connect";
+import { schema } from "../../../src/surreal/orm/schema";
 
 const ENABLED = surrealBinaryAvailable();
 const live = describe.skipIf(!ENABLED);
 
-const User = defineTable("oc_edge_user", { name: s.string() });
-const schema = defineSchema({ users: User });
+const User = table("oc_edge_user", { name: s.string() });
+const schemaDef = schema({ users: User });
 
-live("createBetterSchemic — edge paths", () => {
+live("createOrm — edge paths", () => {
   let server: EphemeralServer;
 
   beforeAll(async () => {
@@ -33,48 +33,48 @@ live("createBetterSchemic — edge paths", () => {
   });
 
   test("a reachable endpoint resolves through the timeout wrapper", async () => {
-    const client = await createBetterSchemic({
+    const client = await createOrm({
       url: server.url,
       namespace: "oc_edge",
       database: "live",
       auth: { username: server.username, password: server.password },
       connectTimeoutMs: 10_000,
-      schema,
+      schema: schemaDef,
     });
     expect(client.users.$model.name).toBe("oc_edge_user");
     await client.close();
   });
 
   test("namespace-only config (no database) connects", async () => {
-    const client = await createBetterSchemic({
+    const client = await createOrm({
       url: server.url,
       namespace: "oc_edge_ns_only",
       auth: { username: server.username, password: server.password },
-      schema,
+      schema: schemaDef,
     });
     expect(client.users.$model.name).toBe("oc_edge_user");
     await client.close();
   });
 
   test("access-based auth attempts a record signin (or normalizes the failure)", async () => {
-    await createBetterSchemic({
+    await createOrm({
       url: server.url,
       namespace: "oc_edge",
       database: "live",
       auth: { access: "missing_access", variables: {} },
-      schema,
+      schema: schemaDef,
     })
       .then((c) => c.close())
       .catch(() => {});
   });
 
   test("a database-only config (empty namespace) takes the use() path", async () => {
-    await createBetterSchemic({
+    await createOrm({
       url: server.url,
       namespace: "",
       database: "oc_edge_db",
       auth: { username: server.username, password: server.password },
-      schema,
+      schema: schemaDef,
     })
       .then((c) => c.close())
       .catch(() => {});
@@ -90,12 +90,12 @@ live("createBetterSchemic — edge paths", () => {
     });
     try {
       await expect(
-        createBetterSchemic({
+        createOrm({
           url: `ws://127.0.0.1:${hang.port}/rpc`,
           namespace: "x",
           database: "y",
           connectTimeoutMs: 300,
-          schema,
+          schema: schemaDef,
         }),
       ).rejects.toThrow(/timed out after 300ms/);
     } finally {

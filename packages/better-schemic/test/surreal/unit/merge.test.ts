@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { mergeUnits, type RenderedUnit, unifiedDiff } from "better-schemic/core";
+import {
+  mergeUnits,
+  type RenderedUnit,
+  unifiedDiff,
+} from "better-schemic/core";
 
 const tableUnit = (
   exportName: string,
   code: string,
-  imports = [`import { s, defineTable } from "better-schemic";`],
+  imports = [`import { s, table } from "better-schemic";`],
 ): RenderedUnit => ({
   kind: "table",
   name: exportName.toLowerCase(),
@@ -16,14 +20,14 @@ const tableUnit = (
 const MIRROR = { keepLocalFields: false, keepLocalObjects: false };
 const KEEP = { keepLocalFields: true, keepLocalObjects: true };
 
-const USER = `export const User = defineTable("user", {
+const USER = `export const User = table("user", {
   id: s.string(),
   name: s.string(),
 })
   .schemaless();`;
 
 const fileWith = (...consts: string[]) =>
-  `import { s, defineTable } from "better-schemic";\n\n${consts.join("\n\n")}\n`;
+  `import { s, table } from "better-schemic";\n\n${consts.join("\n\n")}\n`;
 
 describe("mergeUnits", () => {
   test("is idempotent when the DB matches the file (no churn)", () => {
@@ -61,7 +65,7 @@ describe("mergeUnits", () => {
 
   describe("local-only fields", () => {
     const withLocal = fileWith(
-      `export const User = defineTable("user", {
+      `export const User = table("user", {
   id: s.string(),
   name: s.string(),
   nickname: s.string().optional(),
@@ -95,7 +99,7 @@ describe("mergeUnits", () => {
   });
 
   test("preserves a user's leading comment above the const", () => {
-    const src = `import { s, defineTable } from "better-schemic";\n\n// keep me\n${USER}\n`;
+    const src = `import { s, table } from "better-schemic";\n\n// keep me\n${USER}\n`;
     const { content } = mergeUnits(src, [tableUnit("User", USER)], MIRROR);
     expect(content).toContain("// keep me");
   });
@@ -126,7 +130,7 @@ describe("mergeUnits", () => {
 
   test("appends a brand-new object while keeping the existing one", () => {
     const src = fileWith(USER);
-    const post = `export const Post = defineTable("post", {\n  id: s.string(),\n})\n  .schemaless();`;
+    const post = `export const Post = table("post", {\n  id: s.string(),\n})\n  .schemaless();`;
     // A combined file: both the existing User and the new Post are DB objects for this file.
     const { content } = mergeUnits(
       src,
@@ -144,7 +148,7 @@ describe("mergeUnits", () => {
       "  name: s.string(),\n  org: Org.record(),\n",
     );
     const unit = tableUnit("User", desired, [
-      `import { s, defineTable } from "better-schemic";`,
+      `import { s, table } from "better-schemic";`,
       `import { Org } from "./org";`,
     ]);
     const { content } = mergeUnits(src, [unit], MIRROR);
@@ -166,9 +170,7 @@ export const greet = defineFunction("greet", { name: s.string() })
       name: "greet",
       exportName: "greet",
       code: desired,
-      imports: [
-        `import { defineFunction, s, surql } from "better-schemic";`,
-      ],
+      imports: [`import { defineFunction, s, surql } from "better-schemic";`],
     };
     const { content } = mergeUnits(src, [unit], MIRROR);
     expect(content).toContain(`RETURN "hello"`);

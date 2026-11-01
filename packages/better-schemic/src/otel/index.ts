@@ -3,7 +3,7 @@
  *
  * ```ts
  * import { createOtelLogger } from "better-schemic/otel";
- * const client = betterSchemic(db, { schema, logger: createOtelLogger() });
+ * const client = orm(db, { schema, logger: createOtelLogger() });
  * ```
  *
  * `@opentelemetry/api` is an optional peer dependency: install it only when you use this subpath.

@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { table, s } from "better-schemic";
 import { cover } from "../_kit";
 
 export default cover(import.meta.url, {
@@ -7,7 +7,7 @@ export default cover(import.meta.url, {
   ddl: `DEFINE TABLE doc TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD body ON TABLE doc TYPE string;
 DEFINE INDEX doc_body_idx ON TABLE doc FIELDS body FULLTEXT ANALYZER simple;`,
-  def: defineTable("doc", {
+  def: table("doc", {
     body: s.string().$fulltext("simple"),
   }).schemafull(),
 });

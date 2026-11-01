@@ -75,7 +75,7 @@ const tableEngine: KindEngine<PTable, PTable> = {
   },
   deps: (t) => t.deps,
 };
-const defineTable = registry.define({
+const table = registry.define({
   name: "table",
   build: (name: string, fields: PField[], opts?: { deps?: Ref[] }): PTable => ({
     kind: "table",
@@ -124,7 +124,7 @@ const defineFunction = registry.define({
 
 describe("createKind preserves each kind's authoring DX", () => {
   test("shape-based table builder returns a typed table def", () => {
-    const user = defineTable("user", [{ name: "name", type: "string" }]);
+    const user = table("user", [{ name: "name", type: "string" }]);
     expect(user.kind).toBe("table");
     expect(user.name).toBe("user");
     expect(user.fields).toEqual([{ name: "name", type: "string" }]);
@@ -140,9 +140,9 @@ describe("createKind preserves each kind's authoring DX", () => {
 
 describe("planKinds (add / change / remove)", () => {
   test("adding a field -> emit up, drop down (field-level diff in the table kind)", () => {
-    const prev = [defineTable("user", [{ name: "name", type: "string" }])];
+    const prev = [table("user", [{ name: "name", type: "string" }])];
     const next = [
-      defineTable("user", [
+      table("user", [
         { name: "name", type: "string" },
         { name: "age", type: "int" },
       ]),
@@ -153,8 +153,8 @@ describe("planKinds (add / change / remove)", () => {
   });
 
   test("changing a field type -> ALTER both ways", () => {
-    const prev = [defineTable("user", [{ name: "age", type: "int" }])];
-    const next = [defineTable("user", [{ name: "age", type: "float" }])];
+    const prev = [table("user", [{ name: "age", type: "int" }])];
+    const next = [table("user", [{ name: "age", type: "float" }])];
     const { up, down } = planKinds(registry, prev, next);
     expect(up).toEqual(["ALTER FIELD age:float ON user"]);
     expect(down).toEqual(["ALTER FIELD age:int ON user"]);
@@ -162,10 +162,10 @@ describe("planKinds (add / change / remove)", () => {
 
   test("removing a table -> drop up, full recreate down (table before its fields)", () => {
     const prev = [
-      defineTable("user", [{ name: "name", type: "string" }]),
-      defineTable("post", [{ name: "title", type: "string" }]),
+      table("user", [{ name: "name", type: "string" }]),
+      table("post", [{ name: "title", type: "string" }]),
     ];
-    const next = [defineTable("user", [{ name: "name", type: "string" }])];
+    const next = [table("user", [{ name: "name", type: "string" }])];
     const { up, down } = planKinds(registry, prev, next);
     expect(up).toEqual(["DROP TABLE post"]);
     expect(down).toEqual(["TABLE post", "FIELD title:string ON post"]);
@@ -181,7 +181,7 @@ describe("planKinds (add / change / remove)", () => {
 
   test("identical schemas plan to nothing", () => {
     const db = [
-      defineTable("user", [{ name: "name", type: "string" }]),
+      table("user", [{ name: "name", type: "string" }]),
       defineFunction("fmt").body("RETURN 1"),
     ];
     expect(planKinds(registry, db, db)).toEqual({ up: [], down: [] });
@@ -197,14 +197,14 @@ describe("cross-kind dependency ordering", () => {
   // A schema exercising every ordering rule:
   //   user, user_email(idx), post(FK->user), post_author(idx), fmt(fn), audit(event calls fmt)
   const schema = () => [
-    defineTable("user", [{ name: "name", type: "string" }]),
+    table("user", [{ name: "name", type: "string" }]),
     defineIndex("user_email", "user", ["name"]),
-    defineTable("post", [{ name: "title", type: "string" }], {
+    table("post", [{ name: "title", type: "string" }], {
       deps: [{ kind: "table", name: "user" }],
     }),
     defineIndex("post_author", "post", ["title"]),
     defineFunction("fmt").body("RETURN $v"),
-    defineTable("audit", [{ name: "at", type: "string" }], {
+    table("audit", [{ name: "at", type: "string" }], {
       deps: [{ kind: "function", name: "fmt" }],
     }),
   ];
@@ -234,8 +234,8 @@ describe("cross-kind dependency ordering", () => {
   });
 
   test("a dependency cycle is a named error", () => {
-    const a = defineTable("a", [], { deps: [{ kind: "table", name: "b" }] });
-    const b = defineTable("b", [], { deps: [{ kind: "table", name: "a" }] });
+    const a = table("a", [], { deps: [{ kind: "table", name: "b" }] });
+    const b = table("b", [], { deps: [{ kind: "table", name: "a" }] });
     expect(() => planKinds(registry, [], [a, b])).toThrow(/cycle/);
   });
 });
@@ -336,7 +336,7 @@ describe("introspectKinds fans out across kinds off one connection", () => {
 describe("lowerSchema + snapshot", () => {
   test("lowerSchema runs each definable through its kind's engine", () => {
     const portable = lowerSchema(registry, [
-      defineTable("user", [{ name: "name", type: "string" }]),
+      table("user", [{ name: "name", type: "string" }]),
       defineFunction("fmt").body("RETURN 1"),
     ]);
     expect(portable.map((o) => `${o.kind}:${o.name}`)).toEqual([
@@ -347,7 +347,7 @@ describe("lowerSchema + snapshot", () => {
 
   test("snapshot groups by kind and round-trips through JSON to a zero diff", () => {
     const portable = lowerSchema(registry, [
-      defineTable("user", [{ name: "name", type: "string" }]),
+      table("user", [{ name: "name", type: "string" }]),
       defineIndex("user_name", "user", ["name"]),
       defineFunction("fmt").body("RETURN 1"),
     ]);
@@ -370,10 +370,10 @@ describe("lowerSchema + snapshot", () => {
 
 describe("buildKindDiff produces up/down + display items + full", () => {
   const prev = lowerSchema(registry, [
-    defineTable("user", [{ name: "name", type: "string" }]),
+    table("user", [{ name: "name", type: "string" }]),
   ]);
   const next = lowerSchema(registry, [
-    defineTable("user", [
+    table("user", [
       { name: "name", type: "string" },
       { name: "age", type: "int" },
     ]),

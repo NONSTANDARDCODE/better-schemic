@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import type { QueryResponse } from "surrealdb";
 import { RecordId, Uuid } from "surrealdb";
 import type { Client } from "../../src/surreal/orm/client";
-import { betterSchemic } from "../../src/surreal/orm/client";
+import { orm } from "../../src/surreal/orm/client";
 import type { Queryable } from "../../src/surreal/orm/execute";
 import { schema } from "./_schema";
 
@@ -221,7 +221,7 @@ export function renderBound(value: unknown): unknown {
  */
 export async function capture(ex: OrmExample): Promise<OrmStatement> {
   const { conn, last } = recordingConn();
-  const client = betterSchemic(conn, { schema }) as OrmClient;
+  const client = orm(conn, { schema }) as OrmClient;
   try {
     await ex.def(client);
   } catch {

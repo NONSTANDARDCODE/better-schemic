@@ -3,11 +3,11 @@
 // and the `$withContext` overloads (sync scope vs Promise session).
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
 import { describe, it } from "node:test";
-import { assertType } from "../../../../../scripts/type-assert";
 import type { Tokens } from "surrealdb";
-import { defineFunction, defineTable, s } from "../../../src/surreal";
+import { assertType } from "../../../../../scripts/type-assert";
+import { defineFunction, s, table } from "../../../src/surreal";
 import type { Client } from "../../../src/surreal/orm/client";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { schema } from "../../../src/surreal/orm/schema";
 import type {
   DbInfo,
   NsInfo,
@@ -18,18 +18,27 @@ import type {
   ContextScope,
   OperationContext,
 } from "../../../src/surreal/orm/types/context";
-import type { FnArgs, FnReturn, FnSurface } from "../../../src/surreal/orm/types/fn";
-import type { RawOptions, RawStatements } from "../../../src/surreal/orm/types/raw";
-import type { FindManyArgs, FindUniqueArgs } from "../../../src/surreal/orm/types/select";
+import type {
+  FnArgs,
+  FnReturn,
+  FnSurface,
+} from "../../../src/surreal/orm/types/fn";
+import type {
+  RawOptions,
+  RawStatements,
+} from "../../../src/surreal/orm/types/raw";
+import type {
+  FindManyArgs,
+  FindUniqueArgs,
+} from "../../../src/surreal/orm/types/select";
 
-
-const User = defineTable("user", { name: s.string() });
+const User = table("user", { name: s.string() });
 const Add = defineFunction("add", { a: s.number(), b: s.number() }).returns(
   s.number(),
 );
 const Ping = defineFunction("ping").returns(s.string());
-const schema = defineSchema({ users: User, add: Add, ping: Ping });
-type C = Client<typeof schema>;
+const schemaDef = schema({ users: User, add: Add, ping: Ping });
+type C = Client<typeof schemaDef>;
 type U = typeof User;
 
 /** Call shapes (instantiation expressions don't survive esbuild/tsx). */
@@ -96,8 +105,14 @@ describe("raw — typing", () => {
   it("RawOptions accepts timeout + meta and OperationContext the three keys", () => {
     assertType<true, "timeout" extends keyof RawOptions ? true : false>();
     assertType<true, "meta" extends keyof RawOptions ? true : false>();
-    assertType<true, "namespace" extends keyof OperationContext ? true : false>();
-    assertType<true, "database" extends keyof OperationContext ? true : false>();
+    assertType<
+      true,
+      "namespace" extends keyof OperationContext ? true : false
+    >();
+    assertType<
+      true,
+      "database" extends keyof OperationContext ? true : false
+    >();
     assertType<true, "meta" extends keyof OperationContext ? true : false>();
     assertType<true, "auth" extends keyof ContextScope ? true : false>();
   });
@@ -105,13 +120,19 @@ describe("raw — typing", () => {
 
 describe("context — typing", () => {
   it("$withContext is sync without auth and a Promise with it", () => {
-    assertType<Client<typeof schema>, ReturnType<typeof ctxSync>>();
-    assertType<Promise<Client<typeof schema>>, ReturnType<typeof ctxAsync>>();
+    assertType<Client<typeof schemaDef>, ReturnType<typeof ctxSync>>();
+    assertType<
+      Promise<Client<typeof schemaDef>>,
+      ReturnType<typeof ctxAsync>
+    >();
   });
 
   it("every read accepts a per-call context override", () => {
     assertType<true, "context" extends keyof FindManyArgs<U> ? true : false>();
-    assertType<true, "context" extends keyof FindUniqueArgs<U> ? true : false>();
+    assertType<
+      true,
+      "context" extends keyof FindUniqueArgs<U> ? true : false
+    >();
     // The call compiles (the lazy thenable shape is exercised by the read suites).
     assertType<
       true,
@@ -131,7 +152,7 @@ describe("fn/api/auth/admin — typing", () => {
     assertType<Promise<string>, ReturnType<typeof fnPing>>();
     assertType<{ a: number; b: number }, FnArgs<typeof Add>>();
     assertType<number, FnReturn<typeof Add>>();
-    assertType<FnSurface<typeof schema>, C["fn"]>();
+    assertType<FnSurface<typeof schemaDef>, C["fn"]>();
   });
 
   it("api/auth/admin surfaces keep their shapes", () => {

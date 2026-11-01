@@ -8,8 +8,8 @@
  */
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { Surreal } from "surrealdb";
-import { emitDefStatement } from "../../../src/surreal/driver";
 import { defineFunction, s, surql } from "../../../src/surreal";
+import { emitDefStatement } from "../../../src/surreal/driver";
 
 // The workspace gate runs every package's suite IN PARALLEL — parallel-suite CPU contention can slow a live
 // connect/DDL past bun's 5s DEFAULT hook timeout, failing the `beforeEach`/`afterAll` below as an

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import type { Surreal } from "surrealdb";
 import type { ResolvedConfig } from "../../core";
 import {
   type Filter,
@@ -11,7 +12,6 @@ import {
   parseFilter,
   type RenderedUnit,
 } from "../../core";
-import type { Surreal } from "surrealdb";
 import { stripNullGuard } from "../ddl";
 import { formatForAssert, readsClientValue } from "../pure";
 import { splitTopUnion, topLevelSplitOnce } from "../surql-type-expr";
@@ -203,7 +203,7 @@ interface RenderCtx {
   imports: Set<string>;
   /** Set when a `record<self>` field used the callback `self` parameter. */
   usesSelf: boolean;
-  /** Whether the `self` callback is available (only `defineTable`, not `defineRelation`). */
+  /** Whether the `self` callback is available (only `table`, not `relation`). */
   allowSelf: boolean;
   /** PascalCase const name for a table. */
   constOf: (name: string) => string;
@@ -625,10 +625,10 @@ function renderTableConst(
 
   const name = ctx.constOf(t.name);
   const factory = isRelation
-    ? "defineRelation"
+    ? "relation"
     : singletonId !== undefined
       ? "defineSingleton"
-      : "defineTable";
+      : "table";
   // A `record<self>` field needs the callback shape so `self` is in scope.
   const head = ctx.usesSelf
     ? `export const ${name} = ${factory}(${JSON.stringify(t.name)}, (self) => ({`
@@ -1060,9 +1060,7 @@ function planFile(
 function functionUnit(fn: StructFunction): RenderedUnit {
   const code = renderFunctionConst(fn);
   const names = ["defineFunction", ...(code.includes("s.") ? ["s"] : [])];
-  const imports = [
-    `import { ${names.join(", ")} } from "better-schemic";`,
-  ];
+  const imports = [`import { ${names.join(", ")} } from "better-schemic";`];
   // `surql` from surrealdb on its own line (see tableUnit) — a function body is always a surql expr.
   if (code.includes("surql`"))
     imports.push(`import { surql } from "surrealdb";`);
@@ -1212,7 +1210,7 @@ function ctxFactory(tables: StructTable[]): (t: StructTable) => RenderCtx {
     table: t.name,
     imports: new Set(),
     usesSelf: false,
-    allowSelf: t.kind.kind !== "RELATION", // only defineTable takes the `self` callback
+    allowSelf: t.kind.kind !== "RELATION", // only table takes the `self` callback
     constOf,
     resolve: (target) => resolve(t.name, target),
   });
@@ -1245,11 +1243,7 @@ function mergeImports(units: RenderedUnit[]): string[] {
     }
   // better-schemic first, then the relative cross-file imports (sorted).
   order.sort((a, b) =>
-    a === "../index"
-      ? -1
-      : b === "../index"
-        ? 1
-        : a.localeCompare(b),
+    a === "../index" ? -1 : b === "../index" ? 1 : a.localeCompare(b),
   );
   return order.map(
     (src) =>
@@ -1338,9 +1332,7 @@ function assembleCombined(
     accesses.length > 0 ||
     ordered.some((r) => r.usesSurql);
   const names = ["s", ...factories];
-  const imports = [
-    `import { ${names.join(", ")} } from "better-schemic";`,
-  ];
+  const imports = [`import { ${names.join(", ")} } from "better-schemic";`];
   // `surql` from surrealdb on its own line (see tableUnit), kept out of the better-schemic import.
   if (usesSurql) imports.push(`import { surql } from "surrealdb";`);
   // Params + analyzers first — functions/events may reference $params; a FULLTEXT index its analyzer.

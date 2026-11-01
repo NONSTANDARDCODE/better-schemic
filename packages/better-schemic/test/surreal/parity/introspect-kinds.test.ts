@@ -16,8 +16,8 @@ import { lowerAll, surrealKinds } from "../../../src/surreal/kinds/registry";
 import {
   defineFunction,
   defineSequence,
-  defineTable,
   s,
+  table,
 } from "../../../src/surreal/pure";
 
 // The workspace gate runs every package's suite IN PARALLEL — parallel-suite CPU contention can slow a live
@@ -77,7 +77,7 @@ async function apply(conn: Surreal, ddl: string): Promise<void> {
 
 // A schema spanning table/field/index/event + a db-level function — all round-tripping kinds, chosen to
 // avoid the allowlisted canonical divergences (no unions, no quoted DEFAULTs, numeric function body).
-const User = defineTable("ik_user", {
+const User = table("ik_user", {
   id: s.string(),
   name: s.string().$unique(),
   age: s.int(),

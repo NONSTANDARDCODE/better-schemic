@@ -236,7 +236,7 @@ export function createRawOperations(
     if (defaults?.unsafe !== true)
       throw compileError(
         "UnsafeDisabled",
-        `$unsafe is disabled — enable it with betterSchemic(conn, { schema, raw: { unsafe: true } }). Prefer $raw/$query, which parameterize every value.`,
+        `$unsafe is disabled — enable it with orm(conn, { schema, raw: { unsafe: true } }). Prefer $raw/$query, which parameterize every value.`,
         { operation: "$unsafe" },
       );
     if (typeof sql !== "string" || sql.trim().length === 0)

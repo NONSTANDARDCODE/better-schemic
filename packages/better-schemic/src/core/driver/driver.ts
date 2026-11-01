@@ -256,7 +256,7 @@ export interface Driver<
   /** This driver's registered KINDS. Core runs lower/diff/emit/order generically over it. */
   readonly registry: KindRegistry;
   /**
-   * Authoring (loaded `defineTable`/standalone defs) -> kinded {@link Definable}s. The driver-side
+   * Authoring (loaded `table`/standalone defs) -> kinded {@link Definable}s. The driver-side
    * fan-out: one inline-authored table explodes into `[table, ...index, ...event/constraint]`, each
    * tagged with its `kind`. Core then lowers via `lowerSchema(registry, explode(...))` — so
    * `KindEngine.lower` stays 1:1 and the contract needs no explode hook.
@@ -372,7 +372,7 @@ export interface Driver<
   initScaffold?(): Record<string, string>;
   /**
    * Scaffold a NEW entity file's contents — the starter `s.*` / `define*` module for an object of
-   * `kind` named `name` (e.g. `("table", "user")` -> a `defineTable("user", { … })` module in this
+   * `kind` named `name` (e.g. `("table", "user")` -> a `table("user", { … })` module in this
    * dialect's authoring). Returns the file text; the CLI writes it under the kind's
    * {@link KindRegistry.display} folder. THROW for a kind this driver can't author (the CLI surfaces
    * the message). Absent -> `better-schemic new` is unavailable for this driver.

@@ -2,15 +2,17 @@
 // (`{ increment }`/`{ decrement }` → `SET f ±= $p`): the server-vs-client lowering, the decode,
 // and the teaching guards. Core write goldens live in `orm-writes.test.ts`.
 import { describe, expect, test } from "bun:test";
-import { buildSchemaIndex } from "../../../src/surreal/orm/schema";
-import type { BetterSchemicError } from "../../../src/surreal/orm/errors";
-import type { TableMeta } from "../../../src/surreal/orm/meta";
 import { Decimal, RecordId } from "surrealdb";
 import { surql } from "../../../src/surreal";
-import { adjustmentOf, stripAdjustments } from "../../../src/surreal/orm/arithmetic";
-import { betterSchemic, type Client } from "../../../src/surreal/orm/client";
-import { defineSchema } from "../../../src/surreal/orm/schema";
-import { defineTable, s } from "../../../src/surreal/pure";
+import {
+  adjustmentOf,
+  stripAdjustments,
+} from "../../../src/surreal/orm/arithmetic";
+import { type Client, orm } from "../../../src/surreal/orm/client";
+import type { OrmError } from "../../../src/surreal/orm/errors";
+import type { TableMeta } from "../../../src/surreal/orm/meta";
+import { buildSchemaIndex, schema } from "../../../src/surreal/orm/schema";
+import { s, table } from "../../../src/surreal/pure";
 import { fakeConn, ok } from "../orm-fixtures";
 import {
   codeOf,
@@ -18,7 +20,7 @@ import {
   lastCall,
   makeClient,
   ROW,
-  schema,
+  schemaDef,
 } from "./orm-writes-fixtures";
 
 describe("write projections — server-side RETURN", () => {
@@ -301,7 +303,7 @@ describe("write projections — client-side (before/delete/omit)", () => {
       after: { ...ROW, age: 31 },
     };
     const { conn } = fakeConn(() => [ok([envelope])]);
-    const client = betterSchemic(conn, { schema }) as Client<typeof schema>;
+    const client = orm(conn, { schema: schemaDef }) as Client<typeof schemaDef>;
     const out = await client.users.upsertDelta({
       where: { id: "user:1" },
       data: { age: 31 },
@@ -319,7 +321,7 @@ describe("write projections — client-side (before/delete/omit)", () => {
   test("omit applies client-side to upsertDelta and updateEach too", async () => {
     const envelope = { before: ROW, after: { ...ROW, age: 31 } };
     const { conn } = fakeConn(() => [ok([envelope])]);
-    const client = betterSchemic(conn, { schema }) as Client<typeof schema>;
+    const client = orm(conn, { schema: schemaDef }) as Client<typeof schemaDef>;
     const out = await client.users.upsertDelta({
       where: { id: "user:1" },
       data: { age: 31 },
@@ -490,9 +492,9 @@ describe("projections across the upsert lowerings", () => {
 
     const envelope = { before: ROW, after: { ...ROW, age: 31 } };
     const { conn } = fakeConn(() => [ok([envelope])]);
-    const deltaClient = betterSchemic(conn, {
-      schema,
-    }) as Client<typeof schema>;
+    const deltaClient = orm(conn, {
+      schema: schemaDef,
+    }) as Client<typeof schemaDef>;
     const created = await deltaClient.users.upsertDelta({
       data: { ...data },
       select: { age: true },
@@ -605,10 +607,10 @@ describe("arithmetic adjustments — lowering", () => {
   });
 
   test("Decimal operands bind; replace/patch modes reject adjustments", async () => {
-    const Ledger = defineTable("ledger", { balance: s.decimal() });
+    const Ledger = table("ledger", { balance: s.decimal() });
     const { conn, calls } = fakeConn(() => [ok([])]);
-    const ledger = betterSchemic(conn, {
-      schema: defineSchema({ ledgers: Ledger }),
+    const ledger = orm(conn, {
+      schema: schema({ ledgers: Ledger }),
     });
     await ledger.ledgers.update({
       where: { id: "ledger:1" },
@@ -743,8 +745,8 @@ describe("arithmetic adjustments — guards", () => {
 
   test("a schemaless delegate adjusts any field (no column metadata to check)", async () => {
     const { conn, calls } = fakeConn(() => [ok([])]);
-    const client = betterSchemic(conn, {
-      schema: defineSchema({ loose: "loose_table" }),
+    const client = orm(conn, {
+      schema: schema({ loose: "loose_table" }),
     });
     await client.loose.update({
       where: { id: "loose_table:1" },
@@ -832,20 +834,22 @@ describe("adjustment markers — parsing and stripping", () => {
 });
 
 describe("array adjustments — append/remove/union/at", () => {
-  const Tag = defineTable("tagged", {
+  const Tag = table("tagged", {
     name: s.string(),
     score: s.int(),
     labels: s.array(s.string()),
   });
-  const tagSchema = defineSchema({ tagged: Tag });
+  const tagSchema = schema({ tagged: Tag });
 
   const tagClient = (
     result: unknown = [
       { id: new RecordId("tagged", "1"), name: "x", score: 0, labels: ["a"] },
     ],
   ) => {
-    const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok(result)));
-    return { client: betterSchemic(conn, { schema: tagSchema }), calls };
+    const { conn, calls } = fakeConn((sql) =>
+      sql.split("\n").map(() => ok(result)),
+    );
+    return { client: orm(conn, { schema: tagSchema }), calls };
   };
 
   test("append/remove lower to the compound assignment forms", async () => {
@@ -955,23 +959,33 @@ describe("array adjustments — append/remove/union/at", () => {
 });
 
 describe("adjustment operand classification — the decision table", () => {
-  const T = defineTable("operand", {
+  const T = table("operand", {
     name: s.string(),
     score: s.int(),
     labels: s.array(s.string()),
   });
   const meta = buildSchemaIndex({ t: T }).tables.get("t") as TableMeta;
-  const row = { id: new RecordId("operand", 1), name: "n", score: 1, labels: [] };
+  const row = {
+    id: new RecordId("operand", 1),
+    name: "n",
+    score: 1,
+    labels: [],
+  };
 
   const code = (field: string, marker: unknown) => {
-    const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok([row])));
-    const client = betterSchemic(conn, { schema: defineSchema({ t: T }) });
+    const { conn, calls } = fakeConn((sql) =>
+      sql.split("\n").map(() => ok([row])),
+    );
+    const client = orm(conn, { schema: schema({ t: T }) });
     try {
-      void client.t.update({ where: { id: "operand:1" }, data: { [field]: marker } as never });
+      void client.t.update({
+        where: { id: "operand:1" },
+        data: { [field]: marker } as never,
+      });
       calls.length;
       return "OK";
     } catch (e) {
-      return (e as BetterSchemicError).code;
+      return (e as OrmError).code;
     }
   };
 
@@ -1017,9 +1031,14 @@ describe("adjustment operand classification — the decision table", () => {
   });
 
   test("a schemaless delegate adjusts any field (no column metadata to check)", () => {
-    const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok([row])));
-    const client = betterSchemic(conn, { schema: defineSchema({ t: "t" }) });
-    void client.t.update({ where: { id: "t:1" }, data: { anything: { increment: 1 } } });
+    const { conn, calls } = fakeConn((sql) =>
+      sql.split("\n").map(() => ok([row])),
+    );
+    const client = orm(conn, { schema: schema({ t: "t" }) });
+    void client.t.update({
+      where: { id: "t:1" },
+      data: { anything: { increment: 1 } },
+    });
     expect(calls[0]?.sql).toContain("anything += $p0");
   });
 });

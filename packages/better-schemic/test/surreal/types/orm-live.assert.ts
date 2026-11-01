@@ -2,11 +2,11 @@
 // the row shape following `select`, the delegate/client surfaces and the args guardrails.
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
 import { describe, it } from "node:test";
-import { assertType } from "../../../../../scripts/type-assert";
 import type { RecordId } from "surrealdb";
-import { type App, defineTable, s } from "../../../src/surreal";
+import { assertType } from "../../../../../scripts/type-assert";
+import { type App, s, table } from "../../../src/surreal";
 import type { Client } from "../../../src/surreal/orm/client";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { schema } from "../../../src/surreal/orm/schema";
 import type {
   LiveArgs,
   LiveChange,
@@ -17,13 +17,12 @@ import type {
   LiveSubscription,
 } from "../../../src/surreal/orm/types/live";
 
-
-const UserBase = defineTable("user", { name: s.string(), age: s.int() });
+const UserBase = table("user", { name: s.string(), age: s.int() });
 const User = UserBase.extend({
   mentor: s.recordId(() => UserBase).optional(),
 });
-const schema = defineSchema({ users: User });
-type C = Client<typeof schema>;
+const schemaDef = schema({ users: User });
+type C = Client<typeof schemaDef>;
 type U = typeof User;
 type LiveRowName = { name: string };
 
@@ -64,7 +63,10 @@ describe("live — typing", () => {
       LiveChange<LiveRowName> | LiveReconnected
     >();
     assertType<null, LiveReconnected["value"]>();
-    assertType<false, "recordId" extends keyof LiveReconnected ? true : false>();
+    assertType<
+      false,
+      "recordId" extends keyof LiveReconnected ? true : false
+    >();
     assertType<RecordId, LiveChange<LiveRowName>["recordId"]>();
     assertType<{ name: string } | null, LiveChange<LiveRowName>["value"]>();
   });

@@ -6,7 +6,7 @@
 // builds on (this is what keeps the Zod drop-in + cross-driver field model working).
 //
 // Proves the crux: two kinds with DIFFERENT ergonomics —
-//   defineTable("user", { … })                    (shape-based, chainable modifiers)
+//   table("user", { … })                    (shape-based, chainable modifiers)
 //   defineFunction("greet", { … }).returns(…).body(…)   (multi-stage chain)
 // — both via ONE `createKind`, both fully type-inferred on the authoring side, both driven by one
 // generic `plan()` that has zero knowledge of either kind.
@@ -84,24 +84,27 @@ function plan(prev: Authored[], next: Authored[]): string[] {
     const lower = (ds: Authored[]) =>
       ds.filter((d) => d.kind === kind).map((d) => engine.lower(d));
     const prevByName = new Map(lower(prev).map((p) => [p.name, p]));
-    for (const n of lower(next)) ddl.push(...engine.diff(prevByName.get(n.name), n));
+    for (const n of lower(next))
+      ddl.push(...engine.diff(prevByName.get(n.name), n));
   }
   return ddl;
 }
 
-/* ===== DRIVER: kind #1 — `defineTable` (shape-based authoring, chainable modifier) ===== */
+/* ===== DRIVER: kind #1 — `table` (shape-based authoring, chainable modifier) ===== */
 
-interface TableDef<Name extends string, S extends Record<string, Field<unknown>>>
-  extends Authored {
+interface TableDef<
+  Name extends string,
+  S extends Record<string, Field<unknown>>,
+> extends Authored {
   kind: "table";
   name: Name;
   fields: S;
   permissions(p: string): TableDef<Name, S>; // a chainable modifier
 }
-function tableBuild<Name extends string, S extends Record<string, Field<unknown>>>(
-  name: Name,
-  fields: S,
-): TableDef<Name, S> {
+function tableBuild<
+  Name extends string,
+  S extends Record<string, Field<unknown>>,
+>(name: Name, fields: S): TableDef<Name, S> {
   return {
     kind: "table",
     name,
@@ -115,13 +118,18 @@ interface PortableTable extends PortableObject {
   kind: "table";
   cols: { name: string; type: PortableType }[];
 }
-export const defineTable = createKind({
+export const table = createKind({
   name: "table",
   build: tableBuild,
-  lower: (t: TableDef<string, Record<string, Field<unknown>>>): PortableTable => ({
+  lower: (
+    t: TableDef<string, Record<string, Field<unknown>>>,
+  ): PortableTable => ({
     kind: "table",
     name: t.name,
-    cols: Object.entries(t.fields).map(([n, f]) => ({ name: n, type: fieldType(f) })),
+    cols: Object.entries(t.fields).map(([n, f]) => ({
+      name: n,
+      type: fieldType(f),
+    })),
   }),
   diff: (prev, next) =>
     next ? [`DEFINE TABLE ${next.name} (${next.cols.length} cols)`] : [],
@@ -137,14 +145,19 @@ declare function surql(s: TemplateStringsArray, ...v: unknown[]): Surql;
 type ArgRefs<A extends Record<string, Field<unknown>>> = {
   [K in keyof A]: App<A[K]>;
 };
-interface FnDef<A extends Record<string, Field<unknown>>, R extends Field<unknown>>
-  extends Authored {
+interface FnDef<
+  A extends Record<string, Field<unknown>>,
+  R extends Field<unknown>,
+> extends Authored {
   kind: "function";
   name: string;
   __a?: A;
   __r?: R;
 }
-interface FnReturns<A extends Record<string, Field<unknown>>, R extends Field<unknown>> {
+interface FnReturns<
+  A extends Record<string, Field<unknown>>,
+  R extends Field<unknown>,
+> {
   body(make: (a: ArgRefs<A>) => Surql): FnDef<A, R>;
 }
 interface FnArgs<A extends Record<string, Field<unknown>>> {
@@ -166,7 +179,9 @@ interface PortableFn extends PortableObject {
 export const defineFunction = createKind({
   name: "function",
   build: fnBuild,
-  lower: (f: FnDef<Record<string, Field<unknown>>, Field<unknown>>): PortableFn => ({
+  lower: (
+    f: FnDef<Record<string, Field<unknown>>, Field<unknown>>,
+  ): PortableFn => ({
     kind: "function",
     name: f.name,
   }),
@@ -176,7 +191,7 @@ export const defineFunction = createKind({
 
 /* ===== USAGE — both kinds, full inference, one generic engine ===== */
 
-const User = defineTable("user", {
+const User = table("user", {
   id: s.record("user"),
   name: s.string(),
   age: s.int(),
@@ -186,7 +201,9 @@ const _name: App<(typeof User.fields)["name"]> = "ada"; // typed field access pr
 
 const greet = defineFunction("greet", { who: s.string(), times: s.int() })
   .returns(s.string())
-  .body(({ who, times }) => surql`RETURN string::repeat("hi " + ${who}, ${times})`);
+  .body(
+    ({ who, times }) => surql`RETURN string::repeat("hi " + ${who}, ${times})`,
+  );
 //    ^? FnDef<{ who: Field<string>; times: Field<number> }, Field<string>>
 //    the body callback args are typed: who: string, times: number
 
@@ -194,4 +211,4 @@ const greet = defineFunction("greet", { who: s.string(), times: s.int() })
 export const ddl = plan([], [User, greet]);
 //    → ["DEFINE TABLE user (3 cols)", "DEFINE FUNCTION fn::greet"]
 
-export { User, greet, _name };
+export { _name, greet, User };

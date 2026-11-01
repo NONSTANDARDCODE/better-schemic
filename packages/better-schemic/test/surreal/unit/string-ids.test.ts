@@ -4,18 +4,18 @@
 import { describe, expect, test } from "bun:test";
 import { RecordId, type RecordIdValue, Uuid } from "surrealdb";
 import { z } from "zod";
-import { emitTable } from "../../../src/surreal/ddl";
 import {
   type App,
-  defineRelation,
-  defineTable,
   type RecordIdField,
   type RecordIdMode,
+  relation,
   s,
+  table,
   type Wire,
 } from "../../../src/surreal";
-import { betterSchemic, type Client } from "../../../src/surreal/orm/client";
-import { buildSchemaIndex, defineSchema } from "../../../src/surreal/orm/schema";
+import { emitTable } from "../../../src/surreal/ddl";
+import { type Client, orm } from "../../../src/surreal/orm/client";
+import { buildSchemaIndex, schema } from "../../../src/surreal/orm/schema";
 import { tenant } from "../../../src/surreal/plugins/tenant";
 import { stringIdsOf } from "../../../src/surreal/pure";
 import { inferField } from "../../../src/surreal/wire";
@@ -23,9 +23,9 @@ import { caught, fakeConn, ok } from "../orm-fixtures";
 
 // --- fixtures ------------------------------------------------------------------------------------
 
-const Org = defineTable("sorg", { name: s.string() });
+const Org = table("sorg", { name: s.string() });
 
-const Plain = defineTable("s_customer_plain", {
+const Plain = table("s_customer_plain", {
   name: s.string(),
   org: s.recordId(Org),
   owner: s.recordId(Org).optional(),
@@ -36,22 +36,20 @@ const Plain = defineTable("s_customer_plain", {
 
 const Customer = Plain.stringIds();
 
-const UniqueOrg = defineTable("s_unique_org", {
+const UniqueOrg = table("s_unique_org", {
   ref: s.recordId(Org),
 })
   .index("s_uq_org", ["ref"], { unique: true })
   .stringIds();
 
-const Event = defineTable("s_event", {
+const Event = table("s_event", {
   at: s.datetime(),
   ref: s.recordId(Org),
 }).stringIds();
 
-const Likes = defineRelation("slikes", { score: s.int() })
-  .from(Customer)
-  .to(Org);
+const Likes = relation("slikes", { score: s.int() }).from(Customer).to(Org);
 
-const schema = defineSchema({
+const schemaDef = schema({
   orgs: Org,
   customers: Customer,
   uniqueOrgs: UniqueOrg,
@@ -60,13 +58,13 @@ const schema = defineSchema({
 });
 
 function makeClient(result: unknown = []): {
-  client: Client<typeof schema>;
+  client: Client<typeof schemaDef>;
   calls: { sql: string; vars?: Record<string, unknown> }[];
 } {
   const { conn, calls } = fakeConn((sql) =>
     sql.split("\n").map(() => ok(result)),
   );
-  return { client: betterSchemic(conn, { schema }), calls };
+  return { client: orm(conn, { schema: schemaDef }), calls };
 }
 
 const lastCall = (calls: { sql: string; vars?: Record<string, unknown> }[]) => {
@@ -168,7 +166,7 @@ describe("string ids — pure authoring", () => {
   });
 
   test("valueType validation is kept (and numeric ids coerce)", async () => {
-    const IntRef = defineTable("s_int_ref", {
+    const IntRef = table("s_int_ref", {
       ref: s.recordId("sorg").type(z.number()),
     }).stringIds();
     const decoded = IntRef.decode({
@@ -188,7 +186,7 @@ describe("string ids — pure authoring", () => {
   });
 
   test("valueType: string, bigint and uuid ids round-trip", () => {
-    const StrRef = defineTable("s_str_ref", {
+    const StrRef = table("s_str_ref", {
       ref: s.recordId("sorg").type(z.string()),
     }).stringIds();
     const strRow = StrRef.decode({
@@ -199,7 +197,7 @@ describe("string ids — pure authoring", () => {
     const strWire = StrRef.encode({ ref: "o1" }) as Wire<typeof StrRef>;
     expect(String(strWire.ref)).toBe("sorg:o1");
 
-    const BigRef = defineTable("s_big_ref", {
+    const BigRef = table("s_big_ref", {
       ref: s.recordId("sorg").type(z.bigint()),
     }).stringIds();
     const bigRow = BigRef.decode({
@@ -218,7 +216,7 @@ describe("string ids — pure authoring", () => {
   });
 
   test("a record inside a union flips too", () => {
-    const U = defineTable("s_union", {
+    const U = table("s_union", {
       v: s.union([s.recordId("sorg"), s.string()]),
     }).stringIds();
     const row = U.decode({
@@ -231,7 +229,7 @@ describe("string ids — pure authoring", () => {
   });
 
   test("a set of record links flips too (ZodSet's `valueType` def key)", () => {
-    const S = defineTable("s_set", {
+    const S = table("s_set", {
       refs: s.set(s.recordId("sorg")),
     }).stringIds();
     const row = S.decode({
@@ -247,13 +245,13 @@ describe("string ids — pure authoring", () => {
 
   test("value-carrying wrappers must come AFTER .stringIds()", async () => {
     // `.default()` pre-flip holds a RecordId app fallback that can't be remapped — teaching error.
-    const preDefault = defineTable("s_def_pre", {
+    const preDefault = table("s_def_pre", {
       ref: s.recordId("sorg").default(new RecordId("sorg", "d")),
     });
     expect(await caught(() => preDefault.stringIds())).not.toBeNull();
 
     // Authored after `.stringIds()`, the fallback is a bare string and decode returns it.
-    const T = defineTable("s_def_post", {
+    const T = table("s_def_post", {
       ref: s.recordId("sorg").stringIds().default("d"),
       other: s.recordId("sorg").stringIds().catch("c"),
     });
@@ -265,7 +263,7 @@ describe("string ids — pure authoring", () => {
   });
 
   test("bareIdValue: uuid ids unwrap; composite ids throw", () => {
-    const UuidRef = defineTable("s_uuid_ref", {
+    const UuidRef = table("s_uuid_ref", {
       ref: s.recordId("sorg").type(z.instanceof(Uuid)),
     }).stringIds();
     const uuid = new Uuid("0190f5b2-7c1e-7c3a-8f4b-2b6a1c9d8e7f");
@@ -276,7 +274,7 @@ describe("string ids — pure authoring", () => {
     expect(row.ref).toBe("0190f5b2-7c1e-7c3a-8f4b-2b6a1c9d8e7f");
 
     // A composite (array) id can't be a bare string — decode throws the teaching error.
-    const Composite = defineTable("s_comp_ref", {
+    const Composite = table("s_comp_ref", {
       ref: s.recordId("sorg").type(z.array(z.string())),
     }).stringIds();
     expect(() =>
@@ -288,7 +286,7 @@ describe("string ids — pure authoring", () => {
   });
 
   test("non-record containers stay untouched (array/set/union no-op arms)", () => {
-    const T = defineTable("s_noop", {
+    const T = table("s_noop", {
       tags: s.array(s.string()),
       refs: s.set(s.string()),
       choice: s.union([s.string(), s.int()]),
@@ -308,16 +306,16 @@ describe("string ids — pure authoring", () => {
   });
 
   test("stringIdsOf unwraps an unregistered container around a codec", () => {
-    const T = defineTable("s_wrap", { ref: s.recordId("sorg") }).stringIds();
+    const T = table("s_wrap", { ref: s.recordId("sorg") }).stringIds();
     expect(stringIdsOf(T.fields.ref.schema)).toBe(true);
     expect(stringIdsOf(z.optional(T.fields.ref.schema))).toBe(true);
     expect(stringIdsOf(z.array(T.fields.ref.schema))).toBe(true);
-    const plain = defineTable("s_plain", { ref: s.recordId("sorg") });
+    const plain = table("s_plain", { ref: s.recordId("sorg") });
     expect(stringIdsOf(plain.fields.ref.schema)).toBe(false);
   });
 
   test("optional/nullable/array/object composition keeps the mode", () => {
-    const T = defineTable("s_comp", {
+    const T = table("s_comp", {
       a: s.recordId("sorg").optional(),
       b: s.recordId("sorg").nullable(),
       c: s.array(s.recordId("sorg")),
@@ -343,17 +341,17 @@ describe("string ids — pure authoring", () => {
     expect(await caught(() => s.recordId().stringIds())).not.toBeNull();
     expect(
       await caught(() =>
-        defineTable("s_bad", { ref: s.recordId("sorg") }).stringIds(),
+        table("s_bad", { ref: s.recordId("sorg") }).stringIds(),
       ),
     ).toBeNull();
     expect(
       await caught(() =>
-        defineTable("s_bad2", {
+        table("s_bad2", {
           ref: s.recordId(["a", "b"]),
         }).stringIds(),
       ),
     ).not.toBeNull();
-    const refined = defineTable("s_bad3", {
+    const refined = table("s_bad3", {
       ref: s.recordId("sorg").refine(() => true),
     });
     expect(await caught(() => refined.stringIds())).not.toBeNull();
@@ -366,8 +364,8 @@ describe("string ids — pure authoring", () => {
     expect(Customer.record().stringIds().mode).toBe("string");
   });
 
-  test("an explicit id field in string mode survives defineTable", () => {
-    const T = defineTable("s_explicit", {
+  test("an explicit id field in string mode survives table", () => {
+    const T = table("s_explicit", {
       id: s.recordId("s_explicit").stringIds(),
       name: s.string(),
     });
@@ -390,7 +388,7 @@ describe("string ids — pure authoring", () => {
     expect(edge.in).toBe("c1");
     expect(edge.out).toBeInstanceOf(RecordId);
 
-    const Both = defineRelation("slikes_both", { score: s.int() })
+    const Both = relation("slikes_both", { score: s.int() })
       .from(Customer)
       .to(Customer)
       .stringIds();
@@ -404,20 +402,20 @@ describe("string ids — pure authoring", () => {
     expect(both.in).toBe("a");
     expect(both.out).toBe("b");
 
-    const Multi = defineRelation("slikes_multi", { score: s.int() })
+    const Multi = relation("slikes_multi", { score: s.int() })
       .from([Org, Customer])
       .to(Org);
     expect(await caught(() => Multi.stringIds())).not.toBeNull();
 
     // A single FROM with a multi-TO is refused on the TO endpoint.
-    const MultiTo = defineRelation("slikes_mto", { score: s.int() })
+    const MultiTo = relation("slikes_mto", { score: s.int() })
       .from(Org)
       .to([Org, Customer]);
     expect(await caught(() => MultiTo.stringIds())).not.toBeNull();
   });
 
   test("tenant() principal mode flows into the tenant column", () => {
-    const TenantTable = defineTable("s_tenant", {
+    const TenantTable = table("s_tenant", {
       name: s.string(),
     }).use(tenant(Customer));
     const decoded = TenantTable.decode({
@@ -429,7 +427,7 @@ describe("string ids — pure authoring", () => {
   });
 
   test("schema metadata marks the string-id links", () => {
-    const index = buildSchemaIndex(schema);
+    const index = buildSchemaIndex(schemaDef);
     const meta = index.tables.get("customers");
     expect(meta?.columns.get("org")?.record?.stringIds).toBe(true);
     expect(meta?.columns.get("meta")?.record?.stringIds).toBeUndefined();

@@ -13,7 +13,7 @@
  */
 
 import type { App } from "../pure";
-import { BetterSchemicError } from "./errors";
+import { OrmError } from "./errors";
 import type { Queryable } from "./execute";
 import type { HookDispatcher } from "./hooks";
 import { createLiveOperation } from "./live";
@@ -121,7 +121,7 @@ export interface DelegateContext {
    * `BEGIN/COMMIT` (the surrounding transaction already owns atomicity).
    */
   readonly inTransaction?: boolean;
-  /** Client-level live defaults (`betterSchemic(conn, { schema, live: { … } })`). */
+  /** Client-level live defaults (`orm(conn, { schema, live: { … } })`). */
   readonly live?: LiveDefaults;
   /**
    * The clone's default namespace/database scope (present only on a `$withContext` clone) — every
@@ -340,7 +340,7 @@ export interface Delegate<
   ): LiveResult<TD, A>;
 }
 
-/** The extra surface a RELATION delegate (`defineRelation`) exposes. */
+/** The extra surface a RELATION delegate (`relation`) exposes. */
 export interface RelationDelegate<
   TD extends AnyTableDef = AnyTableDef,
   S = SchemaInput,
@@ -407,7 +407,7 @@ export function createDelegate<TD extends AnyTableDef = AnyTableDef>(
       );
       for (const [name, value] of Object.entries(extensions)) {
         if (name in delegate)
-          throw new BetterSchemicError(
+          throw new OrmError(
             "PluginError",
             `extendModel("${name}") collides with an existing delegate member — pick another name.`,
           );
@@ -437,7 +437,7 @@ function wrapOperations(
   const runOperation = (kind: OperationKind, args: Record<string, unknown>) => {
     const run = operations[kind];
     if (typeof run !== "function")
-      throw new BetterSchemicError(
+      throw new OrmError(
         "PluginError",
         `transform: no operation "${kind}" to dispatch to.`,
       );

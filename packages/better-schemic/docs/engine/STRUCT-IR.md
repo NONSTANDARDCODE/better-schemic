@@ -58,12 +58,12 @@ StructTable { name; kind:{kind:"NORMAL"|"ANY"|"RELATION"; in?; out?; enforced?};
      not collapsed into `option`.
    - `FLEXIBLE` is an orthogonal boolean on the field (object accepts extra keys), never encoded in
      `kind`.
-   So a field is `(kind, flexible)`; the three are independent and both lowerings must agree.
+     So a field is `(kind, flexible)`; the three are independent and both lowerings must agree.
 
 2. **literal union `"a"|"b"` vs enum vs single-literal — all just `kind` strings.** The IR does not
    distinguish enum from union; `enum(['a','b'])` and `z.union([literal('a'),literal('b')])` both
    lower to the kind `'a'|'b'`. `normalize` sorts the union members. A single literal is `'a'`.
-   (enum-vs-union is a *rendering* choice in the TS renderer, not an IR fact — so the two lowerings
+   (enum-vs-union is a _rendering_ choice in the TS renderer, not an IR fact — so the two lowerings
    converge regardless of how the schema was authored.)
 
 3. **`record<a|b>` multi-target ordering — SORTED.** `normalize` sorts union members **inside**
@@ -90,7 +90,7 @@ StructTable { name; kind:{kind:"NORMAL"|"ANY"|"RELATION"; in?; out?; enforced?};
 
 Plus: deterministic clause/field ordering, and an **edge-aware topological order across definable
 TYPES** for emission (analyzer before its search index, function before the event that calls it,
-table before its fields) — ordering for *render/emit*, not for equality (equality sorts).
+table before its fields) — ordering for _render/emit_, not for equality (equality sorts).
 
 ## Lowering specifics — `fromTableDef()` (the new code)
 

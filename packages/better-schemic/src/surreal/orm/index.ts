@@ -3,33 +3,33 @@
  *
  * ```ts
  * import { Surreal } from "better-schemic";        // the SDK is re-exported by authoring
- * import { betterSchemic } from "better-schemic/orm";
+ * import { orm } from "better-schemic/orm";
  * import { schema } from "./schema";
  *
  * const db = new Surreal();
  * await db.connect("wss://localhost:8000/rpc");
  * await db.use({ namespace: "app", database: "main" });
  *
- * const client = betterSchemic(db, { schema });
+ * const client = orm(db, { schema });
  * // M1: await client.users.findMany({ where: { active: true } });
  * ```
  *
- * Authoring (`s.*`, `defineTable`, `defineRelation`, `defineFunction`, `surql`) stays in the root
+ * Authoring (`s.*`, `table`, `relation`, `defineFunction`, `surql`) stays in the root
  * entry — this subpath only consumes it. The typed query surface is documented in
  * `docs/ORM-COVERAGE.md` (surface) and `docs/orm-syntax-map.md` (live-verified SurrealQL).
  */
 export {
-  type BetterSchemicOptions,
-  betterSchemic,
   type Client,
   ClientRuntime,
+  type OrmOptions,
+  orm,
   type SchemaArg,
 } from "./client";
 export {
-  type BetterSchemicAuth,
-  type CreateBetterSchemicOptions,
+  type CreateOrmOptions,
   clientFromConfig,
-  createBetterSchemic,
+  createOrm,
+  type OrmAuth,
 } from "./connect";
 export {
   createDelegate,
@@ -41,12 +41,9 @@ export {
   type RelationDelegate,
 } from "./delegate";
 export {
-  BetterSchemicError,
-  type BetterSchemicErrorCode,
-  type BetterSchemicErrorOptions,
   isAssertionFailed,
-  isBetterSchemicError,
   isNotFound,
+  isOrmError,
   isPermissionDenied,
   isSerializationFailure,
   isTenantViolation,
@@ -56,6 +53,9 @@ export {
   isValidationError,
   isWriteConflict,
   normalizeError,
+  OrmError,
+  type OrmErrorCode,
+  type OrmErrorOptions,
 } from "./errors";
 export {
   type ExecuteOptions,
@@ -93,7 +93,7 @@ export {
   statementResult,
   type ThrowingResult,
 } from "./results";
-export { buildSchemaIndex, defineSchema, isSchemaDef } from "./schema";
+export { buildSchemaIndex, isSchemaDef, schema } from "./schema";
 export type {
   AdminOperations,
   DbInfo,

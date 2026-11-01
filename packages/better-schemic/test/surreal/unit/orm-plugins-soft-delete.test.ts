@@ -2,26 +2,24 @@
 // `deletedBy` actor and the `restore`/`restoreById` model methods. Offline.
 import { describe, expect, test } from "bun:test";
 import { RecordId } from "surrealdb";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { orm } from "../../../src/surreal/orm/client";
+import { schema } from "../../../src/surreal/orm/schema";
 import { softDelete } from "../../../src/surreal/plugins/soft-delete";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { s, table } from "../../../src/surreal/pure";
 import { fakeConn, lines, ok } from "../orm-fixtures";
 
-const User = defineTable("user", {
+const User = table("user", {
   name: s.string(),
   deletedAt: s.datetime().optional(),
   deletedBy: s.string().optional(),
 });
-const schema = defineSchema({ users: User });
+const schemaDef = schema({ users: User });
 
-const clientOver = (
-  plugins: Parameters<typeof betterSchemic>[1]["plugins"],
-) => {
+const clientOver = (plugins: Parameters<typeof orm>[1]["plugins"]) => {
   const { conn, calls } = fakeConn((sql) =>
     lines(sql).map(() => ok([{ id: new RecordId("user", 1), name: "A" }])),
   );
-  return { client: betterSchemic(conn, { schema, plugins }), calls };
+  return { client: orm(conn, { schema: schemaDef, plugins }), calls };
 };
 
 describe("soft-delete — writes", () => {

@@ -1,17 +1,17 @@
-// Ratified table-composition surface (cross-driver): P1 defineTable(s.object()) + public .fields,
+// Ratified table-composition surface (cross-driver): P1 table(s.object()) + public .fields,
 // P2 TableDef.extend(), P3 derived .create/.update/.object. This file grows with each part.
 import { describe, expect, test } from "bun:test";
 import { surql } from "surrealdb";
 import { z } from "zod";
+import { s, table } from "../../../src/surreal";
 import { emitTable } from "../../../src/surreal/ddl";
-import { defineTable, s } from "../../../src/surreal";
 
-describe("P1: defineTable accepts s.object() + public .fields", () => {
+describe("P1: table accepts s.object() + public .fields", () => {
   const fields = { name: s.string(), email: s.email() };
 
-  test("defineTable(s.object(...)) emits identically to defineTable(raw fields)", () => {
-    const fromObject = emitTable(defineTable("t", s.object(fields)));
-    const fromRaw = emitTable(defineTable("t", fields));
+  test("table(s.object(...)) emits identically to table(raw fields)", () => {
+    const fromObject = emitTable(table("t", s.object(fields)));
+    const fromRaw = emitTable(table("t", fields));
     expect(fromObject).toBe(fromRaw);
     expect(fromObject).toContain("DEFINE FIELD email ON TABLE t");
   });
@@ -20,7 +20,7 @@ describe("P1: defineTable accepts s.object() + public .fields", () => {
     const obj = s.object(fields);
     expect(Object.keys(obj.fields).sort()).toEqual(["email", "name"]);
     // It's the real SField (carries the SurrealDB DDL — the email assert), not an erased Zod schema.
-    const t = emitTable(defineTable("u", obj.fields));
+    const t = emitTable(table("u", obj.fields));
     expect(t).toContain("string::is_email($value)");
     // Distinct from `.shape` (Zod): the same keys, but Zod types (no DDL).
     expect(Object.keys(obj.shape).sort()).toEqual(["email", "name"]);
@@ -30,7 +30,7 @@ describe("P1: defineTable accepts s.object() + public .fields", () => {
     const withMeta = s
       .object(fields)
       .extend({ createdAt: s.datetime().$readonly() });
-    const t = emitTable(defineTable("post", withMeta.fields));
+    const t = emitTable(table("post", withMeta.fields));
     expect(t).toContain("DEFINE FIELD email ON TABLE post");
     expect(t).toContain("DEFINE FIELD createdAt ON TABLE post");
     expect(t).toContain("READONLY");
@@ -44,23 +44,23 @@ describe("P2: TableDef.extend(shape | s.object())", () => {
     updatedAt: s.datetime().optional(),
   };
 
-  test(".extend(rawShape) === defineTable with the merged map (id preserved)", () => {
-    const composed = emitTable(defineTable("customer", base).extend(audit));
-    const flat = emitTable(defineTable("customer", { ...base, ...audit }));
+  test(".extend(rawShape) === table with the merged map (id preserved)", () => {
+    const composed = emitTable(table("customer", base).extend(audit));
+    const flat = emitTable(table("customer", { ...base, ...audit }));
     expect(composed).toBe(flat);
     expect(composed).toContain("DEFINE FIELD createdAt ON TABLE customer");
     expect(composed).toContain("DEFINE FIELD email ON TABLE customer");
   });
 
   test(".extend(s.object(...)) unwraps native fields (same result)", () => {
-    const viaObject = emitTable(defineTable("c", base).extend(s.object(audit)));
-    const viaShape = emitTable(defineTable("c", base).extend(audit));
+    const viaObject = emitTable(table("c", base).extend(s.object(audit)));
+    const viaShape = emitTable(table("c", base).extend(audit));
     expect(viaObject).toBe(viaShape);
   });
 
   test("added columns win on key conflict", () => {
     const t = emitTable(
-      defineTable("c", { name: s.string() }).extend({
+      table("c", { name: s.string() }).extend({
         name: s.string().$default("anon"),
       }),
     );
@@ -69,7 +69,7 @@ describe("P2: TableDef.extend(shape | s.object())", () => {
 });
 
 describe("P3: derived .create / .update / .object schemas", () => {
-  const customer = defineTable("customer", {
+  const customer = table("customer", {
     name: s.string(),
     balance: s.number(),
     creditEnabled: s.boolean().$default(true), // DB-filled -> optional on create

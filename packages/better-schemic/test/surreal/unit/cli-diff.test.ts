@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { formatPatch, summarizeKinds, tokenDiff } from "better-schemic/core";
 // Import `s`/`table` by package name (like the CLI does) so the table types line up with the
 // `better-schemic/core`-typed signatures in cli/diff (avoids src-vs-lib duplicate-declaration errors).
 import {
@@ -7,11 +6,12 @@ import {
   defineAccess,
   defineEvent,
   defineFunction,
-  defineRelation,
-  defineTable,
+  relation,
   s,
   surql,
+  table,
 } from "better-schemic";
+import { formatPatch, summarizeKinds, tokenDiff } from "better-schemic/core";
 import { emitTable } from "better-schemic/driver";
 import { EMPTY_SNAPSHOT } from "../../../src/surreal/cli/structure";
 import {
@@ -21,7 +21,7 @@ import {
 } from "../../../src/surreal/cli/surreal-diff";
 import { surrealKinds } from "../../../src/surreal/kinds/registry";
 
-const User = defineTable("user", { id: s.string(), name: s.string() });
+const User = table("user", { id: s.string(), name: s.string() });
 
 describe("diff engine", () => {
   test("from empty: defines table + fields up, drops table down", () => {
@@ -38,8 +38,8 @@ describe("diff engine", () => {
   });
 
   test("groups statements by table (each table's fields follow its DEFINE TABLE)", () => {
-    const A = defineTable("a", { id: s.string(), x: s.string() });
-    const B = defineTable("b", { id: s.string(), y: s.string() });
+    const A = table("a", { id: s.string(), x: s.string() });
+    const B = table("b", { id: s.string(), y: s.string() });
     const up = diffSnapshots(EMPTY_SNAPSHOT, buildSnapshot([A, B])).up;
     const at = up.findIndex((s) => /DEFINE TABLE a\b/.test(s));
     const ax = up.findIndex((s) => /FIELD x ON TABLE a\b/.test(s));
@@ -54,7 +54,7 @@ describe("diff engine", () => {
   test("add a field: only the new field up, REMOVE FIELD down", () => {
     const prev = buildSnapshot([User]);
     const next = buildSnapshot([
-      defineTable("user", {
+      table("user", {
         id: s.string(),
         name: s.string(),
         email: s.email(),
@@ -70,10 +70,10 @@ describe("diff engine", () => {
 
   test("change a field type: ALTER FIELD … TYPE up and down", () => {
     const prev = buildSnapshot([
-      defineTable("user", { id: s.string(), name: s.string() }),
+      table("user", { id: s.string(), name: s.string() }),
     ]);
     const next = buildSnapshot([
-      defineTable("user", { id: s.string(), name: s.string().optional() }),
+      table("user", { id: s.string(), name: s.string().optional() }),
     ]);
     const diff = diffSnapshots(prev, next);
     expect(diff.up[0]).toBe(
@@ -84,10 +84,10 @@ describe("diff engine", () => {
 
   test("add a field clause -> ALTER sets it; remove -> ALTER DROPs it", () => {
     const prev = buildSnapshot([
-      defineTable("user", { id: s.string(), name: s.string() }),
+      table("user", { id: s.string(), name: s.string() }),
     ]);
     const next = buildSnapshot([
-      defineTable("user", {
+      table("user", {
         id: s.string(),
         name: s.string().$default("anon"),
       }),
@@ -102,11 +102,9 @@ describe("diff engine", () => {
   });
 
   test("COMPUTED change falls back to DEFINE … OVERWRITE (no ALTER form)", () => {
-    const prev = buildSnapshot([
-      defineTable("t", { id: s.string(), c: s.string() }),
-    ]);
+    const prev = buildSnapshot([table("t", { id: s.string(), c: s.string() })]);
     const next = buildSnapshot([
-      defineTable("t", {
+      table("t", {
         id: s.string(),
         c: s.string().$computed(surql`"x"`),
       }),
@@ -118,10 +116,10 @@ describe("diff engine", () => {
 
   test("changed index -> REMOVE + DEFINE (ALTER INDEX can't change fields)", () => {
     const prev = buildSnapshot([
-      defineTable("t", { id: s.string(), a: s.string().$index() }),
+      table("t", { id: s.string(), a: s.string().$index() }),
     ]);
     const next = buildSnapshot([
-      defineTable("t", { id: s.string(), a: s.string().$unique() }),
+      table("t", { id: s.string(), a: s.string().$unique() }),
     ]);
     const up = diffSnapshots(prev, next).up;
     expect(up.some((s) => s.startsWith("REMOVE INDEX"))).toBe(true);
@@ -129,19 +127,17 @@ describe("diff engine", () => {
   });
 
   test("table SCHEMAFULL<->SCHEMALESS change -> ALTER TABLE", () => {
-    const prev = buildSnapshot([defineTable("t", { id: s.string() })]); // schemafull default
-    const next = buildSnapshot([
-      defineTable("t", { id: s.string() }).schemaless(),
-    ]);
+    const prev = buildSnapshot([table("t", { id: s.string() })]); // schemafull default
+    const next = buildSnapshot([table("t", { id: s.string() }).schemaless()]);
     const diff = diffSnapshots(prev, next);
     expect(diff.up[0]).toBe("ALTER TABLE t SCHEMALESS;");
     expect(diff.down[0]).toBe("ALTER TABLE t SCHEMAFULL;");
   });
 
   test("table COMMENT add -> ALTER TABLE … COMMENT; remove -> DROP COMMENT", () => {
-    const prev = buildSnapshot([defineTable("t", { id: s.string() })]);
+    const prev = buildSnapshot([table("t", { id: s.string() })]);
     const next = buildSnapshot([
-      defineTable("t", { id: s.string() }).comment("note"),
+      table("t", { id: s.string() }).comment("note"),
     ]);
     expect(diffSnapshots(prev, next).up[0]).toBe(
       'ALTER TABLE t COMMENT "note";',
@@ -150,8 +146,8 @@ describe("diff engine", () => {
   });
 
   test("table TYPE change (NORMAL -> RELATION) falls back to OVERWRITE", () => {
-    const prev = buildSnapshot([defineTable("t", { id: s.string() })]);
-    const next = buildSnapshot([defineRelation("t", {})]);
+    const prev = buildSnapshot([table("t", { id: s.string() })]);
+    const next = buildSnapshot([relation("t", {})]);
     expect(diffSnapshots(prev, next).up[0]).toContain(
       "DEFINE TABLE OVERWRITE t",
     );
@@ -186,12 +182,12 @@ describe("diff engine", () => {
 
 describe("display items", () => {
   test("diffSnapshots tags each object as add / remove / change", () => {
-    const before = defineTable("user", {
+    const before = table("user", {
       id: s.string(),
       name: s.string(),
       legacy: s.string(),
     });
-    const after = defineTable("user", {
+    const after = table("user", {
       id: s.string(),
       name: s.string().optional(),
       email: s.email(),
@@ -233,12 +229,12 @@ describe("tokenDiff", () => {
 
 describe("formatPatch (unified diff)", () => {
   test("emits per-table .sql hunks with -/+ lines (removes show the old DEFINE)", () => {
-    const before = defineTable("user", {
+    const before = table("user", {
       id: s.string(),
       name: s.string(),
       legacy: s.string(),
     });
-    const after = defineTable("user", {
+    const after = table("user", {
       id: s.string(),
       name: s.string().optional(),
       email: s.email(),
@@ -261,13 +257,13 @@ describe("formatPatch (unified diff)", () => {
   });
 
   test("no changes → empty patch", () => {
-    const snap = buildSnapshot([defineTable("u", { id: s.string() })]);
+    const snap = buildSnapshot([table("u", { id: s.string() })]);
     expect(formatPatch(diffSnapshots(snap, snap))).toBe("");
   });
 });
 
 describe("indexes", () => {
-  const Indexed = defineTable("member", {
+  const Indexed = table("member", {
     id: s.string(),
     email: s.email().$unique(),
     handle: s.string().$index(),
@@ -303,8 +299,8 @@ describe("indexes", () => {
   });
 
   test("adding just an index → one DEFINE INDEX up / REMOVE INDEX down", () => {
-    const before = defineTable("t", { id: s.string(), code: s.string() });
-    const after = defineTable("t", {
+    const before = table("t", { id: s.string(), code: s.string() });
+    const after = table("t", {
       id: s.string(),
       code: s.string().$unique(),
     });
@@ -327,7 +323,7 @@ describe("indexes", () => {
 });
 
 describe("events", () => {
-  const Evented = defineTable("user", {
+  const Evented = table("user", {
     id: s.string(),
     email: s.email(),
     verified: s.boolean(),
@@ -358,7 +354,7 @@ describe("events", () => {
   });
 
   test("adding an event → DEFINE EVENT up / REMOVE EVENT down", () => {
-    const before = defineTable("t", { id: s.string(), n: s.int() });
+    const before = table("t", { id: s.string(), n: s.int() });
     const after = before.event("on_n", {
       when: surql`$before.n != $after.n`,
       // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable
@@ -387,7 +383,7 @@ describe("events", () => {
   });
 
   test("standalone defineEvent compiles to the same statement as inline .event()", () => {
-    const Base = defineTable("user", { id: s.string(), email: s.email() });
+    const Base = table("user", { id: s.string(), email: s.email() });
     const inline = Base.event("reverify", {
       when: surql`$before.email != $after.email`,
       // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable
@@ -405,7 +401,7 @@ describe("events", () => {
   });
 
   test("standalone events ride into buildSnapshot's second arg", () => {
-    const Base = defineTable("user", { id: s.string(), n: s.int() });
+    const Base = table("user", { id: s.string(), n: s.int() });
     const ev = defineEvent(Base, "on_n", {
       // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable
       then: surql`UPDATE $after.id SET touched = true`,
@@ -418,7 +414,7 @@ describe("events", () => {
 });
 
 describe("functions", () => {
-  const User = defineTable("user", { id: s.string() });
+  const User = table("user", { id: s.string() });
   const ddlOf = (fn: ReturnType<typeof defineFunction>) =>
     diffSnapshots(EMPTY_SNAPSHOT, buildSnapshot([], [fn])).up[0];
 
@@ -546,7 +542,7 @@ describe("access", () => {
 
 describe("batch 1: set / computed / changefeed / count", () => {
   test("s.set() emits set<T> (distinct from array<T>)", () => {
-    const t = defineTable("t", {
+    const t = table("t", {
       id: s.string(),
       tags: s.set(s.string()),
       arr: s.array(s.string()),
@@ -557,7 +553,7 @@ describe("batch 1: set / computed / changefeed / count", () => {
   });
 
   test("$computed emits a COMPUTED field; option<> is stripped", () => {
-    const t = defineTable("person", {
+    const t = table("person", {
       id: s.string(),
       first: s.string(),
       last: s.string(),
@@ -573,11 +569,11 @@ describe("batch 1: set / computed / changefeed / count", () => {
 
   test(".changefeed() folds into the DEFINE TABLE head", () => {
     expect(
-      emitTable(defineTable("a", { id: s.string() }).changefeed("3d")),
+      emitTable(table("a", { id: s.string() }).changefeed("3d")),
     ).toContain("SCHEMAFULL CHANGEFEED 3d;");
     expect(
       emitTable(
-        defineTable("b", { id: s.string() }).changefeed("1h", {
+        table("b", { id: s.string() }).changefeed("1h", {
           includeOriginal: true,
         }),
       ),
@@ -585,7 +581,7 @@ describe("batch 1: set / computed / changefeed / count", () => {
   });
 
   test("COUNT index emits no FIELDS clause", () => {
-    const t = defineTable("c", { id: s.string() }).index("rows", [], {
+    const t = table("c", { id: s.string() }).index("rows", [], {
       count: true,
     });
     const up = diffSnapshots(EMPTY_SNAPSHOT, buildSnapshot([t])).up;

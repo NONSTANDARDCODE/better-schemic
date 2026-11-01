@@ -18,8 +18,8 @@ field refs, `surql.*` helpers. Interop = fragments compose. Nested `BoundQuery` 
 verified SDK behavior; the work is bind NAMESPACING on merge (a fragment's `$b0` never collides
 with a sibling's or the outer template's).
 
-**Typing rule (the `[T]` rule).** `surql<R>`'s generic keeps its one meaning: *the per-statement
-result tuple*. SurrealDB runs a bare expression as a one-statement query, so an expression of type
+**Typing rule (the `[T]` rule).** `surql<R>`'s generic keeps its one meaning: _the per-statement
+result tuple_. SurrealDB runs a bare expression as a one-statement query, so an expression of type
 `T` IS a query of type `[T]`: `Frag<T> = BoundQuery<[T]>`. Sinks read the single entry —
 `.where(...)` accepts `Frag<boolean>`. `surql``.as<T>()` retypes a fragment (ratified — a separate `surql.expr` tag broke editor syntax highlighting).
 Untyped `surql` = `Frag<unknown>`, accepted everywhere (gradual typing; no ceremony tax).
@@ -34,8 +34,12 @@ identically through `db.query`, `db.conn.query`, and the DDL emitter. (Manuel's 
 ## Surfaces
 
 ### `Def.call(...)` — one object, three uses (ratified; replaces `.call(db, args)`)
+
 ```ts
-const frag = SendVerificationEmail.call({ email: e.after.email, code: surql`$code` });
+const frag = SendVerificationEmail.call({
+  email: e.after.email,
+  code: surql`$code`,
+});
 // 1. FRAGMENT: interpolate it — surql`{ ...; ${frag}; }` -> fn::send_verification_email(...)
 // 2. STANDALONE: await frag.run(conn)
 // 3. BOUND: await db.call(SendVerificationEmail, { ... })   // the pre-bound client sugar
@@ -46,7 +50,8 @@ its def) instead of relying on the `fn::` text scan. BREAKING(alpha): the old ru
 `Def.call(db, args)` becomes `Def.call(args).run(db)`.
 
 ### `surql.*` helpers (context-FREE surface)
-- `surql\`…\`.as<T>()` — typed-fragment retype (see the `[T]` rule).
+
+- `surql\`…\`.as<T>()`— typed-fragment retype (see the`[T]` rule).
 - `surql.record(Table, idFrag)` — `type::record(<name>, <id>)`, typed table ref.
 - `surql.table(Table)` — the escaped table name.
 - `surql.$.<path>` — param path proxy (`$after.email`) — UNTYPED here; typing comes from slot
@@ -55,6 +60,7 @@ its def) instead of relying on the `fn::` text scan. BREAKING(alpha): the old ru
   catalog (`surql.fn.crypto.bcrypt.compare(a, b)`, `surql.fn.string.len(x)`, …).
 
 ### Typed contextual callbacks (context-DEPENDENT surface)
+
 Every authoring slot that today takes an `Expr` also accepts a CALLBACK receiving a typed context
 with exactly the params SurrealDB defines for that position:
 ```ts
@@ -72,6 +78,7 @@ Plain `Expr` forms stay (untyped quick path). `$auth` typing: `defineAccess(...)
 `p.auth` as `App<User>` (union across accesses; `unknown` when undeclared).
 
 ### Builder ⇄ raw interop
+
 - **Builder inside raw** (incl. `$computed`, event/function bodies, permissions):
   `LET $adults = ${select(User).where((u) => u.age.gte(18))};`
 - **Raw inside builder**: `Expr` gains a raw leaf; `where` accepts `Frag<boolean>`;
@@ -82,11 +89,13 @@ Plain `Expr` forms stay (untyped quick path). `$auth` typing: `defineAccess(...)
   returning `Frag<number>` so comparisons keep chaining). Catalog-generated, same source as
   `surql.fn`.
 - **Statement parity — `block()`** with LET vars typed through the chain:
+
   ```ts
   block()
     .let({ n: select(Post).where((p) => p.author.eq(e.after.id)).count() })
     .if((s) => s.n.gt(100), () => NotifyPowerUser.call({ user: e.after.id }))
   ```
+
   `s.n: Frag<number>` inferred from the let. LET/IF/FOR/RETURN/THROW all take this shape
   (100%-parity bar).
 - **`$parent` detection**: a ref used inside a DIFFERENT row context lowers to `$parent.<field>`
@@ -94,6 +103,7 @@ Plain `Expr` forms stay (untyped quick path). `$auth` typing: `defineAccess(...)
   `select(User).return((u) => ({ posts: select(Post).where((p) => p.author.eq(u.id)) }))`.
 
 ## Also ratified alongside
+
 - **Auto-block**: a multi-statement event/function `then`/body (top-level `;` outside
   strings/braces) is wrapped `{ … }` by the emitter — authors write statements, better-schemic owns the
   grammar. Round-trip vs introspection must stay drift-free.
@@ -102,6 +112,7 @@ Plain `Expr` forms stay (untyped quick path). `$auth` typing: `defineAccess(...)
   mutual record links.
 
 ## Phases
+
 0. Auto-block; lazy refs; `surql.record/table/$`; eager resolution in the tag. (SHIPPED)
 1. Fragments: `[T]` rule + `.as<T>()`; builders interpolatable (bind namespacing); raw leaves in
    `where`; `Expr.and/.or/.not`; `Def.call(...)` fragment+runnable (BREAKING alpha). (SHIPPED)
@@ -110,6 +121,7 @@ Plain `Expr` forms stay (untyped quick path). `$auth` typing: `defineAccess(...)
 3. Stdlib catalog (`surql.fn` + typed ref methods); `block()`; `$parent` detection. (SHIPPED)
 
 ### Phase-3 notes (as built)
+
 - `surql.fn.<ns>.<name>(...)` — the catalog (`src/fn.ts`) is EXHAUSTIVELY live-verified: the test
   sweep runs every entry against the target server with sample args, so a builtin name that
   doesn't exist can't ship. 3.x spellings confirmed live: `type::is_*`, `duration::from_*`,

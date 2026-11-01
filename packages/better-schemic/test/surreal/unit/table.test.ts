@@ -5,18 +5,18 @@ import { emitDefStatement, emitTable } from "../../../src/surreal/ddl";
 import {
   defineAnalyzer,
   defineFunction,
-  defineRelation,
-  defineTable,
   defineView,
   RecordIdField,
+  relation,
   s,
+  table,
 } from "../../../src/surreal/pure";
 
 const defType = (s: z.ZodType) => (s._zod.def as { type: string }).type;
 
 describe("smart id", () => {
   test("a plain id schema becomes record<self, idType>", () => {
-    const T = defineTable("widget", { id: z.string(), name: s.string() });
+    const T = table("widget", { id: z.string(), name: s.string() });
     const id = T.fields.id as RecordIdField<"widget">;
     expect(id).toBeInstanceOf(RecordIdField);
     expect(id.tables).toEqual(["widget"]);
@@ -25,14 +25,14 @@ describe("smart id", () => {
   });
 
   test("an omitted id defaults to record<self>", () => {
-    const T = defineTable("widget", { name: s.string() });
+    const T = table("widget", { name: s.string() });
     const id = T.fields.id as RecordIdField<"widget">;
     expect(id).toBeInstanceOf(RecordIdField);
     expect(id.tables).toEqual(["widget"]);
   });
 
   test("callback shape: `self` is a record<thisTable> self-link", () => {
-    const Node = defineTable("node", (self) => ({
+    const Node = table("node", (self) => ({
       id: z.string(),
       parent: self,
       reports: self.optional(),
@@ -53,23 +53,23 @@ describe("smart id", () => {
 });
 
 describe("bare table (no shape)", () => {
-  test("defineTable(name) with no shape is a table with just the implicit id", () => {
-    // Regression: `shape` used to be required, so `defineTable("user")` was a type error AND threw
-    // `Object.entries(undefined)` at runtime. It's now optional (default `{}`), like defineRelation.
-    const User = defineTable("user");
+  test("table(name) with no shape is a table with just the implicit id", () => {
+    // Regression: `shape` used to be required, so `table("user")` was a type error AND threw
+    // `Object.entries(undefined)` at runtime. It's now optional (default `{}`), like relation.
+    const User = table("user");
     expect(User.fields.id).toBeInstanceOf(RecordIdField);
     expect(emitTable(User)).toBe("DEFINE TABLE user TYPE NORMAL SCHEMAFULL;");
   });
 
   test("chains still work on a bare table", () => {
-    expect(emitTable(defineTable("blob").schemaless())).toBe(
+    expect(emitTable(table("blob").schemaless())).toBe(
       "DEFINE TABLE blob TYPE NORMAL SCHEMALESS;",
     );
   });
 });
 
 describe("table instance helpers", () => {
-  const User = defineTable("user", { id: s.string(), name: s.string() });
+  const User = table("user", { id: s.string(), name: s.string() });
 
   test(".table returns a SurrealDB Table instance for direct SDK calls", () => {
     expect(User.table).toBeInstanceOf(Table);
@@ -84,14 +84,14 @@ describe("table instance helpers", () => {
   });
 
   test("a relation also exposes .table (inherited from TableDef)", () => {
-    const Wrote = defineRelation("wrote", {});
+    const Wrote = relation("wrote", {});
     expect(Wrote.table).toBeInstanceOf(Table);
     expect(Wrote.table.name).toBe("wrote");
   });
 });
 
 describe("encode / encodePartial", () => {
-  const User = defineTable("user", {
+  const User = table("user", {
     id: z.string(),
     name: s.string(),
     role: s.enum(["admin", "member"]).$default(surql`"member"`),
@@ -145,7 +145,7 @@ describe("encode / encodePartial", () => {
 });
 
 describe("nested create-optionality (runtime)", () => {
-  const Widget = defineTable("widget", {
+  const Widget = table("widget", {
     id: z.string(),
     settings: s.object({
       theme: s.string().$default(surql`"x"`),
@@ -189,7 +189,7 @@ describe("nested create-optionality (runtime)", () => {
   });
 
   test("array<object>: absent nested defaults are omitted per element", () => {
-    const List = defineTable("list", {
+    const List = table("list", {
       id: z.string(),
       tags: s
         .object({ name: s.string(), color: s.string().$default("#fff") })
@@ -215,7 +215,7 @@ describe("nested create-optionality (runtime)", () => {
 });
 
 describe("encode / safeEncode agreement on nested input (Fix 1)", () => {
-  const T = defineTable("nested", {
+  const T = table("nested", {
     id: z.string(),
     settings: s.object({
       theme: s.string().$default(surql`"x"`),
@@ -261,7 +261,7 @@ describe("encode / safeEncode agreement on nested input (Fix 1)", () => {
 });
 
 describe("safeEncode / encode validation (#6, #7)", () => {
-  const User = defineTable("user", {
+  const User = table("user", {
     id: z.string(),
     name: s.string().$min(1),
     email: s.email(),
@@ -326,7 +326,7 @@ describe("safeEncode / encode validation (#6, #7)", () => {
 });
 
 describe("async encode (recursive encoder)", () => {
-  const User = defineTable("user", {
+  const User = table("user", {
     id: z.string(),
     name: s.string().$min(1),
     settings: s.object({
@@ -375,7 +375,7 @@ describe("async encode (recursive encoder)", () => {
 });
 
 describe("$internal fields (runtime)", () => {
-  const Account = defineTable("account", {
+  const Account = table("account", {
     id: z.string(),
     email: s.email(),
     passhash: s.string().$internal(),
@@ -410,7 +410,7 @@ describe("$internal fields (runtime)", () => {
 });
 
 describe("shape ops", () => {
-  const User = defineTable("user", {
+  const User = table("user", {
     id: z.string(),
     name: s.string(),
     email: s.email(),
@@ -448,7 +448,7 @@ describe("shape ops", () => {
 });
 
 describe("config chain (immutable)", () => {
-  const User = defineTable("user", { id: z.string() });
+  const User = table("user", { id: z.string() });
 
   test("schemaless / schemafull / drop / comment return new defs", () => {
     expect(User.schemaless().config.schemafull).toBe(false);
@@ -462,12 +462,12 @@ describe("config chain (immutable)", () => {
 });
 
 describe("relation builder", () => {
-  const User = defineTable("user", { id: z.string() });
-  const Post = defineTable("post", { id: z.string() });
-  const Tag = defineTable("tag", { id: z.string() });
+  const User = table("user", { id: z.string() });
+  const Post = table("post", { id: z.string() });
+  const Tag = table("tag", { id: z.string() });
 
   test("from().to() sets endpoints, in/out fields, and relation config", () => {
-    const Liked = defineRelation("liked", { strength: s.number() })
+    const Liked = relation("liked", { strength: s.number() })
       .from(User)
       .to(Post);
     expect(Liked.kind).toBe("relation");
@@ -481,7 +481,7 @@ describe("relation builder", () => {
   });
 
   test("multi-endpoint relation collects all table names", () => {
-    const Rel = defineRelation("rel").from([User, Tag]).to(Post);
+    const Rel = relation("rel").from([User, Tag]).to(Post);
     expect(Rel.config.relation).toEqual({
       from: ["user", "tag"],
       to: ["post"],
@@ -489,16 +489,16 @@ describe("relation builder", () => {
   });
 
   test("from()/to() accept a name string, a Table instance, and a mixed array", () => {
-    const byName = defineRelation("r1").from("user").to("post");
+    const byName = relation("r1").from("user").to("post");
     expect(byName.config.relation).toEqual({ from: ["user"], to: ["post"] });
 
-    const byTable = defineRelation("r2")
+    const byTable = relation("r2")
       .from(new Table("user"))
       .to(new Table("post"));
     expect(byTable.config.relation).toEqual({ from: ["user"], to: ["post"] });
 
     // a mixed array (TableDef + name + Table) emits a FROM-union; names + typed `in` link carry through.
-    const mixed = defineRelation("r3")
+    const mixed = relation("r3")
       .from([User, "tag", new Table("post")])
       .to(Post);
     expect(mixed.config.relation).toEqual({
@@ -519,13 +519,13 @@ describe("relation builder", () => {
 describe("field $unique / $index (DDL clauses are $-prefixed)", () => {
   test("$unique() emits a UNIQUE index; $index() a plain index", () => {
     const uq = emitTable(
-      defineTable("u", { id: s.string(), email: s.string().$unique() }),
+      table("u", { id: s.string(), email: s.string().$unique() }),
     );
     expect(uq).toContain(
       "DEFINE INDEX u_email_idx ON TABLE u FIELDS email UNIQUE;",
     );
     const ix = emitTable(
-      defineTable("d", { id: s.string(), code: s.string().$index() }),
+      table("d", { id: s.string(), code: s.string().$index() }),
     );
     expect(ix).toContain("DEFINE INDEX d_code_idx ON TABLE d FIELDS code;");
     expect(ix).not.toContain("UNIQUE");
@@ -533,7 +533,7 @@ describe("field $unique / $index (DDL clauses are $-prefixed)", () => {
 
   test("a custom index name overrides the derived `<table>_<field>_idx`", () => {
     const ddl = emitTable(
-      defineTable("u", {
+      table("u", {
         id: s.string(),
         email: s.string().$unique("email_uq"),
         code: s.string().$index("code_ix"),
@@ -546,7 +546,7 @@ describe("field $unique / $index (DDL clauses are $-prefixed)", () => {
     expect(ddl).not.toContain("u_email_idx");
     // No name -> still the derived default.
     expect(
-      emitTable(defineTable("d", { id: s.string(), x: s.string().$unique() })),
+      emitTable(table("d", { id: s.string(), x: s.string().$unique() })),
     ).toContain("DEFINE INDEX d_x_idx ON TABLE d FIELDS x UNIQUE;");
   });
 });
@@ -554,7 +554,7 @@ describe("field $unique / $index (DDL clauses are $-prefixed)", () => {
 describe("field $fulltext / $hnsw / $diskann (single-field special indexes)", () => {
   test("$fulltext({…}) emits FULLTEXT; a tuned bm25 emits BM25(k1,b)", () => {
     const ddl = emitTable(
-      defineTable("doc", {
+      table("doc", {
         id: s.string(),
         body: s
           .string()
@@ -569,13 +569,13 @@ describe("field $fulltext / $hnsw / $diskann (single-field special indexes)", ()
   test("$fulltext() overload: bare string, AnalyzerDef, and { analyzer } object are equivalent", () => {
     const eng = defineAnalyzer("eng").tokenizers("blank");
     const fromString = emitTable(
-      defineTable("o", { id: s.string(), body: s.string().$fulltext("eng") }),
+      table("o", { id: s.string(), body: s.string().$fulltext("eng") }),
     );
     const fromDef = emitTable(
-      defineTable("o", { id: s.string(), body: s.string().$fulltext(eng) }),
+      table("o", { id: s.string(), body: s.string().$fulltext(eng) }),
     );
     const fromObject = emitTable(
-      defineTable("o", {
+      table("o", {
         id: s.string(),
         body: s.string().$fulltext({ analyzer: eng }),
       }),
@@ -589,7 +589,7 @@ describe("field $fulltext / $hnsw / $diskann (single-field special indexes)", ()
 
   test("$fulltext() analyzer is optional — bare FULLTEXT (SurrealDB injects `like`)", () => {
     const noArg = emitTable(
-      defineTable("o", { id: s.string(), body: s.string().$fulltext() }),
+      table("o", { id: s.string(), body: s.string().$fulltext() }),
     );
     expect(noArg).toContain(
       "DEFINE INDEX o_body_idx ON TABLE o FIELDS body FULLTEXT;",
@@ -597,7 +597,7 @@ describe("field $fulltext / $hnsw / $diskann (single-field special indexes)", ()
     expect(noArg).not.toContain("ANALYZER");
     // object without analyzer + table-level { fulltext: {} } emit the same bare FULLTEXT.
     const objNoAnalyzer = emitTable(
-      defineTable("o", {
+      table("o", {
         id: s.string(),
         body: s.string().$fulltext({ highlights: true }),
       }),
@@ -606,11 +606,9 @@ describe("field $fulltext / $hnsw / $diskann (single-field special indexes)", ()
       "DEFINE INDEX o_body_idx ON TABLE o FIELDS body FULLTEXT HIGHLIGHTS;",
     );
     const tableLevel = emitTable(
-      defineTable("d2", { id: s.string(), body: s.string() }).index(
-        "ft",
-        ["body"],
-        { fulltext: {} },
-      ),
+      table("d2", { id: s.string(), body: s.string() }).index("ft", ["body"], {
+        fulltext: {},
+      }),
     );
     expect(tableLevel).toContain(
       "DEFINE INDEX ft ON TABLE d2 FIELDS body FULLTEXT;",
@@ -619,7 +617,7 @@ describe("field $fulltext / $hnsw / $diskann (single-field special indexes)", ()
 
   test("$fulltext() bm25 as [k1,b] tunes the scoring; omitted bm25 drops it", () => {
     const tuned = emitTable(
-      defineTable("d2", {
+      table("d2", {
         id: s.string(),
         body: s.string().$fulltext({ analyzer: "eng", bm25: [1.5, 0.8] }),
       }),
@@ -628,7 +626,7 @@ describe("field $fulltext / $hnsw / $diskann (single-field special indexes)", ()
       "DEFINE INDEX d2_body_idx ON TABLE d2 FIELDS body FULLTEXT ANALYZER eng BM25(1.5,0.8);",
     );
     const plain = emitTable(
-      defineTable("d3", { id: s.string(), body: s.string().$fulltext("eng") }),
+      table("d3", { id: s.string(), body: s.string().$fulltext("eng") }),
     );
     expect(plain).toContain(
       "DEFINE INDEX d3_body_idx ON TABLE d3 FIELDS body FULLTEXT ANALYZER eng;",
@@ -638,7 +636,7 @@ describe("field $fulltext / $hnsw / $diskann (single-field special indexes)", ()
 
   test("$hnsw() / $diskann() emit vector indexes; a custom name overrides the derived one", () => {
     const hnsw = emitTable(
-      defineTable("vh", {
+      table("vh", {
         id: s.string(),
         emb: s.array(s.float()).$hnsw({ dimension: 4, dist: "cosine" }),
       }),
@@ -647,7 +645,7 @@ describe("field $fulltext / $hnsw / $diskann (single-field special indexes)", ()
       "DEFINE INDEX vh_emb_idx ON TABLE vh FIELDS emb HNSW DIMENSION 4 DIST COSINE;",
     );
     const diskann = emitTable(
-      defineTable("vd", {
+      table("vd", {
         id: s.string(),
         emb: s.array(s.float()).$diskann({ dimension: 8, name: "vec_dk" }),
       }),
@@ -662,12 +660,12 @@ describe("field $fulltext / $hnsw / $diskann (single-field special indexes)", ()
 describe("table.index() renameable field-ref callback", () => {
   test('(t) => [t.a, t.b] emits identically to the ["a","b"] string array', () => {
     const cb = emitTable(
-      defineTable("p", { id: s.string(), a: s.string(), b: s.string() })
+      table("p", { id: s.string(), a: s.string(), b: s.string() })
         .index("ab", (t) => [t.a, t.b])
         .index("uq", (t) => [t.a], { unique: true }),
     );
     const str = emitTable(
-      defineTable("p", { id: s.string(), a: s.string(), b: s.string() })
+      table("p", { id: s.string(), a: s.string(), b: s.string() })
         .index("ab", ["a", "b"])
         .index("uq", ["a"], { unique: true }),
     );
@@ -678,7 +676,7 @@ describe("table.index() renameable field-ref callback", () => {
 
   test("the callback's t.<field> values are the field names", () => {
     // Same accessor the LSP renames; at runtime each ref resolves to its own name.
-    defineTable("p", { id: s.string(), a: s.string(), b: s.string() }).index(
+    table("p", { id: s.string(), a: s.string(), b: s.string() }).index(
       "ab",
       (t) => {
         expect(t.a).toBe("a");

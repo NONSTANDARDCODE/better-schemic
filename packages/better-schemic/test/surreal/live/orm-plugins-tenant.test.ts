@@ -11,15 +11,15 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { RecordId } from "surrealdb";
 import { surrealBinaryAvailable } from "../../../src/surreal/cli/engine";
 import { emitTable } from "../../../src/surreal/ddl";
-import { betterSchemic } from "../../../src/surreal/orm/client";
+import { orm } from "../../../src/surreal/orm/client";
 import {
-  type BetterSchemicError,
   isTenantViolation,
+  type OrmError,
 } from "../../../src/surreal/orm/errors";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { schema } from "../../../src/surreal/orm/schema";
 import { softDelete } from "../../../src/surreal/plugins/soft-delete";
 import { tenant, tenantRls } from "../../../src/surreal/plugins/tenant";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { s, table } from "../../../src/surreal/pure";
 import { caught } from "../orm-fixtures";
 import { type LiveServer, startLiveServer } from "./harness";
 
@@ -28,19 +28,19 @@ const live = describe.skipIf(!ENABLED);
 if (!ENABLED)
   console.warn("[orm-plugins-tenant] `surreal` binary unavailable — skipping");
 
-const User = defineTable("t_user", { name: s.string() });
-const Customer = defineTable("t_customer", {
+const User = table("t_user", { name: s.string() });
+const Customer = table("t_customer", {
   name: s.string(),
   deletedAt: s.datetime().optional(),
 }).use(tenant(User, { softDelete: true }));
-const Order = defineTable("t_order", { total: s.number() }).use(
+const Order = table("t_order", { total: s.number() }).use(
   tenant(User, { createOnly: true }),
 );
 /** A tenant-scoped table with a UNIQUE field — the `findUnique` unique-target path. */
-const Unique = defineTable("t_uq", { code: s.string() })
+const Unique = table("t_uq", { code: s.string() })
   .use(tenant(User))
   .index("t_uq_code_uq", ["code"], { unique: true });
-const schema = defineSchema({
+const schemaDef = schema({
   users: User,
   customers: Customer,
   orders: Order,
@@ -72,10 +72,7 @@ live("tenant plugin — live (privileged session)", () => {
 
   /** A root-session client with the tenant runtime + soft delete (both orders are offline-tested). */
   const client = () =>
-    betterSchemic(live_.db, {
-      schema,
-      plugins: [tenantRls(), softDelete()],
-    });
+    orm(live_.db, { schema: schemaDef, plugins: [tenantRls(), softDelete()] });
 
   test("create injects the scoped tenant; reads filter by it; $withoutPlugins sees all", async () => {
     const c = client();
@@ -108,7 +105,7 @@ live("tenant plugin — live (privileged session)", () => {
       c.customers
         .$forTenant(B)
         .upsert({ where: { id: a.id }, data: { name: "hacked2" } }),
-    )) as BetterSchemicError;
+    )) as OrmError;
     expect(crossTenant.code).toBe("ResultNotFound");
 
     const after = await c.customers
@@ -186,7 +183,7 @@ live("tenant plugin — live (privileged session)", () => {
         data: { name: "hacked" },
         onMissing: "throw",
       }),
-    )) as BetterSchemicError;
+    )) as OrmError;
     expect(error.code).toBe("ResultNotFound");
     expect(
       (await c.customers.$forTenant(A).findUnique({ where: { id } }))?.name,
@@ -266,7 +263,7 @@ live("tenant plugin — live (privileged session)", () => {
   });
 
   test("an unscoped operation on a tagged table throws TenantRequired", async () => {
-    const c = betterSchemic(live_.db, { schema, plugins: [tenantRls()] });
+    const c = orm(live_.db, { schema: schemaDef, plugins: [tenantRls()] });
     const error = await caught(() => c.customers.findMany({}));
     expect(isTenantViolation(error)).toBe(true);
   });

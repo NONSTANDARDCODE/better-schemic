@@ -11,8 +11,8 @@
  * not a question of how the SQL is spelled — both lowerings share it.
  */
 
-import { MATH_OPS } from "./aggregate-entries";
 import type { ColumnMeta, FieldFamily, ModelMeta, TableMeta } from "../meta";
+import { MATH_OPS } from "./aggregate-entries";
 import {
   compileError,
   describeValue,
@@ -97,7 +97,7 @@ export function assertAggregateOperand(
 
   // Walk every segment but the last: a path may only descend through a plain object. A record link
   // or an array/set holds many values per grouped row — that is what SPLIT exists for.
-  let column = base;
+  const column = base;
   for (let i = 0; i < segments.length - 1; i++) {
     if (column.family === "object") return; // flexible object: the leaf's family is unknown here
     const segment = segments[i] as string;
@@ -118,11 +118,14 @@ export function assertAggregateOperand(
   if (NUMBER_ONLY_OPS.has(op) && last.family !== "number")
     fail(
       `math::${MATH_OPS[op] as string} only aggregates NUMBERS and "${last.name}" is ${articleFor(last.family)} — the server would answer ${
-        op === "min" || op === "max" ? "null" : op === "median" ? "an empty object" : "0"
+        op === "min" || op === "max"
+          ? "null"
+          : op === "median"
+            ? "an empty object"
+            : "0"
       } for it, with no error. For a ${last.family} ${op === "min" || op === "max" ? "extremum" : "total"} use a surql fragment (\`array::${op === "min" || op === "max" ? op : "sort"}…\` over \`array::group(${renderPath(path)})\`), or { collect: "${path}" } and reduce in JS.`,
     );
 }
-
 
 /** A field family as an English noun phrase (`a string field`, `an array field`). */
 export function articleFor(family: FieldFamily): string {

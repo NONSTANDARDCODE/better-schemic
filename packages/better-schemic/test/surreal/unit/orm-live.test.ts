@@ -2,17 +2,17 @@
 // decode, diff, handler/iterator fan-out, kill, reconnect (`RECONNECTED`) and the error routes.
 import { describe, expect, test } from "bun:test";
 import { RecordId, Uuid } from "surrealdb";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import { isBetterSchemicError } from "../../../src/surreal/orm/errors";
-import { defineSchema } from "../../../src/surreal/orm/schema";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { orm } from "../../../src/surreal/orm/client";
+import { isOrmError } from "../../../src/surreal/orm/errors";
+import { schema } from "../../../src/surreal/orm/schema";
+import { s, table } from "../../../src/surreal/pure";
 import { caught, lines, ok } from "../orm-fixtures";
 
-const UserBase = defineTable("user", { name: s.string() });
+const UserBase = table("user", { name: s.string() });
 const User = UserBase.extend({
   mentor: s.recordId(() => UserBase).optional(),
 });
-const schema = defineSchema({ users: User });
+const schemaDef = schema({ users: User });
 
 interface LiveMessage {
   readonly queryId: Uuid;
@@ -87,15 +87,15 @@ function fakeLiveConn(options: { readonly liveOfThrows?: Error } = {}) {
 
 const clientOver = (
   conn: ReturnType<typeof fakeLiveConn>,
-  live?: Parameters<typeof betterSchemic>[1]["live"],
+  live?: Parameters<typeof orm>[1]["live"],
 ) =>
-  betterSchemic(conn as never, {
-    schema,
+  orm(conn as never, {
+    schema: schemaDef,
     ...(live !== undefined ? { live } : {}),
   });
 
 const codeOf = (e: unknown): string | undefined =>
-  isBetterSchemicError(e) ? e.code : undefined;
+  isOrmError(e) ? e.code : undefined;
 
 const row = (id: string, name: string) => ({
   id: new RecordId("user", id),
@@ -330,7 +330,7 @@ describe("live — reconnect and client surfaces", () => {
         responses: async () => [ok(new Uuid(crypto.randomUUID()))],
       }),
     };
-    const noLive = betterSchemic(bare as never, { schema });
+    const noLive = orm(bare as never, { schema: schemaDef });
     const missing = await caught(() => noLive.users.live());
     expect(codeOf(missing)).toBe("LiveQueryUnsupported");
   });
@@ -347,7 +347,7 @@ describe("live — reconnect and client surfaces", () => {
         });
       },
     };
-    const client = betterSchemic(withTx as never, { schema });
+    const client = orm(withTx as never, { schema: schemaDef });
     const err = await caught(() =>
       client.transaction(async (tx) => {
         await tx.users.live();

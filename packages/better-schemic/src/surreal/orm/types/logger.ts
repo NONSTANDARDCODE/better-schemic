@@ -143,7 +143,7 @@ export interface LoggerOptions {
 }
 
 /**
- * The `logger` option on `betterSchemic`/`createBetterSchemic`: a flag, a preset, an options bag,
+ * The `logger` option on `orm`/`createOrm`: a flag, a preset, an options bag,
  * or an already-built {@link QueryLogger} (e.g. `createOtelLogger(...)`), which the client uses
  * as-is.
  */

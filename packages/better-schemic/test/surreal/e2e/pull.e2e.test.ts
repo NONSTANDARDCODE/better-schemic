@@ -39,9 +39,9 @@ e2e("pull", () => {
         root,
         "database/schema/tables/flag.ts",
         `import { surql } from "surrealdb";
-import { s, defineTable } from "better-schemic";
+import { s, table } from "better-schemic";
 
-export const Flag = defineTable("flag", {
+export const Flag = table("flag", {
   id: s.string(),
   enabled: s.boolean().$default(false),
   count: s.int().$default(0),
@@ -84,9 +84,9 @@ export const Flag = defineTable("flag", {
       H.write(
         root,
         "database/schema/tables/flag.ts",
-        `import { s, defineTable } from "better-schemic";
+        `import { s, table } from "better-schemic";
 
-export const Flag = defineTable("flag", {
+export const Flag = table("flag", {
   id: s.string(),
   enabled: s.boolean().$default(false),
 });
@@ -98,9 +98,9 @@ export const Flag = defineTable("flag", {
       H.write(
         root,
         "database/schema/tables/flag.ts",
-        `import { s, defineTable } from "better-schemic";
+        `import { s, table } from "better-schemic";
 
-export const Flag = defineTable("flag", {
+export const Flag = table("flag", {
   id: s.string(),
   enabled: s.boolean().$default(false),
   note: s.string().optional(),
@@ -137,9 +137,9 @@ export const Flag = defineTable("flag", {
       H.write(
         root,
         "database/schema/tables/flag.ts",
-        `import { s, defineTable } from "better-schemic";
+        `import { s, table } from "better-schemic";
 
-export const Flag = defineTable("flag", {
+export const Flag = table("flag", {
   id: s.string(),
   enabled: s.boolean().$default(false),
 });
@@ -149,9 +149,9 @@ export const Flag = defineTable("flag", {
       H.write(
         root,
         "database/schema/tables/flag.ts",
-        `import { s, defineTable } from "better-schemic";
+        `import { s, table } from "better-schemic";
 
-export const Flag = defineTable("flag", {
+export const Flag = table("flag", {
   id: s.string(),
   enabled: s.boolean().$default(false),
   note: s.string().optional(),
@@ -195,9 +195,9 @@ export const Flag = defineTable("flag", {
     "whole-table local-only: surfaced in preview, kept by --merge, file deleted by --discard",
     async () => {
       const { root, run } = await setupBare();
-      const flag = `import { s, defineTable } from "better-schemic";
+      const flag = `import { s, table } from "better-schemic";
 
-export const Flag = defineTable("flag", {
+export const Flag = table("flag", {
   id: s.string(),
   enabled: s.boolean().$default(false),
 });
@@ -209,9 +209,9 @@ export const Flag = defineTable("flag", {
       H.write(
         root,
         "database/schema/tables/draft.ts",
-        `import { s, defineTable } from "better-schemic";
+        `import { s, table } from "better-schemic";
 
-export const Draft = defineTable("draft", {
+export const Draft = table("draft", {
   id: s.string(),
   title: s.string(),
 });
@@ -255,10 +255,10 @@ export const Draft = defineTable("draft", {
       H.write(
         root,
         "database/schema/tables/mix.ts",
-        `import { s, defineTable } from "better-schemic";
+        `import { s, table } from "better-schemic";
 
 export const HELPER = 42;
-export const Mix = defineTable("mix", {
+export const Mix = table("mix", {
   id: s.string(),
   name: s.string(),
 });
@@ -312,9 +312,9 @@ e2e("migration guards", () => {
       H.write(
         root,
         "database/schema/tables/post.ts",
-        `import { s, defineTable } from "better-schemic";
+        `import { s, table } from "better-schemic";
 
-export const Post = defineTable("post", {
+export const Post = table("post", {
   id: s.string(),
   title: s.string(),
 });

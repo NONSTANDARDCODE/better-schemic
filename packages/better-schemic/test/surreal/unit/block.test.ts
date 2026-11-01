@@ -3,11 +3,11 @@
 // parity, and the block is a fragment: it interpolates into surql templates and every authoring
 // slot (event THEN, function body) via the Fragmentable (`toQuery()`) coercion.
 import { describe, expect, test } from "bun:test";
+import { defineFunction, s, surql, table } from "../../../src/surreal";
 import { emitDefStatement, emitTable } from "../../../src/surreal/ddl";
-import { defineFunction, defineTable, s, surql } from "../../../src/surreal";
 import { block } from "../../../src/surreal/query";
 
-const Post = defineTable("blk_post", {
+const Post = table("blk_post", {
   title: s.string(),
   author: s.string(),
   views: s.number(),
@@ -195,7 +195,9 @@ const URL = process.env.SURREAL_URL;
 describe.skipIf(!URL)("block live", () => {
   test("block event THEN fires and is drift-free vs INFO; block function body runs", async () => {
     const { Surreal } = await import("surrealdb");
-    const { emitDefStatement, emitTable } = await import("../../../src/surreal/ddl");
+    const { emitDefStatement, emitTable } = await import(
+      "../../../src/surreal/ddl"
+    );
     const { explodeSchema, introspectAll } = await import(
       "../../../src/surreal/kinds/explode"
     );
@@ -203,7 +205,7 @@ describe.skipIf(!URL)("block live", () => {
     const { defineFunction } = await import("../../../src/surreal");
 
     // An audit-counter flow: every post CREATE bumps a per-author tally via a block THEN.
-    const Tally = defineTable("blk_tally", {
+    const Tally = table("blk_tally", {
       author: s.string(),
       total: s.number(),
     });
@@ -233,7 +235,10 @@ describe.skipIf(!URL)("block live", () => {
 
     const c = new Surreal();
     await c.connect(URL as string);
-    await c.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
+    await c.signin({
+      username: process.env.SURREAL_USER ?? "root",
+      password: process.env.SURREAL_PASS ?? "root",
+    });
     await c.use({ namespace: "blk", database: "blk" });
     await c.query(
       "REMOVE TABLE IF EXISTS blk_post; REMOVE TABLE IF EXISTS blk_tally; REMOVE FUNCTION IF EXISTS fn::blk_bump_live;",
@@ -324,7 +329,10 @@ describe.skipIf(!EMPTY_URL)("empty block live", () => {
     const F = defineFunction("blk_noop").body(block());
     const c = new Surreal();
     await c.connect(EMPTY_URL as string);
-    await c.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
+    await c.signin({
+      username: process.env.SURREAL_USER ?? "root",
+      password: process.env.SURREAL_PASS ?? "root",
+    });
     await c.use({ namespace: "blk_e", database: "blk_e" });
     await c.query("REMOVE FUNCTION IF EXISTS fn::blk_noop;");
     await c.query(emitDefStatement(F, { exists: "overwrite" }).ddl);

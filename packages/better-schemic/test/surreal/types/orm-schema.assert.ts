@@ -1,4 +1,4 @@
-// M0.2 — TYPE assertions for the schema artifact (`defineSchema` -> `SchemaIndex` derivations).
+// M0.2 — TYPE assertions for the schema artifact (`schema` -> `SchemaIndex` derivations).
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
 //
 // `assertType<Expected, Actual>()` fails to COMPILE if Actual isn't exactly Expected — so a key-extraction
@@ -7,12 +7,12 @@ import { describe, it } from "node:test";
 import { assertType } from "../../../../../scripts/type-assert";
 import {
   defineFunction,
-  defineRelation,
-  defineTable,
   type IdStrategy,
+  relation,
   s,
+  table,
 } from "../../../src/surreal";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { schema } from "../../../src/surreal/orm/schema";
 import type {
   AppAt,
   FunctionAt,
@@ -28,32 +28,41 @@ import type { App } from "../../../src/surreal/pure";
 
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
 
-const User = defineTable("user", { name: s.string(), age: s.int() });
-const Post = defineTable("post", {
+const User = table("user", { name: s.string(), age: s.int() });
+const Post = table("post", {
   title: s.string(),
   author: s.recordId(User),
 });
-const Likes = defineRelation("likes", { score: s.int() }).from(User).to(Post);
+const Likes = relation("likes", { score: s.int() }).from(User).to(Post);
 const greet = defineFunction("greet", { name: s.string() }).returns(s.string());
 
-const schema = defineSchema({
+const schemaDef = schema({
   users: User,
   posts: Post,
   likes: Likes,
   greet,
   audit: "audit_log",
 });
-type S = typeof schema;
+type S = typeof schemaDef;
 
 describe("idStrategy — authoring types", () => {
   it("the strategy union is enforced and chainable", () => {
-    const withUuid = defineTable("t", { name: s.string() }).idStrategy("uuid");
-    const withRand = defineTable("t", { name: s.string() }).idStrategy("rand");
-    const withUlid = defineTable("t", { name: s.string() }).idStrategy("ulid");
+    const withUuid = table("t", { name: s.string() }).idStrategy("uuid");
+    const withRand = table("t", { name: s.string() }).idStrategy("rand");
+    const withUlid = table("t", { name: s.string() }).idStrategy("ulid");
     // `config` is the general `TableConfig`, so the property is the union (not the literal).
-    assertType<IdStrategy | undefined, (typeof withUuid)["config"]["idStrategy"]>();
-    assertType<IdStrategy | undefined, (typeof withRand)["config"]["idStrategy"]>();
-    assertType<IdStrategy | undefined, (typeof withUlid)["config"]["idStrategy"]>();
+    assertType<
+      IdStrategy | undefined,
+      (typeof withUuid)["config"]["idStrategy"]
+    >();
+    assertType<
+      IdStrategy | undefined,
+      (typeof withRand)["config"]["idStrategy"]
+    >();
+    assertType<
+      IdStrategy | undefined,
+      (typeof withUlid)["config"]["idStrategy"]
+    >();
     // @ts-expect-error — "nanoid" is not an IdStrategy
     const bad: IdStrategy = "nanoid";
     void bad;
@@ -94,6 +103,6 @@ describe("SchemaDef — def lookup", () => {
     assertType<true, [FunctionAt<S, "users">] extends [never] ? true : false>();
   });
   it("SchemaOf recovers the authored entries object", () => {
-    assertType<typeof schema.entries, SchemaOf<S>>();
+    assertType<typeof schemaDef.entries, SchemaOf<S>>();
   });
 });

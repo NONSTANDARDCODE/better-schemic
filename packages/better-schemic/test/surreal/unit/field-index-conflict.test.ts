@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { emitTable } from "../../../src/surreal/ddl";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { s, table } from "../../../src/surreal/pure";
 
 describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
   test(".$unique().$fulltext() emits TWO indexes — spec on _idx, UNIQUE on _uq", () => {
     const ddl = emitTable(
-      defineTable("c", {
+      table("c", {
         id: s.string(),
         name: s.string().$unique().$fulltext("simple"),
       }),
@@ -20,7 +20,7 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
 
   test(".$fulltext().$unique() (reverse order) emits same two indexes", () => {
     const ddl = emitTable(
-      defineTable("c", {
+      table("c", {
         id: s.string(),
         name: s.string().$fulltext("simple").$unique(),
       }),
@@ -35,7 +35,7 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
 
   test(".$unique().$fulltext() with bare .$fulltext() (no analyzer)", () => {
     const ddl = emitTable(
-      defineTable("c", {
+      table("c", {
         id: s.string(),
         name: s.string().$unique().$fulltext(),
       }),
@@ -50,7 +50,7 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
 
   test(".$unique().$fulltext() with tuned BM25 keeps the spec on _idx", () => {
     const ddl = emitTable(
-      defineTable("d", {
+      table("d", {
         id: s.string(),
         body: s
           .string()
@@ -68,7 +68,7 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
 
   test(".$unique().$hnsw() emits both a HNSW _idx and a UNIQUE _uq", () => {
     const ddl = emitTable(
-      defineTable("v", {
+      table("v", {
         id: s.string(),
         emb: s.array(s.number()).$unique().$hnsw({ dimension: 4 }),
       }),
@@ -83,7 +83,7 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
 
   test(".$hnsw().$unique() (reverse order) emits same two indexes", () => {
     const ddl = emitTable(
-      defineTable("v", {
+      table("v", {
         id: s.string(),
         emb: s.array(s.number()).$hnsw({ dimension: 4 }).$unique(),
       }),
@@ -98,7 +98,7 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
 
   test(".$unique().$diskann() emits both a DISKANN _idx and a UNIQUE _uq", () => {
     const ddl = emitTable(
-      defineTable("v", {
+      table("v", {
         id: s.string(),
         emb: s.array(s.number()).$unique().$diskann({ dimension: 4 }),
       }),
@@ -113,7 +113,7 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
 
   test(".$index() + .$unique() + .$fulltext() — three-way chain", () => {
     const ddl = emitTable(
-      defineTable("c", {
+      table("c", {
         id: s.string(),
         name: s.string().$index().$unique().$fulltext("simple"),
       }),
@@ -128,7 +128,7 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
 
   test("each index is independently nameable: .$unique(name) names UNIQUE, spec name names the spec", () => {
     const ddl = emitTable(
-      defineTable("c", {
+      table("c", {
         id: s.string(),
         name: s
           .string()
@@ -146,7 +146,7 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
 
   test("naming one side only — the other falls back to its auto name", () => {
     const ddl = emitTable(
-      defineTable("c", {
+      table("c", {
         id: s.string(),
         name: s.string().$unique("name_uq").$fulltext("simple"), // only the UNIQUE is named
       }),
@@ -157,7 +157,7 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
 
   test("a lone .$unique(name) still names the single UNIQUE index (back-compat)", () => {
     const ddl = emitTable(
-      defineTable("c", {
+      table("c", {
         id: s.string(),
         email: s.string().$unique("email_uq"),
       }),
@@ -169,7 +169,7 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
 
   test("backtick-escaped field paths produce both indexes with sanitized names", () => {
     const ddl = emitTable(
-      defineTable("t", {
+      table("t", {
         id: s.string(),
         "`some field`": s.string().$unique().$fulltext(),
       }),
@@ -187,7 +187,7 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
 
   test("nested field path produces both indexes", () => {
     const ddl = emitTable(
-      defineTable("t", {
+      table("t", {
         id: s.string(),
         "addr.city": s.string().$unique().$fulltext(),
       }),
@@ -204,7 +204,7 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
 describe("no regression: lone indexes keep single-index behavior", () => {
   test("lone .$unique() emits single _idx UNIQUE", () => {
     const ddl = emitTable(
-      defineTable("u", { id: s.string(), email: s.string().$unique() }),
+      table("u", { id: s.string(), email: s.string().$unique() }),
     );
     expect(ddl).toContain(
       "DEFINE INDEX u_email_idx ON TABLE u FIELDS email UNIQUE;",
@@ -215,7 +215,7 @@ describe("no regression: lone indexes keep single-index behavior", () => {
 
   test("lone .$fulltext() emits single _idx FULLTEXT", () => {
     const ddl = emitTable(
-      defineTable("d", { id: s.string(), body: s.string().$fulltext() }),
+      table("d", { id: s.string(), body: s.string().$fulltext() }),
     );
     expect(ddl).toContain(
       "DEFINE INDEX d_body_idx ON TABLE d FIELDS body FULLTEXT;",
@@ -226,7 +226,7 @@ describe("no regression: lone indexes keep single-index behavior", () => {
 
   test("lone .$hnsw() emits single _idx HNSW", () => {
     const ddl = emitTable(
-      defineTable("v", {
+      table("v", {
         id: s.string(),
         emb: s.array(s.number()).$hnsw({ dimension: 4 }),
       }),
@@ -240,7 +240,7 @@ describe("no regression: lone indexes keep single-index behavior", () => {
 
   test("lone .$diskann() emits single _idx DISKANN", () => {
     const ddl = emitTable(
-      defineTable("v", {
+      table("v", {
         id: s.string(),
         emb: s.array(s.number()).$diskann({ dimension: 4 }),
       }),
@@ -254,7 +254,7 @@ describe("no regression: lone indexes keep single-index behavior", () => {
 
   test(".$index() alone emits single _idx without UNIQUE or spec", () => {
     const ddl = emitTable(
-      defineTable("t", { id: s.string(), code: s.string().$index() }),
+      table("t", { id: s.string(), code: s.string().$index() }),
     );
     expect(ddl).toContain("DEFINE INDEX t_code_idx ON TABLE t FIELDS code;");
     expect(ddl).not.toContain("UNIQUE");
@@ -265,7 +265,7 @@ describe("no regression: lone indexes keep single-index behavior", () => {
 describe("table-level .index() with same field", () => {
   test("two named .index()es on same field emit both DDL statements", () => {
     const ddl = emitTable(
-      defineTable("c", { id: s.string(), name: s.string() })
+      table("c", { id: s.string(), name: s.string() })
         .index("name_uq", ["name"], { unique: true })
         .index("name_ft", ["name"], { fulltext: { analyzer: "simple" } }),
     );

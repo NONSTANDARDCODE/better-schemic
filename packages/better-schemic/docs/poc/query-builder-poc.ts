@@ -14,13 +14,7 @@
  */
 
 import type { RecordId } from "surrealdb";
-import {
-  type App,
-  defineTable,
-  type Shape,
-  s,
-  type TableDef,
-} from "../../src";
+import { type App, type Shape, s, type TableDef, table } from "../../src";
 
 // ---------------------------------------------------------------------------
 // 0. Tiny type-level test harness (no test-runner dependency)
@@ -35,7 +29,7 @@ type Expect<T extends true> = T;
 // 1. The schema — a real `s` table. `id`/`createdAt`/`uid`/`manager` exercise
 //    the codecs and smart-id machinery we want to flow into query results.
 // ---------------------------------------------------------------------------
-const User = defineTable("user", {
+const User = table("user", {
   name: s.string(),
   age: s.number(),
   email: s.email(),

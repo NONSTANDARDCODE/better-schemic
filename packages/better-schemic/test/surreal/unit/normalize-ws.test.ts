@@ -35,12 +35,14 @@ const URL = process.env.SURREAL_URL;
 describe.skipIf(!URL)("normalize-ws live", () => {
   test("multi-line fn body + multi-statement IF branches round-trip drift-free", async () => {
     const { Surreal } = await import("surrealdb");
-    const { emitDefStatement, emitTable } = await import("../../../src/surreal/ddl");
+    const { emitDefStatement, emitTable } = await import(
+      "../../../src/surreal/ddl"
+    );
     const { explodeSchema, introspectAll } = await import(
       "../../../src/surreal/kinds/explode"
     );
     const { deepEqual } = await import("../../../src/surreal/cli/struct");
-    const { defineFunction, defineTable, s, surql } = await import(
+    const { defineFunction, table, s, surql } = await import(
       "../../../src/surreal"
     );
 
@@ -57,7 +59,7 @@ describe.skipIf(!URL)("normalize-ws live", () => {
         }`,
       );
     // Event THEN whose IF branch holds a MULTI-STATEMENT block (INFO prints it with newlines).
-    const T = defineTable("nws_t", { n: s.number() });
+    const T = table("nws_t", { n: s.number() });
     const TV = T.event("nws_ev", {
       when: (e) => e.event.eq("CREATE"),
       then: surql`{
@@ -70,7 +72,10 @@ describe.skipIf(!URL)("normalize-ws live", () => {
 
     const c = new Surreal();
     await c.connect(URL as string);
-    await c.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
+    await c.signin({
+      username: process.env.SURREAL_USER ?? "root",
+      password: process.env.SURREAL_PASS ?? "root",
+    });
     await c.use({ namespace: "nws", database: "nws" });
     await c.query(
       "REMOVE TABLE IF EXISTS nws_t; REMOVE FUNCTION IF EXISTS fn::nws_fn;",
@@ -94,10 +99,7 @@ describe.skipIf(!URL)("normalize-ws live", () => {
         struct?: unknown;
       };
       expect(
-        deepEqual(
-          scrub(a.native ?? a.struct),
-          scrub(l.native ?? l.struct),
-        ),
+        deepEqual(scrub(a.native ?? a.struct), scrub(l.native ?? l.struct)),
       ).toBe(true);
     }
 

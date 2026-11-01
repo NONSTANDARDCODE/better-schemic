@@ -8,9 +8,9 @@ import {
   type resolveLogger,
 } from "../../../src/surreal/logger";
 import type { Client } from "../../../src/surreal/orm/client";
-import { betterSchemic } from "../../../src/surreal/orm/client";
+import { orm } from "../../../src/surreal/orm/client";
 import type { Queryable } from "../../../src/surreal/orm/execute";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { schema } from "../../../src/surreal/orm/schema";
 import type {
   ExplainPolicy,
   LogFormat,
@@ -20,22 +20,22 @@ import type {
   QueryLogger,
   ResolvedLoggerOptions,
 } from "../../../src/surreal/orm/types/logger";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { s, table } from "../../../src/surreal/pure";
 
-const User = defineTable("user", { name: s.string() });
-const schema = defineSchema({ users: User });
+const User = table("user", { name: s.string() });
+const schemaDef = schema({ users: User });
 
 describe("logger option — accepted shapes", () => {
   it("the flag, a preset and an options bag all typecheck on the client", () => {
     const flag = (conn: Queryable) =>
-      betterSchemic(conn, { schema, logger: true });
+      orm(conn, { schema: schemaDef, logger: true });
     const preset = (conn: Queryable) =>
-      betterSchemic(conn, { schema, logger: "json" });
+      orm(conn, { schema: schemaDef, logger: "json" });
     const bag = (conn: Queryable) =>
-      betterSchemic(conn, { schema, logger: { level: "info", slowMs: 5 } });
-    assertType<Client<typeof schema>, ReturnType<typeof flag>>();
-    assertType<Client<typeof schema>, ReturnType<typeof preset>>();
-    assertType<Client<typeof schema>, ReturnType<typeof bag>>();
+      orm(conn, { schema: schemaDef, logger: { level: "info", slowMs: 5 } });
+    assertType<Client<typeof schemaDef>, ReturnType<typeof flag>>();
+    assertType<Client<typeof schemaDef>, ReturnType<typeof preset>>();
+    assertType<Client<typeof schemaDef>, ReturnType<typeof bag>>();
   });
 
   it("LoggerOption is exactly boolean | preset | options | a built QueryLogger", () => {
@@ -50,8 +50,8 @@ describe("logger option — accepted shapes", () => {
 
   it("a pre-built QueryLogger typechecks on the client", () => {
     const built = (conn: Queryable) =>
-      betterSchemic(conn, { schema, logger: createQueryLogger() });
-    assertType<Client<typeof schema>, ReturnType<typeof built>>();
+      orm(conn, { schema: schemaDef, logger: createQueryLogger() });
+    assertType<Client<typeof schemaDef>, ReturnType<typeof built>>();
   });
 
   it("options fields are the narrow unions", () => {

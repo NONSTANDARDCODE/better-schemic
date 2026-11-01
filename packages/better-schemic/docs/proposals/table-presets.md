@@ -1,4 +1,4 @@
-# Table presets — `defineTable.preset()` + `TableDef.use()`
+# Table presets — `table.preset()` + `TableDef.use()`
 
 **Status:** ratified cross-driver (core-dev), implemented in `better-schemic`.
 **Origin:** gulybyte's real-world `tenantTableSchema` helper (tenant column + timestamps +
@@ -10,7 +10,7 @@ first-class composition primitive.
 ```ts
 // A preset is a reusable BUNDLE of table parts — it emits nothing on its own:
 const tenant = (field: string) =>
-  defineTable.preset({
+  table.preset({
     columns: { [field]: s.string().$readonly() },
     permissions: surql`$auth.org != NONE`,          // ANDs into every op
     events: [{ name: "tenant_guard", when: …, then: … }],
@@ -18,7 +18,7 @@ const tenant = (field: string) =>
   });
 
 const timestamps = () =>
-  defineTable.preset({
+  table.preset({
     columns: {
       createdAt: s.datetime().$default(surql`time::now()`).$readonly(),
       updatedAt: s.datetime().$value(surql`time::now()`),
@@ -26,25 +26,25 @@ const timestamps = () =>
   });
 
 // Applied via CHAINED single-arg .use — full column typing at any depth:
-const Post = defineTable("post", { title: s.string() })
+const Post = table("post", { title: s.string() })
   .use(tenant("org_id"))
   .use(timestamps());
 // Post.fields.org_id / .createdAt are REAL typed fields; .create/.update see their flags.
 ```
 
-Configurable presets are **plain functions** returning `defineTable.preset(...)` — no bespoke
+Configurable presets are **plain functions** returning `table.preset(...)` — no bespoke
 factory API. Placement is deliberate: a preset composes onto tables (it never becomes a schema
-object itself), so it hangs off `defineTable`, not the `define*` family, and is **not** in `s.*`.
+object itself), so it hangs off `table`, not the `define*` family, and is **not** in `s.*`.
 
 ## Semantics (the ratified cross-driver contract)
 
-| slot | semantics |
-|---|---|
-| `columns` | **typed-merge** into the row (and the derived `.create`/`.update`/`.object`). Any name clash — preset-vs-table or preset-vs-preset — is a **compile error** (`PresetColumnConflict<K>` names the key) backed by a runtime throw. No silent clobber. |
+| slot          | semantics                                                                                                                                                                                                                                                                                                                        |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `columns`     | **typed-merge** into the row (and the derived `.create`/`.update`/`.object`). Any name clash — preset-vs-table or preset-vs-preset — is a **compile error** (`PresetColumnConflict<K>` names the key) backed by a runtime throw. No silent clobber.                                                                              |
 | `permissions` | per-op **AND-combine** with the table's own + earlier presets' — a preset can only **narrow** access, never widen. `false` absorbs, `true` is the identity, exprs AND together. `same as X` refs resolve to concrete rules first. (Permission combining is dialect-native per the ratified amendment; AND is the surreal model.) |
-| `events` | **append** (table-scoped names; a `{table}` placeholder in the name interpolates to the table name at `.use()` — index names too). |
-| `indexes` | **append**. |
-| `meta` | **merge** into `TableConfig.meta` — opaque to emit/snapshot/diff/introspection; presets/plugins use it to TAG a table (the official `tenant()` preset stamps `meta.tenant = { column, principal, softDelete, createOnly }`, read back by `tenantRls`). |
+| `events`      | **append** (table-scoped names; a `{table}` placeholder in the name interpolates to the table name at `.use()` — index names too).                                                                                                                                                                                               |
+| `indexes`     | **append**.                                                                                                                                                                                                                                                                                                                      |
+| `meta`        | **merge** into `TableConfig.meta` — opaque to emit/snapshot/diff/introspection; presets/plugins use it to TAG a table (the official `tenant()` preset stamps `meta.tenant = { column, principal, softDelete, createOnly }`, read back by `tenantRls`).                                                                           |
 
 The four slot **names** are the cross-driver contract; contents are dialect-specific
 (surreal `TablePermissions`/events).

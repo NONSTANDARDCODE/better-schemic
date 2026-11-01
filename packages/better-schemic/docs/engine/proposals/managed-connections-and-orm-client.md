@@ -9,7 +9,7 @@
 
 **Status:** design proposal for alignment (core-dev). **Date:** 2026-07-02.
 **Owner:** core-dev leads the neutral contract; each driver implements its bound client.
-**Motivates:** turn the opt-in query layer into a cohesive ORM by giving it a *connection* — the one
+**Motivates:** turn the opt-in query layer into a cohesive ORM by giving it a _connection_ — the one
 piece missing so that `db.select(...)` / `db.create(...)` work against a Better-schemic-managed (or BYO)
 connection, instead of the user hand-wiring a client and threading it through `.run(externalDb)`.
 **Priority (per Manuel):** complement the ORM we are building (public, app-developer facing) FIRST;
@@ -25,16 +25,17 @@ The pieces of an ORM are already built and independently shipped:
 
 The **gap**: the query layer requires **bring-your-own client** — `select(User).run(db)`, where `db` is a
 separately-constructed, separately-connected `new Surreal()`. So a user configures a
-connection *once* in the config (for migrations) and then **re-declares it** to run a query. Two sources
+connection _once_ in the config (for migrations) and then **re-declares it** to run a query. Two sources
 of truth, out of sync, and no first-class runtime entry point. Connection management closes exactly this.
 
 ## 2. The proposed surface
 
 ### 2.1 Getting a client — two ways, both first-class
+
 ```ts
 // (a) MANAGED — resolved + connected from the project's config (single source of truth)
-const db = await connect();              // the default connection
-const db = await connect("reporting");   // a named connection
+const db = await connect(); // the default connection
+const db = await connect("reporting"); // a named connection
 const db = await connect("tenant", { key: "acme" }); // one element of a keyed collection
 
 // (b) BYO — wrap an existing client (drizzle model; NEVER forces a second pool)
@@ -51,30 +52,34 @@ a scoped client auto-closes at block exit:
 {
   await using db = await connect();
   await db.select(User).limit(10);
-}   // db closed automatically here
+} // db closed automatically here
 ```
 Dispose semantics differ by origin, and this is a **hard rule**: a **managed** client disposes by closing
-the connection *it opened*; a **BYO** client's dispose is a **no-op on the pool** — we never close a
+the connection _it opened_; a **BYO** client's dispose is a **no-op on the pool** — we never close a
 client the user owns. On top of the neutral disposable client, a driver may expose its own scoped,
 disposable sub-handle — SurrealDB `db.forkSession()` (fork the auth/session context) — each
 `await using`-friendly, releasing on dispose:
 ```ts
-await using session = await db.forkSession();   // surreal
+await using session = await db.forkSession(); // surreal
 ```
 Neutral contract = a disposable client; the forked/scoped flavor is the driver's own (named per dialect).
 
 ### 2.2 The bound client — pre-bound, split write builder (mirrors `select()`)
+
 Reads reuse the existing builder; **writes use a split builder** (`create(User).content(data)`) rather
 than a flat `create(User, data)` — it matches the `select()` chain, gives RETURN / CONTENT / MERGE / SET
 clauses somewhere to hang, and maps `.content` → the `User.create` schema, `.merge` → `User.update`.
 ```ts
-const rows = await db.select(User).where(u => u.age.gt(18)).return(u => ({ name: u.name }));
-const msg  = await db.call(greet, { name: "Ada" });
+const rows = await db
+  .select(User)
+  .where((u) => u.age.gt(18))
+  .return((u) => ({ name: u.name }));
+const msg = await db.call(greet, { name: "Ada" });
 
 // writes — split builder, chainable clauses
-await db.create(User).content({ name: "Ada", email: "ada@x.com" });   // validates vs User.create
-await db.update(User, id).merge({ name: "Ada L." });                  // vs User.update (partial)
-await db.update(User, id).content(fullRow);                           // replace (vs User.create)
+await db.create(User).content({ name: "Ada", email: "ada@x.com" }); // validates vs User.create
+await db.update(User, id).merge({ name: "Ada L." }); // vs User.update (partial)
+await db.update(User, id).content(fullRow); // replace (vs User.create)
 await db.delete(User, id).return("before");
 await db.close();
 ```
@@ -100,8 +105,8 @@ connection, so no `.run(externalDb)` threading.
 - **We do NOT deprecate BYO-client.** `.run(client)` and `connect(client)` remain first-class so an app
   with its own pool never ends up with two.
 - **Schema-as-code stays the identity.** The ORM/connection layer is a value-add on top of migrations +
-  authoring, not a pivot to "Better-schemic is your runtime." Framing: *your schema config is also your
-  connection config.*
+  authoring, not a pivot to "Better-schemic is your runtime." Framing: _your schema config is also your
+  connection config._
 
 ## 5. Positioning (vs surqlize / other ORMs)
 
@@ -114,7 +119,7 @@ client / surqlize for driver-specific power via BYO).
 ## 6. Phasing
 
 - **P1 — bound client + connect.** Managed (`connect(name?)` from config) and BYO (`connect(client)`),
-  wrapping the *existing* `select()`/`.call()` pre-bound (+ `close`). No new query features. Small,
+  wrapping the _existing_ `select()`/`.call()` pre-bound (+ `close`). No new query features. Small,
   high-DX, proves the layer. Reuses the resolver engine as-is.
 - **P2 — writes.** `create`/`update`/`delete`/(`upsert`?) on the client, using the derived `.create`/
   `.update` schemas + codecs.

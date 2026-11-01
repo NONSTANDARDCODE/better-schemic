@@ -2,7 +2,11 @@
 // legacy array), the operator badges and the nanosecond humanizer. Offline (pure).
 import { describe, expect, test } from "bun:test";
 import { createPalette } from "../../../src/surreal/orm/logger/colors";
-import { humanizeNs, planToNodes, renderPlan } from "../../../src/surreal/orm/logger/plan";
+import {
+  humanizeNs,
+  planToNodes,
+  renderPlan,
+} from "../../../src/surreal/orm/logger/plan";
 
 const plain = createPalette(false);
 const lines = (plan: unknown): string[] => renderPlan(plan, plain);

@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { env, envSecretProvider, isSecretRef, secret } from "../../../src/core/secrets";
+import {
+  env,
+  envSecretProvider,
+  isSecretRef,
+  secret,
+} from "../../../src/core/secrets";
 
 describe("secret refs", () => {
   test("env / secret build a placeholder ref (never the value)", () => {

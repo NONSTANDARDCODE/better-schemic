@@ -1,14 +1,15 @@
 /**
- * The bound ORM client — `betterSchemic(conn, { schema })` wraps an EXISTING SurrealDB connection
+ * The bound ORM client — `orm(conn, { schema })` wraps an EXISTING SurrealDB connection
  * (BYO; its `close()` is a no-op) with one delegate per schema entry. The managed counterpart
- * (`createBetterSchemic` / `clientFromConfig`) lives in `./connect`, which builds on this module.
+ * (`createOrm` / `clientFromConfig`) lives in `./connect`, which builds on this module.
  *
  * Landing in later milestones on the same client object: operation methods on the delegates
  * (M1 reads, M2 writes), `$raw`, transactions, live, hooks/plugins. Today it ships the lifecycle,
  * delegate resolution and the type-level key -> delegate mapping.
  */
-import { asyncDisposable, type OrmClientBase } from "../../core";
+
 import type { SurrealSession } from "surrealdb";
+import { asyncDisposable, type OrmClientBase } from "../../core";
 import { createAdminOperations } from "./admin";
 import { createApiOperations } from "./api";
 import { createAuthOperations } from "./auth";
@@ -19,7 +20,7 @@ import {
   type Delegate,
   type DelegateContext,
 } from "./delegate";
-import { BetterSchemicError } from "./errors";
+import { OrmError } from "./errors";
 import type { Queryable } from "./execute";
 import { createFnOperations } from "./fn";
 import { createHookDispatcher, type HookDispatcher } from "./hooks";
@@ -39,12 +40,7 @@ import {
 import type { ApiOperations } from "./types/api";
 import type { AuthOperations } from "./types/auth";
 import type { ChangeSet } from "./types/changes";
-import type {
-  BetterSchemicOptions,
-  Client,
-  Extension,
-  SchemaArg,
-} from "./types/client";
+import type { Client, Extension, OrmOptions, SchemaArg } from "./types/client";
 import type {
   ContextAuth,
   ContextScope,
@@ -67,7 +63,7 @@ import type {
   TransactionOptions,
 } from "./types/transaction";
 
-export type { BetterSchemicOptions, Client, SchemaArg } from "./types/client";
+export type { Client, OrmOptions, SchemaArg } from "./types/client";
 
 /** The runtime behind every {@link Client} — the class members plus the per-key delegates. */
 export class ClientRuntime<C extends Queryable = Queryable>
@@ -82,7 +78,7 @@ export class ClientRuntime<C extends Queryable = Queryable>
   /** The runtime services every delegate operation receives. */
   private readonly delegateContext: DelegateContext;
 
-  /** Client-level transaction defaults (`betterSchemic(conn, { schema, transaction: … })`). */
+  /** Client-level transaction defaults (`orm(conn, { schema, transaction: … })`). */
   private readonly transactionDefaults?: TransactionDefaults;
 
   /** Present iff this client is BOUND to a transaction (the `tx` handle from the callback). */
@@ -91,19 +87,19 @@ export class ClientRuntime<C extends Queryable = Queryable>
   /** Root clients only: the transaction scope currently running on this client. */
   private rootScope?: TransactionState;
 
-  /** Client-level live defaults (`betterSchemic(conn, { schema, live: … })`). */
+  /** Client-level live defaults (`orm(conn, { schema, live: … })`). */
   private readonly liveDefaults?: LiveDefaults;
 
-  /** Client-level raw defaults (`betterSchemic(conn, { schema, raw: … })`). */
+  /** Client-level raw defaults (`orm(conn, { schema, raw: … })`). */
   private readonly rawDefaults?: RawDefaults;
 
-  /** The observation-hook dispatcher (`betterSchemic(conn, { schema, hooks })`); absent = fast path. */
+  /** The observation-hook dispatcher (`orm(conn, { schema, hooks })`); absent = fast path. */
   private readonly hooks?: HookDispatcher;
 
-  /** The plugin pipeline (`betterSchemic(conn, { schema, plugins })`); absent = no plugins. */
+  /** The plugin pipeline (`orm(conn, { schema, plugins })`); absent = no plugins. */
   private readonly pipeline?: PluginPipeline;
 
-  /** The query logger (`betterSchemic(conn, { schema, logger })`); absent = zero-overhead. */
+  /** The query logger (`orm(conn, { schema, logger })`); absent = zero-overhead. */
   private readonly logger?: QueryLogger;
 
   /** The clone's default namespace/database scope (`$withContext`); absent on a plain client. */
@@ -209,7 +205,7 @@ export class ClientRuntime<C extends Queryable = Queryable>
     source: "schema key" | "extends",
   ): void {
     if (name !== "then" && !name.startsWith("$") && !(name in this)) return;
-    throw new BetterSchemicError(
+    throw new OrmError(
       source === "schema key" ? "SchemaInvalid" : "PluginError",
       `${source} "${name}" collides with a client member (or the reserved "then") — pick another name.`,
     );
@@ -251,7 +247,7 @@ export class ClientRuntime<C extends Queryable = Queryable>
   repository(name: string): Delegate {
     const meta = resolveModel(this.$index, name);
     if (meta) return this.delegateFor(meta.key, meta);
-    throw new BetterSchemicError(
+    throw new OrmError(
       "RepositoryNotFound",
       `repository("${name}"): no schema entry has that key or physical name. Known: ${this.tables.join(", ") || "(none)"}.`,
       { details: { known: this.tables } },
@@ -353,7 +349,7 @@ export class ClientRuntime<C extends Queryable = Queryable>
         ? this.rootScope
         : undefined;
     if (!state)
-      throw new BetterSchemicError(
+      throw new OrmError(
         "ValidationError",
         `client.${name}(...) needs an active transaction — call it inside client.transaction(async (tx) => { … }) (or use tx.${name}).`,
       );
@@ -413,7 +409,7 @@ export class ClientRuntime<C extends Queryable = Queryable>
    * trap, not a feature.
    *
    * ```ts
-   * const db = betterSchemic(conn, { schema }).extends({
+   * const db = orm(conn, { schema }).extends({
    *   async activeUsers(this: Client<typeof schema>) {
    *     return this.repository("users"); // M1: this.users.findMany({ where: { active: true } })
    *   },
@@ -448,7 +444,7 @@ export class ClientRuntime<C extends Queryable = Queryable>
       forkSession?: () => Promise<SurrealSession>;
     };
     if (typeof sdk.forkSession !== "function")
-      throw new BetterSchemicError(
+      throw new OrmError(
         "UnsupportedCapability",
         "forkSession() needs the SurrealDB SDK connection — this client wraps an object without `forkSession()`.",
       );
@@ -498,12 +494,12 @@ export class ClientRuntime<C extends Queryable = Queryable>
     const namespace = scope.namespace ?? sdk.namespace;
     const database = scope.database ?? sdk.database;
     if (!namespace || !database)
-      throw new BetterSchemicError(
+      throw new OrmError(
         "ValidationError",
         "$withContext({ auth }): the scoped session needs BOTH namespace and database — pass them, or select them on the parent connection first.",
       );
     if (typeof sdk.use !== "function" || typeof sdk.authenticate !== "function")
-      throw new BetterSchemicError(
+      throw new OrmError(
         "UnsupportedCapability",
         "$withContext({ auth }) needs the SurrealDB SDK connection (a forkable session).",
       );
@@ -519,7 +515,7 @@ export class ClientRuntime<C extends Queryable = Queryable>
    */
   rollback(reason?: unknown): never {
     if (!this.txState)
-      throw new BetterSchemicError(
+      throw new OrmError(
         "ValidationError",
         "rollback() is only available on the `tx` client inside client.transaction(...).",
       );
@@ -527,7 +523,7 @@ export class ClientRuntime<C extends Queryable = Queryable>
   }
 
   /**
-   * Close the connection — MANAGED clients (opened by `createBetterSchemic`/the config) close what
+   * Close the connection — MANAGED clients (opened by `createOrm`/the config) close what
    * they opened; a BYO client is a NO-OP (never close the user's connection).
    */
   async close(): Promise<void> {
@@ -547,7 +543,7 @@ export function buildClient<S extends SchemaInput, C extends Queryable>(
   conn: C,
   schema: SchemaArg<S>,
   managed: boolean,
-  options: BetterSchemicOptions,
+  options: OrmOptions,
 ): Client<S, C> {
   const pipeline = createPluginPipeline(options.plugins);
   const hooks = createHookDispatcher([
@@ -581,11 +577,11 @@ export function buildClient<S extends SchemaInput, C extends Queryable>(
  * await db.connect("wss://localhost:8000/rpc");
  * await db.use({ namespace: "app", database: "main" });
  *
- * const client = betterSchemic(db, { schema });
+ * const client = orm(db, { schema });
  * // M1: await client.users.findMany({ where: { active: true } });
  * ```
  */
-export function betterSchemic<
+export function orm<
   S extends SchemaInput,
   C extends Queryable,
   const P extends readonly Plugin[] = readonly [],
@@ -594,7 +590,7 @@ export function betterSchemic<
   options: {
     readonly schema: SchemaArg<S>;
     readonly plugins?: P;
-  } & Omit<BetterSchemicOptions, "plugins">,
+  } & Omit<OrmOptions, "plugins">,
 ): Client<S, C, P> {
   return buildClient(conn, options.schema, false, options) as unknown as Client<
     S,

@@ -448,7 +448,6 @@ export function omittedPaths(omit: unknown): readonly (readonly string[])[] {
     .map(pathSegments);
 }
 
-
 /** The top-level output keys a valid projection can emit. */
 export function projectionKeys(form: ProjectionForm): ReadonlySet<string> {
   const keys = new Set<string>();

@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { table, s } from "better-schemic";
 import { cover } from "../_kit";
 
 export default cover(import.meta.url, {
@@ -7,7 +7,7 @@ export default cover(import.meta.url, {
   ddl: `DEFINE TABLE doc TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD embedding ON TABLE doc TYPE array<number>;
 DEFINE INDEX doc_embedding_idx ON TABLE doc FIELDS embedding HNSW DIMENSION 128 DIST COSINE TYPE F32 EFC 150 M 12;`,
-  def: defineTable("doc", {
+  def: table("doc", {
     embedding: s
       .array(s.number())
       .$hnsw({ dimension: 128, dist: "cosine", type: "f32", efc: 150, m: 12 }),

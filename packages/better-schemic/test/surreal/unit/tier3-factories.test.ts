@@ -1,8 +1,8 @@
 // Tier-3 Zod-parity factories: the long-tail `s.*` so a `z.` -> `s.` find-replace is a literal drop-in.
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
+import { s, table } from "../../../src/surreal";
 import { emitTable } from "../../../src/surreal/driver";
-import { defineTable, s } from "../../../src/surreal";
 
 const line = (t: Parameters<typeof emitTable>[0], n: string) =>
   emitTable(t)
@@ -12,7 +12,7 @@ const line = (t: Parameters<typeof emitTable>[0], n: string) =>
 
 describe("Tier-3 string-format factories (app-side; DDL `string`)", () => {
   test("each emits a plain `string` column", () => {
-    const T = defineTable("t", {
+    const T = table("t", {
       id: s.string(),
       a: s.uuidv4(),
       b: s.uuidv6(),
@@ -37,7 +37,7 @@ describe("Tier-3 string-format factories (app-side; DDL `string`)", () => {
 
 describe("Tier-3 iso.* string formats (distinct from native datetime/duration codecs)", () => {
   test("nested s.iso.* emit `string`", () => {
-    const T = defineTable("t", {
+    const T = table("t", {
       id: s.string(),
       d: s.iso.date(),
       ti: s.iso.time(),
@@ -47,15 +47,15 @@ describe("Tier-3 iso.* string formats (distinct from native datetime/duration co
     for (const k of ["d", "ti", "dt", "du"])
       expect(line(T, k)).toBe(`DEFINE FIELD ${k} ON TABLE t TYPE string;`);
     // native datetime stays the codec type (datetime), NOT string
-    expect(
-      line(defineTable("t", { id: s.string(), n: s.datetime() }), "n"),
-    ).toBe("DEFINE FIELD n ON TABLE t TYPE datetime;");
+    expect(line(table("t", { id: s.string(), n: s.datetime() }), "n")).toBe(
+      "DEFINE FIELD n ON TABLE t TYPE datetime;",
+    );
   });
 });
 
 describe("Tier-3 strictObject / looseObject", () => {
   test("strictObject -> object, looseObject -> object FLEXIBLE, both composable", () => {
-    const T = defineTable("t", {
+    const T = table("t", {
       id: s.string(),
       so: s.strictObject({ a: s.string() }),
       lo: s.looseObject({ a: s.string() }),
@@ -70,7 +70,7 @@ describe("Tier-3 strictObject / looseObject", () => {
 
 describe("Tier-3 structural: json / stringbool / codec", () => {
   test("json -> the recursive JSON union, validates any JSON", () => {
-    const T = defineTable("t", { id: s.string(), j: s.json() });
+    const T = table("t", { id: s.string(), j: s.json() });
     expect(line(T, "j")).toBe(
       "DEFINE FIELD j ON TABLE t TYPE string | number | bool | null | array<any> | object;",
     );
@@ -78,7 +78,7 @@ describe("Tier-3 structural: json / stringbool / codec", () => {
   });
 
   test("stringbool -> string wire (DDL), bool app", () => {
-    const T = defineTable("t", { id: s.string(), b: s.stringbool() });
+    const T = table("t", { id: s.string(), b: s.stringbool() });
     expect(line(T, "b")).toBe("DEFINE FIELD b ON TABLE t TYPE string;");
     expect(s.stringbool().safeDecode("true").data).toBe(true);
     expect(s.stringbool().safeDecode("false").data).toBe(false);
@@ -89,7 +89,7 @@ describe("Tier-3 structural: json / stringbool / codec", () => {
       decode: Number,
       encode: String,
     });
-    const T = defineTable("t", { id: s.string(), n: c });
+    const T = table("t", { id: s.string(), n: c });
     expect(line(T, "n")).toBe("DEFINE FIELD n ON TABLE t TYPE string;");
     expect(c.safeDecode("42").data).toBe(42);
     expect(c.safeEncode(42).data).toBe("42");
@@ -104,7 +104,7 @@ describe("Bucket-2 numerics (float32/float64/int64/uint64)", () => {
       ?.trim();
 
   test("float* -> `float`, int64/uint64 -> `int`", () => {
-    const T = defineTable("t", {
+    const T = table("t", {
       id: s.string(),
       a: s.float32(),
       b: s.float64(),
@@ -136,7 +136,7 @@ describe("Full drop-in tail: stringFormat/templateLiteral/keyof/partialRecord/lo
       ?.trim();
 
   test("DDL mappings", () => {
-    const T = defineTable("t", {
+    const T = table("t", {
       id: s.string(),
       sf: s.stringFormat("slug", (v: string) => /^[a-z-]+$/.test(v)),
       tl: s.templateLiteral(["user_", z.number()]),

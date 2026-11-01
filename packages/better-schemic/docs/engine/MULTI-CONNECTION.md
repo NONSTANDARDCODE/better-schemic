@@ -2,7 +2,7 @@
 
 > Status: **implemented** (the multi-connection resolution engine ships in the CLI + config layer).
 > Better-schemic is SurrealDB-only, so every connection is a SurrealDB one — the model below still
-> separates the *schema* (desired state) from the *connection* (physical database), which is what
+> separates the _schema_ (desired state) from the _connection_ (physical database), which is what
 > makes tenant fan-out work.
 
 ## Goal
@@ -11,10 +11,10 @@ A single Better-schemic project addresses **multiple database connections**, cov
 one model:
 
 1. **N homogeneous DBs** — e.g. 3 SurrealDB instances sharing one schema (prod/staging/shard).
-2. **DB-per-tenant / per-user** — one shared schema, a *dynamic* set of connections discovered at
+2. **DB-per-tenant / per-user** — one shared schema, a _dynamic_ set of connections discovered at
    run time (often by querying a control DB).
 
-## The keystone rule: *what* vs *where*
+## The keystone rule: _what_ vs _where_
 
 - A **schema** (a schema dir) is the **desired state**. It owns the **migration files + snapshot**.
 - A **connection** is a **physical database**. It owns the **applied-migrations state** (its own
@@ -30,7 +30,7 @@ tenant fan-out.
 The package exports a typed `surrealConnection` factory; `defineConfig` accepts a neutral,
 branded `ConnectionEntry` (the factory's output). **This is chosen over a
 discriminated-union `{ driver: "surrealdb", … }` config** (decided 2026-06-15): a factory's parameter is
-*exactly* that driver's connection type, so inference + errors are precise — especially inside resolvers
+_exactly_ that driver's connection type, so inference + errors are precise — especially inside resolvers
 and array returns, where union narrowing leaks; there's no module-augmentation footgun (a missing driver
 import can't silently degrade `driver` to `string`); and **the import is the driver dependency**, consistent
 with "the installed driver owns connection". The factory injects the driver tag, so the user never writes a
@@ -41,22 +41,30 @@ import { surrealConnection } from "better-schemic/connection";
 
 defineConfig({
   connections: {
-    system: surrealConnection({ schema: "./system", url, namespace, database, authLevel: "root" }),
+    system: surrealConnection({
+      schema: "./system",
+      url,
+      namespace,
+      database,
+      authLevel: "root",
+    }),
     //      └ param typed as the SURREAL connection — ns/authLevel checked; no driver string to desync
 
     // A resolver returning an ARRAY -> "tenants" is a COLLECTION (one connection per row).
     tenants: surrealConnection(async ({ connections }) => {
-      const users = await connections.system.query<{ id: string }>("SELECT id FROM users");
+      const users = await connections.system.query<{ id: string }>(
+        "SELECT id FROM users",
+      );
       return users.map((u) => ({
-        key: u.id,                            // REQUIRED on array entries -> addressable `tenants:<id>`
-        schema: "./tenants",                  // ONE shared schema -> one set of migration files
-        url: `ws://tenant-${u.id}.db/rpc`,    // typed as the SURREALDB connection
+        key: u.id, // REQUIRED on array entries -> addressable `tenants:<id>`
+        schema: "./tenants", // ONE shared schema -> one set of migration files
+        url: `ws://tenant-${u.id}.db/rpc`, // typed as the SURREALDB connection
         namespace: "app",
         database: "app",
       }));
     }),
   },
-  defaultConnection: "system",           // bare-command target when >1 connection (see CLI addressing)
+  defaultConnection: "system", // bare-command target when >1 connection (see CLI addressing)
 });
 ```
 
@@ -69,11 +77,21 @@ named `default`.
 // the engine exports the neutral types; the package exports a factory bound to the connection type `C`.
 
 /** Opaque, branded output of any <driver>Connection(...) — the only thing defineConfig accepts. Never hand-authored. */
-interface ConnectionEntry { /* internal { driver, resolve } */ }
+interface ConnectionEntry {
+  /* internal { driver, resolve } */
+}
 
 interface ResolveContext {
   /** Lazy, queryable map of the OTHER connections — accessing one resolves+connects it on demand (a DAG). */
-  connections: Record<string, { query<T = unknown>(sql: string, vars?: Record<string, unknown>): Promise<T[]> }>;
+  connections: Record<
+    string,
+    {
+      query<T = unknown>(
+        sql: string,
+        vars?: Record<string, unknown>,
+      ): Promise<T[]>;
+    }
+  >;
   /** CLI `--arg k=v` values, so a resolver can yield a SUBSET (one tenant) without resolving all. */
   args: Record<string, string>;
   env: NodeJS.ProcessEnv;
@@ -92,8 +110,8 @@ interface ResolveContext {
 namespaced `surreal.connection({…})` grouping the driver's surface (`surreal.s`, `surreal.connection`) is an
 acceptable alternative.
 
-**Mixed collection** (different shapes per tenant): return an array of *other
-factory calls* — `[surrealConnection({ key, … }), surrealConnection({ key, … })]` — via a core
+**Mixed collection** (different shapes per tenant): return an array of _other
+factory calls_ — `[surrealConnection({ key, … }), surrealConnection({ key, … })]` — via a core
 `collection(resolve => ConnectionEntry[])` helper. Rare; composes without special-casing.
 
 ## Resolution — a lazy DAG
@@ -110,17 +128,17 @@ dialect.
 
 ## CLI addressing
 
-| Command | Scope | Notes |
-|---|---|---|
-| `gen [--schema <dir> \| --connection <name>]` | per **schema** | **connection-agnostic** — diffs authored schema vs snapshot (both offline). No live DB; surreal canonicalization, if any, uses an **ephemeral throwaway** (`driver.shadow.ephemeral`), never a real connection. Default: every distinct schema; `--schema`/`--connection` scopes to one. |
-| `migrate [--connection <name>[:<key>] \| --all] [--arg k=v]` | per **connection** | `tenants` = the whole collection; `tenants:123` = one; `--all` = every connection. |
-| `status` / `diff --live` / `rollback` / `push` / `pull` / `seed` | per **connection** | need a target (see ambiguity rule below). |
+| Command                                                          | Scope              | Notes                                                                                                                                                                                                                                                                                    |
+| ---------------------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gen [--schema <dir> \| --connection <name>]`                    | per **schema**     | **connection-agnostic** — diffs authored schema vs snapshot (both offline). No live DB; surreal canonicalization, if any, uses an **ephemeral throwaway** (`driver.shadow.ephemeral`), never a real connection. Default: every distinct schema; `--schema`/`--connection` scopes to one. |
+| `migrate [--connection <name>[:<key>] \| --all] [--arg k=v]`     | per **connection** | `tenants` = the whole collection; `tenants:123` = one; `--all` = every connection.                                                                                                                                                                                                       |
+| `status` / `diff --live` / `rollback` / `push` / `pull` / `seed` | per **connection** | need a target (see ambiguity rule below).                                                                                                                                                                                                                                                |
 
 **Ambiguity rule (target selection for live commands):**
 - exactly **1** connection → it is the implicit target; no flag needed.
 - **>1** + `defaultConnection` set → bare commands target it; `--connection <name>[:<key>]` / `--all` override.
-- **>1** + `defaultConnection` NOT set → a bare live command **errors clearly**: *"multiple connections — pass
-  `--connection <name>` or set `defaultConnection`."* Never guess which database you migrate. (`defaultConnection`
+- **>1** + `defaultConnection` NOT set → a bare live command **errors clearly**: _"multiple connections — pass
+  `--connection <name>` or set `defaultConnection`."_ Never guess which database you migrate. (`defaultConnection`
   must name a single static connection — a resolver/collection can't be the default.)
 
 Each per-connection run is the existing single-connection pipeline pointed at one resolved connection: the
@@ -154,10 +172,10 @@ driver layer changes.
 
 ## Future complementary layer — multi-PROJECT workspace
 
-Distinct from multi-*connection* (many connections, one config): a **workspace of independent projects** —
+Distinct from multi-_connection_ (many connections, one config): a **workspace of independent projects** —
 each subfolder its own `better-schemic.config.ts` (own schema + migrations + connection). Best for genuinely
 independent schemas/services in a monorepo. The CLI discovers child configs and runs a command across them
-(`better-schemic migrate --project api`, `--all-projects`). The two axes compose: *one config, many connections*
-(shared-schema fan-out / coordinated) vs *many configs, one each* (independent). **Build multi-connection
+(`better-schemic migrate --project api`, `--all-projects`). The two axes compose: _one config, many connections_
+(shared-schema fan-out / coordinated) vs _many configs, one each_ (independent). **Build multi-connection
 first** (it covers the novel cases — tenants, heterogeneous fan-out); add the subfolder/workspace discovery
 layer later as a thin wrapper.

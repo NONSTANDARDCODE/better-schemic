@@ -25,7 +25,7 @@ import { introspectStructured } from "../../../src/surreal/cli/structure";
 import { emitTable } from "../../../src/surreal/ddl";
 import { introspectAll } from "../../../src/surreal/kinds/explode";
 import { lowerAll, surrealKinds } from "../../../src/surreal/kinds/registry";
-import { defineTable, s, type TableDef } from "../../../src/surreal/pure";
+import { s, type TableDef, table } from "../../../src/surreal/pure";
 
 // The workspace gate runs every package's suite IN PARALLEL — parallel-suite CPU contention can slow a live
 // connect/DDL past bun's 5s DEFAULT hook timeout, failing the `beforeEach`/`afterAll` below as an
@@ -108,7 +108,7 @@ afterAll(async () => {
 live("FLEXIBLE", () => {
   test("object FLEXIBLE round-trips; pull renders .loose()", async () => {
     const { pulled } = await roundTrip(
-      defineTable("fx_obj", {
+      table("fx_obj", {
         id: s.string(),
         meta: s.object({ x: s.string() }).flexible(),
       }).schemafull(),
@@ -118,7 +118,7 @@ live("FLEXIBLE", () => {
 
   test("array<object> FLEXIBLE rides the array field; pull renders .array().loose()", async () => {
     const { pulled } = await roundTrip(
-      defineTable("fx_arr", {
+      table("fx_arr", {
         id: s.string(),
         rows: s.array(s.object({ x: s.string() })).flexible(),
       }).schemafull(),
@@ -128,7 +128,7 @@ live("FLEXIBLE", () => {
 
   test("array<object> FLEXIBLE via the inner object spelling round-trips identically", async () => {
     await roundTrip(
-      defineTable("fx_arr2", {
+      table("fx_arr2", {
         id: s.string(),
         rows: s.array(s.object({ x: s.string() }).flexible()),
       }).schemafull(),
@@ -137,7 +137,7 @@ live("FLEXIBLE", () => {
 
   test("object | string FLEXIBLE round-trips", async () => {
     await roundTrip(
-      defineTable("fx_union", {
+      table("fx_union", {
         id: s.string(),
         either: s.object({ x: s.string() }).flexible().or(s.string()),
       }).schemafull(),
@@ -146,7 +146,7 @@ live("FLEXIBLE", () => {
 
   test("option<object> FLEXIBLE round-trips", async () => {
     const { pulled } = await roundTrip(
-      defineTable("fx_opt", {
+      table("fx_opt", {
         id: s.string(),
         meta: s.object({ x: s.string() }).flexible().optional(),
       }).schemafull(),

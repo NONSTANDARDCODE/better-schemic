@@ -17,7 +17,7 @@ import type { SelectArg, SelectedShape } from "./select";
 import type { Where } from "./where";
 import type { PatchOp } from "./write";
 
-/** Client-level live defaults (`betterSchemic(conn, { schema, live: { … } })`). */
+/** Client-level live defaults (`orm(conn, { schema, live: { … } })`). */
 export interface LiveDefaults {
   /**
    * Re-run and re-subscribe the live query when the SDK connection is re-established, emitting a

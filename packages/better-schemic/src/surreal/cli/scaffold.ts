@@ -8,10 +8,10 @@ const CONFIG = `import { defineConfig, surrealConnection } from "better-schemic/
 // factory, so there's no \`driver: "…"\` string to keep in sync. Values are explicit — read env here
 // yourself (no implicit SURREAL_* magic). Add more named connections for multi-tenant / multi-DB setups.
 //
-// Exported as \`betterSchemic\` (a factory; legacy alias \`schemic\` also works): this config also IS
-// your app's DB entrypoint — \`import { betterSchemic } from "./better-schemic.config"\` then
-// \`await using db = await betterSchemic.connect()\` (typed per connection). The CLI reads the same config.
-export const betterSchemic = defineConfig({
+// Exported as \`orm\` (a factory; legacy alias \`schemic\` also works): this config also IS
+// your app's DB entrypoint — \`import { orm } from "./better-schemic.config"\` then
+// \`await using db = await orm.connect()\` (typed per connection). The CLI reads the same config.
+export const orm = defineConfig({
   connections: {
     default: surrealConnection({
       schema: "./database/schema",
@@ -27,16 +27,16 @@ export const betterSchemic = defineConfig({
     }),
   },
 });
-export const schemic = betterSchemic; // legacy alias (pre-rename scaffolded name)
-export default betterSchemic;
+export const schemic = orm; // legacy alias (pre-rename scaffolded name)
+export default orm;
 `;
 
-const USER_TABLE = `import { defineTable, s, surql } from "better-schemic";
+const USER_TABLE = `import { table, s, surql } from "better-schemic";
 
 // A SCHEMAFULL \`user\` table. Each field is a \`s.*\` builder (a drop-in for Zod's \`z.*\`) that also
 // carries its SurrealQL DDL — \`s.email()\` validates the address, \`.$unique()\` defines a UNIQUE index,
 // and \`$default\`/\`$readonly\` map to the DEFAULT / READONLY clauses.
-export const User = defineTable("user", {
+export const User = table("user", {
   name: s.string().$assert(surql\`string::len($value) > 0\`),
   email: s.email().$unique(),
   createdAt: s.datetime().$default(surql\`time::now()\`).$readonly(),
@@ -101,21 +101,21 @@ export function scaffoldEntity(kind: string, name: string): string {
   const C = pascalCase(name);
   switch (kind) {
     case "table":
-      return `import { defineTable, s, surql } from "better-schemic";
+      return `import { table, s, surql } from "better-schemic";
 
 // A SCHEMAFULL table. Each field is an \`s.*\` builder (a drop-in for Zod's \`z.*\`) that also carries
 // its SurrealQL DDL. Add fields, then run \`better-schemic gen\`.
-export const ${C} = defineTable("${name}", {
+export const ${C} = table("${name}", {
   name: s.string(),
   createdAt: s.datetime().$default(surql\`time::now()\`).$readonly(),
 }).schemafull();
 `;
     case "relation":
-      return `import { defineRelation, s, surql } from "better-schemic";
+      return `import { relation, s, surql } from "better-schemic";
 
 // A graph edge (\`TYPE RELATION\`). Chain \`.from(A).to(B)\` to restrict the endpoints and
 // \`.enforced()\` to require both records to exist on RELATE.
-export const ${C} = defineRelation("${name}", {
+export const ${C} = relation("${name}", {
   since: s.datetime().$default(surql\`time::now()\`),
 });
 // .from(SomeTable).to(OtherTable).enforced()
@@ -171,7 +171,7 @@ export const ${C} = defineAnalyzer("${name}")
     case "index":
     case "field":
       throw new Error(
-        `SurrealDB ${kind}s are authored inline on a table, not as their own file — add it to a table (e.g. \`defineTable("…", { … }).index("${name}", [field])\` or \`s.string().$unique()\`). Try \`better-schemic new table <name>\`.`,
+        `SurrealDB ${kind}s are authored inline on a table, not as their own file — add it to a table (e.g. \`table("…", { … }).index("${name}", [field])\` or \`s.string().$unique()\`). Try \`better-schemic new table <name>\`.`,
       );
     default:
       throw new Error(

@@ -24,9 +24,9 @@ import { emitDefStatement, emitTable } from "../../../src/surreal/ddl";
 import {
   defineAccess,
   defineFunction,
-  defineRelation,
-  defineTable,
+  relation,
   s,
+  table,
 } from "../../../src/surreal/pure";
 
 // The workspace gate runs every package's suite IN PARALLEL — parallel-suite CPU contention can slow a live
@@ -74,7 +74,7 @@ const live = describe.skipIf(!db);
 if (!db) console.warn("[canonical-parity] SurrealDB unreachable — skipping");
 
 // A broad corpus exercising the clause space (types, perms, defaults, indexes, events, relation, fn).
-const Big = defineTable("c_big", {
+const Big = table("c_big", {
   id: z.string(),
   s: s.string(),
   i: s.int(),
@@ -102,18 +102,18 @@ const Big = defineTable("c_big", {
   idx: s.string().$index(),
   uniq: s.string().$unique(),
 });
-const Schemaless = defineTable("c_less", { id: z.string() }).schemaless();
-const Commented = defineTable("c_cmt", { id: z.string() }).comment("hello");
-const Perms = defineTable("c_perms", { id: z.string() }).permissions({
+const Schemaless = table("c_less", { id: z.string() }).schemaless();
+const Commented = table("c_cmt", { id: z.string() }).comment("hello");
+const Perms = table("c_perms", { id: z.string() }).permissions({
   select: true,
   create: surql`$auth.id != NONE`,
 });
-const Comp = defineTable("c_comp", {
+const Comp = table("c_comp", {
   id: z.string(),
   a: s.string(),
   b: s.string(),
 }).index("ab", ["a", "b"], { unique: true });
-const Ev = defineTable("c_ev", { id: z.string(), email: s.email() })
+const Ev = table("c_ev", { id: z.string(), email: s.email() })
   .event("re", {
     when: surql`$before.email != $after.email`,
     // biome-ignore lint/suspicious/noThenProperty: `then` is the SurrealQL THEN clause, not a PromiseLike.
@@ -133,7 +133,7 @@ const Ev = defineTable("c_ev", { id: z.string(), email: s.email() })
     // biome-ignore lint/suspicious/noThenProperty: SurrealQL THEN clause.
     then: surql`UPDATE $after.id SET touched = true`,
   });
-const Rel = defineRelation("c_rel", { weight: s.number() }).from(Big).to(Big);
+const Rel = relation("c_rel", { weight: s.number() }).from(Big).to(Big);
 const Fn = defineFunction("c_greet", { name: s.string() })
   .returns(s.string())
   .body(surql`RETURN "Hi " + $name`);

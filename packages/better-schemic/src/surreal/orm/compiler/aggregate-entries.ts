@@ -11,10 +11,10 @@
  * or a changed operator table can no longer land in one half and silently disagree with the other.
  */
 import { escapeIdentSafe as escapeIdent } from "../../ident";
-import type { AggregateArgs } from "./aggregate";
 import type { ModelMeta } from "../meta";
-import { type ProjectedField, projectedFieldFor } from "./projection";
+import type { AggregateArgs } from "./aggregate";
 import { assertAggregateOperand } from "./aggregate-operand";
+import { type ProjectedField, projectedFieldFor } from "./projection";
 import { compileOrderBy } from "./select";
 import {
   type Binds,
@@ -25,8 +25,8 @@ import {
   isLowerableValue,
   isPlainObject,
   nonNegativeInt,
-  pathSegments,
   pathList,
+  pathSegments,
   renderPath,
   renderValue,
 } from "./shared";
@@ -199,7 +199,12 @@ export function compileAggregateSelect(
       // `_count` is the count() shorthand; any other `true` projects the field itself.
       if (key === "_count") {
         parts.push("count() AS _count");
-        fields.push({ out: [key], source: [key], expr: "count()", each: false });
+        fields.push({
+          out: [key],
+          source: [key],
+          expr: "count()",
+          each: false,
+        });
         projectedKeys.add(key);
         continue;
       }
@@ -233,10 +238,12 @@ export function compileAggregateSelect(
           { operation },
         );
       if (isAggregator(op)) columns.guard?.(key, op, operand, operation);
-      const leaf = projectedFieldFor(meta, [key], [key], [
-        ...prefix,
-        ...pathSegments(operand),
-      ]);
+      const leaf = projectedFieldFor(
+        meta,
+        [key],
+        [key],
+        [...prefix, ...pathSegments(operand)],
+      );
       parts.push(
         `${aggregateCall(op, columns.of(operand, key), operation)} AS ${escapeIdent(key)}`,
       );
@@ -249,7 +256,9 @@ export function compileAggregateSelect(
     if (isLowerableValue(entry)) {
       hasExpression = true;
       const expr = renderValue(entry, binds, binds.ctx());
-      parts.push(columns.fragment?.(expr, key) ?? `${expr} AS ${escapeIdent(key)}`);
+      parts.push(
+        columns.fragment?.(expr, key) ?? `${expr} AS ${escapeIdent(key)}`,
+      );
       projectedKeys.add(key);
       fields.push({ out: [key], source: [key], expr, each: false });
       continue;
@@ -284,9 +293,13 @@ export function aggregateTail(
   if (args.orderBy !== undefined)
     tail.push(compileOrderBy(args.orderBy, binds, operation));
   if (args.limit !== undefined)
-    tail.push(`LIMIT ${binds.add(nonNegativeInt(args.limit, "limit", operation))}`);
+    tail.push(
+      `LIMIT ${binds.add(nonNegativeInt(args.limit, "limit", operation))}`,
+    );
   if (args.start !== undefined)
-    tail.push(`START ${binds.add(nonNegativeInt(args.start, "start", operation))}`);
+    tail.push(
+      `START ${binds.add(nonNegativeInt(args.start, "start", operation))}`,
+    );
   if (options.version === true && args.version !== undefined)
     tail.push(`VERSION ${datetimeLiteral(args.version, operation)}`);
   if (args.timeout !== undefined)

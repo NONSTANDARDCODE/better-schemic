@@ -11,6 +11,7 @@
 // metaDir baseline (last `gen`); `--live` the DB (introspection; matches `diff --live`, so "the DB" is
 // one word across commands).
 
+import type { Command } from "commander";
 import {
   type Driver,
   type KindEngine,
@@ -23,7 +24,6 @@ import {
   snapshotObjects,
   style,
 } from "../core";
-import type { Command } from "commander";
 import { runAction } from "./action";
 import { type ResolveOpts, resolveOne } from "./resolve";
 

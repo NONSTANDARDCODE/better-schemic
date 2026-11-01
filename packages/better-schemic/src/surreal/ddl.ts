@@ -1,5 +1,5 @@
-import { isSecretRef, type SecretRef } from "../core";
 import { BoundQuery, escapeIdent, toSurqlString } from "surrealdb";
+import { isSecretRef, type SecretRef } from "../core";
 import {
   type AccessDef,
   type AnalyzerDef,

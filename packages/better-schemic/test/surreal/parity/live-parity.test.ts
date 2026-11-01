@@ -29,9 +29,9 @@ import { lowerAll, surrealKinds } from "../../../src/surreal/kinds/registry";
 import {
   defineAccess,
   defineFunction,
-  defineRelation,
-  defineTable,
+  relation,
   s,
+  table,
 } from "../../../src/surreal/pure";
 
 // The workspace gate runs every package's suite IN PARALLEL — parallel-suite CPU contention can slow a live
@@ -112,7 +112,7 @@ function expectRejected(rejected: { error: string }[]): string {
 }
 
 // A broad mixed-type table exercising most of the type system + every field clause.
-const Big = defineTable("pl_big", {
+const Big = table("pl_big", {
   id: z.string(),
   s: s.string(),
   n: s.number(),
@@ -193,10 +193,8 @@ live("DB accepts better-schemic/core's generated DDL", () => {
   });
 
   test("relations (restricted + open) apply cleanly", async () => {
-    const Rel = defineRelation("pl_rel", { weight: s.number() })
-      .from(Big)
-      .to(Big);
-    const Open = defineRelation("pl_rel_open", {});
+    const Rel = relation("pl_rel", { weight: s.number() }).from(Big).to(Big);
+    const Open = relation("pl_rel_open", {});
     expect(
       await applyEach(db!, emitTable(Rel, { exists: "overwrite" })),
     ).toEqual([]);
@@ -206,13 +204,13 @@ live("DB accepts better-schemic/core's generated DDL", () => {
   });
 
   test("table-level clauses (ANY / DROP / PERMISSIONS / composite index)", async () => {
-    const any = defineTable("pl_any", { id: z.string() }).typeAny();
-    const drop = defineTable("pl_drop", { id: z.string() }).schemaless().drop();
-    const perms = defineTable("pl_perms", { id: z.string() }).permissions({
+    const any = table("pl_any", { id: z.string() }).typeAny();
+    const drop = table("pl_drop", { id: z.string() }).schemaless().drop();
+    const perms = table("pl_perms", { id: z.string() }).permissions({
       select: true,
       create: surql`$auth.id != NONE`,
     });
-    const comp = defineTable("pl_comp", {
+    const comp = table("pl_comp", {
       id: z.string(),
       a: s.string(),
       b: s.string(),
@@ -225,7 +223,7 @@ live("DB accepts better-schemic/core's generated DDL", () => {
   });
 
   test("event / function / access (record, jwt, bearer) apply cleanly", async () => {
-    const ev = defineTable("pl_ev", {
+    const ev = table("pl_ev", {
       id: z.string(),
       email: s.email(),
     }).event("reverify", {
@@ -295,7 +293,7 @@ live("batch 1 + 2 features round-trip on the DB", () => {
       async: true | { retry: number; maxDepth: number },
       comment?: string,
     ) =>
-      defineTable(name, { id: z.string(), status: s.string() }).event("recompute", {
+      table(name, { id: z.string(), status: s.string() }).event("recompute", {
         async,
         comment,
         // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable
@@ -304,9 +302,9 @@ live("batch 1 + 2 features round-trip on the DB", () => {
     const tuned = author("pl_async_ev", { retry: 3, maxDepth: 5 }, "requeue");
     const bare = author("pl_async_ev2", true);
     for (const t of [tuned, bare])
-      expect(await applyEach(db!, emitTable(t, { exists: "overwrite" }))).toEqual(
-        [],
-      );
+      expect(
+        await applyEach(db!, emitTable(t, { exists: "overwrite" })),
+      ).toEqual([]);
     // A live async event materializes RETRY 1 / MAXDEPTH 3; the canonical form strips them, so an
     // authored bare `ASYNC` (and a tuned one) diff to zero against the read-back schema.
     const plan = planKinds(
@@ -318,7 +316,7 @@ live("batch 1 + 2 features round-trip on the DB", () => {
   });
 
   test("s.set() -> set<T>; .length/.size -> exact sizes; { max } -> bounded base type", async () => {
-    const T = defineTable("pl_b2_coll", {
+    const T = table("pl_b2_coll", {
       id: z.string(),
       tags: s.set(s.string()),
       sized: s.array(s.string()).length(3),
@@ -343,7 +341,7 @@ live("batch 1 + 2 features round-trip on the DB", () => {
   });
 
   test("exact sizes are ENFORCED on write; { max } bounds only the top end", async () => {
-    const T = defineTable("pl_b3_len", {
+    const T = table("pl_b3_len", {
       id: z.string(),
       exact: s.array(s.string()).length(3),
       exactset: s.set(s.int()).size(2),
@@ -392,7 +390,7 @@ live("batch 1 + 2 features round-trip on the DB", () => {
   });
 
   test("nullable fields admit NULL; derived asserts are null-guarded", async () => {
-    const T = defineTable("pl_b3_null", {
+    const T = table("pl_b3_null", {
       id: z.string(),
       n: s.number().nullable().$gt(0),
       email: s.email().nullable(),
@@ -443,7 +441,7 @@ live("batch 1 + 2 features round-trip on the DB", () => {
   });
 
   test("pull reverses null guards + exact sizes to bare source (no re-emit churn)", async () => {
-    const T = defineTable("pl_b3_pull", {
+    const T = table("pl_b3_pull", {
       id: z.string(),
       nulg: s.number().nullable().$gt(0),
       mail: s.email().nullable(),
@@ -471,7 +469,7 @@ live("batch 1 + 2 features round-trip on the DB", () => {
   });
 
   test("record REFERENCE [ON DELETE …] via .$reference()", async () => {
-    const T = defineTable("pl_b2_ref", {
+    const T = table("pl_b2_ref", {
       id: z.string(),
       author: s.recordId("pl_b2_ref").$reference({ onDelete: "cascade" }),
       friends: s
@@ -484,8 +482,8 @@ live("batch 1 + 2 features round-trip on the DB", () => {
   });
 
   test("TYPE RELATION … ENFORCED via .enforced()", async () => {
-    const A = defineTable("pl_b2_a", { id: z.string() });
-    const Rel = defineRelation("pl_b2_rel", {}).from(A).to(A).enforced();
+    const A = table("pl_b2_a", { id: z.string() });
+    const Rel = relation("pl_b2_rel", {}).from(A).to(A).enforced();
     expect(await applyEach(db!, emitTable(A, { exists: "overwrite" }))).toEqual(
       [],
     );
@@ -495,7 +493,7 @@ live("batch 1 + 2 features round-trip on the DB", () => {
   });
 
   test("all 10 batch-2 string::is_* validators are accepted (names are real)", async () => {
-    const T = defineTable("pl_b2_val", {
+    const T = table("pl_b2_val", {
       id: z.string(),
       a: s.alpha(),
       an: s.alphanum(),

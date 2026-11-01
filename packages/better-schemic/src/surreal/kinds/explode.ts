@@ -17,8 +17,8 @@
 // calling another fn::). Edges to functions outside the diff are ignored by the spine, so over-reporting
 // is harmless. (SEARCH index -> analyzer edges land when the analyzer kind is registered.)
 
-import type { AnyTable, AuthoredDef, Ref } from "../../core";
 import type { Surreal } from "surrealdb";
+import type { AnyTable, AuthoredDef, Ref } from "../../core";
 import { schemaStruct } from "../cli/lower";
 import { normalizeDb } from "../cli/struct";
 import type {
@@ -26,9 +26,9 @@ import type {
   StructAccess,
   StructAnalyzer,
   StructFunction,
-  StructTable,
   StructParam,
   StructSequence,
+  StructTable,
 } from "../cli/structure";
 import { introspectStructured, structuredSnapshot } from "../cli/structure";
 import type { DefineStatement } from "../ddl";

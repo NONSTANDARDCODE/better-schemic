@@ -10,10 +10,19 @@ import { describe, expect, test } from "bun:test";
 import fc from "fast-check";
 import { formatAssert, formatForAssert } from "../../../src/surreal/checks";
 import { normalizeType } from "../../../src/surreal/cli/struct";
-import { emitSurqlType, parseSurqlType } from "../../../src/surreal/driver/surql-type";
+import {
+  emitSurqlType,
+  parseSurqlType,
+} from "../../../src/surreal/driver/surql-type";
 import { hasTopLevelSemi } from "../../../src/surreal/surql/block";
-import { stripOuterParens, toFragment } from "../../../src/surreal/surql/render";
-import { splitTopUnion, topLevelSplitOnce } from "../../../src/surreal/surql-type-expr";
+import {
+  stripOuterParens,
+  toFragment,
+} from "../../../src/surreal/surql/render";
+import {
+  splitTopUnion,
+  topLevelSplitOnce,
+} from "../../../src/surreal/surql-type-expr";
 
 const RUNS = Number(process.env.FUZZ_RUNS ?? process.env.PBT_RUNS ?? 300);
 const SEED = process.env.PBT_SEED ? Number(process.env.PBT_SEED) : undefined;

@@ -15,7 +15,7 @@
  */
 import { RecordId } from "surrealdb";
 import { describeValue, isPlainObject } from "../orm/compiler/shared";
-import { BetterSchemicError } from "../orm/errors";
+import { OrmError } from "../orm/errors";
 import { operationFamily } from "../orm/hooks";
 import type { SchemaIndex, TableMeta } from "../orm/meta";
 import { definePlugin } from "../orm/plugins";
@@ -77,7 +77,7 @@ function tenantMetaOf(meta: TableMeta | { def: AnyTableDef }): unknown {
 /** Parse + validate a `meta.tenant` marker (fails bootstrap with the table named). */
 function parseTag(raw: unknown, table: string): TenantTag {
   const malformed = () =>
-    new BetterSchemicError(
+    new OrmError(
       "SchemaInvalid",
       `plugins/tenant: table "${table}" has a malformed meta.tenant tag — expected { column: string, principal?: string, softDelete?: string | false, createOnly?: boolean }.`,
       { table },
@@ -107,13 +107,13 @@ function parseTag(raw: unknown, table: string): TenantTag {
 function validateTag(tag: TenantTag, meta: TableMeta): void {
   const column = meta.columns.get(tag.column);
   if (column === undefined)
-    throw new BetterSchemicError(
+    throw new OrmError(
       "SchemaInvalid",
       `plugins/tenant: "${meta.name}" is tenant-scoped, but column "${tag.column}" is not a field — add it (the tenant() preset does), or fix meta.tenant.`,
       { table: meta.name, field: tag.column },
     );
   if (column.record === undefined)
-    throw new BetterSchemicError(
+    throw new OrmError(
       "SchemaInvalid",
       `plugins/tenant: "${meta.name}.${tag.column}" must be a record link to be tenant-scoped — got type "${column.type}".`,
       { table: meta.name, field: tag.column },
@@ -123,13 +123,13 @@ function validateTag(tag: TenantTag, meta: TableMeta): void {
     column.record.targets !== undefined &&
     !column.record.targets.includes(tag.principal)
   )
-    throw new BetterSchemicError(
+    throw new OrmError(
       "SchemaInvalid",
       `plugins/tenant: "${meta.name}.${tag.column}" links ${column.record.targets.map((t) => `record<${t}>`).join(" | ")}, but meta.tenant names principal "${tag.principal}" — align them.`,
       { table: meta.name, field: tag.column },
     );
   if (tag.softDelete !== undefined && !meta.columns.has(tag.softDelete))
-    throw new BetterSchemicError(
+    throw new OrmError(
       "SchemaInvalid",
       `plugins/tenant: "${meta.name}" is soft-delete scoped, but the tombstone column "${tag.softDelete}" is not a field — declare it before the schemafull table (SCHEMAFULL rejects an index on a missing field).`,
       { table: meta.name, field: tag.softDelete },
@@ -202,8 +202,8 @@ function sameTenant(value: unknown, scope: RecordId, tag: TenantTag): boolean {
 }
 
 /** The teaching error for a missing scope (fail-closed, before compiling). */
-function requiredError(op: Operation, tag: TenantTag): BetterSchemicError {
-  return new BetterSchemicError(
+function requiredError(op: Operation, tag: TenantTag): OrmError {
+  return new OrmError(
     "TenantRequired",
     `tenantRls: "${op.table}" is tenant-scoped by "${tag.column}", but operation "${op.kind}" has no tenant scope — call $forTenant("user:abc") on the delegate or set tenantRls({ tenant: () => … }). For an intentional cross-tenant/admin operation, call $withoutPlugins() explicitly.`,
     { table: op.table, operation: op.kind, field: tag.column },
@@ -216,8 +216,8 @@ function violationError(
   tag: TenantTag,
   detail: string,
   hint = "Never set the tenant column by hand — the plugin injects the scoped value.",
-): BetterSchemicError {
-  return new BetterSchemicError(
+): OrmError {
+  return new OrmError(
     "TenantViolation",
     `tenantRls: operation "${op.kind}" on "${op.table}" — ${detail} (column "${tag.column}"). ${hint}`,
     { table: op.table, operation: op.kind, field: tag.column },
@@ -350,8 +350,8 @@ function assertDuplicateSafe(op: Operation, tag: TenantTag): void {
 }
 
 /** The teaching error for a bad `tenantRls({ column })`. */
-function columnError(value: unknown): BetterSchemicError {
-  return new BetterSchemicError(
+function columnError(value: unknown): OrmError {
+  return new OrmError(
     "PluginError",
     `tenantRls: "column" must be a plain identifier (letters/digits/underscore, not starting with a digit) — got ${describeValue(value)}.`,
   );
@@ -359,7 +359,7 @@ function columnError(value: unknown): BetterSchemicError {
 
 /**
  * The tenant runtime plugin. Fail-closed: a tenant-scoped table with no scope throws
- * {@link BetterSchemicError} `TenantRequired` BEFORE compiling; forged/divergent values throw
+ * {@link OrmError} `TenantRequired` BEFORE compiling; forged/divergent values throw
  * `TenantViolation`. Untagged tables pass through untouched (zero behavior change).
  */
 export function tenantRls(options: TenantRlsOptions = {}) {
@@ -368,7 +368,7 @@ export function tenantRls(options: TenantRlsOptions = {}) {
   const extras: readonly string[] = options.tables ?? [];
   for (const name of extras)
     if (typeof name !== "string" || !name)
-      throw new BetterSchemicError(
+      throw new OrmError(
         "PluginError",
         `tenantRls: every "tables" entry must be a non-empty physical table name (got ${describeValue(name)}).`,
       );
@@ -390,7 +390,7 @@ export function tenantRls(options: TenantRlsOptions = {}) {
     for (const name of extras) {
       const model = index.byName.get(name);
       if (model === undefined)
-        throw new BetterSchemicError(
+        throw new OrmError(
           "SchemaInvalid",
           `tenantRls: "tables" entry "${name}" is not in the schema — add it or drop the entry.`,
           { table: name, operation: "setup" },
@@ -424,7 +424,7 @@ export function tenantRls(options: TenantRlsOptions = {}) {
         !(configured instanceof RecordId) &&
         typeof configured !== "function"
       )
-        throw new BetterSchemicError(
+        throw new OrmError(
           "PluginError",
           `tenantRls: "tenant" must be a record id, a string, or a () => TenantRef resolver (got ${describeValue(configured)}).`,
         );

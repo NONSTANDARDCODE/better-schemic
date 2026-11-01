@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { table, s } from "better-schemic";
 import { cover } from "../_kit";
 
 export default cover(import.meta.url, {
@@ -6,6 +6,6 @@ export default cover(import.meta.url, {
   note: 'Emit flag (DefineOptions.exists = "overwrite") — applies to the whole emit, so the field line gets `DEFINE FIELD OVERWRITE …`.',
   ddl: `DEFINE TABLE OVERWRITE product TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD OVERWRITE name ON TABLE product TYPE string;`,
-  def: defineTable("product", { name: s.string() }).schemafull(),
+  def: table("product", { name: s.string() }).schemafull(),
   options: { exists: "overwrite" },
 });

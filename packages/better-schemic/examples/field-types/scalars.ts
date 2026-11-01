@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { s, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -16,7 +16,7 @@ DEFINE FIELD uid ON TABLE scalars TYPE uuid;
 DEFINE FIELD raw ON TABLE scalars TYPE bytes;
 DEFINE FIELD dur ON TABLE scalars TYPE duration;
 DEFINE FIELD doc ON TABLE scalars TYPE file;`,
-  def: defineTable("scalars", {
+  def: table("scalars", {
     id: s.string(),
     str: s.string(),
     i: s.int(),

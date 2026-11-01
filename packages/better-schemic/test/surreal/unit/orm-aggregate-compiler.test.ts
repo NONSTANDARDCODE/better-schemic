@@ -2,16 +2,16 @@
 // select-entry shape (true / path / string / math / collect / expression / bad) plus its guards.
 import { describe, expect, test } from "bun:test";
 import { surql } from "../../../src/surreal";
-import { betterSchemic } from "../../../src/surreal/orm/client";
+import { orm } from "../../../src/surreal/orm/client";
 import {
   compileAggregate,
   compileCount,
   compileExists,
 } from "../../../src/surreal/orm/compiler/aggregate";
 import { createBinds } from "../../../src/surreal/orm/compiler/shared";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { schema } from "../../../src/surreal/orm/schema";
 import { fakeConn, ok } from "../orm-fixtures";
-import { schema } from "./orm-writes-fixtures";
+import { schemaDef } from "./orm-writes-fixtures";
 
 const code = (fn: () => unknown): string | undefined => {
   try {
@@ -23,12 +23,12 @@ const code = (fn: () => unknown): string | undefined => {
 };
 
 const { conn } = fakeConn(() => [ok([])]);
-const client = betterSchemic(conn, { schema });
+const client = orm(conn, { schema: schemaDef });
 const meta = client.$index.tables.get("users")!;
 const b = () => createBinds();
 
-const sm = betterSchemic(fakeConn(() => [ok([])]).conn, {
-  schema: defineSchema({ audit: "audit_log" }),
+const sm = orm(fakeConn(() => [ok([])]).conn, {
+  schema: schema({ audit: "audit_log" }),
 }).$index.schemaless.get("audit")!;
 
 describe("compileCount / compileExists", () => {
@@ -68,7 +68,13 @@ describe("compileAggregate", () => {
   test("min/max decode a leaf; sum falls back to the raw aggregate", () => {
     const plan = compileAggregate(
       meta,
-      { select: { lo: { min: "age" }, hi: { max: "age" }, total: { sum: "age" } } },
+      {
+        select: {
+          lo: { min: "age" },
+          hi: { max: "age" },
+          total: { sum: "age" },
+        },
+      },
       b(),
     );
     expect(plan.sql).toContain("math::min(age) AS lo");
@@ -80,7 +86,10 @@ describe("compileAggregate", () => {
     expect(
       compileAggregate(
         meta,
-        { select: { _count: true, x: surql`count() + 1` }, groupBy: ["active"] },
+        {
+          select: { _count: true, x: surql`count() + 1` },
+          groupBy: ["active"],
+        },
         b(),
       ).sql,
     ).toContain("GROUP BY active");
@@ -99,7 +108,8 @@ describe("compileAggregate", () => {
       compileAggregate(meta, { select: { a: false, _count: true } }, b()).sql,
     ).toContain("count()");
     expect(
-      compileAggregate(meta, { select: { a: undefined, _count: true } }, b()).sql,
+      compileAggregate(meta, { select: { a: undefined, _count: true } }, b())
+        .sql,
     ).toContain("count()");
     // aggregator field must be a string path.
     expect(
@@ -110,14 +120,15 @@ describe("compileAggregate", () => {
       code(() => compileAggregate(meta, { select: { x: { sum: "" } } }, b())),
     ).toBe("ValidationError");
     // an entry that is none of the accepted shapes.
-    expect(
-      code(() => compileAggregate(meta, { select: { x: 5 } }, b())),
-    ).toBe("ValidationError");
+    expect(code(() => compileAggregate(meta, { select: { x: 5 } }, b()))).toBe(
+      "ValidationError",
+    );
   });
 
   test("a schemaless meta still compiles (no table where-options)", () => {
     expect(
-      compileAggregate(sm, { select: { _count: true }, where: { a: 1 } }, b()).sql,
+      compileAggregate(sm, { select: { _count: true }, where: { a: 1 } }, b())
+        .sql,
     ).toContain("count()");
   });
 });

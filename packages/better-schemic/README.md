@@ -24,17 +24,17 @@ replay into — `npm i -D @surrealdb/node`).
 
 ## Subpaths
 
-| Import | What you get |
-| --- | --- |
-| `better-schemic` | the authoring surface — `s.*`, `define*`, the `surql` tag (side-effect-free) |
-| `better-schemic/connection` | `surrealConnection` — the config factory |
-| `better-schemic/config` | `defineConfig` + `surrealConnection` — the project config |
-| `better-schemic/orm` | the repository-style ORM client |
-| `better-schemic/query` | fragments & procedural SurrealQL |
-| `better-schemic/plugins/*` | the authoring plugins |
-| `better-schemic/logger` | the query logger |
-| `better-schemic/otel` | OpenTelemetry tracing (`createOtelLogger`) |
-| `better-schemic/driver` | the engine entry (CLI/engine-only — pulls in the DDL emitter) |
+| Import                      | What you get                                                                 |
+| --------------------------- | ---------------------------------------------------------------------------- |
+| `better-schemic`            | the authoring surface — `s.*`, `define*`, the `surql` tag (side-effect-free) |
+| `better-schemic/connection` | `surrealConnection` — the config factory                                     |
+| `better-schemic/config`     | `defineConfig` + `surrealConnection` — the project config                    |
+| `better-schemic/orm`        | the repository-style ORM client                                              |
+| `better-schemic/query`      | fragments & procedural SurrealQL                                             |
+| `better-schemic/plugins/*`  | the authoring plugins                                                        |
+| `better-schemic/logger`     | the query logger                                                             |
+| `better-schemic/otel`       | OpenTelemetry tracing (`createOtelLogger`)                                   |
+| `better-schemic/driver`     | the engine entry (CLI/engine-only — pulls in the DDL emitter)                |
 
 ## Quick start
 
@@ -49,9 +49,9 @@ sc init
 
 ```ts
 // database/schema/tables/user.ts
-import { defineTable, s, surql } from "better-schemic";
+import { table, s, surql } from "better-schemic";
 
-export const User = defineTable("user", {
+export const User = table("user", {
   name: s.string().$assert(surql`string::len($value) > 0`),
   email: s.email().$unique(),
   createdAt: s.datetime().$default(surql`time::now()`).$readonly(),
@@ -74,7 +74,7 @@ false }` for a transform that requires client input, `{ optional: true }` when t
 it without input. A parent mapping can mark the nested keys it fills as optional PER ITEM:
 
 ```ts
-export const Order = defineTable("order", {
+export const Order = table("order", {
   products: s
     .array(
       s.object({
@@ -132,13 +132,13 @@ becomes a `Date`, a `uuid` a string, record links resolve); `encode` and
 ## The `/orm` client
 
 The repository-style ORM lives at `better-schemic/orm`. Declare the
-schema once with `defineSchema` and wrap an existing (BYO) or managed connection:
+schema once with `schema` and wrap an existing (BYO) or managed connection:
 
 ```ts
-import { defineTable, s } from "better-schemic";
-import { betterSchemic, createBetterSchemic, defineSchema } from "better-schemic/orm";
+import { table, s } from "better-schemic";
+import { orm, createOrm, schema: schemaDef } from "better-schemic/orm";
 
-const User = defineTable("user", {
+const User = table("user", {
   name: s.string(),
   email: s.string(),
   age: s.int(),
@@ -146,19 +146,19 @@ const User = defineTable("user", {
 }).index("user_email", ["email"], { unique: true });
 
 // A cart whose lines are the rows the UNWIND+GROUP aggregate below walks.
-const Line = defineTable("line", { label: s.string(), quantity: s.int() });
-const Cart = defineTable("cart", {
+const Line = table("line", { label: s.string(), quantity: s.int() });
+const Cart = table("cart", {
   name: s.string(),
   lines: s.array(s.recordId(() => Line)),
 });
 // Multi-tenant: `email` is unique only WITHIN a tenant, so the index is the pair.
-const Account = defineTable("account", {
+const Account = table("account", {
   tenant: s.string(),
   email: s.string(),
   name: s.string(),
 }).index("account_tenant_email", ["tenant", "email"], { unique: true });
 
-export const schema = defineSchema({
+export const schemaDef = schema({
   users: User,
   carts: Cart,
   lines: Line,
@@ -166,8 +166,8 @@ export const schema = defineSchema({
   audit: "audit_log",
 });
 
-const client = betterSchemic(existingSurreal, { schema });     // BYO: close() is a no-op
-// or: const client = await createBetterSchemic({ url, namespace, database, auth, schema });
+const client = orm(existingSurreal, { schema: schemaDef });     // BYO: close() is a no-op
+// or: const client = await createOrm({ url, namespace, database, auth, schema: schemaDef });
 
 // Reads (M1) — one round-trip, decoded to app values (Date/RecordId/…):
 const adults = await client.users.findMany({
@@ -296,8 +296,8 @@ void without;
 
 // Created ids: every ORM create without an explicit `id` generates a ULID by default
 // (`rand::ulid()` — 26 chars, time-sortable). Pick another strategy per table in authoring:
-//   defineTable("user", { … }).idStrategy("uuid")   // rand::uuid() — UUID v7
-//   defineTable("legacy", { … }).idStrategy("rand") // rand::id() — the server default (20 chars)
+//   table("user", { … }).idStrategy("uuid")   // rand::uuid() — UUID v7
+//   table("legacy", { … }).idStrategy("rand") // rand::id() — the server default (20 chars)
 // An explicit `id` always wins and singleton tables keep their fixed id. The strategy is
 // ORM-only: it emits NO DDL (migrations never diff), raw SQL keeps the server default, and
 // `sc pull` cannot recover it. A pinned uuid v4/v6 `id` field is explicit-only: creates without
@@ -306,7 +306,7 @@ void without;
 // String ids (M15) — opt a table into BARE app id strings (`01M…`); `RecordId` stays on the wire.
 // The emitted DDL is UNCHANGED (`record<…>` — zero migration), and raw `db.query()`, `live` and
 // `changes` still return `RecordId`:
-//   const Customer = defineTable("customer", { name: s.string(), owner: s.recordId(User) })
+//   const Customer = table("customer", { name: s.string(), owner: s.recordId(User) })
 //     .stringIds();                                 // or per field: s.recordId(User).stringIds()
 //   const row = await client.customers.create({ data: { name: "A", owner: "aeon" } });
 //   row.owner;                                      // "aeon" — the bare id, not a RecordId
@@ -318,7 +318,7 @@ void without;
 // MULTIPLE tables throws (a bare string can't name the table on encode). `User.record()` inherits
 // the mode and `tenant(User)` follows the principal.
 
-// Edges live on the relation delegate (`defineRelation`):
+// Edges live on the relation delegate (`relation`):
 // const like = await client.likes.relate({ from: "user:1", to: "post:1", data: { score: 5 } });
 // await client.likes.unrelate({ from: "user:1", to: "post:1" });
 
@@ -387,8 +387,7 @@ const scoped = await client.$withContext({ namespace: "tenant_a", database: "app
 const plan = await client.users.findMany({ where: { age: 18 } }).explain();
 
 // Observation hooks (M6) — logging/tracing around every operation, never mutating it:
-const logged = betterSchemic(db, {
-  schema,
+const logged = orm(db, { schema: schemaDef,
   hooks: {
     beforeQuery: ({ table, operation, surql }) => logger.debug({ table, operation, surql }),
     afterQuery: ({ durationMs }) => metrics.timing("db.query", durationMs),
@@ -420,10 +419,10 @@ Official F1 guardrail/validation plugins (M6.3) ship as subpaths:
 ```ts
 import { recommended } from "better-schemic/plugins/rules";
 import { zod } from "better-schemic/plugins/zod";
-const client = betterSchemic(db, {
-  schema,
+const client = orm(db, {
+  schema: schemaDef,
   plugins: [
-    recommended({ maxLimit: 100 }),            // noRawUnsafe + no unfiltered writes + required/max limit
+    recommended({ maxLimit: 100 }), // noRawUnsafe + no unfiltered writes + required/max limit
     zod({ schemas: { user: z.object({ email: z.email() }) } }),
   ],
 });
@@ -435,16 +434,16 @@ Official F2 plugins (M6.4) — timestamps + a reversible soft delete:
 import { timestamps } from "better-schemic/plugins/timestamps";
 import { softDelete } from "better-schemic/plugins/soft-delete";
 
-const client = betterSchemic(db, {
-  schema,
+const client = orm(db, {
+  schema: schemaDef,
   plugins: [timestamps(), softDelete({ deletedBy: "deletedBy" })],
 });
 // create/update get `time::now()` stamped automatically (mode "app");
 // delete becomes a soft delete and reads hide deleted rows unless `deleted: "with" | "only"`:
 await client.users.delete({ where: { id }, meta: { actor: currentUserId } });
-const live = await client.users.findMany({});                 // deleted rows hidden
-const all  = await client.users.findMany({ deleted: "with" }); // include them
-await client.users.restoreById(id);                            // clear deletedAt
+const live = await client.users.findMany({}); // deleted rows hidden
+const all = await client.users.findMany({ deleted: "with" }); // include them
+await client.users.restoreById(id); // clear deletedAt
 ```
 
 Official F3 plugin (M10) — multi-tenant RLS: a schema PRESET (`tenant()`) plus a runtime plugin
@@ -455,25 +454,28 @@ import { tenant, tenantRls } from "better-schemic/plugins/tenant";
 
 // Schema: one `.use(tenant(principal, options?))` per table — tenant column + per-op permissions +
 // `{table}_protect_<column>` guard event + indexes (zero-diff with the hand-written recipe).
-const User = defineTable("user", { name: s.string() });
-const Customer = defineTable("customer", {
+const User = table("user", { name: s.string() });
+const Customer = table("customer", {
   name: s.string(),
-  deletedAt: s.datetime().optional(),          // app-declared tombstone (softDelete: true)
+  deletedAt: s.datetime().optional(), // app-declared tombstone (softDelete: true)
 }).use(tenant(User, { softDelete: true }));
-const Order = defineTable("order", { total: s.number() })
-  .use(tenant(User, { createOnly: true }));    // append-only: update = NONE
+const Order = table("order", { total: s.number() }).use(
+  tenant(User, { createOnly: true }),
+); // append-only: update = NONE
 
 // Runtime: every tenant-tagged table requires a scope BEFORE compiling (fail-closed).
-const client = betterSchemic(db, {
-  schema: defineSchema({ users: User, customers: Customer, orders: Order }),
+const client = orm(db, {
+  schema: schema({ users: User, customers: Customer, orders: Order }),
   plugins: [tenantRls({ tenant: () => ctx.tenantId })],
 });
-await client.customers.findMany({});                          // ✗ TenantRequired (no scope)
-await client.customers.$forTenant("user:abc").findMany({});   // ✓ scoped to user:abc
+await client.customers.findMany({}); // ✗ TenantRequired (no scope)
+await client.customers.$forTenant("user:abc").findMany({}); // ✓ scoped to user:abc
 await client.customers.$forTenant("user:abc").create({ data: { name: "A" } }); // tenant injected
-await client.customers.$forTenant("user:abc").findUnique({ where: { id: "customer:1" } });
+await client.customers
+  .$forTenant("user:abc")
+  .findUnique({ where: { id: "customer:1" } });
 // ✓ reads are scoped too (id and single-field UNIQUE targets) — a cross-tenant id resolves null
-await client.customers.$withoutPlugins().findMany({});        // explicit admin escape (audited)
+await client.customers.$withoutPlugins().findMany({}); // explicit admin escape (audited)
 ```
 
 Official plugin (M14) — create-only (append-only) tables: the `createOnly()` schema PRESET
@@ -481,21 +483,24 @@ Official plugin (M14) — create-only (append-only) tables: the `createOnly()` s
 (fail-fast for privileged sessions, where the DDL permission does not gate):
 
 ```ts
-import { createOnly, createOnlyGuard } from "better-schemic/plugins/create-only";
+import {
+  createOnly,
+  createOnlyGuard,
+} from "better-schemic/plugins/create-only";
 
 // Schema: PERMISSIONS FOR update NONE + meta.createOnly. `hard: true` also emits an
 // `{table}_create_only` event — events run without permission checks, so root/$withoutPlugins/raw
 // are blocked too. `timestamps()` sees the marker and never stamps `updatedAt` on this table.
-const AuditLog = defineTable("audit_log", {
+const AuditLog = table("audit_log", {
   action: s.string(),
   createdAt: s.datetime().optional(),
 }).use(createOnly({ hard: true }));
 
-const client = betterSchemic(db, {
-  schema: defineSchema({ auditLogs: AuditLog }),
+const client = orm(db, {
+  schema: schema({ auditLogs: AuditLog }),
   plugins: [timestamps(), createOnlyGuard()],
 });
-await client.auditLogs.create({ data: { action: "login" } });  // createdAt only (no updatedAt)
+await client.auditLogs.create({ data: { action: "login" } }); // createdAt only (no updatedAt)
 await client.auditLogs.update({ where: { id }, data: { action: "x" } }); // ✗ CreateOnlyViolation
 await client.auditLogs.$withoutPlugins().update({ where: { id }, data: {} }); // ✗ hard event THROWs
 // create()/insert({ onDuplicate: "ignore" }) write; delete stays allowed (rows are immutable,
@@ -508,7 +513,7 @@ Enable the built-in logger with one flag — a framed, syntax-highlighted box fo
 with timing, row counts and (optionally) the `EXPLAIN` plan tree:
 
 ```ts
-const client = betterSchemic(db, { schema, logger: true });
+const client = orm(db, { schema: schemaDef, logger: true });
 // presets: "pretty" (default) | "compact" | "json" (log shippers) | "silent"
 // await client.users.findMany({ where: { age: { gte: 18 } } });
 // ╭─ 🔍 findMany · user ─────────────────────────────╮
@@ -522,14 +527,14 @@ It observes the **executor** (reads, writes, `$raw`, `fn`, admin, changes, live 
 plans), never changing the operation:
 
 ```ts
-const client = betterSchemic(db, {
-  schema,
+const client = orm(db, {
+  schema: schemaDef,
   logger: {
-    slowMs: 50,          // mark slow queries (also gates `level: "info"`)
-    explain: "slow",     // auto-EXPLAIN reads >= slowMs ("all" | "analyze" available)
-    verbose: true,       // preview the first rows
-    colors: "auto",      // honours NO_COLOR / FORCE_COLOR / TTY
-    redact: true,        // mask bound values (`$p0 = [redacted]`) for shared/CI logs
+    slowMs: 50, // mark slow queries (also gates `level: "info"`)
+    explain: "slow", // auto-EXPLAIN reads >= slowMs ("all" | "analyze" available)
+    verbose: true, // preview the first rows
+    colors: "auto", // honours NO_COLOR / FORCE_COLOR / TTY
+    redact: true, // mask bound values (`$p0 = [redacted]`) for shared/CI logs
   },
 });
 
@@ -547,7 +552,10 @@ code with `BETTER_SCHEMIC_LOG=1|pretty|json` (`BETTER_SCHEMIC_LOG_LEVEL`, `BETTE
 
 ```ts
 import { createQueryLogger } from "better-schemic/logger";
-const client = betterSchemic(db, { schema, logger: createQueryLogger({ format: "json" }) });
+const client = orm(db, {
+  schema: schemaDef,
+  logger: createQueryLogger({ format: "json" }),
+});
 ```
 
 ### OTEL tracing (`better-schemic/otel`)
@@ -564,8 +572,8 @@ bun add better-schemic @opentelemetry/api
 ```ts
 import { createOtelLogger } from "better-schemic/otel";
 
-const client = betterSchemic(db, {
-  schema,
+const client = orm(db, {
+  schema: schemaDef,
   logger: createOtelLogger({
     captureQueryText: true, // default; false omits db.query.text entirely
     maxQueryTextLength: 1000, // default

@@ -3,7 +3,11 @@
 // A fake registry supplies the owner hooks the filter reads.
 
 import { describe, expect, test } from "bun:test";
-import { filterKinds, parseFilter, passesFilter } from "../../../src/core/cli-kit/filter";
+import {
+  filterKinds,
+  parseFilter,
+  passesFilter,
+} from "../../../src/core/cli-kit/filter";
 import { KindRegistry, type PortableObject } from "../../../src/core/kind";
 
 interface Owned extends PortableObject {
@@ -20,8 +24,18 @@ const ownedBy = (o: Owned) =>
   o.table ? { kind: "table", name: o.table } : undefined;
 
 reg.define({ name: "table", build: (o: Owned) => o, ...opaque });
-reg.define({ name: "index", build: (o: Owned) => o, ...opaque, owner: ownedBy });
-reg.define({ name: "event", build: (o: Owned) => o, ...opaque, owner: ownedBy });
+reg.define({
+  name: "index",
+  build: (o: Owned) => o,
+  ...opaque,
+  owner: ownedBy,
+});
+reg.define({
+  name: "event",
+  build: (o: Owned) => o,
+  ...opaque,
+  owner: ownedBy,
+});
 reg.define({ name: "function", build: (o: Owned) => o, ...opaque });
 reg.define({ name: "access", build: (o: Owned) => o, ...opaque });
 
@@ -80,7 +94,9 @@ describe("filterKinds", () => {
 
   test("passesFilter: an owned index follows its table's exclusion", () => {
     const f = parseFilter({ tables: "post" }); // user excluded
-    expect(passesFilter(reg, obj("index", "user_email", "user"), f)).toBe(false);
+    expect(passesFilter(reg, obj("index", "user_email", "user"), f)).toBe(
+      false,
+    );
     expect(passesFilter(reg, obj("table", "post"), f)).toBe(true);
   });
 });

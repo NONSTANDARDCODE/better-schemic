@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { s, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -7,7 +7,7 @@ export default example(import.meta.url, {
 DEFINE FIELD author ON TABLE links TYPE record<user>;
 DEFINE FIELD owner ON TABLE links TYPE record<user | org>;
 DEFINE FIELD tags ON TABLE links TYPE array<record<tag>>;`,
-  def: defineTable("links", {
+  def: table("links", {
     id: s.string(),
     author: s.recordId("user"),
     owner: s.recordId(["user", "org"]),

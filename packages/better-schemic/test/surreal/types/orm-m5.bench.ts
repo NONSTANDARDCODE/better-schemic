@@ -2,10 +2,10 @@
 // intersection grew with the raw overloads, `FnSurface` and the `$withContext` overloads. The budget
 // guards REGRESSION (+20% threshold); re-baseline intentionally (`bun run scripts/type-bench.ts --update`).
 import { bench } from "../../../../../scripts/type-bench";
-import { defineFunction, defineTable, s } from "../../../src/surreal";
+import { defineFunction, s, table } from "../../../src/surreal";
 import type { Client } from "../../../src/surreal/orm/client";
 
-const User = defineTable("user", { name: s.string(), age: s.int() });
+const User = table("user", { name: s.string(), age: s.int() });
 const Add = defineFunction("add", { a: s.number(), b: s.number() }).returns(
   s.number(),
 );

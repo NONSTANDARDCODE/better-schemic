@@ -16,9 +16,9 @@ import { emitDefStatement, emitTable } from "../../../src/surreal/ddl";
 import {
   defineAccess,
   defineFunction,
-  defineRelation,
-  defineTable,
+  relation,
   s,
+  table,
 } from "../../../src/surreal/pure";
 import { tryConnect } from "../helpers";
 
@@ -31,7 +31,7 @@ const live = describe.skipIf(!db);
 if (!db)
   console.warn("[live] SurrealDB unreachable — skipping integration tests");
 
-const User = defineTable("it_user", {
+const User = table("it_user", {
   id: z.string(),
   name: s.string(),
   status: s.string().$default(surql`"pending"`),
@@ -39,14 +39,14 @@ const User = defineTable("it_user", {
   createdAt: s.datetime().$default(surql`time::now()`).$readonly(),
 });
 
-const Native = defineTable("it_native", {
+const Native = table("it_native", {
   id: z.string(),
   tag: s.uuid(),
   data: s.bytes(),
   when: s.datetime(),
 });
 
-const Friend = defineRelation("it_friend", { strength: s.number() })
+const Friend = relation("it_friend", { strength: s.number() })
   .from(User)
   .to(User);
 
@@ -131,7 +131,7 @@ live("CRUD + codecs against a live DB", () => {
   });
 });
 
-const Evented = defineTable("it_evented", {
+const Evented = table("it_evented", {
   id: z.string(),
   email: s.email(),
   verified: s.boolean().$default(surql`false`),
@@ -266,13 +266,13 @@ live("access DDL (record/jwt/bearer) introspects + round-trips", () => {
 // A preset-composed table: preset columns + AND-combined permissions + appended event/index. The
 // live check matters because combined perms are NESTED surql compositions — verify the emitted
 // DDL applies cleanly and round-trips drift-free through INFO … STRUCTURE.
-const Tenanted = defineTable("it_preset", {
+const Tenanted = table("it_preset", {
   id: z.string(),
   title: s.string(),
 })
   .permissions({ select: true, update: surql`user = $auth.id`, delete: false })
   .use(
-    defineTable.preset({
+    table.preset({
       columns: { org_id: s.string().$readonly() },
       permissions: surql`org_id != NONE`,
       events: [

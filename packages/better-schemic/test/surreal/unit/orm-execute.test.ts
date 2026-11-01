@@ -3,7 +3,7 @@
 // unique-binds guardrail. All offline — the "connection" is a recording fake.
 import { describe, expect, test } from "bun:test";
 import { AlreadyExistsError, ServerError } from "surrealdb";
-import { isBetterSchemicError } from "../../../src/surreal/orm/errors";
+import { isOrmError } from "../../../src/surreal/orm/errors";
 import { execute, type Queryable } from "../../../src/surreal/orm/execute";
 import { echoLines, fail, fakeConn, lines, ok } from "../orm-fixtures";
 
@@ -93,7 +93,7 @@ describe("execute — failure attribution", () => {
       vars: unknown;
     };
 
-    expect(isBetterSchemicError(err)).toBe(true);
+    expect(isOrmError(err)).toBe(true);
     expect(err.code).toBe("RecordAlreadyExists");
     expect(err.statementIndex).toBe(1);
     expect(err.surql).toBe("CREATE t:dup");
@@ -230,7 +230,7 @@ describe("execute — protocol surprises and transport errors", () => {
       statements: [{ sql: "SELECT 1" }],
       operation: "findMany",
     }).catch((e: unknown) => e)) as Error & { code: string; operation: string };
-    expect(isBetterSchemicError(err)).toBe(true);
+    expect(isOrmError(err)).toBe(true);
     expect(err.code).toBe("DatabaseError");
     expect(err.operation).toBe("findMany");
   });

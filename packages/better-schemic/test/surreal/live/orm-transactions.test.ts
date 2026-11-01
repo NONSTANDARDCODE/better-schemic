@@ -8,14 +8,17 @@ setDefaultTimeout(120_000);
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Surreal } from "surrealdb";
+import { s, surql, table } from "../../../src/surreal";
 import {
   type EphemeralServer,
   surrealBinaryAvailable,
 } from "../../../src/surreal/cli/engine";
-import { defineTable, s, surql } from "../../../src/surreal";
-import { betterSchemic, type Client } from "../../../src/surreal/orm/client";
-import { isTransactionRollback, isWriteConflict } from "../../../src/surreal/orm/errors";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { type Client, orm } from "../../../src/surreal/orm/client";
+import {
+  isTransactionRollback,
+  isWriteConflict,
+} from "../../../src/surreal/orm/errors";
+import { schema } from "../../../src/surreal/orm/schema";
 import { caught } from "../orm-fixtures";
 import { connectRoot, startLiveServer } from "./harness";
 
@@ -24,16 +27,16 @@ const live = describe.skipIf(!ENABLED);
 if (!ENABLED)
   console.warn("[orm-transactions] `surreal` binary unavailable — skipping");
 
-const Account = defineTable("tx_account", {
+const Account = table("tx_account", {
   name: s.string(),
   balance: s.int(),
 });
-const schema = defineSchema({ accounts: Account });
+const schemaDef = schema({ accounts: Account });
 
 live("orm transactions — live", () => {
   let server: EphemeralServer;
   let db: Surreal;
-  let client: Client<typeof schema>;
+  let client: Client<typeof schemaDef>;
 
   const connect = (): Promise<Surreal> => connectRoot(server, "orm_tx", "live");
 
@@ -51,7 +54,7 @@ live("orm transactions — live", () => {
     });
     server = started.server;
     db = started.db;
-    client = betterSchemic(db, { schema });
+    client = orm(db, { schema: schemaDef });
   });
 
   afterAll(async () => {
@@ -201,8 +204,8 @@ live("orm transactions — live", () => {
 
   test("a REAL write conflict surfaces as WriteConflict (and is retryable)", async () => {
     const other = await connect();
-    const otherClient = betterSchemic(other, {
-      schema,
+    const otherClient = orm(other, {
+      schema: schemaDef,
       transaction: { retries: { attempts: 3, delayMs: 5 } },
     });
     let updated = () => {};
@@ -247,7 +250,7 @@ live("orm transactions — live", () => {
 
     // Without retries the same race fails as WriteConflict.
     const solo = await connect();
-    const soloClient = betterSchemic(solo, { schema });
+    const soloClient = orm(solo, { schema: schemaDef });
     const [a, b] = [client, soloClient];
     let cUpdated = () => {};
     const cFirst = new Promise<void>((resolve) => {

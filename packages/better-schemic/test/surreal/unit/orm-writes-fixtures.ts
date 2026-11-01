@@ -4,13 +4,13 @@
 
 import { RecordId } from "surrealdb";
 import type { Client } from "../../../src/surreal/orm/client";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import type { BetterSchemicError } from "../../../src/surreal/orm/errors";
-import { defineSchema } from "../../../src/surreal/orm/schema";
-import { defineRelation, defineTable, s } from "../../../src/surreal/pure";
+import { orm } from "../../../src/surreal/orm/client";
+import type { OrmError } from "../../../src/surreal/orm/errors";
+import { schema } from "../../../src/surreal/orm/schema";
+import { relation, s, table } from "../../../src/surreal/pure";
 import { fakeConn, ok } from "../orm-fixtures";
 
-export const User = defineTable("user", {
+export const User = table("user", {
   name: s.string(),
   email: s.string(),
   age: s.int(),
@@ -18,11 +18,9 @@ export const User = defineTable("user", {
   tags: s.array(s.string()),
   address: s.object({ city: s.string() }),
 }).index("uniq_email", ["email"], { unique: true });
-export const Post = defineTable("post", { title: s.string() });
-export const Likes = defineRelation("likes", { score: s.int() })
-  .from(User)
-  .to(Post);
-export const schema = defineSchema({
+export const Post = table("post", { title: s.string() });
+export const Likes = relation("likes", { score: s.int() }).from(User).to(Post);
+export const schemaDef = schema({
   users: User,
   posts: Post,
   likes: Likes,
@@ -56,14 +54,14 @@ export const data = {
 
 /** A client over a fake connection that answers every statement with `result` rows. */
 export function makeClient(result: unknown = [ROW]): {
-  client: Client<typeof schema>;
+  client: Client<typeof schemaDef>;
   calls: { sql: string; vars?: Record<string, unknown> }[];
 } {
   const { conn, calls } = fakeConn((sql) =>
     sql.split("\n").map(() => ok(result)),
   );
   return {
-    client: betterSchemic(conn, { schema }) as Client<typeof schema>,
+    client: orm(conn, { schema: schemaDef }) as Client<typeof schemaDef>,
     calls,
   };
 }
@@ -99,6 +97,6 @@ export function codeOf(fn: () => unknown): string | undefined {
     fn();
     return undefined;
   } catch (e) {
-    return (e as BetterSchemicError).code;
+    return (e as OrmError).code;
   }
 }

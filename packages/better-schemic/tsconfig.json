@@ -1,26 +1,17 @@
 {
   "compilerOptions": {
-    "lib": [
-      "ESNext"
-    ],
+    "lib": ["ESNext"],
     "target": "ESNext",
     "module": "Preserve",
     "moduleResolution": "bundler",
-    "customConditions": [
-      "bun"
-    ],
+    "customConditions": ["bun"],
     "moduleDetection": "force",
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "strict": true,
     "skipLibCheck": true,
     "ignoreDeprecations": "6.0",
-    "types": [
-      "bun"
-    ]
+    "types": ["bun"]
   },
-  "exclude": [
-    "node_modules",
-    "lib"
-  ]
+  "exclude": ["node_modules", "lib"]
 }

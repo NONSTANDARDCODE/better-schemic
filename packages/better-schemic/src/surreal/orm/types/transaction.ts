@@ -1,6 +1,6 @@
 /**
  * Types for `client.transaction` — the callback client, the retry/deadline options and the defaults
- * accepted at bootstrap (`betterSchemic(conn, { schema, transaction: { … } })`).
+ * accepted at bootstrap (`orm(conn, { schema, transaction: { … } })`).
  *
  * `mode: "sql"` is deliberately ABSENT from the public union: on 3.2.0 `BEGIN`/`COMMIT` do not
  * survive across separate RPC calls (each `query()` is its own transaction — see
@@ -54,7 +54,7 @@ export interface TransactionOptions {
   readonly onUnsupported?: UnsupportedPolicy;
 }
 
-/** Client-level transaction defaults (`betterSchemic(conn, { schema, transaction: { … } })`). */
+/** Client-level transaction defaults (`orm(conn, { schema, transaction: { … } })`). */
 export type TransactionDefaults = Omit<TransactionOptions, "meta">;
 
 /**

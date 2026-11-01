@@ -17,11 +17,7 @@
  * - `afterCommit`/`afterRollback` callbacks run after the outcome and never change it.
  */
 import { parseDurationMs } from "./compiler/shared";
-import {
-  BetterSchemicError,
-  isBetterSchemicError,
-  normalizeError,
-} from "./errors";
+import { isOrmError, normalizeError, OrmError } from "./errors";
 import type { Queryable } from "./execute";
 import type { HookDispatcher } from "./hooks";
 import type { SchemaInput } from "./types/schema";
@@ -81,7 +77,7 @@ export class TransactionState {
 
   private assertActive(name: string): void {
     if (!this.active)
-      throw new BetterSchemicError(
+      throw new OrmError(
         "ValidationError",
         `tx.${name}(...) needs an active transaction — this one already settled.`,
         { operation: "transaction" },
@@ -113,7 +109,7 @@ export function rollbackTransaction(
 export interface TransactionHost {
   /** The wrapped connection (root or tx — the host decides). */
   readonly conn: Queryable;
-  /** Client-level defaults (`betterSchemic(conn, { schema, transaction: … })`). */
+  /** Client-level defaults (`orm(conn, { schema, transaction: … })`). */
   $transactionDefaults(): TransactionDefaults | undefined;
   /** Present iff this client is BOUND to a transaction (the `tx` handle). */
   $txState(): TransactionState | undefined;
@@ -162,7 +158,7 @@ function resolveOptions(
       : {}),
   };
   if (merged.mode !== undefined && merged.mode !== "sdk")
-    throw new BetterSchemicError(
+    throw new OrmError(
       "UnsupportedCapability",
       `${operation}: mode "${String(merged.mode)}" is not supported on SurrealDB 3.2.0 — BEGIN/COMMIT do not survive across separate RPC calls, so only the SDK's managed transaction ("sdk") can be correct.`,
       { operation },
@@ -171,7 +167,7 @@ function resolveOptions(
     const policy = merged.onUnsupported ?? "warn";
     const message = `${operation}: "isolation" is not supported by SurrealDB (transactions are optimistic) — the option is being ignored.`;
     if (policy === "throw")
-      throw new BetterSchemicError("UnsupportedCapability", message, {
+      throw new OrmError("UnsupportedCapability", message, {
         operation,
       });
     if (policy === "warn") console.warn(`[better-schemic] ${message}`);
@@ -180,27 +176,27 @@ function resolveOptions(
   const retries = merged.retries ?? {};
   const attempts = retries.attempts ?? 1;
   if (!Number.isInteger(attempts) || attempts < 1)
-    throw new BetterSchemicError(
+    throw new OrmError(
       "ValidationError",
       `${operation}: retries.attempts must be a positive integer (got ${String(retries.attempts)}).`,
       { operation },
     );
   const on = retries.on ?? ["writeConflict"];
   if (!Array.isArray(on) || on.some((r) => !RETRY_REASONS.includes(r)))
-    throw new BetterSchemicError(
+    throw new OrmError(
       "ValidationError",
       `${operation}: retries.on accepts ${RETRY_REASONS.join(", ")} (got ${JSON.stringify(retries.on)}).`,
       { operation },
     );
   const delayMs = retries.delayMs ?? 0;
   if (typeof delayMs !== "number" && typeof delayMs !== "function")
-    throw new BetterSchemicError(
+    throw new OrmError(
       "ValidationError",
       `${operation}: retries.delayMs must be milliseconds or a function (attempt, error) => ms.`,
       { operation },
     );
   if (typeof delayMs === "number" && (!Number.isFinite(delayMs) || delayMs < 0))
-    throw new BetterSchemicError(
+    throw new OrmError(
       "ValidationError",
       `${operation}: retries.delayMs (ms) must be a finite, non-negative number (got ${delayMs}).`,
       { operation },
@@ -229,7 +225,7 @@ async function begin(
     beginTransaction?: () => Promise<TransactionConnection>;
   };
   if (typeof sdk.beginTransaction !== "function")
-    throw new BetterSchemicError(
+    throw new OrmError(
       "UnsupportedCapability",
       `${operation}: this connection has no beginTransaction() — transactions need the SurrealDB SDK over WebSocket (HTTP engines do not support them).`,
       { operation },
@@ -242,7 +238,7 @@ async function begin(
 }
 
 /** A connection-level failure (SDK socket/reconnect errors) — retryable when requested. */
-function isConnectionError(error: BetterSchemicError): boolean {
+function isConnectionError(error: OrmError): boolean {
   const cause = error.cause as { kind?: unknown; name?: unknown } | undefined;
   const name = typeof cause?.name === "string" ? cause.name : "";
   if (/connection|reconnect|socket/i.test(name)) return true;
@@ -256,10 +252,7 @@ function isConnectionError(error: BetterSchemicError): boolean {
 }
 
 /** Does the normalized failure match one of the configured retry reasons? */
-function isRetryable(
-  error: BetterSchemicError,
-  on: readonly RetryReason[],
-): boolean {
+function isRetryable(error: OrmError, on: readonly RetryReason[]): boolean {
   for (const reason of on) {
     if (reason === "writeConflict" && error.code === "WriteConflict")
       return true;
@@ -297,13 +290,10 @@ const sleep = (ms: number): Promise<void> =>
 let transactionSeq = 0;
 
 /** Convert the attempt failure into the error the caller sees. */
-function attemptError(
-  e: unknown,
-  resolved: ResolvedOptions,
-): BetterSchemicError {
+function attemptError(e: unknown, resolved: ResolvedOptions): OrmError {
   const meta = resolved.meta;
   if (e instanceof RollbackSignal)
-    return new BetterSchemicError(
+    return new OrmError(
       "TransactionRollback",
       `transaction: rolled back${e.reason === undefined ? "" : ` (${typeof e.reason === "string" ? e.reason : JSON.stringify(e.reason)})`}.`,
       {
@@ -314,7 +304,7 @@ function attemptError(
         },
       },
     );
-  if (isBetterSchemicError(e)) return e;
+  if (isOrmError(e)) return e;
   return normalizeError(e, { operation: "transaction" });
 }
 
@@ -359,7 +349,7 @@ export async function runTransaction<T, S extends SchemaInput = SchemaInput>(
   options?: TransactionOptions,
 ): Promise<T> {
   if (typeof fn !== "function")
-    throw new BetterSchemicError(
+    throw new OrmError(
       "ValidationError",
       "transaction: pass a callback — `client.transaction(async (tx) => { … })`.",
       { operation: "transaction" },
@@ -370,7 +360,7 @@ export async function runTransaction<T, S extends SchemaInput = SchemaInput>(
   const bound = host.$txState();
   if (bound) {
     if (!bound.active)
-      throw new BetterSchemicError(
+      throw new OrmError(
         "ValidationError",
         "transaction: this transaction already settled — start a new one from the root client.",
         { operation: "transaction" },
@@ -378,14 +368,14 @@ export async function runTransaction<T, S extends SchemaInput = SchemaInput>(
     return await fn(host as unknown as TransactionClient<S>);
   }
   if (host.$rootScope()?.active)
-    throw new BetterSchemicError(
+    throw new OrmError(
       "TransactionAlreadyActive",
       "transaction: this client already has an active transaction — use the `tx` client passed to the callback (or `tx.transaction` to nest in the same transaction).",
       { operation: "transaction" },
     );
 
-  const timeoutError = (): BetterSchemicError =>
-    new BetterSchemicError(
+  const timeoutError = (): OrmError =>
+    new OrmError(
       "DatabaseError",
       `transaction: timed out after ${resolved.timeoutMs}ms — the transaction was cancelled.`,
       {

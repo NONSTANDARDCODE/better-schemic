@@ -9,12 +9,12 @@
  * sdk.start();
  * ```
  */
-import { defineTable, Surreal, s } from "better-schemic";
-import { betterSchemic } from "better-schemic/orm";
+import { Surreal, s, table } from "better-schemic";
+import { orm } from "better-schemic/orm";
 import { createOtelLogger } from "better-schemic/otel";
 
 const schema = {
-  user: defineTable("user", {
+  user: table("user", {
     id: s.string(),
     name: s.string(),
   }),
@@ -25,7 +25,7 @@ export async function main() {
   await db.connect("memory://");
   await db.use({ namespace: "dev", database: "main" });
 
-  const client = betterSchemic(db, {
+  const client = orm(db, {
     schema,
     // Zero overhead when omitted; `enabled: false` keeps the option but skips every span.
     logger: createOtelLogger({

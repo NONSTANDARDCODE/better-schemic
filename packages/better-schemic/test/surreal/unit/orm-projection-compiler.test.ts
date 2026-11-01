@@ -2,17 +2,17 @@
 // and the Zod-shape codec walker (`projectedFieldFor` / `resolveLeafCodec`).
 import { describe, expect, test } from "bun:test";
 import { surql } from "../../../src/surreal";
-import { betterSchemic } from "../../../src/surreal/orm/client";
+import { orm } from "../../../src/surreal/orm/client";
 import {
   compileProjection,
   projectedFieldFor,
   resolveLeafCodec,
 } from "../../../src/surreal/orm/compiler/projection";
 import { createBinds } from "../../../src/surreal/orm/compiler/shared";
-import { defineSchema } from "../../../src/surreal/orm/schema";
-import { defineTable, s } from "../../../src/surreal/pure";
+import { schema } from "../../../src/surreal/orm/schema";
+import { s, table } from "../../../src/surreal/pure";
 import { fakeConn, ok } from "../orm-fixtures";
-import { schema } from "./orm-writes-fixtures";
+import { schemaDef } from "./orm-writes-fixtures";
 
 const code = (fn: () => unknown): string | undefined => {
   try {
@@ -24,10 +24,10 @@ const code = (fn: () => unknown): string | undefined => {
 };
 
 const { conn } = fakeConn(() => [ok([])]);
-const client = betterSchemic(conn, { schema });
+const client = orm(conn, { schema: schemaDef });
 const meta = client.$index.tables.get("users")!;
-const sm = betterSchemic(fakeConn(() => [ok([])]).conn, {
-  schema: defineSchema({ audit: "audit_log" }),
+const sm = orm(fakeConn(() => [ok([])]).conn, {
+  schema: schema({ audit: "audit_log" }),
 }).$index.schemaless.get("audit")!;
 const b = () => createBinds();
 
@@ -60,7 +60,14 @@ describe("compileProjection", () => {
     ).toBe(true);
     expect(
       code(() =>
-        compileProjection(meta, { name: true, age: true }, undefined, true, b(), "select"),
+        compileProjection(
+          meta,
+          { name: true, age: true },
+          undefined,
+          true,
+          b(),
+          "select",
+        ),
       ),
     ).toBe("ValidationError");
   });
@@ -95,7 +102,14 @@ describe("compileProjection", () => {
   test("nested aliases/expressions and bad entries are rejected", () => {
     expect(
       code(() =>
-        compileProjection(meta, { a: { b: "c" } }, undefined, false, b(), "select"),
+        compileProjection(
+          meta,
+          { a: { b: "c" } },
+          undefined,
+          false,
+          b(),
+          "select",
+        ),
       ),
     ).toBe("ValidationError");
     expect(
@@ -112,7 +126,14 @@ describe("compileProjection", () => {
     ).toBe("ValidationError");
     expect(
       code(() =>
-        compileProjection(meta, { a: { b: 5 } }, undefined, false, b(), "select"),
+        compileProjection(
+          meta,
+          { a: { b: 5 } },
+          undefined,
+          false,
+          b(),
+          "select",
+        ),
       ),
     ).toBe("ValidationError");
   });
@@ -133,7 +154,13 @@ describe("projectedFieldFor / resolveLeafCodec", () => {
       projectedFieldFor(meta, ["name"], ["name"], ["name"], ["name"]).schema,
     ).toBeDefined();
     // split names a different field → isSplit false, keeps the whole-field codec.
-    const other = projectedFieldFor(meta, ["name"], ["name"], ["name"], ["tags"]);
+    const other = projectedFieldFor(
+      meta,
+      ["name"],
+      ["name"],
+      ["name"],
+      ["tags"],
+    );
     expect(other.schema).toBeDefined();
     expect(other.each).toBe(false);
   });
@@ -151,7 +178,7 @@ describe("projectedFieldFor / resolveLeafCodec", () => {
 
 // A schema exercising the codec walker's less-common shapes: set fields, wrapped fields
 // (nullable/default/prefault/readonly/catch) and nested arrays.
-const Extra = defineTable("extra", {
+const Extra = table("extra", {
   tags: s.set(s.string()),
   maybe: s.string().nullable(),
   withDefault: s.string().default("x"),
@@ -160,8 +187,8 @@ const Extra = defineTable("extra", {
   caught: s.string().catch("x"),
   cube: s.array(s.array(s.array(s.int()))),
 });
-const extraIndex = betterSchemic(fakeConn(() => [ok([])]).conn, {
-  schema: defineSchema({ extras: Extra }),
+const extraIndex = orm(fakeConn(() => [ok([])]).conn, {
+  schema: schema({ extras: Extra }),
 }).$index;
 const extra = extraIndex.tables.get("extras")!;
 
@@ -176,9 +203,9 @@ describe("projection — wrapped/set/nested codecs", () => {
     expect(resolveLeafCodec(extra, ["tags[0]"]).each).toBe(false);
     expect(resolveLeafCodec(extra, ["cube[0][*]"]).each).toBe(true);
     // split on a set unfolds to the element codec.
-    expect(projectedFieldFor(extra, ["tags"], ["tags"], ["tags"], ["tags"]).each).toBe(
-      false,
-    );
+    expect(
+      projectedFieldFor(extra, ["tags"], ["tags"], ["tags"], ["tags"]).each,
+    ).toBe(false);
   });
 
   test("star-schema with an object select; omit null/empty guards", () => {
@@ -190,7 +217,9 @@ describe("projection — wrapped/set/nested codecs", () => {
       compileProjection(meta, undefined, null, false, b(), "select").spec.omit,
     ).toEqual([]);
     expect(
-      code(() => compileProjection(meta, undefined, [""], false, b(), "select")),
+      code(() =>
+        compileProjection(meta, undefined, [""], false, b(), "select"),
+      ),
     ).toBe("ValidationError");
   });
 
@@ -201,7 +230,8 @@ describe("projection — wrapped/set/nested codecs", () => {
     ).toBeUndefined();
     // an unknown field with a split → found.schema is undefined.
     expect(
-      projectedFieldFor(meta, ["ghost"], ["ghost"], ["ghost"], ["ghost"]).schema,
+      projectedFieldFor(meta, ["ghost"], ["ghost"], ["ghost"], ["ghost"])
+        .schema,
     ).toBeUndefined();
   });
 });

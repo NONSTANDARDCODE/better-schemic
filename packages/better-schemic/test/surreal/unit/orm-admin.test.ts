@@ -2,14 +2,14 @@
 // (and the record-session mapping), and `info`/`version`/`ping`/`export`/`import`. Offline.
 import { describe, expect, test } from "bun:test";
 import { ServerError } from "surrealdb";
-import { defineTable, s } from "../../../src/surreal";
-import { betterSchemic } from "../../../src/surreal/orm/client";
-import { isBetterSchemicError } from "../../../src/surreal/orm/errors";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { s, table } from "../../../src/surreal";
+import { orm } from "../../../src/surreal/orm/client";
+import { isOrmError } from "../../../src/surreal/orm/errors";
+import { schema } from "../../../src/surreal/orm/schema";
 import { caught, fail, fakeConn, ok } from "../orm-fixtures";
 
-const User = defineTable("user", { name: s.string() });
-const schema = defineSchema({ users: User });
+const User = table("user", { name: s.string() });
+const schemaDef = schema({ users: User });
 
 const echo = (sql: string) => sql.split("\n").map((line) => ok(line));
 
@@ -53,7 +53,7 @@ describe("api", () => {
         get: () => apiPromise({ status: 200, body: [{ id: "a:1" }] }, record),
       }),
     });
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const body = await client.api.get<{ id: string }[]>("/articles", {
       query: { limit: 10 },
       headers: { "accept-language": "pt-BR" },
@@ -71,11 +71,11 @@ describe("api", () => {
         get: () => apiPromise({ status: 418, body: { why: "teapot" } }, record),
       }),
     });
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const error = await caught(() => client.api.get("/boom"));
-    expect(isBetterSchemicError(error) && error.code).toBe("DatabaseError");
-    expect(isBetterSchemicError(error) && error.status).toBe(418);
-    expect(isBetterSchemicError(error) && error.details).toEqual({
+    expect(isOrmError(error) && error.code).toBe("DatabaseError");
+    expect(isOrmError(error) && error.status).toBe(418);
+    expect(isOrmError(error) && error.details).toEqual({
       why: "teapot",
     });
   });
@@ -85,9 +85,9 @@ describe("api", () => {
     Object.assign(conn, {
       api: () => ({ get: () => apiPromise({}, { headers: {}, query: {} }) }),
     });
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const error = await caught(() => client.api.get("articles"));
-    expect(isBetterSchemicError(error) && error.code).toBe("ValidationError");
+    expect(isOrmError(error) && error.code).toBe("ValidationError");
   });
 });
 
@@ -108,7 +108,7 @@ describe("auth", () => {
         seen.push(["invalidate"]);
       },
     });
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     expect(await client.auth.signin({ username: "u", password: "p" })).toEqual({
       access: "a",
     });
@@ -130,9 +130,9 @@ describe("auth", () => {
         );
       },
     });
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const error = await caught(() => client.auth.record());
-    expect(isBetterSchemicError(error) && error.code).toBe("NotAuthenticated");
+    expect(isOrmError(error) && error.code).toBe("NotAuthenticated");
   });
 
   test("signup passthroughs the SDK session method", async () => {
@@ -140,7 +140,7 @@ describe("auth", () => {
     Object.assign(conn, {
       signup: async () => ({ access: "account" }),
     });
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     expect(
       await client.auth.signup({ access: "account", variables: {} }),
     ).toEqual({ access: "account" });
@@ -148,13 +148,11 @@ describe("auth", () => {
 
   test("a connection without the SDK method teaches UnsupportedCapability", async () => {
     const { conn } = fakeConn();
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const error = await caught(() =>
       client.auth.signin({ username: "u", password: "p" }),
     );
-    expect(isBetterSchemicError(error) && error.code).toBe(
-      "UnsupportedCapability",
-    );
+    expect(isOrmError(error) && error.code).toBe("UnsupportedCapability");
   });
 
   test("a non-ONLY auth failure is normalized and rethrown", async () => {
@@ -164,7 +162,7 @@ describe("auth", () => {
         throw new Error("kaboom");
       },
     });
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const error = await caught(() => client.auth.record());
     expect(error).toBeInstanceOf(Error);
     expect(String(error)).toContain("kaboom");
@@ -177,7 +175,7 @@ describe("auth", () => {
         throw new Error("bad credentials");
       },
     });
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const error = await caught(() =>
       client.auth.signin({ username: "u", password: "p" }),
     );
@@ -189,7 +187,7 @@ describe("auth", () => {
 describe("admin", () => {
   test("info compiles INFO FOR … and returns the first row", async () => {
     const { conn, calls } = fakeConn(() => [ok({ tables: {} })]);
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     expect(await client.info("db")).toEqual({ tables: {} });
     expect(calls[0]?.sql).toBe("INFO FOR DB;");
     await client.info("table", "user");
@@ -198,9 +196,9 @@ describe("admin", () => {
 
   test('info("table") without a table fails fast', async () => {
     const { conn } = fakeConn(echo);
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const error = await caught(() => client.info("table", undefined as never));
-    expect(isBetterSchemicError(error) && error.code).toBe("ValidationError");
+    expect(isOrmError(error) && error.code).toBe("ValidationError");
   });
 
   test("version passthroughs the SDK and ping round-trips RETURN true", async () => {
@@ -208,7 +206,7 @@ describe("admin", () => {
     Object.assign(conn, {
       version: async () => ({ version: "surrealdb-3.2.0" }),
     });
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     expect(await client.version()).toEqual({ version: "surrealdb-3.2.0" });
     expect(await client.ping()).toBe(true);
     expect(calls[0]?.sql).toBe("RETURN true;");
@@ -219,16 +217,14 @@ describe("admin", () => {
     Object.assign(conn, {
       export: async () => "-- dump\nRETURN 1;",
     });
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     expect(await client.export()).toBe("-- dump\nRETURN 1;");
     await client.import("-- dump\nRETURN 1;");
     expect(calls[0]?.sql).toContain("-- dump");
 
     const tenant = client.$withContext({ namespace: "t", database: "d" });
     const error = await caught(() => tenant.export());
-    expect(isBetterSchemicError(error) && error.code).toBe(
-      "UnsupportedCapability",
-    );
+    expect(isOrmError(error) && error.code).toBe("UnsupportedCapability");
     await tenant.import("RETURN 1;");
     expect(calls[1]?.sql).toBe("USE NS t DB d;\nRETURN 1;");
   });
@@ -243,10 +239,10 @@ describe("admin", () => {
             : ok(line),
         ),
     );
-    const client = betterSchemic(conn, { schema });
+    const client = orm(conn, { schema: schemaDef });
     const error = await caught(() =>
       client.import("RETURN 1;\nTHIS IS NOT SURREALQL;"),
     );
-    expect(isBetterSchemicError(error) && error.code).toBe("DatabaseError");
+    expect(isOrmError(error) && error.code).toBe("DatabaseError");
   });
 });

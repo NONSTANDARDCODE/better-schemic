@@ -1,4 +1,4 @@
-import { defineTable, s, surql } from "better-schemic";
+import { table, s, surql } from "better-schemic";
 import { cover } from "../_kit";
 
 export default cover(import.meta.url, {
@@ -6,7 +6,7 @@ export default cover(import.meta.url, {
   note: "`.$assert(surql`…`)` — emits `ASSERT`, a boolean constraint checked on every write (`$value` is the incoming value); the write is rejected when it's false.",
   ddl: `DEFINE TABLE user TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD age ON TABLE user TYPE number ASSERT $value >= 0;`,
-  def: defineTable("user", {
+  def: table("user", {
     age: s.number().$assert(surql`$value >= 0`),
   }).schemafull(),
 });

@@ -167,7 +167,11 @@ export interface At<E = unknown> {
  * (so the field's UNIQUE index on the whole array is maintained by the database, not by a
  * read-then-write in the process) and the wrapper shape is reserved exactly like the numeric one.
  */
-export type ArrayAdjustment<E = unknown> = Append<E> | Remove<E> | Union<E> | At<E>;
+export type ArrayAdjustment<E = unknown> =
+  | Append<E>
+  | Remove<E>
+  | Union<E>
+  | At<E>;
 
 /** How a write hands its result back. `after` is the default where the server supports it. */
 export type WriteReturn = "after" | "before" | "diff" | "none";

@@ -4,7 +4,7 @@
  * ```ts
  * import { defineConfig, surrealConnection } from "better-schemic/config";
  *
- * export const betterSchemic = defineConfig({
+ * export const orm = defineConfig({
  *   connections: {
  *     default: surrealConnection({
  *       schema: "./database/schema",

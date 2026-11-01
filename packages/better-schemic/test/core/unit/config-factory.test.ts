@@ -10,7 +10,10 @@ import {
 import { join } from "node:path";
 import { resolveConnection } from "../../../src/core/client";
 import { defineConfig } from "../../../src/core/config";
-import { connectionEntry, isConnectionEntry } from "../../../src/core/connection";
+import {
+  connectionEntry,
+  isConnectionEntry,
+} from "../../../src/core/connection";
 
 // A fake driver entry whose embedded client opener just reflects the resolved config back.
 // Direct connectionEntry call so the Client generic INFERS from the opener's return type.
@@ -25,31 +28,27 @@ const fake = () =>
 
 describe("config-as-factory (defineConfig().connect)", () => {
   test("connect() opens the entry's embedded client (default resolution)", async () => {
-    const betterSchemic = defineConfig({ connections: { default: fake() } });
-    const db = await betterSchemic.connect();
+    const orm = defineConfig({ connections: { default: fake() } });
+    const db = await orm.connect();
     expect(db.connection).toBe("default");
   });
 
   test("connect(name) is typed to the config's connection names", async () => {
-    const betterSchemic = defineConfig({
+    const orm = defineConfig({
       defaultConnection: "main",
       connections: { main: fake(), reporting: fake() },
     });
-    expect((await betterSchemic.connect("reporting")).connection).toBe(
-      "reporting",
-    );
-    expect((await betterSchemic.connect()).connection).toBe("main");
+    expect((await orm.connect("reporting")).connection).toBe("reporting");
+    expect((await orm.connect()).connection).toBe("main");
     // @ts-expect-error — "nope" is not a configured connection name
-    await expect(betterSchemic.connect("nope")).rejects.toThrow("not defined");
+    await expect(orm.connect("nope")).rejects.toThrow("not defined");
   });
 
   test("an entry without an embedded client opener fails with a clear error", async () => {
-    const betterSchemic = defineConfig({
+    const orm = defineConfig({
       connections: { default: connectionEntry("olddriver", { schema: "./s" }) },
     });
-    await expect(betterSchemic.connect()).rejects.toThrow(
-      "predates config.connect()",
-    );
+    await expect(orm.connect()).rejects.toThrow("predates config.connect()");
   });
 
   test("resolver args are the TYPED 2nd param; connect(name, args) selects one config", async () => {
@@ -62,8 +61,8 @@ describe("config-as-factory (defineConfig().connect)", () => {
       },
       { client: async (cfg) => ({ connection: cfg.connection }) },
     );
-    const betterSchemic = defineConfig({ connections: { tenants: entry } });
-    const db = await betterSchemic.connect("tenants", { tenant: "acme" });
+    const orm = defineConfig({ connections: { tenants: entry } });
+    const db = await orm.connect("tenants", { tenant: "acme" });
     expect(db.connection).toBe("tenants:acme");
     expect(seen).toEqual({ tenant: "acme" });
   });
@@ -77,8 +76,8 @@ describe("config-as-factory (defineConfig().connect)", () => {
       ],
       { client: async (cfg) => ({ connection: cfg.connection }) },
     );
-    const betterSchemic = defineConfig({ connections: { fleet: entry } });
-    await expect(betterSchemic.connect("fleet")).rejects.toThrow(
+    const orm = defineConfig({ connections: { fleet: entry } });
+    await expect(orm.connect("fleet")).rejects.toThrow(
       /resolved to 2 configs \(a, b\).*Pass args/s,
     );
   });
@@ -106,14 +105,15 @@ describe("better-schemic.ts discovery", () => {
   {
     const abs = join(dir, "node_modules", "better-schemic");
     mkdirSync(join(dir, "node_modules"), { recursive: true });
-    if (!existsSync(abs)) symlinkSync(join(import.meta.dir, "..", "..", ".."), abs);
+    if (!existsSync(abs))
+      symlinkSync(join(import.meta.dir, "..", "..", ".."), abs);
   }
 
   const CONFIG_BODY =
     `import { defineConfig } from "better-schemic/config";\n` +
     `import { connectionEntry } from "better-schemic/core";\n` +
-    `export const betterSchemic = defineConfig({ connections: { default: connectionEntry("testdriver", { schema: "./database/schema" }) } });\n` +
-    `export default betterSchemic;\n`;
+    `export const orm = defineConfig({ connections: { default: connectionEntry("testdriver", { schema: "./database/schema" }) } });\n` +
+    `export default orm;\n`;
 
   test("a bare better-schemic.ts (named + default export) is discovered", async () => {
     writeFileSync(join(dir, "better-schemic.ts"), CONFIG_BODY);
@@ -121,10 +121,10 @@ describe("better-schemic.ts discovery", () => {
     expect(rc.driver).toBe("testdriver");
   });
 
-  test("a NAMED-ONLY `betterSchemic` export (no default) loads — the scaffolded form", async () => {
+  test("a NAMED-ONLY `orm` export (no default) loads — the scaffolded form", async () => {
     writeFileSync(
       join(dir, "better-schemic.config.ts"),
-      CONFIG_BODY.replace("export default betterSchemic;\n", "").replace(
+      CONFIG_BODY.replace("export default orm;\n", "").replace(
         "testdriver",
         "nameddriver",
       ),
@@ -148,7 +148,7 @@ describe("better-schemic.ts discovery", () => {
     rmSync(join(dir, "better-schemic.ts"));
     writeFileSync(
       join(dir, "schemic.config.ts"),
-      CONFIG_BODY.replaceAll("betterSchemic", "schemic")
+      CONFIG_BODY.replaceAll("orm", "schemic")
         .replace("export default schemic;\n", "")
         .replace("testdriver", "legacydriver"),
     );
@@ -197,7 +197,7 @@ describe("chained config (defineConfig().connection(...))", () => {
 
   test("chained static + parameterized with typed accumulated ctx", async () => {
     let sawSibling: unknown;
-    const betterSchemic = defineConfig()
+    const orm = defineConfig()
       .connection("main", fakeFactory, { schema: "./s" })
       .connection(
         "tenants",
@@ -208,12 +208,12 @@ describe("chained config (defineConfig().connection(...))", () => {
           return { schema: "./s", key: args.org };
         },
       );
-    const db = await betterSchemic.connect("tenants", { org: "acme" });
+    const db = await orm.connect("tenants", { org: "acme" });
     expect(db.connection).toBe("tenants:acme");
     expect(sawSibling).toEqual(["row"]);
-    expect((await betterSchemic.connect("main")).connection).toBe("main");
+    expect((await orm.connect("main")).connection).toBe("main");
     // @ts-expect-error — "nope" is not a chained connection name
-    await expect(betterSchemic.connect("nope")).rejects.toThrow("not defined");
+    await expect(orm.connect("nope")).rejects.toThrow("not defined");
   });
 
   test("order = visibility: a resolver reaching FORWARD is a compile error (and later a cycle guard)", async () => {

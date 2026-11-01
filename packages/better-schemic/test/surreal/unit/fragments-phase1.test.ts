@@ -14,11 +14,15 @@ import { BoundQuery } from "surrealdb";
 import {
   CallQuery,
   defineFunction,
-  defineTable,
   s,
   surql,
+  table,
 } from "../../../src/surreal";
-import { type FieldRef, lowerExpr, mkRef } from "../../../src/surreal/surql/predicate";
+import {
+  type FieldRef,
+  lowerExpr,
+  mkRef,
+} from "../../../src/surreal/surql/predicate";
 import type { Ctx } from "../../../src/surreal/surql/render";
 
 const SendMail = defineFunction("p1_send_mail", {
@@ -28,7 +32,7 @@ const SendMail = defineFunction("p1_send_mail", {
   .returns(s.string())
   .body(surql`RETURN $email + ":" + $code`);
 
-const User = defineTable("p1_user", {
+const User = table("p1_user", {
   name: s.string(),
   email: s.string(),
   age: s.int(),

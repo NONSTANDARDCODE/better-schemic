@@ -4,14 +4,14 @@ import { z } from "zod";
 import {
   type App,
   type Create,
-  defineRelation,
-  defineTable,
+  relation,
   s,
+  table,
   type Update,
   type Wire,
 } from "../../../src/surreal/pure";
 
-const User = defineTable("user", {
+const User = table("user", {
   id: z.string(), // -> record<user, string>
   name: s.string(),
   email: s.email(),
@@ -74,8 +74,8 @@ describe("App<> / Wire<>", () => {
   });
 
   test("relations expose typed in/out endpoints", () => {
-    const Post = defineTable("post", { id: z.string() });
-    const Liked = defineRelation("liked").from(User).to(Post);
+    const Post = table("post", { id: z.string() });
+    const Liked = relation("liked").from(User).to(Post);
     expectTypeOf<App<typeof Liked>["in"]>().toEqualTypeOf<
       RecordId<"user", RecordIdValue>
     >();
@@ -87,7 +87,7 @@ describe("App<> / Wire<>", () => {
   test("callback shape: `self` self-ref is typed (no `any` collapse)", () => {
     // The callback receives `self` (a record<thisTable> field) typed from the name arg, so a
     // self-reference doesn't create the `typeof X`-in-its-own-initializer cycle (→ `any`).
-    const Node = defineTable("node", (self) => ({
+    const Node = table("node", (self) => ({
       id: z.string(),
       label: s.string(),
       parent: self.optional(),
@@ -133,14 +133,14 @@ describe("no-DDL fields: type-level rejection + $surreal escape hatch", () => {
 
   test("a no-DDL field is rejected in a table shape (object form)", () => {
     // @ts-expect-error - s.symbol() has no SurrealQL mapping
-    defineTable("reject_a", { x: s.symbol() });
+    table("reject_a", { x: s.symbol() });
     // the brand survives wrappers:
     // @ts-expect-error - s.never().optional() is still no-DDL
-    defineTable("reject_b", { x: s.never().optional() });
+    table("reject_b", { x: s.never().optional() });
   });
 
   test("$surreal makes a custom type a real field, with app/wire types", () => {
-    const T = defineTable("money_tbl", {
+    const T = table("money_tbl", {
       id: z.string(),
       price: s.instanceof(Money).$surreal(s.string(), {
         encode: (m) => m.toString(),
@@ -224,7 +224,7 @@ describe("field method types", () => {
 });
 
 describe("$internal fields", () => {
-  const Account = defineTable("account", {
+  const Account = table("account", {
     id: z.string(), // -> record<account, string>
     email: s.email(),
     passhash: s.string().$internal(),
@@ -257,7 +257,7 @@ describe("$internal fields", () => {
 describe("nested create-optionality", () => {
   // settings is create-REQUIRED (no $default on the object itself), but its nested `theme`
   // has a DB $default, so `theme` is create-optional while `tz` stays required.
-  const T = defineTable("nested", {
+  const T = table("nested", {
     id: z.string(),
     settings: s.object({
       theme: s.string().$default(surql`"x"`),
@@ -293,7 +293,7 @@ describe("nested create-optionality", () => {
   });
 
   // The object field itself is $default (create-optional) AND its nested field is too.
-  const T2 = defineTable("nested2", {
+  const T2 = table("nested2", {
     id: z.string(),
     settings: s
       .object({ theme: s.string().$default(surql`"x"`), tz: s.string() })
@@ -311,7 +311,7 @@ describe("nested create-optionality", () => {
   });
 
   // Array-of-object: nested defaults are create-optional per element.
-  const T3 = defineTable("nested3", {
+  const T3 = table("nested3", {
     id: z.string(),
     tags: s
       .object({ name: s.string(), color: s.string().$default("#fff") })
@@ -329,7 +329,7 @@ describe("nested create-optionality", () => {
 });
 
 describe("$value create-optionality", () => {
-  const T = defineTable("t", {
+  const T = table("t", {
     id: z.string(),
     slug: s.string().$value(surql`string::slug($value)`, { optional: false }), // create-required
     updatedAt: s.datetime().$value(surql`time::now()`), // create-optional by default
@@ -353,7 +353,7 @@ describe("$value create-optionality", () => {
 });
 
 describe("$value computes", () => {
-  const Order = defineTable("order", {
+  const Order = table("order", {
     id: z.string(),
     products: s
       .array(
@@ -415,7 +415,7 @@ describe("$value computes", () => {
   });
 
   test("an s.object field supports computes too (no array wrapper)", () => {
-    const Meta = defineTable("meta_probe", {
+    const Meta = table("meta_probe", {
       id: z.string(),
       totals: s
         .object({ subTotal: s.number(), total: s.number() })

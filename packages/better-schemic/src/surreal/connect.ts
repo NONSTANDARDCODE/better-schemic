@@ -2,8 +2,8 @@
 // best-effort DEFINE/select NS/DB), shared by the engine (`driver/surreal.ts`) and the app-facing
 // `/orm` client (`orm/client.ts`). Deliberately free of CLI/engine imports so `/orm` stays lean.
 
-import type { ConnectionOverrides, ResolvedConfig } from "../core";
 import { escapeIdent, Surreal } from "surrealdb";
+import type { ConnectionOverrides, ResolvedConfig } from "../core";
 import type { AuthLevel, SurrealParams } from "./config";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));

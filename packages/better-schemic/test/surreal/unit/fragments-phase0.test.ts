@@ -11,8 +11,8 @@ setDefaultTimeout(120_000);
 
 import { describe, expect, test } from "bun:test";
 import { RecordId } from "surrealdb";
+import { defineFunction, s, surql, table } from "../../../src/surreal";
 import { emitTable } from "../../../src/surreal/ddl";
-import { defineFunction, defineTable, s, surql } from "../../../src/surreal";
 
 const SendMail = defineFunction("frag_send_mail", {
   email: s.string(),
@@ -21,12 +21,12 @@ const SendMail = defineFunction("frag_send_mail", {
   .returns(s.string())
   .body(surql`RETURN $email + ":" + $code`);
 
-const User = defineTable("frag_user", {
+const User = table("frag_user", {
   name: s.string(),
   email: s.string().$min(1),
 });
 
-const Verification = defineTable("frag_verification", {
+const Verification = table("frag_verification", {
   id: s.tuple([User.record()]),
   codeHash: s.string().$internal(),
   expiresAt: s.datetime(),
@@ -83,7 +83,7 @@ describe("surql tag — eager marker resolution", () => {
 
 describe("event THEN auto-block", () => {
   test("a multi-statement then wraps { ...; } and collapses whitespace (INFO-canonical)", () => {
-    const T = defineTable("frag_evt", { n: s.int() }).event("bump", {
+    const T = table("frag_evt", { n: s.int() }).event("bump", {
       when: surql`$event = 'CREATE'`,
       then: surql`
         LET $x = $after.n + 1;
@@ -99,7 +99,7 @@ describe("event THEN auto-block", () => {
   });
 
   test("a single statement stays bare (trailing ; stripped)", () => {
-    const T = defineTable("frag_evt1", { n: s.int() }).event("one", {
+    const T = table("frag_evt1", { n: s.int() }).event("one", {
       then: surql`UPDATE $after.id SET n = 1;`,
     });
     const ddl = emitTable(T)
@@ -110,7 +110,7 @@ describe("event THEN auto-block", () => {
   });
 
   test("a ; inside a string literal does not trigger blocking", () => {
-    const T = defineTable("frag_evt2", { note: s.string() }).event("lit", {
+    const T = table("frag_evt2", { note: s.string() }).event("lit", {
       then: surql`UPDATE $after.id SET note = 'a;b'`,
     });
     const ddl = emitTable(T)
@@ -121,7 +121,7 @@ describe("event THEN auto-block", () => {
   });
 
   test("an author-braced block passes through (whitespace collapsed)", () => {
-    const T = defineTable("frag_evt3", { n: s.int() }).event("braced", {
+    const T = table("frag_evt3", { n: s.int() }).event("braced", {
       then: surql`{
         LET $x = 1;
         UPDATE $after.id SET n = $x;
@@ -137,10 +137,10 @@ describe("event THEN auto-block", () => {
 describe("lazy record refs — s.recordId(() => Table)", () => {
   // Deliberately reference `Later` BEFORE its declaration: the thunk defers until emit, which is
   // exactly what breaks import cycles between mutually-linked table modules.
-  const Early = defineTable("frag_early", {
+  const Early = table("frag_early", {
     link: s.recordId(() => Later),
   });
-  const Later = defineTable("frag_later", { name: s.string() });
+  const Later = table("frag_later", { name: s.string() });
 
   test("the thunk resolves at emit time — record<frag_later> in the DDL", () => {
     const ddl = emitTable(Early);
@@ -168,7 +168,7 @@ describe("lazy record refs — s.recordId(() => Table)", () => {
   });
 
   test("mixed arrays (eager + lazy) union in the DDL", () => {
-    const T = defineTable("frag_mixed", {
+    const T = table("frag_mixed", {
       target: s.recordId([User, () => Later]),
     });
     expect(emitTable(T)).toContain("record<frag_user | frag_later>");
@@ -203,7 +203,10 @@ describe.skipIf(!URL)(
 
       const db = new Surreal();
       await db.connect(URL as string);
-      await db.signin({ username: process.env.SURREAL_USER ?? "root", password: process.env.SURREAL_PASS ?? "root" });
+      await db.signin({
+        username: process.env.SURREAL_USER ?? "root",
+        password: process.env.SURREAL_PASS ?? "root",
+      });
       await db.use({ namespace: "frag_p0", database: "frag_p0" });
       await db.query(
         "REMOVE TABLE IF EXISTS frag_user; REMOVE TABLE IF EXISTS frag_verification; REMOVE FUNCTION IF EXISTS fn::frag_send_mail;",
@@ -247,9 +250,7 @@ describe("surql.record takes typed refs; ref-carrying arrays/objects splice in t
 
   test("TUPLE ids: the array form splices refs — [e.after.id]", () => {
     const q = surql.record(Verification, [surql.$.after.id]);
-    expect(q.query).toBe(
-      "type::record(frag_verification, [$after.id])",
-    );
+    expect(q.query).toBe("type::record(frag_verification, [$after.id])");
     expect(Object.keys(q.bindings ?? {})).toHaveLength(0);
   });
 

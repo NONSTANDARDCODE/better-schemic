@@ -40,11 +40,7 @@ import {
   renderData,
   renderRef,
 } from "../../pure";
-import {
-  BetterSchemicError,
-  type BetterSchemicErrorCode,
-  type BetterSchemicErrorOptions,
-} from "../errors";
+import { OrmError, type OrmErrorCode, type OrmErrorOptions } from "../errors";
 import type { ModelMeta, TableMeta } from "../meta";
 
 /** The bind accumulator one compiled operation carries. */
@@ -80,11 +76,11 @@ export function createBinds(prefix = "p"): Binds {
 
 /** Build a compiler failure — every one carries a `code` the caller can branch on. */
 export function compileError(
-  code: BetterSchemicErrorCode,
+  code: OrmErrorCode,
   message: string,
-  options: BetterSchemicErrorOptions = {},
-): BetterSchemicError {
-  return new BetterSchemicError(code, message, options);
+  options: OrmErrorOptions = {},
+): OrmError {
+  return new OrmError(code, message, options);
 }
 
 /** Is this a fragment/ref/param value the lowering primitives must handle instead of binding? */

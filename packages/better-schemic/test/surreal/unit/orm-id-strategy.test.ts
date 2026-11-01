@@ -6,12 +6,15 @@
 import { describe, expect, test } from "bun:test";
 import { BoundQuery, RecordId } from "surrealdb";
 import { z } from "zod";
+import { defineSingleton, s, surql, table } from "../../../src/surreal";
 import { schemaStruct } from "../../../src/surreal/cli/lower";
 import { emitTable } from "../../../src/surreal/ddl";
-import { defineSingleton, defineTable, s, surql } from "../../../src/surreal";
-import { betterSchemic } from "../../../src/surreal/orm/client";
+import { orm } from "../../../src/surreal/orm/client";
+import {
+  compileUpsert,
+  compileUpsertMany,
+} from "../../../src/surreal/orm/compiler/mutate";
 import { createBinds } from "../../../src/surreal/orm/compiler/shared";
-import { compileUpsert, compileUpsertMany } from "../../../src/surreal/orm/compiler/mutate";
 import {
   compileCreate,
   compileCreateMany,
@@ -22,33 +25,35 @@ import {
   generatedTarget,
   withGeneratedId,
 } from "../../../src/surreal/orm/compiler/write-shared";
-import { defineSchema } from "../../../src/surreal/orm/schema";
+import { schema } from "../../../src/surreal/orm/schema";
 import { fakeConn, ok } from "../orm-fixtures";
 import { codeOf } from "./orm-writes-fixtures";
 
 // --- fixtures ------------------------------------------------------------------------------------
 
-const UlidT = defineTable("ulid_t", { name: s.string(), email: s.string() }).index(
+const UlidT = table("ulid_t", { name: s.string(), email: s.string() }).index(
   "uq_ulid_email",
   ["email"],
   { unique: true },
 );
-const UuidT = defineTable("uuid_t", { name: s.string(), email: s.string() })
+const UuidT = table("uuid_t", { name: s.string(), email: s.string() })
   .idStrategy("uuid")
   .index("uq_uuid_email", ["email"], { unique: true });
-const RandT = defineTable("rand_t", { name: s.string(), email: s.string() })
+const RandT = table("rand_t", { name: s.string(), email: s.string() })
   .idStrategy("rand")
   .index("uq_rand_email", ["email"], { unique: true });
-const UuidIdT = defineTable("uuid_id_t", { id: s.uuid(), name: s.string() });
-const UuidV7IdT = defineTable("uuid_v7_id_t", { id: s.uuidv7(), name: s.string() });
-const UlidIdT = defineTable("ulid_id_t", { id: s.ulid(), name: s.string() });
-const UuidV4IdT = defineTable("uuid_v4_id_t", { id: s.uuidv4(), name: s.string() })
-  .index("uq_v4_name", ["name"], { unique: true });
+const UuidIdT = table("uuid_id_t", { id: s.uuid(), name: s.string() });
+const UuidV7IdT = table("uuid_v7_id_t", { id: s.uuidv7(), name: s.string() });
+const UlidIdT = table("ulid_id_t", { id: s.ulid(), name: s.string() });
+const UuidV4IdT = table("uuid_v4_id_t", {
+  id: s.uuidv4(),
+  name: s.string(),
+}).index("uq_v4_name", ["name"], { unique: true });
 /** A raw Zod uuid (no `s.*` wrapper, no pinned version) — the format-only inference path. */
-const RawUuidIdT = defineTable("raw_uuid_id_t", { id: z.uuid(), name: s.string() });
+const RawUuidIdT = table("raw_uuid_id_t", { id: z.uuid(), name: s.string() });
 const SingletonT = defineSingleton("singleton_t", { value: s.string() });
 
-const schema = defineSchema({
+const schemaDef = schema({
   ulidT: UlidT,
   uuidT: UuidT,
   randT: RandT,
@@ -62,7 +67,7 @@ const schema = defineSchema({
 });
 
 const { conn, calls } = fakeConn(() => [ok([])]);
-const client = betterSchemic(conn, { schema });
+const client = orm(conn, { schema: schemaDef });
 const meta = (key: string) => client.$index.tables.get(key)!;
 const b = () => createBinds();
 /** Statements as the executor runs them (a trailing `;` per statement, never doubled). */
@@ -75,17 +80,17 @@ const sql = (plan: { statements: readonly string[] }): string =>
 
 describe("idStrategy — authoring", () => {
   test("chainable, immutable, carried on TableConfig", () => {
-    const base = defineTable("t", { name: s.string() });
+    const base = table("t", { name: s.string() });
     const uuid = base.idStrategy("uuid");
     expect(base.config.idStrategy).toBeUndefined();
     expect(uuid.config.idStrategy).toBe("uuid");
     expect(uuid).not.toBe(base);
-    expect(defineTable("t", {}).idStrategy("rand").config.idStrategy).toBe("rand");
-    expect(defineTable("t", {}).idStrategy("ulid").config.idStrategy).toBe("ulid");
+    expect(table("t", {}).idStrategy("rand").config.idStrategy).toBe("rand");
+    expect(table("t", {}).idStrategy("ulid").config.idStrategy).toBe("ulid");
   });
 
   test("invalid values fail loudly (JS callers bypass the union)", () => {
-    expect(() => defineTable("t", {}).idStrategy("nanoid" as never)).toThrow(
+    expect(() => table("t", {}).idStrategy("nanoid" as never)).toThrow(
       /"ulid" \| "uuid" \| "rand"/,
     );
   });
@@ -119,25 +124,25 @@ describe("idStrategy — schema index", () => {
   test("a conflicting declared strategy is a fail-fast SchemaInvalid", () => {
     expect(
       codeOf(() =>
-        defineSchema({ t: defineTable("t", { id: s.uuid() }).idStrategy("ulid") }),
+        schema({ t: table("t", { id: s.uuid() }).idStrategy("ulid") }),
       ),
     ).toBe("SchemaInvalid");
     expect(
       codeOf(() =>
-        defineSchema({ t: defineTable("t", { id: s.ulid() }).idStrategy("rand") }),
+        schema({ t: table("t", { id: s.ulid() }).idStrategy("rand") }),
       ),
     ).toBe("SchemaInvalid");
     expect(
       codeOf(() =>
-        defineSchema({
-          t: defineTable("t", { id: s.uuidv4() }).idStrategy("uuid"),
+        schema({
+          t: table("t", { id: s.uuidv4() }).idStrategy("uuid"),
         }),
       ),
     ).toBe("SchemaInvalid");
     // A matching declaration is fine.
     expect(
       codeOf(() =>
-        defineSchema({ t: defineTable("t", { id: s.uuid() }).idStrategy("uuid") }),
+        schema({ t: table("t", { id: s.uuid() }).idStrategy("uuid") }),
       ),
     ).toBeUndefined();
   });
@@ -154,9 +159,9 @@ describe("idStrategy — schema index", () => {
 
 describe("compiler — ulid default", () => {
   test("create targets type::record; explicit id and singleton win", () => {
-    expect(sql(compileCreate(meta("ulidT"), { data: { name: "A" } }, b()))).toBe(
-      'CREATE type::record(s"ulid_t", rand::ulid()) CONTENT $p0;',
-    );
+    expect(
+      sql(compileCreate(meta("ulidT"), { data: { name: "A" } }, b())),
+    ).toBe('CREATE type::record(s"ulid_t", rand::ulid()) CONTENT $p0;');
     expect(
       sql(
         compileCreate(
@@ -217,9 +222,9 @@ describe("compiler — ulid default", () => {
   });
 
   test("insert/insertMany inject the id expression; explicit ids keep the whole bind", () => {
-    expect(sql(compileInsert(meta("ulidT"), { data: { name: "A" } }, b()))).toBe(
-      "INSERT INTO ulid_t { name: $b0, id: rand::ulid() };",
-    );
+    expect(
+      sql(compileInsert(meta("ulidT"), { data: { name: "A" } }, b())),
+    ).toBe("INSERT INTO ulid_t { name: $b0, id: rand::ulid() };");
     expect(
       sql(
         compileInsert(
@@ -270,7 +275,10 @@ describe("compiler — ulid default", () => {
       sql(
         compileCreateMany(
           meta("ulidT"),
-          { data: [{ id: new RecordId("ulid_t", "1"), name: "A" }], skipDuplicates: true },
+          {
+            data: [{ id: new RecordId("ulid_t", "1"), name: "A" }],
+            skipDuplicates: true,
+          },
           b(),
         ),
       ),
@@ -278,14 +286,22 @@ describe("compiler — ulid default", () => {
     // Non-objects are still a teaching ValidationError (via the codec).
     expect(
       codeOf(() =>
-        compileCreateMany(meta("ulidT"), { data: [5], skipDuplicates: true }, b()),
+        compileCreateMany(
+          meta("ulidT"),
+          { data: [5], skipDuplicates: true },
+          b(),
+        ),
       ),
     ).toBe("ValidationError");
   });
 
   test("insert onDuplicate update never touches the injected id", () => {
     const plan = sql(
-      compileInsert(meta("ulidT"), { data: { name: "A" }, onDuplicate: "update" }, b()),
+      compileInsert(
+        meta("ulidT"),
+        { data: { name: "A" }, onDuplicate: "update" },
+        b(),
+      ),
     );
     expect(plan).toContain("id: rand::ulid()");
     expect(plan).toContain("ON DUPLICATE KEY UPDATE name = $input.name;");
@@ -337,7 +353,11 @@ describe("compiler — ulid default", () => {
       sql(
         compileUpsert(
           meta("ulidT"),
-          { where: { id: "ulid_t:1" }, data: { name: "A" }, onMissing: "create" },
+          {
+            where: { id: "ulid_t:1" },
+            data: { name: "A" },
+            onMissing: "create",
+          },
           b(),
         ),
       ),
@@ -397,7 +417,7 @@ describe("compiler — ulid default", () => {
       ),
     );
     expect(plan).toContain(
-      'LET $__existing = (SELECT VALUE id FROM ulid_t WHERE email = $p0 LIMIT 1);',
+      "LET $__existing = (SELECT VALUE id FROM ulid_t WHERE email = $p0 LIMIT 1);",
     );
     expect(plan).toContain(
       'IF array::len($__existing) = 0 THEN CREATE type::record(s"ulid_t", rand::ulid()) CONTENT $p1 ELSE UPDATE $__existing[0] MERGE $p2 END;',
@@ -437,17 +457,21 @@ describe("compiler — ulid default", () => {
 
 describe("compiler — uuid and rand", () => {
   test("uuid lowers to rand::uuid() on every generated target", () => {
-    expect(sql(compileCreate(meta("uuidT"), { data: { name: "A" } }, b()))).toBe(
-      'CREATE type::record(s"uuid_t", rand::uuid()) CONTENT $p0;',
-    );
-    expect(sql(compileInsert(meta("uuidT"), { data: { name: "A" } }, b()))).toBe(
-      "INSERT INTO uuid_t { name: $b0, id: rand::uuid() };",
-    );
+    expect(
+      sql(compileCreate(meta("uuidT"), { data: { name: "A" } }, b())),
+    ).toBe('CREATE type::record(s"uuid_t", rand::uuid()) CONTENT $p0;');
+    expect(
+      sql(compileInsert(meta("uuidT"), { data: { name: "A" } }, b())),
+    ).toBe("INSERT INTO uuid_t { name: $b0, id: rand::uuid() };");
     expect(
       sql(
         compileUpsert(
           meta("uuidT"),
-          { where: { email: "a@x" }, data: { email: "a@x" }, onMissing: "create" },
+          {
+            where: { email: "a@x" },
+            data: { email: "a@x" },
+            onMissing: "create",
+          },
           b(),
         ),
       ),
@@ -457,12 +481,12 @@ describe("compiler — uuid and rand", () => {
   });
 
   test("rand keeps the exact legacy server-default lowering", () => {
-    expect(sql(compileCreate(meta("randT"), { data: { name: "A" } }, b()))).toBe(
-      "CREATE rand_t CONTENT $p0;",
-    );
-    expect(sql(compileInsert(meta("randT"), { data: { name: "A" } }, b()))).toBe(
-      "INSERT INTO rand_t $p0;",
-    );
+    expect(
+      sql(compileCreate(meta("randT"), { data: { name: "A" } }, b())),
+    ).toBe("CREATE rand_t CONTENT $p0;");
+    expect(
+      sql(compileInsert(meta("randT"), { data: { name: "A" } }, b())),
+    ).toBe("INSERT INTO rand_t $p0;");
     expect(
       sql(compileInsertMany(meta("randT"), { data: [{ name: "A" }] }, b())),
     ).toBe("INSERT INTO rand_t $p0;");
@@ -479,7 +503,11 @@ describe("compiler — uuid and rand", () => {
       sql(
         compileUpsert(
           meta("randT"),
-          { where: { email: "a@x" }, data: { email: "a@x" }, onMissing: "create" },
+          {
+            where: { email: "a@x" },
+            data: { email: "a@x" },
+            onMissing: "create",
+          },
           b(),
         ),
       ),
@@ -518,10 +546,14 @@ describe("generated-id helpers — edge cases", () => {
     // emitting a doomed server write. Explicit ids keep working.
     expect(() => generatedTarget(meta("uuidV4IdT"))).toThrow(/explicit "id"/);
     expect(
-      codeOf(() => compileCreate(meta("uuidV4IdT"), { data: { name: "A" } }, b())),
+      codeOf(() =>
+        compileCreate(meta("uuidV4IdT"), { data: { name: "A" } }, b()),
+      ),
     ).toBe("ValidationError");
     expect(
-      codeOf(() => compileInsert(meta("uuidV4IdT"), { data: { name: "A" } }, b())),
+      codeOf(() =>
+        compileInsert(meta("uuidV4IdT"), { data: { name: "A" } }, b()),
+      ),
     ).toBe("ValidationError");
     expect(
       codeOf(() =>
@@ -577,16 +609,16 @@ describe("generated-id helpers — edge cases", () => {
 
 describe("idStrategy — no DDL, no Struct-IR diff", () => {
   test("emitTable is identical with and without the strategy", () => {
-    const plain = defineTable("inv", { name: s.string() });
-    const uuid = defineTable("inv", { name: s.string() }).idStrategy("uuid");
-    const rand = defineTable("inv", { name: s.string() }).idStrategy("rand");
+    const plain = table("inv", { name: s.string() });
+    const uuid = table("inv", { name: s.string() }).idStrategy("uuid");
+    const rand = table("inv", { name: s.string() }).idStrategy("rand");
     expect(emitTable(uuid)).toBe(emitTable(plain));
     expect(emitTable(rand)).toBe(emitTable(plain));
   });
 
   test("the Struct IR (snapshots/diff) is identical with and without the strategy", () => {
-    const plain = defineTable("inv", { name: s.string() });
-    const uuid = defineTable("inv", { name: s.string() }).idStrategy("uuid");
+    const plain = table("inv", { name: s.string() });
+    const uuid = table("inv", { name: s.string() }).idStrategy("uuid");
     expect(schemaStruct([uuid], [])).toEqual(schemaStruct([plain], []));
   });
 });

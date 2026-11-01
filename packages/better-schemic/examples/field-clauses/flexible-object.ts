@@ -1,4 +1,4 @@
-import { defineTable, s } from "better-schemic";
+import { s, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -7,7 +7,7 @@ export default example(import.meta.url, {
   ddl: `DEFINE TABLE fx TYPE NORMAL SCHEMAFULL;
 DEFINE FIELD meta ON TABLE fx TYPE object FLEXIBLE;
 DEFINE FIELD meta.k ON TABLE fx TYPE string;`,
-  def: defineTable("fx", {
+  def: table("fx", {
     id: s.string(),
     meta: s.object({ k: s.string() }).flexible(),
   }),

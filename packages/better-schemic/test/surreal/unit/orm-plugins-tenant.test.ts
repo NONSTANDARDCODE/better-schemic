@@ -3,32 +3,35 @@
 // the ON DUPLICATE / unique-target guards and the bootstrap validation. Offline (fake conn).
 import { describe, expect, test } from "bun:test";
 import { RecordId } from "surrealdb";
-import { defineTable, s, surql } from "../../../src/surreal";
-import { betterSchemic } from "../../../src/surreal/orm/client";
+import { s, surql, table } from "../../../src/surreal";
+import { orm } from "../../../src/surreal/orm/client";
 import { isTenantViolation } from "../../../src/surreal/orm/errors";
-import { createPluginPipeline, RuntimeOperation } from "../../../src/surreal/orm/plugins";
-import { buildSchemaIndex, defineSchema } from "../../../src/surreal/orm/schema";
+import {
+  createPluginPipeline,
+  RuntimeOperation,
+} from "../../../src/surreal/orm/plugins";
+import { buildSchemaIndex, schema } from "../../../src/surreal/orm/schema";
 import type { Plugin } from "../../../src/surreal/orm/types/plugins";
 import { softDelete } from "../../../src/surreal/plugins/soft-delete";
 import { tenant, tenantRls } from "../../../src/surreal/plugins/tenant";
 import { timestamps } from "../../../src/surreal/plugins/timestamps";
 import { caught, fakeConn, lines, ok } from "../orm-fixtures";
 
-const User = defineTable("user", { name: s.string() });
-const Customer = defineTable("customer", {
+const User = table("user", { name: s.string() });
+const Customer = table("customer", {
   name: s.string(),
   deletedAt: s.datetime().optional(),
 })
   .use(tenant(User, { softDelete: true }))
   .index("customer_name_uq", ["name"], { unique: true });
-const Order = defineTable("order", { total: s.number() }).use(
+const Order = table("order", { total: s.number() }).use(
   tenant(User, { createOnly: true }),
 );
-const Plain = defineTable("plain", {
+const Plain = table("plain", {
   name: s.string(),
   tenant_id: User.record().optional(),
 });
-const schema = defineSchema({
+const schemaDef = schema({
   users: User,
   customers: Customer,
   orders: Order,
@@ -62,7 +65,7 @@ function clientOver<const P extends readonly Plugin[]>(plugins: P) {
       ),
     ),
   );
-  return { client: betterSchemic(conn, { schema, plugins }), calls };
+  return { client: orm(conn, { schema: schemaDef, plugins }), calls };
 }
 
 const scoped = (opts: { tenant?: string | (() => string) } = {}) =>
@@ -323,8 +326,8 @@ describe("tenantRls — creates and upserts", () => {
         ),
       ),
     );
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       plugins: [tenantRls({ tenant: "user:abc" })],
     });
     const result = await client.customers.upsertDelta({
@@ -345,8 +348,8 @@ describe("tenantRls — creates and upserts", () => {
         ok(line.startsWith("CREATE") ? [{ after: CUSTOMER }] : null),
       ),
     );
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       plugins: [tenantRls({ tenant: "user:abc" })],
     });
     const result = await client.customers.upsertDelta({ data: { name: "A" } });
@@ -364,8 +367,8 @@ describe("tenantRls — creates and upserts", () => {
 
   test("upsertDelta strict rejects a cross-tenant id instead of creating", async () => {
     const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok(null)));
-    const client = betterSchemic(conn, {
-      schema,
+    const client = orm(conn, {
+      schema: schemaDef,
       plugins: [tenantRls({ tenant: "user:abc" })],
     });
     const error = await caught(() =>
@@ -613,8 +616,8 @@ describe("tenantRls — extras and setup validation", () => {
 
   test("a `tables` entry outside the schema fails the bootstrap", () => {
     expect(() =>
-      betterSchemic({} as never, {
-        schema,
+      orm({} as never, {
+        schema: schemaDef,
         plugins: [tenantRls({ tables: ["ghost"] })],
       }),
     ).toThrow(/ghost.*not in the schema/);
@@ -627,20 +630,20 @@ describe("tenantRls — extras and setup validation", () => {
         /non-empty physical table name/,
       );
     expect(() =>
-      betterSchemic({} as never, {
-        schema,
+      orm({} as never, {
+        schema: schemaDef,
         plugins: [tenantRls({ tenant: 42 as never })],
       }),
     ).toThrow(/record id, a string, or a \(\) => TenantRef/);
   });
 
   test("a malformed meta.tenant tag fails the bootstrap", () => {
-    const Broken = defineTable("broken", { title: s.string() }).use(
-      defineTable.preset({ meta: { tenant: {} } }),
+    const Broken = table("broken", { title: s.string() }).use(
+      table.preset({ meta: { tenant: {} } }),
     );
     expect(() =>
-      betterSchemic({} as never, {
-        schema: defineSchema({ broken: Broken }),
+      orm({} as never, {
+        schema: schema({ broken: Broken }),
         plugins: [tenantRls()],
       }),
     ).toThrow(/malformed meta.tenant/);
@@ -653,8 +656,8 @@ describe("tenantRls — extras and setup validation", () => {
   });
 
   test("a meta.tenant column that isn't a field fails the bootstrap", () => {
-    const Broken = defineTable("broken", { title: s.string() }).use(
-      defineTable.preset({
+    const Broken = table("broken", { title: s.string() }).use(
+      table.preset({
         meta: {
           tenant: {
             column: "tenant_id",
@@ -666,16 +669,16 @@ describe("tenantRls — extras and setup validation", () => {
       }),
     );
     expect(() =>
-      betterSchemic({} as never, {
-        schema: defineSchema({ broken: Broken }),
+      orm({} as never, {
+        schema: schema({ broken: Broken }),
         plugins: [tenantRls()],
       }),
     ).toThrow(/column "tenant_id" is not a field/);
   });
 
   test("a meta.tenant column that isn't a record link fails the bootstrap", () => {
-    const Broken = defineTable("broken", { tenant_id: s.string() }).use(
-      defineTable.preset({
+    const Broken = table("broken", { tenant_id: s.string() }).use(
+      table.preset({
         meta: {
           tenant: {
             column: "tenant_id",
@@ -687,16 +690,16 @@ describe("tenantRls — extras and setup validation", () => {
       }),
     );
     expect(() =>
-      betterSchemic({} as never, {
-        schema: defineSchema({ broken: Broken }),
+      orm({} as never, {
+        schema: schema({ broken: Broken }),
         plugins: [tenantRls()],
       }),
     ).toThrow(/must be a record link/);
   });
 
   test("a missing soft-delete column fails the bootstrap (SCHEMAFULL would reject its index)", () => {
-    const Broken = defineTable("broken", { title: s.string() }).use(
-      defineTable.preset({
+    const Broken = table("broken", { title: s.string() }).use(
+      table.preset({
         meta: {
           tenant: {
             column: "tenant_id",
@@ -711,8 +714,8 @@ describe("tenantRls — extras and setup validation", () => {
       }),
     );
     expect(() =>
-      betterSchemic({} as never, {
-        schema: defineSchema({ broken: Broken }),
+      orm({} as never, {
+        schema: schema({ broken: Broken }),
         plugins: [tenantRls()],
       }),
     ).toThrow(/tombstone column "removedAt" is not a field/);
@@ -753,12 +756,8 @@ describe("tenantRls — plugin combinations", () => {
   test("plugin state is per delegate and namespaced under the plugin id", async () => {
     const { client } = scoped();
     const tenantDelegate = client.customers.$forTenant("user:xyz");
-    expect(tenantDelegate.$state["better-schemic/tenant"]).toBe(
-      "user:xyz",
-    );
-    expect(
-      client.customers.$state["better-schemic/tenant"],
-    ).toBeUndefined();
+    expect(tenantDelegate.$state["better-schemic/tenant"]).toBe("user:xyz");
+    expect(client.customers.$state["better-schemic/tenant"]).toBeUndefined();
   });
 });
 
@@ -933,12 +932,12 @@ describe("tenantRls — edge cases (coverage + teaching errors)", () => {
 
   test("sharing one tenantRls instance across clients keeps each schema's tags", async () => {
     const plugin = tenantRls({ tenant: "user:a" });
-    const Doc = defineTable("u_doc", { name: s.string() });
+    const Doc = table("u_doc", { name: s.string() });
     const a = clientOver([plugin]);
     const b = clientOver([plugin]);
-    const untaggedSchema = defineSchema({ docs: Doc });
+    const untaggedSchema = schema({ docs: Doc });
     const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok([])));
-    const bClient = betterSchemic(conn, {
+    const bClient = orm(conn, {
       schema: untaggedSchema,
       plugins: [plugin],
     });
@@ -962,12 +961,12 @@ describe("tenantRls — edge cases (coverage + teaching errors)", () => {
 
   test("malformed meta.tenant tags fail the bootstrap", () => {
     for (const tag of ["nope", { column: "" }]) {
-      const Broken = defineTable("broken", { title: s.string() }).use(
-        defineTable.preset({ meta: { tenant: tag } }),
+      const Broken = table("broken", { title: s.string() }).use(
+        table.preset({ meta: { tenant: tag } }),
       );
       expect(() =>
-        betterSchemic({} as never, {
-          schema: defineSchema({ broken: Broken }),
+        orm({} as never, {
+          schema: schema({ broken: Broken }),
           plugins: [tenantRls()],
         }),
       ).toThrow(/malformed meta.tenant/);
@@ -980,11 +979,11 @@ describe("tenantRls — edge cases (coverage + teaching errors)", () => {
       { principal: "", softDelete: false },
       { principal: "user", softDelete: "" },
     ]) {
-      const NoPrincipal = defineTable("nop", {
+      const NoPrincipal = table("nop", {
         title: s.string(),
         tenant_id: User.record().optional(),
       }).use(
-        defineTable.preset({
+        table.preset({
           meta: {
             tenant: {
               column: "tenant_id",
@@ -994,9 +993,9 @@ describe("tenantRls — edge cases (coverage + teaching errors)", () => {
           },
         }),
       );
-      const localSchema = defineSchema({ nop: NoPrincipal });
+      const localSchema = schema({ nop: NoPrincipal });
       const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok([])));
-      const local = betterSchemic(conn, {
+      const local = orm(conn, {
         schema: localSchema,
         plugins: [tenantRls({ tenant: "user:a" })],
       });
@@ -1026,11 +1025,11 @@ describe("tenantRls — edge cases (coverage + teaching errors)", () => {
   });
 
   test("a tenant column linking the wrong table (or a bare record) fails the bootstrap", () => {
-    const Other = defineTable("other", { name: s.string() });
-    const Mismatch = defineTable("mismatch", {
+    const Other = table("other", { name: s.string() });
+    const Mismatch = table("mismatch", {
       tenant_id: Other.record(),
     }).use(
-      defineTable.preset({
+      table.preset({
         meta: {
           tenant: {
             column: "tenant_id",
@@ -1042,17 +1041,17 @@ describe("tenantRls — edge cases (coverage + teaching errors)", () => {
       }),
     );
     expect(() =>
-      betterSchemic({} as never, {
-        schema: defineSchema({ mismatch: Mismatch }),
+      orm({} as never, {
+        schema: schema({ mismatch: Mismatch }),
         plugins: [tenantRls()],
       }),
     ).toThrow(/links record<other>/);
 
     // A bare `record` link has no targets — the principal check is skipped.
-    const Bare = defineTable("bare", {
+    const Bare = table("bare", {
       tenant_id: s.recordId().optional(),
     }).use(
-      defineTable.preset({
+      table.preset({
         meta: {
           tenant: {
             column: "tenant_id",
@@ -1064,8 +1063,8 @@ describe("tenantRls — edge cases (coverage + teaching errors)", () => {
       }),
     );
     expect(() =>
-      betterSchemic({} as never, {
-        schema: defineSchema({ bare: Bare }),
+      orm({} as never, {
+        schema: schema({ bare: Bare }),
         plugins: [tenantRls()],
       }),
     ).not.toThrow();

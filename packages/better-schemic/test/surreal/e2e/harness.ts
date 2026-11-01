@@ -127,10 +127,7 @@ export async function startHarness(): Promise<Harness> {
   // contribute their fragments. `COVERAGE_DIR`/`COVERAGE_INCLUDE` come through `process.env`.
   const coveragePreload =
     process.env.COVERAGE === "1"
-      ? [
-          "--preload",
-          resolve(PKG_ROOT, "../../scripts/coverage/preload"),
-        ]
+      ? ["--preload", resolve(PKG_ROOT, "../../scripts/coverage/preload")]
       : [];
 
   const run: Harness["run"] = async (args, opts) => {
@@ -190,7 +187,7 @@ export async function startHarness(): Promise<Harness> {
 // --- Schema fixtures ---------------------------------------------------------------------------
 // Small helpers to author the per-table schema files the directory layout expects.
 
-/** A `database/schema/tables/<name>.ts` module exporting `export const <Export> = defineTable(...)`. */
+/** A `database/schema/tables/<name>.ts` module exporting `export const <Export> = table(...)`. */
 export function tableFile(body: string): string {
   return body.endsWith("\n") ? body : `${body}\n`;
 }
@@ -198,9 +195,9 @@ export function tableFile(body: string): string {
 /** The `user` table the sample schema ships with, optionally with extra field lines spliced in. */
 export function userSchema(extraFields = ""): string {
   return `import { surql } from "surrealdb";
-import { s, defineTable } from "better-schemic";
+import { s, table } from "better-schemic";
 
-export const User = defineTable("user", {
+export const User = table("user", {
   id: s.string(),
   name: s.string(),
   email: s.email(),${extraFields ? `\n${extraFields}` : ""}

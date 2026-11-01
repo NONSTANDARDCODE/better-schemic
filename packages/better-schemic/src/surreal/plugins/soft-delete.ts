@@ -12,7 +12,7 @@
  *
  * ```ts
  * import { softDelete } from "./soft-delete";
- * const client = betterSchemic(db, { schema, plugins: [softDelete({ column: "deletedAt" })] });
+ * const client = orm(db, { schema, plugins: [softDelete({ column: "deletedAt" })] });
  * ```
  */
 

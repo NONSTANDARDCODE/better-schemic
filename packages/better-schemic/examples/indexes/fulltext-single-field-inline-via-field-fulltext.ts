@@ -1,4 +1,4 @@
-import { defineAnalyzer, defineTable, s } from "better-schemic";
+import { defineAnalyzer, s, table } from "better-schemic";
 import { example } from "../_kit";
 
 export default example(import.meta.url, {
@@ -11,7 +11,7 @@ DEFINE FIELD body ON TABLE doc2 TYPE string;
 DEFINE INDEX doc2_body_idx ON TABLE doc2 FIELDS body FULLTEXT ANALYZER simple BM25(1.5,0.75) HIGHLIGHTS;`,
   def: [
     defineAnalyzer("simple").tokenizers("blank").filters("lowercase"),
-    defineTable("doc2", {
+    table("doc2", {
       id: s.string(),
       body: s
         .string()

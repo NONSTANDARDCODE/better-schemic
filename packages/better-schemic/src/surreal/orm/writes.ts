@@ -55,7 +55,7 @@ import { contextOption, resolveMeta } from "./context";
 import { decodeRows, isRecord } from "./decode";
 import type { DelegateContext } from "./delegate";
 import { computeFieldDelta } from "./delta";
-import { BetterSchemicError } from "./errors";
+import { OrmError } from "./errors";
 import { execute, type Statement } from "./execute";
 import { runWithHooks } from "./hooks";
 import type { ModelMeta } from "./meta";
@@ -500,10 +500,10 @@ function upsertMiss(
   plan: WritePlan,
   meta: ModelMeta,
   args: UpsertRuntimeArgs,
-): BetterSchemicError {
+): OrmError {
   const statement = plan.statements[plan.statements.length - 1];
   const strict = plan.strictMiss === true;
-  return new BetterSchemicError(
+  return new OrmError(
     "ResultNotFound",
     strict
       ? `${meta.name}: no record matched upsert (onMissing: "throw") — it never creates; pass onMissing: "create" to upsert instead.`
@@ -561,10 +561,10 @@ function deltaMiss(
   plan: WritePlan,
   meta: ModelMeta,
   args: UpsertDeltaRuntimeArgs,
-): BetterSchemicError {
+): OrmError {
   const statement = plan.statements[plan.statements.length - 1];
   const strict = plan.strictMiss === true;
-  return new BetterSchemicError(
+  return new OrmError(
     "ResultNotFound",
     strict
       ? `${meta.name}: no record matched upsertDelta (onMissing: "throw") — it never creates; use onMissing: "create" to upsert instead.`
@@ -629,7 +629,7 @@ function decodeUpdateEach(
   });
   const empty = items.filter((entry) => entry.length === 0).length;
   if (args.onEmpty === "throw" && empty > 0)
-    throw new BetterSchemicError(
+    throw new OrmError(
       "ResultNotFound",
       `updateEach: ${empty} item(s) matched no record (onEmpty: "throw") — fix the "by" values or use onEmpty: "return" to collect them in "skipped".`,
       { table: meta.name, operation: "updateEach", details: { empty } },
