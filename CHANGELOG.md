@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+## [0.1.0-beta.5] - 2026-11-01
+
 ### Added
 - **Adjustment modifiers `when` / `else` / `coalesce`** on the ORM write markers (`{ increment }`,
   `{ decrement }`, `{ append }`, `{ remove }`, `{ union }`). `when` is a server-side `surql` guard
@@ -35,6 +37,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `defineSchema` → `schema`, `betterSchemic` → `orm`, `createBetterSchemic` → `createOrm`, and the derived types
   `BetterSchemic*`/`CreateBetterSchemic*` → `Orm*`/`CreateOrm*`. The package name, subpaths (`better-schemic/orm`),
   and other `define*` names are unchanged. All docs, examples, tests and manifests updated to the new names.
+- **Upgrade the SurrealDB SDK to `^2.2.0`** (was `^2.1.1`); the ORM/authoring surface now targets SurrealDB 2.2.0. Lockstep across `better-schemic` and `create-better-schemic`.
+- **Dependency refresh:** bumped `electron-to-chromium` (1.5.469 → 1.5.472) and `node-releases` (2.0.62 → 2.0.63) (transitive, via browserslist); lockfile refreshed.
 
 ### Fixed
 - **ORM adjustment modifiers (live)**: the `{ append, coalesce }` form rendered
