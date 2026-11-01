@@ -323,6 +323,49 @@ live("ORM syntax map — live probes (server 3.x)", () => {
       expect(
         await last("UPDATE ONLY wproj:arith SET tags += ['y'] RETURN tags;"),
       ).toEqual({ tags: ["x", "y"] });
+      // MODIFIERS: the guarded form is ONE IF statement; ELSE THROW aborts the whole statement.
+      expect(
+        await last(
+          "UPDATE ONLY wproj:arith SET age = IF true THEN age + 1 ELSE age END RETURN age;",
+        ),
+      ).toEqual({ age: 97 });
+      expect(
+        await last(
+          "UPDATE ONLY wproj:arith SET age = IF false THEN age + 1 ELSE age END RETURN age;",
+        ),
+      ).toEqual({ age: 97 });
+      await expect(
+        last(
+          'UPDATE ONLY wproj:arith SET age = IF false THEN age + 1 ELSE THROW s"guard" END RETURN age;',
+        ),
+      ).rejects.toThrow(/guard/);
+      expect(await last("SELECT VALUE age FROM ONLY wproj:arith;")).toBe(97);
+      // `coalesce` seeds a NONE array; the guarded + seeded form is still one statement.
+      await run("UPDATE ONLY wproj:arith SET tags = NONE;");
+      expect(
+        await last(
+          "UPDATE ONLY wproj:arith SET tags = array::union(tags ?? [], $p) RETURN tags;",
+          { p: ["q"] },
+        ),
+      ).toEqual({ tags: ["q"] });
+      expect(
+        await last(
+          "UPDATE ONLY wproj:arith SET tags = array::union(tags ?? [], $p) RETURN tags;",
+          { p: ["q", "r"] },
+        ),
+      ).toEqual({ tags: ["q", "r"] });
+      expect(
+        await last(
+          "UPDATE ONLY wproj:arith SET tags = IF true THEN array::union(tags ?? [], $p) ELSE tags END RETURN tags;",
+          { p: ["s"] },
+        ),
+      ).toEqual({ tags: ["q", "r", "s"] });
+      expect(
+        await last(
+          "UPDATE ONLY wproj:arith SET tags = IF false THEN array::union(tags ?? [], $p) ELSE tags END RETURN tags;",
+          { p: ["ignored"] },
+        ),
+      ).toEqual({ tags: ["q", "r", "s"] });
     });
   });
 

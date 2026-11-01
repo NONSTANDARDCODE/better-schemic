@@ -10,8 +10,7 @@ import {
 } from "../../../src/surreal/orm/arithmetic";
 import { type Client, orm } from "../../../src/surreal/orm/client";
 import type { OrmError } from "../../../src/surreal/orm/errors";
-import type { TableMeta } from "../../../src/surreal/orm/meta";
-import { buildSchemaIndex, schema } from "../../../src/surreal/orm/schema";
+import { schema } from "../../../src/surreal/orm/schema";
 import { s, table } from "../../../src/surreal/pure";
 import { fakeConn, ok } from "../orm-fixtures";
 import {
@@ -21,6 +20,7 @@ import {
   makeClient,
   ROW,
   schemaDef,
+  stable,
 } from "./orm-writes-fixtures";
 
 describe("write projections — server-side RETURN", () => {
@@ -958,13 +958,145 @@ describe("array adjustments — append/remove/union/at", () => {
   });
 });
 
+describe("adjustment modifiers — when/else/coalesce", () => {
+  const Tag = table("tagged", {
+    name: s.string(),
+    score: s.int(),
+    labels: s.array(s.string()),
+  });
+  const tagSchema = schema({ tagged: Tag });
+  const tagClient = () => {
+    const { conn, calls } = fakeConn((sql) =>
+      sql.split("\n").map(() => ok([])),
+    );
+    return { client: orm(conn, { schema: tagSchema }), calls };
+  };
+
+  test("union + coalesce seeds a missing array (seed binds before the operand)", async () => {
+    const { client, calls } = tagClient();
+    await client.tagged.update({
+      where: { id: "tagged:1" },
+      data: { labels: { union: ["b"], coalesce: [] } },
+    });
+    expect(lastCall(calls)).toEqual({
+      sql: "UPDATE tagged:1 SET labels = array::union(labels ?? $p0, $p1);",
+      vars: { p0: [], p1: ["b"] },
+    });
+  });
+
+  test("append + coalesce seeds a missing array with the compound effect", async () => {
+    const { client, calls } = tagClient();
+    await client.tagged.update({
+      where: { id: "tagged:1" },
+      data: { labels: { append: "b", coalesce: [] } },
+    });
+    expect(lastCall(calls)).toEqual({
+      sql: "UPDATE tagged:1 SET labels = (labels ?? $p0) + $p1;",
+      vars: { p0: [], p1: "b" },
+    });
+  });
+
+  test("when guards the effect and defaults the ELSE to the current value", async () => {
+    const { client, calls } = tagClient();
+    await client.tagged.update({
+      where: { id: "tagged:1" },
+      data: { score: { increment: 1, when: surql`score < 100` } },
+    });
+    expect(lastCall(calls)).toEqual({
+      sql: "UPDATE tagged:1 SET score = IF score < 100 THEN score + $p0 ELSE score END;",
+      vars: { p0: 1 },
+    });
+
+    await client.tagged.update({
+      where: { id: "tagged:1" },
+      data: { labels: { append: "b", when: surql`score > 0` } },
+    });
+    expect(lastCall(calls)).toEqual({
+      sql: "UPDATE tagged:1 SET labels = IF score > 0 THEN labels + $p0 ELSE labels END;",
+      vars: { p0: "b" },
+    });
+
+    await client.tagged.update({
+      where: { id: "tagged:1" },
+      data: { labels: { remove: "b", when: surql`score > 0` } },
+    });
+    expect(lastCall(calls)).toEqual({
+      sql: "UPDATE tagged:1 SET labels = IF score > 0 THEN labels - $p0 ELSE labels END;",
+      vars: { p0: "b" },
+    });
+  });
+
+  test("else: value renders a bind; else: 'throw' aborts with the field name", async () => {
+    const { client, calls } = tagClient();
+    await client.tagged.update({
+      where: { id: "tagged:1" },
+      data: { score: { decrement: 1, when: surql`score > 0`, else: 0 } },
+    });
+    expect(lastCall(calls)).toEqual({
+      sql: "UPDATE tagged:1 SET score = IF score > 0 THEN score - $p0 ELSE $p1 END;",
+      vars: { p0: 1, p1: 0 },
+    });
+
+    await client.tagged.update({
+      where: { id: "tagged:1" },
+      data: {
+        labels: {
+          union: ["b"],
+          coalesce: [],
+          when: surql`score > 0`,
+          else: "throw",
+        },
+      },
+    });
+    expect(lastCall(calls)).toEqual({
+      sql: 'UPDATE tagged:1 SET labels = IF score > 0 THEN array::union(labels ?? $p0, $p1) ELSE THROW s"adjustment guard failed on labels" END;',
+      vars: { p0: [], p1: ["b"] },
+    });
+  });
+
+  test("updateMany renders the guard after the WHERE bind", async () => {
+    const { client, calls } = tagClient();
+    await client.tagged.updateMany({
+      where: { name: "x" },
+      data: { score: { increment: 1, when: surql`score < 10` } },
+    });
+    expect(lastCall(calls).sql).toBe(
+      "UPDATE tagged SET score = IF score < 10 THEN score + $p1 ELSE score END WHERE name = $p0;",
+    );
+  });
+
+  test("a guard fragment keeps its own binds (merged, not interpolated)", async () => {
+    const { client, calls } = tagClient();
+    await client.tagged.update({
+      where: { id: "tagged:1" },
+      data: { score: { increment: 1, when: surql`score < ${10}` } },
+    });
+    expect(stable(lastCall(calls).sql, lastCall(calls).vars)).toEqual({
+      sql: "UPDATE tagged:1 SET score = IF score < $frag0 THEN score + $p0 ELSE score END;",
+      vars: { frag0: 10, p0: 1 },
+    });
+  });
+
+  test("the distinct create/update upsert branch lowers the guard through LET/IF", async () => {
+    const { client, calls } = makeClient([ROW]);
+    await client.users.upsert({
+      where: { id: "user:1" },
+      onMissing: "create",
+      create: { id: "user:1", ...data },
+      update: { age: { increment: 1, when: surql`age < 100` } },
+    });
+    const sql = lastCall(calls).sql;
+    expect(sql).toContain("SET age = IF age < 100 THEN age + ");
+    expect(sql).toContain("ELSE age END");
+  });
+});
+
 describe("adjustment operand classification — the decision table", () => {
   const T = table("operand", {
     name: s.string(),
     score: s.int(),
     labels: s.array(s.string()),
   });
-  const meta = buildSchemaIndex({ t: T }).tables.get("t") as TableMeta;
   const row = {
     id: new RecordId("operand", 1),
     name: "n",

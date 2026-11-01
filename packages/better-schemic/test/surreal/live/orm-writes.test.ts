@@ -746,6 +746,97 @@ live("orm writes — live", () => {
     expect(await labels()).toEqual(["z", "c"]);
   });
 
+  test("adjustment modifiers: when/else/coalesce stay ONE server-side write", async () => {
+    const profile = {
+      name: "Mods",
+      email: "mods@x.dev",
+      age: 10,
+      active: true,
+      address: { city: "SP" },
+      // `tags` intentionally absent → NONE (the `coalesce` seed case).
+    };
+    await client.users.create({ data: { ...profile, id: "wr_user:mods" } });
+    await client.users.create({
+      data: { ...profile, id: "wr_user:mods2", email: "mods2@x.dev", age: 200 },
+    });
+
+    // Guard TRUE applies; FALSE keeps the current value (`ELSE f`).
+    expect(
+      await client.users.update({
+        where: { id: "wr_user:mods" },
+        data: { age: { increment: 1, when: surql`age < 100` } },
+        select: { age: true },
+      }),
+    ).toEqual({ age: 11 });
+    expect(
+      await client.users.update({
+        where: { id: "wr_user:mods" },
+        data: { age: { increment: 1, when: surql`age >= 100` } },
+        select: { age: true },
+      }),
+    ).toEqual({ age: 11 });
+
+    // `else: "throw"` aborts the statement; the value is untouched.
+    await expect(
+      client.users.update({
+        where: { id: "wr_user:mods" },
+        data: { age: { increment: 1, when: surql`age >= 100`, else: "throw" } },
+      }),
+    ).rejects.toThrow(/adjustment guard failed on age/);
+    expect(
+      await client.users.findUnique({
+        where: { id: "wr_user:mods" },
+        select: { age: true },
+      }),
+    ).toEqual({ age: 11 });
+
+    // updateMany: one failing row aborts the WHOLE statement (no row changes).
+    await expect(
+      client.users.updateMany({
+        where: { email: { in: ["mods@x.dev", "mods2@x.dev"] } },
+        data: { age: { increment: 1, when: surql`age < 100`, else: "throw" } },
+      }),
+    ).rejects.toThrow(/adjustment guard failed on age/);
+    expect(
+      await client.users.findMany({
+        where: { email: { in: ["mods@x.dev", "mods2@x.dev"] } },
+        select: { age: true },
+        orderBy: [{ age: "asc" }],
+      }),
+    ).toEqual([{ age: 11 }, { age: 200 }]);
+
+    // `coalesce` seeds the NONE array; `union`/`append` stay one statement.
+    expect(
+      await client.users.update({
+        where: { id: "wr_user:mods" },
+        data: { tags: { union: ["vip"], coalesce: [] } },
+        select: { tags: true },
+      }),
+    ).toEqual({ tags: ["vip"] });
+    expect(
+      await client.users.update({
+        where: { id: "wr_user:mods" },
+        data: { tags: { append: "beta", coalesce: ["beta"] } },
+        select: { tags: true },
+      }),
+    ).toEqual({ tags: ["vip", "beta"] });
+    // The guarded + seeded combination is still ONE statement.
+    expect(
+      await client.users.update({
+        where: { id: "wr_user:mods" },
+        data: {
+          tags: {
+            union: ["beta"],
+            coalesce: [],
+            when: surql`array::len(tags) > 0`,
+            else: "throw",
+          },
+        },
+        select: { tags: true },
+      }),
+    ).toEqual({ tags: ["vip", "beta"] });
+  });
+
   test("composite UNIQUE target: upsert by [tenant, email] hits exactly one row", async () => {
     // The multi-tenant shape: `email` is unique only WITHIN a tenant, so NO single-field unique
     // index can exist — the composite index IS the unique key, and the ORM resolves it.

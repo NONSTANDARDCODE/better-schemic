@@ -394,6 +394,51 @@ function typeProbes(): void {
       name: { remove: "x" },
     },
   });
+
+  // --- adjustment MODIFIERS (`when`/`else`/`coalesce`) --------------------------------------------
+  void client.users.update({
+    where: { id: "user:a" },
+    data: {
+      age: { increment: 1, when: surql`age < 150` },
+      tags: { union: ["vip"], coalesce: [] },
+    },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: {
+      tags: {
+        append: "vip",
+        coalesce: ["vip"],
+        when: surql`active`,
+        else: "throw",
+      },
+    },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: { age: { decrement: 1, when: surql`age > 0`, else: 0 } },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: {
+      // @ts-expect-error — coalesce only seeds the UNION/APPEND array markers
+      age: { increment: 1, coalesce: [] },
+    },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: {
+      // @ts-expect-error — `when` can't guard `at`
+      tags: { at: { index: 0, value: "x" }, when: surql`active` },
+    },
+  });
+  void client.users.update({
+    where: { id: "user:a" },
+    data: {
+      // @ts-expect-error — `remove` doesn't take coalesce
+      tags: { remove: "x", coalesce: [] },
+    },
+  });
 }
 void typeProbes;
 

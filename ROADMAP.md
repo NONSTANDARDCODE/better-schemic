@@ -569,6 +569,14 @@ numa API de relatório).
   live (split idiom, UNWIND+GROUP, markers de array, alvo composto, `fn.expr`, `search::rrf`),
   `orm-syntax-map.md` §2.4.2/§2.4.3/§3.1/§9, `ORM-COVERAGE.md`, README, cookbook
   `examples/orm/{reads,writes}.ts` + manifest (55 entradas), CHANGELOG.
+- ✅ **M17.12 modificadores de ajuste `when`/`else`/`coalesce`** — a guarda `when` (um `surql`
+  avaliado no servidor) transforma o marcador em `SET f = IF <g> THEN <efeito> ELSE <else> END`,
+  ainda UMA escrita server-side; `else` é o ramo de fallback (`"keep"`, `"throw"` que aborta a
+  statement inteira — `updateMany` incluído — ou um valor/`Surql`) e `coalesce` semeia um array
+  `NONE` (`array::union(f ?? $c, $p)` / `(f ?? $c) + $p`), só em `union`/`append`. `when` é
+  recusado em `{ at }` e `else` sem `when` é `ValidationError`; os seis operadores de
+  `AdjustmentLowering` não mudam. Unit (goldens + tabela de decisão), tipos, probes live §2.4.2,
+  README/cookbook, CHANGELOG.
 
 ## M16 — write projections (`select`/`omit`) + ajustes numéricos (`{ increment }`/`{ decrement }`) ✅ *(complete)*
 

@@ -17,11 +17,12 @@
  * validate markers, and the official `zod` plugin uses {@link stripAdjustments} to validate the
  * payload WITHOUT tripping on the wrappers (the operand substitutes the marker).
  *
- * Markers are reserved shapes: a plain object with exactly ONE of these keys is an adjustment — an
- * object literal with that exact shape can't be written as a payload value directly (wrap it in a
- * `surql` fragment when a record genuinely stores that object).
+ * Markers are reserved shapes: a plain object with exactly ONE marker key (and only the modifier
+ * keys besides it) is an adjustment — an object literal with that exact shape can't be written as
+ * a payload value directly (wrap it in a `surql` fragment when a record genuinely stores that
+ * object). The MODIFIERS (`when`/`else`/`coalesce`) ride the same wrapper; this module only
+ * recognises them — the compiler validates and lowers them, because the guard/seed is server-side.
  */
-import { Decimal } from "surrealdb";
 import { isLowerableValue } from "./compiler/shared";
 
 /** The adjustment marker keys (all reserved in a write payload). */
@@ -33,6 +34,9 @@ const ARITHMETIC_KINDS = new Set([
   "union",
   "at",
 ]);
+
+/** Modifier keys that may sit beside the ONE marker key (validated by the compiler). */
+const MODIFIER_KEYS = new Set(["when", "else", "coalesce"]);
 
 /** Markers that carry a number/bigint/Decimal (or an expression) — not an array value. */
 const NUMERIC_KINDS = new Set(["increment", "decrement"]);
@@ -47,19 +51,31 @@ export interface Adjustment {
   readonly family: "number" | "array";
   /** The operand (validated by the compiler; a number/bigint/Decimal, an array value, or an expression). */
   readonly value: unknown;
+  /** RAW `when` guard — the compiler validates it as a `Surql` (and rejects it on `at`). */
+  readonly when?: unknown;
+  /** RAW `else` branch — the compiler validates `"keep"`/`"throw"`/a renderable value. */
+  readonly else?: unknown;
+  /** RAW `coalesce` seed — the compiler validates it (only `union`/`append` accept it). */
+  readonly coalesce?: unknown;
 }
 
-/** Is this value a plain object with exactly one adjustment-marker key? */
+/** Is this value a plain object with exactly ONE adjustment-marker key (plus modifiers)? */
 export function adjustmentOf(value: unknown): Adjustment | undefined {
   if (value === null || typeof value !== "object" || Array.isArray(value))
     return undefined;
   const proto = Object.getPrototypeOf(value);
   if (proto !== null && proto !== Object.prototype) return undefined;
-  const keys = Object.keys(value as object);
-  if (keys.length !== 1) return undefined;
-  const kind = keys[0] as string;
-  if (!ARITHMETIC_KINDS.has(kind)) return undefined;
-  const operand = (value as Record<string, unknown>)[kind];
+  let kind: string | undefined;
+  for (const key of Object.keys(value as object)) {
+    if (ARITHMETIC_KINDS.has(key)) {
+      // Two markers in one wrapper is NOT a marker (it stays a literal value, as before).
+      if (kind !== undefined) return undefined;
+      kind = key;
+    } else if (!MODIFIER_KEYS.has(key)) return undefined;
+  }
+  if (kind === undefined) return undefined;
+  const marker = value as Record<string, unknown>;
+  const operand = marker[kind];
   if (operand === undefined) return undefined;
   const numeric = NUMERIC_KINDS.has(kind);
   return {
@@ -67,6 +83,9 @@ export function adjustmentOf(value: unknown): Adjustment | undefined {
     kind,
     family: numeric ? "number" : "array",
     value: operand,
+    ...(marker.when !== undefined ? { when: marker.when } : {}),
+    ...(marker.else !== undefined ? { else: marker.else } : {}),
+    ...(marker.coalesce !== undefined ? { coalesce: marker.coalesce } : {}),
   };
 }
 
@@ -83,6 +102,10 @@ export function literalOperand(value: unknown): boolean {
  * A copy of a write payload with every TOP-LEVEL adjustment replaced by its operand (or dropped
  * when the operand is an expression the validator can't check). Arrays of payloads are mapped.
  * Used by the `zod` plugin so app-level schemas validate the literal operand, not the wrapper.
+ *
+ * The MODIFIERS are deliberately ignored in the substitution: the plugin validates only the operand
+ * (the value the app is putting into the field), while `when`/`else`/`coalesce` are evaluated by
+ * the server and have no literal counterpart to check.
  */
 export function stripAdjustments(data: unknown): unknown {
   if (Array.isArray(data)) return data.map((item) => stripAdjustments(item));

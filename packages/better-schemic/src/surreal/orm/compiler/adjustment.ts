@@ -9,10 +9,11 @@
  *   whole array correct — the database swaps the key, the process never reads it first.
  */
 
-import { Decimal, RecordId } from "surrealdb";
-import { type Adjustment, adjustmentOf, literalOperand } from "../arithmetic";
+import { BoundQuery, Decimal, RecordId } from "surrealdb";
+import type { Surql } from "../../frag";
+import type { Ctx } from "../../pure";
+import { type Adjustment, adjustmentOf } from "../arithmetic";
 import type { ColumnMeta, ModelMeta, TableMeta } from "../meta";
-import type { AdjustmentLowering } from "../types/write";
 import {
   type Binds,
   compileError,
@@ -20,6 +21,7 @@ import {
   isLowerableValue,
   isPlainObject,
   isTableMeta,
+  renderBareFragment,
   renderPath,
   renderValue,
 } from "./shared";
@@ -39,6 +41,12 @@ export interface ArithmeticStep {
   readonly op: StepOp;
   /** The operand(s) to bind (`at` carries `[index, value]`). */
   readonly value: unknown;
+  /** The server-side guard of `when` (`SET f = IF <when> THEN … ELSE … END`). */
+  readonly when?: Surql;
+  /** The `ELSE` branch: `"keep"` (absent/`"keep"` → `ELSE f`), `"throw"`, or a value/fragment. */
+  readonly else_?: unknown;
+  /** The seed for a missing array on `union`/`append` (`f ?? $c`). */
+  readonly coalesce?: unknown;
 }
 
 const NO_STEPS: readonly ArithmeticStep[] = [];
@@ -83,16 +91,24 @@ export function extractArithmetic(
 
 /** The `SET` lowering of one marker (`field` is filled by the caller). */
 function loweringOf(marker: Adjustment, field: string): ArithmeticStep {
+  const step = (op: StepOp): ArithmeticStep => ({
+    field,
+    op,
+    value: marker.value,
+    ...(marker.when !== undefined ? { when: marker.when as Surql } : {}),
+    ...(marker.else !== undefined ? { else_: marker.else } : {}),
+    ...(marker.coalesce !== undefined ? { coalesce: marker.coalesce } : {}),
+  });
   switch (marker.kind) {
     case "decrement":
     case "remove":
-      return { field, op: "-=", value: marker.value };
+      return step("-=");
     case "union":
-      return { field, op: "union", value: marker.value };
+      return step("union");
     case "at":
-      return { field, op: "at", value: marker.value };
+      return step("at");
     default:
-      return { field, op: "+=", value: marker.value };
+      return step("+=");
   }
 }
 
@@ -110,6 +126,7 @@ function assertAdjustment(
       { operation, table: meta.name, field },
     );
   assertAdjustmentOperand(marker, operation, field);
+  assertModifiers(marker, operation, field);
   if (!isTableMeta(meta)) return;
   const column: ColumnMeta | undefined = (meta as TableMeta).columns.get(field);
   if (!column)
@@ -166,6 +183,81 @@ function assertAdjustmentOperand(
 }
 
 /**
+ * Validate the MODIFIERS of one marker: `when` (a server-side `Surql` guard — never on `at`),
+ * `else` (only with `when`; `"keep"`/`"throw"`/a renderable value) and `coalesce` (only on
+ * `union`/`append`, where it seeds a missing array). `adjustmentOf` only recognises the shapes;
+ * the teaching happens here, against the SAME field/operation context as the operand checks.
+ */
+function assertModifiers(
+  marker: Adjustment,
+  operation: string,
+  field: string,
+): void {
+  const { when, coalesce } = marker;
+  if (when !== undefined) {
+    if (marker.kind === "at")
+      throw compileError(
+        "ValidationError",
+        `${operation}: "when" can't guard { at: … } on "${field}" — SET f[n] assigns ONE index and has no field expression to put inside IF. Use { append }/{ union } with "when", or a surql fragment.`,
+        { operation, field },
+      );
+    if (!(when instanceof BoundQuery))
+      throw compileError(
+        "ValidationError",
+        `${operation}: "when" on "${field}" must be a surql\`…\` fragment — the guard is evaluated by the server (got ${describeValue(when)}).`,
+        { operation, field },
+      );
+  }
+  if (marker.else !== undefined) {
+    if (when === undefined)
+      throw compileError(
+        "ValidationError",
+        `${operation}: "else" on "${field}" is the fallback of "when" — add a "when" guard or drop "else".`,
+        { operation, field },
+      );
+    if (
+      marker.else !== "keep" &&
+      marker.else !== "throw" &&
+      typeof marker.else === "function"
+    )
+      throw compileError(
+        "ValidationError",
+        `${operation}: "else" on "${field}" must be "keep", "throw", or a value/expression (got ${describeValue(marker.else)}).`,
+        { operation, field },
+      );
+  }
+  if (coalesce === undefined) return;
+  if (marker.kind !== "union" && marker.kind !== "append")
+    throw compileError(
+      "ValidationError",
+      marker.family === "number"
+        ? `${operation}: { ${marker.kind}: … } doesn't take "coalesce" — a numeric adjustment already treats a missing value as the operand (NONE + n = n). "coalesce" seeds a missing ARRAY with { union }/{ append }.`
+        : `${operation}: { ${marker.kind}: … } doesn't take "coalesce" — only { union }/{ append } can seed a missing array; "remove"/"at" don't.`,
+      { operation, field },
+    );
+  if (
+    marker.kind === "union" &&
+    !Array.isArray(coalesce) &&
+    !(coalesce instanceof BoundQuery)
+  )
+    throw compileError(
+      "ValidationError",
+      `${operation}: "coalesce" on { union } of "${field}" must be an array or a surql expression (got ${describeValue(coalesce)}).`,
+      { operation, field },
+    );
+  if (
+    marker.kind === "append" &&
+    !(coalesce instanceof BoundQuery) &&
+    !isLiteralOperand("array", coalesce)
+  )
+    throw compileError(
+      "ValidationError",
+      `${operation}: "coalesce" on { append } of "${field}" must be a value or a surql expression (got ${describeValue(coalesce)}).`,
+      { operation, field },
+    );
+}
+
+/**
  * A NUMERIC marker takes a number/bigint/Decimal; an ARRAY marker takes any plain value (the
  * element, the whole array, a record, a date) — the element type is the SCHEMA's business, so the
  * marker parser only rejects what the server could never bind.
@@ -196,16 +288,58 @@ function isLiteralOperand(
  * append and array remove — the server keeps the field's UNIQUE index correct on both). `union` is
  * the only DEDUPING array merge (`array::union` — `+=` appends blindly, live-verified:
  * `["a"] += ["a"]` is `["a","a"]`), and `at` assigns a single index.
+ *
+ * MODIFIERS turn the step into a guarded replacement — `SET f = IF <when> THEN <effect> ELSE <else>
+ * END` — where `<effect>` reproduces the operator on the CURRENT value (`f + $p`, `f - $p`,
+ * `array::union(f ?? $c, $p)`), so it is still ONE server-side read-modify-write. Without
+ * modifiers the output is byte-for-byte the historical statement.
  */
 function renderStep(step: ArithmeticStep, binds: Binds): string {
   const field = renderPath(step.field);
-  if (step.op === "union")
-    return `${field} = array::union(${field}, ${renderValue(step.value, binds, binds.ctx())})`;
   if (step.op === "at") {
+    // `when`/`coalesce` are rejected for `at` before lowering (there is no field expression to
+    // put inside IF, and the target is an index, not an array to seed).
     const pair = step.value as { index: number; value: unknown };
     return `${field}[${nonNegativeIndex(pair.index)}] = ${renderValue(pair.value, binds, binds.ctx())}`;
   }
-  return `${field} ${step.op} ${renderValue(step.value, binds, binds.ctx())}`;
+  const ctx = binds.ctx();
+  const guard =
+    step.when === undefined
+      ? undefined
+      : (renderBareFragment(step.when, binds) ??
+        renderValue(step.when, binds, ctx));
+  // Seed BEFORE the operand: the emitted order (`f ?? $c, $p`) is also the bind order.
+  const coalesce =
+    step.coalesce === undefined
+      ? undefined
+      : renderValue(step.coalesce, binds, ctx);
+  const operand = renderValue(step.value, binds, ctx);
+  const rhs =
+    step.op === "union"
+      ? `array::union(${coalesce === undefined ? field : `${field} ?? ${coalesce}`}, ${operand})`
+      : step.op === "+="
+        ? `${coalesce === undefined ? field : `(${field} ?? ${coalesce})`} + ${operand}`
+        : `${field} - ${operand}`;
+  if (guard !== undefined)
+    return `${field} = IF ${guard} THEN ${rhs} ELSE ${elseBranch(step.else_, field, binds, ctx)} END`;
+  if (coalesce !== undefined) return `${field} = ${rhs}`;
+  // No modifiers — the historical forms, unchanged.
+  if (step.op === "union")
+    return `${field} = array::union(${field}, ${operand})`;
+  return `${field} ${step.op} ${operand}`;
+}
+
+/** The `ELSE` branch of a guarded step: keep the value, throw, or render the value/fragment. */
+function elseBranch(
+  value: unknown,
+  field: string,
+  binds: Binds,
+  ctx: Ctx,
+): string {
+  if (value === undefined || value === "keep") return field;
+  if (value === "throw")
+    return `THROW s"adjustment guard failed on ${field.replace(/["\\]/g, "\\$&")}"`;
+  return renderValue(value, binds, ctx);
 }
 
 /** An array index in a `SET f[n]` assignment (the compiler already validated it as an integer). */

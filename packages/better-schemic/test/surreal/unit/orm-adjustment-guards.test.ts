@@ -5,6 +5,10 @@ import { describe, expect, test } from "bun:test";
 import { Decimal, RecordId } from "surrealdb";
 import { surql } from "../../../src/surreal";
 import {
+  adjustmentOf,
+  stripAdjustments,
+} from "../../../src/surreal/orm/arithmetic";
+import {
   extractArithmetic,
   setBody,
 } from "../../../src/surreal/orm/compiler/adjustment";
@@ -12,8 +16,6 @@ import { createBinds } from "../../../src/surreal/orm/compiler/shared";
 import type { TableMeta } from "../../../src/surreal/orm/meta";
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema";
 import { s, table } from "../../../src/surreal/pure";
-
-const Other = table("other", { name: s.string() });
 
 const Holder = table("adj", {
   name: s.string(),
@@ -43,20 +45,6 @@ function split(data: unknown, allow = true) {
       error: (e as Error).message,
     };
   }
-}
-
-/** The rendered `SET` clause for a payload with adjustments. */
-function set(data: unknown): string {
-  const { clean, steps } = extractArithmetic(meta, data, "update", true);
-  const binds = createBinds();
-  return setBody(
-    new Proxy({} as Record<string, unknown>, {
-      get: (_, key) => (key === "__p0" ? steps[0]?.value : undefined),
-    }),
-    steps,
-    binds,
-    true,
-  );
 }
 
 describe("adjustment — payload shape", () => {
@@ -299,5 +287,125 @@ describe("adjustment — the literal-operand type test", () => {
     for (const operand of ["a", ["a"], { a: 1 }, new Date()]) {
       expect(split({ seats: { union: operand } }).error).toBe("");
     }
+  });
+});
+
+describe("adjustment — the modifiers (when/else/coalesce)", () => {
+  test("`when` must be a Surql fragment and is refused on `at`", () => {
+    expect(
+      split({ score: { increment: 1, when: surql`score < 10` } }).error,
+    ).toBe("");
+    for (const when of ["score < 10", 10, true, () => true]) {
+      expect(split({ score: { increment: 1, when } }).error).toMatch(/surql/);
+    }
+    expect(
+      split({ tags: { at: { index: 0, value: "x" }, when: surql`true` } })
+        .error,
+    ).toMatch(/can't guard \{ at/);
+  });
+
+  test("`else` requires `when` and a keep/throw/renderable value", () => {
+    expect(split({ score: { increment: 1, else: "throw" } }).error).toMatch(
+      /fallback of "when"/,
+    );
+    expect(
+      split({ score: { increment: 1, when: surql`true`, else: () => 1 } })
+        .error,
+    ).toMatch(/must be "keep", "throw"/);
+    for (const else_ of ["keep", "throw", 0, surql`score`]) {
+      expect(
+        split({ score: { increment: 1, when: surql`true`, else: else_ } })
+          .error,
+      ).toBe("");
+    }
+  });
+
+  test("`coalesce` is refused on numeric, remove and at", () => {
+    expect(split({ score: { increment: 1, coalesce: [] } }).error).toMatch(
+      /NONE \+ n = n/,
+    );
+    expect(split({ score: { decrement: 1, coalesce: [] } }).error).toMatch(
+      /NONE \+ n = n/,
+    );
+    expect(split({ tags: { remove: "x", coalesce: [] } }).error).toMatch(
+      /only \{ union \}\/\{ append \}/,
+    );
+    expect(
+      split({ tags: { at: { index: 0, value: "x" }, coalesce: [] } }).error,
+    ).toMatch(/only \{ union \}\/\{ append \}/);
+    expect(split({ tags: { append: "x", coalesce: [] } }).error).toBe("");
+    expect(split({ tags: { union: ["a"], coalesce: "x" } }).error).toMatch(
+      /must be an array/,
+    );
+    expect(split({ tags: { append: "x", coalesce: () => 1 } }).error).toMatch(
+      /must be a value/,
+    );
+    expect(split({ tags: { union: ["a"], coalesce: surql`[]` } }).error).toBe(
+      "",
+    );
+  });
+
+  test("the complete modifier set compiles", () => {
+    expect(
+      split({
+        tags: {
+          union: ["a"],
+          coalesce: [],
+          when: surql`score > 0`,
+          else: "throw",
+        },
+      }).error,
+    ).toBe("");
+  });
+
+  test("no modifiers keeps the historical SET text; modifiers are one guarded assignment", () => {
+    const body = (data: unknown) => {
+      const { clean, steps } = extractArithmetic(meta, data, "update", true);
+      return setBody(clean as never, steps, createBinds(), false);
+    };
+    expect(body({ tags: { union: ["a"] } })).toBe(
+      "SET tags = array::union(tags, $p0)",
+    );
+    expect(body({ tags: { union: ["a"], coalesce: [] } })).toBe(
+      "SET tags = array::union(tags ?? $p0, $p1)",
+    );
+    expect(body({ tags: { append: "x", coalesce: [] } })).toBe(
+      "SET tags = (tags ?? $p0) + $p1",
+    );
+    expect(body({ score: { increment: 1, when: surql`score < 10` } })).toBe(
+      "SET score = IF score < 10 THEN score + $p0 ELSE score END",
+    );
+    expect(
+      body({ score: { decrement: 1, when: surql`score > 0`, else: 0 } }),
+    ).toBe("SET score = IF score > 0 THEN score - $p0 ELSE $p1 END");
+    expect(
+      body({
+        tags: {
+          union: ["a"],
+          coalesce: [],
+          when: surql`score > 0`,
+          else: "throw",
+        },
+      }),
+    ).toBe(
+      'SET tags = IF score > 0 THEN array::union(tags ?? $p0, $p1) ELSE THROW s"adjustment guard failed on tags" END',
+    );
+  });
+
+  test("the parser recognises modifiers but leaves two markers / modifiers alone as literals", () => {
+    const guard = surql`true`;
+    expect(
+      adjustmentOf({ increment: 1, when: guard, else: "keep", coalesce: [] }),
+    ).toMatchObject({ kind: "increment", value: 1, when: guard });
+    expect(adjustmentOf({ when: guard })).toBeUndefined();
+    expect(
+      adjustmentOf({ increment: 1, decrement: 2, when: guard }),
+    ).toBeUndefined();
+    expect(adjustmentOf({ increment: 1, other: 2 })).toBeUndefined();
+    expect(
+      stripAdjustments({
+        tags: { append: "x", coalesce: [], when: guard, else: "throw" },
+      }),
+    ).toEqual({ tags: "x" });
   });
 });

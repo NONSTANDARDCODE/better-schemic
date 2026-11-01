@@ -2,6 +2,7 @@
  * ORM cookbook — write operations. Each entry is a real delegate call over the sample schema; the golden
  * is the exact runtime SurrealQL it produces. See `./_kit.ts` (the reference test re-runs every `def`).
  */
+import { surql } from "better-schemic";
 import { group, ormExample } from "./_kit";
 
 export const writes = group(
@@ -271,6 +272,32 @@ export const writes = group(
         client.users.update({
           where: { id: "user:aeon" },
           data: { tags: { at: { index: 0, value: "first" } } },
+        }),
+    }),
+    ormExample(import.meta.url, {
+      title:
+        "update — guarded increment (IF … THEN … ELSE THROW … END, one statement)",
+      note: '`when` is a server-side guard: the marker is lowered into ONE IF/THEN/ELSE statement, so the read-modify-write never leaves the database. `else: "throw"` aborts the statement when the guard fails.',
+      sql: 'UPDATE user:aeon SET age = IF age < 150 THEN age + $p0 ELSE THROW s"adjustment guard failed on age" END;',
+      vars: { p0: 1 },
+      def: (client) =>
+        client.users.update({
+          where: { id: "user:aeon" },
+          data: {
+            age: { increment: 1, when: surql`age < 150`, else: "throw" },
+          },
+        }),
+    }),
+    ormExample(import.meta.url, {
+      title:
+        "update — coalesce seeds a NONE array (array::union(tags ?? $p0, $p1))",
+      note: "`coalesce` is the default array when the field is still NONE — applied by the server in the same statement.",
+      sql: "UPDATE user:aeon SET tags = array::union(tags ?? $p0, $p1);",
+      vars: { p0: [], p1: ["vip"] },
+      def: (client) =>
+        client.users.update({
+          where: { id: "user:aeon" },
+          data: { tags: { union: ["vip"], coalesce: [] } },
         }),
     }),
     ormExample(import.meta.url, {

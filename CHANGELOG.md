@@ -18,6 +18,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+### Added
+- **Adjustment modifiers `when` / `else` / `coalesce`** on the ORM write markers (`{ increment }`,
+  `{ decrement }`, `{ append }`, `{ remove }`, `{ union }`). `when` is a server-side `surql` guard
+  (`SET f = IF <when> THEN <effect> ELSE <else> END`, still ONE read-modify-write); `else` picks the
+  fallback (`"keep"` default → `ELSE f`; `"throw"` → aborts the whole statement, so `updateMany`
+  writes no row; or a value/`Surql` rendered as `ELSE <value>`); `coalesce` seeds an array that is
+  still `NONE` (`array::union(f ?? $c, $p)` / `(f ?? $c) + $p`), valid only on `union`/`append`.
+  `when` is rejected on `{ at }` and `else` requires `when` (`ValidationError`). The modifiers ride
+  the existing marker wrapper — the six `AdjustmentLowering` operators are unchanged and the
+  create-shaped adjustment prohibition still applies. Covered by unit goldens and decision tables,
+  type assertions, live probes (`docs/orm-syntax-map.md` §2.4.2), README and an ORM cookbook entry.
+
 ### Changed
 - **Renamed public authoring/ORM identifiers** (breaking): `defineTable` → `table`, `defineRelation` → `relation`,
   `defineSchema` → `schema`, `betterSchemic` → `orm`, `createBetterSchemic` → `createOrm`, and the derived types

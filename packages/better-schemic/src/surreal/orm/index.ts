@@ -309,6 +309,7 @@ export type {
   WherePaths,
 } from "./types/where";
 export type {
+  AdjustmentModifiers,
   ArithmeticAdjustment,
   ArithmeticValue,
   BatchWriteResult,

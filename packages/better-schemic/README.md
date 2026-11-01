@@ -288,11 +288,26 @@ const without = await client.users.update({
   where: { id: created.id },
   data: { tags: { remove: "beta" } },  // → SET tags -= $p0   (removes EVERY occurrence)
 });
+// Modifiers refine a marker inside the SAME one statement: `when` is a server-side guard, `else`
+// is its fallback (default `"keep"` → the current value; `"throw"` aborts the whole statement, so
+// `updateMany` writes NO row), and `coalesce` seeds an array that is still NONE:
+const guarded = await client.users.update({
+  where: { id: created.id },
+  data: { age: { increment: 1, when: surql`age < 150`, else: "throw" } },
+  // → SET age = IF age < 150 THEN age + $p0 ELSE THROW s"adjustment guard failed on age" END
+});
+const seeded = await client.users.update({
+  where: { id: created.id },
+  data: { tags: { union: ["vip"], coalesce: [] } },
+  // → SET tags = array::union(tags ?? $p0, $p1)
+});
 void aged;
 void previous;
 void tagged;
 void deduped;
 void without;
+void guarded;
+void seeded;
 
 // Created ids: every ORM create without an explicit `id` generates a ULID by default
 // (`rand::ulid()` — 26 chars, time-sortable). Pick another strategy per table in authoring:

@@ -120,14 +120,42 @@ export interface AdjustmentLowering {
 /** The marker keys `AdjustmentLowering` covers — `union` of the rows above. */
 export type AdjustmentKind = keyof AdjustmentLowering;
 
-/** `balance: { increment: 10 }` — `SET balance += $p`. */
-export interface Increment<T = number> {
-  readonly increment: ArithmeticValue<T>;
+/**
+ * The MODIFIERS an adjustment marker accepts — they refine the one server-side write instead of
+ * adding an operator (`AdjustmentLowering`/`AdjustmentKind` stay the six markers).
+ *
+ * `when` turns the step into `SET f = IF <when> THEN … ELSE … END`: the guard is evaluated by the
+ * server on the value it is about to change, so the whole field is still ONE read-modify-write.
+ * `when` is accepted by every marker EXCEPT `{ at }` — a `SET f[n]` assignment has no field
+ * expression to put inside `IF`.
+ *
+ * `else` is the `ELSE` branch of `when`: `"keep"` (default, the no-op `ELSE f`), `"throw"`
+ * (aborts the statement — in `updateMany` that means NO row is written), or a value/`Surql`
+ * rendered as `ELSE <value>`. It is rejected without a `when`.
+ */
+export interface AdjustmentModifiers {
+  /** Server-side guard: `SET f = IF <when> THEN … ELSE … END`. Not accepted by `{ at }`. */
+  readonly when?: Surql;
+  /**
+   * The `ELSE` branch of `when`: `"keep"` (default → `ELSE f`), `"throw"`
+   * (`ELSE THROW s"adjustment guard failed on <field>"`, aborting the WHOLE statement), or a
+   * value/expression rendered as `ELSE <value>`. Requires `when`.
+   */
+  readonly else?: "keep" | "throw" | unknown;
 }
 
-/** `balance: { decrement: 10 }` — `SET balance -= $p`. */
-export interface Decrement<T = number> {
+/** `balance: { increment: 10 }` — `SET balance += $p`; with `when`, `SET balance = IF … END`. */
+export interface Increment<T = number> extends AdjustmentModifiers {
+  readonly increment: ArithmeticValue<T>;
+  /** Numeric markers don't take `coalesce` — encoded so the union can't swallow it structurally. */
+  readonly coalesce?: never;
+}
+
+/** `balance: { decrement: 10 }` — `SET balance -= $p`; with `when`, `SET balance = IF … END`. */
+export interface Decrement<T = number> extends AdjustmentModifiers {
   readonly decrement: ArithmeticValue<T>;
+  /** Numeric markers don't take `coalesce` — encoded so the union can't swallow it structurally. */
+  readonly coalesce?: never;
 }
 
 /**
@@ -139,19 +167,32 @@ export interface Decrement<T = number> {
  */
 export type ArithmeticAdjustment<T = number> = Increment<T> | Decrement<T>;
 
-/** `tags: { append: "new" }` — `SET tags += $p` (appends, WITHOUT dedup — use `union` for that). */
-export interface Append<E = unknown> {
+/**
+ * `tags: { append: "new" }` — `SET tags += $p` (appends, WITHOUT dedup — use `union` for that).
+ * `coalesce` seeds a missing (`NONE`) array: `SET tags = (tags ?? $c) + $p`. With `when`, the whole
+ * effect is the `THEN` branch of `SET tags = IF … END`.
+ */
+export interface Append<E = unknown> extends AdjustmentModifiers {
   readonly append: E | readonly E[] | Surql;
+  /** The default array when the field is `NONE` — `f ?? $c` / `(f ?? $c) + $p`. */
+  readonly coalesce?: E | readonly E[] | Surql;
 }
 
-/** `tags: { remove: "old" }` — `SET tags -= $p` (removes EVERY occurrence). */
-export interface Remove<E = unknown> {
+/** `tags: { remove: "old" }` — `SET tags -= $p` (removes EVERY occurrence); with `when`, `IF … END`. */
+export interface Remove<E = unknown> extends AdjustmentModifiers {
   readonly remove: E | Surql;
+  /** `remove` doesn't seed a missing array — encoded so the union can't swallow it structurally. */
+  readonly coalesce?: never;
 }
 
-/** `tags: { union: ["a"] }` — `SET tags = array::union(tags, $p)` (the DEDUPING merge). */
-export interface Union<E = unknown> {
+/**
+ * `tags: { union: ["a"] }` — `SET tags = array::union(tags, $p)` (the DEDUPING merge).
+ * `coalesce` seeds a missing array: `SET tags = array::union(tags ?? $c, $p)`.
+ */
+export interface Union<E = unknown> extends AdjustmentModifiers {
   readonly union: readonly E[] | Surql;
+  /** The default array when the field is `NONE` — `array::union(f ?? $c, $p)`. */
+  readonly coalesce?: readonly E[] | Surql;
 }
 
 /** `tags: { at: { index: 0, value: "x" } }` — `SET tags[0] = $p`. */
@@ -160,6 +201,12 @@ export interface At<E = unknown> {
     readonly index: number;
     readonly value: E | Surql;
   };
+  /** `at` has no field expression to guard — encoded so the union can't swallow `when` structurally. */
+  readonly when?: never;
+  /** `at` has no guarded branch — encoded alongside {@link when}. */
+  readonly else?: never;
+  /** `at` targets one index, not an array to seed — encoded so the union can't swallow it. */
+  readonly coalesce?: never;
 }
 
 /**

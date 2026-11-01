@@ -193,6 +193,21 @@ original design prototype disagreed, the server wins.
 | `SET arr = array::union(arr, ['b'])`         | a **única** forma que deduplica: `['a','b']` (probe 3.3.4)                                                                                                     |
 | `SET arr[0] = $v`                            | atribui um índice (índice fora do range é erro do servidor)                                                                                                    |
 | `SET f += $p` com `p` string e `f` decimal   | **erro**: `Cannot perform addition with 'decimal' and 'string'` — o operando numérico é number/bigint/`Decimal`, nunca string                                  |
+| `SET f = IF true THEN f + 1 ELSE f END`      | aplica o efeito — uma leitura-modificação-escrita server-side (probe 3.x)                                                                                     |
+| `SET f = IF false THEN f + 1 ELSE f END`     | mantém `f` — o `ELSE` default é o próprio campo (probe 3.x)                                                                                                   |
+| `SET f = IF <g> THEN f + $p ELSE THROW s"…" END` | **aborta a statement** — nenhuma linha é escrita (o `updateMany` inteiro) (probe 3.x)                                                                   |
+| `SET arr = array::union(arr ?? [], $p)` com `arr = NONE` | `$p` — o `coalesce` semeia o array ausente (probe 3.x)                                                                                             |
+| `SET arr = (arr ?? $c) + $p`                 | seed do `{ append }`: concatena sobre o array default quando o campo é `NONE` (probe 3.x)                                                                     |
+| `SET arr = IF <g> THEN array::union(arr ?? [], $p) ELSE arr END` | guarda + seed combinados, ainda UMA escrita server-side (probe 3.x)                                                                        |
+
+**Modificadores `when`/`else`/`coalesce` (M17.12).** Eles refinam um marcador sem virar operador
+(as seis linhas de `AdjustmentLowering` continuam os operadores): `when` é uma guarda avaliada no
+servidor (`IF <g> THEN … ELSE … END`), `else` é o ramo `ELSE` (`"keep"` → `ELSE f`, `"throw"` →
+`ELSE THROW s"adjustment guard failed on <campo>"`, que aborta a statement, ou um valor/fragmento →
+`ELSE <valor>`) e `coalesce` semeia um array `NONE` (`f ?? $c`) — só em `union`/`append`. `when` é
+recusado em `{ at }` (o alvo `f[n]` não tem expressão de campo para o `IF`) e `else` sem `when` é
+`ValidationError`. Cada campo continua UMA escrita server-side, então o índice UNIQUE do array
+segue correto.
 
 **Marcadores de array (M17).** `{ append }` / `{ remove }` / `{ union }` / `{ at: { index, value } }`
 são a superfície tipada das quatro formas acima; o alvo é validado contra o schema (família
