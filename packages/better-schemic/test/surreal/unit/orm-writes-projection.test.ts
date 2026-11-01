@@ -991,7 +991,7 @@ describe("adjustment modifiers — when/else/coalesce", () => {
       data: { labels: { append: "b", coalesce: [] } },
     });
     expect(lastCall(calls)).toEqual({
-      sql: "UPDATE tagged:1 SET labels = (labels ?? $p0) + $p1;",
+      sql: "UPDATE tagged:1 SET labels = (labels ?? $p0) + [$p1];",
       vars: { p0: [], p1: "b" },
     });
   });
@@ -1012,7 +1012,7 @@ describe("adjustment modifiers — when/else/coalesce", () => {
       data: { labels: { append: "b", when: surql`score > 0` } },
     });
     expect(lastCall(calls)).toEqual({
-      sql: "UPDATE tagged:1 SET labels = IF score > 0 THEN labels + $p0 ELSE labels END;",
+      sql: "UPDATE tagged:1 SET labels = IF score > 0 THEN labels + [$p0] ELSE labels END;",
       vars: { p0: "b" },
     });
 
@@ -1021,7 +1021,7 @@ describe("adjustment modifiers — when/else/coalesce", () => {
       data: { labels: { remove: "b", when: surql`score > 0` } },
     });
     expect(lastCall(calls)).toEqual({
-      sql: "UPDATE tagged:1 SET labels = IF score > 0 THEN labels - $p0 ELSE labels END;",
+      sql: "UPDATE tagged:1 SET labels = IF score > 0 THEN labels - [$p0] ELSE labels END;",
       vars: { p0: "b" },
     });
   });

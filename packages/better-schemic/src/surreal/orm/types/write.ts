@@ -169,12 +169,12 @@ export type ArithmeticAdjustment<T = number> = Increment<T> | Decrement<T>;
 
 /**
  * `tags: { append: "new" }` — `SET tags += $p` (appends, WITHOUT dedup — use `union` for that).
- * `coalesce` seeds a missing (`NONE`) array: `SET tags = (tags ?? $c) + $p`. With `when`, the whole
+ * `coalesce` seeds a missing (`NONE`) array: `SET tags = (tags ?? $c) + [$p]`. With `when`, the whole
  * effect is the `THEN` branch of `SET tags = IF … END`.
  */
 export interface Append<E = unknown> extends AdjustmentModifiers {
   readonly append: E | readonly E[] | Surql;
-  /** The default array when the field is `NONE` — `f ?? $c` / `(f ?? $c) + $p`. */
+  /** The default array when the field is `NONE` — `f ?? $c` / `(f ?? $c) + [$p]`. */
   readonly coalesce?: E | readonly E[] | Surql;
 }
 

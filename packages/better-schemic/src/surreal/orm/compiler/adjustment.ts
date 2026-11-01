@@ -37,6 +37,8 @@ export type StepOp = "+=" | "-=" | "union" | "at" | "=";
 export interface ArithmeticStep {
   /** The top-level field (raw app name; `updateBody` escapes it). */
   readonly field: string;
+  /** The family of the target field (`number` or `array`) — drives scalar wrapping in `+`/`-`. */
+  readonly family?: Adjustment["family"];
   /** The operator (`+=`, `-=`, `union`, `at`, `=`). */
   readonly op: StepOp;
   /** The operand(s) to bind (`at` carries `[index, value]`). */
@@ -93,6 +95,7 @@ export function extractArithmetic(
 function loweringOf(marker: Adjustment, field: string): ArithmeticStep {
   const step = (op: StepOp): ArithmeticStep => ({
     field,
+    family: marker.family,
     op,
     value: marker.value,
     ...(marker.when !== undefined ? { when: marker.when as Surql } : {}),
@@ -309,11 +312,28 @@ function renderStep(step: ArithmeticStep, binds: Binds): string {
       : (renderBareFragment(step.when, binds) ??
         renderValue(step.when, binds, ctx));
   // Seed BEFORE the operand: the emitted order (`f ?? $c, $p`) is also the bind order.
+  // Array-family scalars must be wrapped in an array literal: SurrealDB's `+`/`-`/`array::union`
+  // operators need an array on the right, while the compound `+=`/`-=` forms accept a scalar.
+  const isArrayFamily = step.family === "array";
+  const explicit =
+    step.op === "union" ||
+    step.when !== undefined ||
+    step.coalesce !== undefined;
+  const wrapArrayScalar = (rendered: string, value: unknown): string => {
+    if (!isArrayFamily) return rendered;
+    if (!explicit) return rendered;
+    if (value instanceof BoundQuery) return rendered;
+    if (Array.isArray(value)) return rendered;
+    return `[${rendered}]`;
+  };
   const coalesce =
     step.coalesce === undefined
       ? undefined
-      : renderValue(step.coalesce, binds, ctx);
-  const operand = renderValue(step.value, binds, ctx);
+      : wrapArrayScalar(renderValue(step.coalesce, binds, ctx), step.coalesce);
+  const operand = wrapArrayScalar(
+    renderValue(step.value, binds, ctx),
+    step.value,
+  );
   const rhs =
     step.op === "union"
       ? `array::union(${coalesce === undefined ? field : `${field} ?? ${coalesce}`}, ${operand})`

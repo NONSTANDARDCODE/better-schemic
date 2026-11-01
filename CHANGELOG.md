@@ -37,6 +37,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   and other `define*` names are unchanged. All docs, examples, tests and manifests updated to the new names.
 
 ### Fixed
+- **ORM adjustment modifiers (live)**: the `{ append, coalesce }` form rendered
+  `SET f = (f ?? $c) + $p` (array + scalar), which SurrealDB 3.2.0 rejects; scalar operands are
+  now wrapped as `[...]` in the explicit `+`/`-`/`array::union` forms (the compound `+=`/`-=` forms,
+  which accept a scalar, are unchanged). Resolves the failing
+  `orm writes — live > adjustment modifiers` test.
 - **MC/DC coverage gate**: re-pointed the stale `mcdc-manifest.json` keys for the error predicates
   (`isNotFound` / `isValidationError` / `isUnsupportedCapability`) after their decision locations moved,
   and re-ratcheted the per-file unknown-decision floors (`mcdc.config.json`) plus the coverage waivers

@@ -370,7 +370,7 @@ describe("adjustment — the modifiers (when/else/coalesce)", () => {
       "SET tags = array::union(tags ?? $p0, $p1)",
     );
     expect(body({ tags: { append: "x", coalesce: [] } })).toBe(
-      "SET tags = (tags ?? $p0) + $p1",
+      "SET tags = (tags ?? $p0) + [$p1]",
     );
     expect(body({ score: { increment: 1, when: surql`score < 10` } })).toBe(
       "SET score = IF score < 10 THEN score + $p0 ELSE score END",
