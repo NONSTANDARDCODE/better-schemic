@@ -26,7 +26,7 @@ jobs:
         with:
           bun-version: canary
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.bun/install/cache
@@ -66,7 +66,7 @@ jobs:
         with:
           bun-version: canary
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.bun/install/cache
@@ -110,7 +110,7 @@ jobs:
         with:
           bun-version: canary
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.bun/install/cache
@@ -149,7 +149,7 @@ jobs:
         with:
           bun-version: canary
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.bun/install/cache
