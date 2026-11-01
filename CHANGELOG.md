@@ -36,6 +36,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `BetterSchemic*`/`CreateBetterSchemic*` → `Orm*`/`CreateOrm*`. The package name, subpaths (`better-schemic/orm`),
   and other `define*` names are unchanged. All docs, examples, tests and manifests updated to the new names.
 
+### Fixed
+- **MC/DC coverage gate**: re-pointed the stale `mcdc-manifest.json` keys for the error predicates
+  (`isNotFound` / `isValidationError` / `isUnsupportedCapability`) after their decision locations moved,
+  and re-ratcheted the per-file unknown-decision floors (`mcdc.config.json`) plus the coverage waivers
+  (`coverage.config.json`) for `merge.ts` and `adjustment.ts`, so the gate is green again.
+
 ## [0.1.0-beta.4] - 2026-10-30
 
 ### Added

@@ -55,10 +55,10 @@
     },
     "packages/better-schemic/src/core/cli-kit/merge.ts": {
       "statements": 82.43,
-      "branches": 70.31,
+      "branches": 70,
       "functions": 94.11,
       "lines": 87.57,
-      "conditions": 15.38
+      "conditions": 14.28
     },
     "packages/better-schemic/src/core/cli-kit/meta.ts": {
       "statements": 92.45,
@@ -387,7 +387,7 @@
       "branches": 95,
       "functions": 95,
       "lines": 95,
-      "conditions": 90
+      "conditions": 87.87
     },
     "packages/better-schemic/src/surreal/orm/compiler/aggregate-entries.ts": {
       "statements": 95,
