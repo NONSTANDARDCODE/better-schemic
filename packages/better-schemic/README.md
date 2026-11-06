@@ -347,7 +347,7 @@ void seeded;
 //   },
 //   where: { likes: { some: { score: { gte: 4 } } } },        // relational filter
 // });
-
+// Typed graph traversal (M19) — multi-hop, single round-trip (see a runnable block below).
 // Transactions (M4) — `tx` is a full client bound to the managed transaction:
 const from = await client.transaction(async (tx) => {
   const user = await tx.users
@@ -648,6 +648,46 @@ milestone plan is in [`ROADMAP.md`](../../ROADMAP.md), and the verified examples
 [`examples/`](examples) (authoring → DDL) and [`examples/orm/`](examples/orm) (delegate call →
 runtime SurrealQL). Fragments & procedural SurrealQL (`block()`) stay at
 `better-schemic/query`.
+
+## Typed graph traversal (M19)
+
+Multi-hop traversal in a single round-trip, typed against your schema's `relation()` edges:
+
+```ts
+const bought = await client.persons
+  .from("person:B")
+  .graph((g) =>
+    g.out(Bought).in(Bought).out(Bought)      // ->bought->product<-bought<-person->bought->product
+      .select({ id: true, name: true, price: true })
+      .distinct()
+  );
+```
+
+Per-hop filters, a final `.where`, callback `.select`, recursion, edge steps and `.match`:
+
+```ts
+const cheap = await client.persons.from("person:B").graph((g) =>
+  g.out(Bought, { where: { createdAt: { gte: lastMonth } } })
+    .out(Bought)
+    .where((p) => p.price.lt(500))
+    .select((p) => ({ id: p.id, name: p.name, price: p.price }))
+    .distinct()
+);
+
+const deep = await client.persons.from("person:B").graph((g) =>
+  g.repeat({ min: 1, max: 3 }, (x) => x.out(Bought)).collect()
+);
+
+const viaEdge = await client.persons.from("person:B").graph((g) =>
+  g.outEdges(Bought).where((e) => e.createdAt.gte(lastMonth)).node().select({ name: true })
+);
+
+// tagged template + .match (union member guard):
+const t = await client.persons.from("person:B").traverse`->bought->product`;
+const guarded = await client.persons.from("user:A").graph((g) =>
+  g.out(Knows).where((r) => r.match(User, (u) => u.name.eq("x")))
+);
+```
 
 ## Docs
 

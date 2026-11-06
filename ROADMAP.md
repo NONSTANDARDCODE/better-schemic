@@ -636,5 +636,17 @@ comprar nada: o driver nunca foi plugável.
   onboarding de driver viraram históricos) e o guia `docs/MIGRATION-one-package.md` com o mapa
   antigo → novo.
 
+## M19 — typed graph traversal on the ORM 🚧 *(in progress)*
+
+Initial slice delivered: `delegate.from(anchor).graph(g => g.out(E).in(E).both(E)…)` compiles to a single
+`SELECT [DISTINCT] VALUE <path> FROM ONLY <anchor>` and decodes the resulting node array.
+
+- ✅ **M19.0** anchor + builder skeleton + runtime compilation (`src/surreal/orm/graph.ts`, `src/surreal/orm/compiler/graph.ts`).
+- ✅ **M19.1** `.out`/`.in`/`.both` chaining with schema-checked direction (runtime resolve via `resolveEdge` + edge config targets).
+- ✅ **M19.2** `.select` (object + callback via `FieldRef`/`fragOf`) + `.distinct()`.
+- ✅ **M19.3** per-hop `where` (edge/target split via `classifyWhereByOwner`) + final `.where` (object or callback `Expr`).
+- ✅ **M19.4** tagged-template `.traverse\`…\`` (runtime-parsed path).
+- ✅ **M19.5** recursion (`.repeat` + collect/paths/shortest), edge steps (`.outEdges/.inEdges/.bothEdges` + `.node()`), `.match` (where + select), polymorphic-union targets (via target list).
+
 ## TODO
 criar modulo de metrics no sistema com otel — 🟡 TRACES FEITOS (`better-schemic/otel` → `createOtelLogger` como `QueryLogger` no executor, sem plugin/hooks; métricas ainda pendentes), fazer lint mais robusto, melhorar sistemas de tipos (otimizar para AoT do bun recem lancado), criar plugin com tipos pre compilados e sem new Function (inpirado em zod-compiler), querys tipadas 100% inferidas apartir de arquivos (nova funcionaalidade de mappers do ts) e de surrealql diretamente inpirado nisso: https://x.com/colinhacks/status/2113145042454134986, por fim tornar estavel o sistema de querys ao vivo, com suporte a rodar com swr no browser e em background pegar as alterações ao vivo, buscando uma DX semelhante ao que a convex entrega

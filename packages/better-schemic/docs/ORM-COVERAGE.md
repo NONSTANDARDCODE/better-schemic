@@ -155,6 +155,7 @@ Compiler `compiler/include/*`, `compiler/relations.ts`; types `types/{include,re
 | Relational `where` — `is`/`isNot`, `some`/`none`/`every`                       | `[x]`  | `test/surreal/unit/orm-include.test.ts:386`; `test/surreal/live/orm-relations.test.ts:304`         |
 | Relational `where` on write batches (`updateMany`/`deleteMany`/`unrelateMany`) | `[x]`  | `test/surreal/unit/orm-include.test.ts:472`; `test/surreal/live/orm-relations.test.ts:230`         |
 | Recursion/traversal via `select` + `surql` (`@.{n..m}`)                        | `[x]`  | `test/surreal/unit/orm-include.test.ts:493`; `test/surreal/live/orm-relations.test.ts:378`         |
+| Typed graph traversal (`.from(anchor).graph(…)`): `.out`/`.in`/`.both` chains, per-hop `where`, final `.where`, `.select` (object/callback), `.distinct()` | `[x]` | `test/surreal/unit/orm-graph.test.ts` |
 | `include` with `findUnique`/`paginate`/`cursor`                                | `[x]`  | `test/surreal/unit/orm-include.test.ts:690`                                                        |
 | Schema adjacency / relation metadata; link name-collision at bootstrap         | `[x]`  | `test/surreal/unit/orm-schema.test.ts:177`                                                         |
 

@@ -18,6 +18,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+### Added
+- **Typed graph traversal on the ORM** (M19): `delegate.from(anchor).graph(g => g.out(E).in(E).both(E)…)` compiles to a single `SELECT [DISTINCT] VALUE <path> FROM ONLY <anchor>` and decodes the resulting node array. Supports multi-hop chains of `.out`/`.in`/`.both` (schema-checked against each edge's declared endpoints), per-hop `where` (edge/target split via `classifyWhereByOwner`), a final `.where` (object or callback predicate via the `FieldRef` layer), `.select` (object form or callback projection, converted via `fragOf`), `.distinct()`, tagged-template `.traverse\`…\``, recursion via `.repeat(depth, fn)` (+`.collect()`/`.paths()`/`.shortest(target)`), edge steps (`.outEdges/.inEdges/.bothEdges` + `.node()`), and `.match(Member, fn)` in both `.where` and `.select`. Anchor accepts a `string` (`"table:id"`) or `RecordId`. Covered by `test/surreal/unit/orm-graph*.test.ts`.
+
 ## [0.1.0-beta.5] - 2026-11-01
 
 ### Added

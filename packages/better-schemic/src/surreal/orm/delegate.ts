@@ -20,6 +20,7 @@ import { createLiveOperation } from "./live";
 import type { ModelMeta, ResolvedIdStrategy, SchemaIndex } from "./meta";
 import { type PluginPipeline, RuntimeOperation } from "./plugins";
 import { createReadOperations } from "./reads";
+import { createGraphEntryPoint } from "./graph";
 import type { BatchResult } from "./results";
 import type { OperationContext } from "./types/context";
 import type { OperationKind } from "./types/hooks";
@@ -334,6 +335,10 @@ export interface Delegate<
    * });
    * ```
    */
+  /**
+   * Anchor a graph traversal to a record: `delegate.from("table:id").graph(g => g.out(Edge)…)` .
+   */
+  from(anchor: unknown): any;
   live<const A extends LiveArgs<TD, S>>(
     args?: A,
     handler?: LiveHandler<LiveRow<TD, A>>,
@@ -394,6 +399,7 @@ export function createDelegate<TD extends AnyTableDef = AnyTableDef>(
       $model: modelInfo(meta),
       ...wrapOperations(operations, meta, localCtx),
       live: createLiveOperation(meta, localCtx),
+      from: (anchor: unknown) => createGraphEntryPoint(meta, localCtx, anchor),
       $state: state,
       $withState: (patch: PluginState) =>
         build({ ...state, ...patch }, enabled),
