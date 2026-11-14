@@ -179,7 +179,7 @@
     "lint": "biome check ."
   },
   "dependencies": {
-    "commander": "^15.0.0",
+    "commander": "^15.1.0",
     "jiti": "^2.7.0",
     "magicast": "^0.5.5",
     "surrealdb": "^2.2.2",
@@ -198,9 +198,9 @@
     }
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.6.5",
+    "@biomejs/biome": "^2.6.6",
     "@opentelemetry/api": "^1.10.0",
-    "@opentelemetry/sdk-trace": "^3.1.0",
+    "@opentelemetry/sdk-trace": "^3.1.1",
     "@types/bun": "latest",
     "@typescript/native-preview": "7.0.0-dev.20260707.2"
   }

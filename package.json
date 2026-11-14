@@ -19,7 +19,7 @@
     "skills-install": "bunx skills experimental_install"
   },
   "dependencies": {
-    "skills": "^1.7.6"
+    "skills": "^1.8.1"
   },
   "devDependencies": {
     "@stryker-mutator/api": "^10.1.1",
@@ -29,6 +29,6 @@
     "istanbul-lib-report": "^3.0.1",
     "istanbul-reports": "^3.2.0",
     "oxc-coverage-instrument": "^0.20.0",
-    "oxc-parser": "^0.157.0"
+    "oxc-parser": "^0.158.0"
   }
 }
