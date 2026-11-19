@@ -1,11 +1,68 @@
 {
-  "version": 1,
+  "version": 2,
   "skills": {
+    "surrealdb-cli": {
+      "source": "surrealdb/agent-skills",
+      "commit": "b139bf713490830384cb59f3ef1696e98e32223f",
+      "sourceType": "github",
+      "skillPath": "skills/surrealdb-cli/SKILL.md",
+      "computedHash": "d20988644fd5fdec6afea3c5bda1c7d524074aae14821a61ae4a21814d4224c5"
+    },
+    "surrealdb-docs": {
+      "source": "surrealdb/agent-skills",
+      "commit": "b139bf713490830384cb59f3ef1696e98e32223f",
+      "sourceType": "github",
+      "skillPath": "skills/surrealdb-docs/SKILL.md",
+      "computedHash": "0ad1023604e6a53ba5c698644938e452ed33a88b5a32f7c08d2ef236873aec98"
+    },
+    "surrealdb-js": {
+      "source": "surrealdb/agent-skills",
+      "commit": "b139bf713490830384cb59f3ef1696e98e32223f",
+      "sourceType": "github",
+      "skillPath": "skills/surrealdb-js/SKILL.md",
+      "computedHash": "b33196795b6f0d65f1fef1e52c28454725bcb9a0bc1d7ee32266a8f05ca4a2ad"
+    },
+    "surrealdb-vector": {
+      "source": "surrealdb/agent-skills",
+      "commit": "b139bf713490830384cb59f3ef1696e98e32223f",
+      "sourceType": "github",
+      "skillPath": "skills/surrealdb-vector/SKILL.md",
+      "computedHash": "3e6dc3bdffcfeb4184eae23356969356015a4845d92980814071d97b86597ef0"
+    },
+    "surrealkit": {
+      "source": "surrealdb/agent-skills",
+      "commit": "b139bf713490830384cb59f3ef1696e98e32223f",
+      "sourceType": "github",
+      "skillPath": "skills/surrealkit/SKILL.md",
+      "computedHash": "4b220df31876d64c937e57f4a85770fb61518538915fe93dd6df08a75b1aaac5"
+    },
+    "surrealql": {
+      "source": "surrealdb/agent-skills",
+      "commit": "b139bf713490830384cb59f3ef1696e98e32223f",
+      "sourceType": "github",
+      "skillPath": "skills/surrealql/SKILL.md",
+      "computedHash": "75e2cd53486acf9e9532a22bcebd494d5a5f4582e8dc946ee153cb7265ec79f7"
+    },
+    "surrealql-functions": {
+      "source": "surrealdb/agent-skills",
+      "commit": "b139bf713490830384cb59f3ef1696e98e32223f",
+      "sourceType": "github",
+      "skillPath": "skills/surrealql-functions/SKILL.md",
+      "computedHash": "2991981064606f34980b34a3a0354ebdb782a280f45bf71bd2fe82379b443766"
+    },
+    "surrealql-performance": {
+      "source": "surrealdb/agent-skills",
+      "commit": "b139bf713490830384cb59f3ef1696e98e32223f",
+      "sourceType": "github",
+      "skillPath": "skills/surrealql-performance/SKILL.md",
+      "computedHash": "535c912b2f63eed4300dc6c1c569bd12d1adbb22aa74ce97a68bb99b361b6f05"
+    },
     "thermo-nuclear-code-quality-review": {
       "source": "cursor/plugins",
+      "commit": "0b46ec399d55f2829e88822998f53b84944837d3",
       "sourceType": "github",
       "skillPath": "cursor-team-kit/skills/thermo-nuclear-code-quality-review/SKILL.md",
-      "computedHash": "9052b01b46b1d8dbf94c45f9313ec1983443f9a460e83d49cdc7fe0f640ca476"
+      "computedHash": "705eb32106f0fec9c9e9b4afccb6156f17f6e8829368e54cd5b53f10e4374340"
     }
   }
 }
