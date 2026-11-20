@@ -3,16 +3,16 @@
  *
  * `assertType<Expected, Actual>()` fails to compile unless the two types are **mutually assignable**
  * (and `Actual` isn't `any`). That mirrors attest's compile-time gate (`actual extends expected`)
- * while also rejecting the two silent-degradation shapes an extends-only check lets through —
- * `actual = any` and `actual = never`. Presentation-only differences (a `readonly` modifier, an
- * intersection alias like `Row & { score: number }` written out longhand) compare equal — exactly as
+ * while also rejecting the two silent-degradation shapes an extends- check lets through —
+ * `actual = any` and `actual = never`. Presentation- differences (a `readonly` modifier, an
+ * intersection alias like `Row & { score: number }` written out longhand) compare equal —  as
  * they did under attest.
  *
- * The check is evaluated by each package's `typecheck` (`bun check`): no runtime, no TypeScript
+ * The check evaluats it by each package's `typecheck` (`bun check`): no runtime, no TypeScript
  * compiler API, no separate program.
  * See `docs/TYPE-PERF-TESTING.md`.
  */
-export type IsAny<T> = 0 extends 1 & T ? true : false;
+export type IsAny<T> = 0 extends 1 & T ? true : false
 
 /**
  * The call tuple: empty when the assertion holds, a diagnostic payload otherwise. That turns a
@@ -23,9 +23,9 @@ export type AssertCall<Expected, Actual> =
   IsAny<Actual> extends true
     ? [
         {
-          error: "Actual resolved to any — the type under test collapsed";
-          expected: Expected;
-          actual: Actual;
+          actual: Actual
+          error: "Actual resolved to any — the type under test collapsed"
+          expected: Expected
         },
       ]
     : [Actual] extends [Expected]
@@ -33,19 +33,17 @@ export type AssertCall<Expected, Actual> =
         ? []
         : [
             {
-              error: "Expected and Actual are not mutually assignable";
-              expected: Expected;
-              actual: Actual;
+              actual: Actual
+              error: "Expected and Actual are not mutually assignable"
+              expected: Expected
             },
           ]
       : [
           {
-            error: "Expected and Actual are not mutually assignable";
-            expected: Expected;
-            actual: Actual;
+            actual: Actual
+            error: "Expected and Actual are not mutually assignable"
+            expected: Expected
           },
-        ];
+        ]
 
-export function assertType<Expected, Actual>(
-  ..._check: AssertCall<Expected, Actual>
-): void {}
+export function assertType<Expected, Actual>(..._check: AssertCall<Expected, Actual>): void {}

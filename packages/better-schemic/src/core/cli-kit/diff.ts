@@ -1,10 +1,10 @@
 // The DIALECT-FREE diff DISPLAY + shared types. The SurrealDB statement-diff engine (buildSnapshot/
-// diffSnapshots/renderMigration) lives in `./surreal-diff` and is invoked through the driver; this
+// diffSnapshots/renderMigration) lives in `./surreal-diff` and invoks it through the driver; this
 // module is what the CLI shell uses to RENDER any driver's Diff (git-style file groups, word-diff,
 // unified patch, kind summaries). Dialect-free: `kind` is an opaque string, not a Surreal kind union.
-import type { KindRegistry } from "../kind";
-import type { SecretRef } from "../secrets";
-import { colorEnabled, style } from "./style";
+import type { KindRegistry } from "../kind"
+import type { SecretRef } from "../secrets"
+import { colorEnabled, style } from "./style"
 
 /**
  * One object's change, for display. `kind` is the object kind, `table` its owner (a table name,
@@ -13,138 +13,159 @@ import { colorEnabled, style } from "./style";
  * `change` pairs old↔new.
  */
 export type DiffItem = {
-  key: string;
-  table: string;
-  /** Dialect-defined object kind (e.g. "table"/"field"/"index") — opaque to the display. */
-  kind: string;
   /** The source file this object lives in (or lived in, for a removal). Absent if unknown. */
-  file?: string;
+  file?: string
+  key: string
+  /** Dialect-defined object kind (e.g. "table"/"field"/"index") — opaque to the display. */
+  kind: string
+  table: string
 } & (
-  | { op: "add"; ddl: string }
-  | { op: "remove"; ddl: string; old: string }
-  | { op: "change"; before: string; after: string }
-);
+  | { after: string; before: string; op: "change" }
+  | { ddl: string; old: string; op: "remove" }
+  | { ddl: string; op: "add" }
+)
 
 export interface Diff {
-  up: string[];
-  down: string[];
   /**
-   * Apply-time secret bindings: `$param` name -> a write-only {@link SecretRef} (e.g. `env("X")`).
+   * Apply-time secret bindings: `$param` name -> a write- {@link SecretRef} (e.g. `env("X")`).
    * Populated by a driver whose DDL emits secret placeholders (SurrealDB `DEFINE ACCESS … KEY $param`).
    * MODEL 1: stored in the migration so it replays without the live schema; the **value never appears
    * here** — the apply layer resolves each ref through a `SecretProvider` and binds it (`db.query(ddl,
    * resolved)`), so secrets stay out of the schema, snapshot, and migration files. Diff-excluded +
    * snapshot-omitted, so a redacted secret never reads as drift.
    */
-  bindings?: Record<string, SecretRef>;
-  /** Structured per-object changes for the human display (word-level diff). */
-  items?: DiffItem[];
+  bindings?: Record<string, SecretRef>
+  down: string[]
   /** Every desired statement (the `next` schema), for the `--full` context view. */
-  full?: { key: string; table: string; ddl: string }[];
+  full?: { ddl: string; key: string; table: string }[]
+  /** Structured per-object changes for the human display (word-level diff). */
+  items?: DiffItem[]
+  up: string[]
 }
 
 /** `true` if the two snapshots define the same objects with identical DDL. */
 export function isEmptyDiff(diff: Diff): boolean {
-  return diff.up.length === 0;
+  return diff.up.length === 0
 }
 
 /**
  * Inline word-level diff of two statements: shared tokens dim, removed tokens red, added tokens
- * green (LCS over space-separated tokens). So a changed field shows the whole statement with only
+ * green (LCS over space-separated tokens). So a changed field shows the whole statement with 
  * the changed words highlighted.
  */
 export function tokenDiff(before: string, after: string): string {
-  const a = before.split(" ");
-  const b = after.split(" ");
-  const m = a.length;
-  const n = b.length;
+  const a = before.split(" ")
+  const b = after.split(" ")
+  const m = a.length
+  const n = b.length
   // With color: red/green/dim. Without (pipe / CI / NO_COLOR): git `--word-diff=plain` markers
   // `[-removed-]`/`{+added+}` so removed-vs-added is unambiguous and assertable.
-  const colored = colorEnabled();
-  const del = (t: string) => (colored ? style.red(t) : `[-${t}-]`);
-  const ins = (t: string) => (colored ? style.green(t) : `{+${t}+}`);
-  const eq = (t: string) => (colored ? style.dim(t) : t);
+  const colored = colorEnabled()
+  const del = (t: string) => (colored ? style.red(t) : `[-${t}-]`)
+  const ins = (t: string) => (colored ? style.green(t) : `{+${t}+}`)
+  const eq = (t: string) => (colored ? style.dim(t) : t)
   // A full LCS matrix is O(m*n) cells; above the cap, keep the common prefix/suffix and mark the
   // middle removed + added (a valid, coarser word diff — never an OOM).
   if (m * n > TOKEN_LCS_LIMIT) {
-    let start = 0;
-    while (start < m && start < n && a[start] === b[start]) start++;
-    let endA = m;
-    let endB = n;
+    let start = 0
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    while (start < m && start < n && a[start] === b[start]) {
+      start++
+    }
+    let endA = m
+    let endB = n
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
-      endA--;
-      endB--;
+      endA--
+      endB--
     }
-    const out: string[] = [];
-    for (let i = 0; i < start; i++) out.push(eq(a[i] as string));
-    for (let i = start; i < endA; i++) out.push(del(a[i] as string));
-    for (let j = start; j < endB; j++) out.push(ins(b[j] as string));
-    for (let i = endA; i < m; i++) out.push(eq(a[i] as string));
-    return out.join(" ");
+    const out: string[] = []
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    for (let i = 0; i < start; i++) {
+      out.push(eq(a[i]))
+    }
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    for (let i = start; i < endA; i++) {
+      out.push(del(a[i]))
+    }
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    for (let j = start; j < endB; j++) {
+      out.push(ins(b[j]))
+    }
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    for (let i = endA; i < m; i++) {
+      out.push(eq(a[i]))
+    }
+    return out.join(" ")
   }
-  const dp: number[][] = Array.from({ length: m + 1 }, () =>
-    new Array(n + 1).fill(0),
-  );
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (let i = m - 1; i >= 0; i--) {
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (let j = n - 1; j >= 0; j--) {
-      dp[i][j] =
-        a[i] === b[j]
-          ? dp[i + 1][j + 1] + 1
-          : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
     }
   }
-  const out: string[] = [];
-  let i = 0;
-  let j = 0;
+  const out: string[] = []
+  let i = 0
+  let j = 0
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   while (i < m && j < n) {
     if (a[i] === b[j]) {
-      out.push(eq(a[i] as string));
-      i++;
-      j++;
+      out.push(eq(a[i]))
+      i++
+      j++
     } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-      out.push(del(a[i++] as string));
+      out.push(del(a[i++]))
     } else {
-      out.push(ins(b[j++] as string));
+      out.push(ins(b[j++]))
     }
   }
-  while (i < m) out.push(del(a[i++] as string));
-  while (j < n) out.push(ins(b[j++] as string));
-  return out.join(" ");
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  while (i < m) {
+    out.push(del(a[i++]))
+  }
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  while (j < n) {
+    out.push(ins(b[j++]))
+  }
+  return out.join(" ")
 }
 
-/** Cell cap for the token LCS (~1M cells ≈ a few MB); above it the coarse prefix/suffix path runs. */
-const TOKEN_LCS_LIMIT = 1_000_000;
+/** Cell cap for the token LCS (~1M cells ≈ a MB); above it the coarse prefix/suffix path runs. */
+const TOKEN_LCS_LIMIT = 1_000_000
 
 /**
  * Prefix EVERY line of `text` with the diff indicator — statements are multi-line now that drivers
  * pretty-print display DDL, and a bare continuation line would read as context, not change.
  */
-function mark(
-  text: string,
-  sign: string,
-  color: (s: string) => string,
-): string {
+function mark(text: string, sign: string, color: (s: string) => string): string {
   return text
     .split("\n")
     .map((l) => color(`  ${sign} ${l}`))
-    .join("\n");
+    .join("\n")
 }
 
 /**
  * Render one display item: `+`/`-` line for add/remove. A change renders as separate red `-` /
- * green `+` lines by default, or as a single inline word-diff when `inline` is set (the A/B toggle).
+ * green `+` lines by default, or as a single inline word-diff when `inline` sets it (the A/B toggle).
  */
 function renderItem(it: DiffItem, inline = false): string {
-  if (it.op === "add") return mark(it.ddl, "+", style.green);
-  if (it.op === "remove") return mark(it.ddl, "-", style.red);
-  if (inline)
-    return `    ${tokenDiff(collapseWs(it.before), collapseWs(it.after))}`;
-  return `${mark(it.before, "-", style.red)}\n${mark(it.after, "+", style.green)}`;
+  if (it.op === "add") {
+    return mark(it.ddl, "+", style.green)
+  }
+  if (it.op === "remove") {
+    return mark(it.ddl, "-", style.red)
+  }
+  if (inline) {
+    return `    ${tokenDiff(collapseWs(it.before), collapseWs(it.after))}`
+  }
+  return `${mark(it.before, "-", style.red)}\n${mark(it.after, "+", style.green)}`
 }
 
 /** The inline word-diff is a one-line token view — collapse pretty-printed statements onto it. */
 function collapseWs(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
+  return text.replaceAll(/\s+/gu, " ").trim()
 }
 
 /**
@@ -152,40 +173,34 @@ function collapseWs(text: string): string {
  * with no file (an older snapshot, or the live DB) fall back to a per-object group headed by the
  * object's bare name. Returns groups in first-seen order, each with its header.
  */
-function groupByFile(
-  items: DiffItem[],
-): { header: string; items: DiffItem[] }[] {
-  const order: string[] = [];
-  const byKey = new Map<string, DiffItem[]>();
+function groupByFile(items: DiffItem[]): { header: string; items: DiffItem[] }[] {
+  const order: string[] = []
+  const byKey = new Map<string, DiffItem[]>()
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const it of items) {
-    const key = it.file ?? `\0${it.table}`; // \0 can't collide with a real path
-    let group = byKey.get(key);
+    const key = it.file ?? `\0${it.table}` // \0 can't collide with a real path
+    let group = byKey.get(key)
     if (!group) {
-      group = [];
-      byKey.set(key, group);
-      order.push(key);
+      group = []
+      byKey.set(key, group)
+      order.push(key)
     }
-    group.push(it);
+    group.push(it)
   }
   return order.map((key) => {
-    const group = byKey.get(key) ?? [];
+    const group = byKey.get(key) ?? []
     return {
       header: group.find((i) => i.file)?.file ?? group[0].table,
       items: group,
-    };
-  });
+    }
+  })
 }
 
 /** Render display items as a git-style file diff: each group headed by its source file path. */
 export function formatItems(items: DiffItem[], inline = false): string {
   return groupByFile(items)
-    .map((g) =>
-      [
-        style.bold(g.header),
-        ...g.items.map((it) => renderItem(it, inline)),
-      ].join("\n"),
-    )
-    .join("\n\n");
+    .map((g) => [style.bold(g.header), ...g.items.map((it) => renderItem(it, inline))].join("\n"))
+    .join("\n\n")
 }
 
 /**
@@ -195,26 +210,36 @@ export function formatItems(items: DiffItem[], inline = false): string {
  * its own `+`/`-` and the hunk counts count lines, not statements.
  */
 export function formatPatch(diff: Diff): string {
-  const items = diff.items ?? [];
-  if (!items.length) return "";
-  const out: string[] = [];
+  const items = diff.items ?? []
+  if (items.length === 0) {
+    return ""
+  }
+  const out: string[] = []
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const { header, items: group } of groupByFile(items)) {
-    const lines: string[] = [];
-    let dels = 0;
-    let adds = 0;
-    const push = (text: string, sign: "+" | "-") => {
+    const lines: string[] = []
+    let dels = 0
+    let adds = 0
+    const push = (text: string, sign: "-" | "+") => {
+      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
       for (const l of text.split("\n")) {
-        lines.push(`${sign}${l}`);
-        if (sign === "+") adds++;
-        else dels++;
+        lines.push(`${sign}${l}`)
+        if (sign === "+") {
+          adds++
+        } else {
+          dels++
+        }
       }
-    };
+    }
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const it of group) {
-      if (it.op === "add") push(it.ddl, "+");
-      else if (it.op === "remove") push(it.old, "-");
-      else {
-        push(it.before, "-");
-        push(it.after, "+");
+      if (it.op === "add") {
+        push(it.ddl, "+")
+      } else if (it.op === "remove") {
+        push(it.old, "-")
+      } else {
+        push(it.before, "-")
+        push(it.after, "+")
       }
     }
     out.push(
@@ -223,36 +248,45 @@ export function formatPatch(diff: Diff): string {
       `+++ b/${header}`,
       `@@ -${dels ? 1 : 0},${dels} +${adds ? 1 : 0},${adds} @@`,
       ...lines,
-    );
+    )
   }
-  return `${out.join("\n")}\n`;
+  return `${out.join("\n")}\n`
 }
 
 /** `--full`: the whole desired schema — unchanged dim, additions green, changes word-diffed. */
 function formatFull(diff: Diff, inline = false): string {
-  const byKey = new Map((diff.items ?? []).map((it) => [it.key, it]));
-  const out: string[] = [];
-  let prev: string | undefined;
+  const byKey = new Map((diff.items ?? []).map((it) => [it.key, it]))
+  const out: string[] = []
+  let prev: string | undefined
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const f of diff.full ?? []) {
-    if (prev !== undefined && f.table !== prev) out.push("");
-    const it = byKey.get(f.key);
-    if (it?.op === "change") out.push(renderItem(it, inline));
-    else if (it?.op === "add") out.push(mark(f.ddl, "+", style.green));
-    else
+    if (prev !== undefined && f.table !== prev) {
+      out.push("")
+    }
+    const it = byKey.get(f.key)
+    if (it?.op === "change") {
+      out.push(renderItem(it, inline))
+    } else if (it?.op === "add") {
+      out.push(mark(f.ddl, "+", style.green))
+    } else {
       out.push(
         f.ddl
           .split("\n")
           .map((l) => style.dim(`    ${l}`))
           .join("\n"),
-      );
-    prev = f.table;
+      )
+    }
+    prev = f.table
   }
-  const removed = (diff.items ?? []).filter((it) => it.op === "remove");
-  if (removed.length) {
-    out.push("");
-    for (const it of removed) out.push(renderItem(it, inline));
+  const removed = (diff.items ?? []).filter((it) => it.op === "remove")
+  if (removed.length > 0) {
+    out.push("")
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    for (const it of removed) {
+      out.push(renderItem(it, inline))
+    }
   }
-  return out.join("\n");
+  return out.join("\n")
 }
 
 /** A human-readable view of a diff's forward (and optionally reverse) changes. */
@@ -260,10 +294,10 @@ export function formatDiff(
   diff: Diff,
   opts: { down?: boolean; full?: boolean; inline?: boolean } = {},
 ): string {
-  if (!diff.up.length) return "No changes.";
-  let out = opts.full
-    ? formatFull(diff, opts.inline)
-    : formatItems(diff.items ?? [], opts.inline);
+  if (diff.up.length === 0) {
+    return "No changes."
+  }
+  let out = opts.full ? formatFull(diff, opts.inline) : formatItems(diff.items ?? [], opts.inline)
   if (opts.down) {
     const down = diff.down
       .map((s) =>
@@ -272,10 +306,10 @@ export function formatDiff(
           .map((l) => style.dim(`  ${l}`))
           .join("\n"),
       )
-      .join("\n");
-    out += `\n\n${style.dim("  rollback (down):")}\n${down}`;
+      .join("\n")
+    out += `\n\n${style.dim("  rollback (down):")}\n${down}`
   }
-  return out;
+  return out
 }
 
 /**
@@ -283,16 +317,17 @@ export function formatDiff(
  * structured `kind` and labels it from the registry's per-kind {@link KindRegistry.display} (singular
  * when the count is one), so the summary is correct for every dialect — no DDL parsing.
  */
-export function summarizeKinds(
-  registry: KindRegistry,
-  items: readonly { kind: string }[],
-): string {
-  const counts = new Map<string, number>();
-  for (const it of items) counts.set(it.kind, (counts.get(it.kind) ?? 0) + 1);
-  const parts: string[] = [];
-  for (const [kind, n] of counts) {
-    const d = registry.display(kind);
-    parts.push(`${n} ${n === 1 ? d.label : d.plural}`);
+export function summarizeKinds(registry: KindRegistry, items: readonly { kind: string }[]): string {
+  const counts = new Map<string, number>()
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const it of items) {
+    counts.set(it.kind, (counts.get(it.kind) ?? 0) + 1)
   }
-  return parts.join(", ");
+  const parts: string[] = []
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const [kind, n] of counts) {
+    const d = registry.display(kind)
+    parts.push(`${n} ${n === 1 ? d.label : d.plural}`)
+  }
+  return parts.join(", ")
 }

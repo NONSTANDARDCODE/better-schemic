@@ -1,10 +1,8 @@
-import { describe, expect, test } from "bun:test";
-import type { PortableType } from "better-schemic/core";
-import { normalizeType } from "../../../src/surreal/cli/struct";
-import {
-  emitSurqlType,
-  parseSurqlType,
-} from "../../../src/surreal/driver/surql-type";
+import type { PortableType } from "better-schemic/core"
+import { describe, expect, test } from "bun:test"
+
+import { normalizeType } from "../../../src/surreal/cli/struct"
+import { emitSurqlType, parseSurqlType } from "../../../src/surreal/driver/surql-type"
 
 // Milestone 2 LOSSLESS proof: the SurrealQL type string <-> PortableType bridge must round-trip, so
 // flipping diff equality to a structured deep-compare over PortableType can't produce false negatives
@@ -51,21 +49,23 @@ const CANONICAL = [
   "option<int> | string",
   // A nullable union: `null` sorts as a FLAT member (`array<…> | null | set<…>`), not appended last.
   "array<int> | null | set<string>",
-];
+]
 
 describe("surql-type bridge (Milestone 2 losslessness)", () => {
   test("emit∘parse reproduces the canonical SurrealQL spelling", () => {
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const kind of CANONICAL) {
-      expect(emitSurqlType(parseSurqlType(kind))).toBe(kind);
+      expect(emitSurqlType(parseSurqlType(kind))).toBe(kind)
     }
-  });
+  })
 
   test("parse∘emit is identity on PortableType", () => {
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const kind of CANONICAL) {
-      const p = parseSurqlType(kind);
-      expect(parseSurqlType(emitSurqlType(p))).toEqual(p);
+      const p = parseSurqlType(kind)
+      expect(parseSurqlType(emitSurqlType(p))).toEqual(p)
     }
-  });
+  })
 
   test("agrees with normalizeType on non-canonical input (the canonicalizer's job)", () => {
     const cases: [string, string][] = [
@@ -78,42 +78,37 @@ describe("surql-type bridge (Milestone 2 losslessness)", () => {
       ['"admin"', "'admin'"],
       // nullable canonical form (null sorts first)
       ["string | null", "null | string"],
-    ];
+    ]
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const [input, canonical] of cases) {
-      expect(emitSurqlType(parseSurqlType(input))).toBe(
-        normalizeType(canonical),
-      );
+      expect(emitSurqlType(parseSurqlType(input))).toBe(normalizeType(canonical))
       // and the bridge's own output matches the engine's canonicalizer
-      expect(emitSurqlType(parseSurqlType(input))).toBe(normalizeType(input));
+      expect(emitSurqlType(parseSurqlType(input))).toBe(normalizeType(input))
     }
-  });
+  })
 
   test("literal atoms: numbers, booleans and double-quoted strings", () => {
     // non-string literals exercise the emit side that isn't a quoted string.
-    expect(emitSurqlType(parseSurqlType("42"))).toBe("42");
-    expect(emitSurqlType(parseSurqlType("-3.5"))).toBe("-3.5");
-    expect(emitSurqlType(parseSurqlType("true"))).toBe("true");
-    expect(emitSurqlType(parseSurqlType("false"))).toBe("false");
+    expect(emitSurqlType(parseSurqlType("42"))).toBe("42")
+    expect(emitSurqlType(parseSurqlType("-3.5"))).toBe("-3.5")
+    expect(emitSurqlType(parseSurqlType("true"))).toBe("true")
+    expect(emitSurqlType(parseSurqlType("false"))).toBe("false")
     // a double-quoted literal parses identically to its single-quoted spelling.
-    expect(parseSurqlType('"admin"')).toEqual(parseSurqlType("'admin'"));
-  });
+    expect(parseSurqlType('"admin"')).toEqual(parseSurqlType("'admin'"))
+  })
 
   test("peculiar inputs fall through cleanly", () => {
-    // a union of ONLY none/null: no rest members → option<…> around the empty/nullable bottom.
-    expect(emitSurqlType(parseSurqlType("none | null"))).toBe(
-      "option<none | null>",
-    );
+    // a union of  none/null: no rest members → option<…> around the empty/nullable bottom.
+    expect(emitSurqlType(parseSurqlType("none | null"))).toBe("option<none | null>")
     // an unknown geometry kind stays a Surreal-native escape hatch (not a geometry node).
-    expect(emitSurqlType(parseSurqlType("geometry<bogus>"))).toBe(
-      "geometry<bogus>",
-    );
-  });
+    expect(emitSurqlType(parseSurqlType("geometry<bogus>"))).toBe("geometry<bogus>")
+  })
 
   test("a tag outside the PortableType union is a hard error (exhaustive switch)", () => {
     // The switch is exhaustive; this guards against a value smuggled in via `any`/a stale cast, so
-    // a dialect mismatch fails loudly instead of emitting a silently-wrong type.
-    expect(() =>
-      emitSurqlType({ t: "bogus" } as unknown as PortableType),
-    ).toThrow("unhandled portable type: bogus");
-  });
-});
+    // a dialect mismatch fails instead of emitting a -wrong type.
+    expect(() => emitSurqlType({ t: "bogus" } as unknown as PortableType)).toThrow(
+      "unhandled portable type: bogus",
+    )
+  })
+})

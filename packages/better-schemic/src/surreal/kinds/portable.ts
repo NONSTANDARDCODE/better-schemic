@@ -10,7 +10,7 @@
 // NESTED in the table object (a table HAS fields — they are the shared substrate, not a kind), and the
 // table kind owns field-level diff inside its `overwrite`.
 
-import type { PortableObject, Ref } from "../../core";
+import type { PortableObject, Ref } from "../../core"
 import type {
   StructAccess,
   StructAnalyzer,
@@ -18,49 +18,49 @@ import type {
   StructParam,
   StructSequence,
   StructTable,
-} from "../cli/structure";
-import type { DefineStatement } from "../ddl";
+} from "../cli/structure"
+import type { DefineStatement } from "../ddl"
 
 /**
  * A table's portable form: its `DEFINE TABLE` head + its `DEFINE FIELD` statements (nested). Indexes
- * and events are EXCLUDED — they are their own kinds. `deps` carries the table's cross-kind edges
+ * and events exclud them — they are their own kinds. `deps` carries the table's cross-kind edges
  * (a RELATION's in/out endpoint tables), computed at explode time.
  */
 export interface PTable extends PortableObject {
-  readonly kind: "table";
-  readonly name: string;
-  /** The `DEFINE TABLE` head statement (carries the table-level clause map for `ALTER TABLE`). */
-  readonly head: DefineStatement;
+  /** Objects this table must emitts it AFTER — a RELATION's in/out tables. */
+  readonly deps: Ref[]
   /** The nested `DEFINE FIELD` statements (each carries its clause map for `ALTER FIELD`). */
-  readonly fields: DefineStatement[];
-  /** Objects this table must be emitted AFTER — a RELATION's in/out tables. */
-  readonly deps: Ref[];
+  readonly fields: DefineStatement[]
+  /** The `DEFINE TABLE` head statement (carries the table-level clause map for `ALTER TABLE`). */
+  readonly head: DefineStatement
+  readonly kind: "table"
+  readonly name: string
   /**
    * The NORMALIZED structured table (fields/indexes/events nested) — carried so `renderSchema` can
    * reconstruct `DbStructured` for TS codegen WITHOUT re-parsing rendered DDL (the robust read of
    * flip-plan §6b's "derive structured from your portable objects"; emit/diff still use head/fields).
    */
-  readonly struct: StructTable;
+  readonly struct: StructTable
 }
 
 /** An index's portable form: the `DEFINE INDEX` statement + its owning table. `deps` carries the table
  *  and, for a FULLTEXT index, its analyzer (so the analyzer emits BEFORE the index). */
 export interface PIndex extends PortableObject {
-  readonly kind: "index";
-  readonly name: string;
-  readonly table: string;
-  readonly stmt: DefineStatement;
-  readonly deps: Ref[];
+  readonly deps: Ref[]
+  readonly kind: "index"
+  readonly name: string
+  readonly stmt: DefineStatement
+  readonly table: string
 }
 
 /** An event's portable form: the `DEFINE EVENT` statement + its owning table. `deps` carries any
  *  `fn::` functions the WHEN/THEN call (so a called function emits BEFORE the event). */
 export interface PEvent extends PortableObject {
-  readonly kind: "event";
-  readonly name: string;
-  readonly table: string;
-  readonly stmt: DefineStatement;
-  readonly deps: Ref[];
+  readonly deps: Ref[]
+  readonly kind: "event"
+  readonly name: string
+  readonly stmt: DefineStatement
+  readonly table: string
 }
 
 /**
@@ -68,12 +68,12 @@ export interface PEvent extends PortableObject {
  * statement, round-tripped verbatim). `deps` carries any OTHER `fn::` functions its body calls.
  */
 export interface PFunction extends PortableObject {
-  readonly kind: "function";
-  readonly name: string;
-  readonly stmt: DefineStatement;
-  readonly deps: Ref[];
+  readonly deps: Ref[]
+  readonly kind: "function"
+  readonly name: string
   /** The structured function (the opaque kind's `native` payload) — for `renderSchema` TS codegen. */
-  readonly native: StructFunction;
+  readonly native: StructFunction
+  readonly stmt: DefineStatement
 }
 
 /**
@@ -81,61 +81,54 @@ export interface PFunction extends PortableObject {
  * SIGNUP/SIGNIN/AUTHENTICATE call (so those functions emit BEFORE the access).
  */
 export interface PAccess extends PortableObject {
-  readonly kind: "access";
-  readonly name: string;
-  readonly stmt: DefineStatement;
-  readonly deps: Ref[];
+  readonly deps: Ref[]
+  readonly kind: "access"
+  readonly name: string
   /** The structured access (the opaque kind's `native` payload) — for `renderSchema` TS codegen. */
-  readonly native: StructAccess;
+  readonly native: StructAccess
+  readonly stmt: DefineStatement
 }
 
 /**
  * A db-level text-search analyzer's portable form — OPAQUE. A FULLTEXT index `deps` on it.
  */
 export interface PAnalyzer extends PortableObject {
-  readonly kind: "analyzer";
-  readonly name: string;
-  readonly stmt: DefineStatement;
-  readonly deps: Ref[];
+  readonly deps: Ref[]
+  readonly kind: "analyzer"
+  readonly name: string
   /** The structured analyzer (the opaque kind's `native` payload) — for `renderSchema` TS codegen. */
-  readonly native: StructAnalyzer;
+  readonly native: StructAnalyzer
+  readonly stmt: DefineStatement
 }
 
 /** A MANAGED `DEFINE PARAM` (inline literal value; secret/declared params never lower). */
 export interface PParam extends PortableObject {
-  readonly kind: "param";
-  readonly name: string;
-  readonly stmt: DefineStatement;
-  readonly deps: Ref[];
+  readonly deps: Ref[]
+  readonly kind: "param"
+  readonly name: string
   /** The structured param (the opaque kind's `native` payload). */
-  readonly native: StructParam;
+  readonly native: StructParam
+  readonly stmt: DefineStatement
 }
 
 /** A db-level `DEFINE SEQUENCE` portable object — OPAQUE (a neutral identity + its canonical
  *  `DEFINE SEQUENCE` statement, round-tripped verbatim). */
 export interface PSequence extends PortableObject {
-  readonly kind: "sequence";
-  readonly name: string;
-  readonly stmt: DefineStatement;
-  readonly deps: Ref[];
+  readonly deps: Ref[]
+  readonly kind: "sequence"
+  readonly name: string
   /** The structured sequence (the opaque kind's `native` payload) — for `renderSchema` TS codegen. */
-  readonly native: StructSequence;
+  readonly native: StructSequence
+  readonly stmt: DefineStatement
 }
 
 /** Every portable object a SurrealDB schema lowers to. */
 export type SurrealPortable =
-  | PTable
-  | PIndex
-  | PEvent
-  | PFunction
-  | PAccess
-  | PAnalyzer
-  | PParam
-  | PSequence;
+  PAccess | PAnalyzer | PEvent | PFunction | PIndex | PParam | PSequence | PTable
 
 /**
  * The authoring-side definables the explode produces. They ALREADY carry the normalized, canonical
  * `DefineStatement`(s) (the explode runs `schemaStruct` + `structuredSnapshot` first), so each kind's
- * `lower` is the identity — exactly the pattern core's `kind-registry.test.ts` uses.
+ * `lower` is the identity —  the pattern core's `kind-registry.test.ts` uses.
  */
-export type SurrealDefinable = SurrealPortable;
+export type SurrealDefinable = SurrealPortable

@@ -32,7 +32,13 @@ app code still bundles only what it imports:
 - `better-schemic/config` — `defineConfig` (the project config).
 - `better-schemic/logger` — the query logger (`createQueryLogger`, presets, env resolution).
 - `better-schemic/aot` — the zod-compiler bridge (`fieldSchemaOf`, compile markers). AOT generation
-  lives in the `sc compile` CLI command; the Bun build plugin is `better-schemic/plugin`.
+  lives in `sc compile`/`sc generate`; the Bun build plugin is `better-schemic/plugin`.
+- `better-schemic/zod` + `better-schemic/zod/core` — re-exports of the package's single Zod copy
+  used by zod-compiler's generated headers (no direct `zod` dependency in apps).
+- `defineConfig` also carries `resolve.alias` (CLI jiti aliases), `generators` (declarative
+  `sc generate`) and `generated` (directives / knip ignores / zod specifier). The ROOT `bunfig.toml`
+  carries the consumer's lint ruleset (plus a documented `REGRAS DIFERIDAS` section); see
+  ROADMAP M20.13. Gate: `bun check` + `bun test` + `bun lint` from the repo root.
 - `better-schemic/otel` — OpenTelemetry tracing as a `QueryLogger` (`createOtelLogger`); the
   `@opentelemetry/api` peer is optional and an unattached logger costs nothing.
 - `better-schemic/plugins/*` — the authoring plugins.

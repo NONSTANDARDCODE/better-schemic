@@ -9,12 +9,14 @@
 
 // --- neutral config ---------------------------------------------------------------------------
 export {
+  configureJiti,
   loadConfig,
   loadProject,
   makeJiti,
-  type ResolvedConfig,
+  normalizeAliases,
   resolveConnectionConfig,
-} from "./cli-kit/config";
+  type ResolvedConfig,
+} from "./cli-kit/config"
 // --- neutral diff display ---------------------------------------------------------------------
 export {
   type Diff,
@@ -25,25 +27,25 @@ export {
   isEmptyDiff,
   summarizeKinds,
   tokenDiff,
-} from "./cli-kit/diff";
+} from "./cli-kit/diff"
 // --- neutral filtering ------------------------------------------------------------------------
 export {
   type Filter,
-  type FilterOpts,
   filterKinds,
+  type FilterOpts,
   inCat,
   intersectKinds,
   kindFlags,
   mergeStored,
   parseFilter,
   passesFilter,
-} from "./cli-kit/filter";
+} from "./cli-kit/filter"
 // --- pull plan + magicast merge (neutral codegen support) -------------------------------------
 export {
   actionLabel,
   applyPull,
-  type LocalOnly,
   lineDiff,
+  type LocalOnly,
   type MergeOptions,
   type MergeResult,
   mergeUnits,
@@ -51,7 +53,7 @@ export {
   type PullPlan,
   type RenderedUnit,
   unifiedDiff,
-} from "./cli-kit/merge";
+} from "./cli-kit/merge"
 // --- snapshot + migration metadata ------------------------------------------------------------
 export {
   checksum,
@@ -59,52 +61,54 @@ export {
   listMigrations,
   type Migration,
   readSnapshot,
-  type StoredSnapshot,
   slug,
+  type StoredSnapshot,
   timestamp,
   writeSnapshot,
-} from "./cli-kit/meta";
+} from "./cli-kit/meta"
 // --- pager + style ----------------------------------------------------------------------------
-export { pipeThroughPager, resolvePager } from "./cli-kit/pager";
+export { pipeThroughPager, resolvePager } from "./cli-kit/pager"
 // --- jiti schema loader (loads a project's authored schema files agnostically) ----------------
-export {
-  type AnyTable,
-  loadDefs,
-} from "./cli-kit/schema";
-export { colorEnabled, fail, ok, plural, style } from "./cli-kit/style";
+export { type AnyTable, loadDefs } from "./cli-kit/schema"
+export { colorEnabled, fail, ok, plural, style } from "./cli-kit/style"
 // --- ORM client foundation (managed connections + disposable bound client) ---------------------
 export {
   asyncDisposable,
   connectFromConfig,
   type OrmClientBase,
-  type ResolveConnectionOptions,
   resolveConnection,
+  type ResolveConnectionOptions,
   resolveFromConfig,
-} from "./client";
+} from "./client"
 // --- config-as-factory types (defineConfig lives on the `./config` subpath) --------------------
 export type {
+  AotGeneratorConfig,
   ChainableDriverFactory,
   ChainCtx,
   ChainedConfig,
   EntryArgs,
   EntryClient,
+  GeneratedConfig,
+  GeneratorsConfig,
   OrmConfig,
+  OrmGeneratorConfig,
   OrmProject,
+  ResolveConfig,
   SchemicConfig,
   SchemicProject,
-} from "./config";
+} from "./config"
 // --- multi-connection contract (docs/MULTI-CONNECTION.md) -------------------------------------
 export {
   type AnyConnectionEntry,
   type ConnectionConfigBase,
   type ConnectionEntry,
-  type ConnectionInput,
   connectionEntry,
+  type ConnectionInput,
   isConnectionEntry,
   type ResolveContext,
   type ResolvedConnectionHandle,
   type StandardSchemaLike,
-} from "./connection";
+} from "./connection"
 // --- driver contract + registry ---------------------------------------------------------------
 export {
   type ApplyOptions,
@@ -127,7 +131,7 @@ export {
   registerDriver,
   type ShadowCapability,
   type Statement,
-} from "./driver/driver";
+} from "./driver/driver"
 // --- portable schema IR -----------------------------------------------------------------------
 export {
   array,
@@ -136,16 +140,13 @@ export {
   option,
   type PortableType,
   record,
-  type ScalarName,
   scalar,
+  type ScalarName,
   union,
-} from "./driver/portable";
-// (the Statement-level portable-diff is retired — superseded by the kind registry's
+} from "./driver/portable"
+// (the Statement-level portable-diff retirs it — superseded by the kind registry's
 // planKinds/buildKindDiff in ./kind/plan.ts.)
-export type {
-  PortableField,
-  PortablePermissions,
-} from "./driver/portable-ir";
+export type { PortableField, PortablePermissions } from "./driver/portable-ir"
 // --- kind registry (core-v2) — generic, open object kinds (docs/kind-registry.md) -------------
 export {
   buildKindDiff,
@@ -161,21 +162,21 @@ export {
   lowerSchema,
   type OrderNode,
   orderObjects,
-  type PortableObject,
   planKinds,
+  type PortableObject,
   type Ref,
   type ResolvedDisplay,
   snapshotKinds,
   snapshotObjects,
-} from "./kind";
+} from "./kind"
 // --- secret refs (apply-time-resolved placeholders for secret-bearing DDL; drivers re-export) ----
 export {
   env,
   envSecretProvider,
   isSecretRef,
+  secret,
   type SecretProvider,
   type SecretRef,
-  secret,
-} from "./secrets";
+} from "./secrets"
 // --- seed context (the `(db, ctx)` helper passed to each seed) ---------------------------------
-export type { SeedContext } from "./seed";
+export type { SeedContext } from "./seed"

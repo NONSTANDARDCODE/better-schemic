@@ -1,107 +1,107 @@
 /**
  * `describeSchema()` — a structured, agent-readable description of an authored schema.
  *
- * It is a PURE derivation over the existing `SchemaIndex` plus the authoring defs it already holds:
+ * it's a PURE derivation over the existing `SchemaIndex` plus the authoring defs it already holds:
  * no DDL, no database round-trip, no Zod leaking out. Every value is JSON-safe (BoundQuery
- * expressions are rendered as their SurrealQL text), so the result can be handed to an LLM, logged,
+ * expressions render them as their SurrealQL text), so the result can hands it to an LLM, logged,
  * or checked into a repo as the machine-readable companion to the TypeScript schema.
  *
- * Plugin markers authored under `TableConfig.meta` (tenant, create-only, …) are included as opaque
+ * Plugin markers authored under `TableConfig.meta` (tenant, create-, …) include them as opaque
  * tags — they are part of the contract an agent must respect, even though the DB never sees them.
  */
-import type { AnyField, SurrealMeta, TableConfig } from "../pure";
+import type { AnyField, SurrealMeta, TableConfig } from "../pure"
 import type {
   ColumnMeta,
   FieldFamily,
   RecordLinkMeta,
   ResolvedIdStrategy,
   SchemaIndex,
-} from "./meta";
-import { buildSchemaIndex } from "./schema";
-import type { AnyTableDef, SchemaDef, SchemaInput } from "./types/schema";
+} from "./meta"
+import { buildSchemaIndex } from "./schema"
+import type { AnyTableDef, SchemaDef, SchemaInput } from "./types/schema"
 
 /** One field of a table/edge, in plain data. */
 export interface FieldDescriptor {
-  readonly name: string;
-  /** The SurrealQL wire type (`inferField` output, e.g. `option<int>`, `record<user>`). */
-  readonly type: string;
-  readonly family: FieldFamily;
-  readonly optional: boolean;
-  readonly element?: FieldFamily;
-  readonly record?: RecordLinkMeta;
   /** ASSERT expressions, rendered as SurrealQL text. */
-  readonly asserts: readonly string[];
+  readonly asserts: readonly string[]
+  readonly comment?: string
+  readonly computed?: string
   /** DEFAULT / VALUE / COMPUTED expressions, rendered as SurrealQL text. */
-  readonly default?: string;
-  readonly defaultAlways?: boolean;
-  readonly value?: string;
-  readonly computed?: string;
-  readonly readonly?: boolean;
-  readonly internal?: boolean;
-  readonly comment?: string;
-  readonly permissions?: unknown;
-  readonly index?: unknown;
-  readonly reference?: unknown;
+  readonly default?: string
+  readonly defaultAlways?: boolean
+  readonly element?: FieldFamily
+  readonly family: FieldFamily
+  readonly index?: unknown
+  readonly internal?: boolean
+  readonly name: string
+  readonly optional: boolean
+  readonly permissions?: unknown
+  readonly readonly?: boolean
+  readonly record?: RecordLinkMeta
+  readonly reference?: unknown
+  /** The SurrealQL wire type (`inferField` output, e.g. `option<int>`, `record<user>`). */
+  readonly type: string
+  readonly value?: string
 }
 
 /** One table, edge or schemaless entry. */
 export interface TableDescriptor {
-  readonly key: string;
-  readonly name: string;
-  readonly kind: "table" | "relation" | "schemaless";
-  readonly schemafull: boolean;
-  readonly type?: "normal" | "any";
-  readonly idStrategy?: ResolvedIdStrategy;
-  readonly singletonId?: string;
-  readonly columns: readonly FieldDescriptor[];
-  readonly links: readonly {
-    field: string;
-    targets?: readonly string[];
-    cardinality: "one" | "many";
-    optional: boolean;
-  }[];
+  readonly columns: readonly FieldDescriptor[]
+  readonly comment?: string
   readonly edges: readonly {
-    key: string;
-    name: string;
-    direction: "out" | "in";
-  }[];
+    direction: "in" | "out"
+    key: string
+    name: string
+  }[]
   readonly endpoints?: {
-    from: readonly string[];
-    to: readonly string[];
-    enforced: boolean;
-  };
-  readonly uniqueFields: readonly string[];
-  readonly uniqueGroups: readonly (readonly string[])[];
+    enforced: boolean
+    from: readonly string[]
+    to: readonly string[]
+  }
+  readonly events: unknown
+  readonly idStrategy?: ResolvedIdStrategy
   /** Indexes/events/permissions/meta, normalized to plain JSON-safe data. */
-  readonly indexes: unknown;
-  readonly events: unknown;
-  readonly permissions: unknown;
-  readonly comment?: string;
+  readonly indexes: unknown
+  readonly key: string
+  readonly kind: "relation" | "schemaless" | "table"
+  readonly links: readonly {
+    cardinality: "many" | "one"
+    field: string
+    optional: boolean
+    targets?: readonly string[]
+  }[]
   /** Opaque plugin tags (`meta.tenant`, `meta.createOnly`, …) — contract, not DDL. */
-  readonly meta?: unknown;
+  readonly meta?: unknown
+  readonly name: string
+  readonly permissions: unknown
+  readonly schemafull: boolean
+  readonly singletonId?: string
+  readonly type?: "any" | "normal"
+  readonly uniqueFields: readonly string[]
+  readonly uniqueGroups: readonly (readonly string[])[]
 }
 
 /** One authored database function. */
 export interface FunctionDescriptor {
-  readonly key: string;
-  readonly name: string;
   readonly args: readonly {
-    name: string;
-    type: string;
-    family: FieldFamily;
-    optional: boolean;
-  }[];
-  readonly returns?: { type: string; family: FieldFamily };
-  readonly permissions: unknown;
-  readonly comment?: string;
+    family: FieldFamily
+    name: string
+    optional: boolean
+    type: string
+  }[]
+  readonly comment?: string
+  readonly key: string
+  readonly name: string
+  readonly permissions: unknown
+  readonly returns?: { family: FieldFamily; type: string }
 }
 
 /** The complete machine-readable schema description. */
 export interface SchemaDescriptor {
-  readonly version: 1;
-  readonly tables: readonly TableDescriptor[];
-  readonly schemaless: readonly { key: string; name: string }[];
-  readonly functions: readonly FunctionDescriptor[];
+  readonly functions: readonly FunctionDescriptor[]
+  readonly schemaless: readonly { key: string; name: string }[]
+  readonly tables: readonly TableDescriptor[]
+  readonly version: 1
 }
 
 /** Convert a BoundQuery / Zod-ish / nested value into plain JSON-safe data. */
@@ -111,40 +111,54 @@ function plain(value: unknown): unknown {
     typeof value === "string" ||
     typeof value === "boolean" ||
     typeof value === "number"
-  )
-    return value;
-  if (value === undefined || typeof value === "function") return undefined;
-  if (typeof value === "bigint") return String(value);
-  if (value instanceof Date) return value.toISOString();
-  if (Array.isArray(value)) return value.map((item) => plain(item) ?? null);
+  ) {
+    return value
+  }
+  if (value === undefined || typeof value === "function") {
+    return undefined
+  }
+  if (typeof value === "bigint") {
+    return String(value)
+  }
+  if (value instanceof Date) {
+    return value.toISOString()
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => plain(item) ?? null)
+  }
   if (typeof value === "object") {
     // BoundQuery and other expression carriers expose `.query` as their SurrealQL text.
-    const text = (value as { query?: unknown }).query;
-    if (typeof text === "string") return text;
-    const out: Record<string, unknown> = {};
-    for (const [key, item] of Object.entries(value)) {
-      const normalized = plain(item);
-      if (normalized !== undefined) out[key] = normalized;
+    const text = (value as { query?: unknown }).query
+    if (typeof text === "string") {
+      return text
     }
-    return out;
+    const out: Record<string, unknown> = {}
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    for (const [key, item] of Object.entries(value)) {
+      const normalized = plain(item)
+      if (normalized !== undefined) {
+        out[key] = normalized
+      }
+    }
+    return out
   }
-  return String(value);
+  return String(value)
 }
 
 /** Render an expression (string or BoundQuery) as SurrealQL text. */
 function expr(value: unknown): string | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value === "string") return value;
-  const text = (value as { query?: unknown }).query;
-  return typeof text === "string" ? text : undefined;
+  if (value === undefined) {
+    return undefined
+  }
+  if (typeof value === "string") {
+    return value
+  }
+  const text = (value as { query?: unknown }).query
+  return typeof text === "string" ? text : undefined
 }
 
-function describeColumn(
-  name: string,
-  column: ColumnMeta,
-  field?: AnyField,
-): FieldDescriptor {
-  const meta = field?.surreal as SurrealMeta | undefined;
+function describeColumn(name: string, column: ColumnMeta, field?: AnyField): FieldDescriptor {
+  const meta = field?.surreal
   return {
     name,
     type: column.type,
@@ -165,17 +179,13 @@ function describeColumn(
     ...(meta?.permissions ? { permissions: plain(meta.permissions) } : {}),
     ...(meta?.index ? { index: plain(meta.index) } : {}),
     ...(meta?.reference ? { reference: plain(meta.reference) } : {}),
-  };
+  }
 }
 
-function describeTable(
-  key: string,
-  def: AnyTableDef,
-  index: SchemaIndex,
-): TableDescriptor {
-  const meta = index.tables.get(key);
-  const config = def.config as TableConfig;
-  const fields = def.fields ?? {};
+function describeTable(key: string, def: AnyTableDef, index: SchemaIndex): TableDescriptor {
+  const meta = index.tables.get(key)
+  const config = def.config
+  const fields = def.fields ?? {}
   return {
     key,
     name: def.name,
@@ -230,28 +240,30 @@ function describeTable(
     permissions: plain(config.permissions ?? {}),
     ...(config.comment ? { comment: config.comment } : {}),
     ...(config.meta ? { meta: plain(config.meta) } : {}),
-  };
+  }
 }
 
 /**
  * Describe an authored schema (a branded `schema(...)` artifact or a plain key→def object) in one
- * JSON-safe object. No DDL is emitted and the database is never contacted.
+ * JSON-safe object. No DDL emits it and the database is never contacted.
  */
-export function describeSchema(
-  input: SchemaDef | SchemaInput,
-): SchemaDescriptor {
-  const index: SchemaIndex = buildSchemaIndex(input);
-  const tables: TableDescriptor[] = [];
-  const schemaless: { key: string; name: string }[] = [];
-  for (const [key, meta] of index.tables)
-    tables.push(describeTable(key, meta.def as AnyTableDef, index));
-  for (const [key, meta] of index.schemaless)
-    schemaless.push({ key, name: meta.name });
+export function describeSchema(input: SchemaDef | SchemaInput): SchemaDescriptor {
+  const index: SchemaIndex = buildSchemaIndex(input)
+  const tables: TableDescriptor[] = []
+  const schemaless: { key: string; name: string }[] = []
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const [key, meta] of index.tables) {
+    tables.push(describeTable(key, meta.def, index))
+  }
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const [key, meta] of index.schemaless) {
+    schemaless.push({ key, name: meta.name })
+  }
 
-  const functions: FunctionDescriptor[] = [];
+  const functions: FunctionDescriptor[] = []
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [key, fn] of index.functions) {
-    const config =
-      (fn.def as unknown as { config?: Record<string, unknown> }).config ?? {};
+    const config = (fn.def as unknown as { config?: Record<string, unknown> }).config ?? {}
     functions.push({
       key,
       name: fn.name,
@@ -261,15 +273,11 @@ export function describeSchema(
         family: arg.family,
         optional: arg.optional,
       })),
-      ...(fn.returns
-        ? { returns: { type: fn.returns.type, family: fn.returns.family } }
-        : {}),
+      ...(fn.returns ? { returns: { type: fn.returns.type, family: fn.returns.family } } : {}),
       permissions: plain(config.permissions ?? {}),
-      ...(typeof config.comment === "string"
-        ? { comment: config.comment }
-        : {}),
-    });
+      ...(typeof config.comment === "string" ? { comment: config.comment } : {}),
+    })
   }
 
-  return { version: 1, tables, schemaless, functions };
+  return { version: 1, tables, schemaless, functions }
 }

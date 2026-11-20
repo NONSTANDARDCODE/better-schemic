@@ -1,24 +1,22 @@
 // The `tenant()` schema PRESET — the tenant column + per-op permissions + guard event + indexes,
 // matching the hand-written multi-tenant recipe line-by-line (zero-diff), with the column typed as
 // a `record<principal>` and `meta.tenant` stamped for the runtime plugin.
-import { describe, expect, test } from "bun:test";
-import { s, surql, table } from "../../../src/surreal";
-import { emitStatements, emitTable } from "../../../src/surreal/ddl";
-import { tenant } from "../../../src/surreal/plugins/tenant";
+import { describe, expect, test } from "bun:test"
 
-const User = table("user", { name: s.string() });
+import { s, surql, table } from "../../../src/surreal"
+import { emitStatements, emitTable } from "../../../src/surreal/ddl"
+import { tenant } from "../../../src/surreal/plugins/tenant"
+
+const User = table("user", { name: s.string() })
 
 const Customer = table("customer", {
   name: s.string(),
   deletedAt: s.datetime().optional(),
-}).use(tenant(User, { softDelete: true }));
+}).use(tenant(User, { softDelete: true }))
 
-const Order = table("order", { total: s.number() }).use(
-  tenant(User, { createOnly: true }),
-);
+const Order = table("order", { total: s.number() }).use(tenant(User, { createOnly: true }))
 
-const ddl = (t: Parameters<typeof emitStatements>[0]) =>
-  emitStatements(t).map((s) => s.ddl);
+const ddl = (t: Parameters<typeof emitStatements>[0]) => emitStatements(t).map((s) => s.ddl)
 
 describe("tenant() — golden DDL (soft delete)", () => {
   test("permissions, field, indexes and guard event, in canonical order", () => {
@@ -30,9 +28,9 @@ describe("tenant() — golden DDL (soft delete)", () => {
       "DEFINE INDEX customer_tenant_id_idx ON TABLE customer FIELDS tenant_id;",
       "DEFINE INDEX customer_deleted_at_idx ON TABLE customer FIELDS tenant_id, deletedAt;",
       "DEFINE EVENT customer_protect_tenant_id ON TABLE customer WHEN $event = 'CREATE' OR $event = 'UPDATE' THEN IF $auth != NONE AND $after.tenant_id != $auth.id { THROW s\"tenant_id cannot manually be set to a different value than the authenticated user\"; };",
-    ]);
-  });
-});
+    ])
+  })
+})
 
 describe("tenant() — golden DDL (createOnly)", () => {
   test("select/create/delete share the scope; update is NONE; no deleted index", () => {
@@ -42,9 +40,9 @@ describe("tenant() — golden DDL (createOnly)", () => {
       "DEFINE FIELD tenant_id ON TABLE order TYPE record<user> DEFAULT $auth.id ASSERT $value != NONE READONLY;",
       "DEFINE INDEX order_tenant_id_idx ON TABLE order FIELDS tenant_id;",
       "DEFINE EVENT order_protect_tenant_id ON TABLE order WHEN $event = 'CREATE' OR $event = 'UPDATE' THEN IF $auth != NONE AND $after.tenant_id != $auth.id { THROW s\"tenant_id cannot manually be set to a different value than the authenticated user\"; };",
-    ]);
-  });
-});
+    ])
+  })
+})
 
 describe("tenant() — zero-diff against the manual recipe", () => {
   test("the composed table emits exactly the hand-written statements", () => {
@@ -67,50 +65,46 @@ describe("tenant() — zero-diff against the manual recipe", () => {
         then: surql`IF $auth != NONE AND $after.tenant_id != $auth.id { THROW ${"tenant_id cannot manually be set to a different value than the authenticated user"}; }`,
       })
       .index("customer_tenant_id_idx", ["tenant_id"])
-      .index("customer_deleted_at_idx", ["tenant_id", "deletedAt"]);
+      .index("customer_deleted_at_idx", ["tenant_id", "deletedAt"])
 
-    expect(ddl(Customer)).toEqual(ddl(manual));
-  });
+    expect(ddl(Customer)).toEqual(ddl(manual))
+  })
 
   test("the preset NARROWS existing permissions (AND), never widens", () => {
     const narrowed = table("doc", { title: s.string() })
       .permissions({ select: true, delete: false })
-      .use(tenant(User));
-    const emitted = emitStatements(narrowed);
-    const tableDdl = emitted.find((s) => s.kind === "table")?.ddl;
+      .use(tenant(User))
+    const emitted = emitStatements(narrowed)
+    const tableDdl = emitted.find((s) => s.kind === "table")?.ddl
     expect(tableDdl).toContain(
       "PERMISSIONS FOR select, create, update WHERE tenant_id = $auth.id FOR delete NONE",
-    );
-  });
-});
+    )
+  })
+})
 
 describe("tenant() — options", () => {
   test("custom column name drives the field, permissions and index names", () => {
-    const Doc = table("doc", { title: s.string() }).use(
-      tenant(User, { column: "org_id" }),
-    );
-    const emitted = ddl(Doc);
+    const Doc = table("doc", { title: s.string() }).use(tenant(User, { column: "org_id" }))
+    const emitted = ddl(Doc)
     expect(emitted).toContain(
       "DEFINE FIELD org_id ON TABLE doc TYPE record<user> DEFAULT $auth.id ASSERT $value != NONE READONLY;",
-    );
-    expect(emitted).toContain(
-      "DEFINE INDEX doc_org_id_idx ON TABLE doc FIELDS org_id;",
-    );
-    expect(emitted.join("\n")).toContain("org_id = $auth.id");
-    expect(emitted.join("\n")).toContain("$after.org_id");
-  });
+    )
+    expect(emitted).toContain("DEFINE INDEX doc_org_id_idx ON TABLE doc FIELDS org_id;")
+    expect(emitted.join("\n")).toContain("org_id = $auth.id")
+    expect(emitted.join("\n")).toContain("$after.org_id")
+  })
 
   test("softDelete as a custom column snake-cases the deleted index name", () => {
     const Doc = table("doc", { removedAt: s.datetime().optional() }).use(
       tenant(User, { softDelete: "removedAt" }),
-    );
-    const emitted = ddl(Doc);
+    )
+    const emitted = ddl(Doc)
     expect(emitted).toContain(
       "DEFINE INDEX doc_removed_at_idx ON TABLE doc FIELDS tenant_id, removedAt;",
-    );
-    expect(emitted.join("\n")).toContain("removedAt IS NONE");
-    expect(emitted.join("\n")).toContain("$before.removedAt IS NONE");
-  });
+    )
+    expect(emitted.join("\n")).toContain("removedAt IS NONE")
+    expect(emitted.join("\n")).toContain("$before.removedAt IS NONE")
+  })
 
   test("names override the derived event/index names ({table} still interpolates)", () => {
     const Doc = table("doc", { title: s.string() }).use(
@@ -122,52 +116,40 @@ describe("tenant() — options", () => {
           deletedIndex: "by_deleted_{table}",
         },
       }),
-    );
-    const emitted = ddl(Doc);
-    expect(
-      emitted.some((s) => s.startsWith("DEFINE EVENT guard_doc ON TABLE doc")),
-    ).toBe(true);
-    expect(emitted).toContain(
-      "DEFINE INDEX by_tenant_doc ON TABLE doc FIELDS tenant_id;",
-    );
+    )
+    const emitted = ddl(Doc)
+    expect(emitted.some((s) => s.startsWith("DEFINE EVENT guard_doc ON TABLE doc"))).toBe(true)
+    expect(emitted).toContain("DEFINE INDEX by_tenant_doc ON TABLE doc FIELDS tenant_id;")
     expect(emitted).toContain(
       "DEFINE INDEX by_deleted_doc ON TABLE doc FIELDS tenant_id, deletedAt;",
-    );
-  });
+    )
+  })
 
   test("protect: false drops only the event", () => {
-    const Doc = table("doc", {}).use(tenant(User, { protect: false }));
-    const emitted = ddl(Doc);
-    expect(emitted.some((s) => s.startsWith("DEFINE EVENT"))).toBe(false);
-    expect(emitted).toContain(
-      "DEFINE INDEX doc_tenant_id_idx ON TABLE doc FIELDS tenant_id;",
-    );
-  });
+    const Doc = table("doc", {}).use(tenant(User, { protect: false }))
+    const emitted = ddl(Doc)
+    expect(emitted.some((s) => s.startsWith("DEFINE EVENT"))).toBe(false)
+    expect(emitted).toContain("DEFINE INDEX doc_tenant_id_idx ON TABLE doc FIELDS tenant_id;")
+  })
 
   test("indexes: false drops only the indexes", () => {
-    const Doc = table("doc", {}).use(tenant(User, { indexes: false }));
-    const emitted = ddl(Doc);
-    expect(emitted.some((s) => s.startsWith("DEFINE INDEX"))).toBe(false);
-    expect(emitted.some((s) => s.startsWith("DEFINE EVENT"))).toBe(true);
-  });
+    const Doc = table("doc", {}).use(tenant(User, { indexes: false }))
+    const emitted = ddl(Doc)
+    expect(emitted.some((s) => s.startsWith("DEFINE INDEX"))).toBe(false)
+    expect(emitted.some((s) => s.startsWith("DEFINE EVENT"))).toBe(true)
+  })
 
   test("createOnly + softDelete is rejected at the factory (incompatible states)", () => {
     expect(() =>
-      table("doc", {}).use(
-        tenant(User, { createOnly: true, softDelete: true }),
-      ),
-    ).toThrow(/mutually exclusive/);
-  });
+      table("doc", {}).use(tenant(User, { createOnly: true, softDelete: true })),
+    ).toThrow(/mutually exclusive/u)
+  })
 
   test("a non-identifier column name is rejected early", () => {
-    expect(() => tenant(User, { column: "tenant id" })).toThrow(
-      /plain identifier/,
-    );
-    expect(() => tenant(User, { column: 42 as never })).toThrow(
-      /plain identifier/,
-    );
-  });
-});
+    expect(() => tenant(User, { column: "tenant id" })).toThrow(/plain identifier/u)
+    expect(() => tenant(User, { column: 42 as never })).toThrow(/plain identifier/u)
+  })
+})
 
 describe("tenant() — meta marker", () => {
   test("stamps meta.tenant with the resolved options", () => {
@@ -176,32 +158,30 @@ describe("tenant() — meta marker", () => {
       principal: "user",
       softDelete: "deletedAt",
       createOnly: false,
-    });
+    })
     expect(Order.config.meta?.tenant).toEqual({
       column: "tenant_id",
       principal: "user",
       softDelete: false,
       createOnly: true,
-    });
-  });
+    })
+  })
 
   test("meta merges with other presets and never emits DDL", () => {
-    const base = table.preset({ meta: { owner: "acme" } });
-    const tagged = table("doc", {}).use(base).use(tenant(User));
+    const base = table.preset({ meta: { owner: "acme" } })
+    const tagged = table("doc", {}).use(base).use(tenant(User))
     expect(tagged.config.meta).toMatchObject({
       owner: "acme",
       tenant: { column: "tenant_id" },
-    });
-    // meta alone is invisible to the emitter: a meta-only preset table is DDL-identical to a bare one.
-    expect(emitTable(table("doc", {}).use(base))).toBe(
-      emitTable(table("doc", {})),
-    );
-  });
+    })
+    // meta alone is invisible to the emitter: a meta-preset table is DDL-identical to a bare one.
+    expect(emitTable(table("doc", {}).use(base))).toBe(emitTable(table("doc", {})))
+  })
 
   test("chained .use(tenant) keeps the preset column typed and conflict-checked", () => {
-    const Doc = table("doc", { title: s.string() }).use(tenant(User));
-    expect(Doc.fields.tenant_id).toBeDefined();
-    expect("tenant_id" in Doc.update.shape).toBe(false); // $readonly excludes it
-    expect(Doc.create.safeParse({ title: "t" }).success).toBe(true);
-  });
-});
+    const Doc = table("doc", { title: s.string() }).use(tenant(User))
+    expect(Doc.fields.tenant_id).toBeDefined()
+    expect("tenant_id" in Doc.update.shape).toBe(false) // $readonly excludes it
+    expect(Doc.create.safeParse({ title: "t" }).success).toBe(true)
+  })
+})

@@ -37,6 +37,8 @@ replay into — `npm i -D @surrealdb/node`).
 | `better-schemic/driver`     | the engine entry (CLI/engine-only — pulls in the DDL emitter)                |
 | `better-schemic/aot`        | zod-compiler bridge — field unwrapping + identity-preserving compile markers  |
 | `better-schemic/plugin`     | the Bun build plugin (`betterSchemic()`) that AOT-compiles plain Zod schemas   |
+| `better-schemic/zod`        | the same Zod instance (`z`, `config`, `ZodRealError`, `core`) for generated code |
+| `better-schemic/zod/core`   | `zod/v4/core` re-export — keeps generated helpers on one Zod copy              |
 
 ## Quick start
 
@@ -756,7 +758,8 @@ The file ends with `satisfies OrmSurface<typeof schema>`. Also available:
 `createOrmClientFactory({ cache: 'weak' })` (per-connection client cache with `peek`/`dispose`),
 `orm(() => conn, { schema })` (lazy connection), `setClientResolver`/`clientRef` (late binding),
 `TypedBoundQuery`/`surqlWith` (typed raw binds + result rows), `selectQuery(from, allowlist)` (fixed
-row keys from a projection), `s.json<T>()` and `s.regex(source: string, flags?)`.
+row keys from a projection), `s.jsonValue<T>()` (parses JSON into `T`; `s.json<T>()` keeps the legacy
+string semantics), and `s.regex(source: string, flags?)`.
 
 ## AOT validation with zod-compiler
 
@@ -773,10 +776,33 @@ sc compile
 # → .better-schemic/schema.aot.ts            (import this instead of your schema module)
 ```
 
+The generated header imports `config`/`ZodRealError` from `better-schemic/zod` and `zod/v4/core`
+from `better-schemic/zod/core` — both re-export the package's own Zod, so the app needs **no direct
+`zod` dependency**. Use `generated.zodSpecifier: "zod"` to opt out.
+
+You can declare both generators in the config and drop all CLI flags, the `@ → src` symlink and the
+handwritten `// @ts-nocheck` headers:
+
 ```ts
-import { Customer } from "./.better-schemic/schema.aot"; // compiled validators installed
-await Customer.decode(row);                              // DDL/schema unchanged
+export default defineConfig({
+  connections: { /* … */ },
+  resolve: { alias: { "@": "./src" } },
+  generators: {
+    orm: { out: "src/db/generated/orm.generated.ts", schema: "./src/db/schema.ts", provider: "./src/db/orm-provider.ts", client: "getOrmClient" },
+    aot: { out: ".better-schemic/schema.aot.ts", importIn: ["src/index.ts"] },
+  },
+  generated: { tsNocheck: true, eslintDisable: true, knipAutoWrite: true },
+});
 ```
+
+```sh
+sc generate          # runs both; --only orm|aot, --watch, --config available
+```
+
+With `generators.aot.installVia: "orm"` (the default) the generated ORM façade imports the AOT
+bootstrap, so there is no manual bootstrap import in the entry point or test setup. Aliases declared
+in `resolve.alias` must also appear in the app's tsconfig `paths` for zod-compiler's own loader;
+`sc compile` says so if it hits one it cannot resolve.
 
 Use both halves: `sc compile` for authored `s.*` fields, and `better-schemic/plugin` for plain Zod
 schemas in the app (route contracts, DTOs). The plugin wraps `zod-compiler/bun` and is meant for

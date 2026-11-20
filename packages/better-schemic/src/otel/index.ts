@@ -6,6 +6,6 @@
  * const client = orm(db, { schema, logger: createOtelLogger() });
  * ```
  *
- * `@opentelemetry/api` is an optional peer dependency: install it only when you use this subpath.
+ * `@opentelemetry/api` is an optional peer dependency: install it  when you use this subpath.
  */
-export { createOtelLogger, type OtelLoggerConfig } from "./logger";
+export { createOtelLogger, type OtelLoggerConfig } from "./logger"

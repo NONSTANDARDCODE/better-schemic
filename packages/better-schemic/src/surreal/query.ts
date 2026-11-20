@@ -4,14 +4,10 @@
  * interpolation.
  *
  * The fluent table builder (`select`/`create`/`update`/`upsert`/`remove`/`relate`, the graph
- * traversal and the schemaless adapter) was retired in M0.5 in favor of the repository-style ORM
+ * traversal and the schemaless adapter) retirs it in M0.5 in favor of the repository-style ORM
  * at `better-schemic/orm` — `client.users.findMany({ where, select, include })` etc.
  * See `docs/ORM-COVERAGE.md` (surface) and `docs/orm-syntax-map.md` (live-verified SurrealQL).
  */
-export * from "./surql/block";
-export type { QueryShapeArg } from "./surql/typed-bound";
-export {
-  selectQuery,
-  surqlWith,
-  TypedBoundQuery,
-} from "./surql/typed-bound";
+export * from "./surql/block"
+export type { QueryShapeArg } from "./surql/typed-bound"
+export { selectQuery, surqlWith, TypedBoundQuery } from "./surql/typed-bound"

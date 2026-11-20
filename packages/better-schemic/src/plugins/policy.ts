@@ -1,1 +1,1 @@
-export * from "../surreal/plugins/policy";
+export * from "../surreal/plugins/policy"

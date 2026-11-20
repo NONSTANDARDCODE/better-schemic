@@ -1,45 +1,51 @@
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { escapeIdent, type Surreal } from "surrealdb";
-import type { Diff, ResolvedConfig } from "../../core";
-import { type Filter, listMigrations, loadDefs, parseFilter } from "../../core";
-import type { SurrealParams } from "../config";
-import { type DefineStatement, overwriteStatement } from "../ddl";
-import { normalizeDb } from "./struct";
+import { createHash } from "node:crypto"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
+
+import { escapeIdent, type Surreal } from "surrealdb"
+
+import type { Diff, ResolvedConfig } from "../../core"
+import { type Filter, listMigrations, loadDefs, parseFilter } from "../../core"
+import type { SurrealParams } from "../config"
+import { type DefineStatement, overwriteStatement } from "../ddl"
+import { normalizeDb } from "./struct"
 import {
   type DbStructured,
   introspectStructured,
   type Snapshot,
   structuredSnapshot,
-} from "./structure";
-import { buildSnapshot, diffSnapshots } from "./surreal-diff";
-import { filterSnapshot, filterStructured } from "./surreal-filter";
+} from "./structure"
+import { buildSnapshot, diffSnapshots } from "./surreal-diff"
+import { filterSnapshot, filterStructured } from "./surreal-filter"
 
-const SHADOW_DB = "__surreal_zod_shadow";
-const SHADOW_MIG_DB = "__surreal_zod_shadow_mig";
+const SHADOW_DB = "__surreal_zod_shadow"
+const SHADOW_MIG_DB = "__surreal_zod_shadow_mig"
 
 /**
- * Process-lifetime memo for shadow applies. The introspected result is derived ONLY from
+ * Process-lifetime memo for shadow applies. The introspected result derivs it  from
  * `(namespace, shadowDb, ddl)` — never from live data — so a watch tick with an unchanged schema
  * skips the scratch database entirely. Bounded (cleared when full) and failure-evicting (a bad DDL
  * must be re-tried, never cached).
  */
-const SHADOW_CACHE = new Map<string, Promise<unknown>>();
-const SHADOW_CACHE_MAX = 8;
+const SHADOW_CACHE = new Map<string, Promise<unknown>>()
+const SHADOW_CACHE_MAX = 8
 function cachedShadow<T>(key: string, produce: () => Promise<T>): Promise<T> {
-  const hit = SHADOW_CACHE.get(key) as Promise<T> | undefined;
-  if (hit) return hit;
-  if (SHADOW_CACHE.size >= SHADOW_CACHE_MAX) SHADOW_CACHE.clear();
-  const run = produce().catch((e) => {
-    SHADOW_CACHE.delete(key);
-    throw e;
-  });
-  SHADOW_CACHE.set(key, run);
-  return run;
+  const hit = SHADOW_CACHE.get(key) as Promise<T> | undefined
+  if (hit) {
+    return hit
+  }
+  if (SHADOW_CACHE.size >= SHADOW_CACHE_MAX) {
+    SHADOW_CACHE.clear()
+  }
+  const run = produce().catch((error) => {
+    SHADOW_CACHE.delete(key)
+    throw error
+  })
+  SHADOW_CACHE.set(key, run)
+  return run
 }
 const shadowKey = (namespace: string, shadowDb: string, ddl: string): string =>
-  `${namespace}\u0000${shadowDb}\u0000${createHash("sha256").update(ddl).digest("hex")}`;
+  `${namespace}\u0000${shadowDb}\u0000${createHash("sha256").update(ddl).digest("hex")}`
 
 // Apply order: tables, then fields, then indexes.
 const RANK: Record<DefineStatement["kind"], number> = {
@@ -52,20 +58,16 @@ const RANK: Record<DefineStatement["kind"], number> = {
   index: 3,
   event: 4,
   access: 5, // db-level; defined last (SIGNUP/SIGNIN reference tables)
-};
-const byCreate = (a: DefineStatement, b: DefineStatement) =>
-  RANK[a.kind] - RANK[b.kind];
+}
+const byCreate = (a: DefineStatement, b: DefineStatement) => RANK[a.kind] - RANK[b.kind]
 
 /**
  * Read the live database into a snapshot of **canonical** DDL, skipping `exclude`d tables. Uses
  * `INFO … STRUCTURE` and rebuilds each object's DDL deterministically (see `structuredSnapshot`),
  * so equivalent schemas compare equal regardless of SurrealDB's formatting (e.g. union order).
  */
-export async function introspect(
-  db: Surreal,
-  exclude: Set<string> = new Set(),
-): Promise<Snapshot> {
-  return structuredSnapshot(await introspectStructured(db, exclude));
+export async function introspect(db: Surreal, exclude = new Set<string>()): Promise<Snapshot> {
+  return structuredSnapshot(await introspectStructured(db, exclude))
 }
 
 /**
@@ -79,19 +81,21 @@ async function applyToShadow(
   shadowDb: string,
   ddl: string,
 ): Promise<Snapshot> {
-  const { namespace, database } = config.params as unknown as SurrealParams;
+  const { namespace, database } = config.params as unknown as SurrealParams
   return cachedShadow(shadowKey(namespace, shadowDb, ddl), async () => {
-    await db.query(`REMOVE DATABASE IF EXISTS ${escapeIdent(shadowDb)};`);
-    await db.query(`DEFINE DATABASE ${escapeIdent(shadowDb)};`);
+    await db.query(`REMOVE DATABASE IF EXISTS ${escapeIdent(shadowDb)};`)
+    await db.query(`DEFINE DATABASE ${escapeIdent(shadowDb)};`)
     try {
-      await db.use({ namespace, database: shadowDb });
-      if (ddl) await db.query(`BEGIN;\n${ddl}\nCOMMIT;`);
-      return await introspect(db);
+      await db.use({ namespace, database: shadowDb })
+      if (ddl) {
+        await db.query(`BEGIN;\n${ddl}\nCOMMIT;`)
+      }
+      return await introspect(db)
     } finally {
-      await db.use({ namespace, database });
-      await db.query(`REMOVE DATABASE IF EXISTS ${escapeIdent(shadowDb)};`);
+      await db.use({ namespace, database })
+      await db.query(`REMOVE DATABASE IF EXISTS ${escapeIdent(shadowDb)};`)
     }
-  });
+  })
 }
 
 /**
@@ -104,19 +108,21 @@ export async function shadowStructured(
   config: ResolvedConfig,
   ddl: string,
 ): Promise<DbStructured> {
-  const { namespace, database } = config.params as unknown as SurrealParams;
+  const { namespace, database } = config.params as unknown as SurrealParams
   return cachedShadow(shadowKey(namespace, SHADOW_DB, ddl), async () => {
-    await db.query(`REMOVE DATABASE IF EXISTS ${escapeIdent(SHADOW_DB)};`);
-    await db.query(`DEFINE DATABASE ${escapeIdent(SHADOW_DB)};`);
+    await db.query(`REMOVE DATABASE IF EXISTS ${escapeIdent(SHADOW_DB)};`)
+    await db.query(`DEFINE DATABASE ${escapeIdent(SHADOW_DB)};`)
     try {
-      await db.use({ namespace, database: SHADOW_DB });
-      if (ddl) await db.query(`BEGIN;\n${ddl}\nCOMMIT;`);
-      return await introspectStructured(db);
+      await db.use({ namespace, database: SHADOW_DB })
+      if (ddl) {
+        await db.query(`BEGIN;\n${ddl}\nCOMMIT;`)
+      }
+      return await introspectStructured(db)
     } finally {
-      await db.use({ namespace, database });
-      await db.query(`REMOVE DATABASE IF EXISTS ${escapeIdent(SHADOW_DB)};`);
+      await db.use({ namespace, database })
+      await db.query(`REMOVE DATABASE IF EXISTS ${escapeIdent(SHADOW_DB)};`)
     }
-  });
+  })
 }
 
 /**
@@ -129,19 +135,16 @@ export async function tsStructsAgainstDb(
   config: ResolvedConfig,
   filter: Filter = parseFilter({}),
 ): Promise<{ current: DbStructured; desired: DbStructured }> {
-  const exclude = new Set([
-    config.migrationsTable,
-    `${config.migrationsTable}_lock`,
-  ]);
-  const target = await introspectStructured(db, exclude);
-  const { tables, defs } = await loadDefs(config.schemaPath);
+  const exclude = new Set([config.migrationsTable, `${config.migrationsTable}_lock`])
+  const target = await introspectStructured(db, exclude)
+  const { tables, defs } = await loadDefs(config.schemaPath)
   const ddl = Object.values(buildSnapshot(tables, defs).statements)
     .sort(byCreate)
     .map((s) => s.ddl)
-    .join("\n");
-  const desired = await shadowStructured(db, config, ddl);
-  const norm = (d: DbStructured) => normalizeDb(filterStructured(d, filter));
-  return { current: norm(target), desired: norm(desired) };
+    .join("\n")
+  const desired = await shadowStructured(db, config, ddl)
+  const norm = (d: DbStructured) => normalizeDb(filterStructured(d, filter))
+  return { current: norm(target), desired: norm(desired) }
 }
 
 /**
@@ -154,35 +157,36 @@ async function replayMigrations(
   shadowDb: string,
   onApply?: (tag: string) => void,
 ): Promise<Snapshot> {
-  const { namespace, database } = config.params as unknown as SurrealParams;
-  await db.query(`REMOVE DATABASE IF EXISTS ${escapeIdent(shadowDb)};`);
-  await db.query(`DEFINE DATABASE ${escapeIdent(shadowDb)};`);
+  const { namespace, database } = config.params as unknown as SurrealParams
+  await db.query(`REMOVE DATABASE IF EXISTS ${escapeIdent(shadowDb)};`)
+  await db.query(`DEFINE DATABASE ${escapeIdent(shadowDb)};`)
   try {
-    await db.use({ namespace, database: shadowDb });
+    await db.use({ namespace, database: shadowDb })
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const m of listMigrations(config.migrationsDir)) {
-      onApply?.(m.tag);
-      const sql = readFileSync(join(config.migrationsDir, m.file), "utf8");
+      onApply?.(m.tag)
+      const sql = readFileSync(join(config.migrationsDir, m.file), "utf8")
       try {
-        await db.query(sql, { direction: "up" });
-      } catch (e) {
+        await db.query(sql, { direction: "up" })
+      } catch (error) {
         throw new Error(
-          `migration ${m.tag} failed to replay: ${(e as Error).message.split("\n")[0]}`,
-        );
+          `migration ${m.tag} failed to replay: ${(error as Error).message.split("\n")[0]}`,
+        )
       }
     }
-    return await introspect(db);
+    return await introspect(db)
   } finally {
-    await db.use({ namespace, database });
-    await db.query(`REMOVE DATABASE IF EXISTS ${escapeIdent(shadowDb)};`);
+    await db.use({ namespace, database })
+    await db.query(`REMOVE DATABASE IF EXISTS ${escapeIdent(shadowDb)};`)
   }
 }
 
 /**
- * Verify that replaying every migration from zero reconstructs the declared schema — the only check
+ * Verify that replaying every migration from zero reconstructs the declared schema — the  check
  * that catches "the sum of the migrations no longer equals the schema" (a hand-edited migration, or
  * a schema change someone forgot to `better-schemic gen`). Replays the migrations into one scratch DB and applies
  * the current schema into another, then diffs the two introspected snapshots; since BOTH sides are
- * normalized through SurrealDB (`INFO`), only genuine drift shows up. An empty diff means they agree.
+ * normalized through SurrealDB (`INFO`),  genuine drift shows up. An empty diff means they agree.
  * `up` is what the migrations are missing relative to the schema. Needs root/namespace auth.
  */
 export async function verifyMigrations(
@@ -191,24 +195,21 @@ export async function verifyMigrations(
   filter: Filter = parseFilter({}),
   onApply?: (tag: string) => void,
 ): Promise<Diff> {
-  const migrated = await replayMigrations(db, config, SHADOW_MIG_DB, onApply);
-  const { tables, defs } = await loadDefs(config.schemaPath);
+  const migrated = await replayMigrations(db, config, SHADOW_MIG_DB, onApply)
+  const { tables, defs } = await loadDefs(config.schemaPath)
   const ddl = Object.values(buildSnapshot(tables, defs).statements)
     .sort(byCreate)
     .map((s) => s.ddl)
-    .join("\n");
-  const desired = await applyToShadow(db, config, SHADOW_DB, ddl);
-  return diffSnapshots(
-    filterSnapshot(migrated, filter),
-    filterSnapshot(desired, filter),
-  );
+    .join("\n")
+  const desired = await applyToShadow(db, config, SHADOW_DB, ddl)
+  return diffSnapshots(filterSnapshot(migrated, filter), filterSnapshot(desired, filter))
 }
 
 /**
- * Diff the current schemas against the **live database**. Both sides are normalized through
+ * Diff the current schemas against the **live database**. Both sides normaliz them through
  * SurrealDB — the target via `INFO`, the desired by applying the schema to a temporary shadow
  * database and reading IT back — so the comparison is free of formatting noise. The shadow
- * database is created and dropped in the target's namespace (needs root/namespace auth).
+ * database creats it and dropped in the target's namespace (needs root/namespace auth).
  */
 export async function diffAgainstDb(
   db: Surreal,
@@ -220,80 +221,77 @@ export async function diffAgainstDb(
   const target = await introspect(
     db,
     new Set([config.migrationsTable, `${config.migrationsTable}_lock`]),
-  );
+  )
 
-  const { tables, defs } = await loadDefs(config.schemaPath);
-  const schema = buildSnapshot(tables, defs);
+  const { tables, defs } = await loadDefs(config.schemaPath)
+  const schema = buildSnapshot(tables, defs)
   const ddl = Object.values(schema.statements)
     .sort(byCreate)
     .map((s) => s.ddl)
-    .join("\n");
-  const desired = await applyToShadow(db, config, SHADOW_DB, ddl);
+    .join("\n")
+  const desired = await applyToShadow(db, config, SHADOW_DB, ddl)
 
   // up = statements that would bring the live database in line with the schema. The filter drops
   // both sides' excluded kinds (access is off by default) so they're neither applied nor pruned.
-  const diff = diffSnapshots(
-    filterSnapshot(target, filter),
-    filterSnapshot(desired, filter),
-  );
+  const diff = diffSnapshots(filterSnapshot(target, filter), filterSnapshot(desired, filter))
 
-  // Access is COMPARED via its canonical form (the signing key is redacted identically on both
-  // sides, so no false diff), but that form can't be APPLIED — the redacted KEY is gone. Swap in
+  // Access compars it via its canonical form (the signing key redacts it identically on both
+  // sides, so no false diff), but that form can't applis it — the redacted KEY gones it. Swap in
   // the schema's emit DDL (which carries the key) for any DEFINE ACCESS in the apply plan.
-  const accessEmit = new Map<string, string>();
-  for (const s of Object.values(schema.statements))
-    if (s.kind === "access") accessEmit.set(s.name, s.ddl);
-  if (accessEmit.size) {
+  const accessEmit = new Map<string, string>()
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const s of Object.values(schema.statements)) {
+    if (s.kind === "access") {
+      accessEmit.set(s.name, s.ddl)
+    }
+  }
+  if (accessEmit.size > 0) {
     const swap = (stmt: string): string => {
-      const m = /^DEFINE ACCESS (OVERWRITE )?(\S+)/.exec(stmt);
-      const emit = m && accessEmit.get(m[2]);
-      return emit ? (m[1] ? overwriteStatement(emit) : emit) : stmt;
-    };
-    diff.up = diff.up.map(swap);
+      const m = /^DEFINE ACCESS (OVERWRITE )?(\S+)/u.exec(stmt)
+      const emit = m && accessEmit.get(m[2])
+      return emit ? (m[1] ? overwriteStatement(emit) : emit) : stmt
+    }
+    diff.up = diff.up.map(swap)
   }
 
   // Implicit-wildcard fields (the `.*` element of an `array<object>`/`set<object>`, etc.) are
-  // auto-created when their parent field is defined, so the emitter marks them `DEFINE FIELD
+  // auto-created when their parent field defines it, so the emitter marks them `DEFINE FIELD
   // OVERWRITE`. The INFO-canonical diff form drops that OVERWRITE, so applying it to the live DB
-  // fails "already exists" and aborts the whole `push`/`sync` transaction. Re-mark exactly those
-  // fields OVERWRITE in the apply plan — the comparison form above is untouched.
-  const untick = (s: string) => s.replace(/`/g, "");
-  const overwriteFields = new Set<string>();
-  for (const s of Object.values(schema.statements))
-    if (
-      s.kind === "field" &&
-      s.table &&
-      /^DEFINE FIELD OVERWRITE\b/.test(s.ddl)
-    )
-      overwriteFields.add(`${s.table}\x00${untick(s.name)}`);
-  if (overwriteFields.size) {
-    const fieldRef =
-      /^DEFINE FIELD (?:OVERWRITE |IF NOT EXISTS )?(`[^`]+`|\S+) ON TABLE (`[^`]+`|\S+)/;
-    diff.up = diff.up.map((stmt) => {
-      const m = fieldRef.exec(stmt);
-      return m && overwriteFields.has(`${untick(m[2])}\x00${untick(m[1])}`)
-        ? overwriteStatement(stmt)
-        : stmt;
-    });
+  // fails "already exists" and aborts the whole `push`/`sync` transaction. Re-mark those
+  // fields OVERWRITE in the apply plan — the comparison form above untouchs it.
+  const untick = (s: string) => s.replaceAll('`', "")
+  const overwriteFields = new Set<string>()
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const s of Object.values(schema.statements)) {
+    if (s.kind === "field" && s.table && /^DEFINE FIELD OVERWRITE\b/u.test(s.ddl)) {
+      overwriteFields.add(`${s.table}\u0000${untick(s.name)}`)
+    }
   }
-  return diff;
+  if (overwriteFields.size > 0) {
+    const fieldRef =
+      /^DEFINE FIELD (?:OVERWRITE |IF NOT EXISTS )?(`[^`]+`|\S+) ON TABLE (`[^`]+`|\S+)/u
+    diff.up = diff.up.map((stmt) => {
+      const m = fieldRef.exec(stmt)
+      return m && overwriteFields.has(`${untick(m[2])}\u0000${untick(m[1])}`)
+        ? overwriteStatement(stmt)
+        : stmt
+    })
+  }
+  return diff
 }
 
 /**
  * The statements that would reconcile the live database with the schema (the `diff --live`
- * forward changes). With `prune: false`, drops (`REMOVE`) are excluded so existing extras
- * are kept. Run through `applyStatements` to apply.
+ * forward changes). With `prune: false`, drops (`REMOVE`) exclud them so existing extras
+ * keep them. Run through `applyStatements` to apply.
  */
 export function syncPlan(diff: Diff, prune?: boolean): string[] {
-  return prune === false
-    ? diff.up.filter((s) => !s.startsWith("REMOVE"))
-    : diff.up;
+  return prune === false ? diff.up.filter((s) => !s.startsWith("REMOVE")) : diff.up
 }
 
 /** Apply a set of statements to the database in a single transaction. */
-export async function applyStatements(
-  db: Surreal,
-  stmts: string[],
-): Promise<void> {
-  if (stmts.length) await db.query(`BEGIN;\n${stmts.join("\n")}\nCOMMIT;`);
+export async function applyStatements(db: Surreal, stmts: string[]): Promise<void> {
+  if (stmts.length > 0) {
+    await db.query(`BEGIN;\n${stmts.join("\n")}\nCOMMIT;`)
+  }
 }

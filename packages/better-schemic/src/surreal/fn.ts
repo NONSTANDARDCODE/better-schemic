@@ -9,38 +9,32 @@
  *
  * Arguments accept literals (BOUND as `$r<n>` params), field refs (spliced, `$parent`-aware),
  * `$param` refs (spliced as text), and fragments/builders (spliced with bindings merged).
- * Side-effect-free; imports only the render primitives — safe from the authoring index.
+ * Side-effect-free; imports  the render primitives — safe from the authoring index.
  */
 
-import type { BoundQuery } from "surrealdb";
-import { Surql } from "./frag";
-import type { ParamDef, ParamRef } from "./pure";
-import type { FieldRefBase } from "./surql/ref";
-import { argRenderer, type Ctx, type RefKind } from "./surql/render";
+import type { BoundQuery } from "surrealdb"
+
+import { Surql } from "./frag"
+import type { ParamDef, ParamRef } from "./pure"
+import type { FieldRefBase } from "./surql/ref"
+import { argRenderer, type Ctx, type RefKind } from "./surql/render"
 
 /** A typed expression fragment — the `[T]` rule (`Frag<T>` = a one-statement query of `T`).
  *  Catalog results are `Surql`, so every call carries `.as<T2>()` — retype where the true shape
  *  is caller-known: `surql.fn.http.post(...).as<{ id?: string }>()`. */
-export type Frag<T> = Surql<[T]>;
+export type Frag<T> = Surql<[T]>
 
 /** What a builtin-call argument accepts: a literal `T` (bound as a param), a typed field ref
  *  (spliced), a `$param` ref (spliced as text), or a fragment/builder (spliced, binds merged). */
 export type FnArg<T> =
-  | T
-  | ParamRef<T>
-  | ParamDef<T>
-  | FieldRefBase<T>
-  | BoundQuery
-  | { toQuery(): BoundQuery };
+  { toQuery(): BoundQuery } | BoundQuery | FieldRefBase<T> | ParamDef<T> | ParamRef<T> | T
 
 // --- the call lowering ----------------------------------------------------------------------------
 
 function call(name: string, args: readonly unknown[]): Surql<[unknown]> {
-  const ctx: Ctx = { vars: {} };
-  const parts = args
-    .filter((a) => a !== undefined)
-    .map((a) => argRenderer(a)(ctx));
-  return new Surql(`${name}(${parts.join(", ")})`, ctx.vars);
+  const ctx: Ctx = { vars: {} }
+  const parts = args.filter((a) => a !== undefined).map((a) => argRenderer(a)(ctx))
+  return new Surql(`${name}(${parts.join(", ")})`, ctx.vars)
 }
 
 // Arity helpers — the catalog below stays one line per function. `o` = trailing optionals,
@@ -48,44 +42,44 @@ function call(name: string, args: readonly unknown[]): Surql<[unknown]> {
 const f0 =
   <R>(name: string) =>
   (): Frag<R> =>
-    call(name, []) as Frag<R>;
+    call(name, [])
 const f1 =
   <A, R>(name: string) =>
   (a: FnArg<A>): Frag<R> =>
-    call(name, [a]) as Frag<R>;
+    call(name, [a])
 const f2 =
   <A, B, R>(name: string) =>
   (a: FnArg<A>, b: FnArg<B>): Frag<R> =>
-    call(name, [a, b]) as Frag<R>;
+    call(name, [a, b])
 const f3 =
   <A, B, C, R>(name: string) =>
   (a: FnArg<A>, b: FnArg<B>, c: FnArg<C>): Frag<R> =>
-    call(name, [a, b, c]) as Frag<R>;
+    call(name, [a, b, c])
 const f0o =
   <A, R>(name: string) =>
   (a?: FnArg<A>): Frag<R> =>
-    call(name, [a]) as Frag<R>;
+    call(name, [a])
 const f0oo =
   <A, B, R>(name: string) =>
   (a?: FnArg<A>, b?: FnArg<B>): Frag<R> =>
-    call(name, [a, b]) as Frag<R>;
+    call(name, [a, b])
 const f1o =
   <A, B, R>(name: string) =>
   (a: FnArg<A>, b?: FnArg<B>): Frag<R> =>
-    call(name, [a, b]) as Frag<R>;
+    call(name, [a, b])
 const f2o =
   <A, B, C, R>(name: string) =>
   (a: FnArg<A>, b: FnArg<B>, c?: FnArg<C>): Frag<R> =>
-    call(name, [a, b, c]) as Frag<R>;
+    call(name, [a, b, c])
 const fv =
   <T, R>(name: string) =>
   (...xs: FnArg<T>[]): Frag<R> =>
-    call(name, xs) as Frag<R>;
+    call(name, xs)
 
-type Json = unknown;
+type Json = unknown
 /** HTTP headers: a plain object whose VALUES may be fragments/refs (each splices), or a whole
  *  fragment/ref for the object itself. */
-type HeadersArg = FnArg<Record<string, FnArg<string>>>;
+type HeadersArg = FnArg<Record<string, FnArg<string>>>
 
 // --- the catalog -----------------------------------------------------------------------------------
 
@@ -195,26 +189,17 @@ export const fn = {
    *  — shorthand for `.as<{ id?: string }>()`. Header values take fragments/refs. */
   http: {
     head: <R = Json>(url: FnArg<string>, headers?: HeadersArg): Frag<R> =>
-      call("http::head", [url, headers]) as Frag<R>,
+      call("http::head", [url, headers]),
     get: <R = Json>(url: FnArg<string>, headers?: HeadersArg): Frag<R> =>
-      call("http::get", [url, headers]) as Frag<R>,
-    put: <R = Json>(
-      url: FnArg<string>,
-      body?: FnArg<Json>,
-      headers?: HeadersArg,
-    ): Frag<R> => call("http::put", [url, body, headers]) as Frag<R>,
-    post: <R = Json>(
-      url: FnArg<string>,
-      body?: FnArg<Json>,
-      headers?: HeadersArg,
-    ): Frag<R> => call("http::post", [url, body, headers]) as Frag<R>,
-    patch: <R = Json>(
-      url: FnArg<string>,
-      body?: FnArg<Json>,
-      headers?: HeadersArg,
-    ): Frag<R> => call("http::patch", [url, body, headers]) as Frag<R>,
+      call("http::get", [url, headers]),
+    put: <R = Json>(url: FnArg<string>, body?: FnArg<Json>, headers?: HeadersArg): Frag<R> =>
+      call("http::put", [url, body, headers]),
+    post: <R = Json>(url: FnArg<string>, body?: FnArg<Json>, headers?: HeadersArg): Frag<R> =>
+      call("http::post", [url, body, headers]),
+    patch: <R = Json>(url: FnArg<string>, body?: FnArg<Json>, headers?: HeadersArg): Frag<R> =>
+      call("http::patch", [url, body, headers]),
     delete: <R = Json>(url: FnArg<string>, headers?: HeadersArg): Frag<R> =>
-      call("http::delete", [url, headers]) as Frag<R>,
+      call("http::delete", [url, headers]),
   },
   /** `math::*` — numeric + statistical. */
   math: {
@@ -289,7 +274,7 @@ export const fn = {
     id: f1<unknown, unknown>("record::id"),
     table: f1<unknown, string>("record::tb"),
   },
-  /** `search::*` — fulltext/hybrid scoring (valid only in a fulltext `SELECT`). */
+  /** `search::*` — fulltext/hybrid scoring (valid in a fulltext `SELECT`). */
   search: {
     score: f1<number, number>("search::score"),
     highlight: f3<string, string, number, string>("search::highlight"),
@@ -431,7 +416,7 @@ export const fn = {
       pearson: f2<number[], number[], number>("vector::similarity::pearson"),
     },
   },
-} as const;
+} as const
 
 // --- the ref stdlib (per-kind method families the query layer grafts onto field refs) ------------
 
@@ -439,16 +424,13 @@ export const fn = {
  *  KIND of ref it returns (so chaining picks the right next family). `"element"` = the source
  *  array's element kind; `elem` seeds the element kind of an `array` result. */
 export interface RefMethodSpec {
-  readonly fn: string;
-  readonly returns: RefKind | "element";
-  readonly elem?: RefKind;
+  readonly elem?: RefKind
+  readonly fn: string
+  readonly returns: "element" | RefKind
 }
 
 /** The per-kind stdlib families (runtime source; the typed facades live in the query layer). */
-export const refMethods: Record<
-  Exclude<RefKind, "other">,
-  Record<string, RefMethodSpec>
-> = {
+export const refMethods: Record<Exclude<RefKind, "other">, Record<string, RefMethodSpec>> = {
   string: {
     length: { fn: "string::len", returns: "number" },
     lowercase: { fn: "string::lowercase", returns: "string" },
@@ -500,4 +482,4 @@ export const refMethods: Record<
     unix: { fn: "time::unix", returns: "number" },
     format: { fn: "time::format", returns: "string" },
   },
-};
+}

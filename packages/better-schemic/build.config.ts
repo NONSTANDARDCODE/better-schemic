@@ -1,9 +1,13 @@
-import { defineBuild } from "../../scripts/build";
+import { defineBuild } from "../../scripts/build"
 
 export default defineBuild({
+  dts: "tsconfig.build.json",
   entry: [
     // --- the authoring surface (side-effect-free) ---
     "src/index.ts",
+    // --- the Zod bridge used by generated validator code ---
+    "src/zod.ts",
+    "src/zod-core.ts",
     // --- the engine ---
     "src/driver.ts",
     "src/connection.ts",
@@ -30,8 +34,7 @@ export default defineBuild({
     // --- the CLI ---
     "src/cli/index.ts",
   ],
-  dts: "tsconfig.build.json",
-  // Only the CLI entry is a bin — the shebang must NOT land on the library entries.
+  // the CLI entry is a bin — the shebang must NOT land on the library entries.
   shebang: true,
   shebangEntries: ["src/cli/index.ts"],
-});
+})

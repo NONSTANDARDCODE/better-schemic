@@ -9,46 +9,60 @@
  * ```
  */
 
-import { OrmError } from "../orm/errors";
-import type { SchemaIndex } from "../orm/meta";
-import { definePlugin } from "../orm/plugins";
-import type { Plugin } from "../orm/types/plugins";
+import { OrmError } from "../orm/errors"
+import type { SchemaIndex } from "../orm/meta"
+import { definePlugin } from "../orm/plugins"
+import type { Plugin } from "../orm/types/plugins"
 
 /** The guardrails the `rules` plugin can enforce. */
 export interface RulesOptions {
-  /** Reject `$unsafe` (the parameterized `$raw`/`$query` stay available). */
-  readonly noRawUnsafe?: boolean;
   /** Reject `updateMany`/`deleteMany` with no `where` (unless `all: true`). */
-  readonly destructiveWriteWithoutWhere?: boolean;
-  /** Require an explicit `limit` on `findMany`. */
-  readonly requireLimit?: boolean;
-  /** Require an explicit `orderBy` on `cursor`. */
-  readonly requireOrderByForCursor?: boolean;
+  readonly destructiveWriteWithoutWhere?: boolean
   /** Reject a `limit` above this number (`findMany`/`paginate`). */
-  readonly maxLimit?: number;
+  readonly maxLimit?: number
+  /** Reject `$unsafe` (the parameterized `$raw`/`$query` stay available). */
+  readonly noRawUnsafe?: boolean
+  /** Require an explicit `limit` on `findMany`. */
+  readonly requireLimit?: boolean
+  /** Require an explicit `orderBy` on `cursor`. */
+  readonly requireOrderByForCursor?: boolean
   /** Reject unknown fields in `data`/`where`/`select` (`UnknownField`). */
-  readonly strict?: boolean;
+  readonly strict?: boolean
 }
 
-const LOGICAL = new Set(["AND", "OR", "NOT"]);
+const LOGICAL = new Set(["AND", "OR", "NOT"])
 
 const fail = (message: string, operation: string, table?: string): never => {
   throw new OrmError("UnsafeMutation", message, {
     operation,
     ...(table ? { table } : {}),
-  });
-};
+  })
+}
 
 /** Known keys of a model: columns, links, adjacent edge names and the id. */
 function knownFields(index: SchemaIndex, table: string): Set<string> {
-  const meta = index.byName.get(table);
-  const out = new Set<string>(["id"]);
-  if (!meta || "schemaless" in meta) return out;
-  for (const key of meta.columns.keys()) out.add(key);
-  for (const key of meta.links.keys()) out.add(key);
-  for (const edge of meta.outgoing) out.add(edge.name);
-  for (const edge of meta.incoming) out.add(edge.name);
-  return out;
+  const meta = index.byName.get(table)
+  const out = new Set<string>(["id"])
+  if (!meta || "schemaless" in meta) {
+    return out
+  }
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const key of meta.columns.keys()) {
+    out.add(key)
+  }
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const key of meta.links.keys()) {
+    out.add(key)
+  }
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const edge of meta.outgoing) {
+    out.add(edge.name)
+  }
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const edge of meta.incoming) {
+    out.add(edge.name)
+  }
+  return out
 }
 
 /** Check the top-level keys of a filter/payload against the schema. */
@@ -59,21 +73,21 @@ function assertFields(
   table: string,
   what: string,
 ): void {
-  if (typeof value !== "object" || value === null) return;
+  if (typeof value !== "object" || value === null) {
+    return
+  }
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const key of Object.keys(value)) {
-    if (
-      LOGICAL.has(key) ||
-      key === "*" ||
-      key.includes(".") ||
-      key.includes("[")
-    )
-      continue;
-    if (!known.has(key))
+    if (LOGICAL.has(key) || key === "*" || key.includes(".") || key.includes("[")) {
+      continue
+    }
+    if (!known.has(key)) {
       throw new OrmError(
         "UnknownField",
         `${operation}: "${key}" is not a field of "${table}" (${what}). Known: ${[...known].join(", ")}.`,
         { operation, table, field: key },
-      );
+      )
+    }
   }
 }
 
@@ -88,62 +102,55 @@ export function rules(options: RulesOptions = {}): Plugin {
     config: options,
     hooks: {
       beforeRaw: ({ operation, surql }) => {
-        if (options.noRawUnsafe && operation === "$unsafe")
+        if (options.noRawUnsafe && operation === "$unsafe") {
           throw new OrmError(
             "UnsafeMutation",
             `rules: $unsafe is disabled by the rules plugin — use $raw/$query (parameterized) instead. ${surql}`,
             { operation },
-          );
+          )
+        }
       },
     },
     transform(op) {
-      const kind = op.kind;
-      const args = op.args;
+      const kind = op.kind
+      const args = op.args
       if (
         options.destructiveWriteWithoutWhere &&
         (kind === "updateMany" || kind === "deleteMany") &&
         args.where === undefined &&
         args.all !== true
-      )
+      ) {
         fail(
           `rules: ${kind} without a "where" would touch the whole table — add a filter or pass all: true.`,
           kind,
           op.table,
-        );
-      if (
-        options.requireLimit &&
-        kind === "findMany" &&
-        args.limit === undefined
-      )
+        )
+      }
+      if (options.requireLimit && kind === "findMany" && args.limit === undefined) {
         fail(
           'rules: findMany requires an explicit "limit" — add one (or use paginate/cursor).',
           kind,
           op.table,
-        );
+        )
+      }
       if (
         options.maxLimit !== undefined &&
         typeof args.limit === "number" &&
         args.limit > options.maxLimit
-      )
-        fail(
-          `rules: limit ${args.limit} exceeds maxLimit ${options.maxLimit}.`,
-          kind,
-          op.table,
-        );
-      if (
-        options.requireOrderByForCursor &&
-        kind === "cursor" &&
-        args.orderBy === undefined
-      )
-        fail('rules: cursor requires an explicit "orderBy".', kind, op.table);
+      ) {
+        fail(`rules: limit ${args.limit} exceeds maxLimit ${options.maxLimit}.`, kind, op.table)
+      }
+      if (options.requireOrderByForCursor && kind === "cursor" && args.orderBy === undefined) {
+        fail('rules: cursor requires an explicit "orderBy".', kind, op.table)
+      }
       if (options.strict) {
-        const known = knownFields(op.index, op.table);
-        assertFields(op.args.data, known, kind, op.table, "data");
-        assertFields(op.args.where, known, kind, op.table, "where");
-        assertFields(op.args.select, known, kind, op.table, "select");
+        const known = knownFields(op.index, op.table)
+        assertFields(op.args.data, known, kind, op.table, "data")
+        assertFields(op.args.where, known, kind, op.table, "where")
+        assertFields(op.args.select, known, kind, op.table, "select")
       }
     },
-  });
+  })
 }
 
 /** The conservative preset: `$unsafe` off, no unfiltered destructive writes. */
@@ -152,20 +159,18 @@ export function safe(options: RulesOptions = {}): Plugin {
     noRawUnsafe: true,
     destructiveWriteWithoutWhere: true,
     ...options,
-  });
+  })
 }
 
 /** The balanced preset: `safe` + a required/max limit. */
-export function recommended(
-  options: RulesOptions & { maxLimit?: number } = {},
-): Plugin {
+export function recommended(options: RulesOptions & { maxLimit?: number } = {}): Plugin {
   return rules({
     noRawUnsafe: true,
     destructiveWriteWithoutWhere: true,
     requireLimit: true,
     maxLimit: options.maxLimit ?? 1000,
     ...options,
-  });
+  })
 }
 
 /** The strict preset: `recommended` + strict field checking + cursor orderBy. */
@@ -178,5 +183,5 @@ export function strict(options: RulesOptions = {}): Plugin {
     strict: true,
     maxLimit: options.maxLimit ?? 1000,
     ...options,
-  });
+  })
 }

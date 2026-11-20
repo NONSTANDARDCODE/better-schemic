@@ -19,5 +19,5 @@
  * `defineConfig` is the neutral engine's helper (it accepts any connection entry); `surrealConnection`
  * is the SurrealDB factory it pairs with. Both live here so a config file needs ONE import.
  */
-export * from "./core/config";
-export * from "./surreal/connection";
+export * from "./core/config"
+export * from "./surreal/connection"

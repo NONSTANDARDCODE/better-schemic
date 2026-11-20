@@ -403,7 +403,9 @@ Nenhuma muda o SurrealQL emitido; o objetivo é tirar workarounds do app consumi
 | `upsertDelta` typed from args (`NoInfer` + overload) + `UpsertDeltaFor`/`InferWriteResult`/`RowOf` | `[x]` | Sem cast em `result.record.<campo>`. `aot-upsert-delta.assert.ts` |
 | `TypedBoundQuery`/`surqlWith`, `$query` tipado, `selectQuery(from, allowlist)`, `s.json<T>()`, `s.regex(string, flags?)` | `[x]` | Fronteira `unknown` removida; DDL inalterado. `aot-raw-json.assert.ts`, `aot-regex-json.test.ts` |
 
+| `s.jsonValue<T>()` | `[x]` | Parse real para `T` no decode / stringify no encode, DDL idêntico ao de `s.json()`. `json-value.test.ts`, `json-value.assert.ts` |
 | `sc compile` + `better-schemic/aot` + `better-schemic/plugin` (zod-compiler) | `[x]` | Validators AOT para `s.*` (identidade preservada → DDL/ORM intactos) e plugin Bun para Zod puro. `aot-compile.test.ts` |
+| `sc generate` + `defineConfig({ resolve, generators, generated })` | `[x]` | Geradores declarativos (ORM + AOT), aliases no jiti da CLI, directives e ignores gerados pela lib. `generate-config.test.ts`, `generated-directives.test.ts` |
 
 ---
 

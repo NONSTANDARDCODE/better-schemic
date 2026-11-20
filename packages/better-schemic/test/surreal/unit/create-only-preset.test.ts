@@ -1,107 +1,103 @@
 // M14 — the `createOnly()` schema PRESET: `PERMISSIONS FOR update NONE` (AND-narrowed with the
 // table's own), the `meta.createOnly` marker and the optional hard `{table}_create_only` event.
 // Offline (DDL strings).
-import { describe, expect, test } from "bun:test";
-import { s, table } from "../../../src/surreal";
-import { emitStatements, emitTable } from "../../../src/surreal/ddl";
-import { isOrmError, type OrmError } from "../../../src/surreal/orm/errors";
-import { createOnly } from "../../../src/surreal/plugins/create-only";
-import { isCreateOnlyDef } from "../../../src/surreal/plugins/create-only-shared";
-import { tenant } from "../../../src/surreal/plugins/tenant";
+import { describe, expect, test } from "bun:test"
 
-const User = table("user", { name: s.string() });
+import { s, table } from "../../../src/surreal"
+import { emitStatements, emitTable } from "../../../src/surreal/ddl"
+import { isOrmError, type OrmError } from "../../../src/surreal/orm/errors"
+import { createOnly } from "../../../src/surreal/plugins/create-only"
+import { isCreateOnlyDef } from "../../../src/surreal/plugins/create-only-shared"
+import { tenant } from "../../../src/surreal/plugins/tenant"
+
+const User = table("user", { name: s.string() })
 
 const ddl = (t: Parameters<typeof emitStatements>[0]) =>
-  emitStatements(t).map((statement) => statement.ddl);
+  emitStatements(t).map((statement) => statement.ddl)
 
 describe("createOnly() — golden DDL", () => {
   test("locks ONLY update: PERMISSIONS FOR update NONE", () => {
-    const Log = table("log", { action: s.string() }).use(createOnly());
+    const Log = table("log", { action: s.string() }).use(createOnly())
     expect(ddl(Log)).toEqual([
       "DEFINE TABLE log TYPE NORMAL SCHEMAFULL PERMISSIONS FOR update NONE;",
       "DEFINE FIELD action ON TABLE log TYPE string;",
-    ]);
-  });
+    ])
+  })
 
   test("AND-narrows the table's own permissions (never widens)", () => {
     const Log = table("log", { action: s.string() })
       .permissions({ select: true, create: true, delete: true })
-      .use(createOnly());
+      .use(createOnly())
     expect(ddl(Log)[0]).toBe(
       "DEFINE TABLE log TYPE NORMAL SCHEMAFULL PERMISSIONS FOR select, create, delete FULL FOR update NONE;",
-    );
-  });
+    )
+  })
 
   test("hard: true emits the UPDATE guard event (blocks even root/raw)", () => {
-    const Log = table("log", { action: s.string() }).use(
-      createOnly({ hard: true }),
-    );
+    const Log = table("log", { action: s.string() }).use(createOnly({ hard: true }))
     expect(ddl(Log)).toContain(
       "DEFINE EVENT log_create_only ON TABLE log WHEN $event = 'UPDATE' THEN { THROW s\"createOnly: this table is append-only — UPDATE is not allowed\"; };",
-    );
-  });
+    )
+  })
 
   test("the default (and hard: false) emits no event", () => {
-    const soft = table("log", {}).use(createOnly());
-    expect(ddl(soft).some((s) => s.startsWith("DEFINE EVENT"))).toBe(false);
-    expect(emitTable(soft)).toBe(
-      emitTable(table("log", {}).use(createOnly({ hard: false }))),
-    );
-  });
+    const soft = table("log", {}).use(createOnly())
+    expect(ddl(soft).some((s) => s.startsWith("DEFINE EVENT"))).toBe(false)
+    expect(emitTable(soft)).toBe(emitTable(table("log", {}).use(createOnly({ hard: false }))))
+  })
 
   test("a non-boolean hard is rejected early", () => {
     const hardError = (hard: unknown): unknown => {
       try {
-        createOnly({ hard: hard as never });
-        return null;
-      } catch (e) {
-        return e;
+        createOnly({ hard: hard as never })
+        return null
+      } catch (error) {
+        return error
       }
-    };
-    for (const hard of [1, "yes", null]) {
-      const error = hardError(hard) as OrmError;
-      expect(isOrmError(error)).toBe(true);
-      expect(error.code).toBe("SchemaInvalid");
-      expect(error.message).toContain('"hard" must be a boolean');
     }
-  });
-});
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    for (const hard of [1, "yes", null]) {
+      const error = hardError(hard) as OrmError
+      expect(isOrmError(error)).toBe(true)
+      expect(error.code).toBe("SchemaInvalid")
+      expect(error.message).toContain('"hard" must be a boolean')
+    }
+  })
+})
 
 describe("createOnly() — meta marker", () => {
   test("stamps meta.createOnly = true and adds no columns", () => {
-    const Log = table("log", { action: s.string() }).use(createOnly());
-    expect(Log.config.meta).toEqual({ createOnly: true });
-    expect(isCreateOnlyDef(Log)).toBe(true);
-    // The preset contributes no columns — a create-only table declares its own (e.g. only createdAt).
-    expect(Object.keys(Log.fields).sort()).toEqual(["action", "id"]);
-    expect("updatedAt" in Log.fields).toBe(false);
-  });
+    const Log = table("log", { action: s.string() }).use(createOnly())
+    expect(Log.config.meta).toEqual({ createOnly: true })
+    expect(isCreateOnlyDef(Log)).toBe(true)
+    // The preset contributes no columns — a create- table declares its own (e.g. createdAt).
+    expect(Object.keys(Log.fields).sort()).toEqual(["action", "id"])
+    expect("updatedAt" in Log.fields).toBe(false)
+  })
 
   test("a bare table is not tagged", () => {
-    expect(isCreateOnlyDef(table("plain", {}))).toBe(false);
-    expect(table("plain", {}).config.meta).toBeUndefined();
-  });
+    expect(isCreateOnlyDef(table("plain", {}))).toBe(false)
+    expect(table("plain", {}).config.meta).toBeUndefined()
+  })
 
   test("tenant(…, { createOnly: true }) stamps the same canonical marker", () => {
-    const Order = table("order", { total: s.number() }).use(
-      tenant(User, { createOnly: true }),
-    );
-    expect(isCreateOnlyDef(Order)).toBe(true);
-    expect(Order.config.meta?.tenant).toMatchObject({ createOnly: true });
-    expect(ddl(Order)[0]).toContain("FOR update NONE");
-  });
+    const Order = table("order", { total: s.number() }).use(tenant(User, { createOnly: true }))
+    expect(isCreateOnlyDef(Order)).toBe(true)
+    expect(Order.config.meta?.tenant).toMatchObject({ createOnly: true })
+    expect(ddl(Order)[0]).toContain("FOR update NONE")
+  })
 
   test("tenant() without createOnly leaves the marker unset", () => {
-    const Customer = table("customer", { name: s.string() }).use(tenant(User));
-    expect(isCreateOnlyDef(Customer)).toBe(false);
-  });
+    const Customer = table("customer", { name: s.string() }).use(tenant(User))
+    expect(isCreateOnlyDef(Customer)).toBe(false)
+  })
 
   test("meta merges with other presets and emits no DDL by itself", () => {
-    const base = table.preset({ meta: { owner: "acme" } });
-    const tagged = table("log", {}).use(base).use(createOnly());
+    const base = table.preset({ meta: { owner: "acme" } })
+    const tagged = table("log", {}).use(base).use(createOnly())
     expect(tagged.config.meta).toMatchObject({
       owner: "acme",
       createOnly: true,
-    });
-  });
-});
+    })
+  })
+})

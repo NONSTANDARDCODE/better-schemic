@@ -2,12 +2,9 @@
 // Zod drop-in philosophy (s.* is a Zod superset with the canonical type set). Shared suite lives in
 // better-schemic/testing; each driver wires it to its own s / driver / defineEntity.
 
-import { s, table } from "better-schemic";
-import { surrealDriver } from "better-schemic/driver";
-import {
-  type DriverConformanceOptions,
-  describeDriverConformance,
-} from "better-schemic/testing";
+import { s, table } from "better-schemic"
+import { surrealDriver } from "better-schemic/driver"
+import { describeDriverConformance,type DriverConformanceOptions } from "better-schemic/testing"
 
 describeDriverConformance({
   name: "surrealdb",
@@ -16,4 +13,4 @@ describeDriverConformance({
   s: s as unknown as DriverConformanceOptions["s"],
   driver: surrealDriver,
   defineEntity: table,
-});
+})

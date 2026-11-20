@@ -7,31 +7,30 @@
  * Pure compile+run (no live database). Round-trip fidelity (decoded rows, server semantics) is covered
  * by the live suites under `test/live/*` against SurrealDB 3.2.0.
  */
-import { describe, expect, test } from "bun:test";
-import { allOrmGroups, capture } from "../../../examples/orm";
+import { describe, expect, test } from "bun:test"
+import { allOrmGroups, capture } from "../../../examples/orm"
 
 describe("ORM cookbook: delegate call -> runtime SurrealQL", () => {
   for (const group of allOrmGroups) {
     describe(group.file, () => {
       for (const example of group.examples) {
         test(example.title, async () => {
-          const got = await capture(example);
-          expect(got).toEqual({ sql: example.sql, vars: example.vars });
-        });
+          const got = await capture(example)
+          expect(got).toEqual({ sql: example.sql, vars: example.vars })
+        })
       }
-    });
+    })
   }
-
 
   test("each example's `code` is its own def snippet", () => {
     // The extraction is title-anchored: a first-match scan would give every entry in a file the SAME
     // (first) `def` — the per-group uniqueness check catches that regression.
     for (const group of allOrmGroups) {
-      const codes = group.examples.map((example) => example.code);
-      expect(new Set(codes).size).toBe(codes.length);
+      const codes = group.examples.map((example) => example.code)
+      expect(new Set(codes).size).toBe(codes.length)
       for (const example of group.examples) {
-        expect(example.code.startsWith("(client)")).toBe(true);
+        expect(example.code.startsWith("(client)")).toBe(true)
       }
     }
-  });
-});
+  })
+})

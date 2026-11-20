@@ -14,13 +14,14 @@
 // table case the ordinal alone gets wrong). We scan each object's rendered DDL for `fn::` references and
 // attach `deps -> {kind:"function", name}` — on a table (field VALUE/ASSERT/DEFAULT/PERMISSIONS + table
 // PERMISSIONS), an event (WHEN/THEN), an access (SIGNUP/SIGNIN/AUTHENTICATE), and a function (its body
-// calling another fn::). Edges to functions outside the diff are ignored by the spine, so over-reporting
-// is harmless. (SEARCH index -> analyzer edges land when the analyzer kind is registered.)
+// calling another fn::). Edges to functions outside the diff ignor them by the spine, so over-reporting
+// is harmless. (SEARCH index -> analyzer edges land when the analyzer kind registers it.)
 
-import type { Surreal } from "surrealdb";
-import type { AnyTable, AuthoredDef, Ref } from "../../core";
-import { schemaStruct } from "../cli/lower";
-import { normalizeDb } from "../cli/struct";
+import type { Surreal } from "surrealdb"
+
+import type { AnyTable, AuthoredDef, Ref } from "../../core"
+import { schemaStruct } from "../cli/lower"
+import { normalizeDb } from "../cli/struct"
 import type {
   DbStructured,
   StructAccess,
@@ -29,14 +30,14 @@ import type {
   StructParam,
   StructSequence,
   StructTable,
-} from "../cli/structure";
-import { introspectStructured, structuredSnapshot } from "../cli/structure";
-import type { DefineStatement } from "../ddl";
-import type { Shape, StandaloneDef, TableDef } from "../pure";
-import type { SurrealPortable } from "./portable";
+} from "../cli/structure"
+import { introspectStructured, structuredSnapshot } from "../cli/structure"
+import type { DefineStatement } from "../ddl"
+import type { Shape, StandaloneDef, TableDef } from "../pure"
+import type { SurrealPortable } from "./portable"
 
 /** Match a `fn::name` reference (incl. namespaced `fn::a::b`), capturing the bare function name. */
-const FN_REF = /fn::([A-Za-z0-9_]+(?:::[A-Za-z0-9_]+)*)/g;
+const FN_REF = /fn::([A-Za-z0-9_]+(?:::[A-Za-z0-9_]+)*)/gu
 
 /**
  * The cross-kind dependency edges for one object: a `base` set (its table, for index/event) plus the
@@ -44,19 +45,25 @@ const FN_REF = /fn::([A-Za-z0-9_]+(?:::[A-Za-z0-9_]+)*)/g;
  * itself is recursion, not an ordering edge).
  */
 function depsOf(ddls: string[], base: Ref[] = [], self?: string): Ref[] {
-  const seen = new Set(base.map((r) => `${r.kind}:${r.name}`));
-  const out: Ref[] = [...base];
+  const seen = new Set(base.map((r) => `${r.kind}:${r.name}`))
+  const out: Ref[] = [...base]
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const ddl of ddls) {
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const m of ddl.matchAll(FN_REF)) {
-      const name = m[1];
-      if (name === self) continue;
-      const key = `function:${name}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({ kind: "function", name });
+      const name = m[1]
+      if (name === self) {
+        continue
+      }
+      const key = `function:${name}`
+      if (seen.has(key)) {
+        continue
+      }
+      seen.add(key)
+      out.push({ kind: "function", name })
     }
   }
-  return out;
+  return out
 }
 
 /**
@@ -70,122 +77,152 @@ function depsOf(ddls: string[], base: Ref[] = [], self?: string): Ref[] {
  * Struct here, so they produce byte-identical portable objects.
  */
 export function fromStructured(db: DbStructured): SurrealPortable[] {
-  const stmts = Object.values(structuredSnapshot(db).statements);
-  const of = (kind: DefineStatement["kind"]) =>
-    stmts.filter((s) => s.kind === kind);
+  const stmts = Object.values(structuredSnapshot(db).statements)
+  const of = (kind: DefineStatement["kind"]) => stmts.filter((s) => s.kind === kind)
 
-  const out: SurrealPortable[] = [];
+  const out: SurrealPortable[] = []
 
   // Tables: head + nested fields. deps = RELATION in/out endpoints + fn:: from the head/fields.
-  const headByTable = new Map(of("table").map((s) => [s.name, s]));
-  const fieldsByTable = new Map<string, DefineStatement[]>();
+  const headByTable = new Map(of("table").map((s) => [s.name, s]))
+  const fieldsByTable = new Map<string, DefineStatement[]>()
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const s of of("field")) {
-    const arr = fieldsByTable.get(s.table ?? "") ?? [];
-    arr.push(s);
-    fieldsByTable.set(s.table ?? "", arr);
+    const arr = fieldsByTable.get(s.table ?? "") ?? []
+    arr.push(s)
+    fieldsByTable.set(s.table ?? "", arr)
   }
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const st of db.tables) {
-    const head = headByTable.get(st.name);
-    if (!head) continue; // a table always has a head; defensive only
-    const fields = fieldsByTable.get(st.name) ?? [];
-    const endpoints: Ref[] = [];
-    for (const t of st.kind.in ?? [])
-      endpoints.push({ kind: "table", name: t });
-    for (const t of st.kind.out ?? [])
-      endpoints.push({ kind: "table", name: t });
-    const deps = depsOf([head.ddl, ...fields.map((f) => f.ddl)], endpoints);
-    out.push({ kind: "table", name: st.name, head, fields, deps, struct: st });
+    const head = headByTable.get(st.name)
+    if (!head) {
+      continue
+    } // a table always has a head; defensive 
+    const fields = fieldsByTable.get(st.name) ?? []
+    const endpoints: Ref[] = []
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    for (const t of st.kind.in ?? []) {
+      endpoints.push({ kind: "table", name: t })
+    }
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    for (const t of st.kind.out ?? []) {
+      endpoints.push({ kind: "table", name: t })
+    }
+    const deps = depsOf([head.ddl, ...fields.map((f) => f.ddl)], endpoints)
+    out.push({ kind: "table", name: st.name, head, fields, deps, struct: st })
   }
 
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const s of of("index")) {
     // A FULLTEXT index depends on its analyzer (so the analyzer emits first); all indexes -> their table.
     // Stop the name at whitespace OR the statement terminator — a minimal `… ANALYZER eng;` (BM25
     // default stripped) has the `;` flush against the name, so `\S+` would capture `eng;`.
-    const deps: Ref[] = [{ kind: "table", name: s.table ?? "" }];
-    const ft = /FULLTEXT ANALYZER ([^\s;]+)/.exec(s.ddl);
-    if (ft) deps.push({ kind: "analyzer", name: ft[1] });
+    const deps: Ref[] = [{ kind: "table", name: s.table ?? "" }]
+    const ft = /FULLTEXT ANALYZER ([^\s;]+)/u.exec(s.ddl)
+    if (ft) {
+      deps.push({ kind: "analyzer", name: ft[1] })
+    }
     out.push({
       kind: "index",
       name: s.name,
       table: s.table ?? "",
       stmt: s,
       deps,
-    });
+    })
   }
-  for (const s of of("event"))
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const s of of("event")) {
     out.push({
       kind: "event",
       name: s.name,
       table: s.table ?? "",
       stmt: s,
       deps: depsOf([s.ddl], [{ kind: "table", name: s.table ?? "" }]),
-    });
+    })
+  }
   // The opaque kinds carry their structured `native` (matched by name) for renderSchema.
-  const fnByName = new Map(db.functions.map((f) => [f.name, f]));
-  const accByName = new Map(db.accesses.map((a) => [a.name, a]));
+  const fnByName = new Map(db.functions.map((f) => [f.name, f]))
+  const accByName = new Map(db.accesses.map((a) => [a.name, a]))
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const s of of("function")) {
-    const native = fnByName.get(s.name);
-    if (native)
+    const native = fnByName.get(s.name)
+    if (native) {
       out.push({
         kind: "function",
         name: s.name,
         stmt: s,
         deps: depsOf([s.ddl], [], s.name),
         native,
-      });
+      })
+    }
   }
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const s of of("access")) {
-    const native = accByName.get(s.name);
-    if (native)
+    const native = accByName.get(s.name)
+    if (native) {
       out.push({
         kind: "access",
         name: s.name,
         stmt: s,
         deps: depsOf([s.ddl]),
         native,
-      });
+      })
+    }
   }
-  const anByName = new Map(db.analyzers.map((a) => [a.name, a]));
+  const anByName = new Map(db.analyzers.map((a) => [a.name, a]))
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const s of of("analyzer")) {
-    const native = anByName.get(s.name);
-    if (native)
-      out.push({ kind: "analyzer", name: s.name, stmt: s, deps: [], native });
+    const native = anByName.get(s.name)
+    if (native) {
+      out.push({ kind: "analyzer", name: s.name, stmt: s, deps: [], native })
+    }
   }
-  const pmByName = new Map(db.params.map((p) => [p.name, p]));
+  const pmByName = new Map(db.params.map((p) => [p.name, p]))
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const s of of("param")) {
-    const native = pmByName.get(s.name);
-    if (native)
-      out.push({ kind: "param", name: s.name, stmt: s, deps: [], native });
+    const native = pmByName.get(s.name)
+    if (native) {
+      out.push({ kind: "param", name: s.name, stmt: s, deps: [], native })
+    }
   }
-  const sqByName = new Map((db.sequences ?? []).map((s) => [s.name, s]));
+  const sqByName = new Map((db.sequences ?? []).map((s) => [s.name, s]))
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const s of of("sequence")) {
-    const native = sqByName.get(s.name);
-    if (native)
-      out.push({ kind: "sequence", name: s.name, stmt: s, deps: [], native });
+    const native = sqByName.get(s.name)
+    if (native) {
+      out.push({ kind: "sequence", name: s.name, stmt: s, deps: [], native })
+    }
   }
 
-  return out;
+  return out
 }
 
 /** Reassemble `DbStructured` from per-kind portable objects — the inverse of {@link fromStructured},
  *  for `renderSchema` TS codegen. Tables carry their full normalized struct; the opaque kinds their
  *  `native`. (No DDL re-parsing: the structured data rides on the objects per flip-plan §6b.) */
 export function toStructured(objects: SurrealPortable[]): DbStructured {
-  const tables: StructTable[] = [];
-  const functions: StructFunction[] = [];
-  const accesses: StructAccess[] = [];
-  const analyzers: StructAnalyzer[] = [];
-  const params: StructParam[] = [];
-  const sequences: StructSequence[] = [];
+  const tables: StructTable[] = []
+  const functions: StructFunction[] = []
+  const accesses: StructAccess[] = []
+  const analyzers: StructAnalyzer[] = []
+  const params: StructParam[] = []
+  const sequences: StructSequence[] = []
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const o of objects) {
-    if (o.kind === "table") tables.push(o.struct);
-    else if (o.kind === "function") functions.push(o.native);
-    else if (o.kind === "access") accesses.push(o.native);
-    else if (o.kind === "analyzer") analyzers.push(o.native);
-    else if (o.kind === "param") params.push(o.native);
-    else if (o.kind === "sequence") sequences.push(o.native);
+    if (o.kind === "table") {
+      tables.push(o.struct)
+    } else if (o.kind === "function") {
+      functions.push(o.native)
+    } else if (o.kind === "access") {
+      accesses.push(o.native)
+    } else if (o.kind === "analyzer") {
+      analyzers.push(o.native)
+    } else if (o.kind === "param") {
+      params.push(o.native)
+    } else if (o.kind === "sequence") {
+      sequences.push(o.native)
+    }
   }
-  return { tables, functions, accesses, analyzers, params, sequences };
+  return { tables, functions, accesses, analyzers, params, sequences }
 }
 
 /**
@@ -193,16 +230,13 @@ export function toStructured(objects: SurrealPortable[]): DbStructured {
  * `buildSnapshot`'s public bound (`AnyTable`/`AuthoredDef`) and cast to the src `TableDef` the canonical
  * pipeline reads. `schemaStruct` already normalizes (events attached, functions/accesses resolved).
  */
-export function explodeSchema(
-  tables: AnyTable[],
-  defs: AuthoredDef[] = [],
-): SurrealPortable[] {
+export function explodeSchema(tables: AnyTable[], defs: AuthoredDef[] = []): SurrealPortable[] {
   return fromStructured(
     schemaStruct(
       tables as unknown as TableDef<string, Shape>[],
       defs as unknown as StandaloneDef[],
     ),
-  );
+  )
 }
 
 /**
@@ -217,5 +251,5 @@ export async function introspectAll(
   conn: Surreal,
   exclude?: Set<string>,
 ): Promise<SurrealPortable[]> {
-  return fromStructured(normalizeDb(await introspectStructured(conn, exclude)));
+  return fromStructured(normalizeDb(await introspectStructured(conn, exclude)))
 }

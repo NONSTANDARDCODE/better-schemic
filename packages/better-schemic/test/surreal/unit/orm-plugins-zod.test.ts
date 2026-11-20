@@ -1,89 +1,80 @@
-// M6.3 — the `zod` validation plugin: validate write `data` with user Zod schemas (path in the
+// M6.3 — the `zod` validation plugin: check write `data` with user Zod schemas (path in the
 // ValidationError), and skip unconfigured tables. Offline.
-import { describe, expect, test } from "bun:test";
-import { RecordId } from "surrealdb";
-import { z } from "zod";
-import { surql } from "../../../src/surreal";
-import { orm } from "../../../src/surreal/orm/client";
-import { schema } from "../../../src/surreal/orm/schema";
-import { zod } from "../../../src/surreal/plugins/zod";
-import { s, table } from "../../../src/surreal/pure";
-import { fakeConn, lines, ok } from "../orm-fixtures";
+import { describe, expect, test } from "bun:test"
+import { RecordId } from "surrealdb"
+import { z } from "zod"
 
-const User = table("user", { name: s.string() });
-const schemaDef = schema({ users: User });
+import { surql } from "../../../src/surreal"
+import { orm } from "../../../src/surreal/orm/client"
+import { schema } from "../../../src/surreal/orm/schema"
+import { zod } from "../../../src/surreal/plugins/zod"
+import { s, table } from "../../../src/surreal/pure"
+import { fakeConn, lines, ok } from "../orm-fixtures"
+
+const User = table("user", { name: s.string() })
+const schemaDef = schema({ users: User })
 
 const clientWith = (schemas: Record<string, z.ZodType>) => {
   const { conn } = fakeConn((sql) =>
     lines(sql).map(() => ok([{ id: new RecordId("user", 1), name: "A" }])),
-  );
-  return orm(conn, { schema: schemaDef, plugins: [zod({ schemas })] });
-};
+  )
+  return orm(conn, { schema: schemaDef, plugins: [zod({ schemas })] })
+}
 
 const codeOf = async (fn: () => unknown): Promise<string | undefined> => {
   try {
-    await fn();
-    return undefined;
-  } catch (e) {
-    return (e as { code?: string }).code;
+    await fn()
+    return undefined
+  } catch (error) {
+    return (error as { code?: string }).code
   }
-};
+}
 
 describe("zod — write validation", () => {
-  const schemaFor = { user: z.object({ name: z.string().min(2) }) };
+  const schemaFor = { user: z.object({ name: z.string().min(2) }) }
 
   test("accepts valid data and rejects invalid with a ValidationError", async () => {
-    const client = clientWith(schemaFor);
-    expect(
-      await codeOf(() => client.users.create({ data: { name: "Aeon" } })),
-    ).toBeUndefined();
-    expect(
-      await codeOf(() => client.users.create({ data: { name: "A" } })),
-    ).toBe("ValidationError");
-  });
+    const client = clientWith(schemaFor)
+    expect(await codeOf(() => client.users.create({ data: { name: "Aeon" } }))).toBeUndefined()
+    expect(await codeOf(() => client.users.create({ data: { name: "A" } }))).toBe("ValidationError")
+  })
 
   test("validates every item of a batch", async () => {
-    const client = clientWith(schemaFor);
+    const client = clientWith(schemaFor)
     expect(
-      await codeOf(() =>
-        client.users.createMany({ data: [{ name: "Aeon" }, { name: "B" }] }),
-      ),
-    ).toBe("ValidationError");
-  });
+      await codeOf(() => client.users.createMany({ data: [{ name: "Aeon" }, { name: "B" }] })),
+    ).toBe("ValidationError")
+  })
 
   test("tables without a schema are skipped", async () => {
-    const client = clientWith({});
-    expect(
-      await codeOf(() => client.users.create({ data: { name: "A" } })),
-    ).toBeUndefined();
-  });
+    const client = clientWith({})
+    expect(await codeOf(() => client.users.create({ data: { name: "A" } }))).toBeUndefined()
+  })
 
   test("reads and relates are neither create nor update — skipped", async () => {
-    const client = clientWith(schemaFor);
-    expect(await codeOf(() => client.users.findMany())).toBeUndefined();
-  });
+    const client = clientWith(schemaFor)
+    expect(await codeOf(() => client.users.findMany())).toBeUndefined()
+  })
 
   test("validate.create:false skips create validation", async () => {
     const { conn } = fakeConn((sql) =>
       lines(sql).map(() => ok([{ id: new RecordId("user", 1), name: "A" }])),
-    );
+    )
     const client = orm(conn, {
       schema: schemaDef,
       plugins: [zod({ schemas: schemaFor, validate: { create: false } })],
-    });
-    expect(
-      await codeOf(() => client.users.create({ data: { name: "A" } })),
-    ).toBeUndefined();
-  });
+    })
+    expect(await codeOf(() => client.users.create({ data: { name: "A" } }))).toBeUndefined()
+  })
 
   test("validate.update:false skips update validation", async () => {
     const { conn } = fakeConn((sql) =>
       lines(sql).map(() => ok([{ id: new RecordId("user", 1), name: "A" }])),
-    );
+    )
     const client = orm(conn, {
       schema: schemaDef,
       plugins: [zod({ schemas: schemaFor, validate: { update: false } })],
-    });
+    })
     expect(
       await codeOf(() =>
         client.users.update({
@@ -91,11 +82,11 @@ describe("zod — write validation", () => {
           data: { name: "A" },
         }),
       ),
-    ).toBeUndefined();
-  });
+    ).toBeUndefined()
+  })
 
   test("a data-less update (patch) is skipped", async () => {
-    const client = clientWith(schemaFor);
+    const client = clientWith(schemaFor)
     expect(
       await codeOf(() =>
         client.users.patch({
@@ -103,11 +94,11 @@ describe("zod — write validation", () => {
           patches: [{ op: "replace", path: "/name", value: "Aeon" }],
         }),
       ),
-    ).toBeUndefined();
-  });
+    ).toBeUndefined()
+  })
 
   test("upsertDelta validates its payload (update family)", async () => {
-    const client = clientWith(schemaFor);
+    const client = clientWith(schemaFor)
     expect(
       await codeOf(() =>
         client.users.upsertDelta({
@@ -115,10 +106,10 @@ describe("zod — write validation", () => {
           data: { name: "A" },
         }),
       ),
-    ).toBe("ValidationError");
-    expect(
-      await codeOf(() => client.users.upsertDelta({ data: { name: "A" } })),
-    ).toBe("ValidationError");
+    ).toBe("ValidationError")
+    expect(await codeOf(() => client.users.upsertDelta({ data: { name: "A" } }))).toBe(
+      "ValidationError",
+    )
 
     const { conn } = fakeConn((sql) =>
       lines(sql).map((line) =>
@@ -128,11 +119,11 @@ describe("zod — write validation", () => {
             : null,
         ),
       ),
-    );
+    )
     const valid = orm(conn, {
       schema: schemaDef,
       plugins: [zod({ schemas: schemaFor })],
-    });
+    })
     expect(
       await codeOf(() =>
         valid.users.upsertDelta({
@@ -141,33 +132,31 @@ describe("zod — write validation", () => {
           onMissing: "create",
         }),
       ),
-    ).toBeUndefined();
-  });
-});
+    ).toBeUndefined()
+  })
+})
 
 describe("zod — numeric adjustments", () => {
-  const Acct = table("acct", { balance: s.int(), name: s.string() });
-  const acctSchema = schema({ accounts: Acct });
+  const Acct = table("acct", { balance: s.int(), name: s.string() })
+  const acctSchema = schema({ accounts: Acct })
   const rules = {
     acct: z.object({
       balance: z.number().min(0).optional(),
       name: z.string().optional(),
     }),
-  };
+  }
   const acctClient = () => {
     const { conn } = fakeConn((sql) =>
-      lines(sql).map(() =>
-        ok([{ id: new RecordId("acct", 1), balance: 10, name: "A" }]),
-      ),
-    );
+      lines(sql).map(() => ok([{ id: new RecordId("acct", 1), balance: 10, name: "A" }])),
+    )
     return orm(conn, {
       schema: acctSchema,
       plugins: [zod({ schemas: rules })],
-    });
-  };
+    })
+  }
 
   test("the marker wrapper is substituted by its OPERAND for validation", async () => {
-    const client = acctClient();
+    const client = acctClient()
     expect(
       await codeOf(() =>
         client.accounts.update({
@@ -175,7 +164,7 @@ describe("zod — numeric adjustments", () => {
           data: { balance: { increment: 5 } },
         }),
       ),
-    ).toBeUndefined();
+    ).toBeUndefined()
     // The operand itself is what the app schema checks (`min(0)` rejects -5).
     expect(
       await codeOf(() =>
@@ -184,11 +173,11 @@ describe("zod — numeric adjustments", () => {
           data: { balance: { increment: -5 } },
         }),
       ),
-    ).toBe("ValidationError");
-  });
+    ).toBe("ValidationError")
+  })
 
   test("expression operands are dropped from validation (the server enforces them)", async () => {
-    const client = acctClient();
+    const client = acctClient()
     expect(
       await codeOf(() =>
         client.accounts.update({
@@ -196,6 +185,6 @@ describe("zod — numeric adjustments", () => {
           data: { balance: { increment: surql`1`.as<number>() } },
         }),
       ),
-    ).toBeUndefined();
-  });
-});
+    ).toBeUndefined()
+  })
+})

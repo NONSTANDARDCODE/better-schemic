@@ -12,11 +12,11 @@ import {
   option,
   type PortableType,
   record,
-  type ScalarName,
   scalar,
+  type ScalarName,
   union,
-} from "../../core";
-import { splitTopUnion, topLevelSplitOnce } from "../surql-type-expr";
+} from "../../core"
+import { splitTopUnion, topLevelSplitOnce } from "../surql-type-expr"
 
 const SCALARS = new Set<string>([
   "any",
@@ -31,7 +31,7 @@ const SCALARS = new Set<string>([
   "uuid",
   "bytes",
   "null",
-]);
+])
 
 const GEOMETRY_KINDS = new Set([
   "feature",
@@ -42,15 +42,15 @@ const GEOMETRY_KINDS = new Set([
   "multiline",
   "multipolygon",
   "collection",
-]);
+])
 
 /** Parse a (single/double) quoted string literal token, or null if it isn't one. */
-function parseStringLiteral(t: string): string | null {
+function parseStringLiteral(t: string): null | string {
   if (t.length >= 2 && (t[0] === "'" || t[0] === '"') && t.at(-1) === t[0]) {
-    const body = t.slice(1, -1);
-    return body.replace(/\\(['"\\])/g, "$1");
+    const body = t.slice(1, -1)
+    return body.replaceAll(/\\(['"\\])/gu, "$1")
   }
-  return null;
+  return null
 }
 
 /**
@@ -59,117 +59,130 @@ function parseStringLiteral(t: string): string | null {
  * `nullable`), `array`/`set`/`record`/`references` constructors, literals, and scalars.
  */
 export function parseSurqlType(kind: string): PortableType {
-  const t = kind.trim();
+  const t = kind.trim()
 
   // Top-level union FIRST: `option<A> | B` starts with `option<` and can end with `>`, so testing the
   // option wrapper before splitting would swallow the whole union (the regex is greedy). `splitTopUnion`
   // ignores `|` inside `<…>`, so `option<A | B>` still resolves to a single option below.
   // Peel `none` (absence) and `null` (null) markers, recurse on the rest.
-  const parts = splitTopUnion(t);
+  const parts = splitTopUnion(t)
   if (parts.length > 1) {
-    const hasNone = parts.includes("none");
-    const hasNull = parts.includes("null");
-    const rest = parts.filter((p) => p !== "none" && p !== "null");
-    let inner: PortableType =
-      rest.length === 0 ? { t: "never" } : union(rest.map(parseSurqlType));
-    if (hasNull) inner = nullable(inner);
-    if (hasNone) inner = option(inner);
-    return inner;
+    const hasNone = parts.includes("none")
+    const hasNull = parts.includes("null")
+    const rest = parts.filter((p) => p !== "none" && p !== "null")
+    let inner: PortableType = rest.length === 0 ? { t: "never" } : union(rest.map(parseSurqlType))
+    if (hasNull) {
+      inner = nullable(inner)
+    }
+    if (hasNone) {
+      inner = option(inner)
+    }
+    return inner
   }
 
   // option<X>
-  const opt = /^option<([\s\S]+)>$/.exec(t);
-  if (opt) return option(parseSurqlType(opt[1]));
+  const opt = /^option<([\s\S]+)>$/u.exec(t)
+  if (opt) {
+    return option(parseSurqlType(opt[1]))
+  }
 
-  // Constructor term `ctor<inner>`. `references<…>` (rare) is kept as a Surreal-native escape hatch
+  // Constructor term `ctor<inner>`. `references<…>` (rare) keeps it as a Surreal-native escape hatch
   // so it round-trips losslessly rather than collapsing into `record<…>`.
-  const ctor = /^(array|set|record)<([\s\S]+)>$/.exec(t);
+  const ctor = /^(array|set|record)<([\s\S]+)>$/u.exec(t)
   if (ctor) {
-    const [, name, innerRaw] = ctor;
+    const [, name, innerRaw] = ctor
     if (name === "array" || name === "set") {
-      const comma = topLevelSplitOnce(innerRaw, ",");
-      const elem = parseSurqlType(comma ? comma[0] : innerRaw);
-      const size = comma ? Number(comma[1].trim()) : undefined;
+      const comma = topLevelSplitOnce(innerRaw, ",")
+      const elem = parseSurqlType(comma ? comma[0] : innerRaw)
+      const size = comma ? Number(comma[1].trim()) : undefined
       return name === "array"
         ? array(elem, Number.isFinite(size) ? size : undefined)
-        : { t: "set", elem, ...(Number.isFinite(size) ? { size } : {}) };
+        : { t: "set", elem, ...(Number.isFinite(size) ? { size } : {}) }
     }
     // record<…>: a `|`-list of target tables.
     const tables = innerRaw
       .split("|")
       .map((s) => s.trim())
-      .filter(Boolean);
-    return record(tables);
+      .filter(Boolean)
+    return record(tables)
   }
 
   // geometry<point> etc.
-  const geo = /^geometry<([a-z]+)>$/.exec(t);
+  const geo = /^geometry<([a-z]+)>$/u.exec(t)
   if (geo && GEOMETRY_KINDS.has(geo[1])) {
-    return { t: "geometry", kind: geo[1] as never };
+    return { t: "geometry", kind: geo[1] as never }
   }
 
   // Literals: quoted string, number, boolean.
-  const str = parseStringLiteral(t);
-  if (str !== null) return literal(str);
-  if (/^-?\d+(\.\d+)?$/.test(t)) return literal(Number(t));
-  if (t === "true" || t === "false") return literal(t === "true");
+  const str = parseStringLiteral(t)
+  if (str !== null) {
+    return literal(str)
+  }
+  if (/^-?\d+(\.\d+)?$/u.test(t)) {
+    return literal(Number(t))
+  }
+  if (t === "true" || t === "false") {
+    return literal(t === "true")
+  }
 
   // Scalars (incl. `null` as a unit type). `none` standalone ⇒ option<never>. `object` ⇒ empty object.
-  if (t === "none") return option({ t: "never" });
-  if (t === "object") return { t: "object", fields: {} };
-  if (SCALARS.has(t)) return scalar(t as ScalarName);
+  if (t === "none") {
+    return option({ t: "never" })
+  }
+  if (t === "object") {
+    return { t: "object", fields: {} }
+  }
+  if (SCALARS.has(t)) {
+    return scalar(t as ScalarName)
+  }
 
   // Unknown: keep it as a Surreal-native escape hatch rather than losing information.
-  return { t: "native", db: "surreal", name: t };
+  return { t: "native", db: "surreal", name: t }
 }
 
 /** Render a {@link PortableType} back to its canonical SurrealQL spelling (matches `normalizeType`). */
 export function emitSurqlType(p: PortableType): string {
   switch (p.t) {
     case "scalar":
-      return p.name;
+      return p.name
     case "literal":
       return typeof p.value === "string"
-        ? `'${p.value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`
-        : String(p.value);
+        ? `'${p.value.replaceAll('\\', "\\\\").replaceAll('\'', "\\'")}'`
+        : String(p.value)
     case "option":
       // `none` is the canonical spelling of `option<never>` (matches normalizeType): emit it as
       // `none` so `emit∘parse` is a true inverse. Emitting `option<none>` would re-parse to
       // `option<option<never>>` and break the lossless round-trip.
-      return p.inner.t === "never"
-        ? "none"
-        : `option<${emitSurqlType(p.inner)}>`;
+      return p.inner.t === "never" ? "none" : `option<${emitSurqlType(p.inner)}>`
     case "nullable": {
       // Canonical: a flat, sorted top-level union with `null` (matches normalizeType, which sorts
       // every member and does not special-case null). Flatten a union inner so `A | B | null` sorts
       // as three members, not `(A | B) | null` — the latter would put `null` last.
       const members =
-        p.inner.t === "union"
-          ? p.inner.members.map(emitSurqlType)
-          : [emitSurqlType(p.inner)];
-      return [...members, "null"].sort().join(" | ");
+        p.inner.t === "union" ? p.inner.members.map(emitSurqlType) : [emitSurqlType(p.inner)]
+      return [...members, "null"].sort().join(" | ")
     }
     case "array":
-      return p.size !== undefined
-        ? `array<${emitSurqlType(p.elem)}, ${p.size}>`
-        : `array<${emitSurqlType(p.elem)}>`;
+      return p.size === undefined
+        ? `array<${emitSurqlType(p.elem)}>`
+        : `array<${emitSurqlType(p.elem)}, ${p.size}>`
     case "set":
-      return p.size !== undefined
-        ? `set<${emitSurqlType(p.elem)}, ${p.size}>`
-        : `set<${emitSurqlType(p.elem)}>`;
+      return p.size === undefined
+        ? `set<${emitSurqlType(p.elem)}>`
+        : `set<${emitSurqlType(p.elem)}, ${p.size}>`
     case "union":
-      return [...p.members.map(emitSurqlType)].sort().join(" | ");
+      return [...p.members.map(emitSurqlType)].sort().join(" | ")
     case "object":
-      return "object";
+      return "object"
     case "record":
-      return `record<${[...p.tables].sort().join(" | ")}>`;
+      return `record<${[...p.tables].sort().join(" | ")}>`
     case "geometry":
-      return `geometry<${p.kind}>`;
+      return `geometry<${p.kind}>`
     case "never":
-      return "none";
+      return "none"
     case "native":
-      return p.name;
+      return p.name
   }
   // Unreachable: the switch is exhaustive over PortableType["t"].
-  throw new Error(`unhandled portable type: ${(p as { t: string }).t}`);
+  throw new Error(`unhandled portable type: ${(p as { t: string }).t}`)
 }

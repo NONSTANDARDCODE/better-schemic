@@ -24,5 +24,5 @@ export type {
   QueryLogEvent,
   QueryLogger,
   ResolvedLoggerOptions,
-} from "../types/logger";
-export { createQueryLogger, resolveLogger } from "./logger";
+} from "../types/logger"
+export { createQueryLogger, resolveLogger } from "./logger"

@@ -2,13 +2,14 @@
 // fake client factory and the golden-SQL/error helpers. Kept in ONE place so each write suite stays
 // focused on behavior (and no suite sprawls past a readable size).
 
-import { RecordId } from "surrealdb";
-import type { Client } from "../../../src/surreal/orm/client";
-import { orm } from "../../../src/surreal/orm/client";
-import type { OrmError } from "../../../src/surreal/orm/errors";
-import { schema } from "../../../src/surreal/orm/schema";
-import { relation, s, table } from "../../../src/surreal/pure";
-import { fakeConn, ok } from "../orm-fixtures";
+import { RecordId } from "surrealdb"
+
+import type { Client } from "../../../src/surreal/orm/client"
+import { orm } from "../../../src/surreal/orm/client"
+import type { OrmError } from "../../../src/surreal/orm/errors"
+import { schema } from "../../../src/surreal/orm/schema"
+import { relation, s, table } from "../../../src/surreal/pure"
+import { fakeConn, ok } from "../orm-fixtures"
 
 export const User = table("user", {
   name: s.string(),
@@ -17,21 +18,21 @@ export const User = table("user", {
   active: s.boolean(),
   tags: s.array(s.string()),
   address: s.object({ city: s.string() }),
-}).index("uniq_email", ["email"], { unique: true });
-export const Post = table("post", { title: s.string() });
-export const Likes = relation("likes", { score: s.int() }).from(User).to(Post);
+}).index("uniq_email", ["email"], { unique: true })
+export const Post = table("post", { title: s.string() })
+export const Likes = relation("likes", { score: s.int() }).from(User).to(Post)
 export const schemaDef = schema({
   users: User,
   posts: Post,
   likes: Likes,
-});
+})
 
 export const LIKE_ROW = {
   id: new RecordId("likes", "1"),
   in: new RecordId("user", "1"),
   out: new RecordId("post", "1"),
   score: 5,
-};
+}
 
 export const ROW = {
   id: new RecordId("user", "1"),
@@ -41,7 +42,7 @@ export const ROW = {
   active: true,
   tags: [],
   address: { city: "SP" },
-};
+}
 
 export const data = {
   name: "A",
@@ -50,53 +51,49 @@ export const data = {
   active: true,
   tags: [],
   address: { city: "SP" },
-};
+}
 
 /** A client over a fake connection that answers every statement with `result` rows. */
 export function makeClient(result: unknown = [ROW]): {
-  client: Client<typeof schemaDef>;
-  calls: { sql: string; vars?: Record<string, unknown> }[];
+  client: Client<typeof schemaDef>
+  calls: { sql: string; vars?: Record<string, unknown> }[]
 } {
-  const { conn, calls } = fakeConn((sql) =>
-    sql.split("\n").map(() => ok(result)),
-  );
+  const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok(result)))
   return {
     client: orm(conn, { schema: schemaDef }) as Client<typeof schemaDef>,
     calls,
-  };
+  }
 }
 
 /** Capture the LAST call's script + bindings (both always present on our statements). */
-export function lastCall(
-  calls: { sql: string; vars?: Record<string, unknown> }[],
-) {
-  const call = calls[calls.length - 1];
-  return { sql: call?.sql ?? "", vars: call?.vars ?? {} };
+export function lastCall(calls: { sql: string; vars?: Record<string, unknown> }[]) {
+  const call = calls[calls.length - 1]
+  return { sql: call?.sql ?? "", vars: call?.vars ?? {} }
 }
 
 /** Normalize the SDK tag's counted `bind__N` names for stable fragment goldens. */
 export function stable(sql: string, vars: Record<string, unknown> | undefined) {
-  const aliases = new Map<string, string>();
-  const text = sql.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (_, name: string) => {
-    if (!name.startsWith("bind__")) return `$${name}`;
-    let alias = aliases.get(name);
+  const aliases = new Map<string, string>()
+  const text = sql.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/gu, (_, name: string) => {
+    if (!name.startsWith("bind__")) return `$${name}`
+    let alias = aliases.get(name)
     if (!alias) {
-      alias = `frag${aliases.size}`;
-      aliases.set(name, alias);
+      alias = `frag${aliases.size}`
+      aliases.set(name, alias)
     }
-    return `$${alias}`;
-  });
-  const outVars: Record<string, unknown> = {};
-  for (const [name, value] of Object.entries(vars ?? {}))
-    outVars[aliases.get(name) ?? name] = value;
-  return { sql: text, vars: outVars };
+    return `$${alias}`
+  })
+  const outVars: Record<string, unknown> = {}
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const [name, value] of Object.entries(vars ?? {})) outVars[aliases.get(name) ?? name] = value
+  return { sql: text, vars: outVars }
 }
 
 export function codeOf(fn: () => unknown): string | undefined {
   try {
-    fn();
-    return undefined;
-  } catch (e) {
-    return (e as OrmError).code;
+    fn()
+    return undefined
+  } catch (error) {
+    return (error as OrmError).code
   }
 }

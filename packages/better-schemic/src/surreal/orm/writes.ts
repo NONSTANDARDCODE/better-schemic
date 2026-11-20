@@ -4,10 +4,10 @@
  * operations `relate`/`relateMany`/`unrelate`/`unrelateMany`.
  *
  * Every op compiles EAGERLY (a bad arg throws at the call site) and runs immediately (writes have
- * no `.explain()` — `EXPLAIN` is SELECT-only, `orm-syntax-map.md` §9). `./delegate` owns the public
+ * no `.explain()` — `EXPLAIN` is SELECT-, `orm-syntax-map.md` §9). `./delegate` owns the public
  * surface; this module owns the runtime, mirroring `./reads`.
  *
- * Decoding is interpreted from the plan ONCE — `none`/`diff`/rows (indexed by the plan) — so every
+ * Decoding interprets it from the plan ONCE — `none`/`diff`/rows (indexed by the plan) — so every
  * op shares the same `payloadRows`/`payloadDiff` rules instead of re-deriving them.
  */
 
@@ -21,22 +21,22 @@ import {
   compileUpsert,
   compileUpsertDelta,
   compileUpsertMany,
-} from "./compiler/mutate";
-import { fullProjectionSpec, type ProjectionSpec } from "./compiler/projection";
+} from "./compiler/mutate"
+import { fullProjectionSpec, type ProjectionSpec } from "./compiler/projection"
 import {
   compileRelate,
   compileRelateMany,
   compileUnrelate,
   compileUnrelateMany,
   type RelateRuntimeArgs,
-} from "./compiler/relate";
-import { type Binds, createBinds } from "./compiler/shared";
+} from "./compiler/relate"
+import { type Binds, createBinds } from "./compiler/shared"
 import {
   compileCreate,
   compileCreateMany,
   compileInsert,
   compileInsertMany,
-} from "./compiler/write";
+} from "./compiler/write"
 import type {
   CreateManyRuntimeArgs,
   CreateRuntimeArgs,
@@ -50,62 +50,57 @@ import type {
   UpsertManyRuntimeArgs,
   UpsertRuntimeArgs,
   WritePlan,
-} from "./compiler/write-shared";
-import { contextOption, resolveMeta } from "./context";
-import { decodeRows, isRecord } from "./decode";
-import type { DelegateContext } from "./delegate";
-import { computeFieldDelta } from "./delta";
-import { OrmError } from "./errors";
-import { execute, type Statement, sqlPreview } from "./execute";
-import { runWithHooks } from "./hooks";
-import type { ModelMeta } from "./meta";
-import {
-  attachThrow,
-  type BatchResult,
-  type NotFoundInfo,
-  type ThrowingResult,
-} from "./results";
-import type { OperationContext } from "./types/context";
-import type { OperationKind } from "./types/hooks";
+} from "./compiler/write-shared"
+import { contextOption, resolveMeta } from "./context"
+import { decodeRows, isRecord } from "./decode"
+import type { DelegateContext } from "./delegate"
+import { computeFieldDelta } from "./delta"
+import { OrmError } from "./errors"
+import { execute, sqlPreview, type Statement } from "./execute"
+import { runWithHooks } from "./hooks"
+import type { ModelMeta } from "./meta"
+import { attachThrow, type BatchResult, type NotFoundInfo, type ThrowingResult } from "./results"
+import type { OperationContext } from "./types/context"
+import type { OperationKind } from "./types/hooks"
 
 /** The full-row decode every write returns (writes have no projections — except `select`). */
-const FULL: ProjectionSpec = fullProjectionSpec();
+const FULL: ProjectionSpec = fullProjectionSpec()
 
 /**
- * The decode spec of a prepared write: the full row when no `select`/`omit` was given, else the
+ * The decode spec of a prepared write: the full row when no `select`/`omit` gives it, else the
  * compiled projection. A CLIENT-applied projection (BEFORE state, `delete`, `upsertDelta`, OMIT)
  * reads aliases from their schema path (`from`) instead of the server's output key (`source`) —
- * the rows were not projected by the server, so the alias simply doesn't exist.
+ * the rows were not projected by the server, so the alias  doesn't exist.
  */
 function writeSpec(plan: WritePlan): ProjectionSpec {
-  const spec = plan.select;
-  if (!spec || plan.selectMode !== "client") return spec ?? FULL;
+  const spec = plan.select
+  if (!spec || plan.selectMode !== "client") {
+    return spec ?? FULL
+  }
   return {
     ...spec,
-    fields: spec.fields.map((field) =>
-      field.from ? { ...field, source: field.from } : field,
-    ),
-  };
+    fields: spec.fields.map((field) => (field.from ? { ...field, source: field.from } : field)),
+  }
 }
 
 /** One prepared write: statements + how to interpret the executor's rows. */
 interface PreparedWrite {
-  readonly meta: ModelMeta;
-  readonly operation: string;
-  readonly statements: readonly Statement[];
-  readonly transactional: boolean;
-  readonly where?: unknown;
-  /** The compiled plan says the singular row may be absent (`.throw()` attaches). */
-  readonly mayMiss: boolean;
-  /** The plan returns the `{ before, after }` envelope (`upsertDelta` decodes it itself). */
-  readonly delta: boolean;
-  readonly decode: (rows: readonly (unknown | undefined)[]) => unknown;
   /** Per-call scope override, resolved against the client's context at run time. */
-  readonly context?: OperationContext;
+  readonly context?: OperationContext
   /** The write payload, for `beforeCreate`/`beforeUpdate` hooks. */
-  readonly data?: unknown;
+  readonly data?: unknown
+  readonly decode: (rows: readonly (undefined | unknown)[]) => unknown
+  /** The plan returns the `{ before, after }` envelope (`upsertDelta` decodes it itself). */
+  readonly delta: boolean
   /** Per-call hook metadata (merged over the scope's at run time). */
-  readonly hookMeta?: Record<string, unknown>;
+  readonly hookMeta?: Record<string, unknown>
+  /** The compiled plan says the singular row may be absent (`.throw()` attaches). */
+  readonly mayMiss: boolean
+  readonly meta: ModelMeta
+  readonly operation: string
+  readonly statements: readonly Statement[]
+  readonly transactional: boolean
+  readonly where?: unknown
 }
 
 /** The write methods a delegate exposes (the runtime side of the typed `Delegate` interface). */
@@ -122,9 +117,7 @@ export function createWriteOperations(
           "create",
           args,
           (binds) =>
-            compileCreate(meta, args, binds, "create", (name) =>
-              ctx.index.byName.get(name),
-            ),
+            compileCreate(meta, args, binds, "create", (name) => ctx.index.byName.get(name)),
           (plan, rows) => decodeResult(plan, rows, meta),
         ),
       ),
@@ -140,8 +133,7 @@ export function createWriteOperations(
             decodeBatch(plan, rows, meta, {
               skipped:
                 args.skipDuplicates === true
-                  ? (decoded) =>
-                      (args.data as readonly unknown[]).length - decoded
+                  ? (decoded) => (args.data as readonly unknown[]).length - decoded
                   : undefined,
             }),
         ),
@@ -169,8 +161,7 @@ export function createWriteOperations(
             decodeBatch(plan, rows, meta, {
               skipped:
                 args.onDuplicate === "ignore"
-                  ? (decoded) =>
-                      (args.data as readonly unknown[]).length - decoded
+                  ? (decoded) => (args.data as readonly unknown[]).length - decoded
                   : undefined,
             }),
         ),
@@ -182,8 +173,7 @@ export function createWriteOperations(
           meta,
           "update",
           args,
-          (binds) =>
-            compileUpdate(meta, args, binds, "update", { index: ctx.index }),
+          (binds) => compileUpdate(meta, args, binds, "update", { index: ctx.index }),
           (plan, rows) => decodeResult(plan, rows, meta),
         ),
       ),
@@ -208,8 +198,7 @@ export function createWriteOperations(
           meta,
           "patch",
           args,
-          (binds) =>
-            compilePatch(meta, args, binds, "patch", { index: ctx.index }),
+          (binds) => compilePatch(meta, args, binds, "patch", { index: ctx.index }),
           (plan, rows) => decodeResult(plan, rows, meta),
         ),
       ),
@@ -233,7 +222,7 @@ export function createWriteOperations(
           args,
           (binds) => compileUpsertDelta(meta, args, binds, "upsertDelta"),
           (plan, rows) => decodeDeltaResult(plan, rows, meta, args),
-          args.data !== undefined ? args.data : args.update,
+          args.data === undefined ? args.update : args.data,
         ),
       ),
     upsertMany: (args: UpsertManyRuntimeArgs = {}) =>
@@ -254,8 +243,7 @@ export function createWriteOperations(
           meta,
           "delete",
           args,
-          (binds) =>
-            compileDelete(meta, args, binds, "delete", { index: ctx.index }),
+          (binds) => compileDelete(meta, args, binds, "delete", { index: ctx.index }),
           (plan, rows) => decodeResult(plan, rows, meta),
         ),
       ),
@@ -331,7 +319,7 @@ export function createWriteOperations(
           (plan, rows) => decodeBatch(plan, rows, meta, { countOnly: true }),
         ),
       ),
-  };
+  }
 }
 
 // --- assembly ------------------------------------------------------------------------------------
@@ -342,50 +330,44 @@ function prepare(
   operation: string,
   args: object,
   compile: (binds: Binds) => WritePlan,
-  decode: (plan: WritePlan, rows: readonly (unknown | undefined)[]) => unknown,
+  decode: (plan: WritePlan, rows: readonly (undefined | unknown)[]) => unknown,
   /** The hook payload when it isn't `args.data` (upsertDelta's distinct branches). */
   payload?: unknown,
 ): PreparedWrite {
-  const binds = createBinds();
-  const plan = compile(binds);
-  const where = (args as { where?: unknown }).where;
-  const data =
-    payload !== undefined ? payload : (args as { data?: unknown }).data;
-  const context = (args as { context?: OperationContext }).context;
-  const hookMeta = (args as { meta?: Record<string, unknown> }).meta;
+  const binds = createBinds()
+  const plan = compile(binds)
+  const where = (args as { where?: unknown }).where
+  const data = payload === undefined ? (args as { data?: unknown }).data : payload
+  const context = (args as { context?: OperationContext }).context
+  const hookMeta = (args as { meta?: Record<string, unknown> }).meta
   return {
     meta,
     operation,
     statements: plan.statements.map((sql) => ({ sql, vars: binds.vars })),
     transactional: plan.transactional,
-    ...(where !== undefined ? { where } : {}),
-    ...(data !== undefined ? { data } : {}),
+    ...(where === undefined ? {} : { where }),
+    ...(data === undefined ? {} : { data }),
     mayMiss: plan.mayMiss === true,
     delta: plan.result === "delta",
     decode: (rows) => decode(plan, rows),
     ...(context ? { context } : {}),
-    ...(hookMeta !== undefined ? { hookMeta } : {}),
-  };
+    ...(hookMeta === undefined ? {} : { hookMeta }),
+  }
 }
 
 /** Run a prepared write (one round-trip) and decode its result. */
-async function runPrepared(
-  ctx: DelegateContext,
-  prepared: PreparedWrite,
-): Promise<unknown> {
-  const hooks = ctx.hooks;
-  const first = prepared.statements[0];
-  const meta = hooks
-    ? resolveMeta(ctx, prepared.context, prepared.hookMeta)
-    : undefined;
+async function runPrepared(ctx: DelegateContext, prepared: PreparedWrite): Promise<unknown> {
+  const hooks = ctx.hooks
+  const first = prepared.statements[0]
+  const meta = hooks ? resolveMeta(ctx, prepared.context, prepared.hookMeta) : undefined
   return runWithHooks(
     hooks,
     {
       table: prepared.meta.name,
       operation: prepared.operation as OperationKind,
       ...(first ? { surql: first.sql, vars: first.vars ?? {} } : {}),
-      ...(prepared.data !== undefined ? { data: prepared.data } : {}),
-      ...(prepared.where !== undefined ? { where: prepared.where } : {}),
+      ...(prepared.data === undefined ? {} : { data: prepared.data }),
+      ...(prepared.where === undefined ? {} : { where: prepared.where }),
       ...(meta ? { meta } : {}),
     },
     async () => {
@@ -398,37 +380,40 @@ async function runPrepared(
         debug: ctx.debug,
         logger: ctx.logger,
         ...contextOption(ctx, prepared.context),
-      });
-      return prepared.decode(out.rows);
+      })
+      return prepared.decode(out.rows)
     },
-  );
+  )
 }
 
 /** Await a prepared write, attaching `.throw()` when the compiled plan says the row may be absent. */
 function finish(ctx: DelegateContext, prepared: PreparedWrite): unknown {
-  // Compile-only delegate (`$sql`): no connection, no hooks, no rows — a true dry run.
-  if (ctx.compileOnly)
+  // Compile-delegate (`$sql`): no connection, no hooks, no rows — a true dry run.
+  if (ctx.compileOnly) {
     return sqlPreview(prepared.statements, {
       operation: prepared.operation,
       table: prepared.meta.name,
       transactional: prepared.transactional,
       inTransaction: ctx.inTransaction === true,
       ...contextOption(ctx, prepared.context),
-    });
-  const promise = runPrepared(ctx, prepared);
+    })
+  }
+  const promise = runPrepared(ctx, prepared)
   // `upsertDelta` handles its own misses (ResultNotFound from the decode, strict or filtered): the
   // strict branch must REJECT rather than expose a `.throw()` the typed surface doesn't carry.
-  if (!prepared.mayMiss || prepared.delta) return promise;
-  return attachThrow(promise as Promise<unknown | null>, (): NotFoundInfo => {
-    const statement = prepared.statements[prepared.statements.length - 1];
+  if (!prepared.mayMiss || prepared.delta) {
+    return promise
+  }
+  return attachThrow(promise, (): NotFoundInfo => {
+    const statement = prepared.statements.at(-1)
     return {
       table: prepared.meta.name,
       operation: prepared.operation,
       where: prepared.where,
       surql: statement?.sql,
       vars: ctx.debug ? statement?.vars : undefined,
-    };
-  }) as ThrowingResult<unknown>;
+    }
+  }) as ThrowingResult<unknown>
 }
 
 // --- decoding — ONE interpretation of the plan ---------------------------------------------------
@@ -436,53 +421,64 @@ function finish(ctx: DelegateContext, prepared: PreparedWrite): unknown {
 /** The statement indexes the payload lives in (every statement by default). */
 function payloadIndexes(
   plan: WritePlan,
-  rows: readonly (unknown | undefined)[],
+  rows: readonly (undefined | unknown)[],
 ): readonly number[] {
-  return plan.resultIndexes ?? rows.map((_, i) => i);
+  return plan.resultIndexes ?? rows.map((_, i) => i)
 }
 
 /** The payload rows, one level flattened (a statement's array, or its single object). */
-function payloadRows(
-  plan: WritePlan,
-  rows: readonly (unknown | undefined)[],
-): unknown[] {
-  const out: unknown[] = [];
+function payloadRows(plan: WritePlan, rows: readonly (undefined | unknown)[]): unknown[] {
+  const out: unknown[] = []
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const index of payloadIndexes(plan, rows)) {
-    const raw = rows[index];
-    if (raw === undefined || raw === null) continue;
-    if (Array.isArray(raw)) out.push(...raw);
-    else out.push(raw);
+    const raw = rows[index]
+    if (raw === undefined || raw === null) {
+      continue
+    }
+    if (Array.isArray(raw)) {
+      out.push(...raw)
+    } else {
+      out.push(raw)
+    }
   }
-  return out;
+  return out
 }
 
 /** The flat JSON Patch of every result statement (`[[ops]]` → `ops`, statements combined). */
-function payloadDiff(
-  plan: WritePlan,
-  rows: readonly (unknown | undefined)[],
-): unknown[] {
-  const out: unknown[] = [];
+function payloadDiff(plan: WritePlan, rows: readonly (undefined | unknown)[]): unknown[] {
+  const out: unknown[] = []
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const index of payloadIndexes(plan, rows)) {
-    const raw = rows[index];
-    if (!Array.isArray(raw)) continue;
+    const raw = rows[index]
+    if (!Array.isArray(raw)) {
+      continue
+    }
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const entry of raw) {
-      if (Array.isArray(entry)) out.push(...entry);
-      else out.push(entry);
+      if (Array.isArray(entry)) {
+        out.push(...entry)
+      } else {
+        out.push(entry)
+      }
     }
   }
-  return out;
+  return out
 }
 
-/** The generic row/many/none/diff interpretation of a singular plan. */
+/** The generic row/some/none/diff interpretation of a singular plan. */
 function decodeResult(
   plan: WritePlan,
-  rows: readonly (unknown | undefined)[],
+  rows: readonly (undefined | unknown)[],
   meta: ModelMeta,
 ): unknown {
-  if (plan.result === "none") return null;
-  if (plan.result === "diff") return payloadDiff(plan, rows);
-  const data = decodeRows(payloadRows(plan, rows), meta, writeSpec(plan));
-  return plan.result === "row" ? (data[0] ?? null) : data;
+  if (plan.result === "none") {
+    return null
+  }
+  if (plan.result === "diff") {
+    return payloadDiff(plan, rows)
+  }
+  const data = decodeRows(payloadRows(plan, rows), meta, writeSpec(plan))
+  return plan.result === "row" ? (data[0] ?? null) : data
 }
 
 /**
@@ -493,25 +489,22 @@ function decodeResult(
  */
 function decodeUpsertResult(
   plan: WritePlan,
-  rows: readonly (unknown | undefined)[],
+  rows: readonly (undefined | unknown)[],
   meta: ModelMeta,
   args: UpsertRuntimeArgs,
 ): unknown {
-  if (plan.missError === true && payloadRows(plan, rows).length === 0)
-    throw upsertMiss(plan, meta, args);
-  return decodeResult(plan, rows, meta);
+  if (plan.missError === true && payloadRows(plan, rows).length === 0) {
+    throw upsertMiss(plan, meta, args)
+  }
+  return decodeResult(plan, rows, meta)
 }
 
 /** The `ResultNotFound` for an `upsert` that produced no row. The message classifies the miss by
  *  the COMPILED plan (`strictMiss`), never by `args.onMissing`: a target-less create has no
  *  `onMissing: "throw"` even though its default applies. */
-function upsertMiss(
-  plan: WritePlan,
-  meta: ModelMeta,
-  args: UpsertRuntimeArgs,
-): OrmError {
-  const statement = plan.statements[plan.statements.length - 1];
-  const strict = plan.strictMiss === true;
+function upsertMiss(plan: WritePlan, meta: ModelMeta, args: UpsertRuntimeArgs): OrmError {
+  const statement = plan.statements.at(-1)
+  const strict = plan.strictMiss === true
   return new OrmError(
     "ResultNotFound",
     strict
@@ -523,7 +516,7 @@ function upsertMiss(
       details: args.where,
       surql: statement,
     },
-  );
+  )
 }
 
 /**
@@ -534,45 +527,40 @@ function upsertMiss(
  */
 function decodeDeltaResult(
   plan: WritePlan,
-  rows: readonly (unknown | undefined)[],
+  rows: readonly (undefined | unknown)[],
   meta: ModelMeta,
   args: UpsertDeltaRuntimeArgs,
 ): unknown {
-  const envelope = payloadRows(plan, rows)[0];
-  if (!isRecord(envelope)) throw deltaMiss(plan, meta, args);
-  if (!isRecord(envelope.after)) throw deltaMiss(plan, meta, args);
-  const spec = writeSpec(plan);
-  const after = decodeRows([envelope.after], meta, spec)[0] as Record<
-    string,
-    unknown
-  >;
-  const rawBefore = envelope.before;
-  if (rawBefore === undefined || rawBefore === null)
+  const envelope = payloadRows(plan, rows)[0]
+  if (!isRecord(envelope)) {
+    throw deltaMiss(plan, meta, args)
+  }
+  if (!isRecord(envelope.after)) {
+    throw deltaMiss(plan, meta, args)
+  }
+  const spec = writeSpec(plan)
+  const after = decodeRows([envelope.after], meta, spec)[0] as Record<string, unknown>
+  const rawBefore = envelope.before
+  if (rawBefore === undefined || rawBefore === null) {
     return {
       record: after,
       created: true,
       before: null,
       delta: null,
       changed: [],
-    };
-  const before = decodeRows([rawBefore], meta, spec)[0] as Record<
-    string,
-    unknown
-  >;
-  const { delta, changed } = computeFieldDelta(before, after);
-  return { record: after, created: false, before, delta, changed };
+    }
+  }
+  const before = decodeRows([rawBefore], meta, spec)[0] as Record<string, unknown>
+  const { delta, changed } = computeFieldDelta(before, after)
+  return { record: after, created: false, before, delta, changed }
 }
 
 /** The `ResultNotFound` for an `upsertDelta` that produced no envelope. Like `upsertMiss`, the
  *  message classifies the miss by the COMPILED plan (`strictMiss`): a target-less create filtered
  *  by a permission is not a strict miss. */
-function deltaMiss(
-  plan: WritePlan,
-  meta: ModelMeta,
-  args: UpsertDeltaRuntimeArgs,
-): OrmError {
-  const statement = plan.statements[plan.statements.length - 1];
-  const strict = plan.strictMiss === true;
+function deltaMiss(plan: WritePlan, meta: ModelMeta, args: UpsertDeltaRuntimeArgs): OrmError {
+  const statement = plan.statements.at(-1)
+  const strict = plan.strictMiss === true
   return new OrmError(
     "ResultNotFound",
     strict
@@ -584,64 +572,72 @@ function deltaMiss(
       details: args.where,
       surql: statement,
     },
-  );
+  )
 }
 
-/** A batch plan: `data` rows, the affected `count`, and how many items were skipped. */
+/** A batch plan: `data` rows, the affected `count`, and how some items skipp them. */
 function decodeBatch(
   plan: WritePlan,
-  rows: readonly (unknown | undefined)[],
+  rows: readonly (undefined | unknown)[],
   meta: ModelMeta,
   extras: {
+    /** Return the affected count (`deleteMany`/`unrelate` handle rows, not data). */
+    readonly countOnly?: boolean
     /** Items intentionally skipped (duplicates / ignored / no-match), from the decoded count. */
-    readonly skipped?: (decoded: number) => number | undefined;
-    /** Return only the affected count (`deleteMany`/`unrelate` handle rows, not data). */
-    readonly countOnly?: boolean;
+    readonly skipped?: (decoded: number) => number | undefined
   } = {},
 ): unknown {
-  if (plan.result === "diff") return payloadDiff(plan, rows);
-  if (plan.result === "none") return batch(plan, undefined);
-  const data = decodeRows(payloadRows(plan, rows), meta, writeSpec(plan));
-  if (extras.countOnly === true)
-    return batch(plan, undefined, undefined, data.length);
-  return batch(plan, data, extras.skipped?.(data.length));
+  if (plan.result === "diff") {
+    return payloadDiff(plan, rows)
+  }
+  if (plan.result === "none") {
+    return batch(plan, undefined)
+  }
+  const data = decodeRows(payloadRows(plan, rows), meta, writeSpec(plan))
+  if (extras.countOnly === true) {
+    return batch(plan, undefined, undefined, data.length)
+  }
+  return batch(plan, data, extras.skipped?.(data.length))
 }
 
-/** The batch envelope: `count` only when rows were returned, `skipped` when known. */
+/** The batch envelope: `count` when rows return them, `skipped` when known. */
 function batch(
   plan: WritePlan,
-  data: unknown[] | undefined,
+  data: undefined | unknown[],
   skipped?: number,
   count?: number,
 ): BatchResult<unknown> {
-  const affected = count ?? data?.length;
+  const affected = count ?? data?.length
   return {
-    ...(affected !== undefined ? { count: affected } : {}),
-    ...(data !== undefined ? { data } : {}),
-    ...(skipped !== undefined ? { skipped } : {}),
+    ...(affected === undefined ? {} : { count: affected }),
+    ...(data === undefined ? {} : { data }),
+    ...(skipped === undefined ? {} : { skipped }),
     statements: plan.statements.length,
-  };
+  }
 }
 
 /** `updateEach`: per-item results, `skipped`, `onEmpty: 'throw'`, and the eager `select` spec. */
 function decodeUpdateEach(
   args: UpdateEachRuntimeArgs,
   plan: WritePlan,
-  rows: readonly (unknown | undefined)[],
+  rows: readonly (undefined | unknown)[],
   meta: ModelMeta,
 ): unknown {
-  if (plan.result === "none") return batch(plan, undefined);
-  const spec = writeSpec(plan);
+  if (plan.result === "none") {
+    return batch(plan, undefined)
+  }
+  const spec = writeSpec(plan)
   const items = payloadIndexes(plan, rows).map((index) => {
-    const raw = rows[index];
-    return Array.isArray(raw) ? decodeRows(raw, meta, spec) : [];
-  });
-  const empty = items.filter((entry) => entry.length === 0).length;
-  if (args.onEmpty === "throw" && empty > 0)
+    const raw = rows[index]
+    return Array.isArray(raw) ? decodeRows(raw, meta, spec) : []
+  })
+  const empty = items.filter((entry) => entry.length === 0).length
+  if (args.onEmpty === "throw" && empty > 0) {
     throw new OrmError(
       "ResultNotFound",
       `updateEach: ${empty} item(s) matched no record (onEmpty: "throw") — fix the "by" values or use onEmpty: "return" to collect them in "skipped".`,
       { table: meta.name, operation: "updateEach", details: { empty } },
-    );
-  return batch(plan, items.flat(), empty);
+    )
+  }
+  return batch(plan, items.flat(), empty)
 }

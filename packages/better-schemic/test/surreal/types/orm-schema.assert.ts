@@ -1,18 +1,13 @@
 // M0.2 — TYPE assertions for the schema artifact (`schema` -> `SchemaIndex` derivations).
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
 //
-// `assertType<Expected, Actual>()` fails to COMPILE if Actual isn't exactly Expected — so a key-extraction
+// `assertType<Expected, Actual>()` fails to COMPILE if Actual isn't Expected — so a key-extraction
 // regression (an edge leaking into SchemalessKeys, `AppAt` losing the codec type, …) turns red here.
-import { describe, it } from "node:test";
-import { assertType } from "../../../../../scripts/type-assert";
-import {
-  defineFunction,
-  type IdStrategy,
-  relation,
-  s,
-  table,
-} from "../../../src/surreal";
-import { schema } from "../../../src/surreal/orm/schema";
+import { describe, it } from "node:test"
+
+import { assertType } from "../../../../../scripts/type-assert"
+import { defineFunction, type IdStrategy, relation, s, table } from "../../../src/surreal"
+import { schema } from "../../../src/surreal/orm/schema"
 import type {
   AppAt,
   FunctionAt,
@@ -23,18 +18,18 @@ import type {
   SchemaOf,
   TableAt,
   TableKeys,
-} from "../../../src/surreal/orm/types/schema";
-import type { App } from "../../../src/surreal/pure";
+} from "../../../src/surreal/orm/types/schema"
+import type { App } from "../../../src/surreal/pure"
 
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
 
-const User = table("user", { name: s.string(), age: s.int() });
+const User = table("user", { name: s.string(), age: s.int() })
 const Post = table("post", {
   title: s.string(),
   author: s.recordId(User),
-});
-const Likes = relation("likes", { score: s.int() }).from(User).to(Post);
-const greet = defineFunction("greet", { name: s.string() }).returns(s.string());
+})
+const Likes = relation("likes", { score: s.int() }).from(User).to(Post)
+const greet = defineFunction("greet", { name: s.string() }).returns(s.string())
 
 const schemaDef = schema({
   users: User,
@@ -42,67 +37,58 @@ const schemaDef = schema({
   likes: Likes,
   greet,
   audit: "audit_log",
-});
-type S = typeof schemaDef;
+})
+type S = typeof schemaDef
 
 describe("idStrategy — authoring types", () => {
   it("the strategy union is enforced and chainable", () => {
-    const withUuid = table("t", { name: s.string() }).idStrategy("uuid");
-    const withRand = table("t", { name: s.string() }).idStrategy("rand");
-    const withUlid = table("t", { name: s.string() }).idStrategy("ulid");
+    const withUuid = table("t", { name: s.string() }).idStrategy("uuid")
+    const withRand = table("t", { name: s.string() }).idStrategy("rand")
+    const withUlid = table("t", { name: s.string() }).idStrategy("ulid")
     // `config` is the general `TableConfig`, so the property is the union (not the literal).
-    assertType<
-      IdStrategy | undefined,
-      (typeof withUuid)["config"]["idStrategy"]
-    >();
-    assertType<
-      IdStrategy | undefined,
-      (typeof withRand)["config"]["idStrategy"]
-    >();
-    assertType<
-      IdStrategy | undefined,
-      (typeof withUlid)["config"]["idStrategy"]
-    >();
+    assertType<IdStrategy | undefined, (typeof withUuid)["config"]["idStrategy"]>()
+    assertType<IdStrategy | undefined, (typeof withRand)["config"]["idStrategy"]>()
+    assertType<IdStrategy | undefined, (typeof withUlid)["config"]["idStrategy"]>()
     // @ts-expect-error — "nanoid" is not an IdStrategy
-    const bad: IdStrategy = "nanoid";
-    void bad;
-  });
+    const bad: IdStrategy = "nanoid"
+    void bad
+  })
   it("IdStrategy is exported from the authoring index", () => {
-    assertType<"ulid" | "uuid" | "rand", IdStrategy>();
-  });
-});
+    assertType<"rand" | "ulid" | "uuid", IdStrategy>()
+  })
+})
 
 describe("SchemaDef — key extraction", () => {
   it("TableKeys is tables AND relation keys", () => {
-    assertType<"users" | "posts" | "likes", TableKeys<S>>();
-  });
+    assertType<"likes" | "posts" | "users", TableKeys<S>>()
+  })
   it("RelationKeys is exactly the edge keys", () => {
-    assertType<"likes", RelationKeys<S>>();
-  });
+    assertType<"likes", RelationKeys<S>>()
+  })
   it("SchemalessKeys is exactly the string entries", () => {
-    assertType<"audit", SchemalessKeys<S>>();
-  });
+    assertType<"audit", SchemalessKeys<S>>()
+  })
   it("FunctionKeys is exactly the function entries", () => {
-    assertType<"greet", FunctionKeys<S>>();
-  });
-});
+    assertType<"greet", FunctionKeys<S>>()
+  })
+})
 
 describe("SchemaDef — def lookup", () => {
   it("TableAt preserves the authored def type", () => {
-    assertType<typeof User, TableAt<S, "users">>();
-    assertType<typeof Likes, TableAt<S, "likes">>();
-  });
+    assertType<typeof User, TableAt<S, "users">>()
+    assertType<typeof Likes, TableAt<S, "likes">>()
+  })
   it("AppAt resolves the DECODED row (codecs included)", () => {
-    assertType<App<typeof User>, AppAt<S, "users">>();
-    assertType<App<typeof Post>, AppAt<S, "posts">>();
-  });
+    assertType<App<typeof User>, AppAt<S, "users">>()
+    assertType<App<typeof Post>, AppAt<S, "posts">>()
+  })
   it("RelationAt / FunctionAt narrow to their defs", () => {
-    assertType<typeof Likes, RelationAt<S, "likes">>();
-    assertType<true, [RelationAt<S, "users">] extends [never] ? true : false>();
-    assertType<typeof greet, FunctionAt<S, "greet">>();
-    assertType<true, [FunctionAt<S, "users">] extends [never] ? true : false>();
-  });
+    assertType<typeof Likes, RelationAt<S, "likes">>()
+    assertType<true, [RelationAt<S, "users">] extends [never] ? true : false>()
+    assertType<typeof greet, FunctionAt<S, "greet">>()
+    assertType<true, [FunctionAt<S, "users">] extends [never] ? true : false>()
+  })
   it("SchemaOf recovers the authored entries object", () => {
-    assertType<typeof schemaDef.entries, SchemaOf<S>>();
-  });
-});
+    assertType<typeof schemaDef.entries, SchemaOf<S>>()
+  })
+})

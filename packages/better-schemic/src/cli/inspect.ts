@@ -1,4 +1,4 @@
-// READ-ONLY inspection — `sc <kind> ls` / `sc <kind> info <name>` / `sc ls` (overview). Core-provided
+// READ-inspection — `sc <kind> ls` / `sc <kind> info <name>` / `sc ls` (overview). Core-provided
 // for EVERY kind in the neutral kind registry (so every driver gets them for free; no per-driver
 // wiring). A read command shows what you DECLARED by default; drift stays diff/check's lane.
 //
@@ -11,7 +11,8 @@
 // metaDir baseline (last `gen`); `--live` the DB (introspection; matches `diff --live`, so "the DB" is
 // one word across commands).
 
-import type { Command } from "commander";
+import type { Command } from "commander"
+
 import {
   type Driver,
   type KindEngine,
@@ -19,33 +20,35 @@ import {
   loadDefs,
   lowerSchema,
   type PortableObject,
-  type ResolvedConfig,
   readSnapshot,
+  type ResolvedConfig,
   snapshotObjects,
   style,
-} from "../core";
-import { runAction } from "./action";
-import { type ResolveOpts, resolveOne } from "./resolve";
+} from "../core"
+import { runAction } from "./action"
+import { resolveOne, type ResolveOpts } from "./resolve"
 
-export type Source = "declared" | "snapshot" | "live";
+export type Source = "declared" | "live" | "snapshot"
 
 /** Resolve the source from the boolean flags — default `declared`; `--snapshot`/`--live` are mutually exclusive. */
-export function pickSource(opts: {
-  snapshot?: boolean;
-  live?: boolean;
-}): Source {
-  if (opts.snapshot && opts.live)
-    throw new Error("--snapshot and --live are mutually exclusive");
-  if (opts.snapshot) return "snapshot";
-  if (opts.live) return "live";
-  return "declared";
+export function pickSource(opts: { live?: boolean; snapshot?: boolean }): Source {
+  if (opts.snapshot && opts.live) {
+    throw new Error("--snapshot and --live are mutually exclusive")
+  }
+  if (opts.snapshot) {
+    return "snapshot"
+  }
+  if (opts.live) {
+    return "live"
+  }
+  return "declared"
 }
 
-type AnyEngine = KindEngine<any, any>;
+type AnyEngine = KindEngine<any, any>
 
 /** kind -> engine, built once from the neutral registry (the public `entries()` enumeration). */
 function engineMap(registry: KindRegistry): Map<string, AnyEngine> {
-  return new Map(registry.entries());
+  return new Map(registry.entries())
 }
 
 /** The engine for `kind` (verb-first `sc ls <kind>` / `sc info <kind>`), or a teaching error. */
@@ -54,39 +57,32 @@ export function requireKind(
   engines: Map<string, AnyEngine>,
   kind: string,
 ): AnyEngine {
-  const engine = engines.get(kind);
-  if (!engine)
-    throw new Error(
-      `unknown kind "${kind}" — expected one of: ${registry.names().join(", ")}`,
-    );
-  return engine;
+  const engine = engines.get(kind)
+  if (!engine) {
+    throw new Error(`unknown kind "${kind}" — expected one of: ${registry.names().join(", ")}`)
+  }
+  return engine
 }
 
 /**
- * The NAME of the structural container a nested kind is addressed under: the `parent` hook (addressing)
- * or, failing that, `owner` (diff clustering) — so a kind that only declares `owner` still addresses
+ * The NAME of the structural container a nested kind addresss it under: the `parent` hook (addressing)
+ * or, failing that, `owner` (diff clustering) — so a kind that  declares `owner` still addresses
  * dotted, while an owner-declining kind can opt into dotted addressing via `parent`.
  */
-function parentName(
-  engine: AnyEngine | undefined,
-  obj: PortableObject,
-): string | undefined {
-  return (engine?.parent?.(obj) ?? engine?.owner?.(obj))?.name;
+function parentName(engine: AnyEngine | undefined, obj: PortableObject): string | undefined {
+  return (engine?.parent?.(obj) ?? engine?.owner?.(obj))?.name
 }
 
 /** The addressable key: `parent.name` for a nested kind, else the bare `name`. */
-export function addressOf(
-  engine: AnyEngine | undefined,
-  obj: PortableObject,
-): string {
-  const parent = parentName(engine, obj);
-  return parent ? `${parent}.${obj.name}` : obj.name;
+export function addressOf(engine: AnyEngine | undefined, obj: PortableObject): string {
+  const parent = parentName(engine, obj)
+  return parent ? `${parent}.${obj.name}` : obj.name
 }
 
 /**
  * Load the portable objects of the chosen source. `declared` explodes + lowers the authored schema (the
  * diff's desired side — all kinds, incl. out-of-band ones like access); `snapshot` reads the metaDir
- * baseline (migration-managed kinds only — access isn't snapshotted); `live` introspects the DB.
+ * baseline (migration-managed kinds  — access isn't snapshotted); `live` introspects the DB.
  */
 async function loadObjects(
   source: Source,
@@ -94,21 +90,21 @@ async function loadObjects(
   config: ResolvedConfig,
 ): Promise<PortableObject[]> {
   if (source === "declared") {
-    const { tables, defs } = await loadDefs(config.schemaPath);
-    return lowerSchema(driver.registry, driver.explode(tables, defs));
+    const { defs, tables } = await loadDefs(config.schemaPath)
+    return lowerSchema(driver.registry, driver.explode(tables, defs))
   }
   if (source === "snapshot") {
     try {
-      return snapshotObjects(readSnapshot(config.metaDir).schema);
+      return snapshotObjects(readSnapshot(config.metaDir).schema)
     } catch {
-      return []; // no snapshot yet (pre-`gen`)
+      return [] // no snapshot yet (pre-`gen`)
     }
   }
-  const conn = await driver.connect(config);
+  const conn = await driver.connect(config)
   try {
-    return await driver.introspectAll(conn);
+    return await driver.introspectAll(conn)
   } finally {
-    await driver.close(conn);
+    await driver.close(conn)
   }
 }
 
@@ -121,7 +117,7 @@ export function addressesOfKind(
   return objects
     .filter((o) => o.kind === kind)
     .map((o) => addressOf(engine, o))
-    .sort();
+    .sort()
 }
 
 /** `sc <kind> ls` — list entities of one kind from the chosen source. */
@@ -134,19 +130,20 @@ async function lsKind(
   source: Source,
   json: boolean,
 ): Promise<void> {
-  const objects = await loadObjects(source, driver, config);
-  const addresses = addressesOfKind(engine, kind, objects);
+  const objects = await loadObjects(source, driver, config)
+  const addresses = addressesOfKind(engine, kind, objects)
   if (json) {
-    console.log(JSON.stringify({ kind, source, entities: addresses }, null, 2));
-    return;
+    console.log(JSON.stringify({ entities: addresses, kind, source }, null, 2))
+    return
   }
-  console.log(
-    style.bold(
-      `${registry.display(kind).plural} (${addresses.length}) — ${source}`,
-    ),
-  );
-  if (!addresses.length) console.log(style.dim("  (none)"));
-  for (const address of addresses) console.log(`  ${address}`);
+  console.log(style.bold(`${registry.display(kind).plural} (${addresses.length}) — ${source}`))
+  if (addresses.length === 0) {
+    console.log(style.dim("  (none)"))
+  }
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const address of addresses) {
+    console.log(`  ${address}`)
+  }
 }
 
 /** `sc <kind> info <address>` — one entity's resolved DDL from the chosen source. */
@@ -159,22 +156,16 @@ async function infoKind(
   source: Source,
   json: boolean,
 ): Promise<void> {
-  const objects = await loadObjects(source, driver, config);
-  const found = objects.find(
-    (o) => o.kind === kind && addressOf(engine, o) === address,
-  );
-  if (!found) throw new Error(`no ${kind} "${address}" in ${source}`);
-  if (json) {
-    console.log(
-      JSON.stringify(
-        { kind, address, source, ddl: engine.emit(found) },
-        null,
-        2,
-      ),
-    );
-    return;
+  const objects = await loadObjects(source, driver, config)
+  const found = objects.find((o) => o.kind === kind && addressOf(engine, o) === address)
+  if (!found) {
+    throw new Error(`no ${kind} "${address}" in ${source}`)
   }
-  console.log(engine.emit(found).join("\n"));
+  if (json) {
+    console.log(JSON.stringify({ address, ddl: engine.emit(found), kind, source }, null, 2))
+    return
+  }
+  console.log(engine.emit(found).join("\n"))
 }
 
 /** `sc ls` — cross-kind OVERVIEW: every kind + entity count from the chosen source. */
@@ -185,21 +176,23 @@ async function overview(
   source: Source,
   json: boolean,
 ): Promise<void> {
-  const objects = await loadObjects(source, driver, config);
-  const engines = engineMap(registry);
+  const objects = await loadObjects(source, driver, config)
+  const engines = engineMap(registry)
   const rows = registry.names().map((kind) => ({
+    count: addressesOfKind(engines.get(kind) as AnyEngine, kind, objects).length,
     kind,
     label: registry.display(kind).plural,
-    count: addressesOfKind(engines.get(kind) as AnyEngine, kind, objects)
-      .length,
-  }));
+  }))
   if (json) {
-    console.log(JSON.stringify({ source, kinds: rows }, null, 2));
-    return;
+    console.log(JSON.stringify({ kinds: rows, source }, null, 2))
+    return
   }
-  console.log(style.bold(`Schema overview — ${source}`));
-  const width = Math.max(0, ...rows.map((r) => r.label.length));
-  for (const r of rows) console.log(`  ${r.label.padEnd(width)}  ${r.count}`);
+  console.log(style.bold(`Schema overview — ${source}`))
+  const width = Math.max(0, ...rows.map((r) => r.label.length))
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const r of rows) {
+    console.log(`  ${r.label.padEnd(width)}  ${r.count}`)
+  }
 }
 
 /**
@@ -213,57 +206,41 @@ export function registerInspectVerbs(
   groupFor: (kind: string) => Command,
   resolveOpts: () => ResolveOpts,
 ): void {
-  const registry = driver.registry;
-  const engines = engineMap(registry);
+  const registry = driver.registry
+  const engines = engineMap(registry)
   // The three source flags (default declared); `--live` matches `diff --live` so "the DB" is one word.
   const srcOpts = (c: Command): Command =>
     c
       .option("--snapshot", "inspect the metaDir baseline (last `gen`)")
       .option("--live", "inspect the live database (introspection)")
-      .option("--json", "output JSON");
-  type Opts = { snapshot?: boolean; live?: boolean; json?: boolean };
+      .option("--json", "output JSON")
+  interface Opts {
+    json?: boolean
+    live?: boolean
+    snapshot?: boolean
+  }
 
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const kind of registry.names()) {
-    const engine = engines.get(kind) as AnyEngine;
-    const group = groupFor(kind);
+    const engine = engines.get(kind) as AnyEngine
+    const group = groupFor(kind)
 
     srcOpts(
-      group
-        .command("ls")
-        .summary(`list ${registry.display(kind).plural.toLowerCase()}`),
+      group.command("ls").summary(`list ${registry.display(kind).plural.toLowerCase()}`),
     ).action((opts: Opts) =>
       runAction(async () => {
-        const config = await resolveOne(resolveOpts());
-        await lsKind(
-          kind,
-          engine,
-          registry,
-          driver,
-          config,
-          pickSource(opts),
-          !!opts.json,
-        );
+        const config = await resolveOne(resolveOpts())
+        await lsKind(kind, engine, registry, driver, config, pickSource(opts), !!opts.json)
       }),
-    );
+    )
 
-    srcOpts(
-      group
-        .command("info <name>")
-        .summary(`show one ${kind}'s resolved definition`),
-    ).action((name: string, opts: Opts) =>
-      runAction(async () => {
-        const config = await resolveOne(resolveOpts());
-        await infoKind(
-          kind,
-          name,
-          engine,
-          driver,
-          config,
-          pickSource(opts),
-          !!opts.json,
-        );
-      }),
-    );
+    srcOpts(group.command("info <name>").summary(`show one ${kind}'s resolved definition`)).action(
+      (name: string, opts: Opts) =>
+        runAction(async () => {
+          const config = await resolveOne(resolveOpts())
+          await infoKind(kind, name, engine, driver, config, pickSource(opts), !!opts.json)
+        }),
+    )
   }
 
   // Verb-first forms, alongside the noun-first `sc <kind> ls`/`info`: `sc ls [kind]` (a cross-kind
@@ -278,8 +255,8 @@ export function registerInspectVerbs(
       ),
   ).action((kind: string | undefined, opts: Opts) =>
     runAction(async () => {
-      const config = await resolveOne(resolveOpts());
-      if (kind)
+      const config = await resolveOne(resolveOpts())
+      if (kind) {
         await lsKind(
           kind,
           requireKind(registry, engines, kind),
@@ -288,21 +265,20 @@ export function registerInspectVerbs(
           config,
           pickSource(opts),
           !!opts.json,
-        );
-      else
-        await overview(registry, driver, config, pickSource(opts), !!opts.json);
+        )
+      } else {
+        await overview(registry, driver, config, pickSource(opts), !!opts.json)
+      }
     }),
-  );
+  )
 
   srcOpts(
     program
       .command("info <kind> <name>")
-      .summary(
-        "show one entity's resolved definition (verb-first form of `sc <kind> info`)",
-      ),
+      .summary("show one entity's resolved definition (verb-first form of `sc <kind> info`)"),
   ).action((kind: string, name: string, opts: Opts) =>
     runAction(async () => {
-      const config = await resolveOne(resolveOpts());
+      const config = await resolveOne(resolveOpts())
       await infoKind(
         kind,
         name,
@@ -311,7 +287,7 @@ export function registerInspectVerbs(
         config,
         pickSource(opts),
         !!opts.json,
-      );
+      )
     }),
-  );
+  )
 }

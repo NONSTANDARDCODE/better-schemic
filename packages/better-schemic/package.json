@@ -39,6 +39,20 @@
         "default": "./lib/index.js"
       }
     },
+    "./zod": {
+      "bun": "./src/zod.ts",
+      "import": {
+        "types": "./lib/zod.d.ts",
+        "default": "./lib/zod.js"
+      }
+    },
+    "./zod/core": {
+      "bun": "./src/zod-core.ts",
+      "import": {
+        "types": "./lib/zod-core.d.ts",
+        "default": "./lib/zod-core.js"
+      }
+    },
     "./driver": {
       "bun": "./src/driver.ts",
       "import": {
@@ -193,7 +207,9 @@
     "prepack": "bun run build",
     "test": "bun test",
     "test:unit": "bun test test/core/unit test/cli/unit test/surreal/unit test/otel/unit",
-    "typecheck": "bun check"
+    "typecheck": "bun check",
+    "lint": "bun lint --no-script --max-warnings 0",
+    "lint:changed": "bun lint --no-script --changed --max-warnings 0"
   },
   "dependencies": {
     "commander": "^15.1.0",
@@ -219,6 +235,12 @@
     "@opentelemetry/api": "^1.10.0",
     "@opentelemetry/sdk-trace": "^3.1.1",
     "@types/bun": "latest",
-    "@typescript/native-preview": "7.0.0-dev.20260707.2"
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
+    "eslint-plugin-boundaries": "^7.4.4",
+    "eslint-plugin-functional": "^10.0.1",
+    "eslint-plugin-perfectionist": "^5.14.0",
+    "eslint-plugin-simple-import-sort": "^14.0.0",
+    "eslint-plugin-unicorn": "^80.0.0",
+    "eslint-plugin-write-good-comments": "^0.2.0"
   }
 }

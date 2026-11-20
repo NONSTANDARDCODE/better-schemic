@@ -3,81 +3,78 @@
  * single `conn.query(...)` round-trip, reads per-statement outcomes with `responses()` (which never
  * throws on a failed statement), and attributes the first failure to its statement.
  *
- * Atomicity (`transactional: true`, the default for batches): the statements are wrapped in a SQL
+ * Atomicity (`transactional: true`, the default for batches): the statements wrapp them in a SQL
  * transaction (`BEGIN TRANSACTION; … COMMIT TRANSACTION;`). Live-probed on 3.2.0: a failing statement
- * ABORTS the transaction (`COMMIT` then returns "Cannot COMMIT: the transaction was aborted due to a
+ * ABORTS the transaction (`COMMIT` then returns "Cannot COMMIT: the transaction aborts it due to a
  * prior error") and nothing from the batch persists — so the wrapper is atomic in one round-trip.
- * Inside `client.transaction` the caller passes `inTransaction: true` and the wrapper is skipped
+ * Inside `client.transaction` the caller passes `inTransaction: true` and the wrapper skipps it
  * (the surrounding transaction already owns atomicity).
  *
- * Binds are merged across statements and must be UNIQUE: two statements reusing a name for different
- * values is a compiler bug, caught here as a `ParseError` instead of silently binding the wrong data.
+ * Binds merg them across statements and must be UNIQUE: two statements reusing a name for different
+ * values is a compiler bug, caught here as a `ParseError` instead of  binding the wrong data.
  */
-import type { QueryResponse, Surreal } from "surrealdb";
-import { contextPrefix } from "./context";
-import { normalizeError, OrmError } from "./errors";
-import { emitRoundTrip } from "./logger/emit";
-import {
-  type SqlPreview,
-  type StatementResult,
-  statementResult,
-} from "./results";
-import type { ResolvedContext } from "./types/context";
-import type { LogPhase, QueryLogger } from "./types/logger";
+import type { QueryResponse, Surreal } from "surrealdb"
+
+import { contextPrefix } from "./context"
+import { normalizeError, OrmError } from "./errors"
+import { emitRoundTrip } from "./logger/emit"
+import { type SqlPreview, type StatementResult, statementResult } from "./results"
+import type { ResolvedContext } from "./types/context"
+import type { LogPhase, QueryLogger } from "./types/logger"
 
 /** Anything the executor can run statements on — the SDK `Surreal` or a `SurrealSession`. */
-export type Queryable = Pick<Surreal, "query">;
+export type Queryable = Pick<Surreal, "query">
 
 /** One statement of a batch. `vars` are that statement's binds (names must be unique in the batch). */
 export interface Statement {
-  /** The SurrealQL text (a trailing `;` is added when missing). */
-  readonly sql: string;
+  /** The SurrealQL text (a trailing `;` adds it when missing). */
+  readonly sql: string
   /** Binds used by this statement. */
-  readonly vars?: Record<string, unknown>;
+  readonly vars?: Record<string, unknown>
 }
 
 /** Options for {@link execute}. */
 export interface ExecuteOptions {
-  /** The statements to run, in order. */
-  readonly statements: readonly Statement[];
-  /** Wrap in `BEGIN/COMMIT TRANSACTION` unless already inside a transaction. Default `false`. */
-  readonly transactional?: boolean;
-  /** The caller is inside `client.transaction` — skip the implicit wrapper. */
-  readonly inTransaction?: boolean;
-  /** Operation name attached to failures, e.g. `"createMany"`. */
-  readonly operation?: string;
-  /** Table/edge name attached to failures. */
-  readonly table?: string;
-  /** Throw the first statement failure (default). `false` returns every `StatementResult`. */
-  readonly throwOnError?: boolean;
-  /** Include the failing statement's `vars` in the error (client `debug: true`). */
-  readonly debug?: boolean;
   /**
    * Scope this batch with `USE NS … DB …;` (context clones / per-call `context`). The prefix is a
    * control statement: it runs in the SAME round-trip and is never exposed as a result.
    */
-  readonly context?: ResolvedContext;
+  readonly context?: ResolvedContext
+  /** Include the failing statement's `vars` in the error (client `debug: true`). */
+  readonly debug?: boolean
+  /** The caller is inside `client.transaction` — skip the implicit wrapper. */
+  readonly inTransaction?: boolean
   /** Query logger sink (absent = zero-overhead). */
-  readonly logger?: QueryLogger;
+  readonly logger?: QueryLogger
+  /** Operation name attached to failures, e.g. `"createMany"`. */
+  readonly operation?: string
   /** `"explain"` when the statements are `EXPLAIN` probes (log the plans, not a real run). */
-  readonly phase?: LogPhase;
+  readonly phase?: LogPhase
+  /** The statements to run, in order. */
+  readonly statements: readonly Statement[]
+  /** Table/edge name attached to failures. */
+  readonly table?: string
+  /** Throw the first statement failure (default). `false` returns every `StatementResult`. */
+  readonly throwOnError?: boolean
+  /** Wrap in `BEGIN/COMMIT TRANSACTION` unless already inside a transaction. Default `false`. */
+  readonly transactional?: boolean
 }
 
 /** The outcome of one {@link execute} call. */
 export interface ExecuteResult<T = unknown> {
   /** One result per USER statement, in order (control statements are not exposed). */
-  readonly responses: readonly StatementResult<T>[];
+  readonly responses: readonly StatementResult<T>[]
   /** Convenience view: the successful results by statement index (`undefined` where one failed). */
-  readonly rows: readonly (T | undefined)[];
+  readonly rows: readonly (T | undefined)[]
   /** True when the executor wrapped the batch in a transaction. */
-  readonly transactional: boolean;
+  readonly transactional: boolean
 }
 
 /** Ensure a statement ends with `;` (SurrealDB requires the separator in a batch). */
 export const terminate = (sql: string): string => {
-  const trimmed = sql.trim();
-  return trimmed.endsWith(";") ? trimmed : `${trimmed};`;
-};
+  const trimmed = sql.trim()
+  return trimmed.endsWith(";") ? trimmed : `${trimmed};`
+}
 
 /**
  * The executor's statement list: semicolons added, optional `BEGIN/COMMIT` wrapper. Shared by
@@ -88,37 +85,35 @@ export function statementParts(
   transactional = false,
   inTransaction = false,
 ): { readonly parts: readonly string[]; readonly wrapping: boolean } {
-  const wrapping = transactional === true && inTransaction !== true;
-  const body = statements.map((statement) => terminate(statement.sql));
+  const wrapping = transactional === true && inTransaction !== true
+  const body = statements.map((statement) => terminate(statement.sql))
   return {
-    parts: wrapping
-      ? ["BEGIN TRANSACTION;", ...body, "COMMIT TRANSACTION;"]
-      : body,
+    parts: wrapping ? ["BEGIN TRANSACTION;", ...body, "COMMIT TRANSACTION;"] : body,
     wrapping,
-  };
+  }
 }
 
 /**
  * Build the exact SurrealQL an operation would send, WITHOUT touching the connection. Reads use
- * `.toSQL()`; compile-only previews (`delegate.$sql.<op>`) use the same helper for writes.
+ * `.toSQL()`; compile- previews (`delegate.$sql.<op>`) use the same helper for writes.
  */
 export function sqlPreview(
   statements: readonly Statement[],
   options: {
-    readonly operation: string;
-    readonly table: string;
-    readonly transactional?: boolean;
-    readonly inTransaction?: boolean;
-    readonly context?: ResolvedContext;
+    readonly context?: ResolvedContext
+    readonly inTransaction?: boolean
+    readonly operation: string
+    readonly table: string
+    readonly transactional?: boolean
   },
 ): SqlPreview {
   const { parts, wrapping } = statementParts(
     statements,
     options.transactional,
     options.inTransaction,
-  );
-  const prefix = contextPrefix(options.context);
-  const body = parts.join("\n");
+  )
+  const prefix = contextPrefix(options.context)
+  const body = parts.join("\n")
   return {
     driver: "surrealdb",
     operation: options.operation,
@@ -129,40 +124,40 @@ export function sqlPreview(
     })),
     transactional: wrapping,
     script: prefix ? `${prefix}\n${body}` : body,
-  };
+  }
 }
 
 /** Options for {@link runScript}. */
 export interface RunScriptOptions {
-  /** Binds for the script. */
-  readonly vars?: Record<string, unknown>;
   /** Scope the script with `USE NS … DB …;` (a control statement, never a result). */
-  readonly context?: ResolvedContext;
-  /** Operation name attached to failures. */
-  readonly operation?: string;
-  /** Table/edge name attached to failures. */
-  readonly table?: string;
+  readonly context?: ResolvedContext
   /** Include the script's `vars` in the error (client `debug: true`). */
-  readonly debug?: boolean;
+  readonly debug?: boolean
+  /** The batch rode an open transaction (logging ). */
+  readonly inTransaction?: boolean
   /** Query logger sink (absent = zero-overhead). */
-  readonly logger?: QueryLogger;
-  /** `"explain"` when the script is an `EXPLAIN` probe (auto-explain skips itself). */
-  readonly phase?: LogPhase;
-  /** The user statements (in order) an `execute` batch compiled, for accurate logging. */
-  readonly statements?: readonly Statement[];
+  readonly logger?: QueryLogger
   /** Control responses at the HEAD of `raw` to skip when aligning {@link statements} (e.g. `BEGIN`). */
-  readonly offset?: number;
-  /** The batch was wrapped in `BEGIN/COMMIT TRANSACTION` (logging only). */
-  readonly transactional?: boolean;
-  /** The batch rode an open transaction (logging only). */
-  readonly inTransaction?: boolean;
+  readonly offset?: number
+  /** Operation name attached to failures. */
+  readonly operation?: string
+  /** `"explain"` when the script is an `EXPLAIN` probe (auto-explain skips itself). */
+  readonly phase?: LogPhase
+  /** The user statements (in order) an `execute` batch compiled, for accurate logging. */
+  readonly statements?: readonly Statement[]
+  /** Table/edge name attached to failures. */
+  readonly table?: string
+  /** The batch wrapps it in `BEGIN/COMMIT TRANSACTION` (logging ). */
+  readonly transactional?: boolean
+  /** Binds for the script. */
+  readonly vars?: Record<string, unknown>
 }
 
 /**
  * Run ONE script string and return the server's per-statement responses (the `USE` control
- * statement is sliced off). This is the low-level primitive {@link execute} and the raw/admin
+ * statement slics it off). This is the low-level primitive {@link execute} and the raw/admin
  * escape hatches share, so prefixing, transport-error normalization and offset handling live in
- * exactly one place. Unlike {@link execute}, the response count is NOT checked — a script may hold
+ *  one place. Unlike {@link execute}, the response count is NOT checked — a script may hold
  * any number of statements.
  */
 export async function runScript(
@@ -170,15 +165,13 @@ export async function runScript(
   script: string,
   options: RunScriptOptions = {},
 ): Promise<readonly QueryResponse<unknown>[]> {
-  const prefix = contextPrefix(options.context);
-  const full = prefix ? `${prefix}\n${script}` : script;
-  const logger = options.logger?.enabled ? options.logger : undefined;
-  const started = logger ? performance.now() : 0;
-  let raw: QueryResponse<unknown>[];
+  const prefix = contextPrefix(options.context)
+  const full = prefix ? `${prefix}\n${script}` : script
+  const logger = options.logger?.enabled ? options.logger : undefined
+  const started = logger ? performance.now() : 0
+  let raw: QueryResponse<unknown>[]
   try {
-    raw = (await conn
-      .query(full, options.vars)
-      .responses()) as QueryResponse<unknown>[];
+    raw = (await conn.query(full, options.vars).responses()) as QueryResponse<unknown>[]
   } catch (e) {
     // A transport/connection rejection (not a per-statement failure) — normalize with context.
     const error = normalizeError(e, {
@@ -186,8 +179,8 @@ export async function runScript(
       table: options.table,
       surql: full,
       vars: options.debug ? options.vars : undefined,
-    });
-    if (logger)
+    })
+    if (logger) {
       await emitRoundTrip(conn, {
         ...options,
         logger,
@@ -195,36 +188,41 @@ export async function runScript(
         responses: [],
         durationMs: performance.now() - started,
         error,
-      });
-    throw error;
+      })
+    }
+    throw error
   }
-  const sliced = prefix ? raw.slice(1) : raw;
-  if (logger)
+  const sliced = prefix ? raw.slice(1) : raw
+  if (logger) {
     await emitRoundTrip(conn, {
       ...options,
       logger,
       script,
       responses: sliced,
       durationMs: performance.now() - started,
-    });
-  return sliced;
+    })
+  }
+  return sliced
 }
 
 /** Merge every statement's binds, rejecting a name reused with a DIFFERENT value. */
 function mergeVars(statements: readonly Statement[]): Record<string, unknown> {
-  const merged: Record<string, unknown> = {};
+  const merged: Record<string, unknown> = {}
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [i, statement] of statements.entries()) {
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const [name, value] of Object.entries(statement.vars ?? {})) {
-      if (name in merged && !Object.is(merged[name], value))
+      if (name in merged && !Object.is(merged[name], value)) {
         throw new OrmError(
           "ParseError",
           `duplicate bind "$${name}" used with different values (statement ${i}) — binds must be unique across a batch.`,
           { statementIndex: i, surql: statement.sql },
-        );
-      merged[name] = value;
+        )
+      }
+      merged[name] = value
     }
   }
-  return merged;
+  return merged
 }
 
 /**
@@ -241,19 +239,20 @@ export async function execute<T = unknown>(
   conn: Queryable,
   options: ExecuteOptions,
 ): Promise<ExecuteResult<T>> {
-  const { statements } = options;
-  if (statements.length === 0)
-    return { responses: [], rows: [], transactional: false };
+  const { statements } = options
+  if (statements.length === 0) {
+    return { responses: [], rows: [], transactional: false }
+  }
 
   const { parts, wrapping } = statementParts(
     statements,
     options.transactional,
     options.inTransaction,
-  );
+  )
   // The wrapper flanks the batch, so each user statement sits at `offset + i`.
-  const offset = wrapping ? 1 : 0;
-  const vars = mergeVars(statements);
-  const script = parts.join("\n");
+  const offset = wrapping ? 1 : 0
+  const vars = mergeVars(statements)
+  const script = parts.join("\n")
 
   const raw = await runScript(conn, script, {
     vars,
@@ -267,16 +266,17 @@ export async function execute<T = unknown>(
     offset,
     transactional: wrapping,
     inTransaction: options.inTransaction === true,
-  });
+  })
 
   // The server answers every statement (control statements included); a mismatch is a protocol
-  // surprise, surfaced with the script rather than silently mis-indexed.
-  if (raw.length !== parts.length)
+  // surprise, surfaced with the script rather than mis-indexed.
+  if (raw.length !== parts.length) {
     throw new OrmError(
       "DatabaseError",
       `expected ${parts.length} statement responses, got ${raw.length}.`,
       { operation: options.operation, table: options.table, surql: script },
-    );
+    )
+  }
 
   const responses = statements.map((statement, i) =>
     statementResult<T>(raw[offset + i] as QueryResponse<T>, {
@@ -286,24 +286,22 @@ export async function execute<T = unknown>(
       surql: statement.sql,
       vars: options.debug ? statement.vars : undefined,
     }),
-  );
+  )
 
   if (options.throwOnError !== false) {
     // In an aborted transaction the server marks the OTHER statements as "not executed due to a
     // failed transaction" — including ones that ran BEFORE the failure. Those normalize to
     // `TransactionRollback`; the genuine cause (e.g. an AlreadyExists) is the failure to report.
-    const failures = responses
-      .map((r, i) => ({ r, i }))
-      .filter(({ r }) => r.status === "ERR");
-    const primary =
-      failures.find(({ r }) => r.error?.code !== "TransactionRollback") ??
-      failures[0];
-    if (primary) throw primary.r.error;
+    const failures = responses.map((r, i) => ({ r, i })).filter(({ r }) => r.status === "ERR")
+    const primary = failures.find(({ r }) => r.error?.code !== "TransactionRollback") ?? failures[0]
+    if (primary) {
+      throw primary.r.error
+    }
   }
 
   return {
     responses,
     rows: responses.map((r) => (r.status === "OK" ? r.result : undefined)),
     transactional: wrapping,
-  };
+  }
 }

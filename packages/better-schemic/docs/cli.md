@@ -47,10 +47,63 @@ sc status           # show applied vs pending
 | `doctor`            | Print the resolved config and test the connection.                                              |
 | `snapshot reset`    | Clear the migration snapshot.                                                                   |
 | `unlock`            | Release a stale migration lock.                                                                 |
+| `generate`          | Run every generator declared in the config (`--only orm\|aot`, `--watch`).                      |
 | `compile`           | AOT-compile `s.*` field schemas via zod-compiler (identity-preserving validators).               |
 | `generate:orm`      | Generate a static-getter ORM façade from the schema (`bun build --compile --aot`).               |
 
 Run `sc <command> --help` for flags.
+
+### `generate` — declarative codegen
+
+Put paths, aliases and tool conventions in `better-schemic.config.ts`; `sc generate` resolves the
+project once and runs both generators. `sc generate:orm` and `sc compile` stay as single-generator
+aliases (and keep accepting their flags). The old hidden `generate [name]` alias of `gen` was
+removed — use `gen` to write migrations.
+
+```ts
+export default defineConfig({
+  connections: { /* … */ },
+  resolve: { alias: { "@": "./src", "@test": "./test" } },
+  generators: {
+    orm: {
+      out: "src/db/generated/orm.generated.ts",
+      schema: "./src/db/orm-schema.ts",
+      schemaExport: "schema",
+      provider: "./src/db/orm-provider.ts",
+      client: "getOrmClient",
+      surface: "orm",
+    },
+    aot: {
+      out: ".better-schemic/schema.aot.ts",
+      dir: ".better-schemic/aot",
+      importIn: ["src/index.ts", "test/vitest.setup.ts"],
+      installVia: "orm",
+    },
+  },
+  generated: {
+    tsNocheck: true,
+    eslintDisable: true,
+    knip: "ignore",
+    knipAutoWrite: true,
+    zodSpecifier: "better-schemic/zod",
+  },
+});
+```
+
+- Every path is relative to the project root; `--config` is still accepted.
+- `resolve.alias` is applied to the CLI's jiti loader, so a schema importing `@/env` loads without a
+  `node_modules/@` symlink. zod-compiler resolves imports with the app's tsconfig, so the same
+  aliases must exist in `compilerOptions.paths`.
+- `generated.tsNocheck`/`eslintDisable` prepend `// @ts-nocheck — generated` and
+  `/* eslint-disable */` to every artifact (idempotent via the marker). Because entry points import
+  the generated modules, `tsconfig.exclude` alone cannot hide them — the directive from inside the
+  file is required.
+- `generated.knipAutoWrite` merges `.better-schemic/**` + the artifact paths into an existing
+  `knip.json` `ignore[]`, `tsconfig.json` `exclude[]`, `bunfig.toml` `[lint].ignorePatterns` and
+  `.gitignore`. Leave it off to get the suggested patterns on stdout instead.
+- `aot.installVia: "orm"` imports the AOT bootstrap from the generated façade, covering entry,
+  tests and any other path that imports the ORM. `importIn` additionally inserts an idempotent
+  side-effect import into the listed files.
 
 ### `generate:orm` — AOT-friendly ORM façade
 
@@ -87,8 +140,11 @@ sc compile
 
 The compiled module mutates the original schema objects in place (zod-compiler's
 identity-preserving strategy), so emitted DDL, `.shape`, `instanceof`, `z.toJSONSchema()` and the
-ORM are unchanged — only validation uses the generated fast path. Options: `--out <file>`,
-`--dir <dir>`, `--sources-only` (write the synthetic source without invoking zod-compiler).
+ORM are unchanged — only validation uses the generated fast path. The generated header is rewritten
+from zod-compiler's hardcoded `from "zod"` / `from "zod/v4/core"` to `better-schemic/zod` /
+`better-schemic/zod/core`, so the app does not need `zod` directly; opt out with
+`generated.zodSpecifier: "zod"`. Options: `--out <file>`, `--dir <dir>`, `--sources-only` (write the
+synthetic source without invoking zod-compiler).
 
 For plain Zod schemas in the app (route contracts, DTOs), use `better-schemic/plugin`: a thin
 wrapper around `zod-compiler/bun` for `Bun.build({ plugins: [betterSchemic()] })`, including

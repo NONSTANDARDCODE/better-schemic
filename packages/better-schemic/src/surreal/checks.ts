@@ -4,7 +4,7 @@
 // authoring surface) so the check vocabulary and the DDL fragments it maps to live in one focused
 // module. Pure Zod + strings — it knows no SurrealDB authoring types.
 
-import type { z } from "zod";
+import type { z } from "zod"
 
 /**
  * Zod string formats whose `string::is_<fmt>` validator exists on SurrealDB v3.x
@@ -31,59 +31,48 @@ const STRING_IS_FORMATS = new Set([
   "longitude",
   "ip",
   "domain",
-]);
+])
 
 /** Map a Zod string format to its SurrealDB `string::is_*` assert, when one exists. */
 export function formatAssert(format: string): string | undefined {
-  return STRING_IS_FORMATS.has(format)
-    ? `string::is_${format}($value)`
-    : undefined;
+  return STRING_IS_FORMATS.has(format) ? `string::is_${format}($value)` : undefined
 }
 
 /**
  * Reverse of {@link formatAssert}: recover a format name from a baked `string::is_<fmt>($value)`
  * assert. Used by `pull` to restore `s.<format>()` instead of `s.string().$assert(...)`. Returns
- * undefined for any other assert — including one that combines a format with extra text — so only an
+ * undefined for any other assert — including one that combines a format with extra text — so  an
  * exact, single-format assert reverses (a user's own assert is never swallowed).
  */
 export function formatForAssert(assert: string): string | undefined {
-  const m = /^string::is_([a-z0-9]+)\(\s*\$value\s*\)$/.exec(assert.trim());
-  return m && STRING_IS_FORMATS.has(m[1]) ? m[1] : undefined;
+  const m = /^string::is_([a-z0-9]+)\(\s*\$value\s*\)$/u.exec(assert.trim())
+  return m && STRING_IS_FORMATS.has(m[1]) ? m[1] : undefined
 }
 
 /** The check methods that live on concrete Zod subtypes (ZodString/ZodNumber/ZodArray/ZodSet) but
  *  not the base `z.ZodType` — `$`-constraints refine through these by name. */
-export type CheckMethod =
-  | "min"
-  | "max"
-  | "length"
-  | "size"
-  | "regex"
-  | "gt"
-  | "gte"
-  | "lt"
-  | "lte";
+export type CheckMethod = "gt" | "gte" | "length" | "lt" | "lte" | "max" | "min" | "regex" | "size"
 
 /** The SurrealQL constraint family a `$`-bound can target (one per base type). */
-export type BoundFamily = "string" | "number" | "array" | "set";
+export type BoundFamily = "array" | "number" | "set" | "string"
 
 /** One entry in a Zod schema's `_zod.def.checks`. */
-type ZodCheck = {
+interface ZodCheck {
   _zod: {
     def: {
-      check?: string;
-      minimum?: number;
-      maximum?: number;
-      length?: number;
+      check?: string
+      format?: string
+      inclusive?: boolean
+      length?: number
+      maximum?: number
+      minimum?: number
+      pattern?: RegExp
       /** `size_equals` (Zod set) — `size`, not `length`. */
-      size?: number;
-      value?: number;
-      inclusive?: boolean;
-      format?: string;
-      pattern?: RegExp;
-    };
-  };
-};
+      size?: number
+      value?: number
+    }
+  }
+}
 
 /**
  * The EXACT size a container's Zod checks encode, or undefined: `length_equals` for an array
@@ -92,14 +81,12 @@ type ZodCheck = {
  * derivation ({@link deriveAsserts}) both read.
  */
 export function exactSizeOf(
-  def: { checks?: unknown; [key: string]: unknown },
+  def: { [key: string]: unknown; checks?: unknown },
   kind: "array" | "set",
 ): number | undefined {
-  const check = kind === "set" ? "size_equals" : "length_equals";
-  const d = ((def.checks ?? []) as ZodCheck[])
-    .map((c) => c._zod.def)
-    .find((x) => x.check === check);
-  return kind === "set" ? d?.size : d?.length;
+  const check = kind === "set" ? "size_equals" : "length_equals"
+  const d = ((def.checks ?? []) as ZodCheck[]).map((c) => c._zod.def).find((x) => x.check === check)
+  return kind === "set" ? d?.size : d?.length
 }
 
 /**
@@ -109,39 +96,44 @@ export function exactSizeOf(
  * re-wrapping preserves `nullish()` (which is `optional<nullable<T>>`).
  */
 export function peelNullish(schema: z.ZodType): {
-  inner: z.ZodType;
-  wraps: ((s: z.ZodType) => z.ZodType)[];
+  inner: z.ZodType
+  wraps: ((s: z.ZodType) => z.ZodType)[]
 } {
-  const wraps: ((s: z.ZodType) => z.ZodType)[] = [];
-  let inner = schema;
+  const wraps: ((s: z.ZodType) => z.ZodType)[] = []
+  let inner = schema
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (;;) {
-    const def = inner._zod.def as { type: string; innerType?: z.ZodType };
-    if (def.type === "optional") wraps.push((s) => s.optional());
-    else if (def.type === "nullable") wraps.push((s) => s.nullable());
-    else break;
-    inner = def.innerType as z.ZodType;
+    const def = inner._zod.def as { innerType?: z.ZodType; type: string }
+    if (def.type === "optional") {
+      wraps.push((s) => s.optional())
+    } else if (def.type === "nullable") {
+      wraps.push((s) => s.nullable())
+    } else {
+      break
+    }
+    inner = def.innerType as z.ZodType
   }
-  return { inner, wraps };
+  return { inner, wraps }
 }
 
 /**
  * The family a schema's OWN Zod check methods can bound (`string`/`number`/`array`/`set`), or null.
- * Literals/enums are deliberately absent: a standalone `s.literal("OK")` has no `.min()` to refine,
- * so a bound on it no-ops (only inside a union do literals count as their value family — see
+ * Literals/enums are  absent: a standalone `s.literal("OK")` has no `.min()` to refine,
+ * so a bound on it no-ops ( inside a union do literals count as their value family — see
  * {@link constraintFamily}).
  */
 function nativeFamily(schema: z.ZodType): BoundFamily | null {
   switch ((peelNullish(schema).inner._zod.def as { type?: string }).type) {
     case "string":
-      return "string";
+      return "string"
     case "number":
-      return "number";
+      return "number"
     case "array":
-      return "array";
+      return "array"
     case "set":
-      return "set";
+      return "set"
     default:
-      return null;
+      return null
   }
 }
 
@@ -153,128 +145,146 @@ function nativeFamily(schema: z.ZodType): BoundFamily | null {
  */
 function constraintFamily(schema: z.ZodType): BoundFamily | null {
   const def = peelNullish(schema).inner._zod.def as {
-    type?: string;
-    values?: unknown[];
-    entries?: Record<string, string | number>;
-  };
+    entries?: Record<string, number | string>
+    type?: string
+    values?: unknown[]
+  }
   switch (def.type) {
     case "literal": {
-      const values = def.values ?? [];
-      if (values.every((v) => typeof v === "string")) return "string";
-      return values.every((v) => typeof v === "number") ? "number" : null;
+      const values = def.values ?? []
+      if (values.every((v) => typeof v === "string")) {
+        return "string"
+      }
+      return values.every((v) => typeof v === "number") ? "number" : null
     }
     case "enum": {
       // Drop TS numeric-enum reverse mappings (name -> number), as `inferField` does.
-      const entries = def.entries ?? {};
-      const values = Object.values(entries).filter(
-        (v) => typeof entries[v as string] !== "number",
-      );
-      if (values.every((v) => typeof v === "string")) return "string";
-      return values.every((v) => typeof v === "number") ? "number" : null;
+      const entries = def.entries ?? {}
+      const values = Object.values(entries).filter((v) => typeof entries[v as string] !== "number")
+      if (values.every((v) => typeof v === "string")) {
+        return "string"
+      }
+      return values.every((v) => typeof v === "number") ? "number" : null
     }
     default:
-      return nativeFamily(schema);
+      return nativeFamily(schema)
   }
 }
 
 /** Whether the (possibly wrapped) schema is a Zod union. */
 export function isUnionSchema(schema: z.ZodType): boolean {
-  return (
-    (peelNullish(schema).inner._zod.def as { type?: string }).type === "union"
-  );
+  return (peelNullish(schema).inner._zod.def as { type?: string }).type === "union"
 }
 
 /**
- * The ONE constraint family a field can be bounded by, or null when unsupported or when the members
+ * The ONE constraint family a field can bounds it by, or null when unsupported or when the members
  * DISAGREE. A mixed union (`int | string`) has no single SurrealQL function that applies to every
- * member — `string::len` on a number errors — so no bound is emitted. None-ish and `null` members
- * are ignored (they carry no bound; NULL is admitted by the emit-time null guard); any other
+ * member — `string::len` on a number errors — so no bound emits it. None-ish and `null` members
+ * ignor them (they carry no bound; NULL admitts it by the emit-time null guard); any other
  * unknown member disqualifies the union. A non-union answers with its own base family.
  */
 export function boundedFamily(schema: z.ZodType): BoundFamily | null {
   const def = peelNullish(schema).inner._zod.def as {
-    type?: string;
-    options?: z.ZodType[];
-  };
-  if (def.type !== "union") return nativeFamily(schema);
-  const families = new Set<BoundFamily>();
-  for (const member of def.options ?? []) {
-    const t = (peelNullish(member).inner._zod.def as { type?: string }).type;
-    if (t === "undefined" || t === "void" || t === "null") continue;
-    const family = constraintFamily(member);
-    if (!family) return null;
-    families.add(family);
+    options?: z.ZodType[]
+    type?: string
   }
-  return families.size === 1 ? [...families][0] : null;
+  if (def.type !== "union") {
+    return nativeFamily(schema)
+  }
+  const families = new Set<BoundFamily>()
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const member of def.options ?? []) {
+    const t = (peelNullish(member).inner._zod.def as { type?: string }).type
+    if (t === "undefined" || t === "void" || t === "null") {
+      continue
+    }
+    const family = constraintFamily(member)
+    if (!family) {
+      return null
+    }
+    families.add(family)
+  }
+  return families.size === 1 ? [...families][0] : null
 }
 
 /**
  * Best-effort: derive DB `ASSERT` fragments from a Zod schema's checks, looking through
  * `optional`/`nullable` wrappers. Reads the Zod 4 check shape (`schema._zod.def.checks[]._zod.def`):
  * `min_length`/`max_length`/`length_equals` (strings AND arrays — emit `string::len`/`array::len`
- * by base type), set `min_size`/`max_size`/`size_equals` (sets only — a `map`'s checks would
+ * by base type), set `min_size`/`max_size`/`size_equals` (sets  — a `map`'s checks would
  * mis-fire `array::len` on an object), `string_format` (regex -> `$value = /…/`;
  * email/url/… -> `string::is_*`), and number `greater_than`/`less_than` (with `inclusive`). The
- * schema may itself be a `string_format` (e.g. `z.email()`), so its top-level `def.format` is mapped
- * too. Unknown checks are skipped silently.
+ * schema may itself be a `string_format` (e.g. `z.email()`), so its top-level `def.format` mapps it
+ * too. Unknown checks skipp them .
  */
 export function deriveAsserts(schema: z.ZodType): string[] {
-  const { inner } = peelNullish(schema);
+  const { inner } = peelNullish(schema)
   const def = inner._zod.def as {
-    type?: string;
-    check?: string;
-    format?: string;
-    checks?: ZodCheck[];
-  };
-  const out: string[] = [];
-  const isSet = def.type === "set";
+    check?: string
+    checks?: ZodCheck[]
+    format?: string
+    type?: string
+  }
+  const out: string[] = []
+  const isSet = def.type === "set"
   // String and array checks share Zod's `min_length`/`max_length`/`length_equals` names; the
   // SurrealQL function differs by base type. (`min_size`/`max_size`/`size_equals` are the set/map
-  // names — only a SET maps to a SurrealQL `set<…>`; a map lowers to `object`.)
-  const len = def.type === "array" ? "array::len" : "string::len";
+  // names — a SET maps to a SurrealQL `set<…>`; a map lowers to `object`.)
+  const len = def.type === "array" ? "array::len" : "string::len"
 
   // The schema itself may be a string-format (z.email()/z.url()/…).
   if (def.check === "string_format" && typeof def.format === "string") {
-    const frag = formatAssert(def.format);
-    if (frag) out.push(frag);
-  }
-
-  for (const c of def.checks ?? []) {
-    const d = c._zod.def;
-    switch (d.check) {
-      case "min_length":
-        out.push(`${len}($value) >= ${d.minimum}`);
-        break;
-      case "max_length":
-        out.push(`${len}($value) <= ${d.maximum}`);
-        break;
-      case "length_equals":
-        out.push(`${len}($value) == ${d.length}`);
-        break;
-      case "min_size":
-        if (isSet) out.push(`array::len($value) >= ${d.minimum}`);
-        break;
-      case "max_size":
-        if (isSet) out.push(`array::len($value) <= ${d.maximum}`);
-        break;
-      case "size_equals":
-        if (isSet) out.push(`array::len($value) == ${d.size}`);
-        break;
-      case "string_format":
-        if (d.format === "regex" && d.pattern) {
-          out.push(`$value = /${d.pattern.source}/`);
-        } else if (typeof d.format === "string") {
-          const frag = formatAssert(d.format);
-          if (frag) out.push(frag);
-        }
-        break;
-      case "greater_than":
-        out.push(`$value >${d.inclusive ? "=" : ""} ${d.value}`);
-        break;
-      case "less_than":
-        out.push(`$value <${d.inclusive ? "=" : ""} ${d.value}`);
-        break;
+    const frag = formatAssert(def.format)
+    if (frag) {
+      out.push(frag)
     }
   }
-  return out;
+
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const c of def.checks ?? []) {
+    const d = c._zod.def
+    switch (d.check) {
+      case "min_length":
+        out.push(`${len}($value) >= ${d.minimum}`)
+        break
+      case "max_length":
+        out.push(`${len}($value) <= ${d.maximum}`)
+        break
+      case "length_equals":
+        out.push(`${len}($value) == ${d.length}`)
+        break
+      case "min_size":
+        if (isSet) {
+          out.push(`array::len($value) >= ${d.minimum}`)
+        }
+        break
+      case "max_size":
+        if (isSet) {
+          out.push(`array::len($value) <= ${d.maximum}`)
+        }
+        break
+      case "size_equals":
+        if (isSet) {
+          out.push(`array::len($value) == ${d.size}`)
+        }
+        break
+      case "string_format":
+        if (d.format === "regex" && d.pattern) {
+          out.push(`$value = /${d.pattern.source}/`)
+        } else if (typeof d.format === "string") {
+          const frag = formatAssert(d.format)
+          if (frag) {
+            out.push(frag)
+          }
+        }
+        break
+      case "greater_than":
+        out.push(`$value >${d.inclusive ? "=" : ""} ${d.value}`)
+        break
+      case "less_than":
+        out.push(`$value <${d.inclusive ? "=" : ""} ${d.value}`)
+        break
+    }
+  }
+  return out
 }

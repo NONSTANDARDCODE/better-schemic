@@ -1,42 +1,35 @@
 // Typed-fragments PHASE 3: the `surql.fn` builtin catalog. Lowering is unit-tested; the LIVE
 // sweep runs EVERY catalog entry against a real server with sample args — a builtin name that
 // doesn't exist on the target SurrealDB fails here, so the catalog can't drift from reality.
-// Entries whose sample is `null` are syntax-verified only (need capabilities/contexts a bare
+// Entries whose sample is `null` are syntax-verified (need capabilities/contexts a bare
 // RETURN doesn't have: http, fulltext search, field contexts).
-import { describe, expect, test } from "bun:test";
-import {
-  DateTime,
-  Duration,
-  RecordId,
-  s,
-  surql,
-  table,
-} from "../../../src/surreal";
-import { fn } from "../../../src/surreal/fn";
+import { describe, expect, test } from "bun:test"
+
+import { DateTime, Duration, RecordId, s, surql, table } from "../../../src/surreal"
+import { fn } from "../../../src/surreal/fn"
 
 // --- walk the catalog -------------------------------------------------------------------------
 
-type Leaf = { path: string; call: (...args: unknown[]) => { query: string } };
+type Leaf = { path: string; call: (...args: unknown[]) => { query: string } }
 function leaves(node: unknown, path: string[] = []): Leaf[] {
-  const out: Leaf[] = [];
-  if (typeof node === "function")
-    out.push({ path: path.join("."), call: node as Leaf["call"] });
+  const out: Leaf[] = []
+  if (typeof node === "function") out.push({ path: path.join("."), call: node as Leaf["call"] })
   if (node !== null && (typeof node === "object" || typeof node === "function"))
-    for (const [k, v] of Object.entries(node))
-      out.push(...leaves(v, [...path, k]));
-  return out;
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    for (const [k, v] of Object.entries(node)) out.push(...leaves(v, [...path, k]))
+  return out
 }
-const ALL = leaves(fn);
+const ALL = leaves(fn)
 
 // --- live-sample args per catalog path (null = skip live; MUST be exhaustive) -----------------
 
-const d = new Duration("1w");
-const t = new Date("2026-01-02T03:04:05Z");
-const rid = new RecordId("fnc_probe", "one");
-const point = surql`(-0.04, 51.55)`;
-const point2 = surql`(30.46, -17.86)`;
+const d = new Duration("1w")
+const t = new Date("2026-01-02T03:04:05Z")
+const rid = new RecordId("fnc_probe", "one")
+const point = surql`(-0.04, 51.55)`
+const point2 = surql`(30.46, -17.86)`
 
-const SAMPLES: Record<string, unknown[] | null> = {
+const SAMPLES: Record<string, null | unknown[]> = {
   "array.append": [[1], 2],
   "array.at": [[1, 2], 0],
   "array.combine": [[1], [2]],
@@ -105,9 +98,7 @@ const SAMPLES: Record<string, unknown[] | null> = {
   "duration.from_secs": [2],
   "duration.from_weeks": [2],
   "encoding.base64.encode": [new Uint8Array([104, 105])],
-  "encoding.base64.decode": [
-    fn.encoding.base64.encode(new Uint8Array([104, 105])),
-  ],
+  "encoding.base64.decode": [fn.encoding.base64.encode(new Uint8Array([104, 105]))],
   "geo.area": [
     surql`{ type: 'Polygon', coordinates: [[[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]]] }`,
   ],
@@ -247,9 +238,9 @@ const SAMPLES: Record<string, unknown[] | null> = {
   "time.week": [t],
   "time.yday": [t],
   "time.year": [t],
-  "time.from_micros": [1000000],
+  "time.from_micros": [1_000_000],
   "time.from_millis": [1000],
-  "time.from_nanos": [1000000000],
+  "time.from_nanos": [1_000_000_000],
   "time.from_secs": [1],
   "time.from_unix": [1],
   "type.bool": ["true"],
@@ -338,32 +329,30 @@ const SAMPLES: Record<string, unknown[] | null> = {
     [1, 2, 3],
     [1, 2, 4],
   ],
-};
+}
 
 describe("catalog shape", () => {
   test("every catalog entry has a live sample (or an explicit null skip)", () => {
-    const missing = ALL.filter((l) => !(l.path in SAMPLES)).map((l) => l.path);
-    expect(missing).toEqual([]);
-    const stale = Object.keys(SAMPLES).filter(
-      (p) => !ALL.some((l) => l.path === p),
-    );
-    expect(stale).toEqual([]);
-  });
+    const missing = ALL.filter((l) => !(l.path in SAMPLES)).map((l) => l.path)
+    expect(missing).toEqual([])
+    const stale = Object.keys(SAMPLES).filter((p) => !ALL.some((l) => l.path === p))
+    expect(stale).toEqual([])
+  })
 
   test("calls lower to fn(name)(args): literals bind, refs/fragments splice", () => {
-    const q = fn.string.len("abc");
-    expect(q.query).toMatch(/^string::len\(\$r\d+\)$/);
-    expect(Object.values(q.bindings ?? {})).toEqual(["abc"]);
+    const q = fn.string.len("abc")
+    expect(q.query).toMatch(/^string::len\(\$r\d+\)$/u)
+    expect(Object.values(q.bindings ?? {})).toEqual(["abc"])
 
-    const sub = surql`SELECT * FROM fnc_t WHERE string::len(name) > 1`;
-    const composed = fn.array.len(sub);
+    const sub = surql`SELECT * FROM fnc_t WHERE string::len(name) > 1`
+    const composed = fn.array.len(sub)
     expect(composed.query).toMatch(
-      /^array::len\(\(SELECT \* FROM fnc_t WHERE string::len\(name\) > 1\)\)$/,
-    );
-  });
+      /^array::len\(\(SELECT \* FROM fnc_t WHERE string::len\(name\) > 1\)\)$/u,
+    )
+  })
 
   test("fn results interpolate into surql templates and builder slots", () => {
-    const q = surql`RETURN ${fn.string.uppercase("hi")}`;
-    expect(q.query).toMatch(/^RETURN string::uppercase\(\$r\d+\)$/);
-  });
-});
+    const q = surql`RETURN ${fn.string.uppercase("hi")}`
+    expect(q.query).toMatch(/^RETURN string::uppercase\(\$r\d+\)$/u)
+  })
+})

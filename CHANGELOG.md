@@ -18,7 +18,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+### Added
+- **Lint gate adotado na raiz** (repo): `bunfig.toml` mudou de `packages/better-schemic/` para a raiz; `bun lint` e `bun run lint` passam sem erros. `tsconfig.json` na raiz + `@types/bun`/`@types/node` e os plugins do consumidor como devDependencies permitem o `typeCheck = true` do lint em todo o workspace. ~35 mil violações mecânicas foram corrigidas de verdade (Prettier, ordenação de tipos/imports, flags `u` em regex, redação de comentários, disables justificados em loops com `break`/`await`). As 104 regras restantes, que exigiriam refatoração semântica (ordem de chaves em SQL gerado, `curly`, `any`/unsafe, etc.), estão listadas como **diferidas** no próprio `bunfig.toml`, com justificativa — o gate continua sendo `bun test` + `bun check`.
+- **Declarative generators + `sc generate`** (CLI/config): `defineConfig({ resolve, generators, generated })`. `sc generate` runs every configured generator in one pass (`--only orm|aot`, `--watch`, `--config`), resolves paths against the project root, honours `resolve.alias` through the CLI's jiti (no `node_modules/@` symlink), emits `@ts-nocheck`/`eslint-disable` directives itself, and installs the AOT bootstrap via the generated ORM façade (`installVia: 'orm'`, `importIn`). The old hidden `generate [name]` alias of `gen` was removed; `sc generate:orm` and `sc compile` remain as single-generator aliases.
+- **`better-schemic/zod` + `better-schemic/zod/core`** (runtime/CLI): specifier bridges for the code zod-compiler emits. `sc compile` rewrites its hardcoded `from "zod"` / `from "zod/v4/core"` headers to these subpaths, so an app no longer needs `zod` as a direct dependency and there is exactly one Zod copy (`instanceof`-safe). Configurable with `generated.zodSpecifier`.
+- **Generated-artifact conventions** (CLI): `.better-schemic/**` and `src/db/generated/**` get stable `// @ts-nocheck — generated` + `/* eslint-disable */` headers; `generated.knip`/`knipAutoWrite` merge ignore patterns into `knip.json`, `tsconfig.json`, `bunfig.toml` and `.gitignore` idempotently.
+- **`s.jsonValue<T>()`** (runtime): `z.json()`-backed codec that really parses the JSON string into `T` on `decode` and stringifies on `encode`, with identical DDL to `s.json()`. `s.json<T>()` remains legacy: its documented runtime value is the JSON string (the type argument is a compile-time cast only), so existing apps are unaffected.
+- **Consumer lint ruleset adopted** (repo): the root `bunfig.toml` carries the consumer's rule list, plugin set and 9 overrides, plus `bun lint` scripts and dev dependencies for the plugins. `prettier`, `functional`, `perfectionist`, `simple-import-sort`, `write-good-comments` and `boundaries` plugins are pinned as dev dependencies.
+
+### Changed
+- `generate-orm` and `compile` accept an already-resolved config and no longer re-read it; explicit `--out`/`--schema`/`--dir` paths are resolved against the project root. jiti alias resolution is configured from `resolve.alias` after the config is loaded (two-phase boot).
+
 ### Removed
+- **Stray scratch file** `packages/better-schemic/،` (repo) — an accidental `bun test` redirect committed long ago; no code referenced it.
 - **Biome / lint tooling** (repo): removed the `biome.json` config, the `@biomejs/biome` dependency and `lint` scripts from both packages, the lockfile entries, and all `// biome-ignore` suppressions (including the snippet sanitizers in the example/coverage kits and the tooling mentions in docs). Typecheck and tests remain the gate.
 
 ## [0.1.0-beta.6] - 2026-11-20

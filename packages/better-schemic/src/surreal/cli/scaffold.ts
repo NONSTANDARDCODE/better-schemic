@@ -1,4 +1,4 @@
-// The files `better-schemic init` writes for a fresh SurrealDB project — a connections-only config via the
+// The files `better-schemic init` writes for a fresh SurrealDB project — a connections-config via the
 // surrealConnection factory, a sample s.* schema, a seed stub, and a .env.example. The CLI calls
 // surrealDriver.initScaffold() and writes these verbatim, then records the neutral snapshot.
 
@@ -29,7 +29,7 @@ export const orm = defineConfig({
 });
 export const schemic = orm; // legacy alias (pre-rename scaffolded name)
 export default orm;
-`;
+`
 
 const USER_TABLE = `import { table, s, surql } from "better-schemic";
 
@@ -41,7 +41,7 @@ export const User = table("user", {
   email: s.email().$unique(),
   createdAt: s.datetime().$default(surql\`time::now()\`).$readonly(),
 }).schemafull();
-`;
+`
 
 const SEED = `import { defineSeed } from "better-schemic";
 import { User } from "../schema/tables/user";
@@ -61,7 +61,7 @@ export default defineSeed(async (db, ctx) => {
   );
   // Bulk-load raw SurrealQL kept next to this seed: await db.query(ctx.file("seed.surql"));
 });
-`;
+`
 
 const ENV_EXAMPLE = `# Point these at your SurrealDB. The config reads them explicitly (no implicit SURREAL_* magic).
 SURREAL_URL=ws://127.0.0.1:8000/rpc
@@ -69,7 +69,7 @@ SURREAL_NAMESPACE=app
 SURREAL_DATABASE=app
 SURREAL_USER=root
 SURREAL_PASS=root
-`;
+`
 
 /** The dialect-specific files `better-schemic init` writes, keyed by project-relative path. */
 export function initScaffold(): Record<string, string> {
@@ -78,17 +78,17 @@ export function initScaffold(): Record<string, string> {
     "database/schema/tables/user.ts": USER_TABLE,
     "database/seed/index.ts": SEED,
     ".env.example": ENV_EXAMPLE,
-  };
+  }
 }
 
 // --- `better-schemic new <kind> <name>` — per-kind starter modules ----------------------------------------
 
 /** `"user_profile"` -> `"UserProfile"` (the exported const name). Non-alphanumerics split words. */
 function pascalCase(name: string): string {
-  const parts = name.split(/[^a-zA-Z0-9]+/).filter(Boolean);
-  const pascal = parts.map((p) => p[0].toUpperCase() + p.slice(1)).join("");
+  const parts = name.split(/[^a-zA-Z0-9]+/u).filter(Boolean)
+  const pascal = parts.map((p) => p[0].toUpperCase() + p.slice(1)).join("")
   // Keep it a valid identifier: prefix a leading digit, fall back to a generic name.
-  return /^[0-9]/.test(pascal) ? `_${pascal}` : pascal || "Entity";
+  return /^[0-9]/u.test(pascal) ? `_${pascal}` : pascal || "Entity"
 }
 
 /**
@@ -98,7 +98,7 @@ function pascalCase(name: string): string {
  * message. Used by `better-schemic new`; the CLI writes the result under the kind's display folder.
  */
 export function scaffoldEntity(kind: string, name: string): string {
-  const C = pascalCase(name);
+  const C = pascalCase(name)
   switch (kind) {
     case "table":
       return `import { table, s, surql } from "better-schemic";
@@ -109,7 +109,7 @@ export const ${C} = table("${name}", {
   name: s.string(),
   createdAt: s.datetime().$default(surql\`time::now()\`).$readonly(),
 }).schemafull();
-`;
+`
     case "relation":
       return `import { relation, s, surql } from "better-schemic";
 
@@ -119,7 +119,7 @@ export const ${C} = relation("${name}", {
   since: s.datetime().$default(surql\`time::now()\`),
 });
 // .from(SomeTable).to(OtherTable).enforced()
-`;
+`
     case "view":
       return `import { defineView, s, surql } from "better-schemic";
 
@@ -129,7 +129,7 @@ export const ${C} = relation("${name}", {
 export const ${C} = defineView("${name}", { name: s.string() }).as(
   surql\`SELECT name FROM thing WHERE true\`,
 );
-`;
+`
     case "function":
       return `import { defineFunction, s, surql } from "better-schemic";
 
@@ -138,7 +138,7 @@ export const ${C} = defineView("${name}", { name: s.string() }).as(
 export const ${C} = defineFunction("${name}", { arg: s.string() })
   .returns(s.string())
   .body(surql\`RETURN $arg\`);
-`;
+`
     case "access":
       return `import { defineAccess, surql } from "better-schemic";
 
@@ -148,7 +148,7 @@ export const ${C} = defineAccess("${name}").onDatabase()
   .signup(surql\`CREATE user SET email = $email, pass = crypto::argon2::generate($pass)\`)
   .signin(surql\`SELECT * FROM user WHERE email = $email AND crypto::argon2::compare(pass, $pass)\`)
   .duration({ token: "1h", session: "12h" });
-`;
+`
     case "event":
       return `import { defineEvent, surql } from "better-schemic";
 
@@ -158,7 +158,7 @@ export const ${C} = defineEvent("thing", "${name}", {
   when: surql\`$event = "CREATE"\`,
   then: surql\`CREATE log SET at = time::now()\`,
 });
-`;
+`
     case "analyzer":
       return `import { defineAnalyzer } from "better-schemic";
 
@@ -167,15 +167,15 @@ export const ${C} = defineEvent("thing", "${name}", {
 export const ${C} = defineAnalyzer("${name}")
   .tokenizers("blank")
   .filters("lowercase");
-`;
+`
     case "index":
     case "field":
       throw new Error(
         `SurrealDB ${kind}s are authored inline on a table, not as their own file — add it to a table (e.g. \`table("…", { … }).index("${name}", [field])\` or \`s.string().$unique()\`). Try \`better-schemic new table <name>\`.`,
-      );
+      )
     default:
       throw new Error(
         `the surrealdb driver can't scaffold a "${kind}" — known kinds: table, relation, view, function, access, event, analyzer.`,
-      );
+      )
   }
 }

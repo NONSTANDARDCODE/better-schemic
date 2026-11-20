@@ -15,27 +15,22 @@
  * ```
  *
  * Authoring (`s.*`, `table`, `relation`, `defineFunction`, `surql`) stays in the root
- * entry — this subpath only consumes it. The typed query surface is documented in
+ * entry — this subpath  consumes it. The typed query surface documents it in
  * `docs/ORM-COVERAGE.md` (surface) and `docs/orm-syntax-map.md` (live-verified SurrealQL).
  */
 export {
   type Client,
-  ClientRuntime,
   clientRef,
+  ClientRuntime,
   createOrmClientFactory,
+  orm,
   type OrmClientFactory,
   type OrmOptions,
   type OrmSurface,
-  orm,
   type SchemaArg,
   setClientResolver,
-} from "./client";
-export {
-  type CreateOrmOptions,
-  clientFromConfig,
-  createOrm,
-  type OrmAuth,
-} from "./connect";
+} from "./client"
+export { clientFromConfig, createOrm, type CreateOrmOptions, type OrmAuth } from "./connect"
 export {
   createDelegate,
   type Delegate,
@@ -45,14 +40,14 @@ export {
   type ModelKind,
   type RelationDelegate,
   type SqlPreviewDelegate,
-} from "./delegate";
+} from "./delegate"
 export {
   describeSchema,
   type FieldDescriptor,
   type FunctionDescriptor,
   type SchemaDescriptor,
   type TableDescriptor,
-} from "./describe";
+} from "./describe"
 export {
   isAssertionFailed,
   isNotFound,
@@ -70,17 +65,17 @@ export {
   OrmError,
   type OrmErrorCode,
   type OrmErrorOptions,
-} from "./errors";
+} from "./errors"
 export {
+  execute,
   type ExecuteOptions,
   type ExecuteResult,
-  execute,
   type Queryable,
-  type Statement,
   sqlPreview,
+  type Statement,
   statementParts,
-} from "./execute";
-export { createQueryLogger, resolveLogger } from "./logger";
+} from "./execute"
+export { createQueryLogger, resolveLogger } from "./logger"
 export type {
   ColumnMeta,
   EdgeRef,
@@ -93,13 +88,9 @@ export type {
   SchemaIndex,
   SchemalessMeta,
   TableMeta,
-} from "./meta";
-export {
-  definePlugin,
-  isPlugin,
-  type PluginPipeline,
-} from "./plugins";
-export type { RawOperations, RawQueryTag, RawTag } from "./raw";
+} from "./meta"
+export { definePlugin, isPlugin, type PluginPipeline } from "./plugins"
+export type { RawOperations, RawQueryTag, RawTag } from "./raw"
 export {
   attachSql,
   attachThrow,
@@ -110,17 +101,17 @@ export {
   type StatementResult,
   statementResult,
   type ThrowingResult,
-} from "./results";
-export { buildSchemaIndex, isSchemaDef, schema } from "./schema";
+} from "./results"
+export { buildSchemaIndex, isSchemaDef, schema } from "./schema"
 export {
   defineGlossary,
   defineMetric,
   type GlossaryTerm,
-  type LineageEntry,
   lineage,
+  type LineageEntry,
   type MetricDef,
   type MetricOp,
-} from "./semantic";
+} from "./semantic"
 export type {
   AdminOperations,
   DbInfo,
@@ -129,27 +120,17 @@ export type {
   RootInfo,
   ServerVersion,
   TableInfo,
-} from "./types/admin";
-export type {
-  ApiBodyOptions,
-  ApiOperations,
-  ApiRequestOptions,
-} from "./types/api";
-export type { AuthOperations } from "./types/auth";
+} from "./types/admin"
+export type { ApiBodyOptions, ApiOperations, ApiRequestOptions } from "./types/api"
+export type { AuthOperations } from "./types/auth"
 export type {
   CallContext,
   ContextAuth,
   ContextScope,
   OperationContext,
   ResolvedContext,
-} from "./types/context";
-export type {
-  FnArgs,
-  FnCall,
-  FnMethod,
-  FnReturn,
-  FnSurface,
-} from "./types/fn";
+} from "./types/context"
+export type { FnArgs, FnCall, FnMethod, FnReturn, FnSurface } from "./types/fn"
 export type {
   AfterHookPayload,
   CreateOperation,
@@ -168,7 +149,7 @@ export type {
   TransactionHookPayload,
   TransactionRollbackHookPayload,
   UpdateOperation,
-} from "./types/hooks";
+} from "./types/hooks"
 export type {
   CountIncludeOptions,
   EdgeIncludeArg,
@@ -177,7 +158,7 @@ export type {
   LinkIncludeArg,
   LinkIncludeOptions,
   WithIncludes,
-} from "./types/include";
+} from "./types/include"
 export type {
   ExplainPolicy,
   LogContext,
@@ -192,7 +173,7 @@ export type {
   QueryLogEvent,
   QueryLogger,
   ResolvedLoggerOptions,
-} from "./types/logger";
+} from "./types/logger"
 export type {
   Operation,
   OperationArgsMap,
@@ -206,14 +187,8 @@ export type {
   PluginSetupContext,
   PluginSpec,
   PluginState,
-} from "./types/plugins";
-export type {
-  RawDefaults,
-  RawMeta,
-  RawOptions,
-  RawSource,
-  RawStatements,
-} from "./types/raw";
+} from "./types/plugins"
+export type { RawDefaults, RawMeta, RawOptions, RawSource, RawStatements } from "./types/raw"
 export type {
   AdjacentEdgeAliases,
   EdgeAliases,
@@ -227,7 +202,7 @@ export type {
   LinkTargetNames,
   ManyLinkKeys,
   SingleLinkKeys,
-} from "./types/relations";
+} from "./types/relations"
 export type {
   AnyFunctionDef,
   AnyRelationDef,
@@ -250,7 +225,7 @@ export type {
   SchemaOf,
   TableAt,
   TableKeys,
-} from "./types/schema";
+} from "./types/schema"
 export type {
   AggField,
   AggregateArgs,
@@ -273,13 +248,13 @@ export type {
   ReadArgs,
   ResultOf,
   SelectArg,
+  SelectedShape,
   SelectEntry,
   SelectExpr,
-  SelectedShape,
   SelectObject,
   Simplify,
   WithArg,
-} from "./types/select";
+} from "./types/select"
 export type {
   RetryOptions,
   RetryReason,
@@ -287,7 +262,7 @@ export type {
   TransactionDefaults,
   TransactionOptions,
   UnsupportedPolicy,
-} from "./types/transaction";
+} from "./types/transaction"
 export type {
   AnyFilter,
   ArrayFilter,
@@ -310,7 +285,7 @@ export type {
   Where,
   WhereInput,
   WherePaths,
-} from "./types/where";
+} from "./types/where"
 export type {
   AdjustmentModifiers,
   ArithmeticAdjustment,
@@ -362,4 +337,4 @@ export type {
   WriteReturn,
   WriteValue,
   WrittenResult,
-} from "./types/write";
+} from "./types/write"

@@ -1,58 +1,65 @@
-import type { Command } from "commander";
-import type { KindRegistry, PortableObject } from "../kind";
-import { snapshotKinds, snapshotObjects } from "../kind";
-import type { StoredSnapshot } from "./meta";
+import type { Command } from "commander"
+
+import type { KindRegistry, PortableObject } from "../kind"
+import { snapshotKinds, snapshotObjects } from "../kind"
+import type { StoredSnapshot } from "./meta"
 
 /**
  * Per-kind object filter for `pull`/`diff`/`sync`/`generate`. Each kind is independently
  * included (optionally name-restricted). `DEFINE ACCESS` is OPT-IN everywhere — excluded
- * unless `--access` is given — so an introspection (which redacts access signing keys) can't
- * silently rotate them. Table-scoped objects (fields/indexes/events) follow their table.
+ * unless `--access` gives it — so an introspection (which redacts access signing keys) can't
+ *  rotate them. Table-scoped objects (fields/indexes/events) follow their table.
  */
 interface Cat {
-  on: boolean;
-  /** When set, only these names of the kind are included. */
-  names?: Set<string>;
+  /** When set, these names of the kind include them. */
+  names?: Set<string>
+  on: boolean
 }
 
 export interface Filter {
-  tables: Cat;
-  functions: Cat;
-  events: Cat;
-  access: Cat;
+  access: Cat
+  events: Cat
+  functions: Cat
+  tables: Cat
 }
 
 /** Commander's parse of one `--kind [names]` / `--no-kind` flag: `undefined`/`true`/string/`false`. */
-type FlagValue = string | boolean | undefined;
+type FlagValue = boolean | string | undefined
 
 export interface FilterOpts {
-  tables?: FlagValue;
-  functions?: FlagValue;
-  events?: FlagValue;
-  access?: FlagValue;
+  access?: FlagValue
+  events?: FlagValue
+  functions?: FlagValue
+  tables?: FlagValue
 }
 
 function cat(v: FlagValue, defaultOn: boolean): Cat {
-  if (v === undefined) return { on: defaultOn };
-  if (v === false) return { on: false };
-  if (v === true) return { on: true };
+  if (v === undefined) {
+    return { on: defaultOn }
+  }
+  if (v === false) {
+    return { on: false }
+  }
+  if (v === true) {
+    return { on: true }
+  }
   const names = new Set(
     v
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean),
-  );
-  return names.size ? { on: true, names } : { on: true };
+  )
+  return names.size > 0 ? { names, on: true } : { on: true }
 }
 
 /** Build a {@link Filter} from CLI flags. Access is opt-in (`--access`); the rest default to on. */
 export function parseFilter(o: FilterOpts): Filter {
   return {
-    tables: cat(o.tables, true),
-    functions: cat(o.functions, true),
-    events: cat(o.events, true),
     access: cat(o.access, false), // DEFINE ACCESS is explicit everywhere — see module note.
-  };
+    events: cat(o.events, true),
+    functions: cat(o.functions, true),
+    tables: cat(o.tables, true),
+  }
 }
 
 /** Attach the per-kind `--tables/--functions/--events/--access [names]` (+ `--no-*`) options. */
@@ -64,57 +71,55 @@ export function kindFlags(cmd: Command): Command {
     .option("--no-functions", "exclude all functions")
     .option("--events [names]", "only these events")
     .option("--no-events", "exclude all events")
-    .option(
-      "--access [names]",
-      "include access (off by default; key not pulled)",
-    )
-    .option("--no-access", "exclude all access (the default)");
+    .option("--access [names]", "include access (off by default; key not pulled)")
+    .option("--no-access", "exclude all access (the default)")
 }
 
 /** Whether a name passes a category gate (kind on + name allowed). Shared with the surreal filters. */
-export const inCat = (c: Cat, name: string): boolean =>
-  c.on && (!c.names || c.names.has(name));
+export const inCat = (c: Cat, name: string): boolean => c.on && (!c.names || c.names.has(name))
 
 // The SurrealDB statement/struct filters (`included`/`filterSnapshot`/`mergeSnapshot`/
 // `filterStructured`) live in `./surreal-filter`. Below are the dialect-free kind-registry filters.
 
 // --- kind-registry filters (the stored-snapshot path) -------------------------------------------
 
-const objKey = (o: PortableObject) => `${o.kind}:${o.name}`;
+const objKey = (o: PortableObject) => `${o.kind}:${o.name}`
 
-/** Which Filter category gates a TOP-LEVEL kind (and whose name-set its name is matched against). */
+/** Which Filter category gates a TOP-LEVEL kind (and whose name-set its name matchs it against). */
 function category(kind: string): keyof Filter {
-  if (kind === "function") return "functions";
-  if (kind === "access") return "access";
-  return "tables"; // a table (and any future top-level structural kind)
+  if (kind === "function") {
+    return "functions"
+  }
+  if (kind === "access") {
+    return "access"
+  }
+  return "tables" // a table (and any future top-level structural kind)
 }
 
 /**
- * Whether a portable object passes the filter. A TOP-LEVEL object (no owner) is gated by its kind's
+ * Whether a portable object passes the filter. A TOP-LEVEL object (no owner) gats it by its kind's
  * category + name. An OWNED object (owner set — an index/event/constraint) FOLLOWS its owner table's
  * inclusion; an `event` is ADDITIONALLY gated by the `events` category. (Fields are substrate nested
  * in their table object, never standalone here.)
  */
-export function passesFilter(
-  registry: KindRegistry,
-  o: PortableObject,
-  f: Filter,
-): boolean {
-  const owner = registry.engine(o.kind)?.owner?.(o);
+export function passesFilter(registry: KindRegistry, o: PortableObject, f: Filter): boolean {
+  const owner = registry.engine(o.kind)?.owner?.(o)
   if (owner) {
-    if (!inCat(f.tables, owner.name)) return false;
-    return o.kind === "event" ? inCat(f.events, o.name) : true;
+    if (!inCat(f.tables, owner.name)) {
+      return false
+    }
+    return o.kind === "event" ? inCat(f.events, o.name) : true
   }
-  return inCat(f[category(o.kind)], o.name);
+  return inCat(f[category(o.kind)], o.name)
 }
 
-/** Keep only the portable objects that pass the filter (the {@link filterStructured} analog). */
+/** Keep the portable objects that pass the filter (the {@link filterStructured} analog). */
 export function filterKinds(
   registry: KindRegistry,
   objects: PortableObject[],
   f: Filter,
 ): PortableObject[] {
-  return objects.filter((o) => passesFilter(registry, o, f));
+  return objects.filter((o) => passesFilter(registry, o, f))
 }
 
 /**
@@ -128,22 +133,30 @@ export function mergeStored(
   next: StoredSnapshot,
   f: Filter,
 ): StoredSnapshot {
-  const merged = new Map<string, PortableObject>();
-  for (const o of snapshotObjects(prev.schema))
-    if (!passesFilter(registry, o, f)) merged.set(objKey(o), o);
-  for (const o of snapshotObjects(next.schema))
-    if (passesFilter(registry, o, f)) merged.set(objKey(o), o);
+  const merged = new Map<string, PortableObject>()
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const o of snapshotObjects(prev.schema)) {
+    if (!passesFilter(registry, o, f)) {
+      merged.set(objKey(o), o)
+    }
+  }
+  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const o of snapshotObjects(next.schema)) {
+    if (passesFilter(registry, o, f)) {
+      merged.set(objKey(o), o)
+    }
+  }
   return {
-    version: 3,
     driver: next.driver,
-    schema: snapshotKinds([...merged.values()], registry),
     files: { ...(prev.files ?? {}), ...(next.files ?? {}) },
-  };
+    schema: snapshotKinds([...merged.values()], registry),
+    version: 3,
+  }
 }
 
 /**
  * Restrict the `disk` objects to those that ALSO exist `live` (intersect by `kind:name`) AND pass the
- * filter — for `baseline`. Hand-written schema not yet in the DB stays pending; what's really there is
+ * filter — for `baseline`. Hand-written schema not yet in the DB stays pending; what's  there is
  * captured. Each field/index/event/constraint is its own object, so intersect-by-key handles them.
  */
 export function intersectKinds(
@@ -152,8 +165,6 @@ export function intersectKinds(
   live: PortableObject[],
   f: Filter,
 ): PortableObject[] {
-  const liveKeys = new Set(live.map(objKey));
-  return disk.filter(
-    (o) => liveKeys.has(objKey(o)) && passesFilter(registry, o, f),
-  );
+  const liveKeys = new Set(live.map(objKey))
+  return disk.filter((o) => liveKeys.has(objKey(o)) && passesFilter(registry, o, f))
 }

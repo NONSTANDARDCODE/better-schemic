@@ -1,28 +1,23 @@
 // M0.5 — the `/orm` bootstrap client: one delegate per schema key, `repository()` by key or
 // physical name, `tables`, schemaless entries, reserved-key collisions, `extends` fail-fast and the
 // BYO no-op close rule. Offline — the "connection" is a recording fake.
-import { describe, expect, test } from "bun:test";
-import { type Client, orm } from "../../../src/surreal/orm/client";
-import type { Delegate } from "../../../src/surreal/orm/delegate";
-import { isOrmError, OrmError } from "../../../src/surreal/orm/errors";
-import { schema } from "../../../src/surreal/orm/schema";
-import {
-  defineFunction,
-  defineSingleton,
-  relation,
-  s,
-  table,
-} from "../../../src/surreal/pure";
-import { fakeConn } from "../orm-fixtures";
+import { describe, expect, test } from "bun:test"
 
-const User = table("user", { name: s.string(), age: s.int() });
+import { type Client, orm } from "../../../src/surreal/orm/client"
+import type { Delegate } from "../../../src/surreal/orm/delegate"
+import { isOrmError, OrmError } from "../../../src/surreal/orm/errors"
+import { schema } from "../../../src/surreal/orm/schema"
+import { defineFunction, defineSingleton, relation, s, table } from "../../../src/surreal/pure"
+import { fakeConn } from "../orm-fixtures"
+
+const User = table("user", { name: s.string(), age: s.int() })
 const Post = table("post", {
   title: s.string(),
   author: s.recordId(User),
-});
-const Likes = relation("likes", { score: s.int() }).from(User).to(Post);
-const Config = defineSingleton("config", { theme: s.string() });
-const greet = defineFunction("greet", { name: s.string() }).returns(s.string());
+})
+const Likes = relation("likes", { score: s.int() }).from(User).to(Post)
+const Config = defineSingleton("config", { theme: s.string() })
+const greet = defineFunction("greet", { name: s.string() }).returns(s.string())
 
 const schemaDef = schema({
   users: User,
@@ -31,171 +26,161 @@ const schemaDef = schema({
   config: Config,
   greet,
   audit: "audit_log",
-});
+})
 
 describe("orm — delegates and lookup", () => {
-  const { conn } = fakeConn();
-  const client = orm(conn, { schema: schemaDef });
+  const { conn } = fakeConn()
+  const client = orm(conn, { schema: schemaDef })
 
   test("every schema key with a table/relation/schemaless entry gets a delegate", () => {
     expect(client.users.$model).toMatchObject({
       key: "users",
       name: "user",
       kind: "table",
-    });
-    expect(client.likes.$model.kind).toBe("relation");
-    expect(client.likes.$model.hasField("score")).toBe(true);
-    expect(client.config.$model.singletonId).toBe("default");
-  });
+    })
+    expect(client.likes.$model.kind).toBe("relation")
+    expect(client.likes.$model.hasField("score")).toBe(true)
+    expect(client.config.$model.singletonId).toBe("default")
+  })
 
   test("a schemaless entry has a delegate with any-field access", () => {
     expect(client.audit.$model).toMatchObject({
       key: "audit",
       name: "audit_log",
       kind: "schemaless",
-    });
-    expect(client.audit.$model.hasField("anything")).toBe(true);
-  });
+    })
+    expect(client.audit.$model.hasField("anything")).toBe(true)
+  })
 
   test("functions are NOT delegates yet (they land with client.fn in M5.2)", () => {
-    expect("greet" in client).toBe(false);
-    expect(client.tables).not.toContain("greet");
-  });
+    expect("greet" in client).toBe(false)
+    expect(client.tables).not.toContain("greet")
+  })
 
   test("$model.hasField reflects the schema columns", () => {
-    expect(client.users.$model.hasField("name")).toBe(true);
-    expect(client.users.$model.hasField("nope")).toBe(false);
-  });
+    expect(client.users.$model.hasField("name")).toBe(true)
+    expect(client.users.$model.hasField("nope")).toBe(false)
+  })
 
   test("repository() resolves by schema key AND physical name to the SAME delegate", () => {
-    const users = client.users as unknown as Delegate;
-    expect(client.repository("users")).toBe(users);
-    expect(client.repository("user")).toBe(users);
-    expect(client.repository("audit_log")).toBe(
-      client.audit as unknown as Delegate,
-    );
-  });
+    const users = client.users as unknown as Delegate
+    expect(client.repository("users")).toBe(users)
+    expect(client.repository("user")).toBe(users)
+    expect(client.repository("audit_log")).toBe(client.audit as unknown as Delegate)
+  })
 
   test("repository() on an unknown name throws RepositoryNotFound", () => {
     const err = (() => {
       try {
-        client.repository("nope");
-        return undefined;
-      } catch (e) {
-        return e;
+        client.repository("nope")
+        return undefined
+      } catch (error) {
+        return error
       }
-    })();
-    expect(isOrmError(err)).toBe(true);
-    expect((err as OrmError).code).toBe("RepositoryNotFound");
-    expect((err as Error).message).toContain("users");
-  });
+    })()
+    expect(isOrmError(err)).toBe(true)
+    expect((err as OrmError).code).toBe("RepositoryNotFound")
+    expect((err as Error).message).toContain("users")
+  })
 
   test("tables lists the delegate keys", () => {
-    expect([...client.tables].sort()).toEqual([
-      "audit",
-      "config",
-      "likes",
-      "posts",
-      "users",
-    ]);
-  });
+    expect([...client.tables].sort()).toEqual(["audit", "config", "likes", "posts", "users"])
+  })
 
   test("$sdk is the wrapped connection", () => {
-    expect(client.$sdk).toBe(conn);
-    expect(client.$index.tables.size).toBe(4); // typed tables/edges (audit is schemaless)
-  });
+    expect(client.$sdk).toBe(conn)
+    expect(client.$index.tables.size).toBe(4) // typed tables/edges (audit is schemaless)
+  })
 
   test("a plain literal schema (unbranded) works too", () => {
-    const literal = orm(fakeConn().conn, { schema: { users: User } });
-    expect(literal.users.$model.name).toBe("user");
-    expect(literal.tables).toEqual(["users"]);
-  });
+    const literal = orm(fakeConn().conn, { schema: { users: User } })
+    expect(literal.users.$model.name).toBe("user")
+    expect(literal.tables).toEqual(["users"])
+  })
 
   test("the client is typed: Client<typeof schemaDef> keys map to delegates", () => {
-    const typed: Client<typeof schemaDef> = client;
-    const delegate: Delegate<typeof User> = typed.users;
-    expect(delegate.$model.key).toBe("users");
-  });
-});
+    const typed: Client<typeof schemaDef> = client
+    const delegate: Delegate<typeof User> = typed.users
+    expect(delegate.$model.key).toBe("users")
+  })
+})
 
 describe("orm — reserved keys fail fast", () => {
-  const collision = (key: string, re = /collides with a client member/) => {
-    const T = table("t", { x: s.string() });
+  const collision = (key: string, re = /collides with a client member/u) => {
+    const T = table("t", { x: s.string() })
     const err = (() => {
       try {
-        orm(fakeConn().conn, { schema: { [key]: T } as never });
-        return undefined;
-      } catch (e) {
-        return e;
+        orm(fakeConn().conn, { schema: { [key]: T } as never })
+        return undefined
+      } catch (error) {
+        return error
       }
-    })();
-    expect(err).toBeInstanceOf(OrmError);
-    expect((err as OrmError).code).toBe("SchemaInvalid");
-    expect((err as Error).message).toMatch(re);
-  };
+    })()
+    expect(err).toBeInstanceOf(OrmError)
+    expect((err as OrmError).code).toBe("SchemaInvalid")
+    expect((err as Error).message).toMatch(re)
+  }
 
   test("a schema key shadowing a client member throws SchemaInvalid", () => {
-    collision("close");
-    collision("tables");
-    collision("repository");
-    collision("then");
-  });
+    collision("close")
+    collision("tables")
+    collision("repository")
+    collision("then")
+  })
 
   test("a `$`-prefixed schema key is reserved", () => {
-    collision("$raw");
-  });
-});
+    collision("$raw")
+  })
+})
 
 describe("orm — extends", () => {
   test("attaches helpers and returns them typed", () => {
-    const client = orm(fakeConn().conn, { schema: schemaDef });
+    const client = orm(fakeConn().conn, { schema: schemaDef })
     const extended = client.extends({
       hello: () => "hi",
-    });
-    expect(extended.hello()).toBe("hi");
-    expect(extended.users.$model.key).toBe("users");
-  });
+    })
+    expect(extended.hello()).toBe("hi")
+    expect(extended.users.$model.key).toBe("users")
+  })
 
   test("a factory receives the client", () => {
-    const client = orm(fakeConn().conn, { schema: schemaDef });
+    const client = orm(fakeConn().conn, { schema: schemaDef })
     const extended = client.extends((db) => ({
       countModels: () => db.tables.length,
-    }));
-    expect(extended.countModels()).toBe(5);
-  });
+    }))
+    expect(extended.countModels()).toBe(5)
+  })
 
   test("collisions (existing member, reserved name, or a prior helper) throw PluginError", () => {
-    const client = orm(fakeConn().conn, { schema: schemaDef });
+    const client = orm(fakeConn().conn, { schema: schemaDef })
     const err = (() => {
       try {
-        client.extends({ close: () => {} });
-        return undefined;
-      } catch (e) {
-        return e;
+        client.extends({ close: () => {} })
+        return undefined
+      } catch (error) {
+        return error
       }
-    })();
-    expect((err as OrmError).code).toBe("PluginError");
+    })()
+    expect((err as OrmError).code).toBe("PluginError")
 
-    client.extends({ helper: 1 });
-    expect(() => client.extends({ helper: 2 })).toThrow(/collides/);
-    expect(() => client.extends({ $secret: 1 })).toThrow(/collides/);
-  });
-});
+    client.extends({ helper: 1 })
+    expect(() => client.extends({ helper: 2 })).toThrow(/collides/u)
+    expect(() => client.extends({ $secret: 1 })).toThrow(/collides/u)
+  })
+})
 
 describe("lifecycle", () => {
   test("BYO close() is a NO-OP (never close the user's connection)", async () => {
-    const { conn } = fakeConn();
-    const client = orm(conn, { schema: schemaDef });
-    await client.close();
-    expect(conn.closeCalls).toBe(0);
-    expect(conn.closed).toBe(false);
-  });
+    const { conn } = fakeConn()
+    const client = orm(conn, { schema: schemaDef })
+    await client.close()
+    expect(conn.closeCalls).toBe(0)
+    expect(conn.closed).toBe(false)
+  })
 
   test("forkSession() without an SDK connection is UnsupportedCapability", async () => {
-    const client = orm(fakeConn().conn, { schema: schemaDef });
-    const err = (await client
-      .forkSession()
-      .catch((e: unknown) => e)) as OrmError;
-    expect(err.code).toBe("UnsupportedCapability");
-  });
-});
+    const client = orm(fakeConn().conn, { schema: schemaDef })
+    const err = (await client.forkSession().catch((error: unknown) => error)) as OrmError
+    expect(err.code).toBe("UnsupportedCapability")
+  })
+})

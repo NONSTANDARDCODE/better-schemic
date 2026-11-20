@@ -7,7 +7,7 @@
  * `"silent"`. Options cover colors, icons, timestamps, the slow-query threshold, bound-value
  * truncation and auto-`EXPLAIN` (`explain: "slow" | "all" | "analyze"`).
  */
-export { createQueryLogger, resolveLogger } from "./orm/logger";
+export { createQueryLogger, resolveLogger } from "./orm/logger"
 export type {
   ExplainPolicy,
   LogContext,
@@ -22,4 +22,4 @@ export type {
   QueryLogEvent,
   QueryLogger,
   ResolvedLoggerOptions,
-} from "./orm/types/logger";
+} from "./orm/types/logger"

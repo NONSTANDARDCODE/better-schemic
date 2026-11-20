@@ -3,13 +3,11 @@
  * the renderer so a non-rendering observer (e.g. `better-schemic/otel`) can honour the same
  * {@link QueryLogger} contract without pulling the pretty/json engines into its bundle.
  */
-import type { LoggerOptions, ResolvedLoggerOptions } from "../types/logger";
-import { detectColor } from "./detect-color";
+import type { LoggerOptions, ResolvedLoggerOptions } from "../types/logger"
+import { detectColor } from "./detect-color"
 
-/** Resolve a defaulted options bag (env overrides are merged in by `resolveLogger`). */
-export function resolveLoggerOptions(
-  options: LoggerOptions = {},
-): ResolvedLoggerOptions {
+/** Resolve a defaulted options bag (env overrides merg them in by `resolveLogger`). */
+export function resolveLoggerOptions(options: LoggerOptions = {}): ResolvedLoggerOptions {
   return {
     level: options.level ?? "debug",
     format: options.format ?? "pretty",
@@ -26,5 +24,5 @@ export function resolveLoggerOptions(
     stack: options.stack ?? false,
     redact: options.redact ?? false,
     write: options.write ?? ((line: string) => console.log(line)),
-  };
+  }
 }

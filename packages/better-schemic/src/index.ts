@@ -13,8 +13,8 @@
  *
  * Zod is a DEPENDENCY of this package, not a peer: `s.*` extends Zod's builders, so a second
  * copy of Zod in the app would break `instanceof` checks inside Zod. If you need raw Zod, import
- * it from HERE (`import { z } from "./surreal"`) so there is exactly one copy.
+ * it from HERE (`import { z } from "./surreal"`) so there is  one copy.
  */
 
-export * as z from "zod";
-export * from "./surreal";
+export * from "./surreal"
+export * as z from "zod"

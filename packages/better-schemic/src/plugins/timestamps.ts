@@ -1,2 +1,2 @@
 /** `better-schemic/plugins/timestamps` — the `timestamps` plugin. */
-export * from "../surreal/plugins/timestamps";
+export * from "../surreal/plugins/timestamps"

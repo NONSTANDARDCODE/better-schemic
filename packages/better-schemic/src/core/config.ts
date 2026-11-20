@@ -37,47 +37,115 @@ import type {
   ConnectionInput,
   ResolveContext,
   ResolvedConnectionHandle,
-} from "./connection";
+} from "./connection"
+
+/**
+ * Module aliases used by the CLI's jiti loader when it imports the app's schema/modules. Values
+ * are relative to the project root; both the exact key and a trailing-`/*` wildcard register them,
+ * so `{ "@": "./src" }` resolves `@/env` as well as `@`.
+ */
+export interface ResolveConfig {
+  readonly alias?: Record<string, string>
+  /** Also honour `compilerOptions.paths` from the project's tsconfig. Default false. */
+  readonly tsconfigPaths?: boolean | string
+}
+
+/** Settings for the static-getter ORM façade generator (`sc generate --orm`). */
+export interface OrmGeneratorConfig {
+  /** Expression returning the client. Default `getOrmClient`. */
+  readonly client?: string
+  /** Output module, relative to the project root. */
+  readonly out?: string
+  /** Module exporting the client resolver — relative to the generated file. */
+  readonly provider?: string
+  /** Module exporting the schema artifact — defaults to the connection's `schema` when a file. */
+  readonly schema?: string
+  /** Export name of the schema artifact. Default `schema`. */
+  readonly schemaExport?: string
+  /** Name of the generated const. Default `orm`. */
+  readonly surface?: string
+}
+
+/** Settings for the AOT validator generator (`sc generate --aot`). */
+export interface AotGeneratorConfig {
+  /** Directory for the synthetic + compiled modules, relative to the project root. */
+  readonly dir?: string
+  /** Source files where the bootstrap import inserts it (idempotent). */
+  readonly importIn?: readonly string[]
+  /**
+   * How the compiled validators get installed: `orm` imports the bootstrap from the generated ORM
+   * façade (default), `bootstrap` emits one documented import, `none` leaves it to the app.
+   */
+  readonly installVia?: "bootstrap" | "none" | "orm"
+  /** Bootstrap module, relative to the project root. */
+  readonly out?: string
+}
+
+/** Declarative generators run together by `sc generate`. `false` disables one. */
+export interface GeneratorsConfig {
+  readonly aot?: AotGeneratorConfig | false
+  readonly orm?: false | OrmGeneratorConfig
+}
+
+/** Directives and tool-ignore conventions applied to every generated artifact. */
+export interface GeneratedConfig {
+  /** Prepend `/* eslint-disable *\/`. Default true. */
+  readonly eslintDisable?: boolean
+  /** Add generated paths to knip/tsconfig/bunfig ignores. Default `ignore`. */
+  readonly knip?: "ignore" | "off"
+  /** Actually merge those ignores into the app's config files. Default false. */
+  readonly knipAutoWrite?: boolean
+  /** Marker used for idempotence. Default `// @ts-nocheck — generated`. */
+  readonly marker?: string
+  /** Prepend `// @ts-nocheck — generated`. Default true. */
+  readonly tsNocheck?: boolean
+  /** Specifier used by zod-compiler's generated header. Default `better-schemic/zod`. */
+  readonly zodSpecifier?: string
+}
 
 export interface OrmConfig {
   /** Named database connections — each produced by a per-driver `<driver>Connection(...)` factory. */
-  connections: Record<string, AnyConnectionEntry>;
+  connections: Record<string, AnyConnectionEntry>
   /**
    * With more than one connection, the connection a bare command targets (must name a single static
    * connection). Absent + ambiguous → a live command errors asking for `--connection`.
    */
-  defaultConnection?: string;
+  defaultConnection?: string
+  /** Directives + tool ignores for the generated artifacts. */
+  generated?: GeneratedConfig
+  /** Declarative code generators — `sc generate` runs them from this config. */
+  generators?: GeneratorsConfig
   /** Table that records applied migrations (per connection). Default `_migrations`. */
-  migrationsTable?: string;
+  migrationsTable?: string
+  /** Aliases the CLI's jiti loader honours when importing schema modules (no symlinks needed). */
+  resolve?: ResolveConfig
   /** Optional seed script run by `better-schemic seed`. */
-  seed?: string;
+  seed?: string
 }
 
 /**
  * Legacy alias — prefer {@link OrmConfig}.
  */
-export type SchemicConfig = OrmConfig;
+export type SchemicConfig = OrmConfig
 
 /** The bound ORM client type a {@link ConnectionEntry} opens (inferred from the driver factory). */
-export type EntryClient<E> =
-  E extends ConnectionEntry<infer Client, any> ? Client : never;
+export type EntryClient<E> = E extends ConnectionEntry<infer Client, any> ? Client : never
 /** The typed resolver `args` a {@link ConnectionEntry} accepts (from its `args` schema). */
-export type EntryArgs<E> =
-  E extends ConnectionEntry<any, infer Args> ? Args : never;
+export type EntryArgs<E> = E extends ConnectionEntry<any, infer Args> ? Args : never
 
 /**
  * What {@link defineConfig} ADDS to your config: the config IS the app's typed entry point to its
  * databases. `connect(name, args?)` autocompletes your connection names, types `args` per connection
  * (the resolver's declared 2nd param — absent for a static/argless connection), and returns that
  * entry's own client type (a heterogeneous-driver project types per-connection). A PARAMETERIZED
- * connection whose resolver returns an ARRAY is bulk-only: `connect` throws a teaching error — pass
+ * connection whose resolver returns an ARRAY is bulk-: `connect` throws a teaching error — pass
  * `args` selecting ONE config. The client is disposable: `await using db = await orm.connect()`.
  */
 export interface OrmProject<Conns extends Record<string, AnyConnectionEntry>> {
   connect<N extends keyof Conns & string>(
     name?: N,
     args?: EntryArgs<Conns[N]>,
-  ): Promise<EntryClient<Conns[N]>>;
+  ): Promise<EntryClient<Conns[N]>>
 }
 
 /**
@@ -93,28 +161,24 @@ export interface OrmProject<Conns extends Record<string, AnyConnectionEntry>> {
  * ```
  */
 /**
- * A resolver's `ctx` in the CHAINED form: `connections` is typed with the ACCUMULATED prior
+ * A resolver's `ctx` in the CHAINED form: `connections` types it with the ACCUMULATED prior
  * connections — each handle is thenable to that entry's FULL ORM client (`const main = await
  * ctx.connections.main; main.select(...)`) and keeps a direct `.query`. Order = visibility: a
- * resolver only sees connections declared BEFORE it (structural cycle prevention). Do not stash a
- * sibling client — it is closed when resolution settles.
+ * resolver  sees connections declared BEFORE it (structural cycle prevention). Do not stash a
+ * sibling client — it's closed when resolution settles.
  */
 export type ChainCtx<Conns extends Record<string, AnyConnectionEntry>> = Omit<
   ResolveContext,
   "connections"
 > & {
   connections: {
-    [K in keyof Conns]: PromiseLike<EntryClient<Conns[K]>> &
-      ResolvedConnectionHandle;
-  };
-};
+    [K in keyof Conns]: PromiseLike<EntryClient<Conns[K]>> & ResolvedConnectionHandle
+  }
+}
 
-/** The shape a driver connection factory must have to be used as the `.connection()` driver marker. */
-export interface ChainableDriverFactory<
-  C extends ConnectionConfigBase,
-  Client,
-> {
-  (input: ConnectionInput<C, any>): ConnectionEntry<Client, any>;
+/** The shape a driver connection factory must have to uss it as the `.connection()` driver marker. */
+export interface ChainableDriverFactory<C extends ConnectionConfigBase, Client> {
+  (input: ConnectionInput<C, any>): ConnectionEntry<Client, any>
 }
 
 /**
@@ -123,72 +187,60 @@ export interface ChainableDriverFactory<
  * `ctx.connections` with everything declared so far. The literal `defineConfig({ connections })`
  * form remains for static maps.
  */
-export interface ChainedConfig<Conns extends Record<string, AnyConnectionEntry>>
-  extends OrmProject<Conns> {
-  connections: Conns;
-  defaultConnection?: string;
-  migrationsTable?: string;
-  seed?: string;
-  connection<
-    N extends string,
-    C extends ConnectionConfigBase,
-    Client,
-    Args = undefined,
-  >(
+export interface ChainedConfig<
+  Conns extends Record<string, AnyConnectionEntry>,
+> extends OrmProject<Conns> {
+  connection<N extends string, C extends ConnectionConfigBase, Client, Args = undefined>(
     name: N,
     factory: ChainableDriverFactory<C, Client>,
-    input:
-      | C
-      | ((ctx: ChainCtx<Conns>, args: Args) => C | C[] | Promise<C | C[]>),
-  ): ChainedConfig<Conns & { [K in N]: ConnectionEntry<Client, Args> }>;
+    input: ((ctx: ChainCtx<Conns>, args: Args) => C | C[] | Promise<C | C[]>) | C,
+  ): ChainedConfig<Conns & Record<N, ConnectionEntry<Client, Args>>>
+  connections: Conns
+  defaultConnection?: string
+  generated?: GeneratedConfig
+  generators?: GeneratorsConfig
+  migrationsTable?: string
+  resolve?: ResolveConfig
+  seed?: string
 }
 
 /** Start a CHAINED config: `defineConfig().connection("main", surrealConnection, {...})`. */
 export function defineConfig(
   base?: Omit<OrmConfig, "connections">,
-): ChainedConfig<Record<never, never>>;
+): ChainedConfig<Record<never, never>>
 /** Type + enrich a literal config — returns it with the typed `connect()` attached. */
-export function defineConfig<const C extends OrmConfig>(
-  config: C,
-): C & OrmProject<C["connections"]>;
-export function defineConfig(
-  config?: OrmConfig | Omit<OrmConfig, "connections">,
-): unknown {
-  const isLiteral = !!config && "connections" in config;
+export function defineConfig<const C extends OrmConfig>(config: C): C & OrmProject<C["connections"]>
+export function defineConfig(config?: Omit<OrmConfig, "connections"> | OrmConfig): unknown {
+  const isLiteral = !!config && "connections" in config
   const base: OrmConfig = isLiteral
-    ? (config as OrmConfig)
+    ? config
     : {
-        ...(config as Omit<OrmConfig, "connections"> | undefined),
+        ...config,
         connections: {},
-      };
+      }
 
   const withApi = (cfg: OrmConfig): unknown => ({
     ...cfg,
     async connect(name?: string, args?: unknown) {
-      // Lazy: authoring/loading a config stays light; the client machinery loads only when used.
-      const { connectFromConfig } = await import("./client");
-      return connectFromConfig(cfg, name, args);
+      // Lazy: authoring/loading a config stays light; the client machinery loads when used.
+      const { connectFromConfig } = await import("./client")
+      return connectFromConfig(cfg, name, args)
     },
-    connection(
-      name: string,
-      factory: (input: unknown) => AnyConnectionEntry,
-      input: unknown,
-    ) {
+    connection(name: string, factory: (input: unknown) => AnyConnectionEntry, input: unknown) {
       // The factory IS the driver marker: it stamps the driver tag, config type, and client opener.
-      // The chain re-types ctx/args itself, so the factory is called through a variance cast.
-      const entry = factory(input as never);
+      // The chain re-types ctx/args itself, so the factory calls it through a variance cast.
+      const entry = factory(input)
       return withApi({
         ...cfg,
         connections: { ...cfg.connections, [name]: entry },
-      });
+      })
     },
-  });
+  })
 
-  return withApi(base);
+  return withApi(base)
 }
 
 /**
  * Legacy alias — prefer {@link OrmProject}.
  */
-export type SchemicProject<Conns extends Record<string, AnyConnectionEntry>> =
-  OrmProject<Conns>;
+export type SchemicProject<Conns extends Record<string, AnyConnectionEntry>> = OrmProject<Conns>

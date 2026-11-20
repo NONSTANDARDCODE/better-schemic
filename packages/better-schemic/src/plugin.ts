@@ -13,13 +13,13 @@
  * ```
  */
 
-import type { ZodCompilerPluginOptions } from "zod-compiler";
-import zodCompilerBun from "zod-compiler/bun";
+import type { ZodCompilerPluginOptions } from "zod-compiler"
+import zodCompilerBun from "zod-compiler/bun"
 
-export type { ZodCompilerPluginOptions };
+export type { ZodCompilerPluginOptions }
 
 /** The raw `zod-compiler/bun` adapter, for when you need full control of its options. */
-export { zodCompilerBun as bun };
+export { zodCompilerBun as bun }
 
 /** Bun build plugin with the better-schemic defaults (`schemas: "auto"`, `output: "schema"`). */
 export function betterSchemic(
@@ -29,7 +29,7 @@ export function betterSchemic(
     schemas: "auto",
     output: "schema",
     ...options,
-  });
+  })
 }
 
-export default betterSchemic;
+export default betterSchemic
