@@ -175,20 +175,28 @@ export {
 } from "../core/authoring";
 // The catalog's arg/result types — `Frag<T>` is the typed-fragment alias (the `[T]` rule).
 export type { FnArg, Frag } from "./fn";
+// The shape-erased table def used to annotate schema-agnostic helpers. Type-only, so the
+// side-effect-free authoring entry stays free of the ORM runtime.
+export type { AnyTableDef } from "./orm/types/schema";
 export type {
   AnalyzerConfig,
   AnyField,
+  AnyTableRef,
   App,
+  ApplyPreset,
   AsymmetricJwtAlgorithm,
   BareId,
   CallArgs,
   CallArgsIn,
   CallArgValue,
+  CheckPreset,
+  CheckPresetIdempotent,
   Create,
   DiskannOptions,
   EventAsync,
   Expr,
   FieldRefs,
+  Fields,
   Filter,
   FilterBuilder,
   Fragmentable,
@@ -198,12 +206,17 @@ export type {
   IdStrategy,
   JwtAlgorithm,
   JwtConfig,
+  MergePresetShape,
   ParamConfig,
+  PresetCols,
   PresetColumnConflict,
+  PresetColumns,
   PresetEvent,
   PresetIndex,
   RecordIdFieldInit,
   RecordIdMode,
+  RejectBadId,
+  RejectNoDdl,
   SequenceConfig,
   Shape,
   SingletonIdOf,
@@ -212,6 +225,7 @@ export type {
   StringIdsShape,
   SurrealMeta,
   SymmetricJwtAlgorithm,
+  TableBuilder,
   TableConfig,
   TableEvent,
   TableIndex,
@@ -219,6 +233,8 @@ export type {
   Tokenizer,
   Update,
   Wire,
+  WithSmartId,
+  ZShape,
 } from "./pure";
 export {
   AccessDef,
@@ -264,3 +280,9 @@ export {
 } from "./pure";
 /** Type a `database/seed/*.ts` default export: `export default defineSeed(async (db, ctx) => { … })`. */
 export { defineSeed, type SeedFn } from "./seed";
+export {
+  type QueryShapeArg,
+  selectQuery,
+  surqlWith,
+  TypedBoundQuery,
+} from "./surql/typed-bound";

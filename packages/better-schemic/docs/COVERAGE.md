@@ -124,7 +124,10 @@ verified reference cookbook (`examples/*.ts`, `emit(defs) === ddl`).
   sets — gated to sets, since Zod maps share those check names but lower to `object`).
   **NULL:** SurrealDB runs `ASSERT` on NULL (it skips only NONE), and `len`/format functions error on
   it — so an assert on a NULLABLE field (`T | null`, `option<T | null>`, or a `s.union([…, s.null()])`)
-  is emitted null-guarded: `$value = NULL OR <expr>`. `.optional()` is unguarded (the engine skips NONE).
+  is emitted null-guarded: `$value = NULL OR <expr>`. `.optional()` is unguarded (the engine skips NONE). `.$regex(source, flags?)` /
+  `.regex(source, params?, flags?)` accept a string source (compiled once in the lib — constant-foldable
+  by Bun's AOT) or a `RegExp`; without flags the DDL is unchanged (`$value = /…/`), with flags they are
+  appended (`/…/i`).
 - [x] unions stay in the DB's canonical form — a member's `option<…>` is hoisted to the union
   (`s.union([s.string().optional(), s.int()])` → `option<string | int>`), so `fromTableDef` ==
   `fromInfo` (no phantom diff).

@@ -58,6 +58,13 @@ export interface OrmOptions {
    * terminal box.
    */
   readonly logger?: LoggerOption;
+  /**
+   * Cache clients per connection in the factory returned by {@link createOrmClientFactory}.
+   * Default `"none"` (each call builds a fresh client). `"weak"` keeps a WeakMap keyed by the
+   * connection; safe for BYO connections because their `close()` is a no-op, so a cached client
+   * can never outlive a connection the consumer has closed.
+   */
+  readonly cache?: "none" | "weak";
 }
 
 /** A `schema` artifact or the plain `{ key: def }` literal. */
@@ -179,3 +186,26 @@ export type Client<
     ): Promise<Client<S>>;
     $withContext(context?: OperationContext): Client<S, C>;
   };
+
+/**
+ * The static façade over a client: one readonly member per schema model plus the fixed escape
+ * hatches. `sc generate:orm` emits a source file with STATIC getters satisfying this type — Bun's
+ * AOT needs the getters written in the source (a runtime `Object.defineProperty` loop over schema
+ * keys is exactly the slow path this replaces). The runtime `Client` still derives every key from
+ * the schema; the generated file is only the AOT-friendly view of it.
+ */
+export type OrmSurface<
+  S = SchemaInput,
+  C extends Queryable = Queryable,
+  P extends PluginList = readonly [],
+> = Pick<
+  Client<S, C, P>,
+  | ModelKeys<S>
+  | "$query"
+  | "$raw"
+  | "$unsafe"
+  | "$sdk"
+  | "repository"
+  | "tables"
+  | "transaction"
+>;

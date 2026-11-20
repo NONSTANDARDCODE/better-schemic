@@ -24,11 +24,15 @@ better-schemic installed.
 app code still bundles only what it imports:
 - `better-schemic` — **authoring** (`s.*`, `define*`, the `surql` tag) — must be **side-effect-free**.
 - `better-schemic/connection` — the `surrealConnection` factory.
-- `better-schemic/query` — fragments & procedural SurrealQL (`block()`).
+- `better-schemic/query` — fragments, procedural SurrealQL (`block()`) and `TypedBoundQuery`/`surqlWith`
+  /`selectQuery` (typed raw binds + result rows and projected column allowlists; also re-exported
+  from the root authoring entry).
 - `better-schemic/orm` — the repository-style ORM client (`betterSchemic`/`createBetterSchemic`,
   one delegate per schema entry, `repository`, `$sdk`).
 - `better-schemic/config` — `defineConfig` (the project config).
 - `better-schemic/logger` — the query logger (`createQueryLogger`, presets, env resolution).
+- `better-schemic/aot` — the zod-compiler bridge (`fieldSchemaOf`, compile markers). AOT generation
+  lives in the `sc compile` CLI command; the Bun build plugin is `better-schemic/plugin`.
 - `better-schemic/otel` — OpenTelemetry tracing as a `QueryLogger` (`createOtelLogger`); the
   `@opentelemetry/api` peer is optional and an unattached logger costs nothing.
 - `better-schemic/plugins/*` — the authoring plugins.

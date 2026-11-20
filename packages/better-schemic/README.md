@@ -35,6 +35,8 @@ replay into — `npm i -D @surrealdb/node`).
 | `better-schemic/logger`     | the query logger                                                             |
 | `better-schemic/otel`       | OpenTelemetry tracing (`createOtelLogger`)                                   |
 | `better-schemic/driver`     | the engine entry (CLI/engine-only — pulls in the DDL emitter)                |
+| `better-schemic/aot`        | zod-compiler bridge — field unwrapping + identity-preserving compile markers  |
+| `better-schemic/plugin`     | the Bun build plugin (`betterSchemic()`) that AOT-compiles plain Zod schemas   |
 
 ## Quick start
 
@@ -715,6 +717,79 @@ const sources = lineage([revenue], schemaDef);
 
 The full mapping — including deliberate non-goals and the exact sections backing each claim — is in
 [`docs/ORM-COVERAGE.md` §12](docs/ORM-COVERAGE.md#12-fit-for-agents--ai).
+
+## Bun AOT (compiled binaries)
+
+`bun build --compile --aot` needs object shapes fixed at compile time. Compose schemas with the
+fluent builder instead of spreading a generic type parameter inside a helper — the merge happens
+inside the library (compiled once), and every shape literal stays concrete at the call site:
+
+```ts
+import { s, table } from "better-schemic";
+import { tenant } from "better-schemic/plugins/tenant";
+
+const audit = { createdAt: s.datetime().$readonly(), updatedAt: s.datetime() };
+const Customer = table("customer", { name: s.string(), tenant_id: s.recordId("user") })
+  .extend(audit)
+  .extendIf(false, { deletedAt: s.datetime().optional() })
+  .use(tenant(User, { softDelete: true }))
+  .index("customer_name_uq", ["name"], { unique: true })
+  .stringIds()
+  .build();
+```
+
+`TableBuilder` is an alias of `TableDef` — every existing `table(...)` call site keeps working;
+`.build()` is an explicit identity terminal. Presets are idempotent: a column already declared with
+the same type (e.g. `tenant_id`) is not a conflict. For helpers over an unresolved shape use
+`.useUnchecked(preset)` (skips only the collision check, keeps `Name`/`S`) instead of casting to
+`any`.
+
+For the client façade, generate STATIC getters from the schema so the AOT compiler sees them in the
+source (the runtime `Object.defineProperty` delegate loop is a slow path):
+
+```sh
+sc generate:orm --out src/db/orm.generated.ts --schema src/db/schema.ts \
+  --provider-from ./orm-provider --client getOrmClient
+```
+
+The file ends with `satisfies OrmSurface<typeof schema>`. Also available:
+`createOrmClientFactory({ cache: 'weak' })` (per-connection client cache with `peek`/`dispose`),
+`orm(() => conn, { schema })` (lazy connection), `setClientResolver`/`clientRef` (late binding),
+`TypedBoundQuery`/`surqlWith` (typed raw binds + result rows), `selectQuery(from, allowlist)` (fixed
+row keys from a projection), `s.json<T>()` and `s.regex(source: string, flags?)`.
+
+## AOT validation with zod-compiler
+
+`sc compile` wires [zod-compiler](https://github.com/gajus/zod-compiler) into the authoring
+surface. Every `s.*` field is a wrapper around a Zod schema — the command generates a module that
+re-exports each field's underlying schema, lets zod-compiler emit static validators, and writes a
+bootstrap module. zod-compiler **mutates the original schema objects in place**, so the SurrealQL
+metadata, `.shape`, `instanceof`, `z.toJSONSchema()` and the ORM are untouched — only validation
+gets the generated fast path.
+
+```sh
+sc compile
+# → .better-schemic/aot/schemas.compiled.ts  (generated validators)
+# → .better-schemic/schema.aot.ts            (import this instead of your schema module)
+```
+
+```ts
+import { Customer } from "./.better-schemic/schema.aot"; // compiled validators installed
+await Customer.decode(row);                              // DDL/schema unchanged
+```
+
+Use both halves: `sc compile` for authored `s.*` fields, and `better-schemic/plugin` for plain Zod
+schemas in the app (route contracts, DTOs). The plugin wraps `zod-compiler/bun` and is meant for
+`Bun.build({ plugins: [betterSchemic()] })` — including `bun build --compile --aot`:
+
+```ts
+import { betterSchemic } from "better-schemic/plugin";
+await Bun.build({
+  entrypoints: ["src/server.ts"],
+  plugins: [betterSchemic()],
+  compile: true,
+});
+```
 
 ## Docs
 

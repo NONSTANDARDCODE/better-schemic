@@ -424,6 +424,12 @@ SELECT [VALUE] <projeção> FROM <alvo>
 | `matchesFullText`                       | `f @@ $q` / `f @0@ $q`                                          | ✓ (precisa de índice FULLTEXT)         |
 | `fuzzy` / `anyFuzzy` / `allFuzzy`       | **não emitir** (`~`/`?~`/`*~` = parse error)                    | DIVERGE — usar `string::similarity::*` |
 
+**Field-level `regex` (DDL, not a filter):** `.$regex(source, flags?)` emits
+`ASSERT $value = /source/`, and `.regex(source, params?, flags?)` is the app-side Zod chain (no DDL).
+A string `source` is compiled to a `RegExp` once at authoring time (Bun AOT constant-foldable);
+passing a `RegExp` keeps the prior behavior. Explicit `flags` are appended to the DDL literal
+(`/^a$/i`) — verified by `aot-regex-json.test.ts` against the identical `RegExp` form when omitted.
+
 ### 4.3 Arrays / sets — semântica exata
 
 | Operador       | Forma                 | Semântica verificada                                                  |

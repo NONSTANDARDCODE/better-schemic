@@ -21,9 +21,14 @@
 export {
   type Client,
   ClientRuntime,
+  clientRef,
+  createOrmClientFactory,
+  type OrmClientFactory,
   type OrmOptions,
+  type OrmSurface,
   orm,
   type SchemaArg,
+  setClientResolver,
 } from "./client";
 export {
   type CreateOrmOptions,
@@ -326,6 +331,7 @@ export type {
   EndpointInput,
   FieldDelta,
   Increment,
+  InferWriteResult,
   InsertArgs,
   InsertManyArgs,
   OnDuplicate,
@@ -333,6 +339,7 @@ export type {
   PatchOp,
   RelateArgs,
   RelateManyArgs,
+  RowOf,
   UnrelateArgs,
   UnrelateManyArgs,
   UpdateArgs,
@@ -345,6 +352,7 @@ export type {
   UpdateWriteData,
   UpsertArgs,
   UpsertDeltaArgs,
+  UpsertDeltaFor,
   UpsertDeltaResult,
   UpsertManyArgs,
   WriteData,

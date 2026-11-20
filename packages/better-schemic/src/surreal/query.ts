@@ -9,3 +9,9 @@
  * See `docs/ORM-COVERAGE.md` (surface) and `docs/orm-syntax-map.md` (live-verified SurrealQL).
  */
 export * from "./surql/block";
+export type { QueryShapeArg } from "./surql/typed-bound";
+export {
+  selectQuery,
+  surqlWith,
+  TypedBoundQuery,
+} from "./surql/typed-bound";

@@ -388,6 +388,25 @@ Covered by `test/surreal/unit/orm-sql-preview.test.ts`, `orm-describe-schema.tes
 
 ---
 
+## 14. Bun AOT DX
+
+Superfícies ajustadas para `bun build --compile --aot` manter layout fixo nos caminhos quentes.
+Nenhuma muda o SurrealQL emitido; o objetivo é tirar workarounds do app consumidor.
+
+| Feature | Status | Notes |
+| --- | --- | --- |
+| Fluent table builder (`table(...).extend().extendIf().use().index().stringIds().build()`) | `[x]` | `TableBuilder` = alias de `TableDef` (zero quebra); o spread sai do app. `test/surreal/{types/aot-builder.assert.ts,unit/aot-builder.test.ts}` |
+| Idempotent presets + `ApplyPreset`/`useUnchecked`/`useAs` | `[x]` | Colunas idênticas deixam de exigir `as unknown as AnyTableDef`. `aot-presets.assert.ts` |
+| `sc generate:orm` + `OrmSurface` | `[x]` | Getters **estáticos** no fonte (o runtime `Object.defineProperty` é a slow path). `aot-orm-surface.test.ts`, `docs/cli.md` |
+| Client members declared + assigned (`ClientRuntime`) | `[x]` | Substitui `Object.assign` — o fix pedido pelo próprio `--explain`. |
+| `createOrmClientFactory({cache:'weak'})` + `setClientResolver`/`clientRef` + `orm(() => conn, …)` | `[x]` | Substitui `WeakMap`/`await import` do app. `aot-orm-surface.test.ts` |
+| `upsertDelta` typed from args (`NoInfer` + overload) + `UpsertDeltaFor`/`InferWriteResult`/`RowOf` | `[x]` | Sem cast em `result.record.<campo>`. `aot-upsert-delta.assert.ts` |
+| `TypedBoundQuery`/`surqlWith`, `$query` tipado, `selectQuery(from, allowlist)`, `s.json<T>()`, `s.regex(string, flags?)` | `[x]` | Fronteira `unknown` removida; DDL inalterado. `aot-raw-json.assert.ts`, `aot-regex-json.test.ts` |
+
+| `sc compile` + `better-schemic/aot` + `better-schemic/plugin` (zod-compiler) | `[x]` | Validators AOT para `s.*` (identidade preservada → DDL/ORM intactos) e plugin Bun para Zod puro. `aot-compile.test.ts` |
+
+---
+
 ## At a glance
 
 | Area                                                                                                                                    | Status                                                                       |

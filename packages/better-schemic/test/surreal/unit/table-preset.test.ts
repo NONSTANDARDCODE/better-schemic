@@ -151,12 +151,16 @@ describe(".use: column-name clashes are rejected", () => {
     expect(use).toThrow(/preset column "title" conflicts/);
   });
 
-  test("compile-time: preset-vs-preset clashes surface too (checked vs table-so-far)", () => {
+  test("preset-vs-preset: identical columns are idempotent, divergent ones still clash", () => {
     const T = table("preset_clash2", { name: s.string() });
-    const applyTwice = () =>
-      // @ts-expect-error — the second tenant("org_id") collides with the first's column
-      T.use(tenant("org_id")).use(tenant("org_id"));
-    expect(applyTwice).toThrow(/preset column "org_id" conflicts/);
+    // Applying the SAME preset twice is now a no-op for columns (idempotence) — no cast needed.
+    const twice = T.use(tenant("org_id")).use(tenant("org_id"));
+    expect(emitTable(twice)).toContain("DEFINE FIELD org_id");
+    // A genuinely different column type for the same key is still a conflict.
+    const divergent = table.preset({ columns: { org_id: s.number() } });
+    expect(() => T.use(tenant("org_id")).use(divergent as never)).toThrow(
+      /preset column "org_id" conflicts/,
+    );
   });
 
   test("a preset never clobbers silently — the runtime throw names table + column", () => {

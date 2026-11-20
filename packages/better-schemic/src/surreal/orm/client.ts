@@ -54,7 +54,12 @@ import type {
   TransactionOptions,
 } from "./types/transaction";
 
-export type { Client, OrmOptions, SchemaArg } from "./types/client";
+export type {
+  Client,
+  OrmOptions,
+  OrmSurface,
+  SchemaArg,
+} from "./types/client";
 
 /** The runtime behind every {@link Client} — the class members plus the per-key delegates. */
 export class ClientRuntime<C extends Queryable = Queryable>
@@ -149,11 +154,22 @@ export class ClientRuntime<C extends Queryable = Queryable>
     };
     // Assign the fixed surfaces BEFORE the schema delegates so `assertMemberAvailable`'s
     // `name in this` check covers them — no hand-maintained reserved-name list to keep in sync.
-    Object.assign(this, createRawOperations(this.delegateContext, scope.raw));
+    // Each member is declared ON THE CLASS and assigned HERE: Bun's AOT asks for exactly this
+    // ("declare every property in the class and assign them there") instead of `Object.assign`,
+    // which mutates the shape after construction and keeps every access on a slow path.
+    const raw = createRawOperations(this.delegateContext, scope.raw);
+    this.$raw = raw.$raw;
+    this.$query = raw.$query;
+    this.$unsafe = raw.$unsafe;
     this.fn = createFnOperations(this.delegateContext);
     this.api = createApiOperations(this.delegateContext);
     this.auth = createAuthOperations(this.delegateContext);
-    Object.assign(this, createAdminOperations(this.delegateContext));
+    const admin = createAdminOperations(this.delegateContext);
+    this.info = admin.info;
+    this.version = admin.version;
+    this.ping = admin.ping;
+    this.export = admin.export;
+    this.import = admin.import;
     for (const [key, meta] of [...$index.tables, ...$index.schemaless]) {
       this.assertMemberAvailable(key, "schema key");
       // Lazy: the delegate (and its ~26 operation closures) is built on FIRST access, so
@@ -533,10 +549,116 @@ export function orm<
     readonly schema: SchemaArg<S>;
     readonly plugins?: P;
   } & Omit<OrmOptions, "plugins">,
+): Client<S, C, P>;
+/** Lazy connection factory — resolves a connection at build time without importing the module
+ *  that owns it, so a schema ↔ ORM import cycle needs no `await import()` in the hot path. */
+export function orm<
+  S extends SchemaInput,
+  C extends Queryable,
+  const P extends readonly Plugin[] = readonly [],
+>(
+  factory: () => C,
+  options: {
+    readonly schema: SchemaArg<S>;
+    readonly plugins?: P;
+  } & Omit<OrmOptions, "plugins">,
+): Client<S, C, P>;
+export function orm<
+  S extends SchemaInput,
+  C extends Queryable,
+  const P extends readonly Plugin[] = readonly [],
+>(
+  connOrFactory: C | (() => C),
+  options: {
+    readonly schema: SchemaArg<S>;
+    readonly plugins?: P;
+  } & Omit<OrmOptions, "plugins">,
 ): Client<S, C, P> {
+  const conn =
+    typeof connOrFactory === "function"
+      ? (connOrFactory as () => C)()
+      : connOrFactory;
   return buildClient(conn, options.schema, false, options) as unknown as Client<
     S,
     C,
     P
   >;
+}
+
+/** A factory that hands out ORM clients over BYO connections, optionally caching one client per
+ *  connection (WeakMap). This is the library-side replacement for an app-level
+ *  `WeakMap<object, OrmClient>`: `peek`/`dispose` are explicit, and `Name`/`S` survive the cache. */
+export interface OrmClientFactory<
+  S extends SchemaInput,
+  C extends Queryable,
+  P extends readonly Plugin[] = readonly [],
+> {
+  (conn: C): Client<S, C, P>;
+  /** The cached client for `conn`, if any — never builds one. */
+  peek(conn: C): Client<S, C, P> | undefined;
+  /** Forget the cached client (the connection itself is untouched). */
+  dispose(conn: C): void;
+}
+
+export function createOrmClientFactory<
+  S extends SchemaInput,
+  C extends Queryable,
+  const P extends readonly Plugin[] = readonly [],
+>(
+  options: {
+    readonly schema: SchemaArg<S>;
+    readonly plugins?: P;
+    readonly cache?: "none" | "weak";
+  } & Omit<OrmOptions, "plugins" | "cache">,
+): OrmClientFactory<S, C, P> {
+  const cache =
+    options.cache === "weak"
+      ? new WeakMap<object, Client<S, C, P>>()
+      : undefined;
+  const build = (conn: C): Client<S, C, P> => {
+    const key = conn as object;
+    const hit = cache?.get(key);
+    if (hit) return hit;
+    const client = orm<S, C, P>(conn, options);
+    cache?.set(key, client);
+    return client;
+  };
+  return Object.assign(build, {
+    peek: (conn: C) => cache?.get(conn as object),
+    dispose: (conn: C) => void cache?.delete(conn as object),
+  });
+}
+
+// A late-bound client resolver: the ORM knows the schema but not the connection that owns it
+// (e.g. an ALS `SurrealSession`). `clientRef()` gives schema modules a stable reference with no
+// dynamic import. Mirrors `tenantRls({ tenant: () => ctx.tenantId })`'s per-operation late binding.
+type ResolvedClient = Client<SchemaInput, Queryable, readonly Plugin[]>;
+const CLIENT_RESOLVERS = new Map<string, () => ResolvedClient>();
+const DEFAULT_RESOLVER = "default";
+
+/** Register (or replace) the lazy resolver behind {@link clientRef}. */
+export function setClientResolver<
+  S extends SchemaInput,
+  C extends Queryable,
+  const P extends readonly Plugin[] = readonly [],
+>(resolve: () => Client<S, C, P>, key: string = DEFAULT_RESOLVER): void {
+  CLIENT_RESOLVERS.set(key, resolve as () => ResolvedClient);
+}
+
+/** A stable, typed reference to a client resolved lazily on every operation. */
+export function clientRef<
+  S extends SchemaInput,
+  C extends Queryable,
+  const P extends readonly Plugin[] = readonly [],
+>(key: string = DEFAULT_RESOLVER): { current(): Client<S, C, P> } {
+  return {
+    current: () => {
+      const resolve = CLIENT_RESOLVERS.get(key);
+      if (!resolve)
+        throw new Error(
+          `better-schemic: no ORM client resolver registered for "${key}" — call setClientResolver() first.`,
+        );
+      return resolve() as Client<S, C, P>;
+    },
+  };
 }

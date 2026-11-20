@@ -170,6 +170,22 @@ driver layer changes.
   tenant list); re-resolve only on an explicit trigger (refresh key, or `better-schemic.config.ts` changing).
   `--arg` resolves only the requested subset.
 
+## ORM client resolver (late-bound connection)
+
+Distinct from the CLI's config-level resolver: at runtime a message handler often holds a
+**`SurrealSession` from ALS**, not a long-lived root connection. The ORM now supports late binding
+without a dynamic import in the hot path:
+
+- `setClientResolver(() => client)` / `clientRef().current()` — a stable, typed reference resolved
+  per operation (the same pattern as `tenantRls({ tenant: () => ctx.tenantId })`).
+- `orm(() => conn, { schema })` — lazy connection factory; resolves once when the client is built.
+- `createOrmClientFactory({ schema, cache: 'weak' })` — one client per connection via a WeakMap,
+  with explicit `peek`/`dispose`. Safe for BYO connections because their `close()` is a no-op: a
+  cached client can never outlive a connection the consumer closed.
+
+This replaces app-side `WeakMap<object, OrmClient>` caches and `await import('./orm')` late bindings,
+and keeps `Name`/`S` typed through the cache.
+
 ## Future complementary layer — multi-PROJECT workspace
 
 Distinct from multi-_connection_ (many connections, one config): a **workspace of independent projects** —

@@ -338,7 +338,12 @@ export interface Delegate<
    */
   upsertDelta<
     const A extends WithPluginArgs<UpsertDeltaArgs<TD, S>, P, "upsertDelta">,
-  >(args: A): Promise<UpsertDeltaResult<TD, A, S>>;
+  >(args: A): Promise<UpsertDeltaResult<TD, NoInfer<A>, S>>;
+  /** Stable overload for `ReturnType<typeof delegate.upsertDelta>`: with no args literal to infer,
+   *  `A` is fixed to the args type (not `unknown`), so `result.record.<field>` stays typed. */
+  upsertDelta(
+    args: UpsertDeltaArgs<TD, S>,
+  ): Promise<UpsertDeltaResult<TD, UpsertDeltaArgs<TD, S>, S>>;
   /** Upsert many: with ids one `INSERT … ON DUPLICATE`; without, `conflict` resolves each row. */
   upsertMany<
     const A extends WithPluginArgs<UpsertManyArgs<TD>, P, "upsertMany">,

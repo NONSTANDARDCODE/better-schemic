@@ -553,6 +553,21 @@ agentes. Não há claim de LLM-facing query API, MCP/GraphQL ou métricas OTel.
 - ✅ **DSL de política declarativa no ORM** — `better-schemic/plugins/policy` (`definePolicy`) com efeitos `deny`/`scope`/`require`, nomes de tabela tipados pelo schema e `PolicyDenied`/`PolicyRequired` (403). A fronteira de autorização continua sendo a permission do banco (ou `$withoutPlugins()`). Teste: `orm-plugins-policy.test.ts`.
 - ✅ **Camada semântica** — `defineMetric`/`defineGlossary`/`lineage()` em `orm/semantic.ts`: métricas tipadas contra a tabela, lineage validado por campos declarados (sem parse de SQL), glossário JSON-safe; compiled via o `aggregate` existente, sem DDL novo. GraphQL e integrações de IA seguem fora de escopo em `docs/engine/SURREALDB-FEATURE-MAP.md`. Teste: `orm-semantic.test.ts`.
 
+## M20 — Bun AOT DX 🚧 *(in progress)*
+
+Surface de autoria e ORM ajustada para que `bun build --compile --aot` gere layout fixo nos caminhos
+quentes, sem workarounds no app consumidor (baseline `--explain=json`: 49.143 causas de slow path,
+causa #1 no helper de tabela genérico).
+
+- ✅ **M20.1 builder de tabela fluente** — `table(name, shape).extend(meta).extendIf(cond, meta).use(preset).index(...).stringIds().build()`. `TableBuilder` é alias de `TableDef` (zero quebra); o spread genérico sai do app e acontece dentro da lib, compilada uma vez. Guards de literal concreto mantidos. Testes: `aot-builder.{assert,test}.ts`.
+- ✅ **M20.2 presets idempotentes** — `.use()` aceita colunas idênticas já presentes (runtime + tipo); `CheckPresetIdempotent`, `MergePresetShape`, `ApplyPreset`, `useUnchecked`, `useAs`. Toolkit de tipos exportado no entry root (`AnyTableDef`, `AnyTableRef`, `WithSmartId`, `RejectNoDdl`, `RejectBadId`, `CheckPreset`, `PresetCols`, `Fields`, `ZShape`, `PresetColumns`). Testes: `aot-presets.assert.ts`, `table-preset.test.ts`.
+- ✅ **M20.3 superfície ORM estática** — `OrmSurface<S,C,P>` tipada e `sc generate:orm`, que gera getters **estáticos** no fonte (o que o AOT exige) com `satisfies OrmSurface`. `ClientRuntime` passa a declarar + atribuir explicitamente cada membro (antes `Object.assign`). Testes: `aot-orm-surface.test.ts`.
+- ✅ **M20.4 cache e late binding** — `createOrmClientFactory({cache:'weak'})` com `peek`/`dispose` (substitui o `WeakMap` do app), `orm(() => conn, …)` lazy, `setClientResolver`/`clientRef`. Testes: `aot-orm-surface.test.ts`.
+- ✅ **M20.5 inferência de escrita** — `NoInfer` + overload estável em `upsertDelta`, helpers públicos `UpsertDeltaFor`/`InferWriteResult`/`RowOf`, piso `Record<string, unknown>` quando o def é shape-erased. Teste: `aot-upsert-delta.assert.ts`.
+- ✅ **M20.6 fronteira `unknown`** — `TypedBoundQuery<B,R>`/`surqlWith` (binds + resultado tipados, overload em `$query`), `selectQuery(from, allowlist)` (linhas com chaves fixas a partir de uma projeção), `s.json<T>()`, `s.regex(string, flags?)` com `RegExp` compilado uma vez na lib. Testes: `aot-raw-json.assert.ts`, `aot-regex-json.test.ts`.
+- ✅ **M20.7 zod-compiler — validators AOT para `s.*`** — `sc compile` gera um módulo sintético com os `field.schema`, roda `zod-compiler generate` e escreve `.better-schemic/schema.aot.ts`. A compilação preserva identidade (zod-compiler muta o objeto original): DDL, `.shape`, `instanceof`, `z.toJSONSchema()` e ORM intactos; só a validação ganha o fast path. Subpaths `better-schemic/aot` (ponte) e `better-schemic/plugin` (`betterSchemic()`, adapter `zod-compiler/bun` para `Bun.build`). Teste: `aot-compile.test.ts`.
+- ⏳ **M20.8 validação no app** — medir `build:aot:explain-json`, `bun check`, lint e `test:changed` no app consumidor após subir a versão; aplicar a migração para a nova API.
+
 ## Removido (decisão deliberada)
 
 Numa passada de enxugamento para liberar o ORM para mudanças grandes, foram removidos por completo:

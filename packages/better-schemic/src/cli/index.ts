@@ -49,7 +49,9 @@ import {
 // so `getDriver("surrealdb")` always resolves. No package to install, nothing to load at runtime.
 import { DRIVER_NAME } from "../surreal/driver";
 import { runAction } from "./action";
+import { compileAot } from "./compile";
 import { registerDriverCommands } from "./driver-commands";
+import { generateOrm } from "./generate-orm";
 import { init } from "./init";
 import {
   baseline,
@@ -711,6 +713,67 @@ addGenCommand(
     .description("Diff schemas, preview the migration script, and write it"),
 );
 addGenCommand(program.command("generate [name]", { hidden: true }));
+
+// AOT-compile the Zod schemas behind `s.*` fields via zod-compiler (identity-preserving).
+configFlag(
+  program
+    .command("compile")
+    .description(
+      "AOT-compile authored s.* field schemas into static validators (zod-compiler)",
+    )
+    .option(
+      "--out <file>",
+      "bootstrap module (default .better-schemic/schema.aot.ts)",
+    )
+    .option(
+      "--dir <dir>",
+      "generated sources directory (default .better-schemic/aot)",
+    )
+    .option(
+      "--sources-only",
+      "write the synthetic source without running zod-compiler",
+    ),
+).action((opts) => {
+  run(async () => {
+    const result = await compileAot(opts);
+    console.log(
+      `  ${style.green("+")} ${result.schemaCount} field schemas → ${result.compiled}`,
+    );
+    console.log(`  ${style.green("+")} ${result.bootstrap}`);
+    console.log(
+      `\n${ok(`Compiled. Import from ${result.bootstrap} instead of your schema module.`)}`,
+    );
+  });
+});
+
+// Generate a STATIC-getter façade over the typed ORM client (Bun AOT needs the getters in source).
+configFlag(
+  program
+    .command("generate:orm")
+    .description(
+      "Generate a static-getter ORM façade from the authored schema (Bun AOT)",
+    )
+    .option("--out <file>", "output .ts file (default db/orm.generated.ts)")
+    .option("--schema <file>", "module exporting the schema artifact")
+    .option("--schema-export <name>", "schema export name (default 'schema')")
+    .option("--provider-from <module>", "module exporting the client resolver")
+    .option(
+      "--client <expr>",
+      "client resolver expression (default getOrmClient)",
+    )
+    .option("--name <name>", "generated const name (default 'orm')"),
+).action((opts) => {
+  run(async () => {
+    const out = await generateOrm({
+      ...opts,
+      surfaceName: opts.name,
+    });
+    console.log(`  ${style.green("+")} ${out}`);
+    console.log(
+      `\n${ok("Generated. The façade exposes one static getter per schema model.")}`,
+    );
+  });
+});
 
 // `snapshot` groups operations on the migration snapshot (the state `better-schemic gen`/`better-schemic diff` compare
 // against). `reset` clears it so the next `better-schemic gen` baselines the full schema.

@@ -14,7 +14,14 @@ import type { Surql } from "../../frag";
 import type { App, BareId, Create, Update } from "../../pure";
 import type { BatchResult, ThrowingResult } from "../results";
 import type { CallContext } from "./context";
-import type { AnyRelationDef, AnyTableDef, SchemaInput } from "./schema";
+import type {
+  AnyRelationDef,
+  AnyTableDef,
+  EntriesOf,
+  ModelKeys,
+  SchemaInput,
+  TableAt,
+} from "./schema";
 import type { ResultOf, SelectArg } from "./select";
 import type { WhereInput } from "./where";
 
@@ -557,7 +564,7 @@ export type UpsertDeltaResult<
 > =
   | {
       /** The row AFTER the write, codec-decoded (same shape every other write returns). */
-      readonly record: WriteResultOf<TD, A, S>;
+      readonly record: SafeWriteResult<TD, A, S>;
       /** `true` when the target did not exist and the create branch ran. */
       readonly created: true;
       /** Always `null` on create — there was no previous state. */
@@ -568,15 +575,50 @@ export type UpsertDeltaResult<
       readonly changed: readonly [];
     }
   | {
-      readonly record: WriteResultOf<TD, A, S>;
+      readonly record: SafeWriteResult<TD, A, S>;
       readonly created: false;
       /** The row BEFORE the update, codec-decoded. */
-      readonly before: WriteResultOf<TD, A, S>;
+      readonly before: SafeWriteResult<TD, A, S>;
       /** `null` when the update changed nothing. Keys are exactly `changed`. */
-      readonly delta: FieldDelta<WriteResultOf<TD, A, S>> | null;
+      readonly delta: FieldDelta<SafeWriteResult<TD, A, S>> | null;
       /** Names of the changed fields, in stable order; `[]` when nothing changed. */
-      readonly changed: readonly DeltaKey<WriteResultOf<TD, A, S>>[];
+      readonly changed: readonly DeltaKey<SafeWriteResult<TD, A, S>>[];
     };
+
+/**
+ * The decoded app row of a table def. `AnyTableDef` (`TableDef<string, any>`) resolves `App<TD>` to
+ * `any`, which makes `.record.balance` silently `any` in a generic helper; this keeps a fixed
+ * `Record<string, unknown>` floor instead. Concrete table defs are unchanged.
+ */
+export type RowOf<TD> =
+  App<TD> extends infer R
+    ? unknown extends R
+      ? Record<string, unknown>
+      : R
+    : never;
+
+// `IsAny` probe for a RESULT type (not a table def): `any` is the only thing that makes
+// `record.balance` silently unsafe; every concrete projected shape passes through unchanged.
+type IsAny<T> = 0 extends 1 & T ? true : false;
+type SafeWriteResult<TD extends AnyTableDef, A, S> =
+  IsAny<WriteResultOf<TD, A, S>> extends true
+    ? Record<string, unknown>
+    : WriteResultOf<TD, A, S>;
+
+/** Resolve a write delegate method's result for concrete args (`ReturnType` loses the args literal). */
+export type InferWriteResult<D, A> = D extends (
+  args: A,
+  ...rest: never[]
+) => infer R
+  ? Awaited<R>
+  : never;
+
+/** `upsertDelta` result for a schema key and an args literal — spell it out instead of casting. */
+export type UpsertDeltaFor<
+  S,
+  K extends ModelKeys<S>,
+  A = UpsertDeltaArgs<TableAt<S, K & keyof EntriesOf<S>>, S>,
+> = UpsertDeltaResult<TableAt<S, K & keyof EntriesOf<S>>, A, S>;
 
 /** `upsertMany` — with ids, one `INSERT … ON DUPLICATE`; without, `conflict` resolves each row. */
 export interface UpsertManyArgs<TD extends AnyTableDef>

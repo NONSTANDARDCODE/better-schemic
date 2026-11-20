@@ -162,6 +162,16 @@ export interface SurrealMeta {
     | { onDelete?: "reject" | "cascade" | "ignore" | "unset" | BoundQuery };
 }
 
+/**
+ * Canonical regex construction for `s.regex()` / `.$regex()`. A string source is compiled ONCE at
+ * authoring time (Bun's AOT can constant-fold it); passing a `RegExp` keeps the existing behavior.
+ * This is the only place in the authoring surface that calls `new RegExp`, so a `RegExp` literal
+ * never appears in a hot path of the generated binary.
+ */
+function compileRegex(source: string | RegExp, flags?: string): RegExp {
+  return typeof source === "string" ? new RegExp(source, flags) : source;
+}
+
 /** Render a primitive as a clean SurrealQL literal; non-primitives return "". */
 function primitiveLiteral(value: unknown): string {
   if (typeof value === "string") return JSON.stringify(value);
@@ -798,10 +808,18 @@ export class SField<
   $size(n: number): SField<S, Flags> {
     return this.bound("size", n);
   }
-  /** Pattern match (string). */
-  $regex(re: RegExp): SField<S, Flags> {
-    if (this.schemaType === "string")
-      return this.constrain("regex", re, `$value = /${re.source}/`);
+  /** Pattern match (string). A string source can be constant-folded by the AOT compiler instead
+   *  of compiling a `RegExp` literal on every call site. */
+  $regex(re: string | RegExp, flags?: string): SField<S, Flags> {
+    if (this.schemaType === "string") {
+      const value = compileRegex(re, flags);
+      const suffix = flags === undefined ? "" : flags;
+      return this.constrain(
+        "regex",
+        value,
+        `$value = /${value.source}/${suffix}`,
+      );
+    }
     return this;
   }
   /** Greater than (number). */
@@ -908,8 +926,12 @@ export class SField<
     return this.chain("size", value, params);
   }
   // string patterns / transforms
-  regex(re: RegExp, params?: unknown): SField<S, Flags> {
-    return this.chain("regex", re, params);
+  regex(
+    re: string | RegExp,
+    params?: unknown,
+    flags?: string,
+  ): SField<S, Flags> {
+    return this.chain("regex", compileRegex(re, flags), params);
   }
   startsWith(value: string, params?: unknown): SField<S, Flags> {
     return this.chain("startsWith", value, params);
@@ -2163,8 +2185,14 @@ export const s = {
     objectFieldsRegistry.set(schema, fields);
     return new SObjectField<S>(schema).loose();
   },
-  /** Any JSON value (recursive: string/number/bool/null/array/object) — the DDL is the JSON union. */
-  json: () => new SField(z.json()),
+  /**
+   * JSON column. Without a type argument the output is Zod's recursive JSON union (DDL: the JSON
+   * union); pass a type argument to give the decoder a FIXED app shape —
+   * `s.json<{ tool: string; ms: number }>()` — so a row's field is no longer `any`/`unknown` at the
+   * call site (no `JSON.parse as unknown` in the app). The DDL is unchanged either way.
+   */
+  json: <T = z.output<ReturnType<typeof z.json>>>() =>
+    new SField(z.json()) as unknown as SField<z.ZodType<T, T>>,
   /** A CODEC: app-side `boolean`, wire/DB `string` (Zod `z.stringbool`). DDL is `string` (the DB form). */
   stringbool: (params?: Parameters<typeof z.stringbool>[0]) =>
     new SField(z.stringbool(params)),
@@ -2398,7 +2426,7 @@ type IsInternal<F> =
       ? true
       : false;
 /** The public zshape — internal fields are excluded (see `ZShapeAll` for the system view). */
-type ZShape<S extends Shape> = {
+export type ZShape<S extends Shape> = {
   [K in keyof S as IsInternal<S[K]> extends true ? never : K]: SchemaOf<S[K]>;
 };
 /** Every field's zshape, including internal ones — backs the `.system` view. */
@@ -2457,7 +2485,7 @@ type ToField<F> =
   F extends SField<infer Sc, infer _>
     ? SField<Sc, FlagsOf<F>>
     : SField<SchemaOf<F>>;
-type Fields<S extends Shape> = { [K in keyof S]: ToField<S[K]> };
+export type Fields<S extends Shape> = { [K in keyof S]: ToField<S[K]> };
 type Unwrap<F> =
   F extends SField<z.ZodOptional<infer Inner extends z.ZodType>, infer _>
     ? SField<Inner, FlagsOf<F>>
@@ -3151,23 +3179,66 @@ export interface TablePreset<Cols extends Shape = {}> {
 }
 
 /** A preset's contributed columns (its `Cols`). */
-type PresetCols<P> = P extends TablePreset<infer C> ? C : {};
+export type PresetCols<P> = P extends TablePreset<infer C> ? C : {};
+/** Public alias (the long form reads better in app type annotations). */
+export type PresetColumns<P> = PresetCols<P>;
 // biome-ignore lint/suspicious/noExplicitAny: the canonical `IsAny` probe.
 type IsAny<T> = 0 extends 1 & T ? true : false;
 /** Surfaced (as a compile error on the `.use(...)` argument) when a preset column collides with a table
- *  column. `.use` still returns a plain `TableDef`, so it stays a clean `AnyTable` subtype. */
+ *  column. `.use` still returns a plain `TableDef`, so it stays a clean `AnyTableRef` subtype. */
 export interface PresetColumnConflict<K> {
   readonly __ormPresetColumnConflict: K;
 }
 /** Constrain a `.use(...)` argument: if the preset's columns clash with the table's, intersect the
  *  marker so the passed preset no longer matches (a compile error naming the conflicting key). The
  *  `IsAny` guard keeps the shape-agnostic `TableDef<string, any>` usable. */
-type CheckPreset<S extends Shape, P> =
+export type CheckPreset<S extends Shape, P> =
   IsAny<S> extends true
     ? P
     : [Extract<keyof PresetCols<P>, keyof Omit<S, "id">>] extends [never]
       ? P
       : PresetColumnConflict<Extract<keyof PresetCols<P>, keyof Omit<S, "id">>>;
+
+/** Preset columns that the table already declares with the SAME type — overlap is harmless. */
+type IdenticalPresetKeys<S extends Shape, P> = {
+  [K in keyof PresetCols<P> & keyof S]: [PresetCols<P>[K]] extends [S[K]]
+    ? [S[K]] extends [PresetCols<P>[K]]
+      ? K
+      : never
+    : never;
+}[keyof PresetCols<P> & keyof S];
+
+/** Only genuinely divergent columns are conflicts. */
+type ConflictingPresetKeys<S extends Shape, P> = Exclude<
+  Extract<keyof PresetCols<P>, keyof Omit<S, "id">>,
+  IdenticalPresetKeys<S, P>
+>;
+
+/** Idempotent `.use()` guard: identical columns are accepted, only divergent keys produce
+ *  `PresetColumnConflict`. A helper over an unresolved `S` cannot verify collisions at all — it
+ *  uses the explicit, type-preserving {@link TableDef.useUnchecked} escape instead of collapsing
+ *  the shape to `any`. */
+export type CheckPresetIdempotent<S extends Shape, P> =
+  IsAny<S> extends true
+    ? P
+    : [ConflictingPresetKeys<S, P>] extends [never]
+      ? P
+      : PresetColumnConflict<ConflictingPresetKeys<S, P>>;
+
+/** Merge a preset's columns into a shape. Identical overlaps collapse (idempotent presets). */
+export type MergePresetShape<S extends Shape, P> = Omit<
+  S,
+  keyof PresetCols<P>
+> &
+  PresetCols<P>;
+
+/** The result of applying preset `P` to a `Name`/`S` table — spell it out in an app helper's
+ *  return type instead of `as unknown as TableDef<…>`. */
+export type ApplyPreset<
+  Name extends string,
+  S extends Shape,
+  P extends TablePreset,
+> = TableDef<Name, WithSmartId<Name, MergePresetShape<S, P>>>;
 // NOTE: `.use` is deliberately SINGLE-ARG (chain `.use(a).use(b)`), not variadic. Both variadic typing
 // strategies — `UnionToIntersection<PresetCols<Ps[number]>>` over a tuple, and an intersected variadic
 // arg-constraint — crash tsc 5.9.3 (`getSignatureApplicabilityError` Debug Failure), and fixed-arity
@@ -3624,6 +3695,28 @@ export class TableDef<
     );
   }
   /**
+   * Add `ext` only when `cond` is true — the typed replacement for a runtime
+   * `createOnly ? {createdAt} : {createdAt, deletedAt, updatedAt}` union. The added keys are
+   * OPTIONAL in the resulting shape (the runtime may skip them), so no union of shapes ever
+   * reaches the AOT compiler: `table(name, shape).extend(a).extendIf(!createOnly, b).build()`.
+   */
+  extendIf<E extends Shape>(
+    cond: boolean,
+    ext: E | SObjectField<E>,
+  ): TableDef<Name, S & Partial<E>> {
+    return cond
+      ? (this.extend(ext) as unknown as TableDef<Name, S & Partial<E>>)
+      : (this as unknown as TableDef<Name, S & Partial<E>>);
+  }
+  /**
+   * Terminal of the fluent authoring chain (`table(name, shape).extend(meta).stringIds().build()`).
+   * Identity — a `TableDef` is already the finished definition; this only makes the end of the
+   * chain explicit at the call site.
+   */
+  build(): this {
+    return this;
+  }
+  /**
    * Apply a {@link TablePreset | preset} — a reusable bundle of columns + permissions + events + indexes
    * (`table("post", fields).use(tenant("org_id")).use(timestamps())`). Its columns typed-merge into
    * the table (fully typed at any depth — **chain** `.use(a).use(b)` for several); permissions per-op
@@ -3633,17 +3726,46 @@ export class TableDef<
    * deliberately — a variadic typed merge would either cap the arity or drop the column types past
    * that cap; chaining keeps every preset typesafe.)
    */
+  /** Structural equivalence for an overlapping preset column. Different Zod types or different
+   *  SurrealQL metadata are a real conflict; two independently authored but identical columns are
+   *  NOT (preset idempotence — the app may declare `tenant_id` on the table and in `tenant()`). */
+  private static sameColumn(a: AnyField, b: AnyField): boolean {
+    if (a === b) return true;
+    const asf = a instanceof SField ? a : undefined;
+    const bsf = b instanceof SField ? b : undefined;
+    if (Boolean(asf) !== Boolean(bsf)) return false;
+    const az = (asf?.schema ?? a) as z.ZodType;
+    const bz = (bsf?.schema ?? b) as z.ZodType;
+    if (az.def.type !== bz.def.type) return false;
+    if (!asf || !bsf) return true;
+    const norm = (m: SurrealMeta): string =>
+      JSON.stringify(m, (_key, value) =>
+        value instanceof BoundQuery ? String(value) : value,
+      );
+    return norm(asf.surreal) === norm(bsf.surreal);
+  }
+
   use<P extends TablePreset>(
-    preset: P & CheckPreset<S, P>,
-  ): TableDef<Name, WithSmartId<Name, S & PresetCols<P>>> {
+    preset: P & CheckPresetIdempotent<S, P>,
+  ): ApplyPreset<Name, S, P> {
     // biome-ignore lint/suspicious/noExplicitAny: fold through the driver methods; return typed by the signature.
     let t: any = this;
     if (preset.columns) {
-      for (const k of Object.keys(preset.columns))
-        if (k !== "id" && k in (t.fields as object))
+      const fields = t.fields as Record<string, AnyField>;
+      for (const k of Object.keys(preset.columns)) {
+        if (k === "id") continue;
+        const existing = fields[k];
+        if (
+          existing &&
+          !TableDef.sameColumn(
+            existing,
+            (preset.columns as Record<string, AnyField>)[k] as AnyField,
+          )
+        )
           throw new Error(
             `preset column "${k}" conflicts with an existing column on table "${t.name}"`,
           );
+      }
       t = t.extend(preset.columns);
     }
     if (preset.permissions !== undefined)
@@ -3667,7 +3789,23 @@ export class TableDef<
     // `S & PresetCols` keeps the EXISTING id in WithSmartId's input — `IdValue` extracts its
     // declared value type verbatim (a tuple id, a singleton literal). The previous
     // `Omit<S, "id">` re-derived the id as the broad RecordIdValue.
-    return t as TableDef<Name, WithSmartId<Name, S & PresetCols<P>>>;
+    return t as unknown as ApplyPreset<Name, S, P>;
+  }
+  /** Escape hatch for a generic/unresolved `S`: skips ONLY the collision check while preserving
+   *  `Name` and `S` (no `IsAny` collapse). Use when a helper cannot supply a concrete shape. */
+  useUnchecked<P extends TablePreset>(preset: P): ApplyPreset<Name, S, P> {
+    return this.use(preset as P & CheckPresetIdempotent<S, P>) as ApplyPreset<
+      Name,
+      S,
+      P
+    >;
+  }
+  /** `.use()` with an explicit result shape — removes the final `as unknown as TableDef<…>` from
+   *  a helper that already knows the post-preset shape. */
+  useAs<R extends Shape, _P extends TablePreset>(
+    preset: _P,
+  ): TableDef<Name, R> {
+    return this.useUnchecked(preset) as unknown as TableDef<Name, R>;
   }
   pick<K extends keyof S>(...keys: K[]): TableDef<Name, Pick<S, K>> {
     const src = this.fields as unknown as Record<string, AnyField>;
@@ -3899,7 +4037,10 @@ type IdMode<Id> =
 /** Is `S` a BROAD shape (an index signature, e.g. `AnyTable`'s)? Broad tables carry BOTH modes, so a
  *  concrete string-id table stays assignable to them. */
 type IsBroadShape<S> = string extends keyof S ? true : false;
-type WithSmartId<Name extends string, S extends Shape> = Omit<S, "id"> & {
+export type WithSmartId<Name extends string, S extends Shape> = Omit<
+  S,
+  "id"
+> & {
   id: RecordIdField<
     Name,
     "id" extends keyof S ? IdValue<S["id"]> : RecordIdValue,
@@ -4060,6 +4201,29 @@ export function stringIdsOf(schema: z.ZodType): boolean {
 }
 
 /**
+ * The fluent authoring builder: an alias for the finished {@link TableDef}, because every fluent
+ * method (`.extend`, `.extendIf`, `.use`, `.index`, `.stringIds`, …) lives on `TableDef` itself and
+ * `.build()` is an identity terminal. Use it when you want to name the chain's type explicitly:
+ *
+ * ```ts
+ * const customer: TableBuilder<"customer", CustomerShape> = table("customer", shape)
+ *   .extend(auditColumns)
+ *   .use(tenant(userTable))
+ *   .build();
+ * ```
+ *
+ * The point of the chain is AOT-friendly authoring: an app helper generic over `S` cannot spread
+ * `S` into a callback (`() => ({...shape, ...meta})`) without giving Bun's AOT an object whose
+ * shape "changes inside the generic" (the top `--explain` cause). Composing at the call site keeps
+ * every shape literal concrete; the merge happens HERE, in code compiled once by the library.
+ */
+export type TableBuilder<
+  Name extends string,
+  S extends Shape,
+  Unique = never,
+> = TableDef<Name, S, Unique>;
+
+/**
  * Define a normal table (schemafull by default). The shape may be a plain object, or a callback
  * `(self) => ({...})` that receives a `record<thisTable>` field — use it for self-referential
  * links: `manager: self.optional()`. Type-safe with no repeated table name: `self`'s type comes
@@ -4071,7 +4235,7 @@ export function stringIdsOf(schema: z.ZodType): boolean {
  * offending key resolves to an error string, so the shape literal won't type-check. Give such a
  * field `.$surreal(type, codec)` to make it storable, or drop it.
  */
-type RejectNoDdl<S extends Shape> = {
+export type RejectNoDdl<S extends Shape> = {
   // `string extends FlagsOf` -> flags are unresolved (e.g. the callback form leaves `S` broad);
   // only reject when the brand is a concrete member, never on the generic fallback.
   [K in keyof S]: string extends FlagsOf<S[K]>
@@ -4094,7 +4258,7 @@ type IdOutput<Id> =
 
 /** Compile-time guard: an explicit `id` field must have a valid `RecordIdValue` value type — a
  *  `s.symbol()`/`s.boolean()` id (not a valid id value) is rejected rather than silently widened. */
-type RejectBadId<S extends Shape> = "id" extends keyof S
+export type RejectBadId<S extends Shape> = "id" extends keyof S
   ? [IdOutput<S["id"]>] extends [RecordIdValue]
     ? unknown
     : {
@@ -4111,6 +4275,12 @@ export function table<Name extends string, S extends Shape = {}>(
   // `inferField` backstop instead. The `s.object()` form is accepted too (its native `.fields` map is
   // unwrapped) so a schema can be composed then turned into a table. Omitting `shape` gives a bare
   // table (just the implicit `id`) — same as `relation(name)`.
+  //
+  // A generic app helper passes its shape through the callback form (`table(name, () => shape)`)
+  // and composes the rest with the fluent builder (`.extend(...).use(...).build()`): no object
+  // spread in the app, so the AOT compiler always sees a fixed shape. The guards below stay strict
+  // for CONCRETE literals; they are deliberately not `NoInfer`-wrapped because that makes `S`
+  // unprovable inside a generic helper (see the AOT type assertions).
   shape?:
     | (S & RejectNoDdl<S> & RejectBadId<S>)
     | ((self: RecordIdField<Name>) => S)
@@ -4223,7 +4393,10 @@ table.preset = <Cols extends Shape = {}>(
  * `RecordRefName<T>`'s inference from resolving through this type's own shape.
  */
 // biome-ignore lint/suspicious/noExplicitAny: shape-agnostic table reference for relation endpoints
-type AnyTable = TableDef<string, any, never>;
+export type AnyTableRef = TableDef<string, any, never>;
+/** @deprecated internal alias — use {@link AnyTableRef} (the public name does not collide with
+ *  `AnyTable` from `better-schemic/core`). */
+type AnyTable = AnyTableRef;
 /** A single relation endpoint: a table def, a SurrealDB `Table` instance, or a bare table name. */
 type TableLike = AnyTable | Table<string> | string;
 /** A relation endpoint reference — one table, or an array (a `|`-union of `in`/`out` tables); mix freely. */

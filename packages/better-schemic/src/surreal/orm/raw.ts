@@ -15,6 +15,7 @@
  * `client.transaction` the batch rides the open transaction).
  */
 import type { BoundQuery } from "surrealdb";
+import type { TypedBoundQuery } from "../surql/typed-bound";
 import {
   type Binds,
   compileError,
@@ -62,6 +63,11 @@ export interface RawOperations {
   $raw<T>(source: RawSource, options?: RawOptions): Promise<T>;
   /** Curried form: pre-set the options and get the tag back (`$raw({ timeout })\`…\``). */
   $raw(options: RawOptions): RawTag;
+  /** A `TypedBoundQuery` carries both its bind types and its result-row tuple — no `<unknown[]>`
+   *  and no per-row cast at the call site. */
+  $query<B extends Record<string, unknown>, R extends unknown[]>(
+    source: TypedBoundQuery<B, R>,
+  ): Promise<R>;
   $query<T extends readonly unknown[]>(
     strings: TemplateStringsArray,
     ...values: unknown[]
