@@ -70,7 +70,6 @@ export interface ConnectionEntry<Client = unknown, Args = undefined> {
 }
 
 /** Cross-driver erasure of the entry generics (like `AnyField`) — the shape neutral maps hold. */
-// biome-ignore lint/suspicious/noExplicitAny: cross-driver erasure of the per-entry client/args types.
 export type AnyConnectionEntry = ConnectionEntry<any, any>;
 
 /** A connection factory's input: a static config, or a resolver yielding one config or a keyed collection. */

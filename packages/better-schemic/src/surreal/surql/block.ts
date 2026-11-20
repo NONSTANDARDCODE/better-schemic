@@ -71,8 +71,7 @@ interface ToQuery {
  *  itself. */
 export type ValueOf<X> = X extends Expr
   ? boolean
-  : // biome-ignore lint/suspicious/noExplicitAny: matching any block.
-    X extends Block<any, infer R>
+  : X extends Block<any, infer R>
     ? R
     : X extends BoundQuery<[infer T]>
       ? T
@@ -226,7 +225,6 @@ export class Block<V extends Record<string, unknown>, R> {
       throw new Error(
         "block().let() got an empty object — bind at least one var: .let({ name: value }).",
       );
-    // biome-ignore lint/suspicious/noExplicitAny: accumulating across per-key next() steps.
     let out: Block<any, R> = this;
     for (const [name, v] of entries) {
       Block.checkName("let", name);
@@ -348,7 +346,6 @@ export class Block<V extends Record<string, unknown>, R> {
 }
 
 /** Start a typed statement block — `block().let("n", …).if((s) => s.n.gt(100), …)`. */
-// biome-ignore lint/complexity/noBannedTypes: {} is the honest "no vars yet" seed.
 export function block(): Block<{}, never> {
   return new Block();
 }

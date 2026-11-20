@@ -31,7 +31,6 @@ export function createPalette(enabled: boolean): Palette {
   };
 }
 
-// biome-ignore lint/suspicious/noControlCharactersInRegex: matching the SGR/ANSI escape is the point.
 const ANSI = /\u001b\[[0-9;]*m/g;
 
 /** Strip SGR sequences from a string. */

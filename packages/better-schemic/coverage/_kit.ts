@@ -15,7 +15,6 @@ import { fileURLToPath } from "node:url";
 import type { DefineOptions } from "../src/surreal/ddl";
 import type { StandaloneDef, TableDef } from "../src/surreal/pure";
 
-// biome-ignore lint/suspicious/noExplicitAny: heterogeneous coverage tables — the Shape varies.
 export type AnyTable = TableDef<string, any>;
 
 /** A coverage `def` — a table (asserted via `emitTable`) or a standalone def (via `emitDefStatement`):
@@ -88,7 +87,6 @@ function extractDefSource(src: string): string {
   }
   return src
     .slice(start, i)
-    .replace(/^[ \t]*\/\/ biome-ignore.*\r?\n/gm, "")
     .trim();
 }
 

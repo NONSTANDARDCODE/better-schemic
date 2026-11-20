@@ -64,7 +64,6 @@ describe("tenant() — zero-diff against the manual recipe", () => {
       })
       .event("customer_protect_tenant_id", {
         when: surql`$event = 'CREATE' OR $event = 'UPDATE'`,
-        // biome-ignore lint/suspicious/noThenProperty: SurrealQL's event THEN clause.
         then: surql`IF $auth != NONE AND $after.tenant_id != $auth.id { THROW ${"tenant_id cannot manually be set to a different value than the authenticated user"}; }`,
       })
       .index("customer_tenant_id_idx", ["tenant_id"])

@@ -21,9 +21,7 @@ import { writeManifest } from "./manifest";
 interface DriverCatalog {
   driver: string;
   lang: string;
-  // biome-ignore lint/suspicious/noExplicitAny: each driver's Definable type is its own; we only emit.
   groups: { file: string; about: string; examples: any[] }[];
-  // biome-ignore lint/suspicious/noExplicitAny: driver-specific Definable[].
   emit: (defs: any[]) => string;
 }
 

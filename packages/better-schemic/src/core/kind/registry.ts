@@ -190,7 +190,6 @@ function slugify(s: string): string {
 export class KindRegistry {
   // Heterogeneous kinds erase at the engine seam (engine ops are structural); the AUTHORING side
   // keeps full types via `define`'s `Build` passthrough.
-  // biome-ignore lint/suspicious/noExplicitAny: the engine seam is intentionally type-erased.
   private readonly kinds = new Map<string, KindEngine<any, any>>();
 
   /**
@@ -211,7 +210,6 @@ export class KindRegistry {
   }
 
   /** The engine for `kind`, or undefined if no such kind is registered. */
-  // biome-ignore lint/suspicious/noExplicitAny: the engine erases at this seam (see `kinds`).
   engine(kind: string): KindEngine<any, any> | undefined {
     return this.kinds.get(kind);
   }
@@ -276,7 +274,6 @@ export class KindRegistry {
   }
 
   /** [name, engine] pairs in registration order — the spine iterates these. */
-  // biome-ignore lint/suspicious/noExplicitAny: the engine erases at this seam (see `kinds`).
   entries(): [string, KindEngine<any, any>][] {
     return [...this.kinds.entries()];
   }

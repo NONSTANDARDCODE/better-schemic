@@ -59,7 +59,6 @@ interface KindEngine<A extends Authored, P extends PortableObject> {
   dependsOn?(portable: P): string[]; // names this object depends on (cross-kind ordering)
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: the registry erases per-kind types (engine is structural).
 const REGISTRY = new Map<string, KindEngine<any, any>>();
 
 /**

@@ -184,7 +184,6 @@ describe("chained config (defineConfig().connection(...))", () => {
   const fakeFactory = (
     input: import("../../../src/core/connection").ConnectionInput<
       { schema: string; key?: string },
-      // biome-ignore lint/suspicious/noExplicitAny: test factory
       any
     >,
   ) =>

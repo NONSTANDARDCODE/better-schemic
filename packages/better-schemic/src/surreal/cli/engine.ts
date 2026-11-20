@@ -250,7 +250,6 @@ export async function connectEmbedded(
     query_timeout: cfg.query_timeout,
     transaction_timeout: cfg.transaction_timeout,
   });
-  // biome-ignore lint/suspicious/noExplicitAny: the SDK's `engines` option is loosely typed here.
   const db = new Surreal({ engines } as any);
   await db.connect(url);
   await db.query(`DEFINE NAMESPACE IF NOT EXISTS ${escapeIdent(namespace)}`);

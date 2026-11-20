@@ -17,7 +17,6 @@ import {
 const fakeRegistry = (names: string[]) =>
   ({ names: () => names }) as unknown as KindRegistry;
 
-// biome-ignore lint/suspicious/noExplicitAny: the registry erases each engine's A/P at this seam.
 type FakeEngine = KindEngine<any, any>;
 
 // A minimal fake engine: emit joins a `ddl` field; owner/parent read `table`/`parent` fields off the

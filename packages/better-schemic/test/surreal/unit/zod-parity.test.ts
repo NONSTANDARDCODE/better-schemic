@@ -151,7 +151,6 @@ describe("native Zod chain methods (Tier-2: app-side, DDL unchanged)", () => {
   });
 
   test("wrong base type throws a clear error", () => {
-    // biome-ignore lint/suspicious/noExplicitAny: probing a runtime guard
     expect(() => (s.int() as any).email()).toThrow(
       "surrealdb: .email() is not available on this field's base type.",
     );

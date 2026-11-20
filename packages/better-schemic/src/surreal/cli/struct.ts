@@ -384,7 +384,6 @@ function normalizeEvent(ev: StructEvent): StructEvent {
   const out: StructEvent = {
     name: ev.name,
     what: ev.what,
-    // biome-ignore lint/suspicious/noThenProperty: `then` mirrors SurrealQL's event THEN clause.
     then: ev.then.map(normalizeExprText),
   };
   if (ev.when !== undefined && ev.when !== "true")

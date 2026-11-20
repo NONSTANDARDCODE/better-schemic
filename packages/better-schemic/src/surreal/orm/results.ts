@@ -86,7 +86,6 @@ export function lazyResult<T>(run: () => Promise<T>): Promise<T> {
   const get = () => (started ??= run());
   // A `Promise` needs exactly then/catch/finally + the tag, so the annotation IS the contract.
   const thenable: Promise<T> = {
-    // biome-ignore lint/suspicious/noThenProperty: a lazy thenable is the point — await starts it.
     then: <TResult1 = T, TResult2 = never>(
       onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
       onrejected?:

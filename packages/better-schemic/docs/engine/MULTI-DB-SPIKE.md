@@ -200,7 +200,7 @@ IR and derive/emit DDL on demand (a manageable snapshot-format migration).
 ## Spike outcome (built & green)
 
 All four milestones are implemented in `packages/better-schemic/src/core/driver/` and proven by tests
-(`bun test test/unit` → 316 pass; typecheck + biome clean). The thesis holds: **an authored `sz.*`
+(`bun test test/unit` → 316 pass; typecheck clean). The thesis holds: **an authored `sz.*`
 schema migrates to a real SQL engine and round-trips to zero diff.**
 
 - **`portable.ts`** — the `PortableType` keystone + constructors (the `option`/`nullable` split and

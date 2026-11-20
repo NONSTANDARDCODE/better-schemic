@@ -83,7 +83,6 @@ const HARD_MESSAGE =
 const HARD_EVENT: PresetEvent = {
   name: CREATE_ONLY_EVENT_TEMPLATE,
   when: surql`$event = 'UPDATE'`,
-  // biome-ignore lint/suspicious/noThenProperty: SurrealQL's event THEN clause, not a thenable.
   then: surql`{ THROW ${HARD_MESSAGE}; }`,
 };
 

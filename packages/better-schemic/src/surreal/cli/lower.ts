@@ -226,7 +226,6 @@ function lowerField(
  *  multi-statement entry auto-blocks `{ …; }` — matching `emitEvent` + INFO's canonical form). */
 function lowerEvent(table: string, ev: TableEvent): StructEvent {
   const thens = (Array.isArray(ev.then) ? ev.then : [ev.then]).map(blockThen);
-  // biome-ignore lint/suspicious/noThenProperty: `then` mirrors SurrealQL's event THEN clause.
   const out: StructEvent = { name: ev.name, what: table, then: thens };
   if (ev.when !== undefined) out.when = eventClause(ev.when);
   // `ASYNC [RETRY n] [MAXDEPTH n]` — carried so the event round-trips and diffs (canonical strips

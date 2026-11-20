@@ -59,11 +59,9 @@ export interface OrmConfig {
 export type SchemicConfig = OrmConfig;
 
 /** The bound ORM client type a {@link ConnectionEntry} opens (inferred from the driver factory). */
-// biome-ignore lint/suspicious/noExplicitAny: matching the erased Args slot.
 export type EntryClient<E> =
   E extends ConnectionEntry<infer Client, any> ? Client : never;
 /** The typed resolver `args` a {@link ConnectionEntry} accepts (from its `args` schema). */
-// biome-ignore lint/suspicious/noExplicitAny: matching the erased Client slot.
 export type EntryArgs<E> =
   E extends ConnectionEntry<any, infer Args> ? Args : never;
 
@@ -116,7 +114,6 @@ export interface ChainableDriverFactory<
   C extends ConnectionConfigBase,
   Client,
 > {
-  // biome-ignore lint/suspicious/noExplicitAny: the chain re-types input/args itself (variance cast).
   (input: ConnectionInput<C, any>): ConnectionEntry<Client, any>;
 }
 

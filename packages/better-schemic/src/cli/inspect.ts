@@ -41,7 +41,6 @@ export function pickSource(opts: {
   return "declared";
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: the registry erases each engine's A/P at this seam.
 type AnyEngine = KindEngine<any, any>;
 
 /** kind -> engine, built once from the neutral registry (the public `entries()` enumeration). */

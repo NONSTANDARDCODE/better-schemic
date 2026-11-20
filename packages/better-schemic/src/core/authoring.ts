@@ -19,12 +19,10 @@ import * as z from "zod";
 // concrete `N` is preserved everywhere it matters — each driver's own field type keeps `N = <D>Meta`.
 
 /** Any field of ANY dialect — the base type the helpers + wrappers accept. */
-// biome-ignore lint/suspicious/noExplicitAny: cross-dialect erasure of the invariant native slot N.
 export type AnyField = SFieldBase<z.ZodType, string, any>;
 
 /** The Zod schema a field (or a raw Zod schema) carries. */
 export type SchemaOf<F> =
-  // biome-ignore lint/suspicious/noExplicitAny: match a field of any dialect (N is invariant).
   F extends SFieldBase<infer S, string, any>
     ? S
     : F extends z.ZodType
@@ -33,7 +31,6 @@ export type SchemaOf<F> =
 
 /** The `Flags` channel a field carries (driver `$`-methods brand it; widens to `string` for `Shape`). */
 export type FlagsOf<F> =
-  // biome-ignore lint/suspicious/noExplicitAny: match a field of any dialect (N is invariant).
   F extends SFieldBase<z.ZodType, infer Fl, any> ? Fl : never;
 
 /** The schema one wrapper down — what `unwrap()` returns. */

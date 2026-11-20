@@ -7,7 +7,6 @@ export default example(import.meta.url, {
   ddl: `DEFINE EVENT onCreate ON TABLE account WHEN $event = "CREATE" THEN (CREATE log SET account = $after.id), (UPDATE stats SET count += 1);`,
   def: defineEvent("account", "onCreate", {
     when: surql`$event = "CREATE"`,
-    // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable.
     then: [
       surql`CREATE log SET account = $after.id`,
       surql`UPDATE stats SET count += 1`,

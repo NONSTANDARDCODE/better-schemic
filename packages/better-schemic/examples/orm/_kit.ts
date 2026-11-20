@@ -128,7 +128,6 @@ function extractDefSource(src: string, title: string): string {
   }
   return src
     .slice(start, i)
-    .replace(/^[ \t]*\/\/ biome-ignore.*\r?\n/gm, "")
     .trim();
 }
 

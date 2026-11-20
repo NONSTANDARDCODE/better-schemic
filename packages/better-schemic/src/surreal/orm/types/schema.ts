@@ -24,14 +24,12 @@ import type {
 } from "../../pure";
 
 /** A typed table/edge def with its shape erased — the structural upper bound for schema entries. */
-// biome-ignore lint/suspicious/noExplicitAny: TableDef's Shape varies per call site.
 export type AnyTableDef = TableDef<string, any>;
 
 /** A relation (edge) def with shape + endpoint captures erased. The endpoint ID MODES stay broad
  *  (`RecordIdMode`), so a string-id relation is still an `AnyRelationDef`. */
 export type AnyRelationDef = RelationDef<
   string,
-  // biome-ignore lint/suspicious/noExplicitAny: RelationDef's Shape varies per call site.
   any,
   string,
   string,
@@ -42,7 +40,6 @@ export type AnyRelationDef = RelationDef<
 >;
 
 /** A user-defined DB function def with its arg shape/return erased. */
-// biome-ignore lint/suspicious/noExplicitAny: FunctionDef's arg shape/return vary per call site.
 export type AnyFunctionDef = FunctionDef<any, any>;
 
 /** One `schema` entry: a table, an edge, a function, or a schemaless table's physical name. */

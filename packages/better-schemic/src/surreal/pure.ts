@@ -562,7 +562,6 @@ function applyObjectMode(
   schema: z.ZodType,
   mode: "loose" | "strict",
 ): z.ZodType {
-  // biome-ignore lint/suspicious/noExplicitAny: walking Zod's internal def shape.
   const def = (schema as any)._zod.def;
   switch (def?.type) {
     case "object": {
@@ -579,14 +578,12 @@ function applyObjectMode(
     case "array":
     case "set": {
       const key = "element" in def ? "element" : "valueType";
-      // biome-ignore lint/suspicious/noExplicitAny: .clone(def) is Zod-internal but check-preserving.
       return (schema as any).clone({
         ...def,
         [key]: applyObjectMode(def[key], mode),
       });
     }
     case "union":
-      // biome-ignore lint/suspicious/noExplicitAny: .clone(def) is Zod-internal.
       return (schema as any).clone({
         ...def,
         options: (def.options as z.ZodType[]).map((o) =>
@@ -599,7 +596,6 @@ function applyObjectMode(
     case "prefault":
     case "readonly":
     case "catch":
-      // biome-ignore lint/suspicious/noExplicitAny: .clone(def) is Zod-internal.
       return (schema as any).clone({
         ...def,
         innerType: applyObjectMode(def.innerType, mode),
@@ -3182,7 +3178,6 @@ export interface TablePreset<Cols extends Shape = {}> {
 export type PresetCols<P> = P extends TablePreset<infer C> ? C : {};
 /** Public alias (the long form reads better in app type annotations). */
 export type PresetColumns<P> = PresetCols<P>;
-// biome-ignore lint/suspicious/noExplicitAny: the canonical `IsAny` probe.
 type IsAny<T> = 0 extends 1 & T ? true : false;
 /** Surfaced (as a compile error on the `.use(...)` argument) when a preset column collides with a table
  *  column. `.use` still returns a plain `TableDef`, so it stays a clean `AnyTableRef` subtype. */
@@ -3666,7 +3661,6 @@ export class TableDef<
     const event: TableEvent = {
       name,
       when: spec.when === undefined ? undefined : resolveEventExpr(spec.when),
-      // biome-ignore lint/suspicious/noThenProperty: `then` is the SurrealQL THEN clause (a string/BoundQuery), not a PromiseLike.
       then: resolveEventExpr(spec.then),
       async: spec.async,
       comment: spec.comment,
@@ -3748,7 +3742,6 @@ export class TableDef<
   use<P extends TablePreset>(
     preset: P & CheckPresetIdempotent<S, P>,
   ): ApplyPreset<Name, S, P> {
-    // biome-ignore lint/suspicious/noExplicitAny: fold through the driver methods; return typed by the signature.
     let t: any = this;
     if (preset.columns) {
       const fields = t.fields as Record<string, AnyField>;
@@ -3905,7 +3898,6 @@ export class TableDef<
  * `.object` validates/encodes/decodes the full shape, and `encode`/`encodePartial` accept
  * internal fields. Exposed for trusted server code; never hand it to a browser client.
  */
-// biome-ignore lint/correctness/noUnusedVariables: Name mirrors TableDef<Name, S> for symmetry (type-only)
 export class SystemView<Name extends string, S extends Shape> {
   /** Zod object over ALL fields (internal included). */
   readonly object: z.ZodObject<ZShapeAll<S>>;
@@ -4266,7 +4258,6 @@ export type RejectBadId<S extends Shape> = "id" extends keyof S
       }
   : unknown;
 
-// biome-ignore lint/complexity/noBannedTypes: `{}` is the empty default shape — a bare table (just `id`), like relation.
 export function table<Name extends string, S extends Shape = {}>(
   name: Name,
   // A no-DDL field / bad id in the raw-map form is rejected at compile time (`RejectNoDdl` +
@@ -4344,7 +4335,6 @@ export type SingletonIdOf<TD> =
  * The fixed key types through the shape (the id field's value type is the string literal), so
  * the id-optional overloads survive presets and chaining.
  */
-// biome-ignore lint/complexity/noBannedTypes: `{}` is the empty default shape, like table.
 export function defineSingleton<
   Name extends string,
   S extends Shape = {},
@@ -4392,7 +4382,6 @@ table.preset = <Cols extends Shape = {}>(
  * `Unique` is pinned to `never`: a reference carries no unique-field union, and pinning it keeps
  * `RecordRefName<T>`'s inference from resolving through this type's own shape.
  */
-// biome-ignore lint/suspicious/noExplicitAny: shape-agnostic table reference for relation endpoints
 export type AnyTableRef = TableDef<string, any, never>;
 /** @deprecated internal alias — use {@link AnyTableRef} (the public name does not collide with
  *  `AnyTable` from `better-schemic/core`). */
@@ -4819,7 +4808,6 @@ const PARAM_REF_BRAND: unique symbol = Symbol.for(
 
 /** A `$param.path` reference (built via `surql.$`) — splices as text (`$after.email`), never
  *  binds. Branded with a `Symbol.for` key so cross-instance checks survive package splits. */
-// biome-ignore lint/correctness/noUnusedVariables: T is the phantom value type.
 export class ParamRef<T = unknown> {
   /** PHANTOM value type — lets typed operands (`u.age.gte(a.threshold)`) type-check. */
   declare readonly __t?: T;

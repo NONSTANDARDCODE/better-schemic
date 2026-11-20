@@ -210,7 +210,6 @@ export function tenant<
       when: surql`$event = 'CREATE' OR $event = 'UPDATE'`,
       // `$auth != NONE` keeps privileged/system writes (no session auth) working; the runtime
       // plugin is what scopes THOSE sessions.
-      // biome-ignore lint/suspicious/noThenProperty: SurrealQL's event THEN clause, not a thenable.
       then: surql`IF ${paramProxy(["auth"])} != NONE AND ${paramProxy(["after", column])} != ${paramProxy(["auth", "id"])} { THROW ${message}; }`,
     });
   }

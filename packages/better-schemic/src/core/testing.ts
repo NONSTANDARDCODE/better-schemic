@@ -25,7 +25,6 @@ import { emitKinds, lowerSchema } from "./kind";
  * enforces the real contract at RUNTIME, not via this type (see the header note), so a precise
  * "function-or-nested-namespace" shape would only fight the internal `s.<key>()` calls for no gain.
  */
-// biome-ignore lint/suspicious/noExplicitAny: a driver's `s` is dialect-specific + may nest; runtime-duck-typed.
 type Authoring = Record<string, any>;
 
 export interface DriverConformanceOptions {
@@ -40,7 +39,6 @@ export interface DriverConformanceOptions {
    * and a field shape. Used to lower a probe object through the pipeline. Drivers pass their own
    * `define*` for this (e.g. `defineEntity: table`); the suite stays shape-agnostic.
    */
-  // biome-ignore lint/suspicious/noExplicitAny: dialect-specific definable/shape types.
   defineEntity: (name: string, shape: Record<string, any>) => any;
 }
 

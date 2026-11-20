@@ -35,7 +35,6 @@ import { diffSnapshots } from "../../../src/surreal/cli/surreal-diff";
 import { lowerAll, surrealKinds } from "../../../src/surreal/kinds/registry";
 
 // Lib-authored tables/defs vs the src-typed signatures: cast at the seam (as buildSnapshot does).
-// biome-ignore lint/suspicious/noExplicitAny: bridge the src-vs-lib TableDef duality at the test seam.
 type AnyArr = any[];
 // The driver's INTERNAL clause-level engine over the CANONICAL snapshot (`structuredSnapshot` — the
 // SAME renderer the registry's `explode` uses, so divergences like DEFAULT quote style match).
@@ -214,7 +213,6 @@ describe("event kind parity", () => {
   const evented = () =>
     table("user", { id: s.string(), n: s.int() }).event("on_n", {
       when: surql`$before.n != $after.n`,
-      // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable.
       then: surql`UPDATE $after.id SET touched = true`,
     });
 
@@ -226,7 +224,6 @@ describe("event kind parity", () => {
     const changed = () =>
       table("user", { id: s.string(), n: s.int() }).event("on_n", {
         when: surql`$before.n != $after.n`,
-        // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable.
         then: surql`UPDATE $after.id SET touched = false`,
       });
     parity([evented()], [changed()]);
@@ -248,7 +245,6 @@ describe("cross-kind dependency ordering (emitKinds)", () => {
       email: s.email().$unique(),
     }).event(
       "ev",
-      // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable.
       { then: surql`UPDATE $after.id SET seen = true` },
     );
     const up = emitKinds(surrealKinds, lowerAll([t]));
@@ -298,7 +294,6 @@ describe("buildKindDiff + snapshot round-trip", () => {
     const portable = lowerAll([
       table("user", { id: s.string(), email: s.email().$unique() }).event(
         "ev",
-        // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable.
         { then: surql`UPDATE $after.id SET seen = true` },
       ),
     ]);
@@ -413,7 +408,6 @@ describe("fn:: dependency ordering (function emits before its caller)", () => {
 
   test("before an event whose THEN calls it", () => {
     const t = table("user", { id: s.string(), n: s.int() }).event("ev", {
-      // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable.
       then: surql`UPDATE $after.id SET x = fn::fmt("y")`,
     });
     const up = emitKinds(surrealKinds, lowerAll([t], [fmt()]));

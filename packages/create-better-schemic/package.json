@@ -27,11 +27,9 @@
     "build": "bun run ../../scripts/build.ts",
     "prepack": "bun run build",
     "test": "bun test",
-    "typecheck": "bun check",
-    "lint": "biome check ."
+    "typecheck": "bun check"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.6.8",
     "@clack/prompts": "^1.9.0",
     "@types/bun": "^1.4.4"
   }

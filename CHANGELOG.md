@@ -18,6 +18,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+### Removed
+- **Biome / lint tooling** (repo): removed the `biome.json` config, the `@biomejs/biome` dependency and `lint` scripts from both packages, the lockfile entries, and all `// biome-ignore` suppressions (including the snippet sanitizers in the example/coverage kits and the tooling mentions in docs). Typecheck and tests remain the gate.
+
 ## [0.1.0-beta.6] - 2026-11-20
 
 ### Added

@@ -18,7 +18,6 @@ import { emitDefStatement, emitTable } from "../src/surreal/ddl";
 import { type StandaloneDef, TableDef } from "../src/surreal/pure";
 
 /** A top-level schema object: a table/relation/view (a `TableDef`) or a standalone `define*`. */
-// biome-ignore lint/suspicious/noExplicitAny: heterogeneous example schemas — the Shape varies per table.
 export type Definable = TableDef<string, any> | StandaloneDef;
 
 /** One catalog entry: the authoring snippet, the schema objects it produces, and the SurrealQL golden. */
@@ -95,10 +94,8 @@ function extractDefSource(src: string): string {
     } else if (c === "," && depth === 0) break; // trailing comma after the def
     i++;
   }
-  // Drop `// biome-ignore …` lines — tooling suppressions, never part of the displayed snippet.
   return src
     .slice(start, i)
-    .replace(/^[ \t]*\/\/ biome-ignore.*\r?\n/gm, "")
     .trim();
 }
 

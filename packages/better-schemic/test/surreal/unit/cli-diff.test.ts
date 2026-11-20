@@ -330,11 +330,9 @@ describe("events", () => {
   })
     .event("reverify", {
       when: surql`$before.email != $after.email`,
-      // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable
       then: surql`UPDATE $after.id SET verified = false`,
     })
     .event("log_changes", {
-      // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable
       then: [
         surql`UPDATE $after.id SET a = 1`,
         surql`UPDATE $after.id SET b = 2`,
@@ -357,7 +355,6 @@ describe("events", () => {
     const before = table("t", { id: s.string(), n: s.int() });
     const after = before.event("on_n", {
       when: surql`$before.n != $after.n`,
-      // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable
       then: surql`UPDATE $after.id SET touched = true`,
     });
     const diff = diffSnapshots(buildSnapshot([before]), buildSnapshot([after]));
@@ -386,12 +383,10 @@ describe("events", () => {
     const Base = table("user", { id: s.string(), email: s.email() });
     const inline = Base.event("reverify", {
       when: surql`$before.email != $after.email`,
-      // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable
       then: surql`UPDATE $after.id SET verified = false`,
     });
     const standalone = defineEvent(Base, "reverify", {
       when: surql`$before.email != $after.email`,
-      // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable
       then: surql`UPDATE $after.id SET verified = false`,
     });
     const key = "event:user:reverify";
@@ -403,7 +398,6 @@ describe("events", () => {
   test("standalone events ride into buildSnapshot's second arg", () => {
     const Base = table("user", { id: s.string(), n: s.int() });
     const ev = defineEvent(Base, "on_n", {
-      // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable
       then: surql`UPDATE $after.id SET touched = true`,
     });
     const up = diffSnapshots(EMPTY_SNAPSHOT, buildSnapshot([Base], [ev])).up;

@@ -177,7 +177,6 @@ describe(".use: {table} name placeholders (A1)", () => {
       events: [
         {
           name: "{table}_guard",
-          // biome-ignore lint/suspicious/noThenProperty: SurrealQL's event THEN clause.
           then: surql`RETURN true`,
         },
       ],

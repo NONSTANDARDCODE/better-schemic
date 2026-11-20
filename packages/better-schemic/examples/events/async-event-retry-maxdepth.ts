@@ -9,7 +9,6 @@ DEFINE FIELD status ON TABLE job TYPE string;
 DEFINE EVENT recompute ON TABLE job ASYNC RETRY 3 MAXDEPTH 5 THEN UPDATE $after.id SET status = 'queued';`,
   def: table("job", { id: s.string(), status: s.string() }).event("recompute", {
     async: { retry: 3, maxDepth: 5 },
-    // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable.
     then: surql`UPDATE $after.id SET status = 'queued'`,
   }),
 });

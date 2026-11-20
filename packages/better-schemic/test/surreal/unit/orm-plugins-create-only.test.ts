@@ -35,7 +35,6 @@ const EventOnly = table("event_only", { name: s.string() }).event(
   "event_only_create_only",
   {
     when: surql`$event = 'UPDATE'`,
-    // biome-ignore lint/suspicious/noThenProperty: SurrealQL's event THEN clause, not a thenable.
     then: surql`{ THROW "append-only"; }`,
   },
 );

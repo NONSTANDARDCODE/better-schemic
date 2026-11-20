@@ -198,7 +198,6 @@ function createBuilder(
         };
       return api;
     },
-    // biome-ignore lint/suspicious/noThenProperty: a lazy thenable is the point — await starts it.
     then(onFulfilled?: any, onRejected?: any) {
       // lazy compile
       const result = finishGraph(state._meta, state._ctx, api);

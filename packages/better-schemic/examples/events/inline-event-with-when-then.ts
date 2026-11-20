@@ -10,7 +10,6 @@ DEFINE EVENT overdraft ON TABLE account WHEN $after.balance < 0 THEN CREATE aler
     "overdraft",
     {
       when: surql`$after.balance < 0`,
-      // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable.
       then: surql`CREATE alert SET account = $after.id, kind = 'overdraft'`,
     },
   ),

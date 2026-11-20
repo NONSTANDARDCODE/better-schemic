@@ -566,7 +566,7 @@ causa #1 no helper de tabela genérico).
 - ✅ **M20.5 inferência de escrita** — `NoInfer` + overload estável em `upsertDelta`, helpers públicos `UpsertDeltaFor`/`InferWriteResult`/`RowOf`, piso `Record<string, unknown>` quando o def é shape-erased. Teste: `aot-upsert-delta.assert.ts`.
 - ✅ **M20.6 fronteira `unknown`** — `TypedBoundQuery<B,R>`/`surqlWith` (binds + resultado tipados, overload em `$query`), `selectQuery(from, allowlist)` (linhas com chaves fixas a partir de uma projeção), `s.json<T>()`, `s.regex(string, flags?)` com `RegExp` compilado uma vez na lib. Testes: `aot-raw-json.assert.ts`, `aot-regex-json.test.ts`.
 - ✅ **M20.7 zod-compiler — validators AOT para `s.*`** — `sc compile` gera um módulo sintético com os `field.schema`, roda `zod-compiler generate` e escreve `.better-schemic/schema.aot.ts`. A compilação preserva identidade (zod-compiler muta o objeto original): DDL, `.shape`, `instanceof`, `z.toJSONSchema()` e ORM intactos; só a validação ganha o fast path. Subpaths `better-schemic/aot` (ponte) e `better-schemic/plugin` (`betterSchemic()`, adapter `zod-compiler/bun` para `Bun.build`). Teste: `aot-compile.test.ts`.
-- ⏳ **M20.8 validação no app** — medir `build:aot:explain-json`, `bun check`, lint e `test:changed` no app consumidor após subir a versão; aplicar a migração para a nova API.
+- ⏳ **M20.8 validação no app** — medir `build:aot:explain-json`, `bun check` e `test:changed` no app consumidor após subir a versão; aplicar a migração para a nova API.
 
 ## Removido (decisão deliberada)
 

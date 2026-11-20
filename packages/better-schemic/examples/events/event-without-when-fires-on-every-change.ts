@@ -6,7 +6,6 @@ export default example(import.meta.url, {
   ddl: `DEFINE TABLE doc TYPE NORMAL SCHEMAFULL;
 DEFINE EVENT touch ON TABLE doc THEN UPDATE audit SET at = time::now();`,
   def: table("doc", { id: s.string() }).event("touch", {
-    // biome-ignore lint/suspicious/noThenProperty: event DSL "then" clause, not a thenable.
     then: surql`UPDATE audit SET at = time::now()`,
   }),
 });
