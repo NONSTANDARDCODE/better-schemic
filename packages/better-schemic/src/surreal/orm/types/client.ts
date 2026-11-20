@@ -11,19 +11,9 @@ import type { RawOperations } from "../raw";
 import type { DbInfo, NsInfo, RootInfo, TableInfo } from "./admin";
 import type { ApiOperations } from "./api";
 import type { AuthOperations } from "./auth";
-import type { ChangeRow, ChangeSet, ChangesArgs } from "./changes";
 import type { ContextAuth, ContextScope, OperationContext } from "./context";
 import type { FnSurface } from "./fn";
 import type { Hooks } from "./hooks";
-import type {
-  LiveArgs,
-  LiveDefaults,
-  LiveHandler,
-  LiveId,
-  LiveResult,
-  LiveRow,
-  LiveSubscription,
-} from "./live";
 import type { LoggerOption } from "./logger";
 import type { Plugin, PluginClientExtras, PluginList } from "./plugins";
 import type { RawDefaults } from "./raw";
@@ -33,7 +23,6 @@ import type {
   ModelKeys,
   SchemaDef,
   SchemaInput,
-  TableAt,
 } from "./schema";
 import type {
   TransactionClient,
@@ -47,8 +36,6 @@ export interface OrmOptions {
   readonly debug?: boolean;
   /** Defaults for `client.transaction(...)` (mode/retries/timeout/isolation policy). */
   readonly transaction?: TransactionDefaults;
-  /** Defaults for live queries (`reconnect`/`checkFeature`). */
-  readonly live?: LiveDefaults;
   /** Raw escape-hatch defaults (`unsafe`/`requireComment`/`timeoutMs`). */
   readonly raw?: RawDefaults;
   /**
@@ -106,10 +93,6 @@ export type Client<
   | "$rootScope"
   | "$setRootScope"
   | "$hooks"
-  | "live"
-  | "liveOf"
-  | "kill"
-  | "changes"
   | "$raw"
   | "$query"
   | "$unsafe"
@@ -155,37 +138,6 @@ export type Client<
     afterCommit(callback: () => void | Promise<void>): void;
     /** Register a side effect for the CURRENT transaction's rollback (`ValidationError` outside one). */
     afterRollback(callback: (reason: unknown) => void | Promise<void>): void;
-    /**
-     * Subscribe to server-pushed changes of `table` (a schema key — use `repository(name).live`
-     * for a physical name). Same lowering as the delegate `live`:
-     * `LIVE SELECT [DIFF] <projeção> FROM t [WHERE …] [FETCH …]`.
-     */
-    live<
-      const K extends ModelKeys<S> & string,
-      const A extends LiveArgs<TableAt<S, K>, S>,
-    >(
-      table: K,
-      args?: A,
-      handler?: LiveHandler<LiveRow<TableAt<S, K>, A>>,
-    ): LiveResult<TableAt<S, K>, A>;
-    /**
-     * Reattach to an existing live query (`UnmanagedLiveSubscription`): iterate or pass a handler.
-     * Values are NOT decoded (there is no table meta to decode with) — `recordId` and raw rows.
-     */
-    liveOf(
-      uuid: LiveId,
-      handler?: LiveHandler<Record<string, unknown>>,
-    ): Promise<LiveSubscription<Record<string, unknown>>>;
-    /** End a live query on the server by uuid (idempotent; validated + bound). */
-    kill(uuid: LiveId): Promise<void>;
-    /**
-     * Read the schema changefeed (`SHOW CHANGES`) — `table` (schema key or physical name; omit for
-     * DATABASE-level), `since` (versionstamp/Date/ISO, inclusive) and `limit`. Paginate with
-     * `last.versionstamp + 1`. Rows decode through the model codec.
-     */
-    changes<const A extends ChangesArgs<S>>(
-      args?: A,
-    ): Promise<ChangeSet<ChangeRow<S, A>>[]>;
     /**
      * Run ONE raw statement, parameterized by the tagged template — each `${…}` becomes a `$p<n>`
      * bind (a `surql` fragment splices). The generic types the first statement's result.

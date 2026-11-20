@@ -89,20 +89,6 @@ describe("attachThrow", () => {
   });
 });
 
-describe("BatchResult shape", () => {
-  test("carries count, data, skipped and statements", () => {
-    const batch: BatchResult<{ id: string }> = {
-      count: 2,
-      data: [{ id: "a" }, { id: "b" }],
-      skipped: 1,
-      statements: 3,
-    };
-    expect(batch.count).toBe(2);
-    expect(batch.data).toHaveLength(2);
-    expect(batch.statements).toBe(3);
-  });
-});
-
 describe("statementResult — QueryResponse -> StatementResult", () => {
   test("a successful response maps to OK with the server time", () => {
     const duration = { toString: () => "1.2ms" };

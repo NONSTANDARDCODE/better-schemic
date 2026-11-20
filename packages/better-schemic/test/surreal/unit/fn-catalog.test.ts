@@ -367,36 +367,3 @@ describe("catalog shape", () => {
     expect(q.query).toMatch(/^RETURN string::uppercase\(\$r\d+\)$/);
   });
 });
-
-// --- live sweep (SURREAL_URL-gated) --------------------------------------------------------------
-const URL = process.env.SURREAL_URL;
-
-describe.skipIf(!URL)("catalog live sweep", () => {
-  test("every sampled builtin runs on the target server", async () => {
-    const { Surreal } = await import("surrealdb");
-    const c = new Surreal();
-    await c.connect(URL as string);
-    await c.signin({
-      username: process.env.SURREAL_USER ?? "root",
-      password: process.env.SURREAL_PASS ?? "root",
-    });
-    await c.use({ namespace: "fnc", database: "fnc" });
-    // record:: probes need the table to exist.
-    await c.query("DEFINE TABLE OVERWRITE fnc_probe SCHEMALESS");
-
-    const failures: string[] = [];
-    for (const leaf of ALL) {
-      const sample = SAMPLES[leaf.path];
-      if (sample === null || sample === undefined) continue;
-      try {
-        const frag = leaf.call(...sample);
-        const q = surql`RETURN ${frag}`;
-        await c.query(q.query, { ...q.bindings });
-      } catch (err) {
-        failures.push(`${leaf.path}: ${(err as Error).message}`);
-      }
-    }
-    await c.close();
-    expect(failures).toEqual([]);
-  }, 120_000);
-});

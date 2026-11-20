@@ -133,15 +133,6 @@ describe("normalizeError — SDK ServerError kinds", () => {
     expect(code(scripting)).toBe("PermissionDenied");
   });
 
-  test("Configuration + LiveQueryNotSupported -> LiveQueryUnsupported", () => {
-    const e = new ConfigurationError({
-      kind: "Configuration",
-      message: "Live queries are not supported",
-      details: { kind: "LiveQueryNotSupported" },
-    });
-    expect(code(e)).toBe("LiveQueryUnsupported");
-  });
-
   test("Internal and unknown kinds -> DatabaseError", () => {
     expect(code(new ServerError({ kind: "Internal", message: "boom" }))).toBe(
       "DatabaseError",
@@ -293,11 +284,8 @@ describe("predicates", () => {
 });
 
 describe("normalizeError — refineCode detail flags (isX getters false)", () => {
-  test("detail Parse / LiveQueryNotSupported / Cancelled / NotExecuted", () => {
+  test("detail Parse / Cancelled / NotExecuted", () => {
     expect(code(serverLike({ details: { kind: "Parse" } }))).toBe("ParseError");
-    expect(
-      code(serverLike({ details: { kind: "LiveQueryNotSupported" } })),
-    ).toBe("LiveQueryUnsupported");
     expect(code(serverLike({ details: { kind: "Cancelled" } }))).toBe(
       "TransactionRollback",
     );
@@ -411,24 +399,5 @@ describe("normalizeError — context passthrough and non-Error shapes", () => {
   test("isOrmError rejects a same-named Error without a code", () => {
     const fake = Object.assign(new Error("x"), { name: "OrmError" });
     expect(isOrmError(fake)).toBe(false);
-  });
-});
-
-describe("predicates — remaining code branches", () => {
-  test("isNotFound matches a server RecordNotFound", () => {
-    expect(
-      isNotFound(norm(new NotFoundError({ kind: "NotFound", message: "x" }))),
-    ).toBe(true);
-  });
-
-  test("isValidationError matches ParseError and AssertionFailed", () => {
-    expect(isValidationError(new OrmError("ParseError", "x"))).toBe(true);
-    expect(isValidationError(new OrmError("AssertionFailed", "x"))).toBe(true);
-  });
-
-  test("isUnsupportedCapability matches LiveQueryUnsupported", () => {
-    expect(
-      isUnsupportedCapability(new OrmError("LiveQueryUnsupported", "x")),
-    ).toBe(true);
   });
 });

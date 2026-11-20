@@ -77,7 +77,6 @@ export interface TableDescriptor {
   readonly events: unknown;
   readonly permissions: unknown;
   readonly comment?: string;
-  readonly changefeed: unknown;
   /** Opaque plugin tags (`meta.tenant`, `meta.createOnly`, …) — contract, not DDL. */
   readonly meta?: unknown;
 }
@@ -230,7 +229,6 @@ function describeTable(
     events: plain(config.events ?? []),
     permissions: plain(config.permissions ?? {}),
     ...(config.comment ? { comment: config.comment } : {}),
-    changefeed: plain(config.changefeed ?? null),
     ...(config.meta ? { meta: plain(config.meta) } : {}),
   };
 }

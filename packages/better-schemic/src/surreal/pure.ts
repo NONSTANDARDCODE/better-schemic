@@ -15,7 +15,6 @@ import {
   RecordId,
   RecordIdRange,
   type RecordIdValue,
-  type Surreal,
   Range as SurrealRange,
   surql,
   Table,
@@ -2521,8 +2520,6 @@ export interface TableConfig {
   indexes?: TableIndex[];
   /** Row-change events. See `.event(name, { when?, then })`. */
   events?: TableEvent[];
-  /** `CHANGEFEED <dur> [INCLUDE ORIGINAL]`. See `.changefeed(dur, opts?)`. */
-  changefeed?: { expiry: string; includeOriginal?: boolean };
   /**
    * A pre-computed (materialized) VIEW — `AS <SELECT …>`. When set, the table is computed from the
    * query (forced `TYPE ANY SCHEMALESS`, no authored fields). See {@link defineView}.
@@ -3513,12 +3510,6 @@ export class TableDef<
   permissions(spec: TablePermissions | ((p: PermCtx<S>) => TablePermissions)) {
     return this.withConfig({
       permissions: typeof spec === "function" ? spec(permCtx<S>()) : spec,
-    });
-  }
-  /** `CHANGEFEED <dur> [INCLUDE ORIGINAL]` — track row changes for `SHOW CHANGES`. */
-  changefeed(expiry: string, opts: { includeOriginal?: boolean } = {}) {
-    return this.withConfig({
-      changefeed: { expiry, includeOriginal: opts.includeOriginal },
     });
   }
   /**
@@ -4557,7 +4548,7 @@ export class ViewBuilder<Name extends string, S extends Shape> {
   ) {}
   /**
    * Set the view's query — `DEFINE TABLE <name> TYPE ANY SCHEMALESS AS <query>`. Returns a normal
-   * table, so `.permissions()` / `.comment()` / `.changefeed()` chain after as on any table. The
+   * table, so `.permissions()` / `.comment()` chain after as on any table. The
    * `shape` must match the SELECT's projection (the query is freeform SurrealQL — unchecked).
    */
   as(query: Expr): TableDef<Name, WithSmartId<Name, S>> {
@@ -4575,7 +4566,7 @@ export class ViewBuilder<Name extends string, S extends Shape> {
  * Define a pre-computed (materialized) VIEW table — `defineView(name, shape?).as(query)` emits
  * `DEFINE TABLE <name> TYPE ANY SCHEMALESS AS <query>`. Its rows are computed from the SELECT (SurrealDB
  * keeps them in sync). The optional `shape` types the projected rows for `App`/decode (it emits no
- * fields). Chain `.permissions()` / `.comment()` / `.changefeed()` after `.as(…)` as on any table:
+ * fields). Chain `.permissions()` / `.comment()` after `.as(…)` as on any table:
  *
  * ```ts
  * const Raw = defineView("raw").as(surql`SELECT * FROM person`);            // untyped rows

@@ -1,5 +1,4 @@
 import { group } from "../_kit";
-import e5 from "./changefeed";
 import e3 from "./comment";
 import e6 from "./drop";
 import e9 from "./pre-computed-view-as-select";
@@ -12,6 +11,6 @@ import e8 from "./type-relation-unrestricted-endpoints";
 
 export const tables = group(
   "tables",
-  "DEFINE TABLE head — schema mode, type, permissions, changefeed, comment, drop, relations, views",
-  [e0, e1, e2, e3, e4, e5, e6, e7, e8, e9],
+  "DEFINE TABLE head — schema mode, type, permissions, comment, drop, relations, views",
+  [e0, e1, e2, e3, e4, e6, e7, e8, e9],
 );

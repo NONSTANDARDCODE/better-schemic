@@ -923,11 +923,6 @@ export function emitStatements(
   // A pre-computed VIEW: `AS <SELECT …>` (the query is inlined like any other expression).
   if (t.config.view !== undefined)
     clauses.AS = `AS ${eventClause(t.config.view)}`;
-  if (t.config.changefeed) {
-    clauses.CHANGEFEED = `CHANGEFEED ${t.config.changefeed.expiry}${
-      t.config.changefeed.includeOriginal ? " INCLUDE ORIGINAL" : ""
-    }`;
-  }
   if (t.config.comment)
     clauses.COMMENT = `COMMENT ${JSON.stringify(t.config.comment)}`;
   // Fold permissions into the single DEFINE TABLE head (no separate OVERWRITE … PERMISSIONS).
@@ -1120,20 +1115,14 @@ const TABLE_CLAUSE_ORDER = [
   "DROP",
   "SCHEMA",
   "AS",
-  "CHANGEFEED",
   "COMMENT",
   "PERMISSIONS",
 ] as const;
 /** Clauses `ALTER TABLE` can express. `TYPE`/`DROP` have no ALTER form (force an OVERWRITE
- *  fallback); `SCHEMA` is always SCHEMAFULL|SCHEMALESS (re-set, never dropped); `CHANGEFEED`
- *  and `COMMENT` have `DROP` forms; `PERMISSIONS` resets to the table default (NONE). */
-const TABLE_ALTERABLE = new Set([
-  "SCHEMA",
-  "CHANGEFEED",
-  "COMMENT",
-  "PERMISSIONS",
-]);
-const TABLE_DROPPABLE = new Set(["CHANGEFEED", "COMMENT"]);
+ *  fallback); `SCHEMA` is always SCHEMAFULL|SCHEMALESS (re-set, never dropped); `COMMENT`
+ *  has a `DROP` form; `PERMISSIONS` resets to the table default (NONE). */
+const TABLE_ALTERABLE = new Set(["SCHEMA", "COMMENT", "PERMISSIONS"]);
+const TABLE_DROPPABLE = new Set(["COMMENT"]);
 
 /**
  * Emit an `ALTER TABLE` that turns the `prev` clause set into `next`. Returns `null` (caller falls

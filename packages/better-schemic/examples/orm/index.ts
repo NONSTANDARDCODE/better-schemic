@@ -1,4 +1,3 @@
-import { liveChanges } from "./live-changes";
 import { rawAdmin } from "./raw-admin";
 import { reads } from "./reads";
 import { relations } from "./relations";
@@ -15,5 +14,4 @@ export const allOrmGroups = [
   relations,
   stringIds,
   rawAdmin,
-  liveChanges,
 ];

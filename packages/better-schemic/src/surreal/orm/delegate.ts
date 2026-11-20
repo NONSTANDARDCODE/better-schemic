@@ -17,20 +17,12 @@ import { OrmError } from "./errors";
 import type { Queryable } from "./execute";
 import { createGraphEntryPoint } from "./graph";
 import type { HookDispatcher } from "./hooks";
-import { createLiveOperation } from "./live";
 import type { ModelMeta, ResolvedIdStrategy, SchemaIndex } from "./meta";
 import { type PluginPipeline, RuntimeOperation } from "./plugins";
 import { createReadOperations } from "./reads";
 import type { BatchResult, SqlPreview } from "./results";
 import type { OperationContext } from "./types/context";
 import type { OperationKind } from "./types/hooks";
-import type {
-  LiveArgs,
-  LiveDefaults,
-  LiveHandler,
-  LiveResult,
-  LiveRow,
-} from "./types/live";
 import type { QueryLogger } from "./types/logger";
 import type {
   PluginArgs,
@@ -122,8 +114,6 @@ export interface DelegateContext {
    * `BEGIN/COMMIT` (the surrounding transaction already owns atomicity).
    */
   readonly inTransaction?: boolean;
-  /** Client-level live defaults (`orm(conn, { schema, live: { … } })`). */
-  readonly live?: LiveDefaults;
   /**
    * The clone's default namespace/database scope (present only on a `$withContext` clone) — every
    * compiled operation is prefixed with `USE NS … DB …;` in the same round-trip.
@@ -374,24 +364,9 @@ export interface Delegate<
     > = WithPluginArgs<UpdateEachArgs<TD, By>, P, "updateEach">,
   >(args: A & { readonly by?: By }): BatchWriteResult<TD, A, S>;
   /**
-   * Subscribe to server-pushed changes for this model — `LIVE SELECT [DIFF] <projeção> FROM t
-   * [WHERE …] [FETCH …]`. Resolves to a {@link LiveSubscription} (iterate it or pass a handler);
-   * `kill()` ends it. Live needs a WebSocket connection (`LiveQueryUnsupported` otherwise).
-   *
-   * ```ts
-   * const sub = await client.users.live({ where: { active: true }, diff: true }, (change) => {
-   *   if (change.action === "UPDATE") cache.set(change.recordId, change.diff);
-   * });
-   * ```
-   */
-  /**
    * Anchor a graph traversal to a record: `delegate.from("table:id").graph(g => g.out(Edge)…)` .
    */
   from(anchor: unknown): any;
-  live<const A extends LiveArgs<TD, S>>(
-    args?: A,
-    handler?: LiveHandler<LiveRow<TD, A>>,
-  ): LiveResult<TD, A>;
 }
 
 /** The extra surface a RELATION delegate (`relation`) exposes. */
@@ -460,7 +435,6 @@ export function createDelegate<TD extends AnyTableDef = AnyTableDef>(
       $model: modelInfo(meta),
       ...wrapOperations(operations, meta, localCtx),
       $sql: wrapOperations(compileOperations, meta, compileCtx),
-      live: createLiveOperation(meta, localCtx),
       from: (anchor: unknown) => createGraphEntryPoint(meta, localCtx, anchor),
       $state: state,
       $withState: (patch: PluginState) =>

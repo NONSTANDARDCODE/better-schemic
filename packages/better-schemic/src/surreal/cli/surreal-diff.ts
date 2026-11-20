@@ -34,7 +34,6 @@ function structIndex(db: DbStructured): Map<string, unknown> {
       schemafull: t.schemafull,
       drop: t.drop,
       comment: t.comment,
-      changefeed: t.changefeed,
       permissions: t.permissions,
     });
     for (const f of t.fields) idx.set(`field:${t.name}:${f.name}`, f);

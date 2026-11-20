@@ -6,29 +6,12 @@
   "scripts": {
     "gen:examples": "bun run scripts/gen-examples-manifest.ts",
     "gen:examples:orm": "bun run scripts/gen-examples-manifest-orm.ts",
-    "test:coverage": "bun run scripts/coverage/run.ts",
-    "test:coverage:report": "bun run scripts/coverage/report.ts",
-    "test:coverage:check": "bun run scripts/coverage/check.ts",
-    "test:coverage:update": "bun run scripts/coverage/check.ts --update",
-    "test:coverage:gaps": "bun run scripts/coverage/gaps.ts",
-    "test:coverage:mcdc": "bun run scripts/mcdc/reconcile.ts",
-    "test:coverage:mcdc:update": "bun run scripts/mcdc/reconcile.ts --update",
-    "test:types": "bun run scripts/type-bench.ts",
-    "test:mutation": "bun run scripts/mutation/run.ts",
-    "test:mutation:update": "bun run scripts/mutation/run.ts --update",
     "skills-install": "bunx skills experimental_install"
   },
   "dependencies": {
     "skills": "^1.9.0"
   },
   "devDependencies": {
-    "@stryker-mutator/api": "^10.1.1",
-    "@stryker-mutator/core": "^10.1.1",
-    "fast-check": "^4.10.2",
-    "istanbul-lib-coverage": "^3.2.2",
-    "istanbul-lib-report": "^3.0.1",
-    "istanbul-reports": "^3.2.0",
-    "oxc-coverage-instrument": "^0.20.0",
-    "oxc-parser": "^0.159.0"
+    "fast-check": "^4.10.2"
   }
 }

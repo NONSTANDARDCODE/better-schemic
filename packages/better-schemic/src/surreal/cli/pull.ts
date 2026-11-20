@@ -587,8 +587,8 @@ function renderTableConst(
   ctx: RenderCtx,
 ): { code: string; factory: string } {
   // A pre-computed VIEW: `defineView(name).as(surql\`SELECT …\`)` — shapeless (the projection types
-  // aren't in INFO), then the common table config (comment / permissions / changefeed); TYPE ANY +
-  // SCHEMALESS are implied by defineView.
+  // aren't in INFO), then the common table config (comment / permissions); TYPE ANY + SCHEMALESS
+  // are implied by defineView.
   if (t.view !== undefined) {
     let code = `export const ${ctx.constOf(t.name)} = defineView(${JSON.stringify(t.name)}).as(surql\`${surqlBody(t.view)}\`)`;
     if (t.comment) code += `\n  .comment(${JSON.stringify(t.comment)})`;
@@ -598,10 +598,6 @@ function renderTableConst(
       false,
     );
     if (vperm) code += `\n  .permissions(${vperm})`;
-    if (t.changefeed) {
-      const incl = t.changefeed.original ? ", { includeOriginal: true }" : "";
-      code += `\n  .changefeed(${JSON.stringify(t.changefeed.expiry)}${incl})`;
-    }
     return { code: `${code};`, factory: "defineView" };
   }
 
@@ -664,10 +660,6 @@ function renderTableConst(
     false,
   );
   if (tperm) close += `\n  .permissions(${tperm})`;
-  if (t.changefeed) {
-    const incl = t.changefeed.original ? ", { includeOriginal: true }" : "";
-    close += `\n  .changefeed(${JSON.stringify(t.changefeed.expiry)}${incl})`;
-  }
   for (const idx of t.indexes) {
     const cols = idx.cols.map((c) => JSON.stringify(c)).join(", ");
     const parts: string[] = [];

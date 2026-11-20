@@ -65,22 +65,6 @@ describe("$withContext — prefix scope", () => {
     ).toThrow(/unknown option "nope"/);
   });
 
-  test("changes is context-aware (SHOW CHANGES rides the USE prefix)", async () => {
-    const { conn, calls } = fakeConn(echo);
-    const client = orm(conn, { schema: schemaDef });
-    const tenant = client.$withContext({
-      namespace: "tenant_a",
-      database: "app",
-    });
-    await tenant.changes({ since: 0 });
-    expect(calls[0]?.sql).toContain("USE NS tenant_a DB app;");
-    expect(calls[0]?.sql).toContain("SHOW CHANGES");
-
-    // A per-call context overrides the clone's namespace.
-    await tenant.changes({ since: 0, context: { namespace: "tenant_b" } });
-    expect(calls[1]?.sql).toContain("USE NS tenant_b DB app;");
-  });
-
   test("session-bound operations are rejected on a prefix clone", async () => {
     const { conn } = fakeConn(echo);
     const client = orm(conn, { schema: schemaDef });
@@ -92,9 +76,6 @@ describe("$withContext — prefix scope", () => {
       () => tenant.api.get("/x"),
       () => tenant.auth.invalidate(),
       () => tenant.export(),
-      () => tenant.users.live(),
-      () => tenant.liveOf("00000000-0000-0000-0000-000000000000"),
-      () => tenant.kill("00000000-0000-0000-0000-000000000000"),
     ]) {
       const error = await caught(call);
       expect(isOrmError(error) && error.code).toBe("UnsupportedCapability");

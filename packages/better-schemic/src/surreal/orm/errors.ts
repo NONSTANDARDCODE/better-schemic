@@ -36,10 +36,6 @@ export type OrmErrorCode =
   // declarative authorization policies (`plugins/policy`)
   | "PolicyDenied"
   | "PolicyRequired"
-  // live
-  | "LiveQueryUnsupported"
-  | "ClauseNotSupportedInLive"
-  | "LiveInTransaction"
   // transactions
   | "TransactionAlreadyActive"
   | "TransactionRollback"
@@ -76,9 +72,6 @@ const DEFAULT_STATUS: Record<OrmErrorCode, number> = {
   CreateOnlyViolation: 403,
   PolicyDenied: 403,
   PolicyRequired: 403,
-  LiveQueryUnsupported: 501,
-  ClauseNotSupportedInLive: 400,
-  LiveInTransaction: 409,
   TransactionAlreadyActive: 409,
   TransactionRollback: 409,
   CursorDirectionConflict: 400,
@@ -176,7 +169,6 @@ interface ServerErrorLike {
   isCancelled?: boolean;
   isTimedOut?: boolean;
   isNotExecuted?: boolean;
-  isLiveQueryNotSupported?: boolean;
 }
 
 const isServerErrorLike = (e: unknown): e is Error & ServerErrorLike =>
@@ -250,11 +242,6 @@ function tableFrom(error: ServerErrorLike): string | undefined {
 function refineCode(error: ServerErrorLike, code: OrmErrorCode): OrmErrorCode {
   const detail = error.details?.kind;
   if (error.isParseError === true || detail === "Parse") return "ParseError";
-  if (
-    error.isLiveQueryNotSupported === true ||
-    detail === "LiveQueryNotSupported"
-  )
-    return "LiveQueryUnsupported";
   if (error.kind === "NotAllowed" && detail === "Auth")
     return "NotAuthenticated";
   if (error.isCancelled === true || detail === "Cancelled")
@@ -401,5 +388,5 @@ export const isValidationError = (e: unknown): boolean => {
 /** The server (or the schema/connection) cannot express this operation. */
 export const isUnsupportedCapability = (e: unknown): boolean => {
   const code = codeOf(e);
-  return code === "UnsupportedCapability" || code === "LiveQueryUnsupported";
+  return code === "UnsupportedCapability";
 };

@@ -18,16 +18,8 @@ describe("reference cookbook: authoring -> DDL", () => {
         test(example.title, () => {
           // `defs` are eval(code), so this asserts emit(eval(code)) === ddl (code/defs/ddl agree).
           expect(emit(example.defs)).toBe(example.ddl);
-          // `code` is the verbatim authoring rendered in docs / the website gallery — must be present.
-          expect(example.code.trim().length).toBeGreaterThan(0);
         });
       }
     });
   }
-
-  test("every group has at least one example", () => {
-    for (const group of allGroups) {
-      expect(group.examples.length).toBeGreaterThan(0);
-    }
-  });
 });

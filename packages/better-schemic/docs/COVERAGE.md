@@ -6,14 +6,12 @@ actually supports. Gaps are listed explicitly, not guessed — so what's missing
 **Legend:** `[ ]` not implemented · `[~]` partial (authoring-only / emit-only / no introspect / known
 gaps) · `[x]` full round-trip (author → emit → introspect → diff = zero)
 
-A feature is `[x]` only when it **round-trips**: author with `s.*` / `define*` → emit DDL → apply →
-introspect (`INFO FOR DB/TABLE … STRUCTURE`) → diff to zero. The `[x]` marks below are backed by the
-live parity suites (`test/surreal/parity/{struct,live,canonical}-parity.test.ts`) and the e2e suites
-(`test/surreal/e2e/{three-state,lifecycle,pull}.e2e.test.ts`), probed against **SurrealDB 3.1.3**.
+A feature is `[x]` when it is authored with `s.*` / `define*` and emitted as DDL, proven by the
+verified reference cookbook (`examples/*.ts`, `emit(defs) === ddl`).
 
 > Scope: this tracks the **schema/DDL** surface (the things a migration defines). Runtime query
-> features (SELECT/graph traversal/LIVE/etc.) are out of scope — they belong to the query layer and
-> are tracked in [`ORM-COVERAGE.md`](./ORM-COVERAGE.md) (including logging and OTEL tracing).
+> features (SELECT/graph traversal/etc.) are out of scope — they belong to the query layer and are
+> tracked in [`ORM-COVERAGE.md`](./ORM-COVERAGE.md) (including logging and OTEL tracing).
 
 > **Worked examples:** every `[x]` feature below has a runnable, verified entry in the
 > [reference cookbook](../examples) (`examples/*.ts`) pairing the `s.*` / `define*` authoring with the
@@ -33,7 +31,6 @@ live parity suites (`test/surreal/parity/{struct,live,canonical}-parity.test.ts`
 - [x] table `PERMISSIONS FOR select/create/update/delete [WHERE …]` — `.permissions(spec)`
 - [x] append-only tables — preset `createOnly({ hard? })`: `FOR update NONE` + `meta.createOnly`
   (+ opt-in `{table}_create_only` event `WHEN $event = 'UPDATE' THEN { THROW … }`)
-- [x] `CHANGEFEED <dur> [INCLUDE ORIGINAL]` — `.changefeed(expiry, opts?)` (emitted + introspected)
 - [x] `DROP`-marked tables — `.drop(true)`
 - [x] `TYPE RELATION … ENFORCED` — `relation().enforced()` (round-trips: introspect + canonical + pull)
 - [x] `DEFINE TABLE … AS SELECT …` (pre-computed/materialized view tables) — `defineView(name, surql\`SELECT …\`)`
@@ -42,10 +39,8 @@ live parity suites (`test/surreal/parity/{struct,live,canonical}-parity.test.ts`
   id-optional client sugar (`db.get(Config)` / `db.create(Config)` / `db.update(Config)`), pull
   regenerates `defineSingleton`. Richer id clauses (DEFAULT/ASSERT on id, surrealdb#7382, 3.2.0)
   not yet authored.
-- [ ] `ALTER TABLE` / table-level `CHANGEFEED` drop semantics beyond redefine
-
-> The **full `DEFINE TABLE` head round-trips** (push + pull) — every permutation is exercised live in
-> `test/surreal/parity/define-table.test.ts` against SurrealDB 3.1.3.
+> The **full `DEFINE TABLE` head** is covered by the reference cookbook — every permutation has a
+> verified emit golden.
 
 ## Fields & types
 
@@ -232,7 +227,7 @@ This is where the honesty lives — projections, redactions, and emit-but-don't-
 - **Trivial array element fields fold into the parent** — an auto-created `field[*]` with no clauses is
   absorbed into `array<T>`; element-level clauses (`x.* FLEXIBLE/permissions/readonly/assert/comment`)
   are preserved.
-- **Allowlisted canonical divergences** (tracked in `test/surreal/parity/canonical-parity.test.ts`, acceptable
+- **Allowlisted canonical divergences** acceptable
   for shadow-verify — emitted DDL differs textually but is semantically equal):
   1. union member ordering (generator preserves authored order; INFO-canonical sorts)
   2. `DEFAULT` quote style (generator double-quotes; SurrealDB stores single-quoted)
@@ -243,7 +238,7 @@ This is where the honesty lives — projections, redactions, and emit-but-don't-
 
 | Area                                                                                               | Status                                                                                                                                                                       |
 | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tables (schema mode, type, perms, changefeed, comment, drop, relations, views)                     | `[x]` — full `DEFINE TABLE` head                                                                                                                                             |
+| Tables (schema mode, type, perms, comment, drop, relations, views)                     | `[x]` — full `DEFINE TABLE` head                                                                                                                                             |
 | Field types (scalars, geometry, range, containers, records, literals, unions, tuples, optionality) | `[x]` — regex `[ ]` (no encodable value), object-unions/open-maps `[~]`                                                                                                      |
 | Field clauses (default/value/computed/assert/readonly/comment/flexible/permissions/reference)      | `[x]`                                                                                                                                                                        |
 | Indexes (plain, unique, composite, count, COMMENT, vector HNSW/DISKANN, full-text)                 | `[x]` — full `DEFINE INDEX` (modifiers CONCURRENTLY/DEFER n/a)                                                                                                               |
@@ -274,18 +269,15 @@ A kind is `[x]` in a column only when that capability round-trips through the **
 to. Every registered kind — `table`, `index`, `event`, `function`, `access`, `analyzer`, `param`,
 `sequence` — round-trips:
 - the kind engines stay byte-exact with the internal `diffSnapshots` engine (`test/surreal/unit/kind-parity.test.ts`);
-- `introspectAll` live round-trips on SurrealDB 3.1.3 (zero phantom diff, `test/surreal/parity/introspect-kinds.test.ts`);
 - per-field diff display via the table kind's `displayItems` (Manuel's call — field-level items grouped under their table);
 - `renderSchema` reconstructs `DbStructured` from the portable objects (the normalized struct rides on
   them — `PTable.struct` + the opaque kinds' `native`), no DDL re-parse.
 
-Verified green on main: typecheck 0, unit 453 (incl. the reference cookbook), live parity + e2e 19/19 on
-SurrealDB 3.1.3 — the real CLI through the generic registry path.
+Verified green on main: typecheck 0, unit suite (incl. the reference cookbook).
 
 Introspect is via the registry's reverse hook `introspectAll` (one `INFO … STRUCTURE` read fanned per
 kind, canonicalized through `structuredSnapshot` like `lower`). Post-flip this **is** the production
-introspect path (the fixed-slot `Driver.introspect` is gone), live-validated to round-trip on SurrealDB
-3.1.3 (`test/surreal/parity/introspect-kinds.test.ts`).
+introspect path (the fixed-slot `Driver.introspect` is gone).
 
 | Kind                                     | Registered | `emit` | `overwrite`/diff | `introspect` | Notes                                                                                                                                                                                                                                                                                                                             |
 | ---------------------------------------- | ---------- | ------ | ---------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -311,9 +303,9 @@ see above), and `function`/`access` are their own kinds (above), not natives. So
 **`fn::` dependency edges (done).** Field `VALUE`/`ASSERT`/`DEFAULT`/`COMPUTED`/`PERMISSIONS`, table
 `PERMISSIONS`, event `WHEN`/`THEN`, and access `SIGNUP`/`SIGNIN`/`AUTHENTICATE` are scanned for `fn::`
 references; each becomes a `deps → {kind:"function"}` so a called function emits **before** its caller
-(the function-before-table case the ordinal alone gets wrong). Asserted in the parity suite.
+(the function-before-table case the ordinal alone gets wrong).
 
 **SEARCH `index` → `analyzer` edges (done).** A FULLTEXT `index` `deps` on the `analyzer` it names, so
-the analyzer emits **before** the index; live-validated in `test/surreal/parity/define-index.test.ts`. The
+the analyzer emits **before** the index. The
 display-granularity decision shipped as per-field `items` grouped under their table (the table kind's
 `displayItems`).

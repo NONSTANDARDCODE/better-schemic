@@ -48,6 +48,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `ROADMAP.md`), agora com as quatro lacunas anteriores entregues. GraphQL, MCP, LLM-facing queries
   e métricas OTel seguem explicitamente fora de escopo.
 
+### Removed
+- **Live queries / changefeeds — feature removida por completo.** Saem o runtime (`live.ts`, `changes.ts`,
+  compilers e types), os métodos `live`/`liveOf`/`kill`/`changes` do client e do delegate, os códigos
+  `LiveQueryUnsupported`/`ClauseNotSupportedInLive`/`LiveInTransaction`, o `.changefeed()` da DDL
+  (`TableConfig.changefeed`, emissão/introspecção/diff/pull) e os testes/exemplos/docs correspondentes.
+  Reads, writes, relações, transações, raw e plugins não são afetados.
+- **Gates de verificação pesados removidos.** Cobertura (`scripts/coverage/*`, `coverage.config.json`,
+  `test:coverage*`), MC/DC (`scripts/mcdc/*`, `mcdc.config.json`, `mcdc-manifest.json`), mutation
+  (`scripts/mutation/*`, `stryker.config.json`, `mutation.config.json`), type-bench
+  (`scripts/type-bench.ts`, `type-budgets.json`, `*.bench.ts`) e os jobs correspondentes no CI. Também
+  saem parity/e2e/live e o preload de servidor SurrealDB — a suíte restante é 100% offline. Ficam
+  `bun test` (unit + PBT + fuzz), `bun check` e `bun build` no gate único.
+
 ## [0.1.0-beta.5] - 2026-11-01
 
 ### Added

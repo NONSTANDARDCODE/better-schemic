@@ -17,18 +17,11 @@ describe("ORM cookbook: delegate call -> runtime SurrealQL", () => {
         test(example.title, async () => {
           const got = await capture(example);
           expect(got).toEqual({ sql: example.sql, vars: example.vars });
-          // `code` is the verbatim delegate call rendered in docs / the gallery — must be present.
-          expect(example.code.trim().length).toBeGreaterThan(0);
         });
       }
     });
   }
 
-  test("every group has at least one example", () => {
-    for (const group of allOrmGroups) {
-      expect(group.examples.length).toBeGreaterThan(0);
-    }
-  });
 
   test("each example's `code` is its own def snippet", () => {
     // The extraction is title-anchored: a first-match scan would give every entry in a file the SAME

@@ -300,12 +300,6 @@ export function fromTableDef(t: TableDef<string, Shape>): StructTable {
   };
   if (cfg.drop) out.drop = true;
   if (cfg.comment !== undefined) out.comment = cfg.comment;
-  if (cfg.changefeed) {
-    out.changefeed = {
-      expiry: cfg.changefeed.expiry,
-      original: !!cfg.changefeed.includeOriginal,
-    };
-  }
   if (cfg.permissions !== undefined) {
     out.permissions = lowerPermissions(cfg.permissions, TABLE_PERM_OPS);
   }

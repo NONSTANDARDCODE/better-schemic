@@ -132,17 +132,6 @@ export type {
 } from "./types/api";
 export type { AuthOperations } from "./types/auth";
 export type {
-  ChangeAction,
-  ChangeDefined,
-  ChangeDeleted,
-  ChangeEntry,
-  ChangeRow,
-  ChangeSet,
-  ChangesArgs,
-  ChangesSince,
-  ChangeWritten,
-} from "./types/changes";
-export type {
   CallContext,
   ContextAuth,
   ContextScope,
@@ -184,19 +173,6 @@ export type {
   LinkIncludeOptions,
   WithIncludes,
 } from "./types/include";
-export type {
-  LiveArgs,
-  LiveChange,
-  LiveDefaults,
-  LiveFetchKeys,
-  LiveHandler,
-  LiveId,
-  LiveNotification,
-  LiveReconnected,
-  LiveResult,
-  LiveRow,
-  LiveSubscription,
-} from "./types/live";
 export type {
   ExplainPolicy,
   LogContext,

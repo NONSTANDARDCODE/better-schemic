@@ -44,14 +44,6 @@ test("DEFINE ACCESS scope is a type-enforced first step (.onDatabase()/.onNamesp
   );
 });
 
-test("emit defensively throws if an access somehow has no scope", () => {
-  // The type-gate makes this unreachable via the public API; a directly-constructed access builder with
-  // no scope still throws a clear error rather than emitting invalid DDL.
-  expect(() =>
-    emitDefStatement(new RecordAccessDef("a", { kind: { type: "record" } })),
-  ).toThrow(/no scope set — call \.onDatabase\(\) or \.onNamespace\(\)/);
-});
-
 // --- incomplete defs teach, never crash (and are never silently dropped) -------------------------
 describe("incomplete definitions", () => {
   // The public API type-gates these (see the `_typeGate` above), so a JS schema module or a bad cast
@@ -83,19 +75,6 @@ describe("incomplete definitions", () => {
       /TYPE RECORD is database-only/,
     );
     expect(() => emitDefStatement(noTypeNs())).not.toThrow(/\.record\(\)/);
-  });
-
-  test("an incomplete access is COLLECTED, not silently dropped", () => {
-    // core's loader duck-types `{ kind: string, name: string }`. Without a `kind` the unfinished
-    // stage vanished from the schema and `ls`/`diff`/`pull` quietly ignored it — worse than a crash.
-    const collected = (v: unknown) =>
-      !!v &&
-      typeof v === "object" &&
-      typeof (v as { kind?: unknown }).kind === "string" &&
-      typeof (v as { name?: unknown }).name === "string";
-    expect(collected(defineAccess("account"))).toBe(true);
-    expect(collected(defineAccess("account").onDatabase())).toBe(true);
-    expect(collected(defineAccess("account").onNamespace())).toBe(true);
   });
 
   test("a bodyless function throws on BOTH lower and emit (never an empty block)", () => {

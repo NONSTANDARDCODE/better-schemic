@@ -37,7 +37,7 @@ describe("surql.$ leaf typing", () => {
           (sv) => sv.name.eq(wrong),
           surql`RETURN 1`,
         );
-    expect(typeof _bad).toBe("function");
+    void _bad;
   });
 
   test("typed Def.call args accept the leaf", () => {

@@ -269,7 +269,6 @@ export function normalizeTable(t: StructTable): StructTable {
   };
   if (t.drop) out.drop = true;
   if (t.comment !== undefined) out.comment = t.comment;
-  if (t.changefeed) out.changefeed = t.changefeed;
   const perms = normalizePermissions(t.permissions, TABLE_OPS, false);
   if (perms) out.permissions = perms;
   return out;

@@ -4,7 +4,7 @@
  * (`createOrm` / `clientFromConfig`) lives in `./connect`, which builds on this module.
  *
  * Landing in later milestones on the same client object: operation methods on the delegates
- * (M1 reads, M2 writes), `$raw`, transactions, live, hooks/plugins. Today it ships the lifecycle,
+ * (M1 reads, M2 writes), `$raw`, transactions, hooks/plugins. Today it ships the lifecycle,
  * delegate resolution and the type-level key -> delegate mapping.
  */
 
@@ -13,8 +13,7 @@ import { asyncDisposable, type OrmClientBase } from "../../core";
 import { createAdminOperations } from "./admin";
 import { createApiOperations } from "./api";
 import { createAuthOperations } from "./auth";
-import { type ChangesRuntimeArgs, fetchChanges } from "./changes";
-import { assertContextKeys, assertSessionBound } from "./context";
+import { assertContextKeys } from "./context";
 import {
   createDelegate,
   type Delegate,
@@ -24,7 +23,6 @@ import { OrmError } from "./errors";
 import type { Queryable } from "./execute";
 import { createFnOperations } from "./fn";
 import { createHookDispatcher, type HookDispatcher } from "./hooks";
-import { killLive, reattachLive } from "./live";
 import { resolveLogger } from "./logger";
 import { type ModelMeta, resolveModel, type SchemaIndex } from "./meta";
 import { createPluginPipeline, type PluginPipeline } from "./plugins";
@@ -39,7 +37,6 @@ import {
 } from "./transaction";
 import type { ApiOperations } from "./types/api";
 import type { AuthOperations } from "./types/auth";
-import type { ChangeSet } from "./types/changes";
 import type { Client, Extension, OrmOptions, SchemaArg } from "./types/client";
 import type {
   ContextAuth,
@@ -47,12 +44,6 @@ import type {
   OperationContext,
 } from "./types/context";
 import type { FnSurface } from "./types/fn";
-import type {
-  LiveDefaults,
-  LiveHandler,
-  LiveId,
-  LiveSubscription,
-} from "./types/live";
 import type { QueryLogger } from "./types/logger";
 import type { Plugin } from "./types/plugins";
 import type { RawDefaults } from "./types/raw";
@@ -86,9 +77,6 @@ export class ClientRuntime<C extends Queryable = Queryable>
 
   /** Root clients only: the transaction scope currently running on this client. */
   private rootScope?: TransactionState;
-
-  /** Client-level live defaults (`orm(conn, { schema, live: … })`). */
-  private readonly liveDefaults?: LiveDefaults;
 
   /** Client-level raw defaults (`orm(conn, { schema, raw: … })`). */
   private readonly rawDefaults?: RawDefaults;
@@ -134,7 +122,6 @@ export class ClientRuntime<C extends Queryable = Queryable>
     scope: {
       readonly transaction?: TransactionDefaults;
       readonly txState?: TransactionState;
-      readonly live?: LiveDefaults;
       readonly raw?: RawDefaults;
       readonly context?: OperationContext;
       readonly extensions?: readonly Extension[];
@@ -145,7 +132,6 @@ export class ClientRuntime<C extends Queryable = Queryable>
   ) {
     this.transactionDefaults = scope.transaction;
     this.txState = scope.txState;
-    this.liveDefaults = scope.live;
     this.rawDefaults = scope.raw;
     this.hooks = scope.hooks;
     this.pipeline = scope.pipeline;
@@ -156,7 +142,6 @@ export class ClientRuntime<C extends Queryable = Queryable>
       index: $index,
       debug,
       ...(scope.txState ? { inTransaction: true } : {}),
-      ...(scope.live ? { live: scope.live } : {}),
       ...(scope.context ? { context: scope.context } : {}),
       ...(scope.hooks ? { hooks: scope.hooks } : {}),
       ...(scope.pipeline ? { pipeline: scope.pipeline } : {}),
@@ -291,46 +276,6 @@ export class ClientRuntime<C extends Queryable = Queryable>
     this.rootScope = state;
   }
 
-  /**
-   * Subscribe to a model's changes by schema key (the typed surface lives on {@link Client}); the
-   * delegate owns the compilation/stream runtime.
-   */
-  live(
-    table: string,
-    args?: unknown,
-    handler?: unknown,
-  ): Promise<LiveSubscription<unknown>> {
-    const delegate = this.repository(table) as unknown as {
-      live(
-        args?: unknown,
-        handler?: unknown,
-      ): Promise<LiveSubscription<unknown>>;
-    };
-    return delegate.live(args ?? {}, handler);
-  }
-
-  /** Reattach to an existing live query by uuid (see {@link Client.liveOf}). */
-  liveOf(
-    uuid: LiveId,
-    handler?: LiveHandler<Record<string, unknown>>,
-  ): Promise<LiveSubscription<Record<string, unknown>>> {
-    assertSessionBound(this.context, "liveOf");
-    return reattachLive(this.conn, uuid, handler);
-  }
-
-  /** End a live query on the server by uuid (see {@link Client.kill}). */
-  kill(uuid: LiveId): Promise<void> {
-    assertSessionBound(this.context, "kill");
-    return killLive(this.conn, uuid, this.debug, this.logger);
-  }
-
-  /** Read the changefeed (see {@link Client.changes}); the typed surface lives on `Client`. */
-  changes(args?: ChangesRuntimeArgs): Promise<ChangeSet<unknown>[]> {
-    const table = args?.table;
-    const fallback = table ? resolveModel(this.$index, table) : undefined;
-    return fetchChanges(this.delegateContext, this.$index, args, fallback);
-  }
-
   /** Register an `afterCommit` callback on the CURRENT scope (`ValidationError` outside one). */
   afterCommit(callback: () => void | Promise<void>): void {
     this.activeScope("afterCommit").addAfterCommit(callback);
@@ -379,7 +324,6 @@ export class ClientRuntime<C extends Queryable = Queryable>
   /** The options a child client inherits (defaults, context, extensions). */
   private childScope(keepContext = true): {
     transaction?: TransactionDefaults;
-    live?: LiveDefaults;
     raw?: RawDefaults;
     context?: OperationContext;
     extensions: readonly Extension[];
@@ -391,7 +335,6 @@ export class ClientRuntime<C extends Queryable = Queryable>
       ...(this.transactionDefaults !== undefined
         ? { transaction: this.transactionDefaults }
         : {}),
-      ...(this.liveDefaults !== undefined ? { live: this.liveDefaults } : {}),
       ...(this.rawDefaults !== undefined ? { raw: this.rawDefaults } : {}),
       ...(keepContext && this.context !== undefined
         ? { context: this.context }
@@ -560,7 +503,6 @@ export function buildClient<S extends SchemaInput, C extends Queryable>(
       ...(options.transaction !== undefined
         ? { transaction: options.transaction }
         : {}),
-      ...(options.live !== undefined ? { live: options.live } : {}),
       ...(options.raw !== undefined ? { raw: options.raw } : {}),
       ...(hooks !== undefined ? { hooks } : {}),
       ...(pipeline !== undefined ? { pipeline } : {}),

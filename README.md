@@ -167,8 +167,6 @@ await client.users.findMany({
 await client.users.upsert({ where: { email }, data: { tags: ["db"] }, onMissing: "create" });
 // UPSERT ((SELECT VALUE id FROM user WHERE email = $p0 LIMIT 1)[0] ?? …) MERGE $p1;
 
-await client.users.live({ where: { role: "member" }, diff: true }, onChange);
-// LIVE SELECT DIFF FROM user WHERE role = $p0;
 ```
 
 `select` projects the result type. `where` only accepts real columns and real operators. A typo is a
@@ -179,8 +177,8 @@ await client.users.create({ data: { name: "Aeon", email: "nope", tags: [] } });
 // OrmError: Validation failed at "email"  (code: "ValidationError")
 ```
 
-Reads, writes, `upsert`/`upsertDelta`, relations, transactions with `afterCommit`, live queries,
-changefeeds, multi-tenant scoping, plugins — [all mapped, with goldens](packages/better-schemic/docs/ORM-COVERAGE.md).
+Reads, writes, `upsert`/`upsertDelta`, relations, transactions with `afterCommit`, multi-tenant
+scoping, plugins — [all mapped, with goldens](packages/better-schemic/docs/ORM-COVERAGE.md).
 
 > The ORM resolves unique targets from **table-level** `.index(…, { unique: true })` — the inline
 > `s.email().$unique()` emits the same DDL index but isn't a write target.

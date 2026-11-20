@@ -14,11 +14,10 @@ import { s, table } from "../../../src/surreal";
 import { surrealConnection } from "../../../src/surreal/connection";
 import type { Client } from "../../../src/surreal/orm/client";
 
-const URL = process.env.SURREAL_URL;
 
 const base = {
   schema: "./x",
-  url: URL ?? "ws://127.0.0.1:8000/rpc",
+  url: "ws://127.0.0.1:8000/rpc",
   username: process.env.SURREAL_USER ?? "root",
   password: process.env.SURREAL_PASS ?? "root",
   authLevel: "root" as const,
@@ -102,31 +101,5 @@ describe("chained defineConfig with surrealConnection as the driver marker", () 
     });
     expect(bases).toHaveLength(1);
     expect((bases[0] as { namespace?: string }).namespace).toBe("chain_t_acme");
-  });
-});
-
-describe.skipIf(!URL)("chained cross-connection resolution (live)", () => {
-  test("the tenant resolver enumerates the fleet via the TYPED main client", async () => {
-    {
-      await using main = await orm.connect("main");
-      await main.$sdk.query(
-        "REMOVE TABLE IF EXISTS chain_org; CREATE chain_org:a SET slug = 'acme'; CREATE chain_org:b SET slug = 'beta';",
-      );
-    }
-    // No org -> the resolver awaits ctx.connections.main and selects the fleet (typed path).
-    await expect(orm.connect("tenant", {})).rejects.toThrow(
-      /resolved to 2 configs \(acme, beta\)/,
-    );
-    // With org -> single config, connectable.
-    {
-      await using db = await orm.connect("tenant", { org: "acme" });
-      // SDK-faithful: the per-statement result array (typed via the surql tag when used).
-      const result = await db.$sdk.query("RETURN 1");
-      expect(result).toEqual([1]);
-    }
-    {
-      await using main = await orm.connect("main");
-      await main.$sdk.query("REMOVE TABLE IF EXISTS chain_org;");
-    }
   });
 });

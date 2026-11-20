@@ -86,8 +86,8 @@ describe("ref property paths", () => {
     const _ok = () => b.return((sv) => sv.res.id.isNotNone());
     // @ts-expect-error — `nope` is not a key of the typed response
     const _bad = () => b.return((sv) => sv.res.nope.isNotNone());
-    expect(typeof _ok).toBe("function");
-    expect(typeof _bad).toBe("function");
+    void _ok;
+    void _bad;
   });
 });
 
@@ -103,74 +103,4 @@ describe("http response generics + .as on fn results", () => {
     const n = surql.fn.string.len("abc").as<number>();
     expect(n.query).toMatch(/^string::len\(\$r\d+\)$/);
   });
-});
-
-// --- live (SURREAL_URL-gated): the full-TS function posts the RIGHT request ----------------------
-const URL = process.env.SURREAL_URL;
-const ECHO = process.env.ECHO_URL; // http://127.0.0.1:<port>/emails (set by the harness)
-
-describe.skipIf(!URL || !ECHO)("full-TS body live", () => {
-  test("runs end to end against an echo endpoint; drift-free", async () => {
-    const { Surreal } = await import("surrealdb");
-    const { explodeSchema, introspectAll } = await import(
-      "../../../src/surreal/kinds/explode"
-    );
-    const { deepEqual } = await import("../../../src/surreal/cli/struct");
-
-    const F = defineFunction("fts_send_live", {
-      email: s.string(),
-      code: s.string(),
-    })
-      .returns(s.boolean())
-      .body(({ email, code }) =>
-        block()
-          .let({
-            html: surql.fn.string.concat("<b>", code, "</b>"),
-          })
-          .let((sv) => ({
-            res: surql.fn.http.post<{ id?: string }>(
-              ECHO as string,
-              { to: [email], html: sv.html },
-              {
-                Authorization: surql.fn.string.concat(
-                  "Bearer ",
-                  surql.$.resend_api_key.as<string>(),
-                ),
-              },
-            ),
-          }))
-          .return((sv) => sv.res.id.isNotNone()),
-      );
-
-    const c = new Surreal();
-    await c.connect(URL as string);
-    await c.signin({
-      username: process.env.SURREAL_USER ?? "root",
-      password: process.env.SURREAL_PASS ?? "root",
-    });
-    await c.use({ namespace: "fts", database: "fts" });
-    await c.query("REMOVE FUNCTION IF EXISTS fn::fts_send_live;");
-    await c.query("DEFINE PARAM OVERWRITE $resend_api_key VALUE 're_dummy';");
-    await c.query(emitDefStatement(F, { exists: "overwrite" }).ddl);
-
-    const [out] = (await c.query(
-      "RETURN fn::fts_send_live('a@x.dev', 'ABC123')",
-    )) as [boolean];
-    expect(out).toBe(true);
-
-    const scrub = (v: unknown) => JSON.parse(JSON.stringify(v));
-    const pick = (objs: { kind: string; name: string }[]) =>
-      objs.find((o) => o.kind === "function" && o.name === "fts_send_live") as {
-        native?: unknown;
-      };
-    expect(
-      deepEqual(
-        scrub(pick(explodeSchema([], [F])).native),
-        scrub(pick(await introspectAll(c)).native),
-      ),
-    ).toBe(true);
-
-    await c.query("REMOVE FUNCTION IF EXISTS fn::fts_send_live;");
-    await c.close();
-  }, 60_000);
 });

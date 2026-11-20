@@ -177,8 +177,6 @@ export interface StructTable {
   schemafull: boolean;
   drop?: boolean;
   comment?: string;
-  /** `CHANGEFEED <expiry> [INCLUDE ORIGINAL]`. */
-  changefeed?: { expiry: string; original: boolean };
   permissions?: StructPermissions;
   /** A pre-computed VIEW's `SELECT …` (the `AS ` keyword stripped; canonical re-adds it). */
   view?: string;
@@ -369,8 +367,6 @@ function tableHeadClauses(t: StructTable): Record<string, string> {
   clauses.SCHEMA = t.schemafull ? "SCHEMAFULL" : "SCHEMALESS";
   if (t.view !== undefined) clauses.AS = `AS ${t.view}`;
   if (t.drop) clauses.DROP = "DROP";
-  if (t.changefeed)
-    clauses.CHANGEFEED = `CHANGEFEED ${t.changefeed.expiry}${t.changefeed.original ? " INCLUDE ORIGINAL" : ""}`;
   if (t.comment !== undefined)
     clauses.COMMENT = `COMMENT ${JSON.stringify(t.comment)}`;
   const perms = canonicalPerms(
@@ -798,7 +794,6 @@ export async function introspectStructured(
       schemafull: t.schemafull,
       drop: t.drop,
       comment: t.comment,
-      changefeed: t.changefeed,
       permissions: t.permissions,
       // INFO STRUCTURE stores a view as `AS SELECT …`; strip the keyword to match the lowered form.
       view: t.view?.replace(/^AS\s+/i, ""),

@@ -145,7 +145,7 @@ export interface SchemaIndex {
 
 /**
  * Resolve a schema key OR physical table name to its model metadata (`undefined` = unknown). The ONE
- * resolver shared by `repository`, the changefeed and `live` — a pure lookup, no walker/builder.
+ * resolver shared by `repository` — a pure lookup, no walker/builder.
  */
 export function resolveModel(
   index: SchemaIndex,

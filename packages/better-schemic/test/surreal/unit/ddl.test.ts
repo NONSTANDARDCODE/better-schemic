@@ -766,15 +766,11 @@ describe("emitTable", () => {
     expect(out).not.toContain("DEFINE FIELD");
   });
 
-  test("a view carries .comment()/.changefeed() onto the DEFINE TABLE head", () => {
-    const v = defineView("v")
-      .as(surql`SELECT * FROM person`)
-      .comment("a view")
-      .changefeed("1h");
+  test("a view carries .comment() onto the DEFINE TABLE head", () => {
+    const v = defineView("v").as(surql`SELECT * FROM person`).comment("a view");
     const head = emitTable(v).split("\n")[0];
     expect(head).toContain("AS SELECT * FROM person");
     expect(head).toContain('COMMENT "a view"');
-    expect(head).toContain("CHANGEFEED 1h");
   });
 
   test("object .loose()/.flexible() -> FLEXIBLE; .strict()/default -> not", () => {

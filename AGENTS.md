@@ -70,8 +70,7 @@ them. Every milestone/PR must leave the docs it touches consistent **in the same
 "later", never a follow-up issue. Concretely:
 
 - `ROADMAP.md` — flip the milestone/sub-item status and list the deliverables.
-- `packages/better-schemic/docs/orm-syntax-map.md` — every live-verified SurrealQL fact the compiler emits
-  (add the probe to `test/surreal/live/orm-syntax.test.ts` at the same time).
+- `packages/better-schemic/docs/orm-syntax-map.md` — every server-verified SurrealQL fact the compiler emits.
 - `packages/better-schemic/README.md` — the user-facing example must compile against the CURRENT surface.
 - `CHANGELOG.md` — an **Unreleased** entry (Added/Changed/Removed) for anything user-visible.
 - `packages/better-schemic/docs/ORM-COVERAGE.md` / `COVERAGE.md` — the feature matrix (author→emit→…).

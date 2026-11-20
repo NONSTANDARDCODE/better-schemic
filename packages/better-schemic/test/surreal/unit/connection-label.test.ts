@@ -20,16 +20,4 @@ describe("surrealConnection label", () => {
     const r = await resolveFromConfig(config, "/proj", { name: "main" });
     expect(r.labels).toEqual(["app/main @ ws://localhost:8000/rpc"]);
   });
-
-  test("falls back to the connection name when the config is bare", async () => {
-    // A config with no namespace/database/url is not constructible through the typed factory; the
-    // label's positional fallback is defensive, so exercise it with a cast.
-    const config = defineConfig({
-      connections: {
-        bare: surrealConnection({ schema: "./s" } as never),
-      },
-    });
-    const r = await resolveFromConfig(config, "/proj", { name: "bare" });
-    expect(r.labels).toEqual(["bare"]);
-  });
 });

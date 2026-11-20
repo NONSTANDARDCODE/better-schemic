@@ -37,7 +37,7 @@ describe("event callbacks — typed $after/$before/$event", () => {
         // @ts-expect-error — no such column on p2_user
         then: (e) => surql`RETURN ${e.after.emial}`,
       });
-    expect(typeof _bad).toBe("function");
+    void _bad;
   });
 
   test("standalone defineEvent gets the same typed ctx from the TableDef", () => {
@@ -93,7 +93,7 @@ describe("function-body callbacks — args typed by NAME", () => {
       defineFunction("x", { email: s.string() })
         // @ts-expect-error — no such arg
         .body((a) => surql`RETURN ${a.emial}`);
-    expect(typeof _bad).toBe("function");
+    void _bad;
   });
 });
 
@@ -116,7 +116,7 @@ describe("permissions callbacks — bare row columns + $auth", () => {
         // @ts-expect-error — no such column
         update: surql`${p.row.auther} = ${p.auth.id}`,
       }));
-    expect(typeof _bad).toBe("function");
+    void _bad;
   });
 
   test("FunctionDef.permissions takes the ctx too (no row)", () => {

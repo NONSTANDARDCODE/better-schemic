@@ -13,7 +13,7 @@ Legend: ✅ done · 🚧 in progress · 🟡 partial · ⏳ not started
 
 ## M0 — fundação + substituição do legado ✅ *(complete)*
 
-- ✅ **M0.1** live syntax map (`docs/orm-syntax-map.md` + `test/live/orm-syntax.test.ts`, 89 probes) —
+- ✅ **M0.1** syntax map (`docs/orm-syntax-map.md`, 89 probes) —
   every statement the ORM emits, verified against server 3.2.x, with the prototype divergences recorded.
 - ✅ **M0.2** `defineSchema` + `SchemaIndex` (columns/families, record links, graph adjacency,
   singletons, functions, schemaless entries; fail-fast `SchemaInvalid`).
@@ -113,7 +113,7 @@ Typed end to end: `S` flows through `Delegate`/`ReadArgs`/`Where`/`ResultOf` (in
 batches), with `types/{include,relations}.ts` deriving links, edges, targets and `_count` from the
 authored schema. New modules: `orm/compiler/include/*` + `orm/compiler/relations.ts`,
 `orm/types/{include,relations}.ts`; hydration in `orm/decode.ts`. Live:
-`test/live/orm-relations.test.ts` (13 e2e) + the new syntax probes (78 total).
+the new syntax probes (78 total).
 
 Hardening in the same milestone: relational `where` also lowers on `updateMany`/`deleteMany`/
 `unrelateMany` (the schema index flows into the write compilers); a projected link without `id`
@@ -123,39 +123,9 @@ edge-only includes and `_count` option typos all fail fast. The relational lower
 place (`relations.ts` arrow/traversal/refs + `where.ts` `compileRelationFilter`), shared by
 `include`, `_count` and `where`.
 
-## M4 — transações, live e changefeeds ✅ *(complete)*
+## M4 — transações ✅ *(complete)*
 
-- ✅ **M4.0** live probes + `orm-syntax-map.md` §7/§1 (89 probes total): `DIFF` right after `SELECT`
-  and without a projection, `FROM ONLY`/record targets unsupported, `VALUE` emits nothing, a record
-  leaving the `WHERE` filter emits nothing, `KILL $param` (string) works, `SINCE` takes literals only
-  and is INCLUSIVE, changefeed shapes (`update`, `{current, update}`, `delete{original}`, `bigint`
-  versionstamp), managed `beginTransaction` is the only multi-call transaction (SQL `BEGIN/COMMIT`
-  does not hold across RPCs), HTTP lacks Transactions/LiveQueries.
-- ✅ **M4.1** `client.transaction(fn, options?)` — SDK managed transaction, `tx` = full client,
-  `tx.rollback(reason)` → `TransactionRollback` (`details.reason`), nested = SAME tx, root re-entry →
-  `TransactionAlreadyActive`; retries (`writeConflict`/`serializationFailure`/`connectionError`,
-  backoff + jitter, opt-in), client-side `timeout` (cancels the tx), `context`, `isolation` policy;
-  `afterCommit`/`afterRollback` (root client reaches the current scope; outside a tx →
-  `ValidationError`); batches inside the tx skip the implicit `BEGIN`.
-- ✅ **M4.2** `live(args?, handler?)` on every delegate + `client.live(table)` / `client.liveOf(uuid)`
-  / `client.kill(uuid)` — `LIVE SELECT [DIFF] <projeção> FROM t [WHERE] [FETCH]` compiled by the ORM
-  (binds preserved), notifications decoded through the codec, `diff` ops, handler + async iterator,
-  idempotent `kill`, reconnect re-run + `RECONNECTED`, HTTP → `LiveQueryUnsupported`, tx →
-  `LiveInTransaction`; `only`/`value`/`orderBy`/`limit`/`group`/`split`/`include` → `ClauseNotSupportedInLive`.
-- ✅ **M4.3** `client.changes({ table?, since?, limit? })` — `SHOW CHANGES FOR TABLE|DATABASE SINCE
-  <literal>`, `since` versionstamp/`Date`/ISO, normalized `ChangeSet` (UPDATE/DELETE/DEFINE, `value`/
-  `diff`/`before`), rows decoded by their own table at the database level, pagination via
-  `versionstamp + 1` (inclusive `SINCE`).
-
-Typed end to end: `TransactionClient<S>` (delegates, lifecycle stripped, `rollback` typed `never`),
-`LiveArgs`/`LiveRow`/`LiveNotification` (`action` discriminated union), `ChangeSet`/`ChangeEntry`.
-New modules: `orm/transaction.ts` (+ `errors.isSerializationFailure`), `orm/live.ts`, `orm/changes.ts`,
-`orm/types/{transaction,live,changes}.ts`. Live: `test/live/orm-transactions.test.ts` (7 e2e, real
-write conflict + retry), `orm-live.test.ts` (7 e2e), `orm-changes.test.ts` (5 e2e). Types:
-`orm-{transactions,live,changes}.assert.ts` + the `TransactionClient` budget.
-
-Known DX debt carried: per-operation `retry` on write args (prototype §10), deferred; `live`
-real-transport reconnection is unit-tested (the live suite does not force a socket drop).
+- ✅ **M4.1** `client.transaction(fn, options?)` — SDK managed transaction, `tx` = full client, `tx.rollback(reason)` → `TransactionRollback`, nested calls share one tx, `afterCommit`/`afterRollback`, opt-in retries and client-side timeout. Only `mode: "sdk"` is supported — SQL `BEGIN/COMMIT` does not hold across RPCs.
 
 ## M5 — escape hatches, admin e contexto ✅ *(complete)*
 
@@ -182,8 +152,7 @@ Typed end to end: `RawOptions`/`RawSource`/`RawStatements`/`RawTag`, `OperationC
 `AdminOperations` (+ `RootInfo`/`NsInfo`/`DbInfo`/`TableInfo`). New modules: `orm/raw.ts`,
 `orm/context.ts`, `orm/fn.ts`, `orm/api.ts`, `orm/auth.ts`, `orm/admin.ts`,
 `orm/types/{raw,context,fn,api,auth,admin,client}.ts` (a fachada tipada `Client`/`BetterSchemicOptions`
-saiu do runtime). Live: `test/live/orm-raw.test.ts` (10 e2e: multi-tenant NS/DB, raw parametrizado,
-`fn.call`, `DEFINE API`, admin dump/restore, sessão forkada). Types: `orm-m5.assert.ts` + o budget
+saiu do runtime). Types: `orm-m5.assert.ts` + o budget
 `Client<S>` (75.476 instanciações).
 
 **Passe de qualidade (pós-M5):** o executor ganhou a primitiva `runScript` (prefixo `USE`, normalização
@@ -238,7 +207,7 @@ Tipado ponta a ponta: `HookPayload`/`AfterHookPayload`/`ErrorHookPayload` (raw/t
 `PluginModelExtras`. Novos módulos: `orm/hooks.ts`, `orm/plugins.ts`, `orm/types/{hooks,plugins}.ts`,
 `plugins/{rules,zod,timestamps,soft-delete}.ts`. Testes: `test/unit/orm-{hooks,plugins,plugins-rules,
 plugins-zod,plugins-timestamps,plugins-soft-delete}.test.ts`, `test/types/orm-m6.assert.ts` + budgets,
-`test/live/orm-plugins.test.ts` (soft-delete + timestamps e2e). `orm-syntax-map.md` **inalterado**:
+`orm-syntax-map.md` **inalterado**:
 o M6 não emite SurrealQL novo.
 
 Known DX debt carried: `soft-delete` não filtra `findUnique` (o `where` é o alvo — documentado);
@@ -248,7 +217,7 @@ Known DX debt carried: `soft-delete` não filtra `findUnique` (o `where` é o al
 
 Exhaustive `docs/ORM-COVERAGE.md` (runtime surface, separate from the schema `COVERAGE.md`), an ORM
 reference cookbook (`examples/orm/*` + `examples-manifest-orm.json` + `test/examples/orm-reference.test.ts`),
-driver README/examples, docs sweep (superseded banners), type-bench baselines, final e2e, and the
+driver README/examples, docs sweep (superseded banners), the
 release entry. Landing accumulates — publishing is a separate explicit decision.
 
 ---
@@ -261,79 +230,6 @@ SurrealDB DDL completeness, tracked in `packages/better-schemic/docs/COVERAGE.md
   `DEFINE SEQUENCE` (`defineSequence`) now round-trip.
 - ⏳ ongoing gaps: `DEFINE USER`/`CONFIG`/`API`/`BUCKET`/`MODEL`; `regex` (no encodable JS value),
   `future`/`range<T>` (the grammar doesn't parse on 3.x).
-
-## M8 — MC/DC reliability hardening ✅ *(complete; two-tier floors: critical 100% / rest 95%)*
-
-The SQLite-grade reliability pass: measure and drive **branch + logical-condition (MC/DC-equivalent)
-coverage** and **mutation strength** for `packages/better-schemic/src/surreal` + `packages/better-schemic/src/core`, with real-DB
-integration and subprocess e2e coverage. Method + tooling: `packages/better-schemic/docs/TESTING.md`.
-
-- ✅ **M8.0 — coverage tooling.** `scripts/coverage/{preload,lib,report,check,run,gaps}.ts`: a Bun
-  preload instruments in-scope sources with `oxc-coverage-instrument` (`reportLogic` → per-operand
-  truthiness), the e2e CLI children aggregate their `__coverage__` fragments, and a merge/report/gate
-  computes statements/branches/functions/lines **and conditions** per file with a per-file ratchet
-  (`coverage.config.json`). No-op unless `COVERAGE=1`, so the hot gate is untouched.
-- ✅ **M8.2 — de-skip live/parity.** A shared ephemeral SurrealDB preload (`test/preload-server.ts`)
-  boots ONE server per run and exports `SURREAL_URL`, so the `tryConnect()`-based live/parity suites
-  run instead of skipping (105 previously-skipped tests now execute). This exposed + fixed a real bug
-  (`ClientRuntime.query()` — the neutral `ctx.connections.<name>.query` handle — was missing).
-- ✅ **M8.1 — tiered floors (critical 100% / rest 95%).** The old drive-to-100% everywhere was
-  retired: `coverage.config.json` now has a **`critical`** tier (the core algorithms) pinned at
-  **100%** on all five metrics, and a global `thresholds` floor of **95%** statements/branches/
-  functions/lines and **90%** conditions for everything else, ratcheted per file (a green run can
-  never regress). `check.ts` resolves the floor per file (`requiredFor`) and `--update` caps
-  non-critical waivers at the global floor so a near-100% file settles at 95% instead of ratcheting
-  toward 100. The `critical` tier: `orm/compiler/{aggregate,pagination,unique}.ts`,
-  `orm/compiler/include/specs.ts`, `driver/surql-type.ts`, `surql-type-expr.ts`, core
-  `driver/portable.ts` — the type bridge and the pure compilers where a missed branch is a wrong
-  migration. Files already at 100 across the board (`orm/auth.ts`, `cli/scaffold.ts`, `plugins/zod.ts`,
-  core `cli-kit/{meta,style}`/`connection.ts`, `driver.ts`, …) stay at 100 by the ratchet.
-- ✅ **M8.3 — Tier-2 MC/DC.** `analyzeMcdc`/`describeMcdc` in `better-schemic/testing`:
-  a driver-agnostic, pure unique-cause MC/DC engine (enumerates the truth table or the explicit
-  `cases` a suite exercises, finds the independence pair for every condition, fails a NAMED test on
-  a redundant/masked operand). Applied to the error predicates (`isNotFound`, `isValidationError`,
-  `isUnsupportedCapability`) and core `inCat`, plus a self-test of the engine.
-- ✅ **M8.3b — decision inventory + reconcile.** `scripts/mcdc/{inventory,reconcile}.ts` enumerate
-  every MC/DC decision in-scope with the **TypeScript compiler API** (already a devDep — the earlier
-  "needs a parser we don't ship" deferral was wrong) and classify each `auto` (Tier-1) / `table`
-  (a `describeMcdc` label in `mcdc-manifest.json`) / `unknown`, ratcheted per file in
-  `mcdc.config.json` (wired into `scripts/coverage/run.ts`). Baseline: 3376 decisions (2297 auto,
-  4 table, 1075 unknown). A first closing batch drove `driver/surql-type.ts` branch+condition to
-  100%, `surql-type-expr.ts` conditions to 100% and `unique.ts` conditions to 100% (no coverage
-  floor was lowered).
-- ✅ **M8.4 — mutation gate.** StrykerJS core + a local **Bun `TestRunner`** plugin
-  (`scripts/mutation/bun-runner.ts`) that shells `bun test` per mutant (nonzero exit → Killed, hard
-  timeout → Timeout); `scripts/mutation/run.ts` runs one Stryker process whose worker pool schedules
-  mutants dynamically across `concurrency` parallel test-runner workers (static mutants reload per
-  process — no hot-swap needed) and `ratchet.ts` enforces the per-file score floor in
-  `mutation.config.json`. Scoped to the **pure compilers**
-  (`orm/compiler/*`, `surql-type-expr`, `driver/surql-type`, core `cli-kit/filter`); offline (a
-  server-less bunfig, `coverageAnalysis: "off"`), with per-mutant test selection. Floors recorded
-  and **re-ratcheted after the PBT work** (17 files, overall ~66.7%; the type-bridge files rose the
-  most — `surql-type-expr.ts` 57→72, `driver/surql-type.ts` 60→72, `filter.ts` 58→63).
-- ✅ **M8.5 — property-based tests.** fast-check suites for the pure compilers/parsers
-  (`test/property/{compilers,filter}.pbt.test.ts`): injection safety, bind totality, purity,
-  round-trips (`splitRecordId`, the `SurqlType` bridge, `formatAssert`, durations/datetimes, paths).
-  Budget `PBT_RUNS`/`PBT_SEED`; the mutation gate pins both for deterministic kills. **Three real
-  type-bridge bugs found + fixed:** the greedy `option<…>` wrapper was tested before the top-level
-  union (`option<int> | string` mis-parsed, in both `parseSurqlType` and `normalizeType`);
-  `emitSurqlType` emitted `option<none>` for `option<never>`; a nullable union sorted `null` last
-  instead of as a flat member. The PBT files are also wired into the mutation `testFilesByFile`
-  mapping (the type-bridge scores rose ~+9/+15 pts).
-- ✅ **M8.7 — fuzz the parsers.** `test/fuzz/parsers.fuzz.test.ts` (driver) + `filter.fuzz.test.ts`
-  (core) hammer the hand-written scanners (`splitTopUnion`/`topLevelSplitOnce`, the `SurqlType` bridge
-  parse/emit/normalize, `formatForAssert`, `stripOuterParens`/`toFragment`, `hasTopLevelSemi`,
-  `parseFilter`) with arbitrary bytes, deep nesting, huge unions and a committed seed corpus,
-  asserting never-throw, never-hang (time-bounded corpus) and the idempotence/round-trips. Budget
-  `FUZZ_RUNS`; runs inside the normal `bun test` gate.
-- ✅ **M8.6 — CI + docs.** `.github/workflows/ci.yml` runs the hot `gate` (build · typecheck · test —
-  the PBT/fuzz suites included), the `coverage` job (installs the `surreal` binary so live/parity
-  never skip; runs `test:coverage`, which now also enforces the MC/DC reconcile), the `mutation` job
-  (offline, parallel test-runner workers) and `type-bench`. Method + tooling documented in
-  `packages/better-schemic/docs/TESTING.md` (coverage/MC-DC, decision inventory, mutation, PBT, fuzzing).
-
-Literal operands (`x || {}`, `a ?? "d"`) are excluded from the condition denominator — MC/DC covers
-every **non-constant** condition.
 
 ## M9 — query logger & observability ✅ *(complete)*
 
@@ -355,8 +251,7 @@ A built-in, zero-dependency query logger enabled with one flag (`logger: true` /
 - ✅ **M9.4 surface + docs** — subpath `better-schemic/logger`
   (`createQueryLogger`/`resolveLogger`); `logger` option on `betterSchemic`/`createBetterSchemic`;
   README, `docs/ORM-COVERAGE.md` §9 and `docs/orm-syntax-map.md` §11 (live-probed `EXPLAIN` shapes +
-  `test/live/orm-syntax.test.ts` probes). Tests: `test/unit/orm-logger{,-highlight,-plan}.test.ts`,
-  `test/live/orm-logger.test.ts`, `test/types/orm-logger.assert.ts`.
+  Tests: `test/unit/orm-logger{,-highlight,-plan}.test.ts`, `test/types/orm-logger.assert.ts`.
 
 ## M10 — multi-tenancy (preset `tenant()` + runtime `tenantRls()`) ✅ *(complete)*
 
@@ -380,7 +275,7 @@ sessões privilegiadas, com zero-diff para quem já escrevia a receita na mão.
   `surql.ident(name)` (identificador escapado) e os códigos `TenantRequired`/`TenantViolation`
   (403) + `isTenantViolation`.
 - ✅ **M10.4 testes + docs** — unit (preset/runtime/compiler/`surql.ident`), tipos (`@ark/attest`),
-  live (e2e privilegiado + probes de sintaxe em `test/live/orm-syntax.test.ts`); `README`,
+  `README`,
   `docs/orm-syntax-map.md` §2, `docs/ORM-COVERAGE.md` §7/§8, `docs/COVERAGE.md`, CHANGELOG.
 
 Fora de escopo (documentado): `relate*`/`live`/raw e `$withoutPlugins()` (o limite é a permission
@@ -479,8 +374,7 @@ client-side fail-fast para sessões privilegiadas e `updatedAt` suprimido pelo `
 - ✅ **M14.3 interop `timestamps()`** — tabela create-only nunca recebe `updatedAt` (create ou
   update burlado), independente da ordem de registro dos plugins (marker lido no transform).
 - ✅ **M14.4 testes + docs + fix de paridade** — unit (preset golden/AND-narrowing/runtime/interop/
-  erros), tipos (`@ark/attest`), live (guard + evento duro derrubando o escape root), struct-parity
-  (evento round-trip; `what` do INFO normalizado de `Table` → string, corrigindo um phantom-diff
+  erros), tipos (`@ark/attest`), (evento round-trip; `what` do INFO normalizado de `Table` → string, corrigindo um phantom-diff
   pré-existente em QUALQUER tabela com evento); README, `ORM-COVERAGE.md` §7/§8, `COVERAGE.md`,
   `orm-syntax-map.md` §2.5, CHANGELOG.
 
@@ -602,7 +496,7 @@ projeção das leituras, e contadores ajustam num read-modify-write do servidor 
   `UpdateWriteData` aceita `Increment`/`Decrement` só em campos numéricos; `CreateData` segue sem
   marcadores.
 - ✅ **M16.5 testes + docs** — unit (`test/unit/orm-writes-projection.test.ts`), live (probes
-  `WRITE PROJECTIONS` em `test/live/orm-syntax.test.ts`), tipos (`orm-writes.assert.ts`); README,
+  `WRITE PROJECTIONS`), tipos (`orm-writes.assert.ts`); README,
   `ORM-COVERAGE.md` §2, `orm-syntax-map.md` §2.4.1/§2.4.2 (125 probes), CHANGELOG, cookbook
   `examples/orm/writes.ts` + manifest regenerado.
 
@@ -629,7 +523,7 @@ comprar nada: o driver nunca foi plugável.
 - ✅ **M18.4 scaffolder** — `create-better-schemic` dropped o `--driver` (só existe SurrealDB) e
   resolve o bin do pacote instalado pelo próprio `package.json` (nada de path hardcoded).
 - ✅ **M18.5 release + toolagem** — release lockstep de 2 pacotes (`release.ts` sem pin de
-  `core`), `land.ts`/coverage/MC-DC/mutation/type-bench apontando para o layout novo, e os pacotes
+  `core`), `land.ts` apontando para o layout novo, e os pacotes
   antigos (`@better-schemic/core`, `@better-schemic/cli`, `@better-schemic/surrealdb`) depreciados
   no npm, apontando para `better-schemic`.
 - ✅ **M18.6 docs** — `AGENTS.md`, README raiz, README do pacote, `docs/engine/*` (os docs de
@@ -658,3 +552,12 @@ agentes. Não há claim de LLM-facing query API, MCP/GraphQL ou métricas OTel.
 - ✅ **Preview de SQL sem servidor (`.toSQL()`) + dry-run de writes** — `execute.ts::sqlPreview`/`statementParts` compartilham a lógica com o executor; `.toSQL()` nas leituras e `delegate.$sql.<op>(args)` nos writes (compile-only, transform de plugins aplicado). `.explain()` continua server-backed e separado. O gate "shadow/dry-run verify" de migrations segue em aberto em `docs/RELEASE-MATURITY.md`. Teste: `orm-sql-preview.test.ts`.
 - ✅ **DSL de política declarativa no ORM** — `better-schemic/plugins/policy` (`definePolicy`) com efeitos `deny`/`scope`/`require`, nomes de tabela tipados pelo schema e `PolicyDenied`/`PolicyRequired` (403). A fronteira de autorização continua sendo a permission do banco (ou `$withoutPlugins()`). Teste: `orm-plugins-policy.test.ts`.
 - ✅ **Camada semântica** — `defineMetric`/`defineGlossary`/`lineage()` em `orm/semantic.ts`: métricas tipadas contra a tabela, lineage validado por campos declarados (sem parse de SQL), glossário JSON-safe; compiled via o `aggregate` existente, sem DDL novo. GraphQL e integrações de IA seguem fora de escopo em `docs/engine/SURREALDB-FEATURE-MAP.md`. Teste: `orm-semantic.test.ts`.
+
+## Removido (decisão deliberada)
+
+Numa passada de enxugamento para liberar o ORM para mudanças grandes, foram removidos por completo:
+
+- **Live queries / changefeeds** — runtime (`live.ts`, `changes.ts`, compilers, types), API no client/delegate, `DEFINE TABLE … CHANGEFEED`, testes, exemplos e docs. O ORM segue com reads/writes/relaciones/transações/raw/plugins.
+- **Gates de verificação pesados** — cobertura (`scripts/coverage/*`, `coverage.config.json`), MC/DC (`scripts/mcdc/*`, configs, manifest), mutation (`scripts/mutation/*`, Stryker), type-bench (`scripts/type-bench.ts`, budgets), jobs correspondentes no CI e suítes parity/e2e/live. Ficam: `bun test` (unit + PBT + fuzz), `bun check`, `bun build` no gate único.
+
+Pretensão: rever a robustez desses testes no futuro, depois das alterações no ORM.

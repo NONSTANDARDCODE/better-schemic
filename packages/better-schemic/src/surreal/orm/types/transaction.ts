@@ -62,9 +62,8 @@ export type TransactionDefaults = Omit<TransactionOptions, "meta">;
  * every compiled operation rides the SAME transaction — plus the transaction controls.
  *
  * Members that cannot work on a `SurrealTransaction` are omitted: lifecycle (`close`),
- * `forkSession`/`$withContext`, the realtime surfaces (`live`/`liveOf`/`kill`/`changes`) and the
- * session-bound admin (`export`/`import`/`version`). `api`/`auth`/`info`/`ping`/`$raw`/`$query`/`fn`
- * do work in-transaction.
+ * `forkSession`/`$withContext` and the session-bound admin (`export`/`import`/`version`).
+ * `api`/`auth`/`info`/`ping`/`$raw`/`$query`/`fn` do work in-transaction.
  */
 export type TransactionClient<
   S = SchemaInput,
@@ -74,10 +73,6 @@ export type TransactionClient<
   | "close"
   | "forkSession"
   | "$withContext"
-  | "live"
-  | "liveOf"
-  | "kill"
-  | "changes"
   | "export"
   | "import"
   | "version"

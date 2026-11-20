@@ -112,18 +112,15 @@ describe("fromTableDef", () => {
     ]);
   });
 
-  test("single-field index + table comment/changefeed", () => {
+  test("single-field index + table comment", () => {
     const t = table("user", {
       email: s.string().$unique(),
-    })
-      .comment("users")
-      .changefeed("1h", { includeOriginal: true });
+    }).comment("users");
     const out = normalizeTable(fromTableDef(t));
     expect(out.indexes).toEqual([
       { name: "user_email_idx", cols: ["email"], index: "UNIQUE" },
     ]);
     expect(out.comment).toBe("users");
-    expect(out.changefeed).toEqual({ expiry: "1h", original: true });
   });
 
   test("field .$fulltext()/.$hnsw() lower to a structured index carrying the spec", () => {

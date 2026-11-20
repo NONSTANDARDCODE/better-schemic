@@ -567,19 +567,6 @@ describe("batch 1: set / computed / changefeed / count", () => {
     );
   });
 
-  test(".changefeed() folds into the DEFINE TABLE head", () => {
-    expect(
-      emitTable(table("a", { id: s.string() }).changefeed("3d")),
-    ).toContain("SCHEMAFULL CHANGEFEED 3d;");
-    expect(
-      emitTable(
-        table("b", { id: s.string() }).changefeed("1h", {
-          includeOriginal: true,
-        }),
-      ),
-    ).toContain("CHANGEFEED 1h INCLUDE ORIGINAL;");
-  });
-
   test("COUNT index emits no FIELDS clause", () => {
     const t = table("c", { id: s.string() }).index("rows", [], {
       count: true,

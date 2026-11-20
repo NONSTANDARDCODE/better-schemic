@@ -1,7 +1,5 @@
 import { coverage } from "../_kit";
 import base from "./01-base";
-import changefeed from "./13-changefeed";
-import changefeedIncludeOriginal from "./14-changefeed-include-original";
 import comment from "./18-comment";
 import drop from "./04-drop";
 import ifNotExists from "./03-if-not-exists";
@@ -37,9 +35,6 @@ export const tableCoverage = coverage("DEFINE TABLE", [
   // [ AS SELECT … ]  (the SELECT body — WHERE/GROUP — is query-builder territory, not table-builder syntax)
   view,
   viewTyped,
-  // [ CHANGEFEED … ]
-  changefeed,
-  changefeedIncludeOriginal,
   // [ PERMISSIONS … ]
   permissionsNone,
   permissionsFull,
