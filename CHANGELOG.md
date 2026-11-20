@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+## [0.1.0-beta.6] - 2026-11-20
+
 ### Added
 - **zod-compiler integration — AOT validators for `s.*` fields** (runtime/CLI): `sc compile` walks authored fields, generates a synthetic module of their underlying Zod schemas, runs `zod-compiler generate`, and writes `.better-schemic/schema.aot.ts` (import it instead of the schema module). Compilation is identity-preserving — DDL, `.shape`, `instanceof`, `z.toJSONSchema()` and the ORM are unchanged; only validation gets the generated fast path. New subpaths `better-schemic/aot` (`fieldSchemaOf`, `markFieldCompiled`, `isFieldCompiled`, `compileField`) and `better-schemic/plugin` (`betterSchemic()` = `zod-compiler/bun` with defaults). `zod-compiler` is now a dependency.
 - **Bun AOT DX — builder fluente de tabela** (runtime): `table(name, shape).extend(meta).extendIf(cond, meta).use(preset).index(...).stringIds().build()`. `TableBuilder` é um alias de `TableDef` (compatível com todo call site existente) e o merge de shapes acontece dentro da lib, não por spread de type parameter no app.
