@@ -9,6 +9,7 @@ import type { Client } from "../../../src/surreal/orm/client";
 import type { Delegate } from "../../../src/surreal/orm/delegate";
 import type {
   ExplainResult,
+  SqlPreview,
   ThrowingResult,
 } from "../../../src/surreal/orm/results";
 import { schema } from "../../../src/surreal/orm/schema";
@@ -164,30 +165,48 @@ describe("select — result shapes", () => {
 describe("read envelopes", () => {
   it("findMany is a lazy promise with .explain(); explain:true yields the plan", () => {
     assertType<
-      Promise<Row[]> & { explain(): Promise<ExplainResult> },
+      Promise<Row[]> & {
+        explain(): Promise<ExplainResult>;
+        toSQL(): SqlPreview;
+      },
       FindManyResult<U, Record<string, never>>
     >();
-    assertType<Promise<ExplainResult>, FindManyResult<U, { explain: true }>>();
+    assertType<
+      Promise<ExplainResult> & { toSQL(): SqlPreview },
+      FindManyResult<U, { explain: true }>
+    >();
   });
 
-  it("findFirst/findOne/findUnique are ThrowingResults with .explain()", () => {
+  it("findFirst/findOne/findUnique are ThrowingResults with .explain()/.toSQL()", () => {
     assertType<
-      ThrowingResult<Row> & { explain(): Promise<ExplainResult> },
+      ThrowingResult<Row> & {
+        explain(): Promise<ExplainResult>;
+        toSQL(): SqlPreview;
+      },
       FindOneResult<U, Record<string, never>>
     >();
     assertType<
-      ThrowingResult<Row> & { explain(): Promise<ExplainResult> },
+      ThrowingResult<Row> & {
+        explain(): Promise<ExplainResult>;
+        toSQL(): SqlPreview;
+      },
       FindUniqueResult<U, { where: { id: "user:a" } }>
     >();
   });
 
   it("count/exists/aggregate/paginate/cursor carry their payloads", () => {
     assertType<
-      Promise<number> & { explain(): Promise<ExplainResult> },
+      Promise<number> & {
+        explain(): Promise<ExplainResult>;
+        toSQL(): SqlPreview;
+      },
       ReadResult<number, Record<string, never>>
     >();
     assertType<
-      Promise<boolean> & { explain(): Promise<ExplainResult> },
+      Promise<boolean> & {
+        explain(): Promise<ExplainResult>;
+        toSQL(): SqlPreview;
+      },
       ReadResult<boolean, Record<string, never>>
     >();
     assertType<
@@ -241,8 +260,11 @@ describe("read envelopes", () => {
       limit: 2,
       orderBy: [{ createdAt: "desc" }, { email: "asc" }],
     };
-    // @ts-expect-error — `createdAt` is not unique: a keyset page could skip/duplicate a row
-    const nonUnique: CursorArgs<U> = { limit: 2, orderBy: [{ createdAt: "desc" }] };
+    const nonUnique: CursorArgs<U> = {
+      limit: 2,
+      // @ts-expect-error — `createdAt` is not unique: a keyset page could skip/duplicate a row
+      orderBy: [{ createdAt: "desc" }],
+    };
     // The tiebreaker must come LAST: a trailing non-unique field is refused too.
     const wrongPosition = [{ id: "asc" }, { age: "desc" }] as const;
     const badOrder: CursorArgs<U> = {
@@ -281,10 +303,13 @@ describe("read envelopes", () => {
     >();
   });
 
-  it("explain: true flips count/exists to the plan", () => {
-    assertType<Promise<ExplainResult>, ReadResult<number, { explain: true }>>();
+  it("explain: true flips count/exists to the plan (still previewable)", () => {
     assertType<
-      Promise<ExplainResult>,
+      Promise<ExplainResult> & { toSQL(): SqlPreview },
+      ReadResult<number, { explain: true }>
+    >();
+    assertType<
+      Promise<ExplainResult> & { toSQL(): SqlPreview },
       ReadResult<boolean, { explain: true }>
     >();
   });

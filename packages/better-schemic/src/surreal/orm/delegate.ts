@@ -15,13 +15,13 @@
 import type { App } from "../pure";
 import { OrmError } from "./errors";
 import type { Queryable } from "./execute";
+import { createGraphEntryPoint } from "./graph";
 import type { HookDispatcher } from "./hooks";
 import { createLiveOperation } from "./live";
 import type { ModelMeta, ResolvedIdStrategy, SchemaIndex } from "./meta";
 import { type PluginPipeline, RuntimeOperation } from "./plugins";
 import { createReadOperations } from "./reads";
-import { createGraphEntryPoint } from "./graph";
-import type { BatchResult } from "./results";
+import type { BatchResult, SqlPreview } from "./results";
 import type { OperationContext } from "./types/context";
 import type { OperationKind } from "./types/hooks";
 import type {
@@ -142,7 +142,50 @@ export interface DelegateContext {
   readonly pluginState?: PluginState;
   /** `false` when the delegate was cloned with `$withoutPlugins()`. */
   readonly pluginsEnabled?: boolean;
+  /**
+   * Compile-only delegate (`$sql`): operations return a {@link SqlPreview} instead of touching
+   * the connection. Plugin transforms still run, so the preview reflects tenant/soft-delete scope.
+   */
+  readonly compileOnly?: boolean;
 }
+
+/** The operations exposed as server-free previews on `delegate.$sql`. */
+type PreviewOperation =
+  | "findMany"
+  | "findFirst"
+  | "findOne"
+  | "findUnique"
+  | "count"
+  | "exists"
+  | "aggregate"
+  | "paginate"
+  | "cursor"
+  | "create"
+  | "createMany"
+  | "insert"
+  | "insertMany"
+  | "update"
+  | "updateMany"
+  | "patch"
+  | "upsert"
+  | "upsertDelta"
+  | "upsertMany"
+  | "delete"
+  | "deleteMany"
+  | "updateEach"
+  | "relate"
+  | "relateMany"
+  | "unrelate"
+  | "unrelateMany";
+
+/** The exact operation signature, with the result replaced by a synchronous SQL preview. */
+export type SqlPreviewDelegate<D> = {
+  [K in keyof D as K extends PreviewOperation ? K : never]: D[K] extends (
+    ...args: infer A
+  ) => unknown
+    ? (...args: A) => SqlPreview
+    : never;
+};
 
 /** A method's args widened with the extra args the registered plugins contribute to `K`. */
 type WithPluginArgs<Base, P extends PluginList, K extends string> = Base &
@@ -155,6 +198,12 @@ export interface Delegate<
   P extends PluginList = readonly [],
 > {
   readonly $model: ModelInfo;
+  /**
+   * Compile-only previews: `delegate.$sql.create({ data })` returns the exact SurrealQL + binds —
+   * no connection, no hooks, no rows. Plugin transforms still apply, so this is a true dry run.
+   * Reads also expose `.toSQL()` directly on their lazy result.
+   */
+  readonly $sql: SqlPreviewDelegate<Delegate<TD, S, P>>;
   /** The delegate's plugin state (a flat bag shared by every plugin on this delegate). */
   readonly $state: PluginState;
   /** A clone of the delegate with `patch` merged into its plugin state. */
@@ -395,9 +444,22 @@ export function createDelegate<TD extends AnyTableDef = AnyTableDef>(
       ...createReadOperations(meta, localCtx),
       ...createWriteOperations(meta, localCtx),
     };
+    // The SAME compilers with a compile-only context: no connection, no hooks, no rows. Plugin
+    // transforms still run, so a `$sql` preview shows the post-policy/post-tenant statement.
+    const compileCtx: DelegateContext = {
+      ...localCtx,
+      compileOnly: true,
+      hooks: undefined,
+      logger: undefined,
+    };
+    const compileOperations = {
+      ...createReadOperations(meta, compileCtx),
+      ...createWriteOperations(meta, compileCtx),
+    };
     const delegate: Record<string, unknown> = {
       $model: modelInfo(meta),
       ...wrapOperations(operations, meta, localCtx),
+      $sql: wrapOperations(compileOperations, meta, compileCtx),
       live: createLiveOperation(meta, localCtx),
       from: (anchor: unknown) => createGraphEntryPoint(meta, localCtx, anchor),
       $state: state,

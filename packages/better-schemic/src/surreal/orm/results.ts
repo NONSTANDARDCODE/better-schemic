@@ -10,6 +10,7 @@
  */
 import type { QueryResponse } from "surrealdb";
 import { normalizeError, OrmError, type OrmErrorOptions } from "./errors";
+import type { LogStatement } from "./types/logger";
 
 /** Context handed to `.throw()` factories so error messages can name the target. */
 export interface NotFoundInfo {
@@ -137,6 +138,32 @@ export function attachExplain<T>(
   explain: () => Promise<ExplainResult>,
 ): Promise<T> & { explain(): Promise<ExplainResult> } {
   return Object.assign(result, { explain });
+}
+
+/**
+ * A server-free preview of the SurrealQL an operation would send. It is derived from the SAME
+ * compiled statements the executor runs (including plugin/`$withContext` lowering), so it cannot
+ * drift from the real script — but it never touches the connection, fires no hooks and returns no
+ * rows. Binds stay as SDK values (`RecordId`, `Date`, …); they are rendered for logs, not strings.
+ */
+export interface SqlPreview {
+  readonly driver: "surrealdb";
+  readonly operation: string;
+  readonly table: string;
+  /** The user statements in order, with binds (never the `USE`/`BEGIN` control statements). */
+  readonly statements: readonly LogStatement[];
+  /** True when the executor would wrap the batch in `BEGIN/COMMIT`. */
+  readonly transactional: boolean;
+  /** The exact script the executor would hand to `conn.query` (USE prefix + wrapper + statements). */
+  readonly script: string;
+}
+
+/** Attach `.toSQL()` to any result — the mirror of {@link attachExplain}, but synchronous. */
+export function attachSql<T extends object>(
+  result: T,
+  toSQL: () => SqlPreview,
+): T & { toSQL(): SqlPreview } {
+  return Object.assign(result, { toSQL });
 }
 
 /** The envelope of a batch operation. `count` = affected records; `data` only when RETURN yields rows. */

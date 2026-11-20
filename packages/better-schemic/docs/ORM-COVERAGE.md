@@ -241,7 +241,7 @@ Runtime `context.ts`; `$withContext`, `forkSession`, `extends`.
 
 ## 7. Hooks & plugins
 
-Runtime `hooks.ts`, `plugins.ts`; built-ins `src/surreal/plugins/*` (subpaths `plugins/{rules,zod,timestamps,soft-delete,hard-delete,create-only,tenant}`).
+Runtime `hooks.ts`, `plugins.ts`; built-ins `src/surreal/plugins/*` (subpaths `plugins/{rules,zod,timestamps,soft-delete,hard-delete,create-only,policy,tenant}`).
 
 | Feature                                                                                                                                                                                                                                                       | Status | Surface / test                                                                                                                                                       |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -256,6 +256,7 @@ Runtime `hooks.ts`, `plugins.ts`; built-ins `src/surreal/plugins/*` (subpaths `p
 | `$state` / `$withState` / `$withoutPlugins`                                                                                                                                                                                                                   | `[x]`  | `test/surreal/unit/orm-plugins.test.ts:60`/`:78`                                                                                                                     |
 | F1 `plugins/rules` — `noRawUnsafe`/`destructiveWriteWithoutWhere`/`requireLimit`/`maxLimit`/`strict` presets                                                                                                                                                  | `[x]`  | `test/surreal/unit/orm-plugins-rules.test.ts`                                                                                                                        |
 | F1 `plugins/zod` — `{ schemas, validate? }`                                                                                                                                                                                                                   | `[x]`  | `test/surreal/unit/orm-plugins-zod.test.ts`                                                                                                                          |
+| `plugins/policy` — `definePolicy(schema?, { rules })` with `deny` / `scope` / `require` effects, typed table names, `PolicyDenied`/`PolicyRequired` (403), `$withoutPlugins()` escape                                                                        | `[x]`  | `test/surreal/unit/orm-plugins-policy.test.ts`                                                                                                                        |
 | F2 `plugins/timestamps` — `app` stamp / `database` strip                                                                                                                                                                                                      | `[x]`  | `test/surreal/unit/orm-plugins-timestamps.test.ts`; `test/surreal/live/orm-plugins.test.ts:78`                                                                       |
 | F2 `plugins/soft-delete` — soft `delete`/`deleteMany`, `deleted` filter, `restore`/`restoreById`                                                                                                                                                              | `[x]`  | `test/surreal/unit/orm-plugins-soft-delete.test.ts`; `test/surreal/live/orm-plugins.test.ts:49`                                                                      |
 | M17 `plugins/hard-delete` — keeps `delete` a physical DELETE, marks the intent on the op (`meta.hardDelete`), optional `tables`/`reason`; composes with a scoped `soft-delete`                                                                                | `[x]`  | `test/surreal/unit/orm-plugins-hard-delete.test.ts`                                                                                                                  |
@@ -364,6 +365,57 @@ the mode (like `idStrategy`); raw `db.query()`, `live` and `changes` still retur
 | Types: `BareId<T>` phantom brand, `RecordIdName` resolves targets (relational filters survive), `CreateData`/`UpdateData`/`CursorInput` accept `string \| RecordId` (nested), `TenantField` follows the principal mode                                                    | `[x]`  | `test/surreal/types/orm-string-ids.assert.ts`                                  |
 | Cookbook: `examples/orm/string-ids.ts` (capture golden)                                                                                                                                                                                                                   | `[x]`  | `test/surreal/examples/orm-reference.test.ts`                                  |
 
+## 12. Fit for agents / AI
+
+This is a **positioning map**, not a new feature matrix: it groups the surface above against the
+requirements usually listed for an ORM in an AI/agent workflow. The project does **not** claim an
+AI-native surface — no LLM-readable schema export, natural-language querying, MCP integration or
+GraphQL semantic layer is advertised. Statuses point at the sections that prove them.
+
+| Requirement | Status | Evidence (elsewhere in this document) | Remaining gap |
+| --- | --- | --- | --- |
+| Typed, stable contract & single source of truth | `[x]` | §0 schema/bootstrap, §8 types/errors; `table`/`s.*` → codecs → DDL/migrations, `sc pull` round-trip; `describeSchema()` (`./semantic` neighbour: `orm/describe.ts`) returns a JSON-safe descriptor | — |
+| Bulk operations | `[x]` | §2: `createMany`/`insertMany`/`updateMany`/`upsertMany`/`deleteMany`/`updateEach`/`relateMany`, one round-trip | `upsertDeltaMany` intentionally `[ ]` |
+| Field selection / N+1 prefetch | `[x]` | §1 `select`/`omit`/`value`, §3 `include` (links, edges, `_count`); `paginate`, `cursor` | Nested projected `include` is `[~]` (§3) |
+| Composable, deterministic query construction | `[x]` | §1 typed `where` + `surql`/`fn.expr` fragments; M19 typed graph traversal | `$raw`/`$unsafe` remain explicit, gated escape hatches (§5) |
+| Deterministic validation | `[x]` | §8: writes run through the codec's Zod `safeEncode`/`safeEncodePartial` before send; §7 `plugins/zod` adds custom schemas; teaching-error catalog (§10) | Custom-shape validation is opt-in |
+| Dry-run / SQL preview | `[x]` | `.toSQL()` on every read result (lazy, zero round-trips) and `delegate.$sql.<op>(args)` for compile-only writes — both derived from the SAME compiled statements via `execute.ts::sqlPreview`/`statementParts`; §1 `.explain()` remains the server-backed plan; §9 logger exposes every real statement | Migration shadow/dry-run verify is still an unmet gate in `docs/RELEASE-MATURITY.md` |
+| Authorization policies | `[x]` | §7 `rules`, `tenantRls`, `createOnlyGuard`, hooks; **`better-schemic/plugins/policy`** (`definePolicy`) adds declarative `deny`/`scope`/`require` rules (`PolicyDenied`/`PolicyRequired`, 403) through the transform + `Operation.scope` channel | The DB permission (or `$withoutPlugins()`) remains the real boundary (§7); no GraphQL/RBAC server integration |
+| SQL / query transparency | `[x]` | §9 logger (`sql`/`vars`/rows/duration/plans on every round-trip), OTEL spans with stable semconv, hooks carrying `surql`/`vars` | None — observability is traces + logs; no OTel metrics planned |
+| Semantic layer (business definitions, metrics, lineage) | `[x]` | `defineMetric`/`defineGlossary`/`lineage()` (`orm/semantic.ts`) — typed metric declarations against a table, validated declared-field lineage, JSON-safe glossary; metric args compile through the existing `aggregate` (§1). DDL `defineView`/`$computed` remain the view/computed-field building blocks | Authoring-only: no new DDL kinds, no SQL parsing, no DB round-trip, no GraphQL. `DEFINE CONFIG (API\|GRAPHQL)` and AI integrations stay out of scope in `docs/engine/SURREALDB-FEATURE-MAP.md` |
+| Transactions / soft-delete / multi-tenancy | `[x]` | §6 context, §7 plugins; milestones M4/M10/M14/M17 | Soft-delete deliberately doesn't filter `findUnique`; tenant runtime skips edges/live/changes/raw by design |
+
+**Net:** all five requirements in the AI-era ORM checklist are now covered (with the deliberate
+non-goals and partial edges noted above). What is explicitly NOT claimed: an LLM-facing query API,
+MCP/GraphQL integration, a semantic model served by the database, or OTel metrics — observability
+is traces + logs only.
+
+## 13. Agent-era primitives (implementation notes)
+
+- **SQL preview (server-free).** `SqlPreview` (`{ driver, operation, table, statements, transactional, script }`)
+  is built by `execute.ts::sqlPreview` from the same `Statement[]` the executor runs; `statementParts`
+  is shared with `execute()` so semicolons and `BEGIN/COMMIT` cannot drift. Reads attach a synchronous
+  `.toSQL()` through `results.ts::attachSql` (mirroring `.explain()`); `delegate.$sql.<op>(args)` runs
+  the SAME compilers under a `compileOnly` `DelegateContext` (no hooks, no logger, no connection).
+  Plugin transforms still run, so a preview reflects soft-delete/tenant/policy lowering. `.explain()`
+  remains a server round-trip and is intentionally separate.
+- **`describeSchema()`.** Pure JSON-safe derivation over `SchemaIndex` + the authoring defs
+  (`orm/describe.ts`): wire types/families/optionality, record-link targets, asserts/default/computed/
+  value expressions as SurrealQL text, indexes/events/permissions, relation endpoints, functions and
+  opaque plugin `meta` tags. No DDL, no DB call, no Zod leaking out.
+- **`plugins/policy`.** `definePolicy(schema?, { rules })` compiles rules once per (index, options)
+  pair and enforces them in `transform` before compilation. `scope` writes the internal `Operation.scope`
+  channel (ANDed by every compiler, never a unique target); `require` checks per-call `meta`; `deny`
+  can be narrowed to write fields. The DB permission remains the boundary; the plugin is fail-fast DX
+  for privileged/agent paths.
+- **Semantics.** `defineMetric` types the measure field and dimensions against the source table and
+  produces deterministic `aggregate` args; `defineGlossary` is a JSON-safe registry; `lineage(metrics,
+  schema)` validates declared fields against `SchemaIndex` and reports them — it never parses SQL.
+  All three are authoring-only and emit no DDL.
+
+Covered by `test/surreal/unit/orm-sql-preview.test.ts`, `orm-describe-schema.test.ts`,
+`orm-plugins-policy.test.ts` and `orm-semantic.test.ts`.
+
 ---
 
 ## At a glance
@@ -377,10 +429,12 @@ the mode (like `idStrategy`); raw `db.query()`, `live` and `changes` still retur
 | Live/changefeeds (live, DIFF, FETCH, reconnect, `SHOW CHANGES`)                                                                         | `[x]`                                                                        |
 | Raw/admin/auth/api/fn/session                                                                                                           | `[x]` — `$unsafe` gated                                                      |
 | Context/multi-connection (`$withContext`, `meta`, `forkSession`, `extends`)                                                             | `[x]`                                                                        |
-| Hooks/plugins (families, `definePlugin`, F1 `rules`/`zod`, F2 `timestamps`/`soft-delete`, F3 `tenant`)                                  | `[x]`                                                                        |
+| Hooks/plugins (families, `definePlugin`, `rules`/`zod`/`timestamps`/`soft-delete`/`tenant`/`policy`)                                   | `[x]`                                                                        |
 | Logger (`logger: true`/presets, `EXPLAIN` plan rendering, auto-explain, `better-schemic/logger`) + OTEL tracing (`better-schemic/otel`) | `[x]`                                                                        |
 | String ids (`TableDef.stringIds()` / `s.recordId(…).stringIds()`, bare app strings; DDL unchanged)                                      | `[x]` — raw `db.query`/`live`/`changes` keep `RecordId`                      |
-| Types/errors/results (28 codes, predicates, throwing/lazy results, explain)                                                             | `[x]`                                                                        |
+| Server-free SQL preview (`.toSQL()` reads, `delegate.$sql` writes) + `describeSchema()`                                                 | `[x]` — §13; no connection, no hooks                                         |
+| Semantic layer (`defineMetric`/`defineGlossary`/`lineage()`)                                                                           | `[x]` — §13; authoring-only, no DDL                                          |
+| Types/errors/results (code catalog, predicates, throwing/lazy results, explain)                                                        | `[x]`                                                                        |
 
 > **Not in this document:** DDL/schema authoring → [`COVERAGE.md`](./COVERAGE.md); the raw SurrealQL
 > facts the compiler emits (statement shapes, operator semantics, divergences) →

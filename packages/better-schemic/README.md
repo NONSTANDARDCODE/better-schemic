@@ -31,7 +31,7 @@ replay into — `npm i -D @surrealdb/node`).
 | `better-schemic/config`     | `defineConfig` + `surrealConnection` — the project config                    |
 | `better-schemic/orm`        | the repository-style ORM client                                              |
 | `better-schemic/query`      | fragments & procedural SurrealQL                                             |
-| `better-schemic/plugins/*`  | the authoring plugins                                                        |
+| `better-schemic/plugins/*`  | the authoring + runtime plugins (incl. `plugins/policy`)                     |
 | `better-schemic/logger`     | the query logger                                                             |
 | `better-schemic/otel`       | OpenTelemetry tracing (`createOtelLogger`)                                   |
 | `better-schemic/driver`     | the engine entry (CLI/engine-only — pulls in the DDL emitter)                |
@@ -688,6 +688,52 @@ const guarded = await client.persons.from("user:A").graph((g) =>
   g.out(Knows).where((r) => r.match(User, (u) => u.name.eq("x")))
 );
 ```
+
+## The ORM in the age of AI / agents
+
+This project does **not** advertise an "AI-native" surface — there is no natural-language→query
+layer, MCP integration or GraphQL endpoint. What it does provide is the boring foundation those
+things need: a typed, auditable contract an agent cannot silently drift away from, plus first-class
+primitives for schema description, dry runs, policies and business semantics.
+
+| What an agent needs | Here |
+| --- | --- |
+| **Typed, stable contract / single source of truth** — `table`/`s.*` → Zod codecs → DDL, migrations and `sc pull` back to TypeScript | ✅ Plus `describeSchema()` — a JSON-safe descriptor of tables, fields, constraints, relations, functions and plugin tags |
+| **Bulk + field selection (no N+1)** — `createMany`/`insertMany`/`updateMany`/`upsertMany`/`deleteMany`/`updateEach`/`relateMany`; `select`/`omit`/`value` + `include`; `paginate`, `cursor`, typed graph traversal | ✅ Nested projected `include` is still partial |
+| **Deterministic validation** — Zod `safeEncode` on writes by default, `plugins/zod` for custom schemas, teaching errors instead of silent fallbacks | ✅ |
+| **Composable, auditable queries** — typed `where`, `surql`/`fn.expr` fragments, one round-trip per operation, logger/OTEL spans | ✅ Plus server-free `.toSQL()` on reads and `delegate.$sql.<op>()` for write dry runs; `plugins/policy` for declarative deny/scope/require rules |
+| **Semantic layer** — `defineMetric`/`defineGlossary`/`lineage()` mapping to the existing `aggregate` surface, plus `defineView`/`$computed` | ✅ Authoring-only: no new DDL, no SQL parsing, no fake lineage. GraphQL and AI integrations remain out of scope |
+
+```ts
+import { describeSchema, defineMetric, lineage } from "better-schemic/orm";
+import { definePolicy } from "better-schemic/plugins/policy";
+
+// 1. A typed descriptor an agent can read (pure JSON, no DB round-trip).
+const description = describeSchema(schemaDef);
+
+// 2. Preview the exact script — no connection, no hooks, no rows.
+const plan = client.users.findMany({ where: { age: { gte: 18 } } }).toSQL();
+const createScript = client.users.$sql.create({ data: { name: "Aeon", age: 30, active: true } });
+
+// 3. Declarative authorization, on top of the DB's own permissions.
+const policy = definePolicy(schemaDef, {
+  rules: [
+    { tables: ["users"], operations: ["delete"], effect: "deny" },
+    { tables: ["users"], effect: "scope", filter: { org: "acme" } },
+    { tables: ["users"], effect: "require", require: "actor" },
+  ],
+});
+
+// 4. Business semantics with declared, validated lineage.
+const revenue = defineMetric({
+  key: "revenue", from: Order, measure: { op: "sum", field: "amount" },
+  dimensions: ["region"],
+});
+const sources = lineage([revenue], schemaDef);
+```
+
+The full mapping — including deliberate non-goals and the exact sections backing each claim — is in
+[`docs/ORM-COVERAGE.md` §12](docs/ORM-COVERAGE.md#12-fit-for-agents--ai).
 
 ## Docs
 

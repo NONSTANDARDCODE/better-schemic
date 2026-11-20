@@ -17,7 +17,11 @@ import type { QueryResponse, Surreal } from "surrealdb";
 import { contextPrefix } from "./context";
 import { normalizeError, OrmError } from "./errors";
 import { emitRoundTrip } from "./logger/emit";
-import { type StatementResult, statementResult } from "./results";
+import {
+  type SqlPreview,
+  type StatementResult,
+  statementResult,
+} from "./results";
 import type { ResolvedContext } from "./types/context";
 import type { LogPhase, QueryLogger } from "./types/logger";
 
@@ -74,6 +78,59 @@ export const terminate = (sql: string): string => {
   const trimmed = sql.trim();
   return trimmed.endsWith(";") ? trimmed : `${trimmed};`;
 };
+
+/**
+ * The executor's statement list: semicolons added, optional `BEGIN/COMMIT` wrapper. Shared by
+ * {@link execute} and {@link sqlPreview} so the preview can never drift from what actually runs.
+ */
+export function statementParts(
+  statements: readonly Statement[],
+  transactional = false,
+  inTransaction = false,
+): { readonly parts: readonly string[]; readonly wrapping: boolean } {
+  const wrapping = transactional === true && inTransaction !== true;
+  const body = statements.map((statement) => terminate(statement.sql));
+  return {
+    parts: wrapping
+      ? ["BEGIN TRANSACTION;", ...body, "COMMIT TRANSACTION;"]
+      : body,
+    wrapping,
+  };
+}
+
+/**
+ * Build the exact SurrealQL an operation would send, WITHOUT touching the connection. Reads use
+ * `.toSQL()`; compile-only previews (`delegate.$sql.<op>`) use the same helper for writes.
+ */
+export function sqlPreview(
+  statements: readonly Statement[],
+  options: {
+    readonly operation: string;
+    readonly table: string;
+    readonly transactional?: boolean;
+    readonly inTransaction?: boolean;
+    readonly context?: ResolvedContext;
+  },
+): SqlPreview {
+  const { parts, wrapping } = statementParts(
+    statements,
+    options.transactional,
+    options.inTransaction,
+  );
+  const prefix = contextPrefix(options.context);
+  const body = parts.join("\n");
+  return {
+    driver: "surrealdb",
+    operation: options.operation,
+    table: options.table,
+    statements: statements.map((statement) => ({
+      sql: statement.sql,
+      vars: statement.vars ?? {},
+    })),
+    transactional: wrapping,
+    script: prefix ? `${prefix}\n${body}` : body,
+  };
+}
 
 /** Options for {@link runScript}. */
 export interface RunScriptOptions {
@@ -188,15 +245,13 @@ export async function execute<T = unknown>(
   if (statements.length === 0)
     return { responses: [], rows: [], transactional: false };
 
-  const wrapping =
-    options.transactional === true && options.inTransaction !== true;
+  const { parts, wrapping } = statementParts(
+    statements,
+    options.transactional,
+    options.inTransaction,
+  );
   // The wrapper flanks the batch, so each user statement sits at `offset + i`.
   const offset = wrapping ? 1 : 0;
-  const body = statements.map((statement) => terminate(statement.sql));
-  const parts = wrapping
-    ? ["BEGIN TRANSACTION;", ...body, "COMMIT TRANSACTION;"]
-    : body;
-
   const vars = mergeVars(statements);
   const script = parts.join("\n");
 

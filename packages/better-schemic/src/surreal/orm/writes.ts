@@ -56,7 +56,7 @@ import { decodeRows, isRecord } from "./decode";
 import type { DelegateContext } from "./delegate";
 import { computeFieldDelta } from "./delta";
 import { OrmError } from "./errors";
-import { execute, type Statement } from "./execute";
+import { execute, type Statement, sqlPreview } from "./execute";
 import { runWithHooks } from "./hooks";
 import type { ModelMeta } from "./meta";
 import {
@@ -406,6 +406,15 @@ async function runPrepared(
 
 /** Await a prepared write, attaching `.throw()` when the compiled plan says the row may be absent. */
 function finish(ctx: DelegateContext, prepared: PreparedWrite): unknown {
+  // Compile-only delegate (`$sql`): no connection, no hooks, no rows — a true dry run.
+  if (ctx.compileOnly)
+    return sqlPreview(prepared.statements, {
+      operation: prepared.operation,
+      table: prepared.meta.name,
+      transactional: prepared.transactional,
+      inTransaction: ctx.inTransaction === true,
+      ...contextOption(ctx, prepared.context),
+    });
   const promise = runPrepared(ctx, prepared);
   // `upsertDelta` handles its own misses (ResultNotFound from the decode, strict or filtered): the
   // strict branch must REJECT rather than expose a `.throw()` the typed surface doesn't carry.

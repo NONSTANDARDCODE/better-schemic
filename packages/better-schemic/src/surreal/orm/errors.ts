@@ -33,6 +33,9 @@ export type OrmErrorCode =
   | "TenantViolation"
   // create-only / append-only tables (the `plugins/create-only` runtime guard)
   | "CreateOnlyViolation"
+  // declarative authorization policies (`plugins/policy`)
+  | "PolicyDenied"
+  | "PolicyRequired"
   // live
   | "LiveQueryUnsupported"
   | "ClauseNotSupportedInLive"
@@ -71,6 +74,8 @@ const DEFAULT_STATUS: Record<OrmErrorCode, number> = {
   TenantRequired: 403,
   TenantViolation: 403,
   CreateOnlyViolation: 403,
+  PolicyDenied: 403,
+  PolicyRequired: 403,
   LiveQueryUnsupported: 501,
   ClauseNotSupportedInLive: 400,
   LiveInTransaction: 409,
@@ -357,6 +362,15 @@ export const isTenantViolation = (e: unknown): boolean => {
  */
 export const isCreateOnlyViolation = (e: unknown): boolean =>
   codeOf(e) === "CreateOnlyViolation";
+
+/**
+ * An ORM-layer policy from `plugins/policy` rejected the operation (`PolicyDenied`) or found a
+ * required actor/context missing (`PolicyRequired`). Both 403; the operation never reached the DB.
+ */
+export const isPolicyViolation = (e: unknown): boolean => {
+  const code = codeOf(e);
+  return code === "PolicyDenied" || code === "PolicyRequired";
+};
 
 /** Optimistic-concurrency conflict — retryable inside a transaction. */
 export const isWriteConflict = (e: unknown): boolean =>

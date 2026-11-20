@@ -17,6 +17,7 @@ export default defineBuild({
     "src/plugins/soft-delete.ts",
     "src/plugins/hard-delete.ts",
     "src/plugins/create-only.ts",
+    "src/plugins/policy.ts",
     "src/plugins/tenant.ts",
     // --- the engine internals (the neutral core) ---
     "src/config.ts",

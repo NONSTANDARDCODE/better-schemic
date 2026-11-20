@@ -16,7 +16,7 @@
  */
 import type { Surql } from "../../frag";
 import type { App, TableDef } from "../../pure";
-import type { ExplainResult, ThrowingResult } from "../results";
+import type { ExplainResult, SqlPreview, ThrowingResult } from "../results";
 import type { CallContext } from "./context";
 import type { IncludeArg, WithIncludes } from "./include";
 import type { AnyTableDef, ElementOf, SchemaInput } from "./schema";
@@ -199,16 +199,24 @@ export interface CountArgs<TD extends AnyTableDef, S = SchemaInput> {
   explain?: boolean;
 }
 
-/** A read result: a lazy thenable with `.explain()`, or the plan itself with `explain: true`. */
-export type ReadResult<T, A> = Explainable<Promise<T>, A>;
+/**
+ * A read result: a lazy thenable with `.explain()` and `.toSQL()`, or the plan itself with
+ * `explain: true` (which also carries `.toSQL()`).
+ */
+export type ReadResult<T, A> = Previewable<Explainable<Promise<T>, A>>;
 
-/** A throwing read result (may miss) with the same `.explain()` augmentation. */
-export type ThrowingReadResult<T, A> = Explainable<ThrowingResult<T>, A>;
+/** A throwing read result (may miss) with the same `.explain()`/`.toSQL()` augmentations. */
+export type ThrowingReadResult<T, A> = Previewable<
+  Explainable<ThrowingResult<T>, A>
+>;
 
 /** The `.explain()` dispatch shared by every read result. */
 type Explainable<Base, A> = A extends { explain: true }
   ? Promise<ExplainResult>
   : Base & { explain(): Promise<ExplainResult> };
+
+/** `.toSQL()` is server-free: it returns the compiled script without running a round-trip. */
+type Previewable<Base> = Base & { toSQL(): SqlPreview };
 
 /**
  * `findUnique` args — a `where` is REQUIRED and must target the `id` or a single-field UNIQUE

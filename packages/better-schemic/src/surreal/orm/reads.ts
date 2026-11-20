@@ -36,11 +36,12 @@ import { uniqueTarget } from "./compiler/unique";
 import { contextOption, resolveMeta } from "./context";
 import { decodeRow, decodeRows, isRecord } from "./decode";
 import type { DelegateContext } from "./delegate";
-import { execute, type Statement } from "./execute";
+import { execute, type Statement, sqlPreview } from "./execute";
 import { runWithHooks } from "./hooks";
 import type { ModelMeta } from "./meta";
 import {
   attachExplain,
+  attachSql,
   attachThrow,
   type ExplainKey,
   type ExplainResult,
@@ -520,12 +521,25 @@ async function explainPrepared(
  * gets `.explain()` attached (which runs EXPLAIN without starting the real statement).
  */
 function finishRead(ctx: DelegateContext, prepared: PreparedRead): unknown {
-  if (prepared.explain) return explainPrepared(ctx, prepared);
-  const result =
-    prepared.resultMode === "one"
-      ? throwingPrepared(ctx, prepared)
-      : lazyPrepared(ctx, prepared);
-  return attachExplain(result, () => explainPrepared(ctx, prepared));
+  const preview = () =>
+    sqlPreview(
+      prepared.statements.map((entry) => entry.statement),
+      {
+        operation: prepared.operation,
+        table: prepared.meta.name,
+        ...contextOption(ctx, prepared.context),
+      },
+    );
+  if (ctx.compileOnly) return preview();
+  const result = prepared.explain
+    ? explainPrepared(ctx, prepared)
+    : attachExplain(
+        prepared.resultMode === "one"
+          ? throwingPrepared(ctx, prepared)
+          : lazyPrepared(ctx, prepared),
+        () => explainPrepared(ctx, prepared),
+      );
+  return attachSql(result, preview);
 }
 
 /** A lazy read (runs on await). */

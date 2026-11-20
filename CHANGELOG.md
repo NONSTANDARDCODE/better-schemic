@@ -21,6 +21,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 ### Added
 - **Typed graph traversal on the ORM** (M19): `delegate.from(anchor).graph(g => g.out(E).in(E).both(E)…)` compiles to a single `SELECT [DISTINCT] VALUE <path> FROM ONLY <anchor>` and decodes the resulting node array. Supports multi-hop chains of `.out`/`.in`/`.both` (schema-checked against each edge's declared endpoints), per-hop `where` (edge/target split via `classifyWhereByOwner`), a final `.where` (object or callback predicate via the `FieldRef` layer), `.select` (object form or callback projection, converted via `fragOf`), `.distinct()`, tagged-template `.traverse\`…\``, recursion via `.repeat(depth, fn)` (+`.collect()`/`.paths()`/`.shortest(target)`), edge steps (`.outEdges/.inEdges/.bothEdges` + `.node()`), and `.match(Member, fn)` in both `.where` and `.select`. Anchor accepts a `string` (`"table:id"`) or `RecordId`. Covered by `test/surreal/unit/orm-graph*.test.ts`.
 
+- **Server-free SQL preview** — every read result gains a synchronous `.toSQL()` (`SqlPreview` with
+  the exact `script`, ordered `statements` and binds, no connection, no hooks); writes gain a true
+  dry run via `delegate.$sql.<op>(args)`, built from the SAME compilers under a `compileOnly`
+  context. `execute.ts::statementParts` is now shared by preview and execution so semicolons and
+  `BEGIN/COMMIT` cannot drift. Plugin transforms still apply, so a preview reflects soft-delete,
+  tenant and policy lowering. `.explain()` remains the separate, server-backed plan. Covered by
+  `test/surreal/unit/orm-sql-preview.test.ts`.
+- **`describeSchema()`** — a JSON-safe, agent-readable descriptor derived purely from the authored
+  schema (`SchemaIndex` + defs): wire types/families/optionality, record links, asserts/default/computed/
+  value expressions as SurrealQL text, indexes/events/permissions, relation endpoints, functions and
+  opaque plugin `meta` tags. Emits no DDL and never contacts the database. Covered by
+  `test/surreal/unit/orm-describe-schema.test.ts`.
+- **`better-schemic/plugins/policy` (`definePolicy`)** — declarative authorization rules with
+  `deny` (optionally narrowed to write fields), `scope` (ANDed into every compiler through
+  `Operation.scope`) and `require` (fail-closed on a missing `meta` key). Table names are typed from
+  the schema; failures are `PolicyDenied`/`PolicyRequired` (403) with `isPolicyViolation()`. The DB
+  permission and `$withoutPlugins()` remain the boundary. Covered by
+  `test/surreal/unit/orm-plugins-policy.test.ts`.
+- **Semantic layer (`defineMetric` / `defineGlossary` / `lineage()`)** — typed business metrics against
+  a source table producing deterministic `aggregate` args, a JSON-safe glossary, and lineage validated
+  against declared fields only (no SQL parsing, no fake edges). Authoring-only: no new DDL kinds.
+  Covered by `test/surreal/unit/orm-semantic.test.ts`.
+- **Docs: ORM na era da IA/agentes** — mapeamento honesto entre a superfície do ORM e os requisitos
+  usualmente cobrados de um ORM "AI-native" (README do pacote, `docs/ORM-COVERAGE.md` §§12–13,
+  `ROADMAP.md`), agora com as quatro lacunas anteriores entregues. GraphQL, MCP, LLM-facing queries
+  e métricas OTel seguem explicitamente fora de escopo.
+
 ## [0.1.0-beta.5] - 2026-11-01
 
 ### Added

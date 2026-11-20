@@ -39,12 +39,21 @@ export {
   type ModelInfo,
   type ModelKind,
   type RelationDelegate,
+  type SqlPreviewDelegate,
 } from "./delegate";
+export {
+  describeSchema,
+  type FieldDescriptor,
+  type FunctionDescriptor,
+  type SchemaDescriptor,
+  type TableDescriptor,
+} from "./describe";
 export {
   isAssertionFailed,
   isNotFound,
   isOrmError,
   isPermissionDenied,
+  isPolicyViolation,
   isSerializationFailure,
   isTenantViolation,
   isTransactionRollback,
@@ -63,6 +72,8 @@ export {
   execute,
   type Queryable,
   type Statement,
+  sqlPreview,
+  statementParts,
 } from "./execute";
 export { createQueryLogger, resolveLogger } from "./logger";
 export type {
@@ -85,15 +96,26 @@ export {
 } from "./plugins";
 export type { RawOperations, RawQueryTag, RawTag } from "./raw";
 export {
+  attachSql,
   attachThrow,
   type BatchResult,
   lazyResult,
   type NotFoundInfo,
+  type SqlPreview,
   type StatementResult,
   statementResult,
   type ThrowingResult,
 } from "./results";
 export { buildSchemaIndex, isSchemaDef, schema } from "./schema";
+export {
+  defineGlossary,
+  defineMetric,
+  type GlossaryTerm,
+  type LineageEntry,
+  lineage,
+  type MetricDef,
+  type MetricOp,
+} from "./semantic";
 export type {
   AdminOperations,
   DbInfo,

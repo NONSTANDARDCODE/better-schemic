@@ -256,7 +256,7 @@ Full syntax (verbatim): `DEFINE TABLE [OVERWRITE|IF NOT EXISTS] @name [DROP] [SC
 | COMMENT                                   | `.comment()`                             | ✅                               |
 | PERMISSIONS (select/create/update/delete) | `.permissions()` (+ `same as`)           | ✅                               |
 | OVERWRITE / IF NOT EXISTS                 | `{ exists: "overwrite"\|"ignore" }`      | ✅                               |
-| **AS SELECT (pre-computed view)**         | —                                        | ❌ (live ✅; needs source table) |
+| **AS SELECT (pre-computed view)**         | `defineView(...).as(...)`                | ✅                               |
 | CHANGEFEED @dur [INCLUDE ORIGINAL]        | `.changefeed("3d", { includeOriginal })` | ✅ batch 1                       |
 
 ### Field clauses — https://surrealdb.com/docs/reference/query-language/statements/define/field

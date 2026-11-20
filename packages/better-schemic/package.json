@@ -116,6 +116,13 @@
         "default": "./lib/plugins/create-only.js"
       }
     },
+    "./plugins/policy": {
+      "bun": "./src/plugins/policy.ts",
+      "import": {
+        "types": "./lib/plugins/policy.d.ts",
+        "default": "./lib/plugins/policy.js"
+      }
+    },
     "./otel": {
       "bun": "./src/otel/index.ts",
       "import": {
