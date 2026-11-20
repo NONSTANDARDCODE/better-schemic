@@ -648,9 +648,6 @@ Initial slice delivered: `delegate.from(anchor).graph(g => g.out(E).in(E).both(E
 - ✅ **M19.4** tagged-template `.traverse\`…\`` (runtime-parsed path).
 - ✅ **M19.5** recursion (`.repeat` + collect/paths/shortest), edge steps (`.outEdges/.inEdges/.bothEdges` + `.node()`), `.match` (where + select), polymorphic-union targets (via target list).
 
-## TODO
-fazer lint mais robusto, melhorar sistemas de tipos (otimizar para AoT do bun recem lancado), criar plugin com tipos pre compilados e sem new Function (inpirado em zod-compiler), querys tipadas 100% inferidas apartir de arquivos (nova funcionaalidade de mappers do ts) e de surrealql diretamente inpirado nisso: https://x.com/colinhacks/status/2113145042454134986, por fim tornar estavel o sistema de querys ao vivo, com suporte a rodar com swr no browser e em background pegar as alterações ao vivo, buscando uma DX semelhante ao que a convex entrega
-
 ### Gaps de ORM para agentes/IA — entregues ✅
 
 O mapeamento completo está em `packages/better-schemic/docs/ORM-COVERAGE.md` §§12–13 e no README do
