@@ -46,9 +46,7 @@ const keyOf = (s: Pick<DefineStatement, "kind" | "name" | "table">): string =>
 
 /** A one-table {@link Snapshot} (head + its fields) for the legacy `diffSnapshots` to diff. */
 function snapOf(head: DefineStatement, fields: DefineStatement[]): Snapshot {
-  const statements: Snapshot["statements"] = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const s of [head, ...fields]) statements[keyOf(s)] = s
+  const statements = Object.fromEntries([head, ...fields].map((s) => [keyOf(s), s] as const))
 
   return { statements, version: 1 }
 }

@@ -1,23 +1,35 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
-// M6.3 — the `rules` guardrail plugin: noRawUnsafe, destructive-write-without-where, requireLimit,
-// maxLimit, cursor orderBy and strict fields. Offline.
 import { describe, expect, test } from "bun:test"
 import { RecordId } from "surrealdb"
+import type { ZodString } from "zod"
 
 import { orm } from "../../../src/surreal/orm/client"
 import { schema } from "../../../src/surreal/orm/schema"
+import type { Client } from "../../../src/surreal/orm/types/client"
+import type { Plugin } from "../../../src/surreal/orm/types/plugins"
 import { recommended, rules, safe, strict } from "../../../src/surreal/plugins/rules"
-import { s, table } from "../../../src/surreal/pure"
+import { s, type SField, table, type TableDef, type WithSmartId } from "../../../src/surreal/pure"
+import type { FakeConn } from "../../../test/surreal/orm-fixtures"
 import { fakeConn, lines, ok } from "../orm-fixtures"
+
+// M6.3 — the `rules` guardrail plugin: noRawUnsafe, destructive-write-without-where, requireLimit,
+// maxLimit, cursor orderBy and strict fields. Offline.
 
 const User = table("user", { name: s.string() })
 const schemaDef = schema({ users: User })
 
-const clientWith = (plugins: Parameters<typeof orm>[1]["plugins"]) => {
+const clientWith = (
+  plugins: Parameters<typeof orm>[1]["plugins"],
+): Client<
+  {
+    readonly users: TableDef<"user", WithSmartId<"user", { name: SField<ZodString> }>>
+  },
+  FakeConn,
+  readonly Plugin[]
+> => {
   const { conn } = fakeConn((sql) =>
     lines(sql).map(() => ok([{ id: new RecordId("user", 1), name: "A" }])),
   )
-  return orm(conn, { schema: schemaDef, plugins })
+  return orm(conn, { plugins, schema: schemaDef })
 }
 
 const codeOf = async (fn: () => unknown): Promise<string | undefined> => {
@@ -51,7 +63,7 @@ describe("rules — write/limit guardrails", () => {
     const client = clientWith([strict()])
     expect(await codeOf(() => client.users.cursor({ limit: 10 }))).toBe("UnsafeMutation")
     expect(
-      await codeOf(() => client.users.cursor({ orderBy: [{ id: "asc" }], limit: 10 })),
+      await codeOf(() => client.users.cursor({ limit: 10, orderBy: [{ id: "asc" }] })),
     ).toBeUndefined()
   })
 
@@ -71,9 +83,9 @@ describe("rules — raw guardrail", () => {
   test("noRawUnsafe blocks $unsafe but leaves $raw available", async () => {
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok(null)))
     const client = orm(conn, {
-      schema: schemaDef,
       plugins: [safe()],
       raw: { unsafe: true },
+      schema: schemaDef,
     })
     expect(await codeOf(() => client.$unsafe("SELECT 1"))).toBe("UnsafeMutation")
     expect(await codeOf(() => client.$raw`SELECT 1`)).toBeUndefined()

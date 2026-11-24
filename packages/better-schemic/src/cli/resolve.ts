@@ -76,15 +76,13 @@ export function parseArgs(arg: string[] | undefined, argsJson?: string): Record<
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
       throw new Error(`--args must be a JSON object (got "${argsJson}").`)
 
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [key, value] of Object.entries(parsed)) {
+    Object.entries(parsed).forEach(([key, value]) => {
       if (UNSAFE_ARG_KEYS.has(key)) throw new Error(`--args key "${key}" is reserved.`)
 
       out[key] = value
-    }
+    })
   }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const a of arg ?? []) {
+  ;(arg ?? []).forEach((a) => {
     const i = a.indexOf("=")
     if (i < 0) throw new Error(`--arg must be key=value (got "${a}").`)
 
@@ -92,7 +90,7 @@ export function parseArgs(arg: string[] | undefined, argsJson?: string): Record<
     if (UNSAFE_ARG_KEYS.has(key)) throw new Error(`--arg key "${key}" is reserved.`)
 
     out[key] = a.slice(i + 1)
-  }
+  })
   return out
 }
 
@@ -201,16 +199,18 @@ export async function resolveTargets(opts: ResolveOpts): Promise<ResolvedConfig[
   try {
     let targets: ResolvedConfig[]
     if (opts.all) {
-      targets = []
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const name of names) targets.push(...(await fanOut(name)))
+      // Sequential reduce: sibling resolution order is observable (each opens connections on demand).
+      targets = await names.reduce(
+        async (previous, name) => [...(await previous), ...(await fanOut(name))],
+        Promise.resolve([] as ResolvedConfig[]),
+      )
     } else if (opts.connection) {
       const [name, key] = splitAddress(opts.connection)
       targets = key === undefined ? await fanOut(name) : [await resolveOneConfig(name, key)]
     } else {
       const name = config.defaultConnection ?? (names.length === 1 ? names[0] : "default")
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- índice de Record assume presença, mas a config vem de arquivo do usuário.
-      if (!config.connections[name]) {
+      // The config comes from a user file: a Record index is not a presence guarantee at runtime.
+      if (!(config.connections[name] as AnyConnectionEntry | undefined)) {
         throw new Error(
           `No default connection. Set "defaultConnection" or pass --connection. Known: ${names.join(", ") || "(none)"}.`,
         )
@@ -219,19 +219,21 @@ export async function resolveTargets(opts: ResolveOpts): Promise<ResolvedConfig[
     }
     if (targets.length === 0) throw new Error("No connections matched — nothing to do.")
 
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const driver of new Set(targets.map((t) => t.driver))) assertDriverAvailable(driver)
+    new Set(targets.map((t) => t.driver)).forEach((driver) => {
+      assertDriverAvailable(driver)
+    })
 
     return targets
   } finally {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const { conn, driver } of opened.values()) {
-      try {
-        await driver.close(conn)
-      } catch {
-        // best-effort: a sibling opened to compute the connection list
-      }
-    }
+    await Promise.all(
+      [...opened.values()].map(async ({ conn, driver }) => {
+        try {
+          await driver.close(conn)
+        } catch {
+          // best-effort: a sibling opened to compute the connection list
+        }
+      }),
+    )
   }
 }
 

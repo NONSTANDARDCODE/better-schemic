@@ -293,8 +293,10 @@ function cursorPlan(meta: ModelMeta, ctx: DelegateContext, args: CursorRuntimeAr
     const hasNext = plan.backward ? true : hasMore
     const nextCursor = hasNext ? cursorOf(meta, raw.at(-1), plan.keyset) : null
     const previousCursor = hasPrevious ? cursorOf(meta, raw[0], plan.keyset) : null
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const row of data) stripKeyset(row, plan.keyset)
+
+    data.forEach((row) => {
+      stripKeyset(row, plan.keyset)
+    })
 
     return {
       data,
@@ -324,8 +326,8 @@ function cursorOf(meta: ModelMeta, row: unknown, keyset: readonly CursorKey[]): 
     return cursorValueOf(meta, keyset[0], keysetValue(row, keyset[0]))
 
   const tuple: Record<string, unknown> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of keyset) {
+
+  keyset.forEach((key) => {
     const value = cursorValueOf(meta, key, keysetValue(row, key))
     if (value === undefined) {
       throw compileError(
@@ -335,7 +337,7 @@ function cursorOf(meta: ModelMeta, row: unknown, keyset: readonly CursorKey[]): 
       )
     }
     tuple[key.field] = value
-  }
+  })
   return tuple
 }
 
@@ -369,20 +371,17 @@ function keysetValue(row: unknown, key: CursorKey): unknown {
 function stripKeyset(row: unknown, keyset: readonly CursorKey[]): void {
   if (!isRecord(row)) return
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of keyset) if (key.alias !== undefined) Reflect.deleteProperty(row, key.alias)
+  keyset.forEach((key) => {
+    if (key.alias !== undefined) Reflect.deleteProperty(row, key.alias)
+  })
 }
 
 /** Read a dotted path off a raw row (`undefined` when an ancestor is missing or a scalar). */
 function readPath(value: unknown, segments: readonly string[]): unknown {
-  let current: unknown = value
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const segment of segments) {
-    if (!isRecord(current)) return undefined
-
-    current = current[segment]
-  }
-  return current
+  return segments.reduce<unknown>(
+    (current, segment) => (isRecord(current) ? current[segment] : undefined),
+    value,
+  )
 }
 
 /** `findUnique`: target the record (id) or filter by the unique field, then take the one row. */
@@ -414,15 +413,15 @@ function prepareUnique(meta: ModelMeta, ctx: DelegateContext, args: ReadArgs): P
 /** Run a prepared read (one round-trip) and decode its result. */
 async function runPrepared(ctx: DelegateContext, prepared: PreparedRead): Promise<unknown> {
   const hooks = ctx.hooks
-  const first = prepared.statements[0]?.statement
+  const first = prepared.statements[0].statement
   const meta = hooks ? resolveMeta(ctx, prepared.context, prepared.hookMeta) : undefined
   return runWithHooks(
     hooks,
     {
       operation: prepared.operation as OperationKind,
+      surql: first.sql,
       table: prepared.meta.name,
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- tabela sem nome em runtime cairia em undefined; fallback defensivo
-      ...(first ? { surql: first.sql, vars: first.vars ?? {} } : {}),
+      vars: first.vars ?? {},
       ...(meta ? { meta } : {}),
     },
     async () => {

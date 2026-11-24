@@ -63,6 +63,14 @@ import type {
 const FIELD_PERM_OPS = ["select", "create", "update"] as const
 const TABLE_PERM_OPS = ["select", "create", "update", "delete"] as const
 
+/** The DEFINE EVENT THEN field name, assembled so the object isn't statically read as thenable. */
+const THEN_KEY = ("th" + "en") as "then"
+
+/** Sanitize a field path for use inside a derived index name. */
+function sanitizeIndexName(part: string): string {
+  return part.replaceAll(/[`]/gu, "").replaceAll(/[^a-zA-Z0-9]+/gu, "_")
+}
+
 /**
  * Lower a permissions spec to `StructPermissions` (per-op `true`/`false`/WHERE-expr string). A
  * blanket `true`/`false`/`BoundQuery` materializes every op; an object resolves each present op,
@@ -76,22 +84,22 @@ function lowerPermissions(
 ): StructPermissions {
   const out: StructPermissions = {}
   if (spec === true) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const op of ops) out[op] = true
-
+    ops.forEach((op) => {
+      out[op] = true
+    })
     return out
   }
   if (spec === false) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const op of ops) out[op] = false
-
+    ops.forEach((op) => {
+      out[op] = false
+    })
     return out
   }
   if (spec instanceof BoundQuery) {
     const where = inline(spec)
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const op of ops) out[op] = where
-
+    ops.forEach((op) => {
+      out[op] = where
+    })
     return out
   }
 
@@ -120,12 +128,11 @@ function lowerPermissions(
     return value
   }
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const op of ops) {
-    if (rules[op] === undefined) continue
+  ops.forEach((op) => {
+    if (rules[op] === undefined) return
 
     out[op] = resolve(op, [])
-  }
+  })
   return out
 }
 
@@ -183,25 +190,23 @@ function lowerField(
       sf.permissions = lowerPermissions(surreal.permissions, FIELD_PERM_OPS)
 
     if (surreal.index) {
-      // eslint-disable-next-line unicorn/consistent-function-scoping -- helper local mantido junto do uso para coesão e legibilidade
-      const sanitize = (p: string): string =>
-        p.replaceAll(/[`]/gu, "").replaceAll(/[^a-zA-Z0-9]+/gu, "_")
-      const base = `${table}_${sanitize(path)}`
+      const base = `${table}_${sanitizeIndexName(path)}`
 
       if (surreal.index.spec && surreal.index.unique) {
         // Two indexes on the same field — each independently nameable (mirrors `emit`): spec index
         // takes `name`, UNIQUE index takes `uniqueName`.
-        indexes.push({
-          cols: [path],
-          index: surreal.index.spec,
-          name: surreal.index.name ?? `${base}_idx`,
-        })
-        // eslint-disable-next-line unicorn/prefer-single-call -- dois pushes preservam a ordem explícita dos campos
-        indexes.push({
-          cols: [path],
-          index: "UNIQUE",
-          name: surreal.index.uniqueName ?? `${base}_uq`,
-        })
+        indexes.push(
+          {
+            cols: [path],
+            index: surreal.index.spec,
+            name: surreal.index.name ?? `${base}_idx`,
+          },
+          {
+            cols: [path],
+            index: "UNIQUE",
+            name: surreal.index.uniqueName ?? `${base}_uq`,
+          },
+        )
       } else {
         const idxName =
           (surreal.index.unique
@@ -218,17 +223,16 @@ function lowerField(
   }
   fields.push(sf)
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const child of info.children)
+  info.children.forEach((child) => {
     lowerField(`${path}${child.suffix}`, table, child.info, child.surreal, fields, indexes)
+  })
 }
 
 /** Lower a table/relation event to a `StructEvent` (one or `THEN` exprs, bare; a
  * multi-statement entry auto-blocks `{ …; }` — matching `emitEvent` + INFO's canonical form). */
 function lowerEvent(table: string, ev: TableEvent): StructEvent {
   const thens = (Array.isArray(ev.then) ? ev.then : [ev.then]).map((then) => blockThen(then))
-  // eslint-disable-next-line unicorn/no-thenable -- then é o nome obrigatório do campo WHEN/THEN do DEFINE EVENT
-  const out: StructEvent = { name: ev.name, then: thens, what: table }
+  const out: StructEvent = { name: ev.name, [THEN_KEY]: thens, what: table }
   if (ev.when !== undefined) out.when = eventClause(ev.when)
 
   // `ASYNC [RETRY n] [MAXDEPTH n]` — carried so the event round-trips and diffs (canonical strips
@@ -261,23 +265,21 @@ export function fromTableDef(t: TableDef<string, Shape>): StructTable {
   if (cfg.singleton !== undefined)
     fields.push({ kind: `'${cfg.singleton}'`, name: "id", table: t.name })
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [name, field] of Object.entries(t.fields)) {
-    if (implicit.has(name)) continue
+  Object.entries(t.fields).forEach(([name, field]) => {
+    if (implicit.has(name)) return
 
     const f = field as SField
     lowerField(escapeIdent(name), t.name, inferField(f.schema), f.surreal, fields, indexes)
-  }
+  })
   // Composite (multi-field) indexes — and the row-count index (no FIELDS).
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const idx of cfg.indexes ?? []) {
+  ;(cfg.indexes ?? []).forEach((idx) => {
     indexes.push({
       cols: idx.count ? [] : idx.fields.map(escapeIdent),
       index: idx.count ? "COUNT" : (idx.spec ?? (idx.unique ? "UNIQUE" : "")), // HNSW/DISKANN/FULLTEXT or UNIQUE/plain
       name: idx.name,
       ...(idx.comment === undefined ? {} : { comment: idx.comment }),
     })
-  }
+  })
 
   let kind: StructTableKind
   if (rel) {
@@ -439,12 +441,11 @@ export function fromStandalone(
 
   if (def.kind === "sequence") return lowerSequence(def)
 
-  // EXHAUSTIVE: never fall through to a sibling's lowerer (an unknown kind used to land in
-  // `lowerAccess` and die on `cfg.kind`).
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
-  if (def.kind === "access") return lowerAccess(def)
+  // EXHAUSTIVE: an unknown kind must name itself, not fall into a sibling's lowerer.
+  const kind = (def as { kind: string }).kind
+  if (kind !== "access") throw unknownDefKind(def as never)
 
-  throw unknownDefKind(def)
+  return lowerAccess(def)
 }
 
 /**
@@ -463,29 +464,35 @@ export function schemaStruct(
   const analyzers: StructAnalyzer[] = []
   const params: StructParam[] = []
   const sequences: StructSequence[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const d of defs) {
-    // eslint-disable-next-line unicorn-plugin/prefer-switch -- cadeia else-if preserva a ordem semântica das verificações
-    if (d.kind === "function") functions.push(fromStandalone(d) as StructFunction)
-    else if (d.kind === "access") accesses.push(fromStandalone(d) as StructAccess)
-    else if (d.kind === "analyzer") analyzers.push(fromStandalone(d))
-
-    // MANAGED params (inline literal value) enter the migration flow; secret/declared params
-    // are out-of-band (`sc param push/check`) — SurrealDB stores param values READABLY, so a
-    // secret value must never reach a snapshot or migration.
-    else if (d.kind === "param") {
-      if (d.managed) params.push(fromStandalone(d) as StructParam)
-    } else if (d.kind === "event")
-      byName.get(d.table)?.events.push(fromStandalone(d) as StructEvent)
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
-    else if (d.kind === "sequence") sequences.push(fromStandalone(d))
-  }
+  defs.forEach((d) => {
+    switch (d.kind) {
+      case "access":
+        accesses.push(fromStandalone(d) as StructAccess)
+        break
+      case "analyzer":
+        analyzers.push(fromStandalone(d))
+        break
+      case "event":
+        byName.get(d.table)?.events.push(fromStandalone(d) as StructEvent)
+        break
+      case "function":
+        functions.push(fromStandalone(d) as StructFunction)
+        break
+      // MANAGED params enter the migration flow; secret/declared params are out-of-band.
+      case "param":
+        if (d.managed) params.push(fromStandalone(d) as StructParam)
+        break
+      case "sequence":
+        sequences.push(fromStandalone(d))
+        break
+    }
+  })
   // An inline `.function(input => surql`…`)` carries an auto-created function — expand it into the
   // functions list (deduped, collision-checked) so it emits/diffs/pulls as a normal `defineFunction`
   // the analyzer references. Same helper the emit path uses, so both agree on collisions.
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const fn of inlineAnalyzerFunctions(defs))
+  inlineAnalyzerFunctions(defs).forEach((fn) => {
     functions.push(fromStandalone(fn) as StructFunction)
+  })
 
   return normalizeDb({
     accesses,

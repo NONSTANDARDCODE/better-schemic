@@ -10,8 +10,8 @@
 import type { Surql } from "../../frag"
 import type { App, FunctionDef } from "../../pure"
 
-// eslint-disable-next-line unicorn/prefer-export-from -- re-export público preserva API; o tipo é usado aqui também
-import type { AnyFunctionDef, EntriesOf, FunctionKeys, SchemaInput } from "./schema"
+import type { AnyFunctionDef as FnDef, EntriesOf, FunctionKeys, SchemaInput } from "./schema"
+export type { AnyFunctionDef } from "./schema"
 
 /** The decoded args of a `defineFunction` entry, by argument name. */
 export type FnArgs<F> =
@@ -51,7 +51,7 @@ export type FnExprSurface<S = SchemaInput> = {
   readonly call: FnFragmentCall
 } & {
   readonly [K in FunctionKeys<S>]: FnFragment<
-    EntriesOf<S>[K] extends AnyFunctionDef ? EntriesOf<S>[K] : AnyFunctionDef
+    EntriesOf<S>[K] extends FnDef ? EntriesOf<S>[K] : FnDef
   >
 }
 
@@ -61,10 +61,7 @@ export type FnSurface<S = SchemaInput> = {
   /** The expression form of the same catalog — usable inside a statement, not as a round-trip. */
   readonly expr: FnExprSurface<S>
 } & {
-  readonly [K in FunctionKeys<S>]: FnMethod<
-    EntriesOf<S>[K] extends AnyFunctionDef ? EntriesOf<S>[K] : AnyFunctionDef
-  >
+  readonly [K in FunctionKeys<S>]: FnMethod<EntriesOf<S>[K] extends FnDef ? EntriesOf<S>[K] : FnDef>
 }
 
 /** The schema function defs a delegate surface narrows from (re-exported for consumers). */
-export type { AnyFunctionDef }

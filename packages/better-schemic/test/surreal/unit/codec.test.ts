@@ -1,4 +1,7 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-deprecated -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures exercise deprecated aliases. */
+/* eslint-disable @typescript-eslint/no-deprecated -- aliases `parse`/`safeParse` são exercitados de propósito como compatibilidade legada. */
+const MAGIC_2 = 2
+const MAGIC_3 = 3
+const MAGIC_9 = 9
 import { describe, expect, test } from "bun:test"
 import { DateTime, RecordId, Uuid } from "surrealdb"
 import { z } from "zod"
@@ -34,12 +37,12 @@ describe("native codecs (schema-level)", () => {
 
   test("bytes: Uint8Array passes through, ArrayBuffer is normalized", () => {
     const schema = s.bytes().schema
-    const u8 = new Uint8Array([1, 2, 3])
+    const u8 = new Uint8Array([1, MAGIC_2, MAGIC_3])
     expect(z.decode(schema, u8)).toBeInstanceOf(Uint8Array)
 
     const fromBuffer = z.decode(schema, u8.buffer)
     expect(fromBuffer).toBeInstanceOf(Uint8Array)
-    expect([...(fromBuffer as Uint8Array)]).toEqual([1, 2, 3])
+    expect([...(fromBuffer as Uint8Array)]).toEqual([1, MAGIC_2, MAGIC_3])
   })
 
   test("recordId is identity (no codec), but enforces the table", () => {
@@ -91,18 +94,18 @@ describe("field-level codec (SField.decode / encode)", () => {
 
 describe("table decode/encode", () => {
   const T = table("t", {
-    id: z.string(),
-    when: s.datetime(),
-    tag: s.uuid(),
     data: s.bytes(),
+    id: z.string(),
+    tag: s.uuid(),
+    when: s.datetime(),
   })
 
   test("decode: wire row -> app object", () => {
     const row = {
+      data: new Uint8Array([MAGIC_9]).buffer,
       id: new RecordId("t", "1"),
-      when: new DateTime(new Date("2021-06-01T12:00:00.000Z")),
       tag: new Uuid(UUID),
-      data: new Uint8Array([9]).buffer,
+      when: new DateTime(new Date("2021-06-01T12:00:00.000Z")),
     }
     const app = T.decode(row)
     expect(app.id).toBeInstanceOf(RecordId)
@@ -113,10 +116,10 @@ describe("table decode/encode", () => {
 
   test("encode: app object -> wire row", () => {
     const wire = T.encode({
+      data: new Uint8Array([MAGIC_9]),
       id: new RecordId("t", "1"),
-      when: new Date("2021-06-01T12:00:00.000Z"),
       tag: UUID,
-      data: new Uint8Array([9]),
+      when: new Date("2021-06-01T12:00:00.000Z"),
     })
     expect(wire.when).toBeInstanceOf(DateTime)
     expect(wire.tag).toBeInstanceOf(Uuid)
@@ -124,39 +127,39 @@ describe("table decode/encode", () => {
 
   test("safeDecode reports failure without throwing", () => {
     const bad = T.safeDecode({
-      id: new RecordId("t", "1"),
-      when: "nope",
-      tag: 1,
       data: 2,
+      id: new RecordId("t", "1"),
+      tag: 1,
+      when: "nope",
     })
     expect(bad.success).toBe(false)
   })
 
   test("safeEncode validates the app side", () => {
     const ok = T.safeEncode({
-      id: new RecordId("t", "1"),
-      when: new Date(),
-      tag: UUID,
       data: new Uint8Array([1]),
+      id: new RecordId("t", "1"),
+      tag: UUID,
+      when: new Date(),
     })
     expect(ok.success).toBe(true)
 
     const bad = T.safeEncode({
+      data: new Uint8Array(),
       id: new RecordId("t", "1"),
+      tag: UUID,
       // @ts-expect-error - `when` must be a Date on the app side
       when: 123,
-      tag: UUID,
-      data: new Uint8Array(),
     })
     expect(bad.success).toBe(false)
   })
 
   test("async variants resolve", async () => {
     const row = {
-      id: new RecordId("t", "1"),
-      when: new DateTime(new Date()),
-      tag: new Uuid(UUID),
       data: new Uint8Array([1]),
+      id: new RecordId("t", "1"),
+      tag: new Uuid(UUID),
+      when: new DateTime(new Date()),
     }
     const app = await T.decodeAsync(row)
     expect(app.when).toBeInstanceOf(Date)
@@ -164,17 +167,17 @@ describe("table decode/encode", () => {
     expect(safe.success).toBe(true)
 
     const wire = await T.encodeAsync({
-      id: new RecordId("t", "1"),
-      when: new Date(),
-      tag: UUID,
       data: new Uint8Array([1]),
+      id: new RecordId("t", "1"),
+      tag: UUID,
+      when: new Date(),
     })
     expect(wire.when).toBeInstanceOf(DateTime)
     const safeWire = await T.safeEncodeAsync({
-      id: new RecordId("t", "1"),
-      when: new Date(),
-      tag: UUID,
       data: new Uint8Array([1]),
+      id: new RecordId("t", "1"),
+      tag: UUID,
+      when: new Date(),
     })
     expect(safeWire.success).toBe(true)
   })

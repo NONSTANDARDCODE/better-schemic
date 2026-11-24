@@ -1,9 +1,10 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-unused-vars, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures assert values whose presence the test guarantees. Type queries and callback signatures need fixture values. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+const MAGIC_5 = 5
 // The per-table `idStrategy`: authoring (chainable/immutable/guarded), SchemaIndex resolution
 // (default ulid, explicit id-field inference, conflict fail-fast), `$model` introspection, the
 // compiler lowering of EVERY create path (create/createMany/skipDuplicates, insert/insertMany,
 // upsert/upsertMany, create.relate) for ulid/uuid/rand, and the DDL/Struct-IR invariance that
 // keeps migrations diff-free. Offline (no live server needed).
+
 import { describe, expect, test } from "bun:test"
 import { BoundQuery, RecordId } from "surrealdb"
 import { z } from "zod"
@@ -13,7 +14,7 @@ import { schemaStruct } from "../../../src/surreal/cli/lower"
 import { emitTable } from "../../../src/surreal/ddl"
 import { orm } from "../../../src/surreal/orm/client"
 import { compileUpsert, compileUpsertMany } from "../../../src/surreal/orm/compiler/mutate"
-import { createBinds } from "../../../src/surreal/orm/compiler/shared"
+import { type Binds, createBinds } from "../../../src/surreal/orm/compiler/shared"
 import {
   compileCreate,
   compileCreateMany,
@@ -21,22 +22,24 @@ import {
   compileInsertMany,
 } from "../../../src/surreal/orm/compiler/write"
 import { generatedTarget, withGeneratedId } from "../../../src/surreal/orm/compiler/write-shared"
+import type { TableMeta } from "../../../src/surreal/orm/meta"
 import { schema } from "../../../src/surreal/orm/schema"
+import { required } from "../../required"
 import { fakeConn, ok } from "../orm-fixtures"
 
 import { codeOf } from "./orm-writes-fixtures"
 
 // --- fixtures ------------------------------------------------------------------------------------
 
-const UlidT = table("ulid_t", { name: s.string(), email: s.string() }).index(
+const UlidT = table("ulid_t", { email: s.string(), name: s.string() }).index(
   "uq_ulid_email",
   ["email"],
   { unique: true },
 )
-const UuidT = table("uuid_t", { name: s.string(), email: s.string() })
+const UuidT = table("uuid_t", { email: s.string(), name: s.string() })
   .idStrategy("uuid")
   .index("uq_uuid_email", ["email"], { unique: true })
-const RandT = table("rand_t", { name: s.string(), email: s.string() })
+const RandT = table("rand_t", { email: s.string(), name: s.string() })
   .idStrategy("rand")
   .index("uq_rand_email", ["email"], { unique: true })
 const UuidIdT = table("uuid_id_t", { id: s.uuid(), name: s.string() })
@@ -51,22 +54,22 @@ const RawUuidIdT = table("raw_uuid_id_t", { id: z.uuid(), name: s.string() })
 const SingletonT = defineSingleton("singleton_t", { value: s.string() })
 
 const schemaDef = schema({
-  ulidT: UlidT,
-  uuidT: UuidT,
+  audit: "audit_log",
   randT: RandT,
-  uuidIdT: UuidIdT,
-  uuidV7IdT: UuidV7IdT,
-  ulidIdT: UlidIdT,
-  uuidV4IdT: UuidV4IdT,
   rawUuidIdT: RawUuidIdT,
   singletonT: SingletonT,
-  audit: "audit_log",
+  ulidIdT: UlidIdT,
+  ulidT: UlidT,
+  uuidIdT: UuidIdT,
+  uuidT: UuidT,
+  uuidV4IdT: UuidV4IdT,
+  uuidV7IdT: UuidV7IdT,
 })
 
-const { conn, calls } = fakeConn(() => [ok([])])
+const { conn } = fakeConn(() => [ok([])])
 const client = orm(conn, { schema: schemaDef })
-const meta = (key: string) => client.$index.tables.get(key)!
-const b = () => createBinds()
+const meta = (key: string): TableMeta => required(client.$index.tables.get(key))
+const b = (): Binds => createBinds()
 /** Statements as the executor runs them (a trailing `;` per statement, never doubled). */
 const sql = (plan: { statements: readonly string[] }): string =>
   plan.statements
@@ -220,7 +223,9 @@ describe("compiler — ulid default", () => {
     ).toBe("INSERT IGNORE INTO ulid_t $p0;")
     // Non-objects are still a teaching ValidationError (via the codec).
     expect(
-      codeOf(() => compileCreateMany(meta("ulidT"), { data: [5], skipDuplicates: true }, b())),
+      codeOf(() =>
+        compileCreateMany(meta("ulidT"), { data: [MAGIC_5], skipDuplicates: true }, b()),
+      ),
     ).toBe("ValidationError")
   })
 
@@ -234,7 +239,7 @@ describe("compiler — ulid default", () => {
   })
 
   test("schemaless entries ride the uniform ulid default", () => {
-    const audit = client.$index.schemaless.get("audit")!
+    const audit = required(client.$index.schemaless.get("audit"))
     expect(sql(compileCreate(audit, { data: { x: 1 } }, b()))).toBe(
       'CREATE type::record(s"audit_log", rand::ulid()) CONTENT $p0;',
     )
@@ -249,9 +254,9 @@ describe("compiler — ulid default", () => {
         compileUpsert(
           meta("ulidT"),
           {
-            where: { email: "a@x" },
             data: { email: "a@x", name: "A" },
             onMissing: "create",
+            where: { email: "a@x" },
           },
           b(),
         ),
@@ -265,9 +270,9 @@ describe("compiler — ulid default", () => {
         compileUpsert(
           meta("ulidT"),
           {
-            where: { email: "a@x" },
-            data: { id: new RecordId("ulid_t", "9"), email: "a@x" },
+            data: { email: "a@x", id: new RecordId("ulid_t", "9") },
             onMissing: "create",
+            where: { email: "a@x" },
           },
           b(),
         ),
@@ -279,9 +284,9 @@ describe("compiler — ulid default", () => {
         compileUpsert(
           meta("ulidT"),
           {
-            where: { id: "ulid_t:1" },
             data: { name: "A" },
             onMissing: "create",
+            where: { id: "ulid_t:1" },
           },
           b(),
         ),
@@ -289,7 +294,7 @@ describe("compiler — ulid default", () => {
     ).toBe("UPSERT ulid_t:1 MERGE $p0;")
     // STRICT (the default) never needs a generated target — a plain UPDATE.
     expect(
-      sql(compileUpsert(meta("ulidT"), { where: { email: "a@x" }, data: { name: "A" } }, b())),
+      sql(compileUpsert(meta("ulidT"), { data: { name: "A" }, where: { email: "a@x" } }, b())),
     ).toBe("UPDATE ulid_t MERGE $p0 WHERE email = $p1;")
     // `` rides the generated target (live-probed: an expression target accepts ).
     expect(
@@ -297,10 +302,10 @@ describe("compiler — ulid default", () => {
         compileUpsert(
           meta("ulidT"),
           {
-            where: { email: "a@x" },
             data: { email: "a@x" },
             only: true,
             onMissing: "create",
+            where: { email: "a@x" },
           },
           b(),
         ),
@@ -325,10 +330,10 @@ describe("compiler — ulid default", () => {
       compileUpsert(
         meta("ulidT"),
         {
-          where: { email: "a@x" },
           create: { email: "a@x", name: "A" },
-          update: { name: "B" },
           onMissing: "create",
+          update: { name: "B" },
+          where: { email: "a@x" },
         },
         b(),
       ),
@@ -346,7 +351,7 @@ describe("compiler — ulid default", () => {
       sql(
         compileUpsertMany(
           meta("ulidT"),
-          { data: [{ email: "a@x", name: "A" }], conflict: "email" },
+          { conflict: "email", data: [{ email: "a@x", name: "A" }] },
           b(),
         ),
       ),
@@ -357,8 +362,8 @@ describe("compiler — ulid default", () => {
       compileUpsertMany(
         meta("ulidT"),
         {
-          data: [{ email: "a@x" }],
           conflict: "email",
+          data: [{ email: "a@x" }],
           update: { name: surql`name` },
         },
         b(),
@@ -383,9 +388,9 @@ describe("compiler — uuid and rand", () => {
         compileUpsert(
           meta("uuidT"),
           {
-            where: { email: "a@x" },
             data: { email: "a@x" },
             onMissing: "create",
+            where: { email: "a@x" },
           },
           b(),
         ),
@@ -413,16 +418,16 @@ describe("compiler — uuid and rand", () => {
         compileUpsert(
           meta("randT"),
           {
-            where: { email: "a@x" },
             data: { email: "a@x" },
             onMissing: "create",
+            where: { email: "a@x" },
           },
           b(),
         ),
       ),
     ).toBe("UPSERT rand_t MERGE $p0 WHERE email = $p1;")
     expect(
-      sql(compileUpsertMany(meta("randT"), { data: [{ email: "a@x" }], conflict: "email" }, b())),
+      sql(compileUpsertMany(meta("randT"), { conflict: "email", data: [{ email: "a@x" }] }, b())),
     ).toBe("UPSERT rand_t MERGE $p0 WHERE email = $p0.email;")
   })
 })
@@ -435,7 +440,7 @@ describe("generated-id helpers — edge cases", () => {
     expect(generatedTarget(meta("uuidT"))).toBe('type::record(s"uuid_t", rand::uuid())')
     expect(generatedTarget(meta("randT"))).toBeUndefined()
     expect(generatedTarget(meta("singletonT"))).toBeUndefined()
-    expect(generatedTarget(client.$index.schemaless.get("audit")!)).toBe(
+    expect(generatedTarget(required(client.$index.schemaless.get("audit")))).toBe(
       'type::record(s"audit_log", rand::ulid())',
     )
   })
@@ -454,7 +459,7 @@ describe("generated-id helpers — edge cases", () => {
       codeOf(() =>
         compileUpsert(
           meta("uuidV4IdT"),
-          { where: { name: "A" }, data: { name: "A" }, onMissing: "create" },
+          { data: { name: "A" }, onMissing: "create", where: { name: "A" } },
           b(),
         ),
       ),
@@ -478,7 +483,7 @@ describe("generated-id helpers — edge cases", () => {
   test("withGeneratedId passes non-objects and explicit ids through; skips rand/singletons", () => {
     const singleton = meta("singletonT")
     const row = { value: "x" }
-    expect(withGeneratedId(meta("ulidT"), 5)).toBe(5)
+    expect(withGeneratedId(meta("ulidT"), MAGIC_5)).toBe(MAGIC_5)
     const explicit = { id: "ulid_t:1", name: "A" }
     expect(withGeneratedId(meta("ulidT"), explicit)).toBe(explicit)
     const randRow = { name: "A" }

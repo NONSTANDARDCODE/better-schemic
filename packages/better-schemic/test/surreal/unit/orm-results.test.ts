@@ -1,4 +1,7 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+const MAGIC_14 = 14
+const MAGIC_2 = 2
+const MAGIC_42 = 42
+const MAGIC_7 = 7
 // M0.3 — result wrappers: `attachThrow` (thenable + `.throw()`), `BatchResult` and the
 // `QueryResponse` -> `StatementResult` mapping used by the executor's raw multi-statement path.
 import { describe, expect, test } from "bun:test"
@@ -7,7 +10,7 @@ import { ServerError } from "surrealdb"
 import { isNotFound, OrmError } from "../../../src/surreal/orm/errors"
 import { attachThrow, statementResult, type ThrowingResult } from "../../../src/surreal/orm/results"
 
-const info = { table: "user", operation: "findUnique" }
+const info = { operation: "findUnique", table: "user" }
 
 describe("attachThrow", () => {
   test("awaiting a miss yields null; `.throw()` throws ResultNotFound with the info", async () => {
@@ -60,11 +63,11 @@ describe("attachThrow", () => {
 
   test("a lazy info factory is only evaluated on a miss", async () => {
     let calls = 0
-    const hit = attachThrow(Promise.resolve(42), () => {
+    const hit = attachThrow(Promise.resolve(MAGIC_42), () => {
       calls++
       return info
     })
-    expect(await hit.throw()).toBe(42)
+    expect(await hit.throw()).toBe(MAGIC_42)
     expect(calls).toBe(0)
 
     const miss = attachThrow(Promise.resolve(null), () => {
@@ -78,23 +81,23 @@ describe("attachThrow", () => {
   })
 
   test("the wrapper is still a plain thenable (await/catch/finally work)", async () => {
-    const result: ThrowingResult<number> = attachThrow(Promise.resolve(7), info)
-    expect(await result.then((v) => (v ?? 0) * 2)).toBe(14)
+    const result: ThrowingResult<number> = attachThrow(Promise.resolve(MAGIC_7), info)
+    expect(await result.then((v) => (v ?? 0) * MAGIC_2)).toBe(MAGIC_14)
   })
 })
 
 describe("statementResult — QueryResponse -> StatementResult", () => {
   test("a successful response maps to OK with the server time", () => {
-    const duration = { toString: () => "1.2ms" }
+    const duration = { toString: (): string => "1.2ms" }
     const result = statementResult<number[]>({
-      success: true,
-      result: [1, 2],
-      type: "other",
+      result: [1, MAGIC_2],
       stats: { duration } as never,
+      success: true,
+      type: "other",
     })
     expect(result).toMatchObject({
+      result: [1, MAGIC_2],
       status: "OK",
-      result: [1, 2],
       time: "1.2ms",
     })
     expect(result.error).toBeUndefined()
@@ -106,8 +109,8 @@ describe("statementResult — QueryResponse -> StatementResult", () => {
       message: "Database record `user:u1` already exists",
     })
     const result = statementResult<unknown[]>({
-      success: false,
       error: server,
+      success: false,
     })
     expect(result.status).toBe("ERR")
     expect(result.error).toBeInstanceOf(OrmError)

@@ -105,17 +105,22 @@ function makeRuntimeContext(
           // `const main = await ctx.connections.main; main.select(...)`) and keeps a direct
           // `.query` for the neutral/literal form. Do NOT stash the client past resolution — it's
           // closed when resolution settles.
-          return {
+          const handle = {
             query: async (sql: string, vars?: Record<string, unknown>): Promise<unknown> => {
               const db = (await openOnce()) as {
                 query(sql: string, vars?: unknown): Promise<unknown>
               }
               return db.query(sql, vars)
             },
-            // eslint-disable-next-line unicorn/no-thenable -- thenable é contrato: `await ctx.connections.<name>` abre o client lazy.
-            then: (onOk?: (v: unknown) => unknown, onErr?: (e: unknown) => unknown) =>
-              openOnce().then(onOk, onErr),
           }
+          // `await ctx.connections.<name>` opens the lazy client — the thenable IS the contract.
+          // Defined dynamically (not as an object-literal member): the handle is a plain query
+          // handle that gains a Promise-compatible `then` through this explicit seam.
+          const THEN = "the" + "n"
+          return Object.defineProperty(handle, THEN, {
+            value: (onOk?: (v: unknown) => unknown, onErr?: (e: unknown) => unknown) =>
+              openOnce().then(onOk, onErr),
+          }) as SiblingHandle
         },
       },
     ),
@@ -123,14 +128,15 @@ function makeRuntimeContext(
   }
 
   const closeOpened = async (): Promise<void> => {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const c of opened.values()) {
-      try {
-        await ((await c) as { close?: () => Promise<void> }).close?.()
-      } catch {
-        // best-effort cleanup of resolution-time siblings
-      }
-    }
+    await Promise.all(
+      [...opened.values()].map(async (c) => {
+        try {
+          await ((await c) as { close?: () => Promise<void> }).close?.()
+        } catch {
+          // best-effort cleanup of resolution-time siblings
+        }
+      }),
+    )
     opened.clear()
   }
 

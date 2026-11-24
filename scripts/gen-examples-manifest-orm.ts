@@ -32,10 +32,11 @@ const driver = "surrealdb"
 const entries: ManifestEntry[] = []
 let verified = 0
 
-// eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-for (const group of allOrmGroups) {
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const ex of group.examples) {
+// Sequential reduce (not Promise.all) to keep manifest order + capture side effects deterministic.
+await allOrmGroups
+  .flatMap((group) => group.examples.map((ex) => ({ ex, group })))
+  .reduce(async (previous, { ex, group }) => {
+    await previous
     // Re-verify the honesty invariant: the re-run statement must equal the golden.
     const got = await capture(ex)
     if (got.sql !== ex.sql || JSON.stringify(got.vars) !== JSON.stringify(ex.vars)) {
@@ -57,8 +58,7 @@ for (const group of allOrmGroups) {
     if (ex.note) entry.note = ex.note
 
     entries.push(entry)
-  }
-}
+  }, Promise.resolve())
 
 const { commit, hash } = writeManifest({
   entries,

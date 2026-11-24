@@ -251,8 +251,7 @@ function compileSource(
 }
 
 const isTemplate = (v: unknown): v is TemplateStringsArray =>
-  // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-  Array.isArray(v) && "raw" in (v as object)
+  Array.isArray(v) && "raw" in (v as unknown as Record<string, unknown>)
 
 const isBoundQuery = (v: unknown): v is BoundQuery =>
   typeof v === "object" && v !== null && "query" in v && "bindings" in v
@@ -267,11 +266,11 @@ function template(
   binds: Binds,
   operation: string,
 ): { sql: string; vars: Record<string, unknown> } {
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime pode omitir vars; fallback protege chamadores
-  let sql = strings[0] ?? ""
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [i, value] of values.entries())
-    sql += renderValue(value, binds, binds.ctx()) + (strings[i + 1] ?? "")
+  let sql = strings[0]
+
+  values.entries().forEach(([i, value]) => {
+    sql += renderValue(value, binds, binds.ctx()) + (strings.at(i + 1) ?? "")
+  })
 
   if (sql.trim().length === 0) {
     throw compileError("ValidationError", `${operation} needs a non-empty SurrealQL string.`, {
@@ -319,12 +318,10 @@ function assertComment(
 
 /** Does the script contain a statement whose verb is a write/DDL verb? */
 function isWriteScript(sql: string): boolean {
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const statement of scriptStatements(sql)) {
+  return scriptStatements(sql).some((statement) => {
     const verb = /^([A-Za-z]+)/u.exec(statement)?.[1]?.toUpperCase()
-    if (verb && WRITE_VERBS.has(verb)) return true
-  }
-  return false
+    return verb !== undefined && WRITE_VERBS.has(verb)
+  })
 }
 
 /**
@@ -335,11 +332,11 @@ function isWriteScript(sql: string): boolean {
  */
 function scriptStatements(sql: string): string[] {
   const out: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const raw of sql.split(";")) {
+
+  sql.split(";").forEach((raw) => {
     const statement = stripLeadingComments(raw).trim()
     if (statement) out.push(statement)
-  }
+  })
   return out
 }
 

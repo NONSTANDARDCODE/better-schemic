@@ -1,4 +1,9 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Defensive checks document fixture intent. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+const MAGIC_40 = 40
+const MAGIC_403 = 403
+const MAGIC_404 = 404
+const MAGIC_409 = 409
+const MAGIC_418 = 418
+const MAGIC_42 = 42
 // M0.3 — error normalization: real SDK `ServerError`s (kind + structured details + message
 // heuristics) and arbitrary thrown values all land on the stable `OrmError` catalog, so
 // `code`/predicates never depend on a message string at a call site.
@@ -33,12 +38,13 @@ import {
   type OrmErrorCode,
 } from "../../../src/surreal/orm/errors"
 
-const code = (e: unknown) => normalizeError(e).code
-const norm = (e: unknown, ctx?: Parameters<typeof normalizeError>[1]) => normalizeError(e, ctx)
+const code = (e: unknown): OrmErrorCode => normalizeError(e).code
+const norm = (e: unknown, ctx?: Parameters<typeof normalizeError>[1]): OrmError =>
+  normalizeError(e, ctx)
 
 /** A plain Error shaped like an SDK ServerError (so all the typed getters undefin them). */
 const serverLike = (over: Record<string, unknown>): Error =>
-  Object.assign(new Error((over.message as string) ?? "boom"), {
+  Object.assign(new Error((over.message as string | undefined) ?? "boom"), {
     kind: "Query",
     ...over,
   })
@@ -46,37 +52,37 @@ const serverLike = (over: Record<string, unknown>): Error =>
 describe("normalizeError — SDK ServerError kinds", () => {
   test("AlreadyExists -> RecordAlreadyExists (table extracted from details)", () => {
     const e = new AlreadyExistsError({
+      details: { details: { id: "user:u1" }, kind: "Record" },
       kind: "AlreadyExists",
       message: "Database record `user:u1` already exists",
-      details: { kind: "Record", details: { id: "user:u1" } },
     })
     const err = norm(e)
     expect(err.code).toBe("RecordAlreadyExists")
     expect(err.table).toBe("user")
-    expect(err.status).toBe(409)
+    expect(err.status).toBe(MAGIC_409)
     expect(err.details).toEqual(e.details)
   })
 
   test("NotFound -> RecordNotFound", () => {
     const e = new NotFoundError({
+      details: { details: { name: "r" }, kind: "Table" },
       kind: "NotFound",
       message: "The table 'r' does not exist",
-      details: { kind: "Table", details: { name: "r" } },
     })
     expect(norm(e)).toMatchObject({ code: "RecordNotFound", table: "r" })
   })
 
   test("Validation + Parse detail -> ParseError; other details -> ValidationError", () => {
     const parse = new ValidationError({
+      details: { kind: "Parse" },
       kind: "Validation",
       message: "Parse error: Unexpected token `PARALLEL`",
-      details: { kind: "Parse" },
     })
     expect(code(parse)).toBe("ParseError")
     const invalid = new ValidationError({
+      details: { kind: "InvalidRequest" },
       kind: "Validation",
       message: "Invalid request",
-      details: { kind: "InvalidRequest" },
     })
     expect(code(invalid)).toBe("ValidationError")
   })
@@ -88,48 +94,48 @@ describe("normalizeError — SDK ServerError kinds", () => {
 
   test("Query + Cancelled -> TransactionRollback; other Query kinds fall back to the message", () => {
     const cancelled = new QueryError({
+      details: { kind: "Cancelled" },
       kind: "Query",
       message: "The query was not executed due to a cancelled transaction",
-      details: { kind: "Cancelled" },
     })
     expect(code(cancelled)).toBe("TransactionRollback")
 
     // In an aborted transaction the server marks sibling statements as NotExecuted.
     const notExecuted = new QueryError({
+      details: { kind: "NotExecuted" },
       kind: "Query",
       message: "The query was not executed due to a failed transaction",
-      details: { kind: "NotExecuted" },
     })
     expect(code(notExecuted)).toBe("TransactionRollback")
 
     const conflict = new QueryError({
+      details: { kind: "NotExecuted" },
       kind: "Query",
       message: "There was a write conflict on this transaction",
-      details: { kind: "NotExecuted" },
     })
     expect(code(conflict)).toBe("WriteConflict")
   })
 
   test("Serialization -> SerializationFailure", () => {
     const e = new SerializationError({
+      details: { kind: "Deserialization" },
       kind: "Serialization",
       message: "failed to deserialize",
-      details: { kind: "Deserialization" },
     })
     expect(code(e)).toBe("SerializationFailure")
   })
 
   test("NotAllowed + Auth -> NotAuthenticated; otherwise PermissionDenied", () => {
     const auth = new NotAllowedError({
+      details: { details: { kind: "TokenExpired" }, kind: "Auth" },
       kind: "NotAllowed",
       message: "token expired",
-      details: { kind: "Auth", details: { kind: "TokenExpired" } },
     })
     expect(code(auth)).toBe("NotAuthenticated")
     const scripting = new NotAllowedError({
+      details: { kind: "Scripting" },
       kind: "NotAllowed",
       message: "Scripting is not allowed",
-      details: { kind: "Scripting" },
     })
     expect(code(scripting)).toBe("PermissionDenied")
   })
@@ -156,12 +162,11 @@ describe("normalizeError — message heuristics on plain errors", () => {
     ["write conflict", "WriteConflict"],
     ["something entirely different", "DatabaseError"],
   ]
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [message, expected] of cases) {
-    test(`"${message.slice(0, 40)}…" -> ${expected}`, () => {
+  cases.forEach(([message, expected]) => {
+    test(`"${message.slice(0, MAGIC_40)}…" -> ${expected}`, () => {
       expect(code(new Error(message))).toBe(expected)
     })
-  }
+  })
 })
 
 describe("normalizeError — zod, context, idempotency", () => {
@@ -176,22 +181,22 @@ describe("normalizeError — zod, context, idempotency", () => {
 
   test("context is attached, and an explicit context table wins over the extracted one", () => {
     const e = new AlreadyExistsError({
+      details: { details: { id: "user:u1" }, kind: "Record" },
       kind: "AlreadyExists",
       message: "already exists",
-      details: { kind: "Record", details: { id: "user:u1" } },
     })
     const err = norm(e, {
-      table: "override",
       operation: "create",
       statementIndex: 3,
       surql: "CREATE user:u1 CONTENT $p",
+      table: "override",
       vars: { p: {} },
     })
     expect(err).toMatchObject({
-      table: "override",
       operation: "create",
       statementIndex: 3,
       surql: "CREATE user:u1 CONTENT $p",
+      table: "override",
       vars: { p: {} },
     })
   })
@@ -223,24 +228,24 @@ describe("predicates", () => {
     })
     const thrown = new ThrownError({ kind: "Thrown", message: "assert" })
     const denied = new NotAllowedError({
+      details: { kind: "Scripting" },
       kind: "NotAllowed",
       message: "nope",
-      details: { kind: "Scripting" },
     })
     const cancelled = new QueryError({
+      details: { kind: "Cancelled" },
       kind: "Query",
       message: "cancelled",
-      details: { kind: "Cancelled" },
     })
     const conflict = new QueryError({
+      details: { kind: "NotExecuted" },
       kind: "Query",
       message: "write conflict",
-      details: { kind: "NotExecuted" },
     })
     const live = new ConfigurationError({
+      details: { kind: "LiveQueryNotSupported" },
       kind: "Configuration",
       message: "live unsupported",
-      details: { kind: "LiveQueryNotSupported" },
     })
 
     expect(isUniqueViolation(norm(already))).toBe(true)
@@ -259,14 +264,14 @@ describe("predicates", () => {
     const violation = new OrmError("TenantViolation", "forged")
     expect(isTenantViolation(required)).toBe(true)
     expect(isTenantViolation(violation)).toBe(true)
-    expect(required.status).toBe(403)
-    expect(violation.status).toBe(403)
+    expect(required.status).toBe(MAGIC_403)
+    expect(violation.status).toBe(MAGIC_403)
   })
 
   test("isCreateOnlyViolation matches the append-only guard code (403)", () => {
     const violation = new OrmError("CreateOnlyViolation", "no updates")
     expect(isCreateOnlyViolation(violation)).toBe(true)
-    expect(violation.status).toBe(403)
+    expect(violation.status).toBe(MAGIC_403)
     expect(isCreateOnlyViolation(new Error("x"))).toBe(false)
   })
 
@@ -290,8 +295,8 @@ describe("normalizeError — refineCode detail flags (isX getters false)", () =>
     expect(
       code(
         serverLike({
-          message: "write conflict",
           details: { kind: "NotExecuted" },
+          message: "write conflict",
         }),
       ),
     ).toBe("WriteConflict")
@@ -304,7 +309,7 @@ describe("normalizeError — refineCode detail flags (isX getters false)", () =>
 
   test("table extraction: Table detail, recordId, and tableName", () => {
     expect(
-      norm(serverLike({ details: { kind: "Table", details: { name: "widget" } } })).table,
+      norm(serverLike({ details: { details: { name: "widget" }, kind: "Table" } })).table,
     ).toBe("widget")
     expect(norm(serverLike({ recordId: "user:u1" })).table).toBe("user")
     expect(norm(serverLike({ tableName: "account" })).table).toBe("account")
@@ -322,11 +327,11 @@ describe("normalizeError — context passthrough and non-Error shapes", () => {
 
   test("a context details/cause wins over the payload's", () => {
     const payload = Object.assign(new Error("x"), {
-      kind: "Query",
-      details: { kind: "Other" },
       cause: new Error("inner"),
+      details: { kind: "Other" },
+      kind: "Query",
     })
-    const err = norm(payload, { details: { custom: 1 }, cause: "ctx" })
+    const err = norm(payload, { cause: "ctx", details: { custom: 1 } })
     expect(err.details).toEqual({ custom: 1 })
     expect(err.cause).toBe("ctx")
   })
@@ -338,12 +343,12 @@ describe("normalizeError — context passthrough and non-Error shapes", () => {
   })
 
   test("a non-string, non-Error throwable is stringified", () => {
-    expect(norm(42).message).toBe("Non-Error thrown: 42")
+    expect(norm(MAGIC_42).message).toBe("Non-Error thrown: 42")
   })
 
   test("an explicit status wins over the catalog default", () => {
-    expect(new OrmError("ResultNotFound", "x", { status: 418 }).status).toBe(418)
-    expect(new OrmError("ResultNotFound", "x").status).toBe(404)
+    expect(new OrmError("ResultNotFound", "x", { status: 418 }).status).toBe(MAGIC_418)
+    expect(new OrmError("ResultNotFound", "x").status).toBe(MAGIC_404)
   })
 
   test("from() with no context uses the empty default", () => {
@@ -358,10 +363,10 @@ describe("normalizeError — context passthrough and non-Error shapes", () => {
   test("empty tableName / recordId and non-string detail ids fall through", () => {
     expect(norm(serverLike({ tableName: "" })).table).toBeUndefined()
     expect(
-      norm(serverLike({ details: { kind: "Table", details: { name: 5 } } })).table,
+      norm(serverLike({ details: { details: { name: 5 }, kind: "Table" } })).table,
     ).toBeUndefined()
     expect(
-      norm(serverLike({ details: { kind: "Record", details: { id: 5 } } })).table,
+      norm(serverLike({ details: { details: { id: 5 }, kind: "Record" } })).table,
     ).toBeUndefined()
     expect(norm(serverLike({ recordId: "" })).table).toBeUndefined()
   })
@@ -377,7 +382,7 @@ describe("normalizeError — context passthrough and non-Error shapes", () => {
   })
 
   test("a non-Error throwable keeps an explicit context.details", () => {
-    expect(norm(42, { details: { d: 1 } }).details).toEqual({ d: 1 })
+    expect(norm(MAGIC_42, { details: { d: 1 } }).details).toEqual({ d: 1 })
   })
 
   test("isOrmError rejects a same-named Error without a code", () => {

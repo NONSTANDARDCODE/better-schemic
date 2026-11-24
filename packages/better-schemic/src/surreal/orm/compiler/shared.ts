@@ -16,18 +16,17 @@
  */
 import { BoundQuery, RecordId, type RecordIdValue } from "surrealdb"
 
-// eslint-disable-next-line unicorn/prefer-export-from -- re-export é o ponto único do parser de record id para os compilers
 import {
   escapeIdentSafe as escapeIdent,
-  type RecordIdParts,
-  splitRecordId,
+  type RecordIdParts as IdParts,
+  splitRecordId as splitId,
   unescapeIdPart,
 } from "../../ident"
 
 // The record-id parser lives in the neutral `ident` module (shared with the authoring codec);
 // re-exported here so the compiler modules keep their single import site.
 // para os compilers; o import local abaixo serve o uso interno
-export { type RecordIdParts, splitRecordId }
+export { type RecordIdParts, splitRecordId } from "../../ident"
 
 import {
   type Ctx,
@@ -45,6 +44,7 @@ import {
 } from "../../pure"
 import { OrmError, type OrmErrorCode, type OrmErrorOptions } from "../errors"
 import type { ModelMeta, TableMeta } from "../meta"
+import { stringCoerce, stringifyJson, stringifyOpaque } from "../text"
 
 /** The bind accumulator one compiled operation carries. */
 export type Binds = {
@@ -64,10 +64,13 @@ export function createBinds(prefix = "p"): Binds {
     add(value): string {
       // Skip names a merged fragment already claimed: `mergeRaw` writes into the SAME vars map, so
       // handing out an existing name would overwrite the fragment's bind.
-      let name: string
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      do name = `${prefix}${next++}`
-      while (name in vars)
+      const allocate = (candidate: number): string => {
+        const name = `${prefix}${candidate}`
+        if (name in vars) return allocate(candidate + 1)
+        next = candidate + 1
+        return name
+      }
+      const name = allocate(next)
       vars[name] = value
       return `$${name}`
     },
@@ -114,8 +117,7 @@ export function renderValue(value: unknown, binds: Binds, ctx: Ctx): string {
   const ref = refState(value)
   if (ref) return renderRef(ref, ctx)
 
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- SDK SurrealDB tipa BoundQuery como any; valor foi validado por instanceof
-  if (value instanceof BoundQuery) return `(${mergeRaw(value, ctx.vars)})`
+  if (value instanceof BoundQuery) return `(${mergeRaw(value as BoundQuery, ctx.vars)})`
 
   const frag = fragOf(value)
   if (frag) return mergeRaw(frag, ctx.vars)
@@ -140,8 +142,7 @@ function renderRange(r: Range, binds: Binds, ctx: Ctx): string {
  * parse error (e.g. `ORDER BY (expr)`). Returns `undefined` when the value isn't a fragment.
  */
 export function renderBareFragment(value: unknown, binds: Binds): string | undefined {
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- SDK SurrealDB tipa BoundQuery como any; valor foi validado por instanceof
-  if (value instanceof BoundQuery) return mergeRaw(value, binds.vars)
+  if (value instanceof BoundQuery) return mergeRaw(value as BoundQuery, binds.vars)
 
   const frag = fragOf(value)
   return frag ? mergeRaw(frag, binds.vars) : undefined
@@ -289,8 +290,8 @@ export function pathList(value: unknown, name: string, operation?: string): read
   if (value === undefined || value === null) return []
 
   const entries = Array.isArray(value) ? value : [value]
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const entry of entries) {
+
+  entries.forEach((entry) => {
     if (typeof entry !== "string" || !entry) {
       throw compileError(
         "ValidationError",
@@ -298,7 +299,7 @@ export function pathList(value: unknown, name: string, operation?: string): read
         operation ? { operation } : {},
       )
     }
-  }
+  })
   return entries as readonly string[]
 }
 
@@ -498,15 +499,15 @@ export function recordIdParts(
     readonly table?: string
     readonly what?: string
   } = {},
-): RecordIdParts {
+): IdParts {
   const what = options.what ?? "record id"
   const context = {
     operation,
     ...(options.table ? { table: options.table } : {}),
     ...(options.field ? { field: options.field } : {}),
   }
-  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringify de valor opaco é intencional (toJSON/toString definidos pelo chamador)
-  const text = String(value ?? "")
+
+  const text = stringCoerce(value ?? "")
   if (!text) {
     throw compileError(
       "ValidationError",
@@ -514,7 +515,7 @@ export function recordIdParts(
       context,
     )
   }
-  const parts = splitRecordId(text)
+  const parts = splitId(text)
   if (!parts) {
     if (options.fallbackTable === undefined) {
       throw compileError(
@@ -561,7 +562,7 @@ export function coerceRecordId(
     ...(options.field ? { field: options.field } : {}),
   }
   if (typeof value === "string") {
-    const parts = splitRecordId(value)
+    const parts = splitId(value)
     if (parts) {
       if (options.table !== undefined && parts.table !== options.table) {
         throw compileError(
@@ -610,7 +611,7 @@ export function coerceRecordValue(
   if (value instanceof RecordId) return value
 
   if (typeof value === "string") {
-    const parts = splitRecordId(value)
+    const parts = splitId(value)
     if (parts) {
       if (targets && targets.length > 0 && !targets.includes(parts.table)) {
         throw compileError(
@@ -671,10 +672,9 @@ export function describeValue(v: unknown): string {
   if (v instanceof RecordId) return `"${v.toString()}"`
 
   if (typeof v === "object") {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- objetos sem protótipo (Object.create(null)) não têm constructor em runtime
-    const ctor = v.constructor?.name
+    const ctor = (v as { constructor?: { readonly name?: string } }).constructor?.name
     return ctor && ctor !== "Object" ? ctor : "{…}"
   }
-  // eslint-disable-next-line @typescript-eslint/no-base-to-string,@typescript-eslint/no-unnecessary-condition -- stringify de valor opaco é intencional
-  return JSON.stringify(v) ?? String(v)
+
+  return stringifyJson(v) ?? stringifyOpaque(v)
 }

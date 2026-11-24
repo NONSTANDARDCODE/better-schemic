@@ -5,7 +5,7 @@ import nodePath from "node:path"
 import type { createJiti, Jiti } from "jiti"
 
 import type { OrmConfig } from "../config"
-import type { ConnectionConfigBase, ResolveContext } from "../connection"
+import type { ConnectionConfigBase, ConnectionEntry, ResolveContext } from "../connection"
 
 /** The slice of jiti's module this file uses (loaded on demand via `createRequire`). */
 type JitiModule = { createJiti: typeof createJiti }
@@ -52,17 +52,16 @@ function loadDotEnv(dir: string): void {
   }
   if (typeof proc.loadEnvFile !== "function") return
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const name of [".env.local", ".env"]) {
+  ;[".env.local", ".env"].forEach((name) => {
     const file = nodePath.resolve(dir, name)
-    if (!existsSync(file)) continue
+    if (!existsSync(file)) return
 
     try {
       proc.loadEnvFile(file)
     } catch {
       // ignore a malformed .env file
     }
-  }
+  })
 }
 
 /**
@@ -171,8 +170,13 @@ export async function loadProject(opts?: {
     )
   }
   const jiti = makeJiti()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const path of candidates) {
+  const tryCandidate = async (index: number): Promise<{ config: OrmConfig; root: string }> => {
+    if (index >= candidates.length) {
+      throw new Error(
+        'No Better-schemic config found — ./better-schemic.ts exists but doesn\'t export a config with a "connections" map. Run `better-schemic init`, or export one via defineConfig.',
+      )
+    }
+    const path = candidates[index]
     const root = nodePath.dirname(path)
     loadDotEnv(root) // populate process.env before the config module's explicit reads
     const loaded = await jiti.import<
@@ -200,13 +204,11 @@ export async function loadProject(opts?: {
       !opts?.config &&
       (nodePath.basename(path) === "better-schemic.ts" || nodePath.basename(path) === "schemic.ts")
     )
-      continue
+      return tryCandidate(index + 1)
 
     throw new Error(`Invalid config at ${path}: expected a "connections" map.`)
   }
-  throw new Error(
-    'No Better-schemic config found — ./better-schemic.ts exists but doesn\'t export a config with a "connections" map. Run `better-schemic init`, or export one via defineConfig.',
-  )
+  return tryCandidate(0)
 }
 
 /**
@@ -262,8 +264,8 @@ export async function loadConfig(opts?: {
   const { config, root } = await loadProject(opts)
   const names = Object.keys(config.connections)
   const name = config.defaultConnection ?? (names.length === 1 ? names[0] : "default")
-  const entry = config.connections[name]
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- índice de Record assume presença, mas a config vem de arquivo do usuário.
+  // The config comes from a user file: a Record index is not a presence guarantee at runtime.
+  const entry = config.connections[name] as ConnectionEntry<unknown, unknown> | undefined
   if (!entry) {
     throw new Error(
       `No connection named "${name}". Set "defaultConnection" or pass --connection. Known: ${names.join(", ")}.`,

@@ -26,11 +26,14 @@ import type { DbStructured, Snapshot, SnapshotStatement } from "./structure"
 const keyOf = (s: Pick<DefineStatement, "kind" | "name" | "table">): string =>
   `${s.kind}:${s.table ?? ""}:${s.name}`
 
+/** A field/index covered by its table's drop/add statement. */
+const isOrphan = (s: DefineStatement, droppedTables: ReadonlySet<string>): boolean =>
+  s.kind !== "table" && droppedTables.has(s.table ?? "")
+
 /** Index a normalized DbStructured by statement key (matching `keyOf`) for structural equality. */
 function structIndex(db: DbStructured): Map<string, unknown> {
   const idx = new Map<string, unknown>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const t of db.tables) {
+  db.tables.forEach((t) => {
     // The table STATEMENT is the head — fields/indexes/events are their own statements.
     idx.set(`table::${t.name}`, {
       comment: t.comment,
@@ -39,20 +42,12 @@ function structIndex(db: DbStructured): Map<string, unknown> {
       permissions: t.permissions,
       schemafull: t.schemafull,
     })
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const f of t.fields) idx.set(`field:${t.name}:${f.name}`, f)
-
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const i of t.indexes) idx.set(`index:${t.name}:${i.name}`, i)
-
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const e of t.events) idx.set(`event:${t.name}:${e.name}`, e)
-  }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const fn of db.functions) idx.set(`function::${fn.name}`, fn)
-
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const a of db.accesses) idx.set(`access::${a.name}`, a)
+    t.fields.forEach((f) => idx.set(`field:${t.name}:${f.name}`, f))
+    t.indexes.forEach((i) => idx.set(`index:${t.name}:${i.name}`, i))
+    t.events.forEach((e) => idx.set(`event:${t.name}:${e.name}`, e))
+  })
+  db.functions.forEach((fn) => idx.set(`function::${fn.name}`, fn))
+  db.accesses.forEach((a) => idx.set(`access::${a.name}`, a))
 
   return idx
 }
@@ -77,35 +72,32 @@ export function buildSnapshot(
     const abs = opts.fileOf?.get(obj)
     return abs ? (opts.root ? nodePath.relative(opts.root, abs) : abs) : undefined
   }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const t of tables) {
+  tables.forEach((t) => {
     const file = fileFor(t)
     try {
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const s of emitStatements(t as unknown as Parameters<typeof emitStatements>[0]))
+      emitStatements(t as unknown as Parameters<typeof emitStatements>[0]).forEach((s) => {
         statements[keyOf(s)] = file ? { ...s, file } : s
+      })
     } catch (error) {
       // Pin an emit failure (e.g. a non-Surreal field type) to the source file.
       const msg = error instanceof Error ? error.message : String(error)
       throw new Error(file ? `${msg}\n  in ${file}` : msg, { cause: error })
     }
-  }
+  })
   // An analyzer's inline `.function(input => surql`…`)` carries an auto-defined FunctionDef — emit it
   // as its own DEFINE FUNCTION (the analyzer's FUNCTION clause references it). Done before the defs so
   // the function statement precedes the analyzer; collisions with an explicit fn of the same name throw.
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const fn of inlineAnalyzerFunctions(
-    defs as unknown as Parameters<typeof inlineAnalyzerFunctions>[0],
-  )) {
-    const s = emitDefStatement(fn)
-    statements[keyOf(s)] = s
-  }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const d of defs) {
+  inlineAnalyzerFunctions(defs as unknown as Parameters<typeof inlineAnalyzerFunctions>[0]).forEach(
+    (fn) => {
+      const s = emitDefStatement(fn)
+      statements[keyOf(s)] = s
+    },
+  )
+  defs.forEach((d) => {
     const s = emitDefStatement(d as unknown as Parameters<typeof emitDefStatement>[0])
     const file = fileFor(d)
     statements[keyOf(s)] = file ? { ...s, file } : s
-  }
+  })
   const snap: Snapshot = { statements, version: 1 }
   if (opts.withStruct)
   // Bridge the lib/src type duality (AnyTable is the built-lib TableDef; schemaStruct uses src).
@@ -189,8 +181,7 @@ export function fmtDiff<
 >(diff: D): D {
   diff.up = diff.up.map((x) => formatSurql(x))
   diff.down = diff.down.map((x) => formatSurql(x))
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const it of diff.items ?? []) {
+  ;(diff.items ?? []).forEach((it) => {
     const item = it as {
       after?: string
       before?: string
@@ -204,26 +195,25 @@ export function fmtDiff<
     if (typeof item.after === "string") item.after = formatSurql(item.after)
 
     if (typeof item.old === "string") item.old = formatSurql(item.old)
-  }
+  })
   if (diff.full) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const f of diff.full) if (typeof f.ddl === "string") f.ddl = formatSurql(f.ddl)
+    diff.full.forEach((f) => {
+      if (typeof f.ddl === "string") f.ddl = formatSurql(f.ddl)
+    })
   }
   return diff
 }
 
-// eslint-disable-next-line unicorn/consistent-function-scoping -- helper local mantido junto do uso para coesão e legibilidade
 export function diffSnapshots(prev: Snapshot, next: Snapshot): Diff {
   const prevS = prev.statements
   const nextS = next.statements
 
   // Group output by table: tables in snapshot order, each followed by its own fields/indexes.
   const tableOrder = new Map<string, number>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const s of [...Object.values(nextS), ...Object.values(prevS)]) {
+  ;[...Object.values(nextS), ...Object.values(prevS)].forEach((s) => {
     const t = tableOf(s)
     if (!tableOrder.has(t)) tableOrder.set(t, tableOrder.size)
-  }
+  })
   const ord = (s: DefineStatement): number => tableOrder.get(tableOf(s)) ?? 0
   const byCreate = (a: DefineStatement, b: DefineStatement): number =>
     ord(a) - ord(b) || RANK[a.kind] - RANK[b.kind]
@@ -242,73 +232,68 @@ export function diffSnapshots(prev: Snapshot, next: Snapshot): Diff {
   const nextIdx = next.struct ? structIndex(next.struct) : null
   const added: SnapshotStatement[] = []
   const changed: { next: SnapshotStatement; old: SnapshotStatement }[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const k of Object.keys(nextS)) {
+  Object.keys(nextS).forEach((k) => {
     const s = nextS[k]
     if (!(k in prevS)) {
       added.push(s)
-      continue
+      return
     }
-    if (prevS[k].ddl === s.ddl) continue
+    if (prevS[k].ddl === s.ddl) return
 
     if (prevIdx && nextIdx) {
       const a = prevIdx.get(k)
       const b = nextIdx.get(k)
-      if (a !== undefined && b !== undefined && deepEqual(a, b)) continue
+      if (a !== undefined && b !== undefined && deepEqual(a, b)) return
       // cosmetic-
     }
     changed.push({ next: s, old: prevS[k] })
-  }
+  })
   const addedTables = new Set(added.filter((s) => s.kind === "table").map((s) => s.name))
 
-  // A field/index whose owning table dropps it (or added) covers it by the TABLE statement.
-  const isOrphan = (s: DefineStatement, droppedTables: Set<string>): boolean =>
-    s.kind !== "table" && droppedTables.has(s.table ?? "")
-
   const up: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const s of removed.filter((s) => !isOrphan(s, removedTables)).sort(byDrop))
-    up.push(removeStatement(s))
+  removed
+    .filter((s) => !isOrphan(s, removedTables))
+    .sort(byDrop)
+    .forEach((s) => up.push(removeStatement(s)))
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const s of [...added].sort(byCreate)) up.push(s.ddl)
+  ;[...added].sort(byCreate).forEach((s) => up.push(s.ddl))
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const c of [...changed].sort((a, b) => byCreate(a.next, b.next)))
-    up.push(...changeUp(c.old, c.next))
+  ;[...changed]
+    .sort((a, b) => byCreate(a.next, b.next))
+    .forEach((c) => up.push(...changeUp(c.old, c.next)))
 
   const down: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const s of added.filter((s) => !isOrphan(s, addedTables)).sort(byDrop))
-    down.push(removeStatement(s))
+  added
+    .filter((s) => !isOrphan(s, addedTables))
+    .sort(byDrop)
+    .forEach((s) => down.push(removeStatement(s)))
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const s of [...removed].sort(byCreate)) down.push(s.ddl)
+  ;[...removed].sort(byCreate).forEach((s) => down.push(s.ddl))
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const c of [...changed].sort((a, b) => byCreate(a.next, b.next)))
-    down.push(...changeDown(c.old, c.next))
+  ;[...changed]
+    .sort((a, b) => byCreate(a.next, b.next))
+    .forEach((c) => down.push(...changeDown(c.old, c.next)))
 
   // Structured display items, grouped by table (table → its fields → its indexes).
   const tagged: { item: DiffItem; sort: [number, number] }[] = []
   const at = (s: DefineStatement): [number, number] => [ord(s), RANK[s.kind]]
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const s of removed.filter((s) => !isOrphan(s, removedTables))) {
-    tagged.push({
-      item: {
-        ddl: removeStatement(s),
-        file: s.file,
-        key: keyOf(s),
-        kind: s.kind,
-        old: s.ddl,
-        op: "remove",
-        table: tableOf(s),
-      },
-      sort: at(s),
+  removed
+    .filter((s) => !isOrphan(s, removedTables))
+    .forEach((s) => {
+      tagged.push({
+        item: {
+          ddl: removeStatement(s),
+          file: s.file,
+          key: keyOf(s),
+          kind: s.kind,
+          old: s.ddl,
+          op: "remove",
+          table: tableOf(s),
+        },
+        sort: at(s),
+      })
     })
-  }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const s of added) {
+  added.forEach((s) => {
     tagged.push({
       item: {
         ddl: s.ddl,
@@ -320,9 +305,8 @@ export function diffSnapshots(prev: Snapshot, next: Snapshot): Diff {
       },
       sort: at(s),
     })
-  }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const c of changed) {
+  })
+  changed.forEach((c) => {
     tagged.push({
       item: {
         after: c.next.ddl,
@@ -335,7 +319,7 @@ export function diffSnapshots(prev: Snapshot, next: Snapshot): Diff {
       },
       sort: at(c.next),
     })
-  }
+  })
   tagged.sort((a, b) => a.sort[0] - b.sort[0] || a.sort[1] - b.sort[1])
   const items = tagged.map((t) => t.item)
 
@@ -355,12 +339,15 @@ function stmtTable(s: string): string {
   return t ? t[1] : ""
 }
 
+/** Re-mark statements OVERWRITE so a migration replay is idempotent. */
+const idempotent = (stmts: string[]): string[] =>
+  stmts.map((s) => formatSurql(overwriteStatement(s)))
+
 /** Indent statements, with a blank line between consecutive table groups. */
 const indent = (stmts: string[]): string => {
   const out: string[] = []
   let prev: string | undefined
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const s of stmts) {
+  stmts.forEach((s) => {
     const t = stmtTable(s)
     if (prev !== undefined && t !== prev) out.push("")
 
@@ -372,7 +359,7 @@ const indent = (stmts: string[]): string => {
         .join("\n"),
     )
     prev = t
-  }
+  })
   return out.join("\n")
 }
 
@@ -381,7 +368,6 @@ const indent = (stmts: string[]): string => {
  * `$direction` parameter bound to `"up"` or `"down"` — verified to support `DEFINE`/`REMOVE`
  * inside `IF` blocks on SurrealDB 3.x.
  */
-// eslint-disable-next-line unicorn/consistent-function-scoping -- helper local mantido junto do uso para coesão e legibilidade
 export function renderMigration(tag: string, diff: Diff): string {
   // A migration replays it from a fixed file regardless of the database's current state (unlike
   // `diff`/`push`, which recompute a delta each run), so its DEFINEs must be idempotent: re-marking
@@ -392,8 +378,6 @@ export function renderMigration(tag: string, diff: Diff): string {
   // those and on REMOVE/ALTER, so plain DEFINEs (added objects) gain the keyword.
   // Statements are PRETTY-PRINTED here (formatSurql — function/event bodies arrive single-line);
   // snapshots keep the canonical single-line text, so compares unaffect them.
-  const idempotent = (stmts: string[]): string[] =>
-    stmts.map((s) => formatSurql(overwriteStatement(s)))
   return [
     `-- ${tag}`,
     "-- Generated by better-schemic. Review before applying.",

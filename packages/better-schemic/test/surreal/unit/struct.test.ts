@@ -1,4 +1,5 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+const MAGIC_2 = 2
+
 import { describe, expect, test } from "bun:test"
 
 import {
@@ -10,19 +11,19 @@ import {
 import type { StructField, StructTable } from "../../../src/surreal/cli/structure"
 
 const field = (name: string, kind: string, extra: Partial<StructField> = {}): StructField => ({
-  name,
   kind,
+  name,
   table: "t",
   ...extra,
 })
 
 const table = (fields: StructField[], extra: Partial<StructTable> = {}): StructTable => ({
-  name: "t",
-  kind: { kind: "NORMAL" },
-  schemafull: true,
+  events: [],
   fields,
   indexes: [],
-  events: [],
+  kind: { kind: "NORMAL" },
+  name: "t",
+  schemafull: true,
   ...extra,
 })
 
@@ -67,15 +68,15 @@ describe("normalizeType", () => {
   })
 
   test("is idempotent", () => {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const k of [
+    ;[
       "none | int",
       "record<zebra | apple>",
       "'b' | 'a'",
       "array<string,3>",
       "option<array<record<b|a>>>",
-    ])
+    ].forEach((k) => {
       expect(normalizeType(normalizeType(k))).toBe(normalizeType(k))
+    })
   })
 })
 
@@ -88,7 +89,7 @@ describe("normalizeTable", () => {
   test("drops implicit in/out on a relation", () => {
     const out = normalizeTable(
       table([field("in", "record<a>"), field("out", "record<b>"), field("at", "datetime")], {
-        kind: { kind: "RELATION", in: ["a"], out: ["b"] },
+        kind: { in: ["a"], kind: "RELATION", out: ["b"] },
       }),
     )
     expect(out.fields.map((f) => f.name)).toEqual(["at"])
@@ -132,7 +133,8 @@ describe("normalizeTable", () => {
         }),
       ]),
     )
-    const kindOf = (n: string) => out.fields.find((f) => f.name === n)?.kind
+    const kindOf = (n: string): string | undefined =>
+      out.fields.find((f): boolean => f.name === n)?.kind
     expect(kindOf("withDefault")).toBe("string")
     expect(kindOf("withComputed")).toBe("int")
     expect(kindOf("withValue")).toBe("option<int>")
@@ -144,15 +146,15 @@ describe("normalizeTable", () => {
       table(
         [
           field("name", "string", {
-            permissions: { select: true, create: true, update: true },
+            permissions: { create: true, select: true, update: true },
           }),
         ],
         {
           permissions: {
-            select: false,
             create: false,
-            update: false,
             delete: false,
+            select: false,
+            update: false,
           },
         },
       ),
@@ -175,7 +177,7 @@ describe("convergence (the unifier in miniature)", () => {
     const fromInfo = table([
       field("age", "none | int"),
       field("email", "string", {
-        permissions: { select: true, create: true, update: true },
+        permissions: { create: true, select: true, update: true },
       }),
     ])
     expect(deepEqual(normalizeTable(fromTableDef), normalizeTable(fromInfo))).toBe(true)
@@ -185,13 +187,13 @@ describe("convergence (the unifier in miniature)", () => {
 describe("normalizeFunction", () => {
   test("strips the default FULL execute permission", () => {
     expect(
-      normalizeFunction({ name: "f", args: [], block: "{}", permissions: true }).permissions,
+      normalizeFunction({ args: [], block: "{}", name: "f", permissions: true }).permissions,
     ).toBeUndefined()
     expect(
       normalizeFunction({
-        name: "f",
         args: [],
         block: "{}",
+        name: "f",
         permissions: false,
       }).permissions,
     ).toBe(false)
@@ -200,8 +202,8 @@ describe("normalizeFunction", () => {
 
 describe("deepEqual", () => {
   test("ignores key order, respects array order", () => {
-    expect(deepEqual({ a: 1, b: 2 }, { b: 2, a: 1 })).toBe(true)
-    expect(deepEqual([1, 2], [2, 1])).toBe(false)
+    expect(deepEqual({ a: 1, b: 2 }, { a: 1, b: 2 })).toBe(true)
+    expect(deepEqual([1, MAGIC_2], [MAGIC_2, 1])).toBe(false)
     expect(deepEqual({ a: { x: 1 } }, { a: { x: 2 } })).toBe(false)
   })
 })

@@ -58,9 +58,8 @@ function walkProjection(select: unknown, options: WalkOptions): void {
     outBase: readonly string[],
     sourceBase: readonly string[],
   ): void => {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [key, entry] of Object.entries(obj)) {
-      if (entry === undefined || entry === false) continue
+    Object.entries(obj).forEach(([key, entry]) => {
+      if (entry === undefined || entry === false) return
 
       if (key === "*") {
         const star = options.star
@@ -73,31 +72,30 @@ function walkProjection(select: unknown, options: WalkOptions): void {
           )
         }
         star.onStar()
-        continue
+        return
       }
       const out = [...outBase, ...pathSegments(key)]
       if (entry === true) {
         options.onLeaf({ out, source: [...sourceBase, key] })
-        continue
+        return
       }
       if (typeof entry === "string") {
         options.onLeaf({ out, source: [...sourceBase, ...entry.split(".")] })
-        continue
+        return
       }
       if (isPlainObject(entry)) {
         visit(entry, out, [...sourceBase, key])
-        continue
+        return
       }
       throw compileError(
         "ValidationError",
         `${options.label} entry "${key}" must be true, a path string or a nested object, got ${describeValue(entry)}.`,
       )
-    }
+    })
   }
 
   if (Array.isArray(select)) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const field of select) {
+    select.forEach((field) => {
       if (typeof field !== "string") {
         throw compileError(
           "ValidationError",
@@ -105,7 +103,7 @@ function walkProjection(select: unknown, options: WalkOptions): void {
         )
       }
       options.onLeaf({ out: pathSegments(field), source: field.split(".") })
-    }
+    })
     return
   }
   if (isPlainObject(select)) {
@@ -332,19 +330,19 @@ export function compileIncludeOrderBy(
   const entries = Array.isArray(orderBy) ? orderBy : [orderBy]
   const star = spec?.star === true
   const projected = new Set<string>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const field of spec?.fields ?? []) {
+
+  ;(spec?.fields ?? []).forEach((field) => {
     projected.add(field.out.join("."))
     projected.add(field.source.join("."))
-  }
+  })
   const parts: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const entry of entries) {
-    if (entry === undefined) continue
+
+  entries.forEach((entry) => {
+    if (entry === undefined) return
 
     if (isLowerableValue(entry)) {
       parts.push(renderValue(entry, ctx.binds, ctx.binds.ctx()))
-      continue
+      return
     }
     if (!isPlainObject(entry)) {
       throw compileError(
@@ -353,9 +351,9 @@ export function compileIncludeOrderBy(
         { field: key, operation: ctx.operation },
       )
     }
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [field, dir] of Object.entries(entry)) {
-      if (dir === undefined) continue
+
+    Object.entries(entry).forEach(([field, dir]) => {
+      if (dir === undefined) return
 
       if (
         typeof dir !== "string" ||
@@ -375,8 +373,8 @@ export function compileIncludeOrderBy(
         )
       }
       parts.push(`${renderPath(field)} ${dir.toUpperCase()}`)
-    }
-  }
+    })
+  })
   if (parts.length === 0) return undefined
 
   return `ORDER BY ${parts.join(", ")}`

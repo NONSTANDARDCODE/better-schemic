@@ -53,16 +53,16 @@ const CANONICAL = [
 
 describe("surql-type bridge (Milestone 2 losslessness)", () => {
   test("emit∘parse reproduces the canonical SurrealQL spelling", () => {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const kind of CANONICAL) expect(emitSurqlType(parseSurqlType(kind))).toBe(kind)
+    CANONICAL.forEach((kind) => {
+      expect(emitSurqlType(parseSurqlType(kind))).toBe(kind)
+    })
   })
 
   test("parse∘emit is identity on PortableType", () => {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const kind of CANONICAL) {
+    CANONICAL.forEach((kind) => {
       const p = parseSurqlType(kind)
       expect(parseSurqlType(emitSurqlType(p))).toEqual(p)
-    }
+    })
   })
 
   test("agrees with normalizeType on non-canonical input (the canonicalizer's job)", () => {
@@ -77,12 +77,11 @@ describe("surql-type bridge (Milestone 2 losslessness)", () => {
       // nullable canonical form (null sorts first)
       ["string | null", "null | string"],
     ]
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [input, canonical] of cases) {
+    cases.forEach(([input, canonical]) => {
       expect(emitSurqlType(parseSurqlType(input))).toBe(normalizeType(canonical))
       // and the bridge's own output matches the engine's canonicalizer
       expect(emitSurqlType(parseSurqlType(input))).toBe(normalizeType(input))
-    }
+    })
   })
 
   test("literal atoms: numbers, booleans and double-quoted strings", () => {

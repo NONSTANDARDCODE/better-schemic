@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-magic-numbers -- Literal values are intentional test data and must stay as authored. */
+const MAGIC_5 = 5
 import { describe, expect, test } from "bun:test"
 import { BoundExcluded, BoundIncluded, RecordId, RecordIdRange } from "surrealdb"
 import { z } from "zod"
@@ -22,7 +22,7 @@ describe("recordId schema validation", () => {
 
   test(".type narrows the id value type", () => {
     const f = s.recordId("user").type(z.number())
-    expect(f.schema.safeParse(new RecordId("user", 5)).success).toBe(true)
+    expect(f.schema.safeParse(new RecordId("user", MAGIC_5)).success).toBe(true)
     expect(f.schema.safeParse(new RecordId("user", "x")).success).toBe(false)
   })
 })
@@ -74,13 +74,13 @@ describe("TableDef.record()", () => {
     expect(link.for("x").table.name).toBe("user")
     // id value type carried over (string id rejects numeric)
     expect(link.schema.safeParse(new RecordId("user", "x")).success).toBe(true)
-    expect(link.schema.safeParse(new RecordId("user", 5)).success).toBe(false)
+    expect(link.schema.safeParse(new RecordId("user", MAGIC_5)).success).toBe(false)
   })
 
   test("defaults to RecordIdValue when no id field is declared", () => {
     const Post = table("post", { title: s.string() })
     const link = Post.record()
     expect(link.tables).toEqual(["post"])
-    expect(link.schema.safeParse(new RecordId("post", 5)).success).toBe(true)
+    expect(link.schema.safeParse(new RecordId("post", MAGIC_5)).success).toBe(true)
   })
 })

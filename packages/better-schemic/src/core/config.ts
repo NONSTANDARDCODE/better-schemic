@@ -89,7 +89,7 @@ export type GeneratorsConfig = {
 
 /** Directives and tool-ignore conventions applied to every generated artifact. */
 export type GeneratedConfig = {
-  /** Prepend `/* eslint-disable *\/`. Default true. */
+  /** Prepend the ESLint file-level disable directive. Default true. */
   readonly eslintDisable?: boolean
   /** Add generated paths to knip/tsconfig/bunfig ignores. Default `ignore`. */
   readonly knip?: "ignore" | "off"
@@ -129,10 +129,10 @@ export type OrmConfig = {
 export type SchemicConfig = OrmConfig
 
 /** The bound ORM client type a {@link ConnectionEntry} opens (inferred from the driver factory). */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- curinga em tipo condicional: `unknown` restringiria a inferência do parâmetro não inferido.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- wildcards bivariantes: `infer` estreita a inferência de clients/args no config.
 export type EntryClient<E> = E extends ConnectionEntry<infer Client, any> ? Client : never
 /** The typed resolver `args` a {@link ConnectionEntry} accepts (from its `args` schema). */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- curinga em tipo condicional: `unknown` restringiria a inferência do parâmetro não inferido.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- mesmo wildcard bivariante de `EntryClient`.
 export type EntryArgs<E> = E extends ConnectionEntry<any, infer Args> ? Args : never
 
 /**
@@ -143,8 +143,11 @@ export type EntryArgs<E> = E extends ConnectionEntry<any, infer Args> ? Args : n
  * connection whose resolver returns an ARRAY is bulk-: `connect` throws a teaching error — pass
  * `args` selecting ONE config. The client is disposable: `await using db = await orm.connect()`.
  */
+/** Excludes the chained builder's initial sentinel key from the addressable connection names. */
+type ConnectName<Conns> = Exclude<keyof Conns & string, "__better_schemic_empty__">
+
 export type OrmProject<Conns extends Record<string, AnyConnectionEntry>> = {
-  connect<N extends keyof Conns & string>(
+  connect<N extends ConnectName<Conns>>(
     name?: N,
     args?: EntryArgs<Conns[N]>,
   ): Promise<EntryClient<Conns[N]>>
@@ -179,11 +182,11 @@ export type ChainCtx<Conns extends Record<string, AnyConnectionEntry>> = Omit<
 }
 
 /** The shape a driver connection factory must have to uss it as the `.connection()` driver marker. */
+/* eslint-disable @typescript-eslint/no-explicit-any -- wildcards bivariantes no slot de args do factory (tipo público) */
 export type ChainableDriverFactory<C extends ConnectionConfigBase, Client> = (
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- curinga no slot de args do factory: tipo público, `unknown` quebraria a inferência.
   input: ConnectionInput<C, any>,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mesmo curinga do slot de args.
 ) => ConnectionEntry<Client, any>
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 /**
  * The CHAINED config builder (`defineConfig().connection(...)`): each `.connection(name, factory,
@@ -207,10 +210,10 @@ export type ChainedConfig<Conns extends Record<string, AnyConnectionEntry>> = {
 } & OrmProject<Conns>
 
 /** Start a CHAINED config: `defineConfig().connection("main", surrealConnection, {...})`. */
-export function defineConfig(
-  base?: Omit<OrmConfig, "connections">,
-  // eslint-disable-next-line @typescript-eslint/no-generated-empty-object-type -- `Record<never, never>` é INTENCIONAL: sem index signature, `keyof Conns` preserva só os nomes declarados (type-gate do connect).
-): ChainedConfig<Record<never, never>>
+/** A sentinel key (filtered by {@link ConnectName}) keeps the initial map non-empty without widening `keyof`. */
+type EmptyConnections = { readonly __better_schemic_empty__: AnyConnectionEntry }
+
+export function defineConfig(base?: Omit<OrmConfig, "connections">): ChainedConfig<EmptyConnections>
 /** Type + enrich a literal config — returns it with the typed `connect()` attached. */
 export function defineConfig<const C extends OrmConfig>(config: C): C & OrmProject<C["connections"]>
 export function defineConfig(config?: Omit<OrmConfig, "connections"> | OrmConfig): unknown {

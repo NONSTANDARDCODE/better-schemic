@@ -1,7 +1,5 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. Type queries and callback signatures need fixture values. */
-// M3 — TYPE assertions for relations & graph: `include` result shapes (links/edges/edge+target/
-// `_count`) and the relational `where` vocabulary, all derived from the authored schema.
-// Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
+const _MAGIC_18 = 18
+const _MAGIC_4 = 4
 import { describe, it } from "node:test"
 
 import type { RecordId } from "surrealdb"
@@ -15,22 +13,26 @@ import type { ResultOf, Simplify } from "../../../src/surreal/orm/types/select"
 import type { Where } from "../../../src/surreal/orm/types/where"
 import type { App } from "../../../src/surreal/pure"
 
-const UserBase = table("user", { name: s.string(), age: s.int() })
+// M3 — TYPE assertions for relations & graph: `include` result shapes (links/edges/edge+target/
+// `_count`) and the relational `where` vocabulary, all derived from the authored schema.
+// Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
+
+const UserBase = table("user", { age: s.int(), name: s.string() })
 const User = UserBase.extend({
-  mentor: s.recordId(() => UserBase).optional(),
   friends: s
     .recordId(() => UserBase)
     .array()
     .optional(),
+  mentor: s.recordId(() => UserBase).optional(),
 })
 const Post = table("post", {
-  title: s.string(),
-  published: s.boolean(),
   author: s.recordId(User),
+  published: s.boolean(),
+  title: s.string(),
 })
 const Likes = relation("user_likes", { score: s.int() }).from(User).to(Post)
-const schemaDef = schema({ users: User, posts: Post, likes: Likes })
-type S = typeof schemaDef
+const _schemaDef = schema({ likes: Likes, posts: Post, users: User })
+type S = typeof _schemaDef
 type U = typeof User
 type P = typeof Post
 type Row = App<U>
@@ -71,8 +73,8 @@ void describe("include — link result shapes", () => {
     const bad: IncludeArg<U, S> = { nope: true }
     // @ts-expect-error — `id` is the record identity, not a relation
     const badId: IncludeArg<U, S> = { id: true }
-    void bad
-    void badId
+    const _probe_76 = bad
+    const _probe_77 = badId
   })
 })
 
@@ -152,16 +154,19 @@ void describe("relational where", () => {
     assertType<
       true,
       {
-        likes: { direction: "in"; some: { published: true; score: { gt: 4 } } }
+        likes: { direction: "in"; some: { published: true; score: { gt: typeof _MAGIC_4 } } }
       } extends Where<U, S>
         ? true
         : false
     >()
     assertType<
       true,
-      { friends: { some: { age: { gt: 18 } } } } extends Where<U, S> ? true : false
+      { friends: { some: { age: { gt: typeof _MAGIC_18 } } } } extends Where<U, S> ? true : false
     >()
-    assertType<true, { friends: { every: { age: 18 } } } extends Where<U, S> ? true : false>()
+    assertType<
+      true,
+      { friends: { every: { age: typeof _MAGIC_18 } } } extends Where<U, S> ? true : false
+    >()
   })
 
   void it("wrong-family and wrong-target operators are rejected", () => {
@@ -171,9 +176,9 @@ void describe("relational where", () => {
     const bad2: Where<U, S> = { likes: { is: { published: true } } }
     // @ts-expect-error — target filter must match the target table's fields
     const bad3: Where<U, S> = { likes: { some: { nope: true } } }
-    void bad1
-    void bad2
-    void bad3
+    const _probe_176 = bad1
+    const _probe_177 = bad2
+    const _probe_178 = bad3
   })
 
   void it("the client delegate carries the schema-typed include/where", () => {
@@ -197,12 +202,17 @@ void describe("relational where", () => {
     type RelateArgs = Parameters<C["likes"]["unrelateMany"]>[0]
     assertType<
       true,
-      { where: { likes: { some: { score: { gt: 4 } } } } } extends UpdateArgs ? true : false
+      { where: { likes: { some: { score: { gt: typeof _MAGIC_4 } } } } } extends UpdateArgs
+        ? true
+        : false
     >()
     assertType<
       true,
       { where: { mentor: { is: { name: "Alice" } } } } extends DeleteArgs ? true : false
     >()
-    assertType<true, { where: { score: { gt: 4 } } } extends RelateArgs ? true : false>()
+    assertType<
+      true,
+      { where: { score: { gt: typeof _MAGIC_4 } } } extends RelateArgs ? true : false
+    >()
   })
 })

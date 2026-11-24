@@ -1,7 +1,7 @@
-/* eslint-disable @typescript-eslint/explicit-function-return-type -- callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 import { isEmptyDiff } from "better-schemic/core"
 import { describe, expect, test } from "bun:test"
 
+import type { Snapshot } from "../../../src/surreal/cli/structure"
 import { buildSnapshot, diffSnapshots } from "../../../src/surreal/cli/surreal-diff"
 import { s, type SField, table } from "../../../src/surreal/pure"
 
@@ -10,7 +10,7 @@ import { s, type SField, table } from "../../../src/surreal/pure"
 const snap = (role: SField) => {
   const User = table("user", { id: s.string(), role })
   const tables = [User] as unknown as Parameters<typeof buildSnapshot>[0]
-  return (withStruct: boolean) => buildSnapshot(tables, [], { withStruct })
+  return (withStruct: boolean): Snapshot => buildSnapshot(tables, [], { withStruct })
 }
 
 describe("structural change-detection (offline diff)", () => {

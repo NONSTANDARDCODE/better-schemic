@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // The `surrealConnection` entry's display label: `ns/db @ url`, degrading to the connection name
 // when the config carries neither namespace/database nor a url.
 import { defineConfig } from "better-schemic/config"
@@ -12,10 +11,10 @@ describe("surrealConnection label", () => {
     const config = defineConfig({
       connections: {
         main: surrealConnection({
+          database: "main",
+          namespace: "app",
           schema: "./s",
           url: "ws://localhost:8000/rpc",
-          namespace: "app",
-          database: "main",
         }),
       },
     })

@@ -115,11 +115,11 @@ export function assertAggregateOperand(
   // Walk every segment but the last: a path may descend through a plain object. A record link
   // or an array/set holds some values per grouped row — that is what SPLIT exists for.
   const column = base
-  // eslint-disable-next-line functional/no-loop-statements,no-unreachable-loop -- loop stateful com break; map/reduce mudaria a semântica
-  for (let i = 0; i < segments.length - 1; i++) {
+
+  if (segments.length > 1) {
     if (column.family === "object") return
     // flexible object: the leaf's family is unknown here
-    const segment = segments[i]
+    const segment = segments[0]
     if (column.record !== undefined) {
       fail(
         `"${column.name}" is a ${column.record.list ? "list of " : ""}record link — math::* aggregates ONE field per grouped row, so it can't reach through it. Use \`aggregate({ split: "${column.name}", select: { ${key}: { ${op}: "…${segment}" } } })\` for the per-element total, or a surql fragment with array::flatten.`,

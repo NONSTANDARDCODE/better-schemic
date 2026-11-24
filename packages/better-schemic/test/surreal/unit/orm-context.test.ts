@@ -1,8 +1,5 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/require-await, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Mock methods match async interfaces without awaiting. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
-// M5.3 — `$withContext` (USE prefix, per-call override, session-bound fail-fast, auth overload),
-// `extends` reapplication across clones/transactions and `forkSession` isolation. Offline — the
-// "connection" is a recording fake (with optional session getters / fork support).
 import { describe, expect, test } from "bun:test"
+import type { QueryResponse } from "surrealdb"
 
 import { defineFunction, s, table } from "../../../src/surreal"
 import { orm } from "../../../src/surreal/orm/client"
@@ -10,26 +7,31 @@ import { isOrmError } from "../../../src/surreal/orm/errors"
 import { schema } from "../../../src/surreal/orm/schema"
 import { caught, fakeConn, ok } from "../orm-fixtures"
 
+// M5.3 — `$withContext` (USE prefix, per-call override, session-bound fail-fast, auth overload),
+// `extends` reapplication across clones/transactions and `forkSession` isolation. Offline — the
+// "connection" is a recording fake (with optional session getters / fork support).
+
 const User = table("user", { name: s.string() })
 const schemaDef = schema({ users: User })
 
-const echo = (sql: string) => sql.split("\n").map((line) => ok(line))
+const echo = (sql: string): QueryResponse[] =>
+  sql.split("\n").map((line): QueryResponse => ok(line))
 
 describe("$withContext — prefix scope", () => {
   test("reads are prefixed with USE NS … DB … in the same round-trip", async () => {
-    const { conn, calls } = fakeConn(echo)
+    const { calls, conn } = fakeConn(echo)
     const client = orm(conn, { schema: schemaDef })
     const tenant = client.$withContext({
-      namespace: "tenant_a",
       database: "app",
+      namespace: "tenant_a",
     })
     await tenant.users.findMany()
     expect(calls[0]?.sql).toBe("USE NS tenant_a DB app;\nSELECT * FROM user;")
   })
 
   test("a missing side is inherited from the session", async () => {
-    const { conn, calls } = fakeConn(echo)
-    Object.assign(conn, { namespace: "tenant_a", database: "app" })
+    const { calls, conn } = fakeConn(echo)
+    Object.assign(conn, { database: "app", namespace: "tenant_a" })
     const client = orm(conn, { schema: schemaDef })
     const tenant = client.$withContext({ namespace: "other" })
     await tenant.users.findMany()
@@ -37,11 +39,11 @@ describe("$withContext — prefix scope", () => {
   })
 
   test("a per-call context overrides the clone", async () => {
-    const { conn, calls } = fakeConn(echo)
+    const { calls, conn } = fakeConn(echo)
     const client = orm(conn, { schema: schemaDef })
     const tenant = client.$withContext({
-      namespace: "tenant_a",
       database: "app",
+      namespace: "tenant_a",
     })
     await tenant.users.findMany({ context: { database: "analytics" } })
     expect(calls[0]?.sql).toContain("USE NS tenant_a DB analytics;")
@@ -60,8 +62,8 @@ describe("$withContext — prefix scope", () => {
     const client = orm(conn, { schema: schemaDef })
     expect(() =>
       client.$withContext({
-        namespace: "a",
         database: "b",
+        namespace: "a",
         nope: true,
       } as never),
     ).toThrow(/unknown option "nope"/u)
@@ -71,18 +73,19 @@ describe("$withContext — prefix scope", () => {
     const { conn } = fakeConn(echo)
     const client = orm(conn, { schema: schemaDef })
     const tenant = client.$withContext({
-      namespace: "tenant_a",
       database: "app",
+      namespace: "tenant_a",
     })
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const call of [
-      () => tenant.api.get("/x"),
-      () => tenant.auth.invalidate(),
-      () => tenant.export(),
-    ]) {
-      const error = await caught(call)
-      expect(isOrmError(error) && error.code).toBe("UnsupportedCapability")
-    }
+    await Promise.all(
+      [
+        (): Promise<unknown> => tenant.api.get("/x"),
+        (): Promise<void> => tenant.auth.invalidate(),
+        (): Promise<string> => tenant.export(),
+      ].map(async (call) => {
+        const error = await caught(call)
+        expect(isOrmError(error) && error.code).toBe("UnsupportedCapability")
+      }),
+    )
   })
 })
 
@@ -92,30 +95,35 @@ describe("$withContext — auth overload", () => {
     const used: unknown[] = []
     const tokens: unknown[] = []
     Object.assign(conn, {
-      forkSession: async () => ({
-        namespace: "parent_ns",
-        database: "parent_db",
-        use: async (what: unknown) => {
-          used.push(what)
-          return what
-        },
-        authenticate: async (token: unknown) => {
-          tokens.push(token)
-          return token
-        },
-        query: (sql: string) => ({ responses: async () => echo(sql) }),
-        closeSession: async () => {
-          /* empty */
-        },
-      }),
+      forkSession: () =>
+        Promise.resolve({
+          authenticate: async (token: unknown): Promise<unknown> => {
+            await Promise.resolve()
+            tokens.push(token)
+            return token
+          },
+          closeSession: async (): Promise<void> => {
+            /* empty */
+          },
+          database: "parent_db",
+          namespace: "parent_ns",
+          query: (sql: string): { responses: () => Promise<QueryResponse[]> } => ({
+            responses: (): Promise<QueryResponse[]> => Promise.resolve(echo(sql)),
+          }),
+          use: async (what: unknown): Promise<unknown> => {
+            await Promise.resolve()
+            used.push(what)
+            return what
+          },
+        }),
     })
     const client = orm(conn, { schema: schemaDef })
     const scoped = await client.$withContext({
-      namespace: "tenant_a",
-      database: "app",
       auth: "token-123",
+      database: "app",
+      namespace: "tenant_a",
     })
-    expect(used).toEqual([{ namespace: "tenant_a", database: "app" }])
+    expect(used).toEqual([{ database: "app", namespace: "tenant_a" }])
     expect(tokens).toEqual(["token-123"])
     // The scoped session is a SESSION (no prefix) — session-bound ops allow them.
     expect((scoped as unknown as { context?: unknown }).context).toBeUndefined()
@@ -128,7 +136,7 @@ describe("fn — key guard", () => {
     const Call = defineFunction("call")
     expect(() =>
       orm(conn, {
-        schema: schema({ users: User, call: Call }),
+        schema: schema({ call: Call, users: User }),
       }),
     ).toThrow(/would shadow/u)
   })
@@ -141,27 +149,37 @@ describe("extends — reapplication", () => {
       helper: () => "ok",
     })
     const tenant = client.$withContext({
-      namespace: "tenant_a",
       database: "app",
+      namespace: "tenant_a",
     })
     expect((tenant as unknown as { helper: () => string }).helper()).toBe("ok")
 
     const txConn = {
-      query: (sql: string) => ({ responses: async () => echo(sql) }),
-      beginTransaction: async () => ({
-        query: (sql: string) => ({ responses: async () => echo(sql) }),
-        commit: async () => {
-          /* empty */
-        },
-        cancel: async () => {
-          /* empty */
-        },
+      beginTransaction: (): Promise<{
+        cancel: () => Promise<void>
+        commit: () => Promise<void>
+        query: (sql: string) => { responses: () => Promise<QueryResponse[]> }
+      }> =>
+        Promise.resolve({
+          cancel: async (): Promise<void> => {
+            /* empty */
+          },
+          commit: async (): Promise<void> => {
+            /* empty */
+          },
+          query: (sql: string): { responses: () => Promise<QueryResponse[]> } => ({
+            responses: (): Promise<QueryResponse[]> => Promise.resolve(echo(sql)),
+          }),
+        }),
+      query: (sql: string): { responses: () => Promise<QueryResponse[]> } => ({
+        responses: (): Promise<QueryResponse[]> => Promise.resolve(echo(sql)),
       }),
     }
     const txClient = orm(txConn as never, { schema: schemaDef }).extends({
       helper: () => "ok",
     })
     const inTx = await txClient.transaction(async (tx) => {
+      await Promise.resolve()
       return (tx as unknown as { helper: () => string }).helper()
     })
     expect(inTx).toBe("ok")

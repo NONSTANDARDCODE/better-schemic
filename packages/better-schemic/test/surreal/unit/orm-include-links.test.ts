@@ -1,25 +1,30 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-non-null-assertion, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Fixtures assert values whose presence the test guarantees. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
-// The link branch of the include compiler: bare/union links (no single target), nested FETCH paths
-// and the star-forms. A tailored schema exercises the shapes the shared fixtures don't have.
 import { describe, expect, test } from "bun:test"
 
 import { s, table } from "../../../src/surreal"
-import { compileRead, type ReadArgs } from "../../../src/surreal/orm/compiler/select"
+import {
+  type CompiledRead,
+  compileRead,
+  type ReadArgs,
+} from "../../../src/surreal/orm/compiler/select"
 import { createBinds } from "../../../src/surreal/orm/compiler/shared"
 import type { OrmError } from "../../../src/surreal/orm/errors"
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema"
+import { required } from "../../required"
+
+// The link branch of the include compiler: bare/union links (no single target), nested FETCH paths
+// and the star-forms. A tailored schema exercises the shapes the shared fixtures don't have.
 
 const NodeBase = table("node", {
-  name: s.string(),
   bare: s.recordId().optional(),
+  name: s.string(),
 })
 const Node = NodeBase.extend({
   parent: s.recordId(() => NodeBase).optional(),
 })
-const schema = { nodes: Node, audit_log: "audit_log" }
+const schema = { audit_log: "audit_log", nodes: Node }
 const index = buildSchemaIndex(schema)
 
-function compile(args: ReadArgs, table = "nodes") {
+function compile(args: ReadArgs, table = "nodes"): CompiledRead {
   const meta = index.tables.get(table)
   if (!meta) throw new Error(`no table ${table}`)
   return compileRead(meta, args, createBinds(), "findMany", { index })
@@ -49,10 +54,10 @@ describe("include — link edge shapes", () => {
       ref: s.recordId("audit_log").optional(),
     })
     const idx = buildSchemaIndex({
-      items: Schemaless,
       audit_log: "audit_log",
+      items: Schemaless,
     })
-    const meta = idx.tables.get("items")!
+    const meta = required(idx.tables.get("items"))
     expect(
       codeOf(() =>
         compileRead(

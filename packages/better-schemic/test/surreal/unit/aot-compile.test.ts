@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // zod-compiler integration — field unwrapping, markers and the generated module shapes.
 import { describe, expect, test } from "bun:test"
 import { z } from "zod"
@@ -12,7 +11,7 @@ import {
 import { betterSchemic } from "../../../src/plugin"
 import { s, table } from "../../../src/surreal"
 
-const Customer = table("customer", { name: s.string(), balance: s.number() })
+const Customer = table("customer", { balance: s.number(), name: s.string() })
 
 describe("better-schemic/aot — field bridge", () => {
   test("fieldSchemaOf unwraps SField.schema and passes raw Zod through", () => {
@@ -33,9 +32,9 @@ describe("better-schemic/aot — field bridge", () => {
 const targets: CompileTarget[] = [
   {
     exportName: "Customer",
+    fields: ["name", "balance"],
     sourceFile: "/app/db/schema.ts",
     table: "customer",
-    fields: ["name", "balance"],
   },
 ]
 

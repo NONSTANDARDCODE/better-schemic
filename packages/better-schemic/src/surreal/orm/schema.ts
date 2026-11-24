@@ -37,8 +37,8 @@ import {
 // --- schema branding / construction --------------------------------------------------------------
 
 /** Built-index cache — a schema walks it once, no matter how some clients read it. */
-// eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-const INDEX_CACHE = new WeakMap<object, SchemaIndex>()
+
+const INDEX_CACHE = new WeakMap<Record<string, unknown>, SchemaIndex>()
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null
 
@@ -114,12 +114,15 @@ function isRelationLike(def: AnyTableDef): def is AnyRelationDef {
   return def.config.relation !== undefined
 }
 
+// The third constructor parameter of `OrmError` is its options bag.
+type ErrorOptionsIndex = 2
+
 // --- index construction --------------------------------------------------------------------------
 
 function invalid(
   message: string,
-  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- índice 2 = terceiro parâmetro de OrmError (options)
-  options: ConstructorParameters<typeof OrmError>[2] = {},
+
+  options: ConstructorParameters<typeof OrmError>[ErrorOptionsIndex] = {},
 ): OrmError {
   return new OrmError("SchemaInvalid", `schema: ${message}`, options)
 }
@@ -227,8 +230,8 @@ function tableMeta(
   const columns = new Map<string, ColumnMeta>()
   const links = new Map<string, LinkMeta>()
   const shape = (def.object as { shape: Record<string, unknown> }).shape
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [field, zod] of Object.entries(shape)) {
+
+  Object.entries(shape).forEach(([field, zod]) => {
     const meta = columnMeta(field, zod, def.name)
     columns.set(field, meta)
     if (meta.record) {
@@ -239,20 +242,20 @@ function tableMeta(
         optional: meta.record.optional,
       })
     }
-  }
+  })
 
   const relation = isRelationLike(def) ? def.config.relation : undefined
 
   // Dedupe the adjacency ONCE (outgoing wins) — `findEdge`/`edgesOf` are per-query reads.
   const edges: EdgeRef[] = []
   const seenEdges = new Set<string>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const edge of [...adjacency.outgoing, ...adjacency.incoming]) {
+
+  ;[...adjacency.outgoing, ...adjacency.incoming].forEach((edge) => {
     if (!seenEdges.has(edge.name)) {
       seenEdges.add(edge.name)
       edges.push(edge)
     }
-  }
+  })
 
   return {
     def,
@@ -286,9 +289,10 @@ function tableMeta(
 
 function functionMeta(key: string, def: AnyFunctionDef): FunctionMeta {
   const args = new Map<string, ColumnMeta>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [name, field] of Object.entries(def.args))
+
+  Object.entries(def.args).forEach(([name, field]) => {
     args.set(name, columnMeta(name, field, `fn::${def.name}`))
+  })
 
   const returns = def.config.returns
   return {
@@ -324,8 +328,8 @@ function build(entries: SchemaInput): SchemaIndex {
   }
 
   // Pass 1 — classify entries, remember defs, claim physical names (tables + schemaless alike).
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [key, entry] of Object.entries(entries)) {
+
+  Object.entries(entries).forEach(([key, entry]) => {
     if (typeof entry === "string") {
       if (!entry.trim()) {
         throw invalid(
@@ -336,7 +340,7 @@ function build(entries: SchemaInput): SchemaIndex {
       const meta: SchemalessMeta = { key, name: entry, schemaless: true }
       schemaless.set(key, meta)
       byName.set(entry, meta)
-      continue
+      return
     }
     if (isTableDefLike(entry)) {
       claim(entry.name, key)
@@ -359,7 +363,7 @@ function build(entries: SchemaInput): SchemaIndex {
       tableDefs.push({ def: entry, key })
       if (isRelationLike(entry)) relationDefs.push({ def: entry, key })
 
-      continue
+      return
     }
     if (isFunctionDefLike(entry)) {
       const firstKey = functionKeysByName.get(entry.name)
@@ -370,12 +374,12 @@ function build(entries: SchemaInput): SchemaIndex {
       }
       functionKeysByName.set(entry.name, key)
       functions.set(key, functionMeta(key, entry))
-      continue
+      return
     }
     throw invalid(
       `entry "${key}" is not a table/edge/function or a schemaless name (got ${typeof entry}). Pass the def itself (e.g. table(...)) or a string for a schemaless table.`,
     )
-  }
+  })
 
   // Pass 2 — relation adjacency + endpoint validation.
   const adjacency = new Map<string, { incoming: EdgeRef[]; outgoing: EdgeRef[] }>()
@@ -388,54 +392,54 @@ function build(entries: SchemaInput): SchemaIndex {
     return a
   }
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const { def, key } of relationDefs) {
+  relationDefs.forEach(({ def, key }) => {
     const edge: EdgeRef = { def, key, name: def.name }
     const relation = def.config.relation
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [dir, endpoints] of [
-      ["from", relation?.from ?? []],
-      ["to", relation?.to ?? []],
-    ] as const) {
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const endpoint of endpoints) {
+
+    ;(
+      [
+        ["from", relation?.from ?? []],
+        ["to", relation?.to ?? []],
+      ] as const
+    ).forEach(([dir, endpoints]) => {
+      endpoints.forEach((endpoint) => {
         const target = byName.get(endpoint)
-        // eslint-disable-next-line max-depth -- parser/compilador com despacho aninhado; achatar mudaria a precedência das cláusulas
+
         if (!target) {
           throw invalid(
             `relation "${def.name}" (.${dir}) points to table "${endpoint}", which no entry declares. Add it to the schema or fix the endpoint.`,
             { table: def.name },
           )
         }
-        // eslint-disable-next-line max-depth -- parser/compilador com despacho aninhado; achatar mudaria a precedência das cláusulas
+
         if (!isSchemalessMeta(target))
           adjFor(target.name)[dir === "from" ? "outgoing" : "incoming"].push(edge)
-      }
-    }
-  }
+      })
+    })
+  })
 
   // Pass 3 — build table metas (columns/links/adjacency) + reject link/edge name ambiguity.
   const tables = new Map<string, TableMeta>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const { def, key } of tableDefs) {
+
+  tableDefs.forEach(({ def, key }) => {
     const adj = adjacency.get(def.name) ?? { incoming: [], outgoing: [] }
     const meta = tableMeta(key, def, adj)
     const edgeNames = new Set([
       ...adj.outgoing.map((e) => e.name),
       ...adj.incoming.map((e) => e.name),
     ])
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const field of meta.links.keys()) {
+
+    meta.links.keys().forEach((field) => {
       if (edgeNames.has(field)) {
         throw invalid(
           `"${def.name}" has both a record-link field "${field}" and a relation named "${field}". The field wins — rename one (include/where would otherwise be ambiguous).`,
           { field, table: def.name },
         )
       }
-    }
+    })
     tables.set(key, meta)
     byName.set(def.name, meta)
-  }
+  })
 
   return { byName, functions, schemaless, tables }
 }

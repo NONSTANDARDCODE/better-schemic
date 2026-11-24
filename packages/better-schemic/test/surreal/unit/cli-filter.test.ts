@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 import { type Filter, parseFilter } from "better-schemic/core"
 import type { DefineStatement } from "better-schemic/driver"
 import { describe, expect, test } from "bun:test"
@@ -6,15 +5,17 @@ import { describe, expect, test } from "bun:test"
 import { filterSnapshot, included, mergeSnapshot } from "../../../src/surreal/cli/surreal-filter"
 
 const stmt = (kind: DefineStatement["kind"], name: string, table?: string): DefineStatement => ({
+  ddl: `${kind} ${name}`,
   kind,
   name,
   table,
-  ddl: `${kind} ${name}`,
 })
 
-const snap = (...ss: DefineStatement[]) => ({
-  version: 1 as const,
+const snap = (
+  ...ss: DefineStatement[]
+): { statements: Record<string, DefineStatement>; version: 1 } => ({
   statements: Object.fromEntries(ss.map((s) => [`${s.kind}:${s.table ?? ""}:${s.name}`, s])),
+  version: 1 as const,
 })
 
 describe("parseFilter", () => {
@@ -31,7 +32,7 @@ describe("parseFilter", () => {
   })
 
   test("--no-functions / --no-events exclude the kind", () => {
-    const f = parseFilter({ functions: false, events: false })
+    const f = parseFilter({ events: false, functions: false })
     expect(included(f, stmt("function", "f"))).toBe(false)
     expect(included(f, stmt("event", "e", "user"))).toBe(false)
     expect(included(f, stmt("table", "user"))).toBe(true)

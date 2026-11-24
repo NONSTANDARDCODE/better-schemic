@@ -67,8 +67,8 @@ export type ConnectionEntry<Client = unknown, Args = undefined> = {
   resolve(ctx: ResolveContext, args?: Args): Promise<ConnectionConfigBase[]>
 }
 
-/** Cross-driver erasure of the entry generics (like `AnyField`) — the shape neutral maps hold. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- apagamento bivariante dos generics: tipo público, `unknown` rejeitaria entries reais.
+/** Cross-driver erasure of the entry generics — the shape neutral maps hold. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- erasure bivariante do client/args: `unknown` quebra a atribuição de entries heterogêneos.
 export type AnyConnectionEntry = ConnectionEntry<any, any>
 
 /** A connection factory's input: a static config, or a resolver yielding one config or a keyed collection. */

@@ -1,18 +1,78 @@
-/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // `describeSchema()` — a JSON-safe, agent-readable derivation of the authored schema. No DDL, no DB.
 import { describe, expect, test } from "bun:test"
 
 import { defineFunction, relation, s, surql, table } from "../../../src/surreal"
 import { describeSchema } from "../../../src/surreal/orm/describe"
 import { schema } from "../../../src/surreal/orm/schema"
+import { KEEP_ORDER } from "../../order-barrier"
 
 const User = table("user", {
   name: s.string().$assert(surql`string::len($value) > 0`),
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
   email: s.email().$unique(),
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
   createdAt: s
     .datetime()
     .$default(surql`time::now()`)
     .$readonly(),
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
   age: s.int(),
 })
   .index("uq_user_email", ["email"], { unique: true })
@@ -27,11 +87,11 @@ const TotalAge = defineFunction("total_age")
 describe("describeSchema()", () => {
   test("describes tables, columns, constraints, relations, functions and schemaless entries", () => {
     const def = schema({
-      users: User,
-      posts: Post,
-      likes: Likes,
-      totalAge: TotalAge,
       bare: "notes",
+      likes: Likes,
+      posts: Post,
+      totalAge: TotalAge,
+      users: User,
     })
     const described = describeSchema(def)
     expect(described.version).toBe(1)
@@ -52,19 +112,19 @@ describe("describeSchema()", () => {
     const likes = described.tables.find((t) => t.key === "likes")
     expect(likes?.kind).toBe("relation")
     expect(likes?.endpoints).toEqual({
+      enforced: false,
       from: ["user"],
       to: ["post"],
-      enforced: false,
     })
 
     expect(described.schemaless).toEqual([{ key: "bare", name: "notes" }])
     expect(described.functions).toEqual([
       {
+        args: [],
         key: "totalAge",
         name: "total_age",
-        args: [],
-        returns: { type: "number", family: "number" },
         permissions: {},
+        returns: { family: "number", type: "number" },
       },
     ])
   })

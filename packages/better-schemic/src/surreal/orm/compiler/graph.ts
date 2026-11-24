@@ -11,6 +11,7 @@ import { RecordId } from "surrealdb"
 import { type Ctx, fragOf } from "../../pure"
 import { isExpr, lowerExpr, mkRef } from "../../surql/predicate"
 import type { ModelMeta, SchemaIndex } from "../meta"
+import { stringCoerce } from "../text"
 
 import { compileProjection } from "./projection"
 import { classifyWhereByOwner, edgeMeta, edgeTraversal, targetMetas } from "./relations"
@@ -93,8 +94,8 @@ export function compileGraph(
   const activeSteps = builder.repeat ? builder.repeat.steps : builder.steps
   // Resolve steps' filters into SQL using the shared binds.
   const steps = activeSteps.map((s) => ({ ...s }))
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const step of steps) {
+
+  steps.forEach((step) => {
     // edgeRawWhere (attached via .where() while the step was still an edge) → edge filter
     const eraw = step.edgeRawWhere
     if (eraw !== undefined && eraw !== null) {
@@ -108,24 +109,24 @@ export function compileGraph(
       if (sql) step.edgeFilter = mergeFilter(step.edgeFilter, sql)
     }
     const where = step.opts?.where ?? step.rawWhere
-    if (where === undefined || where === null) continue
+    if (where === undefined || where === null) return
 
     if (step.kind === "edge") {
       if (isExpr(where)) {
         const c: Ctx = { vars: binds.vars }
         step.edgeFilter = mergeFilter(step.edgeFilter, lowerExpr(where, c))
-        continue
+        return
       }
       const em = edgeMeta(index, step.edgeName)
       const sql = compileWhere(where, binds, { index, meta: em, operation })
       if (sql) step.edgeFilter = mergeFilter(step.edgeFilter, sql)
 
-      continue
+      return
     }
     if (isExpr(where)) {
       const c: Ctx = { vars: binds.vars }
       step.targetFilter = mergeFilter(step.targetFilter, lowerExpr(where, c))
-      continue
+      return
     }
     const em = edgeMeta(index, step.edgeName)
     const tms = targetMetas(index, step.targets)
@@ -162,7 +163,7 @@ export function compileGraph(
       })
       if (sql) step.targetFilter = mergeFilter(step.targetFilter, sql)
     }
-  }
+  })
 
   // Final node meta.
   let finalMeta: ModelMeta = meta
@@ -254,10 +255,7 @@ export function compileGraph(
 
     if (opts.paths) suffix += "+path"
 
-    if (opts.shortest) {
-      // eslint-disable-next-line @typescript-eslint/no-base-to-string, @typescript-eslint/restrict-template-expressions -- shortest aceita alvos opacos do DSL
-      suffix += `+shortest=${opts.shortest}`
-    }
+    if (opts.shortest) suffix += `+shortest=${stringCoerce(opts.shortest)}`
 
     finalPath = `{${range}${suffix}}(${finalStepPath})`
   } else finalPath = finalStepPath
@@ -306,9 +304,8 @@ function makeNodeProxy(): unknown {
     {},
     {
       get(_t, key): unknown {
-        if (typeof key !== "string" || key === "then") return
+        if (typeof key !== "string" || key === "then") return undefined
 
-        // eslint-disable-next-line @typescript-eslint/consistent-return -- o proxy retorna undefined para chaves especiais
         return mkRef({ kind: "other", root: { col: key } })
       },
     },
@@ -325,10 +322,10 @@ function convertSelect(value: unknown): unknown {
   if (typeof value !== "object") return value
 
   const out: Record<string, unknown> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+
+  Object.entries(value as Record<string, unknown>).forEach(([k, v]) => {
     const f = fragOf(v)
     out[k] = f ?? convertSelect(v)
-  }
+  })
   return out
 }

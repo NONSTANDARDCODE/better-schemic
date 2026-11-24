@@ -1,37 +1,43 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator, unicorn/no-thenable, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. Bun test calls return thenable handles that are not awaited. Defensive checks document fixture intent. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+import { describe, expect, setDefaultTimeout, test } from "bun:test"
+import { RecordId } from "surrealdb"
+import type { ZodString } from "zod"
+
+import { defineFunction, s, surql, table } from "../../../src/surreal"
+import { emitTable } from "../../../src/surreal/ddl"
+import type { SField, TableDef, WithSmartId } from "../../../src/surreal/pure"
+import { THEN_KEY } from "../../then-key"
+
+const MAGIC_120000 = 120_000
+
+const MAGIC_18 = 18
+const MAGIC_200 = 200
 // Typed-fragments PHASE 0 (docs/proposals/typed-fragments.md): eager marker resolution in the
 // surql tag (TableDef/Table/FunctionDef/surql.$ splice as TEXT; everything else binds), the
 // surql.record/table/$/expr helpers, event THEN auto-blocking (multi-statement bodies wrap { ...; }
 // matching INFO's canonical spelling), and lazy record refs s.recordId(() => Table).
-import { describe, expect, setDefaultTimeout, test } from "bun:test"
 
 // The workspace gate runs every package's suite IN PARALLEL — parallel-suite CPU contention can slow live
 // connects/DDL far past bun's 30s default, timing out beforeAll/afterAll hooks (reported as
 // "(unnamed)" tests). Live work gets a generous ceiling; isolated runs unaffect them.
-setDefaultTimeout(120_000)
-
-import { RecordId } from "surrealdb"
-
-import { defineFunction, s, surql, table } from "../../../src/surreal"
-import { emitTable } from "../../../src/surreal/ddl"
+setDefaultTimeout(MAGIC_120000)
 
 const SendMail = defineFunction("frag_send_mail", {
-  email: s.string(),
   code: s.string(),
+  email: s.string(),
 })
   .returns(s.string())
   .body(surql`RETURN $email + ":" + $code`)
 
 const User = table("frag_user", {
-  name: s.string(),
   email: s.string().$min(1),
+  name: s.string(),
 })
 
 const Verification = table("frag_verification", {
-  id: s.tuple([User.record()]),
+  attempts: s.int().$default(0),
   codeHash: s.string().$internal(),
   expiresAt: s.datetime(),
-  attempts: s.int().$default(0),
+  id: s.tuple([User.record()]),
 })
 
 describe("surql tag — eager marker resolution", () => {
@@ -40,11 +46,11 @@ describe("surql tag — eager marker resolution", () => {
     expect(q.query).toContain("FROM frag_user ")
     expect(q.query).toContain("$after.email != NONE")
     expect(q.query).toContain("fn::frag_send_mail($x, $y)")
-    expect(Object.keys(q.bindings ?? {})).toHaveLength(0)
+    expect(Object.keys(q.bindings)).toHaveLength(0)
   })
 
   test("plain values still BIND as params; nested BoundQuery composes", () => {
-    const inner = surql`age >= ${18}`
+    const inner = surql`age >= ${MAGIC_18}`
     const q = surql`SELECT * FROM ${User} WHERE ${inner} AND name = ${"ada"}`
     expect(q.query).toContain("FROM frag_user")
     // BOUND, not inlined. Assert on a TOKEN boundary, not a substring: the SDK names its params
@@ -53,19 +59,18 @@ describe("surql tag — eager marker resolution", () => {
     // `age >= $bind__181`, in which a plain `toContain("18")` finds the counter's digits and the
     // test fails depending on WHICH FILES RAN BEFORE IT.
     expect(q.query).not.toMatch(/(?<!\w)18(?!\w)/u)
-    expect(Object.values(q.bindings ?? {})).toContain(18)
-    expect(Object.values(q.bindings ?? {})).toContain("ada")
+    expect(Object.values(q.bindings)).toContain(MAGIC_18)
+    expect(Object.values(q.bindings)).toContain("ada")
   })
 
   test("the bind assertion holds however far the SDK's global counter has advanced", () => {
     // Reproduces the order-dependence directly: burn enough ids that the next `bind__` name
     // contains "18", then re-assert. Guards the fix above against a regression to `toContain`.
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (let i = 0; i < 200; i++) void surql`x = ${i}`
-    const q = surql`SELECT * WHERE age >= ${18}`
+    Array.from({ length: MAGIC_200 }, (_, i): unknown => surql`x = ${i}`)
+    const q = surql`SELECT * WHERE age >= ${MAGIC_18}`
     expect(q.query).toMatch(/\$bind__\d+/u)
     expect(q.query).not.toMatch(/(?<!\w)18(?!\w)/u)
-    expect(Object.values(q.bindings ?? {})).toContain(18)
+    expect(Object.values(q.bindings)).toContain(MAGIC_18)
   })
 
   test("surql.record builds type::record with the typed table ref", () => {
@@ -86,11 +91,11 @@ describe("surql tag — eager marker resolution", () => {
 describe("event THEN auto-block", () => {
   test("a multi-statement then wraps { ...; } and collapses whitespace (INFO-canonical)", () => {
     const T = table("frag_evt", { n: s.int() }).event("bump", {
-      when: surql`$event = 'CREATE'`,
-      then: surql`
+      [THEN_KEY]: surql`
         LET $x = $after.n + 1;
         UPDATE $after.id SET n = $x;
       `,
+      when: surql`$event = 'CREATE'`,
     })
     const ddl = emitTable(T)
       .split("\n")
@@ -100,7 +105,7 @@ describe("event THEN auto-block", () => {
 
   test("a single statement stays bare (trailing ; stripped)", () => {
     const T = table("frag_evt1", { n: s.int() }).event("one", {
-      then: surql`UPDATE $after.id SET n = 1;`,
+      [THEN_KEY]: surql`UPDATE $after.id SET n = 1;`,
     })
     const ddl = emitTable(T)
       .split("\n")
@@ -111,7 +116,7 @@ describe("event THEN auto-block", () => {
 
   test("a ; inside a string literal does not trigger blocking", () => {
     const T = table("frag_evt2", { note: s.string() }).event("lit", {
-      then: surql`UPDATE $after.id SET note = 'a;b'`,
+      [THEN_KEY]: surql`UPDATE $after.id SET note = 'a;b'`,
     })
     const ddl = emitTable(T)
       .split("\n")
@@ -122,7 +127,7 @@ describe("event THEN auto-block", () => {
 
   test("an author-braced block passes through (whitespace collapsed)", () => {
     const T = table("frag_evt3", { n: s.int() }).event("braced", {
-      then: surql`{
+      [THEN_KEY]: surql`{
         LET $x = 1;
         UPDATE $after.id SET n = $x;
       }`,
@@ -163,7 +168,10 @@ describe("lazy record refs — s.recordId(() => Table)", () => {
 
   test("mixed arrays (eager + lazy) union in the DDL", () => {
     const T = table("frag_mixed", {
-      target: s.recordId([User, () => Later]),
+      target: s.recordId([
+        User,
+        (): TableDef<"frag_later", WithSmartId<"frag_later", { name: SField<ZodString> }>> => Later,
+      ]),
     })
     expect(emitTable(T)).toContain("record<frag_user | frag_later>")
   })

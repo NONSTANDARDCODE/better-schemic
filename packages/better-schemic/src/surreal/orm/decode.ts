@@ -49,13 +49,15 @@ export function decodeRow(
 ): unknown {
   const decoded = decodeBase(row, meta, spec)
   if (isRecord(decoded) && spec.hidden !== undefined) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const alias of spec.hidden) Reflect.deleteProperty(decoded, alias)
+    spec.hidden.forEach((alias) => {
+      Reflect.deleteProperty(decoded, alias)
+    })
   }
   if (spec.includes.length === 0 || !index || !isRecord(decoded)) return decoded
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const include of spec.includes) hydrateInclude(row, decoded, include, index)
+  spec.includes.forEach((include) => {
+    hydrateInclude(row, decoded, include, index)
+  })
 
   return decoded
 }
@@ -70,19 +72,22 @@ function decodeBase(row: unknown, meta: ModelMeta, spec: ProjectionSpec): unknow
     const base = spec.starSchema
       ? decodeSchema(spec.starSchema, row, meta.name)
       : decodeFull(meta, row)
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const field of spec.omit) if (isRecord(base)) Reflect.deleteProperty(base, field)
 
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const field of spec.fields)
+    spec.omit.forEach((field) => {
+      if (isRecord(base)) Reflect.deleteProperty(base, field)
+    })
+
+    spec.fields.forEach((field) => {
       setAt(base, field.out, decodeLeaf(getAt(row, field.source), field, meta.name))
+    })
 
     return base
   }
   const out: Record<string, unknown> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const field of spec.fields)
+
+  spec.fields.forEach((field) => {
     setAt(out, field.out, decodeLeaf(getAt(row, field.source), field, meta.name))
+  })
 
   return out
 }
@@ -140,11 +145,10 @@ function decodeLinkEntry(raw: unknown, spec: LinkFetchSpec, index: SchemaIndex):
   const decoded = decodeSchema(schema, raw, meta.name)
   if (!isRecord(decoded)) return decoded
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const nested of spec.nested) {
+  spec.nested.forEach((nested) => {
     if (nested.kind === "link-fetch" || nested.kind === "link-projection")
       hydrateInclude(raw, decoded, nested, index)
-  }
+  })
   return decoded
 }
 
@@ -160,11 +164,11 @@ function decodeLinkProjection(
   if (!linkPresent(rawRow, spec.leaves)) return null
 
   const out: Record<string, unknown> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const leaf of spec.leaves) {
+
+  spec.leaves.forEach((leaf) => {
     const raw = getAt(rawRow, [leaf.source])
     setAt(out, leaf.out, decodeLinkLeaf(raw, leaf, meta, spec.key))
-  }
+  })
   return out
 }
 
@@ -189,17 +193,13 @@ function decodeListProjection(
     }
   })
   const length = columns.reduce((max, column) => Math.max(max, column.values.length), 0)
-  const out: Record<string, unknown>[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = 0; i < length; i++) {
+  return Array.from({ length }, (_, index) => {
     const entry: Record<string, unknown> = {}
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const { leaf, values } of columns)
-      setAt(entry, leaf.out, decodeLinkLeaf(values[i], leaf, meta, spec.key))
-
-    out.push(entry)
-  }
-  return out
+    columns.forEach(({ leaf, values }) => {
+      setAt(entry, leaf.out, decodeLinkLeaf(values[index], leaf, meta, spec.key))
+    })
+    return entry
+  })
 }
 
 /**
@@ -258,8 +258,10 @@ function decodeEdgeRow(row: unknown, spec: EdgeIncludeSpec, index: SchemaIndex):
       }
     }
     const edgeFields: Record<string, unknown> = {}
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [key, entry] of Object.entries(row)) if (key !== spec.alias) edgeFields[key] = entry
+
+    Object.entries(row).forEach(([key, entry]) => {
+      if (key !== spec.alias) edgeFields[key] = entry
+    })
 
     return {
       edge: decodeEdgeProjection(edgeFields, spec.edge, index),
@@ -353,8 +355,10 @@ function passthroughSchema(meta: TableMeta, fields: readonly string[]): z.ZodTyp
   const shape = {
     ...(meta.def.object as unknown as { shape: Record<string, z.ZodType> }).shape,
   }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const field of fields) shape[field] = z.unknown().optional()
+
+  fields.forEach((field) => {
+    shape[field] = z.unknown().optional()
+  })
 
   const schema = z.object(shape)
   byKey.set(key, schema)
@@ -389,45 +393,44 @@ function rowDecoderFor(meta: TableMeta): RowDecoder {
   const viaZod = (row: Record<string, unknown>): unknown => decodeSchema(schema, row, meta.name)
   const decoder: RowDecoder = (row) => {
     const out: Record<string, unknown> = {}
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const field of fields) {
+
+    return fields.some((field) => {
       const value = row[field.key]
       if (value === undefined) {
-        if (!field.shape.optional) return viaZod(row)
-        // missing required -> Zod's error
+        if (!field.shape.optional) return true
         // Zod keeps an EXPLICIT undefined and drops an absent key — mirror both.
         if (Object.hasOwn(row, field.key)) out[field.key] = undefined
-
-        continue
+        return false
       }
       if (value === null) {
-        if (!field.shape.nullable) return viaZod(row)
-
+        if (!field.shape.nullable) return true
         out[field.key] = null
-        continue
+        return false
       }
       if (field.shape.fast) {
         if (matchesFast(field.shape.fast, value)) {
           out[field.key] = value
-          continue
+          return false
         }
-        return viaZod(row) // wrong type -> the full decode for the contextual error
+        return true // wrong type -> the full decode for the contextual error
       }
       if (field.shape.fastArray !== null && Array.isArray(value)) {
         const decoded = decodeFastArray(field.shape.fastArray, value)
         if (decoded !== undefined) {
           out[field.key] = decoded
-          continue
+          return false
         }
-        return viaZod(row) // a bad element -> the exact array error
+        return true // a bad element -> the exact array error
       }
       try {
         out[field.key] = z.decode(field.schema, value)
       } catch {
-        return viaZod(row) // re-run through the object schema for the identical error shape
+        return true // re-run through the object schema for the identical error shape
       }
-    }
-    return out
+      return false
+    })
+      ? viaZod(row)
+      : out
   }
   ROW_DECODER.set(meta, decoder)
   return decoder
@@ -488,12 +491,11 @@ type ZodDefShape = {
   innerType?: { _zod?: { def?: ZodDefShape } }
   type?: string
 }
-// eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-const defOf = (schema: object): undefined | ZodDefShape =>
+
+const defOf = (schema: Record<string, unknown>): undefined | ZodDefShape =>
   (schema as unknown as { _zod?: { def?: ZodDefShape } })._zod?.def
 
-// eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-const SHAPE_OF = new WeakMap<object, FieldShape>()
+const SHAPE_OF = new WeakMap<Record<string, unknown>, FieldShape>()
 
 /** Classify the INNER primitive of a schema (after optional/nullable unwrapping). */
 function fastKindFrom(def: undefined | ZodDefShape): FastKind | null {
@@ -517,27 +519,30 @@ function fastKindFrom(def: undefined | ZodDefShape): FastKind | null {
 }
 
 function shapeOf(schema: z.ZodType): FieldShape {
-  let shape = SHAPE_OF.get(schema)
+  let shape = SHAPE_OF.get(schema as unknown as Record<string, unknown>)
   if (shape) return shape
 
-  let def = defOf(schema)
+  let def = defOf(schema as unknown as Record<string, unknown>)
   let optional = false
   let nullable = false
   // Unwrap optional/nullable: a present value decodes as the inner type.
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (def && (def.type === "optional" || def.type === "nullable") && def.innerType) {
-    if (def.type === "optional") optional = true
-    else nullable = true
 
-    def = defOf(def.innerType)
+  const unwrapDef = (current: ZodDefShape): ZodDefShape => {
+    if ((current.type === "optional" || current.type === "nullable") && current.innerType) {
+      if (current.type === "optional") optional = true
+      else nullable = true
+      return unwrapDef(defOf(current.innerType) ?? current)
+    }
+    return current
   }
+  def = def ? unwrapDef(def) : undefined
   shape = {
     fast: fastKindFrom(def),
     fastArray: fastArrayKindFrom(def),
     nullable,
     optional,
   }
-  SHAPE_OF.set(schema, shape)
+  SHAPE_OF.set(schema as unknown as Record<string, unknown>, shape)
   return shape
 }
 
@@ -578,13 +583,13 @@ function matchesFast(kind: FastKind, value: unknown): boolean {
 /** Element-wise decode of an array of a fast primitive; `undefined` when any element mismatches. */
 function decodeFastArray(kind: FastKind, value: readonly unknown[]): undefined | unknown[] {
   const out: unknown[] = Array.from({ length: value.length })
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [i, element] of value.entries()) {
-    if (!matchesFast(kind, element)) return undefined
 
+  const allMatch = value.entries().every(([i, element]) => {
+    if (!matchesFast(kind, element)) return false
     out[i] = element
-  }
-  return out
+    return true
+  })
+  return allMatch ? out : undefined
 }
 
 /** Decode a value with the field's codec, attributing failures to the table/field. */
@@ -614,37 +619,31 @@ function projectPassthrough(row: unknown, spec: ProjectionSpec): unknown {
   if (spec.star || spec.fields.length === 0) return row
 
   const out: Record<string, unknown> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const field of spec.fields) setAt(out, field.out, getAt(row, field.source))
+
+  spec.fields.forEach((field) => {
+    setAt(out, field.out, getAt(row, field.source))
+  })
 
   return out
 }
 
 /** Read a nested key path from a raw row. */
 function getAt(value: unknown, path: readonly string[]): unknown {
-  let current = value
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of path) {
-    if (!isRecord(current)) return undefined
-
-    current = current[key]
-  }
-  return current
+  return path.reduce<unknown>(
+    (current, key) => (isRecord(current) ? current[key] : undefined),
+    value,
+  )
 }
 
 /** Write a nested key path (creating intermediate objects) into a decoded row. */
 function setAt(target: unknown, path: readonly string[], value: unknown): void {
   if (!isRecord(target) || path.length === 0) return
 
-  let current = target
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = 0; i < path.length - 1; i++) {
-    const key = path[i]
-    const next = current[key]
-    if (!isRecord(next)) current[key] = {}
-
-    current = current[key] as Record<string, unknown>
-  }
+  const current = path.slice(0, -1).reduce((node, key) => {
+    const next = node[key]
+    if (!isRecord(next)) node[key] = {}
+    return node[key] as Record<string, unknown>
+  }, target)
   const leaf = path.at(-1)
   current[leaf ?? ""] = value
 }

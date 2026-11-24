@@ -83,12 +83,10 @@ if (!GATE_PHASE) {
 
 // --- locate + rebase the branch --------------------------------------------------------------
 function worktreeOf(b: string): null | string {
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const block of git("worktree", "list", "--porcelain").split("\n\n")) {
-    const path = /^worktree (.+)$/mu.exec(block)?.[1]
-    if (/^branch refs\/heads\/(.+)$/mu.exec(block)?.[1] === b) return path ?? null
-  }
-  return null
+  const block = git("worktree", "list", "--porcelain")
+    .split("\n\n")
+    .find((entry) => /^branch refs\/heads\/(.+)$/mu.exec(entry)?.[1] === b)
+  return block ? (/^worktree (.+)$/mu.exec(block)?.[1] ?? null) : null
 }
 
 const wt = worktreeOf(branch)
@@ -105,11 +103,8 @@ const isFF = ((): boolean => {
 })()
 
 if (!isFF && !GATE_PHASE) {
-  if (!wt) die(`${branch} is behind ${main} and has no worktree to rebase in.`)
-
+  const rebaseWt = wt ?? die(`${branch} is behind ${main} and has no worktree to rebase in.`)
   console.log(`rebasing ${branch} onto ${main}...`)
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- `die` acima garante que `wt` existe; a regra `non-nullable-type-assertion-style` exige `!`
-  const rebaseWt = wt!
   try {
     execFileSync("git", ["-C", rebaseWt, "fetch", remote, "-q"])
     execFileSync("git", ["-C", rebaseWt, "rebase", main], { stdio: "inherit" })
@@ -170,9 +165,9 @@ if (!flag("--no-test")) {
     // Tests run SEQUENTIALLY per package: --filter '*' runs them in parallel, and CPU contention
     // (surreal's live-server e2e boots) starves the e2e beforeAll
     // hooks into timeouts — repeated false gate failures. Sequential costs wall-clock, never truth.
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const dir of ["packages/better-schemic", "packages/create-better-schemic"])
+    ;["packages/better-schemic", "packages/create-better-schemic"].forEach((dir) => {
       run("bun", ["run", "--cwd", dir, "test"])
+    })
   } catch {
     console.error("gate FAILED — rolling main back, nothing pushed.")
     gitIO("reset", "--hard", main)

@@ -54,11 +54,10 @@ export function toFragment(
   const prefix = `sub__${++subCounter}_`
   let text = lowered.sql
   const binds: Record<string, unknown> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [name, value] of Object.entries(lowered.vars)) {
+  Object.entries(lowered.vars).forEach(([name, value]) => {
     text = rewriteBind(text, name, `${prefix}${name}`)
     binds[`${prefix}${name}`] = value
-  }
+  })
   return new BoundQuery(wrap(text), binds)
 }
 
@@ -73,43 +72,56 @@ const KEEP_PARENS = /^(SELECT|CREATE|UPDATE|DELETE|INSERT|RELATE|UPSERT|DEFINE|I
  * (`LET $x = …` / `RETURN …` / `IF <cond>`), where SurrealDB's canonical printer strips them
  * and keeping ours would phantom-diff DDL round-trips. Subquery parens stay (required syntax).
  */
-export function stripOuterParens(text: string): string {
-  let t = text.trim()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (t.startsWith("(") && t.endsWith(")")) {
-    let depth = 0
-    let quote: "'" | '"' | null = null
-    let whole = true
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (let i = 0; i < t.length; i++) {
-      const ch = t[i]
-      if (quote) {
-        // eslint-disable-next-line max-depth -- parser com estado mutável; extrair helpers mudaria a semântica
-        if (ch === "\\") i++
-        else if (ch === quote) quote = null
+/** Number of characters consumed by a backslash escape. */
+const ESCAPE_STEP = 2
 
-        continue
-      }
-      // eslint-disable-next-line unicorn-plugin/prefer-switch -- cadeia else-if preserva a ordem semântica das verificações
-      if (ch === '"' || ch === "'") quote = ch
-      else if (ch === "(") depth++
-      else if (ch === ")") {
-        depth--
-        // eslint-disable-next-line max-depth -- parser com estado mutável; extrair helpers mudaria a semântica
-        if (depth === 0 && i < t.length - 1) {
-          whole = false
-          break
-        }
-      }
-    }
-    if (!whole) break
+/** Scan state for {@link stripOuterParens}'s quote-aware paren walk. */
+type ParenScan = {
+  readonly depth: number
+  readonly index: number
+  readonly quote: "'" | '"' | null
+  readonly whole: boolean
+}
 
-    const inner = t.slice(1, -1).trim()
-    if (KEEP_PARENS.test(inner)) break
+/** Advance the paren scan by one character, stopping when a closing paren isn't the outer one. */
+function stepParenScan(state: ParenScan, text: string): ParenScan {
+  if (!state.whole || state.index >= text.length) return state
 
-    t = inner
+  const i = state.index
+  const ch = text[i]
+  if (state.quote !== null) {
+    if (ch === "\\") return { ...state, index: i + ESCAPE_STEP }
+    if (ch === state.quote) return { ...state, index: i + 1, quote: null }
+    return { ...state, index: i + 1 }
   }
-  return t
+  if (ch === '"' || ch === "'") return { ...state, index: i + 1, quote: ch }
+  if (ch === "(") return { ...state, depth: state.depth + 1, index: i + 1 }
+  if (ch === ")") {
+    const depth = state.depth - 1
+    if (depth === 0 && i < text.length - 1) return { ...state, depth, whole: false }
+    return { ...state, depth, index: i + 1 }
+  }
+  return { ...state, index: i + 1 }
+}
+
+/** Whether the first `(` wraps the whole expression (quote-aware). */
+function outerParensWrapWhole(text: string): boolean {
+  return text.split("").reduce<ParenScan>((state) => stepParenScan(state, text), {
+    depth: 0,
+    index: 0,
+    quote: null,
+    whole: true,
+  }).whole
+}
+
+export function stripOuterParens(text: string): string {
+  const t = text.trim()
+  if (!t.startsWith("(") || !t.endsWith(")")) return t
+  if (!outerParensWrapWhole(t)) return t
+
+  const inner = t.slice(1, -1).trim()
+  if (KEEP_PARENS.test(inner)) return t
+  return stripOuterParens(inner)
 }
 
 let argCounter = 0
@@ -125,8 +137,7 @@ export function argRenderer(v: unknown): (ctx: Ctx) => string {
   const rs = refState(v)
   if (rs) return (ctx) => renderRef(rs, ctx)
 
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- argumento any vem de internals do Zod/SDK (fronteira sem tipos)
-  if (v instanceof BoundQuery) return (ctx) => `(${mergeRaw(v, ctx.vars)})`
+  if (v instanceof BoundQuery) return (ctx) => `(${mergeRaw(v as BoundQuery, ctx.vars)})`
 
   const frag = (v as null | Record<symbol, unknown>)?.[FRAGMENT]
   if (typeof frag === "function") return (ctx) => mergeRaw(frag.call(v) as BoundQuery, ctx.vars)

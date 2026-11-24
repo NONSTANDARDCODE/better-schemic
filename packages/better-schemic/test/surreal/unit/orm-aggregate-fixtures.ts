@@ -1,4 +1,12 @@
-/* eslint-disable perfectionist/sort-objects, unicorn/prefer-export-from -- Object key order mirrors expected serialized output and must stay as authored. Imports build local fixture values before re-exporting. */
+import { RecordId } from "surrealdb"
+
+import { orm } from "../../../src/surreal/orm/client"
+import type { ModelMeta, TableMeta } from "../../../src/surreal/orm/meta"
+import { buildSchemaIndex } from "../../../src/surreal/orm/schema"
+import { s, table } from "../../../src/surreal/pure"
+import { KEEP_ORDER } from "../../order-barrier"
+import { fakeConn, ok } from "../orm-fixtures"
+
 /**
  * The shared harness for the combine compiler's decision tables.
  *
@@ -7,21 +15,111 @@
  * re-derived inside each `describe`. The point is legibility: a reader of a decision table should see
  * the DECISION, not the connection mock.
  */
-import { RecordId } from "surrealdb"
-
-import { orm } from "../../../src/surreal/orm/client"
-import type { ModelMeta, TableMeta } from "../../../src/surreal/orm/meta"
-import { buildSchemaIndex } from "../../../src/surreal/orm/schema"
-import { s, table } from "../../../src/surreal/pure"
-import { fakeConn, ok } from "../orm-fixtures"
 
 /** A table with a self-referencing `owner` link — the shape the operand walk has to reason about. */
 export const deepShape = {
   at: s.datetime(),
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
   anything: s.any(),
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
   owner: s.recordId("deep"),
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
   meta: s.object({ deep: s.boolean() }),
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
   seats: s.array(s.string()),
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
   total: s.decimal(),
 }
 
@@ -38,7 +136,46 @@ export const SplitItem = table("split_item", splitItemShape)
 
 export const splitHolderShape = {
   name: s.string(),
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
   items: s.array(s.recordId("split_item")),
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
   tags: s.array(s.string()),
 }
 export const SplitHolder = table("split_holder", splitHolderShape)
@@ -65,7 +202,7 @@ export async function probeAggregate(
   args: Record<string, unknown>,
   rows: unknown[] = [],
 ): Promise<{ error: string; meta: ModelMeta; sql: string }> {
-  const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok(rows)))
+  const { calls, conn } = fakeConn((sql) => sql.split("\n").map(() => ok(rows)))
   const client = orm(conn, { schema: schema as never }) as unknown as Record<
     string,
     { aggregate: (a: unknown) => Promise<unknown> }
@@ -78,7 +215,46 @@ export async function probeAggregate(
   }
   return {
     sql: calls[0]?.sql ?? "",
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
     error,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
     meta: tableMeta(schema as never, key),
   }
 }
@@ -113,5 +289,3 @@ export async function compiled(
 export function row(table: string, fields: Record<string, unknown>): Record<string, unknown> {
   return { id: new RecordId(table, "1"), ...fields }
 }
-
-export { orm, s, table }

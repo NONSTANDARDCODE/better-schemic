@@ -77,16 +77,15 @@ function operationOf(event: QueryLogEvent): string {
   if (event.phase === "explain") return "EXPLAIN"
 
   const verbs = new Set<string>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const statement of event.statements) {
+  event.statements.forEach((statement) => {
     const verb = firstVerb(statement.sql)
     if (verb !== undefined) verbs.add(verb)
-  }
+  })
   if (event.statements.length > 1) return verbs.size === 1 ? `BATCH ${[...verbs][0]}` : "BATCH"
 
+  // First NON-EMPTY operation wins — the same empty-string-skipping behavior as `||`.
   const first = [...verbs][0]
-  // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- `||` descarta strings vazias de operation, preservando o fallback "QUERY".
-  return first || event.operation?.toUpperCase() || "QUERY"
+  return [first, event.operation?.toUpperCase()].find(Boolean) ?? "QUERY"
 }
 
 /** The span name: `{operation} {table}` (semconv's `{db.operation.name} {target}`). */
@@ -268,8 +267,11 @@ function validatedMaxText(value: number | undefined): number {
 export function createOtelLogger(config: OtelLoggerConfig = {}): QueryLogger {
   const enabled = config.enabled !== false
   const maxQueryTextLength = validatedMaxText(config.maxQueryTextLength)
-  // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- `||` usa o padrão quando tracerName é só espaços (trim -> "").
-  const tracerName = config.tracerName?.trim() || "better-schemic"
+  const trimmedTracerName = config.tracerName?.trim()
+  const tracerName =
+    trimmedTracerName !== undefined && trimmedTracerName.length > 0
+      ? trimmedTracerName
+      : "better-schemic"
 
   return {
     emit(event: QueryLogEvent): void {
@@ -314,7 +316,7 @@ export function createOtelLogger(config: OtelLoggerConfig = {}): QueryLogger {
     // whether to build a result preview — an observer never wants one.
     options: resolveLoggerOptions({ colors: false, verbose: false }),
     // OTEL never auto-explains: an explicit `.explain()` still produces a span (phase "explain").
-    // eslint-disable-next-line unicorn/no-useless-undefined -- contrato do logger: undefined significa "sem plano"
-    planStatement: () => undefined,
+    // A void expression keeps the "no plan" return without the redundant literal `undefined`.
+    planStatement: () => void 0,
   }
 }

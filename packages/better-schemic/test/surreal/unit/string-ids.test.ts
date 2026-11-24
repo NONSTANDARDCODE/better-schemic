@@ -1,4 +1,6 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+const MAGIC_42n = 42n
+
+const MAGIC_7 = 7
 // String ids — the ORM's app surface speaks BARE id strings; `RecordId` exists on the wire.
 // Pure authoring (codec/decode/encode/DDL identity/deep mapping) plus the ORM lowering (where,
 // writes, cursor, schema metadata). Live round-trips live in `test/live/string-ids.test.ts`.
@@ -27,10 +29,10 @@ import { caught, fakeConn, ok } from "../orm-fixtures"
 const Org = table("sorg", { name: s.string() })
 
 const Plain = table("s_customer_plain", {
+  meta: s.object({ ref: s.recordId(Org) }),
   name: s.string(),
   org: s.recordId(Org),
   owner: s.recordId(Org).optional(),
-  meta: s.object({ ref: s.recordId(Org) }),
   products: s.array(s.object({ product: s.recordId(Org) })),
   tags: s.array(s.recordId(Org)),
 })
@@ -51,22 +53,24 @@ const Event = table("s_event", {
 const Likes = relation("slikes", { score: s.int() }).from(Customer).to(Org)
 
 const schemaDef = schema({
-  orgs: Org,
   customers: Customer,
-  uniqueOrgs: UniqueOrg,
   events: Event,
   likes: Likes,
+  orgs: Org,
+  uniqueOrgs: UniqueOrg,
 })
 
 function makeClient(result: unknown = []): {
   calls: { sql: string; vars?: Record<string, unknown> }[]
   client: Client<typeof schemaDef>
 } {
-  const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok(result)))
-  return { client: orm(conn, { schema: schemaDef }), calls }
+  const { calls, conn } = fakeConn((sql) => sql.split("\n").map(() => ok(result)))
+  return { calls, client: orm(conn, { schema: schemaDef }) }
 }
 
-const lastCall = (calls: { sql: string; vars?: Record<string, unknown> }[]) => {
+const lastCall = (
+  calls: { sql: string; vars?: Record<string, unknown> }[],
+): { sql: string; vars: Record<string, unknown> } => {
   const call = calls.at(-1)
   return { sql: call?.sql ?? "", vars: call?.vars ?? {} }
 }
@@ -100,9 +104,9 @@ describe("string ids — pure authoring", () => {
   test("decode normalizes RecordId + escaped/prefixed strings to a bare string", () => {
     const row = {
       id: new RecordId("s_customer_plain", "01ABC"),
+      meta: { ref: new RecordId("sorg", "o2") },
       name: "A",
       org: new RecordId("sorg", "o1"),
-      meta: { ref: new RecordId("sorg", "o2") },
       products: [{ product: new RecordId("sorg", "o3") }],
       tags: [new RecordId("sorg", "o4")],
     }
@@ -122,9 +126,9 @@ describe("string ids — pure authoring", () => {
 
   test("encode turns app strings into RecordId, nested included", () => {
     const wire = Customer.encode({
+      meta: { ref: "sorg:o10" },
       name: "B",
       org: "o9",
-      meta: { ref: "sorg:o10" },
       products: [{ product: "sorg:⟨o11⟩" }],
       tags: ["o12"],
     }) as Wire<typeof Customer>
@@ -136,9 +140,9 @@ describe("string ids — pure authoring", () => {
     expect(
       Customer.encode({
         id: "01ZZZ",
+        meta: { ref: "o2" },
         name: "C",
         org: "o1",
-        meta: { ref: "o2" },
         products: [],
         tags: [],
       }).id,
@@ -147,9 +151,9 @@ describe("string ids — pure authoring", () => {
 
   test("wire accepts a RecordId and validates the target table", async () => {
     const okWire = Customer.encode({
+      meta: { ref: "o2" },
       name: "B",
       org: new RecordId("sorg", "o1"),
-      meta: { ref: "o2" },
       products: [],
       tags: [],
     } as never)
@@ -166,12 +170,12 @@ describe("string ids — pure authoring", () => {
     }).stringIds()
     const decoded = IntRef.decode({
       id: new RecordId("s_int_ref", 1),
-      ref: new RecordId("sorg", 7),
+      ref: new RecordId("sorg", MAGIC_7),
     })
     expect(decoded.ref).toBe("7")
     const encoded = IntRef.encode({ ref: "7" }) as Wire<typeof IntRef>
     expect(encoded.ref).toBeInstanceOf(RecordId)
-    expect((encoded.ref as RecordId).id).toBe(7)
+    expect((encoded.ref as RecordId).id).toBe(MAGIC_7)
     expect(await caught(() => IntRef.encode({ ref: "not-a-number" }))).not.toBeNull()
     expect(await caught(() => IntRef.decode({ id: "i:1", ref: "sorg:nope" }))).not.toBeNull()
   })
@@ -193,11 +197,11 @@ describe("string ids — pure authoring", () => {
     }).stringIds()
     const bigRow = BigRef.decode({
       id: new RecordId("s_big_ref", "x"),
-      ref: new RecordId("sorg", 42n),
+      ref: new RecordId("sorg", MAGIC_42n),
     })
     expect(bigRow.ref).toBe("42")
     const bigWire = BigRef.encode({ ref: "42" }) as Wire<typeof BigRef>
-    expect((bigWire.ref as RecordId).id).toBe(42n)
+    expect((bigWire.ref as RecordId).id).toBe(MAGIC_42n)
     // The WIRE refinement accepts the same coercions the encode does (bigint included).
     const bigViaWire = BigRef.decode({
       id: new RecordId("s_big_ref", "x"),
@@ -243,8 +247,8 @@ describe("string ids — pure authoring", () => {
 
     // Authored after `.stringIds()`, the fallback is a bare string and decode returns it.
     const T = table("s_def_post", {
-      ref: s.recordId("sorg").stringIds().default("d"),
       other: s.recordId("sorg").stringIds().catch("c"),
+      ref: s.recordId("sorg").stringIds().default("d"),
     })
     const row = T.decode({ id: new RecordId("s_def_post", "1") })
     expect(row.ref).toBe("d")
@@ -276,17 +280,17 @@ describe("string ids — pure authoring", () => {
 
   test("non-record containers stay untouched (array/set/union no-op arms)", () => {
     const T = table("s_noop", {
-      tags: s.array(s.string()),
-      refs: s.set(s.string()),
       choice: s.union([s.string(), s.int()]),
       ref: s.recordId("sorg"),
+      refs: s.set(s.string()),
+      tags: s.array(s.string()),
     }).stringIds()
     const row = T.decode({
-      id: new RecordId("s_noop", "1"),
-      tags: ["a"],
-      refs: new Set(["r"]),
       choice: "x",
+      id: new RecordId("s_noop", "1"),
       ref: "o1",
+      refs: new Set(["r"]),
+      tags: ["a"],
     })
     expect(row.ref).toBe("o1")
     expect(emitTable(T)).toContain("DEFINE FIELD ref ON TABLE s_noop TYPE record<sorg>;")
@@ -309,11 +313,11 @@ describe("string ids — pure authoring", () => {
       d: s.object({ e: s.recordId("sorg").optional() }),
     }).stringIds()
     const decoded = T.decode({
-      id: new RecordId("s_comp", "1"),
       a: new RecordId("sorg", "a"),
       b: null,
       c: [new RecordId("sorg", "c")],
       d: { e: new RecordId("sorg", "e") },
+      id: new RecordId("s_comp", "1"),
     })
     expect(decoded.a).toBe("a")
     expect(decoded.b).toBeNull()
@@ -413,7 +417,7 @@ describe("string ids — pure authoring", () => {
 
 describe("string ids — where / writes / cursor", () => {
   test("where shorthand, equals, in and contains bind RecordId", async () => {
-    const { client, calls } = makeClient()
+    const { calls, client } = makeClient()
     await client.customers.findMany({ where: { org: "o1" } })
     expect(lastCall(calls).sql).toBe("SELECT * FROM s_customer_plain WHERE org = $p0;")
     expect(lastCall(calls).vars.p0).toBeInstanceOf(RecordId)
@@ -432,7 +436,7 @@ describe("string ids — where / writes / cursor", () => {
   })
 
   test("where accepts RecordId and rejects a wrong table", async () => {
-    const { client, calls } = makeClient()
+    const { calls, client } = makeClient()
     await client.customers.findMany({
       where: { org: new RecordId("sorg", "o1") },
     })
@@ -442,12 +446,12 @@ describe("string ids — where / writes / cursor", () => {
   })
 
   test("create encodes nested app strings", async () => {
-    const { client, calls } = makeClient()
+    const { calls, client } = makeClient()
     await client.customers.create({
       data: {
+        meta: { ref: "o2" },
         name: "A",
         org: "o1",
-        meta: { ref: "o2" },
         products: [{ product: "o3" }],
         tags: ["o4"],
       },
@@ -468,19 +472,19 @@ describe("string ids — where / writes / cursor", () => {
   })
 
   test("update by bare id targets the record", async () => {
-    const { client, calls } = makeClient([
+    const { calls, client } = makeClient([
       {
         id: new RecordId("s_customer_plain", "c1"),
+        meta: { ref: new RecordId("sorg", "o2") },
         name: "A",
         org: new RecordId("sorg", "o1"),
-        meta: { ref: new RecordId("sorg", "o2") },
         products: [],
         tags: [],
       },
     ])
     const row = await client.customers.update({
-      where: { id: "c1" },
       data: { org: "o9" },
+      where: { id: "c1" },
     })
     expect(lastCall(calls).sql).toBe("UPDATE s_customer_plain:c1 MERGE $p0;")
     expect(String((lastCall(calls).vars.p0 as { org: RecordId }).org)).toBe("sorg:o9")
@@ -488,10 +492,10 @@ describe("string ids — where / writes / cursor", () => {
   })
 
   test("upsert by a UNIQUE record column coerces the bare value", async () => {
-    const { client, calls } = makeClient()
+    const { calls, client } = makeClient()
     const pending = client.uniqueOrgs.upsert({
-      where: { ref: "o1" },
       data: { ref: "o2" },
+      where: { ref: "o1" },
     })
     const call = lastCall(calls)
     expect(call.sql).toBe("UPDATE s_unique_org MERGE $p0 WHERE ref = $p1;")
@@ -502,10 +506,10 @@ describe("string ids — where / writes / cursor", () => {
   })
 
   test("updateEach by a record link accepts a bare id", async () => {
-    const { client, calls } = makeClient()
+    const { calls, client } = makeClient()
     await client.customers.updateEach({
       by: "org",
-      data: [{ org: "o1", name: "A" }],
+      data: [{ name: "A", org: "o1" }],
     })
     const call = lastCall(calls)
     expect(call.sql).toBe("UPDATE s_customer_plain MERGE $p1 WHERE org = $p0;")
@@ -514,28 +518,28 @@ describe("string ids — where / writes / cursor", () => {
   })
 
   test("cursor coerces a bare id after/before and returns a bare nextCursor", async () => {
-    const { client, calls } = makeClient([
+    const { calls, client } = makeClient([
       {
         id: new RecordId("s_customer_plain", "c1"),
+        meta: { ref: new RecordId("sorg", "o2") },
         name: "A",
         org: new RecordId("sorg", "o1"),
-        meta: { ref: new RecordId("sorg", "o2") },
         products: [],
         tags: [],
       },
       {
         id: new RecordId("s_customer_plain", "c2"),
+        meta: { ref: new RecordId("sorg", "o2") },
         name: "B",
         org: new RecordId("sorg", "o1"),
-        meta: { ref: new RecordId("sorg", "o2") },
         products: [],
         tags: [],
       },
     ])
     const page = await client.customers.cursor({
       after: "c0",
-      orderBy: [{ id: "asc" }],
       limit: 1,
+      orderBy: [{ id: "asc" }],
     })
     expect(lastCall(calls).sql).toBe(
       "SELECT * FROM s_customer_plain WHERE (id > $c0) ORDER BY id ASC LIMIT $p0;",
@@ -546,11 +550,11 @@ describe("string ids — where / writes / cursor", () => {
   })
 
   test("cursor coerces a tuple (datetime + bare id) and keeps DateTime precision", async () => {
-    const { client, calls } = makeClient([])
+    const { calls, client } = makeClient([])
     await client.events.cursor({
       after: { at: "2024-01-01T00:00:00Z", id: "e1" },
-      orderBy: [{ at: "asc" }, { id: "asc" }],
       limit: 5,
+      orderBy: [{ at: "asc" }, { id: "asc" }],
     })
     expect(lastCall(calls).sql).toBe(
       "SELECT * FROM s_event WHERE (at > $c0 OR (at = $c0 AND id > $c1)) ORDER BY at ASC, id ASC LIMIT $p0;",
@@ -561,8 +565,8 @@ describe("string ids — where / writes / cursor", () => {
     const bad = await caught(() =>
       client.events.cursor({
         after: { at: "not-a-date", id: "e1" },
-        orderBy: [{ at: "asc" }, { id: "asc" }],
         limit: 5,
+        orderBy: [{ at: "asc" }, { id: "asc" }],
       }),
     )
     expect((bad as Error).message).toContain("ISO-8601")
@@ -571,20 +575,20 @@ describe("string ids — where / writes / cursor", () => {
   test("findUnique by a bare id targets the record", async () => {
     const row = {
       id: new RecordId("s_customer_plain", "c1"),
+      meta: { ref: new RecordId("sorg", "o2") },
       name: "A",
       org: new RecordId("sorg", "o1"),
-      meta: { ref: new RecordId("sorg", "o2") },
       products: [],
       tags: [],
     }
-    const { client, calls } = makeClient(row)
+    const { calls, client } = makeClient(row)
     const found = await client.customers.findUnique({ where: { id: "c1" } })
     expect(lastCall(calls).sql).toBe("SELECT * FROM ONLY s_customer_plain:c1;")
     expect(found?.id).toBe("c1")
   })
 
   test("relation endpoints accept a bare id when the direction has ONE declared table", async () => {
-    const { client, calls } = makeClient([
+    const { calls, client } = makeClient([
       {
         id: new RecordId("slikes", "l1"),
         in: new RecordId("s_customer_plain", "c1"),

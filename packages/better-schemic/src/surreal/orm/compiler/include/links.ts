@@ -68,11 +68,11 @@ export function compileLink(
   }
 
   const { leaves, parts } = compileLinkSelect(key, select, ctx, !list)
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const part of parts) {
+
+  parts.forEach((part) => {
     ctx.parts.push(part.sql)
     ctx.claimFlat(part.flatKey)
-  }
+  })
   ctx.specs.push({
     key,
     kind: "link-projection",
@@ -113,9 +113,9 @@ function compileNestedLink(
     )
   }
   const linksOnly: IncludeSpec[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [nestedKey, nestedEntry] of Object.entries(nested)) {
-    if (nestedEntry === undefined || nestedEntry === false) continue
+
+  Object.entries(nested).forEach(([nestedKey, nestedEntry]) => {
+    if (nestedEntry === undefined || nestedEntry === false) return
 
     const nestedLink = target.links.get(nestedKey)
     if (!nestedLink) {
@@ -140,7 +140,7 @@ function compileNestedLink(
       nested: [],
       targets: nestedLink.targets ? [...nestedLink.targets] : [],
     })
-  }
+  })
   if (linksOnly.length === 0) {
     throw compileError(
       "ValidationError",

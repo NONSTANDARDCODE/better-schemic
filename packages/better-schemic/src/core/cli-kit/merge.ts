@@ -107,9 +107,8 @@ function assertNotSymlink(abs: string): void {
 /** Apply a plan: write created/updated files, delete local-files. Returns the paths touched. */
 export function applyPull(plan: PullPlan): string[] {
   const touched: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const f of plan.files) {
-    if (f.action === "unchanged") continue
+  plan.files.forEach((f) => {
+    if (f.action === "unchanged") return
 
     if (plan.root !== undefined) assertInsideRoot(plan.root, f.abs)
 
@@ -120,16 +119,14 @@ export function applyPull(plan: PullPlan): string[] {
       writeFileSync(f.abs, f.after)
     }
     touched.push(f.rel)
-  }
+  })
   return touched
 }
 
 // --- AST helpers ------------------------------------------------------------------------------
 // A permissive view over the recast/babel nodes we touch — every property we read, all optional,
 // navigation needs no per-access casts.
-type AstNode = {
-  // eslint-disable-next-line functional/functional-parameters -- nome de propriedade da AST do magicast, não o objeto `arguments` global
-  arguments?: AstNode[]
+type AstNode = Partial<Record<"arguments", AstNode[]>> & {
   body?: AstNode
   callee?: AstNode
   comments?: { leading?: boolean }[]
@@ -167,9 +164,8 @@ function exportConstInit(node: AstNode): AstNode | null {
 
 /** Walk a `define…(…).a().b()` chain down to the `define…(…)` CallExpression. */
 function defineCall(init: AstNode | null): AstNode | null {
-  let n: AstNode | null = init
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (n) {
+  const walk = (n: AstNode | null): AstNode | null => {
+    if (!n) return null
     if (n.type === "CallExpression") {
       if (
         n.callee?.type === "Identifier" &&
@@ -179,11 +175,13 @@ function defineCall(init: AstNode | null): AstNode | null {
       )
         return n
 
-      n = n.callee?.type === "MemberExpression" ? (n.callee.object ?? null) : (n.callee ?? null)
-    } else if (n.type === "MemberExpression") n = n.object ?? null
-    else break
+      return walk(
+        n.callee?.type === "MemberExpression" ? (n.callee.object ?? null) : (n.callee ?? null),
+      )
+    }
+    return n.type === "MemberExpression" ? walk(n.object ?? null) : null
   }
-  return null
+  return walk(init)
 }
 
 /** The fields ObjectExpression of a `table`/`relation` call (handles the `self` arrow form). */
@@ -243,8 +241,8 @@ function reconcileFields(
   })
   // Graft the local-field nodes (with their comments) onto the merged object.
   if (!keepLocalFields) return
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const p of localFields) desiredObj.properties.push(p)
+  const target = desiredObj.properties
+  localFields.forEach((p) => target.push(p))
 }
 
 /**
@@ -263,21 +261,19 @@ export function mergeUnits(
 
   // Index existing exported consts by name.
   const existing = new Map<string, AstNode>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const node of body) {
+  body.forEach((node) => {
     const name = exportConstName(node)
     if (name) existing.set(name, node)
-  }
+  })
 
   const localOnly: LocalOnly = { fields: [], objects: [] }
   const desiredNames = new Set(units.map((u) => u.exportName))
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const unit of units) {
+  units.forEach((unit) => {
     // Parse the freshly-rendered unit to lift its statement node.
     const unitBody = asMod(parseModule(unit.code)).$ast.body
     const desiredNode = unitBody.find((n) => exportConstName(n) === unit.exportName)
-    if (!desiredNode) continue
+    if (!desiredNode) return
     // shouldn't happen — the renderer always emits the const
 
     const prior = existing.get(unit.exportName)
@@ -293,16 +289,15 @@ export function mergeUnits(
     } else body.push(desiredNode)
 
     addImports(mod, unit.imports)
-  }
+  })
 
   // Existing consts the DB no longer has → local-objects.
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [name, node] of existing) {
-    if (desiredNames.has(name)) continue
+  existing.forEach((node, name) => {
+    if (desiredNames.has(name)) return
 
     localOnly.objects.push(name)
     if (!opts.keepLocalObjects) body.splice(body.indexOf(node), 1)
-  }
+  })
 
   return { content: ensureTrailingNewline(generateCode(mod).code), localOnly }
 }
@@ -310,15 +305,14 @@ export function mergeUnits(
 /** Union the named imports from `lines` into the module (magicast dedupes against existing). */
 function addImports(mod: unknown, lines: string[]): void {
   const imports = asMod(mod).imports
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const line of lines) {
+  lines.forEach((line) => {
     const parsed = parseImportLine(line)
-    if (!parsed) continue
+    if (!parsed) return
 
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const name of parsed.names)
+    parsed.names.forEach((name) => {
       imports.$add({ from: parsed.from, imported: name, local: name })
-  }
+    })
+  })
 }
 
 function ensureTrailingNewline(s: string): string {
@@ -345,60 +339,57 @@ function lineOps(before: string, after: string): LineOp[] {
   const m = a.length
   const n = b.length
   const dp: number[][] = Array.from({ length: m + 1 }, () => Array.from({ length: n + 1 }, () => 0))
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = m - 1; i >= 0; i--) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (let j = n - 1; j >= 0; j--)
+  Array.from({ length: m }, (_, k) => m - 1 - k).forEach((i) => {
+    Array.from({ length: n }, (_, k) => n - 1 - k).forEach((j) => {
       dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
-  }
+    })
+  })
   const ops: LineOp[] = []
   let i = 0
   let j = 0
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (i < m && j < n) {
-    if (a[i] === b[j]) {
+  Array.from({ length: m + n }).some(() => {
+    if (i >= m && j >= n) return true
+    if (i >= m) {
+      ops.push({ line: b[j], tag: "+" })
+      j++
+    } else if (j >= n) {
+      ops.push({ line: a[i], tag: "-" })
+      i++
+    } else if (a[i] === b[j]) {
       ops.push({ line: a[i], tag: " " })
       i++
       j++
-    } else if (dp[i + 1][j] >= dp[i][j + 1]) ops.push({ line: a[i++], tag: "-" })
-    else ops.push({ line: b[j++], tag: "+" })
-  }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (i < m) ops.push({ line: a[i++], tag: "-" })
-
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (j < n) ops.push({ line: b[j++], tag: "+" })
-
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      ops.push({ line: a[i], tag: "-" })
+      i++
+    } else {
+      ops.push({ line: b[j], tag: "+" })
+      j++
+    }
+    return false
+  })
   return ops
 }
 
 /** The O(1)-memory fallback: keep the common prefix/suffix, mark the middle removed + added. */
 const LCS_CELL_LIMIT = 4_000_000
 function coarseLineOps(a: string[], b: string[]): LineOp[] {
-  let start = 0
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (start < a.length && start < b.length && a[start] === b[start]) start++
+  const head = Array.from({ length: Math.min(a.length, b.length) }, (_, i) => i)
+  const start = head.find((i) => a[i] !== b[i]) ?? head.length
   let endA = a.length
   let endB = b.length
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+  Array.from({ length: Math.min(a.length, b.length) }).some(() => {
+    if (endA <= start || endB <= start || a[endA - 1] !== b[endB - 1]) return true
     endA--
     endB--
-  }
-  const ops: LineOp[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = 0; i < start; i++) ops.push({ line: a[i], tag: " " })
-
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = start; i < endA; i++) ops.push({ line: a[i], tag: "-" })
-
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let j = start; j < endB; j++) ops.push({ line: b[j], tag: "+" })
-
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = endA; i < a.length; i++) ops.push({ line: a[i], tag: " " })
-
-  return ops
+    return false
+  })
+  return [
+    ...a.slice(0, start).map((line) => ({ line, tag: " " as const })),
+    ...a.slice(start, endA).map((line) => ({ line, tag: "-" as const })),
+    ...b.slice(start, endB).map((line) => ({ line, tag: "+" as const })),
+    ...a.slice(endA).map((line) => ({ line, tag: " " as const })),
+  ]
 }
 
 /**
@@ -414,9 +405,11 @@ export function lineDiff(before: string, after: string): string {
   ops.forEach((op, idx) => {
     if (op.tag === " ") return
 
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (let k = Math.max(0, idx - CONTEXT); k <= Math.min(ops.length - 1, idx + CONTEXT); k++)
+    const from = Math.max(0, idx - CONTEXT)
+    const count = Math.min(ops.length - 1, idx + CONTEXT) - from + 1
+    Array.from({ length: count }, (_, offset) => from + offset).forEach((k) => {
       keep[k] = true
+    })
   })
   const out: string[] = []
   let gap = false

@@ -184,11 +184,11 @@ export function targetMetas(
   if (!targets) return []
 
   const out: TableMeta[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const name of targets) {
+
+  targets.forEach((name) => {
     const meta = index.byName.get(name)
     if (meta && !("schemaless" in meta)) out.push(meta)
-  }
+  })
   return out
 }
 
@@ -236,17 +236,17 @@ function fieldsIn(value: unknown): string[] {
   const out: string[] = []
   const walk = (v: unknown): void => {
     if (Array.isArray(v)) {
-      // eslint-disable-next-line functional/no-loop-statements -- loop recursivo; map/reduce mudaria a semântica
-      for (const entry of v) walk(entry)
+      v.forEach((entry) => {
+        walk(entry)
+      })
       return
     }
     if (!isPlainObject(v)) return
 
-    // eslint-disable-next-line functional/no-loop-statements -- loop recursivo; map/reduce mudaria a semântica
-    for (const key of Object.keys(v)) {
+    Object.keys(v).forEach((key) => {
       if (LOGICAL.has(key)) walk(v[key])
       else out.push(key)
-    }
+    })
   }
   walk(value)
   return out
@@ -310,9 +310,8 @@ export function classifyWhereByOwner(args: {
 
   /** Gather every field name referenced inside a logical group (peeks one level of nesting). */
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [key, value] of Object.entries(args.where)) {
-    if (value === undefined) continue
+  Object.entries(args.where).forEach(([key, value]) => {
+    if (value === undefined) return
 
     if (LOGICAL.has(key)) {
       const fields = fieldsIn(value)
@@ -333,11 +332,11 @@ export function classifyWhereByOwner(args: {
       }
       const owner = [...owners][0]
       ;(owner === "edge" ? edge : target)[key] = value
-      continue
+      return
     }
     // A nested relational filter object (`{ likes: { some: … } }`) — classify by the key itself.
     ;(ownerOf(key) === "edge" ? edge : target)[key] = value
-  }
+  })
 
   return {
     ...(Object.keys(edge).length > 0 ? { edge } : {}),

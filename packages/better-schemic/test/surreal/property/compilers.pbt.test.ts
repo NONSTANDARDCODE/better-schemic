@@ -1,4 +1,9 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures assert values whose presence the test guarantees. */
+const MAGIC_1000000 = 1_000_000
+
+const MAGIC_100 = 100
+const MAGIC_1000 = 1000
+const MAGIC_5 = 5
+const MAGIC_8 = 8
 // Property-based tests (fast-check) for the PURE compiler/parser helpers — the string and value
 // plumbing that every SurrealQL fragment rides on. These assert INVARIANTS over generated, adversarial
 // inputs rather than golden strings, so they catch whole classes of escaping/binding/round-trip bugs
@@ -35,8 +40,9 @@ import {
 } from "../../../src/surreal/orm/compiler/shared"
 import { compileWhere } from "../../../src/surreal/orm/compiler/where"
 import { OrmError } from "../../../src/surreal/orm/errors"
+import { required } from "../../required"
 
-const RUNS = Number(process.env.PBT_RUNS ?? 100)
+const RUNS = Number(process.env.PBT_RUNS ?? MAGIC_100)
 const SEED = process.env.PBT_SEED ? Number(process.env.PBT_SEED) : undefined
 const check = (prop: fc.IProperty<unknown>): void => {
   fc.assert(prop, {
@@ -60,10 +66,12 @@ const bindRefs = (sql: string): Set<string> =>
 /** Bind totality: referenced binds == declared binds (no dangling, no unused). */
 function expectBindTotality(sql: string, vars: Record<string, unknown>): void {
   const refs = bindRefs(sql)
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const name of refs) expect(vars).toHaveProperty(name)
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const name of Object.keys(vars)) expect(refs.has(name)).toBe(true)
+  refs.forEach((name) => {
+    expect(vars).toHaveProperty(name)
+  })
+  Object.keys(vars).forEach((name) => {
+    expect(refs.has(name)).toBe(true)
+  })
 }
 
 /** Keys that change `where`'s MEANING (logical combinators) or are object-prototype hazards. */
@@ -71,14 +79,14 @@ const SPECIAL_KEYS = new Set(["AND", "OR", "NOT", "__proto__", "constructor", "p
 
 /** A non-empty field-name candidate with no `.`/`[`/`]` (so `renderPath` treats it as one segment). */
 const weirdField = fc
-  .string({ minLength: 1, maxLength: 14 })
+  .string({ maxLength: 14, minLength: 1 })
   .filter((s) => !/[.[\]]/u.test(s) && !SPECIAL_KEYS.has(s) && !s.startsWith("$"))
 
 /** A scalar/array value that `renderValue` BINDS (never a fragment/ref/range). */
 const bindableValue = fc.oneof(
   fc.string(),
   fc.integer(),
-  fc.double({ noNaN: true, noDefaultInfinity: true }),
+  fc.double({ noDefaultInfinity: true, noNaN: true }),
   fc.boolean(),
   fc.array(fc.oneof(fc.string(), fc.integer()), { maxLength: 3 }),
 )
@@ -102,7 +110,7 @@ describe("compileWhere — pure compiler invariants", () => {
         }
         expect(sql).toBe(`${rendered} = $p0`)
         expect(binds.vars).toEqual({ p0: value })
-        expectBindTotality(sql!, binds.vars)
+        expectBindTotality(required(sql), binds.vars)
       }),
     )
   })
@@ -155,7 +163,7 @@ describe("compileWhere — pure compiler invariants", () => {
           expect(error).toBeInstanceOf(OrmError)
           return
         }
-        expectBindTotality(sql!, binds.vars)
+        expectBindTotality(required(sql), binds.vars)
       }),
     )
   })
@@ -170,7 +178,7 @@ const pathPart = fc
   )
   .map(([segment, suffix]) => `${segment}${suffix}`)
 const dottedPath = fc
-  .array(pathPart, { minLength: 1, maxLength: 4 })
+  .array(pathPart, { maxLength: 4, minLength: 1 })
   .map((parts) => parts.join("."))
 
 describe("paths and joins", () => {
@@ -196,8 +204,8 @@ describe("paths and joins", () => {
 
   test("joinAnd is a plain AND-join (arity is preserved)", () => {
     const parts = fc.array(
-      fc.string({ minLength: 1, maxLength: 8 }).filter((s) => !s.includes(" AND ")),
-      { minLength: 1, maxLength: 6 },
+      fc.string({ maxLength: 8, minLength: 1 }).filter((s) => !s.includes(" AND ")),
+      { maxLength: 6, minLength: 1 },
     )
     check(
       fc.property(parts, (list) => {
@@ -219,8 +227,8 @@ describe("record ids", () => {
         if (colon === -1) expect(parts).toBeUndefined()
         else {
           expect(parts).toEqual({
-            table: text.slice(0, colon),
             id: text.slice(colon + 1),
+            table: text.slice(0, colon),
           })
         }
       }),
@@ -232,12 +240,12 @@ describe("record ids", () => {
     check(
       fc.property(token, token, (table, id) => {
         expect(recordIdParts(id, "op", { fallbackTable: table })).toEqual({
-          table,
           id,
+          table,
         })
         expect(recordIdParts(`${table}:${id}`, "op", { table })).toEqual({
-          table,
           id,
+          table,
         })
       }),
     )
@@ -281,7 +289,7 @@ describe("record ids", () => {
   })
 
   test("escapeIdentSafe stringifies non-strings; splitRecordId handles nullish values", () => {
-    expect(escapeIdentSafe(5 as never)).toBe(escapeIdent("5"))
+    expect(escapeIdentSafe(MAGIC_5 as never)).toBe(escapeIdent("5"))
     expect(splitRecordId(null)).toBeUndefined()
     expect(splitRecordId(undefined)).toBeUndefined()
   })
@@ -316,8 +324,8 @@ describe("parseSurqlType / emitSurqlType", () => {
       fc.stringMatching(/^[A-Za-z0-9_ ]{1,8}$/u).map((x) => `'${x}'`),
       fc
         .array(fc.stringMatching(/^[a-z_][a-z0-9_]{0,6}$/u), {
-          minLength: 1,
           maxLength: 2,
+          minLength: 1,
         })
         .map((tables) => `record<${[...new Set(tables)].sort().join(" | ")}>`),
     )
@@ -325,21 +333,21 @@ describe("parseSurqlType / emitSurqlType", () => {
       s("atom"),
       s("expr").map((x) => `array<${x}>`),
       s("expr").map((x) => `set<${x}>`),
-      fc.tuple(s("expr"), fc.nat(8)).map(([x, n]) => `array<${x}, ${n}>`),
-      fc.tuple(s("expr"), fc.nat(8)).map(([x, n]) => `set<${x}, ${n}>`),
+      fc.tuple(s("expr"), fc.nat(MAGIC_8)).map(([x, n]) => `array<${x}, ${n}>`),
+      fc.tuple(s("expr"), fc.nat(MAGIC_8)).map(([x, n]) => `set<${x}, ${n}>`),
     )
     const inner: fc.Arbitrary<string> = fc.oneof(
       s("member"),
       s("expr").map((x) => `option<${x}>`),
     )
     const expr: fc.Arbitrary<string> = fc.oneof(
-      { maxDepth: 4, depthSize: "small" },
+      { depthSize: "small", maxDepth: 4 },
       s("inner"),
       fc
-        .array(s("member"), { minLength: 2, maxLength: 3 })
+        .array(s("member"), { maxLength: 3, minLength: 2 })
         .map((xs) => [...new Set(xs)].sort().join(" | ")),
     )
-    return { atom, member, inner, expr }
+    return { atom, expr, inner, member }
   }).expr
 
   test("parse never throws and always yields a PortableType", () => {
@@ -409,7 +417,7 @@ describe("check + literal bridges", () => {
       fc.property(fc.constantFrom(...FORMATS), (format) => {
         const assert = formatAssert(format)
         expect(assert).toBeDefined()
-        expect(formatForAssert(assert!)).toBe(format)
+        expect(formatForAssert(required(assert))).toBe(format)
       }),
     )
   })
@@ -425,7 +433,10 @@ describe("check + literal bridges", () => {
 
   test("duration strings pass through and convert to non-negative ms", () => {
     const duration = fc
-      .tuple(fc.nat(1000), fc.constantFrom("ns", "us", "µs", "ms", "s", "m", "h", "d", "w", "y"))
+      .tuple(
+        fc.nat(MAGIC_1000),
+        fc.constantFrom("ns", "us", "µs", "ms", "s", "m", "h", "d", "w", "y"),
+      )
       .map(([n, unit]) => `${n}${unit}`)
     check(
       fc.property(duration, (text) => {
@@ -437,7 +448,7 @@ describe("check + literal bridges", () => {
 
   test("a numeric duration emits `<n>ms` and parses back to n", () => {
     check(
-      fc.property(fc.nat(1_000_000), (n) => {
+      fc.property(fc.nat(MAGIC_1000000), (n) => {
         expect(durationLiteral(n, "op")).toBe(`${n}ms`)
         expect(parseDurationMs(n, "op")).toBe(n)
       }),
@@ -448,8 +459,8 @@ describe("check + literal bridges", () => {
     check(
       fc.property(
         fc.date({
-          min: new Date(0),
           max: new Date("2100-01-01"),
+          min: new Date(0),
           noInvalidDate: true,
         }),
         (date) => {
@@ -461,7 +472,7 @@ describe("check + literal bridges", () => {
 
   test("nonNegativeInt accepts exactly the non-negative integers", () => {
     check(
-      fc.property(fc.integer({ min: -1000, max: 1000 }), (n) => {
+      fc.property(fc.integer({ max: 1000, min: -1000 }), (n) => {
         if (n >= 0) expect(nonNegativeInt(n, "limit", "op")).toBe(n)
         else expect(() => nonNegativeInt(n, "limit", "op")).toThrow()
       }),

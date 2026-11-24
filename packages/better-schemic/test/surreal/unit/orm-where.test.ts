@@ -1,6 +1,3 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Fixtures assert values whose presence the test guarantees. Defensive checks document fixture intent. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
-// M1.1 — the `where` compiler: args -> exact `{ sql, vars }` goldens, family-aware operators,
-// path/identifier escaping and injection-proof values. Offline (no server).
 import { describe, expect, test } from "bun:test"
 import { escapeIdent, RecordId } from "surrealdb"
 
@@ -11,36 +8,52 @@ import type { OrmError } from "../../../src/surreal/orm/errors"
 import type { TableMeta } from "../../../src/surreal/orm/meta"
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema"
 import { range, s, table } from "../../../src/surreal/pure"
+import { required } from "../../required"
+
+const MAGIC_0p1 = 0.1
+const MAGIC_0p5 = 0.5
+const MAGIC_18 = 18
+const MAGIC_2 = 2
+const MAGIC_29 = 29
+const MAGIC_42 = 42
+// M1.1 — the `where` compiler: args -> exact `{ sql, vars }` goldens, family-aware operators,
+// path/identifier escaping and injection-proof values. Offline (no server).
 
 const User = table("user", {
-  name: s.string(),
-  age: s.int(),
   active: s.boolean(),
-  createdAt: s.datetime(),
-  ttl: s.duration(),
-  balance: s.decimal(),
-  tags: s.array(s.string()),
-  scores: s.array(s.int()),
   address: s.object({ city: s.string(), country: s.string() }),
+  age: s.int(),
+  balance: s.decimal(),
   contacts: s.array(s.object({ type: s.string(), value: s.string() })),
-  location: s.geometry(),
+  createdAt: s.datetime(),
   embedding: s.array(s.float()),
+  location: s.geometry(),
   mentor: s.recordId("user").optional(),
+  name: s.string(),
+  scores: s.array(s.int()),
+  tags: s.array(s.string()),
   teammates: s.array(s.recordId("user")),
+  ttl: s.duration(),
 })
 
 const index = buildSchemaIndex({ users: User })
-const meta = index.tables.get("users")!
+const meta = required(index.tables.get("users"))
 
 /** Compile a `where` and capture its statement text + binds. */
-function compile(where: unknown, table: TableMeta | undefined = meta) {
+function compile(
+  where: unknown,
+  table: TableMeta | undefined = meta,
+): { sql: string | undefined; vars: Record<string, unknown> } {
   const binds = createBinds()
-  const sql = compileWhere(where, binds, table ? { meta: table } : {})
+  const sql = compileWhere(where, binds, { meta: table })
   return { sql, vars: binds.vars }
 }
 
 /** Normalize the SDK tag's globally-counted `bind__N` names so fragment goldens are stable. */
-function stable({ sql, vars }: { sql: string | undefined; vars: Record<string, unknown> }) {
+function stable({ sql, vars }: { sql: string | undefined; vars: Record<string, unknown> }): {
+  sql: string
+  vars: Record<string, unknown>
+} {
   const aliases = new Map<string, string>()
   const text = (sql ?? "").replaceAll(/\$([A-Za-z_][A-Za-z0-9_]*)/gu, (_, name) => {
     if (!name.startsWith("bind__")) return `$${name}`
@@ -52,8 +65,7 @@ function stable({ sql, vars }: { sql: string | undefined; vars: Record<string, u
     return `$${alias}`
   })
   const outVars: Record<string, unknown> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [name, value] of Object.entries(vars)) outVars[aliases.get(name) ?? name] = value
+  Object.entries(vars).forEach(([name, value]) => (outVars[aliases.get(name) ?? name] = value))
   return { sql: text, vars: outVars }
 }
 
@@ -109,13 +121,15 @@ describe("where — values, equality and presence", () => {
   })
 
   test("between/inRange are inclusive; outside is the interval complement", () => {
-    expect(compile({ age: { between: [18, 29] } })).toEqual({
+    expect(compile({ age: { between: [MAGIC_18, MAGIC_29] } })).toEqual({
       sql: "age >= $p0 AND age <= $p1",
       vars: { p0: 18, p1: 29 },
     })
-    expect(compile({ age: { inRange: [18, 29] } }).sql).toBe("age >= $p0 AND age <= $p1")
-    expect(compile({ age: { outside: [18, 29] } }).sql).toBe("(age < $p0 OR age > $p1)")
-    expect(compile({ createdAt: { outside: [1, 2] } }).sql).toBe(
+    expect(compile({ age: { inRange: [MAGIC_18, MAGIC_29] } }).sql).toBe(
+      "age >= $p0 AND age <= $p1",
+    )
+    expect(compile({ age: { outside: [MAGIC_18, MAGIC_29] } }).sql).toBe("(age < $p0 OR age > $p1)")
+    expect(compile({ createdAt: { outside: [1, MAGIC_2] } }).sql).toBe(
       "(createdAt < $p0 OR createdAt > $p1)",
     )
   })
@@ -177,16 +191,16 @@ describe("where — strings", () => {
 
   test("matchesFullText: @@ and @n@ (indexes AND/OR)", () => {
     expect(compile({ name: { matchesFullText: "hello" } }).sql).toBe("name @@ $p0")
-    expect(compile({ name: { matchesFullText: { query: "x", index: 0 } } }).sql).toBe(
+    expect(compile({ name: { matchesFullText: { index: 0, query: "x" } } }).sql).toBe(
       "name @0@ $p0",
     )
-    expect(compile({ name: { matchesFullText: { query: "x", indexes: [0, 1] } } }).sql).toBe(
+    expect(compile({ name: { matchesFullText: { indexes: [0, 1], query: "x" } } }).sql).toBe(
       "(name @0@ $p0 AND name @1@ $p0)",
     )
     expect(
       compile({
         name: {
-          matchesFullText: { query: "x", indexes: [0, 1], operator: "OR" },
+          matchesFullText: { indexes: [0, 1], operator: "OR", query: "x" },
         },
       }).sql,
     ).toBe("(name @0@ $p0 OR name @1@ $p0)")
@@ -287,36 +301,36 @@ describe("where — fragments", () => {
   })
 
   test("a whole-clause fragment replaces the compiled filter", () => {
-    expect(stable(compile(surql`age > ${18} AND active = ${true}`))).toEqual({
+    expect(stable(compile(surql`age > ${MAGIC_18} AND active = ${true}`))).toEqual({
       sql: "(age > $frag0 AND active = $frag1)",
       vars: { frag0: 18, frag1: true },
     })
   })
 
   test("fragments compose with typed filters (binds stay unique)", () => {
-    expect(stable(compile({ active: true, age: surql`age > ${18}` }))).toEqual({
+    expect(stable(compile({ active: true, age: surql`age > ${MAGIC_18}` }))).toEqual({
       sql: "active = $p0 AND age = (age > $frag0)",
-      vars: { p0: true, frag0: 18 },
+      vars: { frag0: 18, p0: true },
     })
   })
 })
 
 describe("where — near (vector and geo)", () => {
   test("KNN emits <|k|> / <|k, METRIC|>", () => {
-    expect(compile({ embedding: { near: { vector: [0.1, 0.5], k: 3 } } })).toEqual({
+    expect(compile({ embedding: { near: { k: 3, vector: [MAGIC_0p1, MAGIC_0p5] } } })).toEqual({
       sql: "embedding <|3|> $p0",
-      vars: { p0: [0.1, 0.5] },
+      vars: { p0: [MAGIC_0p1, MAGIC_0p5] },
     })
     expect(
       compile({
-        embedding: { near: { vector: [0.1], k: 3, distance: "cosine" } },
+        embedding: { near: { distance: "cosine", k: 3, vector: [MAGIC_0p1] } },
       }).sql,
     ).toBe("embedding <|3, COSINE|> $p0")
   })
 
   test("a geo point emits geo::distance(f, $p) <= $r", () => {
-    const point = { type: "Point", coordinates: [0, 0] }
-    expect(compile({ location: { near: { point, distance: 10 } } })).toEqual({
+    const point = { coordinates: [0, 0], type: "Point" }
+    expect(compile({ location: { near: { distance: 10, point } } })).toEqual({
       sql: "geo::distance(location, $p0) <= $p1",
       vars: { p0: point, p1: 10 },
     })
@@ -353,7 +367,7 @@ describe("where — injection is impossible", () => {
 
 describe("where — teaching errors", () => {
   test("unknown operators fail fast with the vocabulary pointer", () => {
-    const err = (() => {
+    const err = ((): OrmError | undefined => {
       try {
         compile({ age: { nope: 1 } })
         return undefined
@@ -382,11 +396,11 @@ describe("where — teaching errors", () => {
     expect(
       codeOf(() =>
         compile({
-          name: { matchesFullText: { query: "x", index: 0, indexes: [1] } },
+          name: { matchesFullText: { index: 0, indexes: [1], query: "x" } },
         }),
       ),
     ).toBe("ValidationError")
-    expect(codeOf(() => compile(42))).toBe("ValidationError")
+    expect(codeOf(() => compile(MAGIC_42))).toBe("ValidationError")
   })
 
   test("schemaless models (no meta) still compile", () => {
@@ -427,14 +441,14 @@ describe("where — any/all, full-text and metric guards", () => {
     expect(
       codeOf(() =>
         compile({
-          embedding: { near: { vector: [0.1], k: 3, distance: "co sine" } },
+          embedding: { near: { distance: "co sine", k: 3, vector: [MAGIC_0p1] } },
         }),
       ),
     ).toBe("ValidationError")
   })
 
   test("matches rejects unsupported RegExp flags", () => {
-    const foreign = { source: "ab", flags: "q" } as unknown as RegExp
+    const foreign = { flags: "q", source: "ab" } as unknown as RegExp
     expect(codeOf(() => compile({ name: { matches: foreign } }))).toBe("ValidationError")
   })
 })

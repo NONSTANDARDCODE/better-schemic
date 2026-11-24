@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/require-await, @typescript-eslint/no-confusing-void-expression -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock methods match async interfaces without awaiting. The void operator discards intentionally ignored values. */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
@@ -17,15 +16,17 @@ const BASE = path.join(import.meta.dir, "..", ".tmp-resolve")
 // "faux" here makes `connectionEntry("faux", …)` configs resolvable.
 const queries: { sql: string; url: unknown }[] = []
 const faux = {
-  name: "faux",
-  async connect(config: { params: Record<string, unknown> }) {
-    return { url: config.params.url }
-  },
   async close() {
     /* empty */
   },
+  async connect(config: { params: Record<string, unknown> }) {
+    await Promise.resolve()
+    return { url: config.params.url }
+  },
+  name: "faux",
   async query(conn: { url: unknown }, sql: string) {
-    queries.push({ url: conn.url, sql })
+    await Promise.resolve()
+    queries.push({ sql, url: conn.url })
     return [{ ok: 1 }]
   },
 } as unknown as Driver
@@ -38,12 +39,12 @@ function writeConfig(body: string): string {
 }
 
 beforeAll(() => {
-  rmSync(BASE, { recursive: true, force: true })
+  rmSync(BASE, { force: true, recursive: true })
   mkdirSync(BASE, { recursive: true })
   if (!driverNames().includes("faux")) registerDriver(faux)
 })
 afterAll(() => {
-  rmSync(BASE, { recursive: true, force: true })
+  rmSync(BASE, { force: true, recursive: true })
 })
 
 // A project with a single default connection + a 2-element tenant collection (resolver, --arg-aware).
@@ -89,37 +90,53 @@ describe("resolveTargets — addressing", () => {
 
   test("--all resolves every connection, collections fanned out", async () => {
     const config = writeConfig(COLLECTION)
-    const targets = await resolveTargets({ config, all: true })
+    const targets = await resolveTargets({ all: true, config })
     expect(targets.map((t) => t.connection)).toEqual(["primary", "tenants:acme", "tenants:globex"])
   })
 
   test("--arg is fed to resolvers (yields a subset)", async () => {
     const config = writeConfig(COLLECTION)
     const targets = await resolveTargets({
+      arg: ["only=acme"],
       config,
       connection: "tenants",
-      arg: ["only=acme"],
     })
     expect(targets.map((t) => t.connection)).toEqual(["tenants:acme"])
   })
 
   test("unknown connection errors with the known names", async () => {
     const config = writeConfig(COLLECTION)
-    await expect(resolveTargets({ config, connection: "nope" })).rejects.toThrow(
-      /No connection named "nope"/u,
-    )
+    let caughtVoid0: unknown
+    try {
+      await resolveTargets({ config, connection: "nope" })
+    } catch (error) {
+      caughtVoid0 = error
+    }
+    expect(String(caughtVoid0)).toMatch(/No connection named "nope"/u)
   })
 })
 
 describe("resolveOne — single-connection guard", () => {
   test("rejects --all", async () => {
     const config = writeConfig(COLLECTION)
-    await expect(resolveOne({ config, all: true })).rejects.toThrow(/--all/u)
+    let caughtVoid1: unknown
+    try {
+      await resolveOne({ all: true, config })
+    } catch (error) {
+      caughtVoid1 = error
+    }
+    expect(String(caughtVoid1)).toMatch(/--all/u)
   })
 
   test("rejects a bare collection (must pin a :key)", async () => {
     const config = writeConfig(COLLECTION)
-    await expect(resolveOne({ config, connection: "tenants" })).rejects.toThrow(/collection/u)
+    let caughtVoid2: unknown
+    try {
+      await resolveOne({ config, connection: "tenants" })
+    } catch (error) {
+      caughtVoid2 = error
+    }
+    expect(String(caughtVoid2)).toMatch(/collection/u)
   })
 
   test("resolves a pinned collection element", async () => {
@@ -149,7 +166,7 @@ export default defineConfig({
     const targets = await resolveTargets({ config, connection: "child" })
     expect(targets.map((t) => t.connection)).toEqual(["child"])
     expect(targets[0].params.probed).toBe(1)
-    expect(queries).toEqual([{ url: "ws://parent", sql: "SELECT 1" }])
+    expect(queries).toEqual([{ sql: "SELECT 1", url: "ws://parent" }])
   })
 
   test("a resolution cycle errors instead of looping", async () => {
@@ -170,6 +187,12 @@ export default defineConfig({
   },
 });
 `)
-    await expect(resolveTargets({ config, connection: "a" })).rejects.toThrow(/cycle/u)
+    let caughtVoid3: unknown
+    try {
+      await resolveTargets({ config, connection: "a" })
+    } catch (error) {
+      caughtVoid3 = error
+    }
+    expect(String(caughtVoid3)).toMatch(/cycle/u)
   })
 })

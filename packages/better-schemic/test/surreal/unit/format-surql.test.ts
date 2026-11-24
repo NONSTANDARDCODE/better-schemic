@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects, unicorn/no-thenable -- Object key order mirrors expected serialized output and must stay as authored. Bun test calls return thenable handles that are not awaited. */
 // formatSurql — pretty-prints generated SurrealQL (INFO returns bodies single-line): statements
 // per line, nested blocks indented, wide object literals one entry per line. Whitespace-:
 // normalize canonicalizes formatting, so formatted output NEVER phantom-diffs.
@@ -7,6 +6,7 @@ import { describe, expect, test } from "bun:test"
 import { formatSurql } from "../../../src/surreal/cli/format"
 import { renderSchemaToTS } from "../../../src/surreal/cli/pull"
 import { normalizeFunction } from "../../../src/surreal/cli/struct"
+import { THEN_KEY } from "../../then-key"
 
 const FN =
   "{ LET $html = string::concat('<b>', $code); LET $res = http::post('https://x.dev/emails', { from: 'Game Backlog <verify@example.dev>', to: [$email], subject: 'Your code', html: $html }, { Authorization: string::concat('Bearer ', $key) }); IF $res.id = NONE { THROW 'send failed; retry'; }; RETURN $res.id != NONE }"
@@ -31,11 +31,11 @@ describe("formatSurql", () => {
   })
 
   test("whitespace-only: normalize(format(x)) === normalize(x) — can't phantom-diff", () => {
-    const a = normalizeFunction({ name: "f", args: [], block: FN })
+    const a = normalizeFunction({ args: [], block: FN, name: "f" })
     const b = normalizeFunction({
-      name: "f",
       args: [],
       block: formatSurql(FN),
+      name: "f",
     })
     expect(b.block).toBe(a.block)
   })
@@ -49,29 +49,29 @@ describe("formatSurql", () => {
 describe("pull renders formatted bodies", () => {
   test("a single-line fn block regenerates multi-line; events expand when long", () => {
     const ts = renderSchemaToTS({
+      accesses: [],
+      analyzers: [],
+      functions: [{ args: [], block: FN, name: "f", returns: "bool" }],
+      params: [],
       tables: [
         {
-          name: "user",
-          kind: { kind: "NORMAL" as const },
-          schemafull: true,
-          fields: [],
-          indexes: [],
           events: [
             {
               name: "onc",
-              what: "user",
-              when: "$event = 'CREATE'",
-              then: [
+              [THEN_KEY]: [
                 "{ LET $c = rand::string(8); UPSERT type::record(v, [$after.id]) CONTENT { codeHash: crypto::sha256($c), expiresAt: time::now() + 15m, attempts: 0 }; fn::send($after.email, $c); }",
               ],
+              what: "user",
+              when: "$event = 'CREATE'",
             },
           ],
+          fields: [],
+          indexes: [],
+          kind: { kind: "NORMAL" as const },
+          name: "user",
+          schemafull: true,
         },
       ],
-      functions: [{ name: "f", args: [], block: FN, returns: "bool" }],
-      accesses: [],
-      analyzers: [],
-      params: [],
     })
     expect(ts).toContain(".body(surql`{\n    LET $html =")
     expect(ts).toContain('.event("onc", {\n')

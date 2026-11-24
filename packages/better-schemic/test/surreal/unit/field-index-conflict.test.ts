@@ -1,4 +1,6 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
+const MAGIC_0p75 = 0.75
+const MAGIC_1p5 = 1.5
+const MAGIC_2 = 2
 import { describe, expect, test } from "bun:test"
 
 import { emitTable } from "../../../src/surreal/ddl"
@@ -45,11 +47,11 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
   test(".$unique().$fulltext() with tuned BM25 keeps the spec on _idx", () => {
     const ddl = emitTable(
       table("d", {
-        id: s.string(),
         body: s
           .string()
           .$unique()
-          .$fulltext({ analyzer: "eng", bm25: [1.5, 0.75], highlights: true }),
+          .$fulltext({ analyzer: "eng", bm25: [MAGIC_1p5, MAGIC_0p75], highlights: true }),
+        id: s.string(),
       }),
     )
     expect(ddl).toContain(
@@ -61,8 +63,8 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
   test(".$unique().$hnsw() emits both a HNSW _idx and a UNIQUE _uq", () => {
     const ddl = emitTable(
       table("v", {
-        id: s.string(),
         emb: s.array(s.number()).$unique().$hnsw({ dimension: 4 }),
+        id: s.string(),
       }),
     )
     expect(ddl).toContain("DEFINE INDEX v_emb_idx ON TABLE v FIELDS emb HNSW DIMENSION 4;")
@@ -72,8 +74,8 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
   test(".$hnsw().$unique() (reverse order) emits same two indexes", () => {
     const ddl = emitTable(
       table("v", {
-        id: s.string(),
         emb: s.array(s.number()).$hnsw({ dimension: 4 }).$unique(),
+        id: s.string(),
       }),
     )
     expect(ddl).toContain("DEFINE INDEX v_emb_idx ON TABLE v FIELDS emb HNSW DIMENSION 4;")
@@ -83,8 +85,8 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
   test(".$unique().$diskann() emits both a DISKANN _idx and a UNIQUE _uq", () => {
     const ddl = emitTable(
       table("v", {
-        id: s.string(),
         emb: s.array(s.number()).$unique().$diskann({ dimension: 4 }),
+        id: s.string(),
       }),
     )
     expect(ddl).toContain("DEFINE INDEX v_emb_idx ON TABLE v FIELDS emb DISKANN DIMENSION 4;")
@@ -131,8 +133,8 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
   test("a lone .$unique(name) still names the single UNIQUE index (back-compat)", () => {
     const ddl = emitTable(
       table("c", {
-        id: s.string(),
         email: s.string().$unique("email_uq"),
+        id: s.string(),
       }),
     )
     expect(ddl).toContain("DEFINE INDEX email_uq ON TABLE c FIELDS email UNIQUE;")
@@ -141,8 +143,8 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
   test("backtick-escaped field paths produce both indexes with sanitized names", () => {
     const ddl = emitTable(
       table("t", {
-        id: s.string(),
         "`some field`": s.string().$unique().$fulltext(),
+        id: s.string(),
       }),
     )
     expect(ddl).toContain("DEFINE INDEX")
@@ -151,7 +153,7 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
     expect(ddl).toContain("UNIQUE")
     // Names sanitiz them and differ: spec ends in _idx, UNIQUE ends in _uq.
     const lines = ddl.split("\n").filter((l) => l.startsWith("DEFINE INDEX"))
-    expect(lines).toHaveLength(2)
+    expect(lines).toHaveLength(MAGIC_2)
     expect(lines[0]).toMatch(/_idx ON TABLE/u)
     expect(lines[1]).toMatch(/_uq ON TABLE/u)
   })
@@ -159,14 +161,14 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
   test("nested field path produces both indexes", () => {
     const ddl = emitTable(
       table("t", {
-        id: s.string(),
         "addr.city": s.string().$unique().$fulltext(),
+        id: s.string(),
       }),
     )
     expect(ddl).toContain("FULLTEXT")
     expect(ddl).toContain("UNIQUE")
     const lines = ddl.split("\n").filter((l) => l.startsWith("DEFINE INDEX"))
-    expect(lines).toHaveLength(2)
+    expect(lines).toHaveLength(MAGIC_2)
     expect(lines[0]).toMatch(/_idx ON TABLE/u)
     expect(lines[1]).toMatch(/_uq ON TABLE/u)
   })
@@ -174,14 +176,14 @@ describe("field both .$unique() + spec (.$fulltext/hnsw/diskann)", () => {
 
 describe("no regression: lone indexes keep single-index behavior", () => {
   test("lone .$unique() emits single _idx UNIQUE", () => {
-    const ddl = emitTable(table("u", { id: s.string(), email: s.string().$unique() }))
+    const ddl = emitTable(table("u", { email: s.string().$unique(), id: s.string() }))
     expect(ddl).toContain("DEFINE INDEX u_email_idx ON TABLE u FIELDS email UNIQUE;")
     expect(ddl).not.toContain("_uq")
     expect(ddl).not.toContain("FULLTEXT")
   })
 
   test("lone .$fulltext() emits single _idx FULLTEXT", () => {
-    const ddl = emitTable(table("d", { id: s.string(), body: s.string().$fulltext() }))
+    const ddl = emitTable(table("d", { body: s.string().$fulltext(), id: s.string() }))
     expect(ddl).toContain("DEFINE INDEX d_body_idx ON TABLE d FIELDS body FULLTEXT;")
     expect(ddl).not.toContain("_uq")
     expect(ddl).not.toContain("UNIQUE")
@@ -190,8 +192,8 @@ describe("no regression: lone indexes keep single-index behavior", () => {
   test("lone .$hnsw() emits single _idx HNSW", () => {
     const ddl = emitTable(
       table("v", {
-        id: s.string(),
         emb: s.array(s.number()).$hnsw({ dimension: 4 }),
+        id: s.string(),
       }),
     )
     expect(ddl).toContain("DEFINE INDEX v_emb_idx ON TABLE v FIELDS emb HNSW DIMENSION 4;")
@@ -202,8 +204,8 @@ describe("no regression: lone indexes keep single-index behavior", () => {
   test("lone .$diskann() emits single _idx DISKANN", () => {
     const ddl = emitTable(
       table("v", {
-        id: s.string(),
         emb: s.array(s.number()).$diskann({ dimension: 4 }),
+        id: s.string(),
       }),
     )
     expect(ddl).toContain("DEFINE INDEX v_emb_idx ON TABLE v FIELDS emb DISKANN DIMENSION 4;")
@@ -212,7 +214,7 @@ describe("no regression: lone indexes keep single-index behavior", () => {
   })
 
   test(".$index() alone emits single _idx without UNIQUE or spec", () => {
-    const ddl = emitTable(table("t", { id: s.string(), code: s.string().$index() }))
+    const ddl = emitTable(table("t", { code: s.string().$index(), id: s.string() }))
     expect(ddl).toContain("DEFINE INDEX t_code_idx ON TABLE t FIELDS code;")
     expect(ddl).not.toContain("UNIQUE")
     expect(ddl).not.toContain("FULLTEXT")

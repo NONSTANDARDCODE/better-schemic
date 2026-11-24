@@ -219,12 +219,16 @@ type TableStructure = {
   indexes?: StructIndex[]
 }
 
+/** Coerce an INFO number field (the SDK may return it as a string). */
+const num = (v: number | string | undefined): number | undefined =>
+  v === undefined ? undefined : Number(v)
+
 /** The unescaped name of a relation endpoint — the SDK deserializes `in`/`out` as `Table` objects. */
 function endpointName(v: unknown): string {
   if (typeof v === "string") return v
 
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
-  const name = (v as { name?: unknown })?.name
+  const object = v as null | undefined | { name?: unknown }
+  const name = object?.name
   return typeof name === "string" ? name : String(v)
 }
 
@@ -280,18 +284,21 @@ function canonicalPerms(
   // WHERE …` — matching SurrealDB's INFO form and the authoring emitter (`permissionsClause` in ddl.ts).
   const isDefault = (v: StructPermissions[keyof StructPermissions]): boolean =>
     defaultFull ? v === true : v === false || v === undefined
+  const bodyOf = (v: StructPermissions[keyof StructPermissions]): string => {
+    if (v === true) return "FULL"
+    if (v === false || v === undefined) return "NONE"
+    return `WHERE ${v}`
+  }
   const groups = new Map<string, string[]>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const op of ops) {
+  ops.forEach((op) => {
     const v = perms[op]
-    if (isDefault(v)) continue
+    if (isDefault(v)) return
 
-    // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-    const body = v === true ? "FULL" : v === false || v === undefined ? "NONE" : `WHERE ${v}`
+    const body = bodyOf(v)
     const group = groups.get(body)
     if (group) group.push(op)
     else groups.set(body, [op])
-  }
+  })
   const clauses = [...groups].map(([body, group]) => `FOR ${group.join(", ")} ${body}`)
   return clauses.length > 0 ? `PERMISSIONS ${clauses.join(" ")}` : ""
 }
@@ -426,25 +433,33 @@ const VECTOR_ORDER: Record<string, string[]> = {
 /** Canonicalize an `HNSW …`/`DISKANN …` spec: drop derived + default clauses, normalize numbers. */
 function normVector(algo: "DISKANN" | "HNSW", spec: string): string {
   const toks = spec.slice(algo.length).trim().split(/\s+/u).filter(Boolean)
+  const TOKEN_PAIR = 2
   const kept = new Map<string, string>()
-  // eslint-disable-next-line functional/no-loop-statements, @typescript-eslint/no-magic-numbers -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = 0; i < toks.length; i += 2) {
+  const scan = (i: number): void => {
+    if (i >= toks.length) return
     const key = toks[i]
     let val = toks[i + 1] ?? ""
-    if (VECTOR_DERIVED[algo].has(key)) continue
+    if (VECTOR_DERIVED[algo].has(key)) {
+      scan(i + TOKEN_PAIR)
+      return
+    }
 
     if (/^[\d.]/u.test(val) || /f$/iu.test(val)) val = normNum(val)
 
-    if (VECTOR_DEFAULTS[algo][key] === val) continue
+    if (VECTOR_DEFAULTS[algo][key] === val) {
+      scan(i + TOKEN_PAIR)
+      return
+    }
 
     kept.set(key, val)
+    scan(i + TOKEN_PAIR)
   }
+  scan(0)
   const parts: string[] = [algo]
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const k of VECTOR_ORDER[algo]) {
+  VECTOR_ORDER[algo].forEach((k) => {
     const v = kept.get(k)
     if (v !== undefined) parts.push(k, v)
-  }
+  })
   return parts.join(" ")
 }
 
@@ -461,8 +476,8 @@ function normFulltext(spec: string): string {
   const bm = /BM25(?:\(([^)]*)\))?/u.exec(rest)
   if (bm?.[1]) {
     const args = bm[1].split(",").map((a) => normNum(a.trim()))
-    // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-    if (!(args.length === 2 && args[0] === "1.2" && args[1] === "0.75"))
+    const BM25_ARG_COUNT = 2
+    if (!(args.length === BM25_ARG_COUNT && args[0] === "1.2" && args[1] === "0.75"))
       out += ` BM25(${args.join(",")})`
     // a non-default BM25 remains
   }
@@ -535,7 +550,14 @@ function canonicalFunction(fn: StructFunction): string {
  * identically on both diff sides, so comparing it's meaningless (key changes go undetected by
  * `diff --live`; documented). The JWT `alg`/`url` keep them (not redacted). Always `ON DATABASE`.
  */
-// eslint-disable-next-line unicorn/consistent-function-scoping -- helper local mantido junto do uso para coesão e legibilidade
+/** Stringify a duration value, preserving the SDK's custom `toString` objects. */
+function stringifyDuration(v: unknown): string | undefined {
+  if (v === null || v === undefined) return undefined
+  if (typeof v === "string") return v
+  if (typeof v === "number" || typeof v === "boolean" || typeof v === "bigint") return String(v)
+  return (v as { toString(): string }).toString()
+}
+
 function canonicalAccess(a: StructAccess): string {
   const k = a.kind
   let typeClause: string
@@ -563,17 +585,15 @@ function canonicalAccess(a: StructAccess): string {
   // every access, so strip it — an authored access that omits the token would otherwise phantom-diff
   // against the introspected `FOR TOKEN 1h` forever (SESSION NONE is already dropped on introspect). A
   // non-default token survives; an explicit `1h` collapses to the same canonical as omitting it.
-  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringificação de valor dinâmico é intencional (mensagem de erro)
-  const str = (v: unknown): string | undefined => (v == null ? undefined : String(v))
   // SurrealDB's materialized duration defaults: TOKEN 1h (all access), GRANT 4w2d (=30d, BEARER),
   // SESSION NONE (already dropped on introspect). Stripping them keeps an omitted duration matching
   // the introspected default. NOTE: compares SurrealDB's canonical spelling — an explicit non-default
   // authored in a different unit (e.g. "30d" vs "4w2d", "60m" vs "1h") is not yet unit-normalized.
-  const grant = str(d?.grant)
+  const grant = stringifyDuration(d?.grant)
   const grantOut = grant === "4w2d" ? undefined : grant
-  const tok = str(d?.token)
+  const tok = stringifyDuration(d?.token)
   const token = tok === "1h" ? undefined : tok
-  const session = str(d?.session)
+  const session = stringifyDuration(d?.session)
   if (grantOut || token || session) {
     const fors: string[] = []
     if (grantOut) fors.push(`FOR GRANT ${grantOut}`)
@@ -685,8 +705,8 @@ export function structuredSnapshot({
   tables,
 }: DbStructured): Snapshot {
   const statements: Record<string, DefineStatement> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const t of tables) {
+  const WILDCARD_SUFFIX_LENGTH = 2
+  tables.forEach((t) => {
     const tableStmt: DefineStatement = {
       clauses: tableHeadClauses(t),
       ddl: canonicalTableHead(t),
@@ -696,24 +716,20 @@ export function structuredSnapshot({
     statements[keyOf(tableStmt)] = tableStmt
 
     const implicit = t.kind.kind === "RELATION" ? new Set(["id", "in", "out"]) : new Set(["id"])
-    // A trivial array element (`x.*`) folds it into the parent's `array<…>` type and not emitted
-    // (so bare `array` + `x.* object` == typed `array<object>`). A CUSTOMIZED element (FLEXIBLE /
-    // permissions / …) keeps it so its config isn't lost. Map/record `.*` values keep them too.
+    // A trivial array element (`x.*`) folds into the parent's `array<…>` type and isn't emitted.
     const byName = new Map(t.fields.map((f) => [f.name, f]))
     const elementOf = new Map<string, StructField>()
-    // eslint-disable-next-line functional/no-loop-statements, @typescript-eslint/no-magic-numbers -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const f of t.fields) if (f.name.endsWith(".*")) elementOf.set(f.name.slice(0, -2), f)
+    t.fields.forEach((f) => {
+      if (f.name.endsWith(".*")) elementOf.set(f.name.slice(0, -WILDCARD_SUFFIX_LENGTH), f)
+    })
 
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const f of t.fields) {
-      if (implicit.has(f.name)) continue
+    t.fields.forEach((f) => {
+      if (implicit.has(f.name)) return
 
       if (f.name.endsWith(".*")) {
-        // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-        const parent = byName.get(f.name.slice(0, -2))
+        const parent = byName.get(f.name.slice(0, -WILDCARD_SUFFIX_LENGTH))
         const parentIsArray = parent ? /\b(?:array|set)\b/u.test(parent.kind) : false
-        // eslint-disable-next-line max-depth -- parser com estado mutável; extrair helpers mudaria a semântica
-        if (parentIsArray && isTrivialElement(f)) continue
+        if (parentIsArray && isTrivialElement(f)) return
         // auto-created form → folded
       }
       const elem = elementOf.get(f.name)
@@ -726,9 +742,8 @@ export function structuredSnapshot({
         table: t.name,
       }
       statements[keyOf(s)] = s
-    }
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const idx of t.indexes) {
+    })
+    t.indexes.forEach((idx) => {
       const s: DefineStatement = {
         ddl: canonicalIndex(t, idx),
         kind: "index",
@@ -736,9 +751,8 @@ export function structuredSnapshot({
         table: t.name,
       }
       statements[keyOf(s)] = s
-    }
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const ev of t.events) {
+    })
+    t.events.forEach((ev) => {
       const s: DefineStatement = {
         ddl: canonicalEvent(t, ev),
         kind: "event",
@@ -746,53 +760,48 @@ export function structuredSnapshot({
         table: t.name,
       }
       statements[keyOf(s)] = s
-    }
-  }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const fn of functions) {
+    })
+  })
+  functions.forEach((fn) => {
     const s: DefineStatement = {
       ddl: canonicalFunction(fn),
       kind: "function",
       name: fn.name,
     }
     statements[keyOf(s)] = s
-  }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const a of accesses) {
+  })
+  accesses.forEach((a) => {
     const s: DefineStatement = {
       ddl: canonicalAccess(a),
       kind: "access",
       name: a.name,
     }
     statements[keyOf(s)] = s
-  }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const an of analyzers) {
+  })
+  analyzers.forEach((an) => {
     const s: DefineStatement = {
       ddl: canonicalAnalyzer(an),
       kind: "analyzer",
       name: an.name,
     }
     statements[keyOf(s)] = s
-  }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const pm of params) {
+  })
+  params.forEach((pm) => {
     const s: DefineStatement = {
       ddl: canonicalParam(pm),
       kind: "param",
       name: pm.name,
     }
     statements[keyOf(s)] = s
-  }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const sq of sequences) {
+  })
+  sequences.forEach((sq) => {
     const s: DefineStatement = {
       ddl: canonicalSequence(sq),
       kind: "sequence",
       name: sq.name,
     }
     statements[keyOf(s)] = s
-  }
+  })
   return { statements, version: 1 }
 }
 
@@ -801,7 +810,6 @@ export function structuredSnapshot({
  * plus one `INFO FOR TABLE … STRUCTURE` per table (its fields/indexes/events), skipping `exclude`d
  * tables. Functions are db-level and not excludable.
  */
-// eslint-disable-next-line unicorn/consistent-function-scoping -- helper local mantido junto do uso para coesão e legibilidade
 export async function introspectStructured(
   db: Surreal,
   exclude = new Set<string>(),
@@ -816,12 +824,9 @@ export async function introspectStructured(
       : await db.query<TableStructure[]>(
           heads.map((t) => `INFO FOR TABLE ${escapeIdent(t.name)} STRUCTURE;`).join("\n"),
         )
-  const tables: StructTable[] = []
-  // eslint-disable-next-line functional/no-loop-statements, unicorn-plugin/no-for-loop -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica / índice do loop é usado para alinhar duas listas paralelas
-  for (let i = 0; i < heads.length; i++) {
-    const t = heads[i]
+  const tables: StructTable[] = heads.map((t, i) => {
     const tinfo = tableInfos[i]
-    tables.push({
+    return {
       comment: t.comment,
       drop: t.drop,
       // The SDK deserializes an event's `what` as a `Table` object — normalize to its name so the
@@ -832,25 +837,23 @@ export async function introspectStructured(
       })),
       fields: tinfo.fields ?? [],
       // Strip SurrealDB's materialized vector/fulltext defaults so the spec matches the authored form.
-      indexes: (tinfo.indexes ?? []).map((i) => ({
-        ...i,
-        index: normalizeIndexSpec(i.index),
+      indexes: (tinfo.indexes ?? []).map((idx) => ({
+        ...idx,
+        index: normalizeIndexSpec(idx.index),
       })),
       kind: {
         enforced: t.kind.enforced,
-        in: t.kind.in?.map(endpointName),
+        in: t.kind.in?.map((e) => endpointName(e)),
         kind: t.kind.kind,
-        out: t.kind.out?.map(endpointName),
+        out: t.kind.out?.map((e) => endpointName(e)),
       },
       name: t.name,
       permissions: t.permissions,
       schemafull: t.schemafull,
       // INFO STRUCTURE stores a view as `AS SELECT …`; strip the keyword to match the lowered form.
       view: t.view?.replace(/^AS\s+/iu, ""),
-    })
-  }
-  const num = (v: number | string | undefined): number | undefined =>
-    v === undefined ? undefined : Number(v)
+    }
+  })
   return {
     accesses: dbInfo.accesses ?? [],
     analyzers: dbInfo.analyzers ?? [],

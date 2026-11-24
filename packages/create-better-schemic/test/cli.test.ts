@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 import { spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -8,22 +7,38 @@ import { describe, expect, it } from "bun:test"
 
 const ENTRY = path.join(import.meta.dir, "../src")
 
+type PackageJson = {
+  dependencies: Record<string, string>
+  scripts: Record<string, string>
+}
+type TsConfig = { compilerOptions: { resolveJsonModule?: boolean } }
+type Scaffold = {
+  app: string
+  out: string
+  pkg(): PackageJson
+  root: string
+  status: null | number
+  ts(): TsConfig
+}
+
 /** Run the scaffolder (always --no-install --no-git -y) into a temp dir; returns paths + exit code. */
-function scaffold(args: string[]) {
+function scaffold(args: string[]): Scaffold {
   const root = mkdtempSync(path.join(tmpdir(), "create-better-schemic-"))
   const app = path.join(root, "app")
   const r = spawnSync("bun", [ENTRY, app, ...args, "--no-install", "--no-git", "-y"], {
     encoding: "utf8",
   })
-  const pkg = () => JSON.parse(readFileSync(path.join(app, "package.json"), "utf8"))
-  const ts = () => JSON.parse(readFileSync(path.join(app, "tsconfig.json"), "utf8"))
+  const pkg = (): PackageJson =>
+    JSON.parse(readFileSync(path.join(app, "package.json"), "utf8")) as PackageJson
+  const ts = (): TsConfig =>
+    JSON.parse(readFileSync(path.join(app, "tsconfig.json"), "utf8")) as TsConfig
   // clack writes prompts/cancel to stdout, not stderr — check the combined output
   return {
-    root,
     app,
-    status: r.status,
     out: `${r.stdout}${r.stderr}`,
     pkg,
+    root,
+    status: r.status,
     ts,
   }
 }
@@ -45,7 +60,7 @@ describe("create-better-schemic", () => {
       // the type declaration for the `with { type: "text" }` seed imports needs resolveJsonModule
       expect(s.ts().compilerOptions.resolveJsonModule).toBe(true)
     } finally {
-      rmSync(s.root, { recursive: true, force: true })
+      rmSync(s.root, { force: true, recursive: true })
     }
   })
 
@@ -55,7 +70,7 @@ describe("create-better-schemic", () => {
       expect(s.status).not.toBe(0)
       expect(s.out).toContain("Unknown option")
     } finally {
-      rmSync(s.root, { recursive: true, force: true })
+      rmSync(s.root, { force: true, recursive: true })
     }
   })
 
@@ -66,10 +81,10 @@ describe("create-better-schemic", () => {
     writeFileSync(
       path.join(app, "package.json"),
       JSON.stringify({
-        name: "my-app",
-        version: "1.2.3",
-        scripts: { dev: "vite" },
         dependencies: { zod: "^4.0.0" },
+        name: "my-app",
+        scripts: { dev: "vite" },
+        version: "1.2.3",
       }),
     )
     try {
@@ -85,7 +100,7 @@ describe("create-better-schemic", () => {
       expect(pkg.dependencies.zod).toBe("^4.0.0") // their version kept, not overwritten
       expect(pkg.dependencies["better-schemic"]).toBeDefined() // added
     } finally {
-      rmSync(root, { recursive: true, force: true })
+      rmSync(root, { force: true, recursive: true })
     }
   })
 })

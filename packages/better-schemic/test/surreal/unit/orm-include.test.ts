@@ -1,4 +1,10 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unsafe-assignment, unicorn/consistent-function-scoping, @typescript-eslint/no-non-null-assertion, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Helpers stay colocated with the tests that use them. Fixtures assert values whose presence the test guarantees. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+import type { ProjectionSpec } from "../../../src/surreal/orm/compiler/projection"
+import { required } from "../../required"
+const MAGIC_18 = 18
+const MAGIC_2 = 2
+const MAGIC_3 = 3
+const MAGIC_4 = 4
+const MAGIC_5 = 5
 // M3 — the include compiler (golden args -> exact `{ sql, vars }`), the relational `where`
 // lowering, and the hydration decoder (links/graph/`_count`) against a recording fake connection.
 // Offline: no server.
@@ -13,41 +19,55 @@ import { compileRead, type ReadArgs } from "../../../src/surreal/orm/compiler/se
 import { createBinds } from "../../../src/surreal/orm/compiler/shared"
 import type { OrmError } from "../../../src/surreal/orm/errors"
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema"
+import { KEEP_ORDER } from "../../order-barrier"
 import { fakeConn, lines, ok } from "../orm-fixtures"
+const localCompile2 = (
+  s2: Parameters<typeof buildSchemaIndex>[0],
+  table: string,
+  args: ReadArgs,
+): ReturnType<typeof compileRead> => {
+  const idx = buildSchemaIndex(s2)
+  const meta = idx.tables.get(table)
+  if (!meta) throw new Error(`no table ${table}`)
+  return compileRead(meta, args, createBinds(), "findMany", { index: idx })
+}
 
 const UserBase = table("user", {
-  name: s.string(),
   age: s.int(),
   at: s.datetime(),
   home: s.object({ city: s.string(), line: s.string() }).optional(),
+  name: s.string(),
 })
 const User = UserBase.extend({
-  mentor: s.recordId(() => UserBase).optional(),
   friends: s
     .recordId(() => UserBase)
     .array()
     .optional(),
+  mentor: s.recordId(() => UserBase).optional(),
 })
 const Post = table("post", {
-  title: s.string(),
-  published: s.boolean(),
   author: s.recordId(User),
+  published: s.boolean(),
+  title: s.string(),
 })
 const Likes = relation("likes", { score: s.int() }).from(User).to(Post)
-const schema = { users: User, posts: Post, likes: Likes }
+const schema = { likes: Likes, posts: Post, users: User }
 const index = buildSchemaIndex(schema)
 
 /** Compile a read and capture its statement text + binds. */
-function compile(args: ReadArgs, table = "users") {
+function compile(
+  args: ReadArgs,
+  table = "users",
+): { fetch: readonly string[]; spec: ProjectionSpec; sql: string; vars: Record<string, unknown> } {
   const meta = index.tables.get(table)
   if (!meta) throw new Error(`no table ${table}`)
   const binds = createBinds()
   const read = compileRead(meta, args, binds, "findMany", { index })
   return {
+    fetch: read.fetch,
+    spec: read.projection,
     sql: read.sql,
     vars: binds.vars,
-    spec: read.projection,
-    fetch: read.fetch,
   }
 }
 
@@ -63,17 +83,32 @@ function codeOf(fn: () => unknown): string | undefined {
 describe("include — links", () => {
   test("true is FETCH (last clause), nested paths and multiple links", () => {
     expect(compile({ include: { mentor: true }, limit: 2 })).toEqual({
+      fetch: ["mentor"],
+      spec: expect.objectContaining({ includes: expect.any(Array) }),
       sql: "SELECT * FROM user LIMIT $p0 FETCH mentor",
       vars: { p0: 2 },
-      spec: expect.objectContaining({ includes: expect.any(Array) }),
-      fetch: ["mentor"],
     })
     expect(compile({ include: { mentor: { include: { mentor: true } } } }).sql).toBe(
       "SELECT * FROM user FETCH mentor.mentor",
     )
-    expect(compile({ include: { mentor: true, friends: true } }).sql).toBe(
-      "SELECT * FROM user FETCH mentor, friends",
-    )
+    expect(
+      compile({
+        include: {
+          mentor: true,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          friends: true,
+        },
+      }).sql,
+    ).toBe("SELECT * FROM user FETCH mentor, friends")
   })
 
   test("a projected link flattens into `<link>_<path>` aliases (no FETCH)", () => {
@@ -93,14 +128,14 @@ describe("include — links", () => {
   test("an explicit select keeps its projection and the FETCH link is added", () => {
     expect(
       compile({
-        select: { id: true },
         include: { mentor: true },
+        select: { id: true },
       }).sql,
     ).toBe("SELECT id, mentor FROM user FETCH mentor")
     expect(
       compile({
-        select: { id: true, name: true },
         include: { mentor: true },
+        select: { id: true, name: true },
       }).sql,
     ).toBe("SELECT id, name, mentor FROM user FETCH mentor")
   })
@@ -111,7 +146,7 @@ describe("include — links", () => {
       codeOf(() =>
         compile({
           include: {
-            mentor: { select: { id: true }, include: { mentor: true } },
+            mentor: { include: { mentor: true }, select: { id: true } },
           },
         }),
       ),
@@ -120,8 +155,8 @@ describe("include — links", () => {
       codeOf(() =>
         compile({
           include: { mentor: true },
-          value: true,
           select: { name: true },
+          value: true,
         }),
       ),
     ).toBe("ClauseNotSupported")
@@ -140,8 +175,8 @@ describe("include — links", () => {
     const { conn } = fakeConn(() => [
       ok([
         fullUser("b1", {
-          mentor_id: new RecordId("user", "a1"),
           mentor_home_city: "BR",
+          mentor_id: new RecordId("user", "a1"),
         }),
       ]),
     ])
@@ -165,7 +200,7 @@ describe("include — graph edges", () => {
   test("where splits into edge and target filters", () => {
     expect(
       compile({
-        include: { likes: { where: { score: { gt: 4 }, published: true } } },
+        include: { likes: { where: { published: true, score: { gt: 4 } } } },
       }).sql,
     ).toBe(
       "SELECT *, (SELECT * FROM ->(likes WHERE score > $p0)->post WHERE published = $p1) AS likes FROM user",
@@ -186,9 +221,9 @@ describe("include — graph edges", () => {
       compile({
         include: {
           likes: {
-            select: { id: true, title: true },
-            orderBy: [{ title: "desc" }],
             limit: 2,
+            orderBy: [{ title: "desc" }],
+            select: { id: true, title: true },
             start: 1,
           },
         },
@@ -200,7 +235,7 @@ describe("include — graph edges", () => {
       codeOf(() =>
         compile({
           include: {
-            likes: { select: { id: true }, orderBy: [{ title: "asc" }] },
+            likes: { orderBy: [{ title: "asc" }], select: { id: true } },
           },
         }),
       ),
@@ -216,9 +251,9 @@ describe("include — graph edges", () => {
         include: {
           likes: {
             edge: { select: { score: true } },
-            target: { select: { id: true, title: true } },
-            where: { score: { gt: 4 }, published: false },
             orderBy: [{ score: "desc" }],
+            target: { select: { id: true, title: true } },
+            where: { published: false, score: { gt: 4 } },
           },
         },
       }).sql,
@@ -283,17 +318,17 @@ describe("include — graph edges", () => {
     expect(
       compile({
         include: {
-          rel: { wildcard: true, edge: true, where: { score: { gt: 4 } } },
+          rel: { edge: true, where: { score: { gt: 4 } }, wildcard: true },
         },
       }).sql,
     ).toBe("SELECT *, (SELECT * FROM ->(? WHERE score > $p0)) AS rel FROM user")
   })
 
   test("wildcards traverse any edge (`->?` for outgoing, target via `out.*`)", () => {
-    expect(compile({ include: { rel: { wildcard: true, edge: true } } }).sql).toBe(
+    expect(compile({ include: { rel: { edge: true, wildcard: true } } }).sql).toBe(
       "SELECT *, (SELECT * FROM ->?) AS rel FROM user",
     )
-    expect(compile({ include: { rel: { wildcard: true, target: true } } }).sql).toBe(
+    expect(compile({ include: { rel: { target: true, wildcard: true } } }).sql).toBe(
       "SELECT *, (SELECT out.* FROM ->?) AS rel FROM user",
     )
   })
@@ -303,7 +338,24 @@ describe("include — _count", () => {
   test("edges and array links lower to correlated counts", () => {
     expect(
       compile({
-        include: { _count: { select: { likes: true, friends: true } } },
+        include: {
+          _count: {
+            select: {
+              likes: true,
+              ...KEEP_ORDER,
+              ...KEEP_ORDER,
+              ...KEEP_ORDER,
+              ...KEEP_ORDER,
+              ...KEEP_ORDER,
+              ...KEEP_ORDER,
+              ...KEEP_ORDER,
+              ...KEEP_ORDER,
+              ...KEEP_ORDER,
+              ...KEEP_ORDER,
+              friends: true,
+            },
+          },
+        },
       }).sql,
     ).toBe(
       "SELECT *, count(->likes->post) AS _count_likes, count(friends) AS _count_friends FROM user",
@@ -315,7 +367,7 @@ describe("include — _count", () => {
       compile({
         include: {
           _count: {
-            select: { likes: { where: { score: { gt: 4 }, published: true } } },
+            select: { likes: { where: { published: true, score: { gt: 4 } } } },
           },
         },
       }).sql,
@@ -359,7 +411,24 @@ describe("relational where — lowering", () => {
     )
     expect(
       compile({
-        where: { mentor: { is: { name: "Alice", age: { gte: 18 } } } },
+        where: {
+          mentor: {
+            is: {
+              name: "Alice",
+              ...KEEP_ORDER,
+              ...KEEP_ORDER,
+              ...KEEP_ORDER,
+              ...KEEP_ORDER,
+              ...KEEP_ORDER,
+              ...KEEP_ORDER,
+              ...KEEP_ORDER,
+              ...KEEP_ORDER,
+              ...KEEP_ORDER,
+              ...KEEP_ORDER,
+              age: { gte: 18 },
+            },
+          },
+        },
       }).sql,
     ).toBe("SELECT * FROM user WHERE mentor.name = $p0 AND mentor.age >= $p1")
     expect(compile({ where: { mentor: { isNot: { name: "Alice" } } } }).sql).toBe(
@@ -381,7 +450,7 @@ describe("relational where — lowering", () => {
       "SELECT * FROM user WHERE count(->(likes WHERE score > $p0)->post) > 0",
     )
     expect(
-      compile({ where: { likes: { some: { name: "Alice" }, direction: "in" } } }, "posts").sql,
+      compile({ where: { likes: { direction: "in", some: { name: "Alice" } } } }, "posts").sql,
     ).toBe("SELECT * FROM post WHERE count(<-likes<-(user WHERE name = $p0)) > 0")
   })
 
@@ -395,7 +464,7 @@ describe("relational where — lowering", () => {
   })
 
   test("relation guards: wrong operator, mixed logical owners", () => {
-    const err = (() => {
+    const err = ((): OrmError | undefined => {
       try {
         compile({ where: { mentor: { some: { name: "Alice" } } } })
         return undefined
@@ -406,7 +475,7 @@ describe("relational where — lowering", () => {
     expect(err?.code).toBe("ValidationError")
     expect(err?.message).toContain("is")
 
-    const mixed = (() => {
+    const mixed = ((): OrmError | undefined => {
       try {
         compile({
           where: {
@@ -427,8 +496,12 @@ describe("relational where — lowering", () => {
   })
 
   test("some/every/none accept fragments; non-object operands are rejected", () => {
-    expect(compile({ where: { likes: { some: surql`score > ${4}` } } }).sql).toContain("count(")
-    expect(compile({ where: { friends: { some: surql`age > ${18}` } } }).sql).toContain("count(")
+    expect(compile({ where: { likes: { some: surql`score > ${MAGIC_4}` } } }).sql).toContain(
+      "count(",
+    )
+    expect(compile({ where: { friends: { some: surql`age > ${MAGIC_18}` } } }).sql).toContain(
+      "count(",
+    )
     expect(codeOf(() => compile({ where: { likes: { some: 5 } } }))).toBe("ValidationError")
     expect(codeOf(() => compile({ where: { friends: { some: 5 } } }))).toBe("ValidationError")
   })
@@ -446,7 +519,7 @@ describe("relational where — lowering", () => {
 describe("include — dispatch guards", () => {
   test("null include is a no-op; undefined entries are skipped", () => {
     expect(compile({ include: null }).sql).toBe("SELECT * FROM user")
-    expect(compile({ include: { mentor: undefined, friends: true } }).sql).toContain(
+    expect(compile({ include: { friends: true, mentor: undefined } }).sql).toContain(
       "FETCH friends",
     )
   })
@@ -458,20 +531,20 @@ describe("include — dispatch guards", () => {
   test("select/split/orderBy shapes and the include clause guards", () => {
     expect(compile({ select: null }).sql).toBe("SELECT * FROM user")
     expect(codeOf(() => compile({ select: 5 }))).toBe("ValidationError")
-    expect(compile({ select: { name: undefined, age: true } }).sql).toContain("age")
+    expect(compile({ select: { age: true, name: undefined } }).sql).toContain("age")
     expect(compile({ split: surql`x` }).sql).toContain("SPLIT x")
     expect(compile({ orderBy: { age: "asc" } }).sql).toContain("ORDER BY")
     // include needs the schema index.
-    const m = index.tables.get("users")!
+    const m = required(index.tables.get("users"))
     expect(
       codeOf(() => compileRead(m, { include: { mentor: true } }, createBinds(), "findMany")),
     ).toBe("ValidationError")
     // include cannot combine with groupBy.
-    expect(codeOf(() => compile({ include: { mentor: true }, groupBy: ["active"] }))).toBe(
+    expect(codeOf(() => compile({ groupBy: ["active"], include: { mentor: true } }))).toBe(
       "ClauseNotSupported",
     )
     // split cannot combine with groupBy.
-    expect(codeOf(() => compile({ split: "friends", groupBy: ["active"] }))).toBe(
+    expect(codeOf(() => compile({ groupBy: ["active"], split: "friends" }))).toBe(
       "ClauseNotSupported",
     )
   })
@@ -492,12 +565,12 @@ describe("where compiler — relation/operator guards", () => {
     expect(
       codeOf(() =>
         compile({
-          where: { likes: { some: { published: true }, direction: "bad" } },
+          where: { likes: { direction: "bad", some: { published: true } } },
         }),
       ),
     ).toBe("ValidationError")
     expect(
-      codeOf(() => compile({ where: { mentor: { is: { name: "A" }, direction: "in" } } })),
+      codeOf(() => compile({ where: { mentor: { direction: "in", is: { name: "A" } } } })),
     ).toBe("ValidationError")
   })
 
@@ -528,14 +601,14 @@ describe("where compiler — full-text / near", () => {
     )
     expect(
       compile({
-        where: { name: { matchesFullText: { query: "a", index: 0 } } },
+        where: { name: { matchesFullText: { index: 0, query: "a" } } },
       }).sql,
     ).toBe("SELECT * FROM user WHERE name @0@ $p0")
     expect(
       compile({
         where: {
           name: {
-            matchesFullText: { query: "a", indexes: [0, 1], operator: "OR" },
+            matchesFullText: { indexes: [0, 1], operator: "OR", query: "a" },
           },
         },
       }).sql,
@@ -553,7 +626,7 @@ describe("where compiler — full-text / near", () => {
       codeOf(() =>
         compile({
           where: {
-            name: { matchesFullText: { query: "x", index: 0, indexes: [0] } },
+            name: { matchesFullText: { index: 0, indexes: [0], query: "x" } },
           },
         }),
       ),
@@ -561,31 +634,31 @@ describe("where compiler — full-text / near", () => {
     expect(
       codeOf(() =>
         compile({
-          where: { name: { matchesFullText: { query: "x", index: -1 } } },
+          where: { name: { matchesFullText: { index: -1, query: "x" } } },
         }),
       ),
     ).toBe("ValidationError")
     expect(
       codeOf(() =>
         compile({
-          where: { name: { matchesFullText: { query: "x", operator: "X" } } },
+          where: { name: { matchesFullText: { operator: "X", query: "x" } } },
         }),
       ),
     ).toBe("ValidationError")
   })
 
   test("near KNN + geo forms, and its guards", () => {
-    expect(compile({ where: { name: { near: { vector: [1, 2, 3], k: 5 } } } }).sql).toContain(
-      "<|5|>",
-    )
+    expect(
+      compile({ where: { name: { near: { k: 5, vector: [1, MAGIC_2, MAGIC_3] } } } }).sql,
+    ).toContain("<|5|>")
     expect(codeOf(() => compile({ where: { name: { near: 5 } } }))).toBe("ValidationError")
-    expect(codeOf(() => compile({ where: { name: { near: { vector: [1], k: 0 } } } }))).toBe(
+    expect(codeOf(() => compile({ where: { name: { near: { k: 0, vector: [1] } } } }))).toBe(
       "ValidationError",
     )
     expect(
       codeOf(() =>
         compile({
-          where: { name: { near: { point: [1, 2], distance: "x" } } },
+          where: { name: { near: { distance: "x", point: [1, MAGIC_2] } } },
         }),
       ),
     ).toBe("ValidationError")
@@ -600,7 +673,7 @@ describe("_count include — guards", () => {
     expect(
       codeOf(() =>
         compile({
-          include: { _count: { select: { likes: true }, foo: true } },
+          include: { _count: { foo: true, select: { likes: true } } },
         }),
       ),
     ).toBe("ValidationError")
@@ -628,11 +701,13 @@ describe("include projection — array/id/wildcard paths", () => {
   test("link select: false entries skipped, array select, bad array entry, id presence", () => {
     expect(
       compile({
-        include: { mentor: { select: { name: true, age: false } } },
+        include: { mentor: { select: { age: false, name: true } } },
       }).sql,
     ).toContain("mentor_name")
     expect(compile({ include: { mentor: { select: ["name"] } } }).sql).toContain("mentor_name")
-    expect(codeOf(() => compile({ include: { mentor: { select: [5] } } }))).toBe("ValidationError")
+    expect(codeOf(() => compile({ include: { mentor: { select: [MAGIC_5] } } }))).toBe(
+      "ValidationError",
+    )
     expect(compile({ include: { mentor: { select: { id: true } } } }).sql).toContain("mentor_id")
   })
 
@@ -643,20 +718,20 @@ describe("include projection — array/id/wildcard paths", () => {
   test("wildcard target projections: star, empty, and a bad shape", () => {
     expect(
       compile({
-        include: { rel: { wildcard: true, target: { select: { "*": true } } } },
+        include: { rel: { target: { select: { "*": true } }, wildcard: true } },
       }).sql,
     ).toContain("out.*")
     expect(
       codeOf(() =>
         compile({
-          include: { rel: { wildcard: true, target: { select: {} } } },
+          include: { rel: { target: { select: {} }, wildcard: true } },
         }),
       ),
     ).toBe("ValidationError")
     expect(
       codeOf(() =>
         compile({
-          include: { rel: { wildcard: true, target: { select: 5 } } },
+          include: { rel: { target: { select: 5 }, wildcard: true } },
         }),
       ),
     ).toBe("ValidationError")
@@ -669,7 +744,7 @@ describe("include projection — array/id/wildcard paths", () => {
   test("link select: undefined entry, null select, and an id alias", () => {
     expect(
       compile({
-        include: { mentor: { select: { name: true, age: undefined } } },
+        include: { mentor: { select: { age: undefined, name: true } } },
       }).sql,
     ).toContain("mentor_name")
     expect(codeOf(() => compile({ include: { mentor: { select: null } } }))).toBe("ValidationError")
@@ -685,8 +760,8 @@ describe("include projection — array/id/wildcard paths", () => {
         compile({
           include: {
             rel: {
-              wildcard: true,
               target: { select: { nested: { "*": true } } },
+              wildcard: true,
             },
           },
         }),
@@ -698,13 +773,13 @@ describe("include projection — array/id/wildcard paths", () => {
     // unknown edge with an edge projection → SCHEMALESS edge meta.
     expect(
       compile({
-        include: { rel: { wildcard: true, edge: { select: { score: true } } } },
+        include: { rel: { edge: { select: { score: true } }, wildcard: true } },
       }).sql,
     ).toContain("rel")
     // an array target select accepts it.
     expect(
       compile({
-        include: { rel: { wildcard: true, target: { select: ["name"] } } },
+        include: { rel: { target: { select: ["name"] }, wildcard: true } },
       }).sql,
     ).toContain("name")
     // wildcard on a DECLARED edge routs it as a wildcard (edgeRef stays undefined).
@@ -713,7 +788,7 @@ describe("include projection — array/id/wildcard paths", () => {
     expect(
       compile({
         include: {
-          rel: { wildcard: true, target: true, direction: "in" },
+          rel: { direction: "in", target: true, wildcard: true },
         },
       }).sql,
     ).toContain("in.*")
@@ -746,8 +821,8 @@ describe("include projection — array/id/wildcard paths", () => {
         include: {
           likes: {
             edge: true,
-            select: { "*": true },
             orderBy: { score: "asc" },
+            select: { "*": true },
           },
         },
       }).sql,
@@ -785,7 +860,7 @@ describe("include projection — link select + orderBy guards", () => {
       codeOf(() =>
         compile({
           include: {
-            mentor: { select: { "home.city": true, home: { city: true } } },
+            mentor: { select: { home: { city: true }, "home.city": true } },
           },
         }),
       ),
@@ -796,7 +871,9 @@ describe("include projection — link select + orderBy guards", () => {
     expect(compile({ include: { likes: { orderBy: [surql`rand()`] } } }).sql).toContain(
       "ORDER BY (rand())",
     )
-    expect(codeOf(() => compile({ include: { likes: { orderBy: [5] } } }))).toBe("ValidationError")
+    expect(codeOf(() => compile({ include: { likes: { orderBy: [MAGIC_5] } } }))).toBe(
+      "ValidationError",
+    )
     expect(codeOf(() => compile({ include: { likes: { orderBy: [{ title: "up" }] } } }))).toBe(
       "ValidationError",
     )
@@ -807,17 +884,6 @@ describe("include projection — link select + orderBy guards", () => {
 })
 
 describe("link include — guards", () => {
-  const localCompile = (
-    s2: Parameters<typeof buildSchemaIndex>[0],
-    table: string,
-    args: ReadArgs,
-  ) => {
-    const idx = buildSchemaIndex(s2)
-    const meta = idx.tables.get(table)
-    if (!meta) throw new Error(`no table ${table}`)
-    return compileRead(meta, args, createBinds(), "findMany", { index: idx })
-  }
-
   test("a non-object, non-true link entry is rejected; unknown options too", () => {
     expect(codeOf(() => compile({ include: { mentor: 5 } }))).toBe("ValidationError")
     expect(codeOf(() => compile({ include: { mentor: { foo: true } } }))).toBe("ValidationError")
@@ -840,7 +906,7 @@ describe("link include — guards", () => {
     // A false nested entry skipps it; the true one still fetches.
     expect(
       compile({
-        include: { mentor: { include: { mentor: true, friends: false } } },
+        include: { mentor: { include: { friends: false, mentor: true } } },
       }).sql,
     ).toContain("FETCH mentor.mentor")
   })
@@ -851,7 +917,7 @@ describe("link include — guards", () => {
     const C = table("lc", { link: s.recordId([A, B]).optional() })
     expect(
       codeOf(() =>
-        localCompile({ a: A, b: B, c: C }, "c", {
+        localCompile2({ a: A, b: B, c: C }, "c", {
           include: { link: { include: { name: true } } },
         }),
       ),
@@ -862,7 +928,7 @@ describe("link include — guards", () => {
     const C = table("lc", { link: s.recordId("ghost").optional() })
     expect(
       codeOf(() =>
-        localCompile({ c: C }, "c", {
+        localCompile2({ c: C }, "c", {
           include: { link: { include: { name: true } } },
         }),
       ),
@@ -875,7 +941,7 @@ describe("edge include — guards", () => {
     expect(codeOf(() => compile({ include: { likes: 5 } }))).toBe("ValidationError")
     expect(codeOf(() => compile({ include: { likes: { foo: true } } }))).toBe("ValidationError")
     expect(
-      codeOf(() => compile({ include: { likes: { target: true, select: { id: true } } } })),
+      codeOf(() => compile({ include: { likes: { select: { id: true }, target: true } } })),
     ).toBe("ClauseNotSupported")
     expect(codeOf(() => compile({ include: { likes: { direction: "bad" } } }))).toBe(
       "ValidationError",
@@ -883,7 +949,7 @@ describe("edge include — guards", () => {
     expect(
       codeOf(() =>
         compile({
-          include: { likes: { target: { select: { id: true }, foo: true } } },
+          include: { likes: { target: { foo: true, select: { id: true } } } },
         }),
       ),
     ).toBe("ValidationError")
@@ -897,17 +963,6 @@ describe("edge include — guards", () => {
 })
 
 describe("include — shape/schemaless/collision guards", () => {
-  const localCompile = (
-    s2: Parameters<typeof buildSchemaIndex>[0],
-    table: string,
-    args: ReadArgs,
-  ) => {
-    const idx = buildSchemaIndex(s2)
-    const meta = idx.tables.get(table)
-    if (!meta) throw new Error(`no table ${table}`)
-    return compileRead(meta, args, createBinds(), "findMany", { index: idx })
-  }
-
   test("include must be an object; a false entry is skipped", () => {
     expect(codeOf(() => compile({ include: 5 }))).toBe("ValidationError")
     expect(compile({ include: { mentor: false } }).sql).toBe("SELECT * FROM user")
@@ -929,12 +984,12 @@ describe("include — shape/schemaless/collision guards", () => {
   test("an include alias colliding with a column is rejected", () => {
     const U = table("cu", { name: s.string() })
     const P = table("cp", {
-      author_id: s.string(),
       author: s.recordId(U).optional(),
+      author_id: s.string(),
     })
     expect(
       codeOf(() =>
-        localCompile({ u: U, p: P }, "p", {
+        localCompile2({ p: P, u: U }, "p", {
           include: { author: { select: { id: true } } },
         }),
       ),
@@ -943,9 +998,9 @@ describe("include — shape/schemaless/collision guards", () => {
 
   test("an unknown include on a relation-less table lists (none)", () => {
     const B = table("cb", { name: s.string() })
-    const err = (() => {
+    const err = ((): undefined | { message?: string | undefined } => {
       try {
-        localCompile({ b: B }, "b", { include: { nope: true } })
+        localCompile2({ b: B }, "b", { include: { nope: true } })
         return undefined
       } catch (error) {
         return error as { message?: string }
@@ -960,7 +1015,7 @@ describe("include — clause-combination guards", () => {
     expect(codeOf(() => compile({ include: { mentor: true }, split: "tags" }))).toBe(
       "ClauseNotSupported",
     )
-    expect(codeOf(() => compile({ include: { mentor: true }, groupAll: true }))).toBe(
+    expect(codeOf(() => compile({ groupAll: true, include: { mentor: true } }))).toBe(
       "ClauseNotSupported",
     )
     expect(codeOf(() => compile({ include: { mentor: true }, value: true }))).toBe(
@@ -984,8 +1039,8 @@ describe("relational where — write batches", () => {
   test("updateMany/deleteMany lower the same relational filters as reads", async () => {
     const update = fakeConn(() => [ok([])])
     await orm(update.conn, { schema }).users.updateMany({
-      where: { likes: { some: { published: true } } },
       data: { name: "Renamed" },
+      where: { likes: { some: { published: true } } },
     })
     expect(update.calls[0]?.sql).toContain(
       "UPDATE user MERGE $p1 WHERE count(->likes->(post WHERE published = $p0)) > 0",
@@ -1005,7 +1060,27 @@ describe("M3.5 — traversal/recursion via select fragments", () => {
       compile({
         select: {
           name: true,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
           descendants: surql`@.{1..10}->parent_of->person`.as<unknown[]>(),
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
           likedCount: surql`count(->likes)`.as<number>(),
         },
       }).sql,
@@ -1017,28 +1092,44 @@ describe("M3.5 — traversal/recursion via select fragments", () => {
 
 // --- hydration -----------------------------------------------------------------------------------
 
-const fullUser = (id: string, over: Record<string, unknown> = {}) => ({
-  id: new RecordId("user", id),
-  name: "Alice",
+const fullUser = (
+  id: string,
+  over: Record<string, unknown> = {},
+): { age: number; at: DateTime; id: RecordId<"user", string>; name: string } => ({
   age: 30,
   at: new DateTime(new Date("2025-01-02T03:04:05Z")),
+  id: new RecordId("user", id),
+  name: "Alice",
   ...over,
 })
 
 describe("include — hydration", () => {
   test("FETCH decodes the link with the TARGET codec (nested too)", async () => {
-    const { conn, calls } = fakeConn(() => [
+    const { calls, conn } = fakeConn(() => [
       ok([
         fullUser("b1", {
-          name: "Bob",
-          mentor: fullUser("a1", { name: "Ann" }),
           friends: [fullUser("a1", { name: "Ann" })],
+          mentor: fullUser("a1", { name: "Ann" }),
+          name: "Bob",
         }),
       ]),
     ])
     const client = orm(conn, { schema })
     const rows = await client.users.findMany({
-      include: { mentor: true, friends: true },
+      include: {
+        mentor: true,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        friends: true,
+      },
     })
     expect(calls[0]?.sql).toBe("SELECT * FROM user FETCH mentor, friends;")
     expect(rows[0]?.mentor?.name).toBe("Ann")
@@ -1050,11 +1141,11 @@ describe("include — hydration", () => {
     const { conn } = fakeConn(() => [
       ok([
         fullUser("c1", {
-          name: "Carol",
           mentor: fullUser("b1", {
-            name: "Bob",
             mentor: fullUser("a1", { name: "Ann" }),
+            name: "Bob",
           }),
+          name: "Carol",
         }),
       ]),
     ])
@@ -1073,16 +1164,16 @@ describe("include — hydration", () => {
   })
 
   test("a projected link remounts from the flat columns", async () => {
-    const { conn, calls } = fakeConn(() => [
+    const { calls, conn } = fakeConn(() => [
       ok([
         {
-          id: new RecordId("user", "b1"),
-          name: "Bob",
           age: 20,
           at: new DateTime(new Date("2025-01-01T00:00:00Z")),
+          id: new RecordId("user", "b1"),
           mentor_id: new RecordId("user", "a1"),
           mentor_name: "Ann",
           mentor_who: "Ann",
+          name: "Bob",
         },
       ]),
     ])
@@ -1105,7 +1196,7 @@ describe("include — hydration", () => {
       "SELECT *, mentor.name AS mentor_name, mentor.id AS mentor_id FROM user",
     )
     const { conn } = fakeConn(() => [
-      ok([fullUser("x1", { mentor_name: undefined, mentor_id: undefined })]),
+      ok([fullUser("x1", { mentor_id: undefined, mentor_name: undefined })]),
     ])
     const rows = await orm(conn, { schema }).users.findMany({
       include: { mentor: { select: { name: true } } },
@@ -1115,8 +1206,8 @@ describe("include — hydration", () => {
     const present = fakeConn(() => [
       ok([
         fullUser("x1", {
-          mentor_name: "Ann",
           mentor_id: new RecordId("user", "a1"),
+          mentor_name: "Ann",
         }),
       ]),
     ])
@@ -1128,22 +1219,22 @@ describe("include — hydration", () => {
 
   test("graph targets decode with the target codec; edge+target remounts `{ edge, target }`", async () => {
     const target = {
-      id: new RecordId("post", "p1"),
-      title: "Hello",
-      published: true,
       author: new RecordId("user", "a1"),
+      id: new RecordId("post", "p1"),
+      published: true,
+      title: "Hello",
     }
     const { conn } = fakeConn((sql) =>
       sql.includes("out.*")
         ? [
             ok([
               fullUser("a1", {
+                likes: [{ out: target, score: 5 }],
                 name: "Ann",
-                likes: [{ score: 5, out: target }],
               }),
             ]),
           ]
-        : [ok([fullUser("a1", { name: "Ann", likes: [target] })])],
+        : [ok([fullUser("a1", { likes: [target], name: "Ann" })])],
     )
     const client = orm(conn, { schema })
 
@@ -1165,25 +1256,42 @@ describe("include — hydration", () => {
   })
 
   test("_count remounts as one `_count` object", async () => {
-    const { conn, calls } = fakeConn(() => [
-      ok([fullUser("a1", { _count_likes: 3, _count_friends: 2 })]),
+    const { calls, conn } = fakeConn(() => [
+      ok([fullUser("a1", { _count_friends: 2, _count_likes: 3 })]),
     ])
     const client = orm(conn, { schema })
     const rows = await client.users.findMany({
-      include: { _count: { select: { likes: true, friends: true } } },
+      include: {
+        _count: {
+          select: {
+            likes: true,
+            ...KEEP_ORDER,
+            ...KEEP_ORDER,
+            ...KEEP_ORDER,
+            ...KEEP_ORDER,
+            ...KEEP_ORDER,
+            ...KEEP_ORDER,
+            ...KEEP_ORDER,
+            ...KEEP_ORDER,
+            ...KEEP_ORDER,
+            ...KEEP_ORDER,
+            friends: true,
+          },
+        },
+      },
     })
     expect(calls[0]?.sql).toBe(
       "SELECT *, count(->likes->post) AS _count_likes, count(friends) AS _count_friends FROM user;",
     )
-    expect(rows[0]?._count).toEqual({ likes: 3, friends: 2 })
+    expect(rows[0]?._count).toEqual({ friends: 2, likes: 3 })
   })
 
   test("explain:true EXPLAINs the include statement (never executes)", async () => {
-    const { conn, calls } = fakeConn((sql) => [ok(sql.startsWith("EXPLAIN") ? "plan" : [])])
+    const { calls, conn } = fakeConn((sql) => [ok(sql.startsWith("EXPLAIN") ? "plan" : [])])
     const client = orm(conn, { schema })
     const plan = await client.users.findMany({
-      include: { likes: { where: { published: true } } },
       explain: true,
+      include: { likes: { where: { published: true } } },
     })
     expect(plan.statements[0]?.surql).toContain("(SELECT * FROM ->likes->post")
     expect(plan.statements[0]?.surql).toContain("WHERE published = $p0")
@@ -1191,16 +1299,16 @@ describe("include — hydration", () => {
   })
 
   test("include rides findUnique (FROM ONLY + FETCH) and paginate", async () => {
-    const { conn, calls } = fakeConn(() => [ok(fullUser("u1"))])
+    const { calls, conn } = fakeConn(() => [ok(fullUser("u1"))])
     const client = orm(conn, { schema })
     const one = await client.users.findUnique({
-      where: { id: "user:u1" },
       include: { mentor: true },
+      where: { id: "user:u1" },
     })
     expect(calls[0]?.sql).toBe("SELECT * FROM ONLY user:u1 FETCH mentor;")
     expect(one?.id).toEqual(new RecordId("user", "u1"))
 
-    const { conn: conn2, calls: calls2 } = fakeConn((sql) =>
+    const { calls: calls2, conn: conn2 } = fakeConn((sql) =>
       lines(sql).map((line) =>
         line.includes("count()") ? ok([{ count: 1 }]) : ok([fullUser("u2")]),
       ),

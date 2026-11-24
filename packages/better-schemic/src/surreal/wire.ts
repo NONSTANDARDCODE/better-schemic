@@ -259,8 +259,9 @@ export function inferField(schema: z.ZodType, seen = new Set<z.ZodType>()): Fiel
       const right = inferField(def.right as z.ZodType, seen)
       if (left.type === "object" && right.type === "object") {
         const merged = new Map(left.children.map((c) => [c.suffix, c]))
-        // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-        for (const c of right.children) merged.set(c.suffix, c)
+        right.children.forEach((c) => {
+          merged.set(c.suffix, c)
+        })
         // right wins on overlap
         return {
           children: [...merged.values()],
@@ -330,18 +331,12 @@ export function inferField(schema: z.ZodType, seen = new Set<z.ZodType>()): Fiel
       // member that is itself a union (`X | null`) contributes its members — e.g.
       // `s.union([s.string().optional(), s.string().nullable()])` -> `option<string | null>`,
       // what `normalizeType`/`fromInfo` produce (duplicates would phantom-diff).
-      const atoms: string[] = []
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const m of members) {
+      const peeled = members.map((m) => {
         const opt = /^option<([\s\S]+)>$/u.exec(m.type)
-        let body = m.type
-        if (opt) {
-          hasNone = true
-          body = opt[1]
-        }
-        // eslint-disable-next-line functional/no-loop-statements, max-depth -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica / parser com estado mutável; extrair helpers mudaria a semântica
-        for (const atom of splitTopUnion(body)) if (atom) atoms.push(atom)
-      }
+        return { body: opt ? opt[1] : m.type, isOption: opt !== null }
+      })
+      hasNone = hasNone || peeled.some((p) => p.isOption)
+      const atoms = peeled.flatMap((p) => splitTopUnion(p.body).filter((atom) => atom !== ""))
       const types = [...new Set(atoms)]
       // A union whose type contains an object carries FLEXIBLE on the field (e.g. `object | string
       // FLEXIBLE`) when any object member makes it flexible.
@@ -360,15 +355,12 @@ export function inferField(schema: z.ZodType, seen = new Set<z.ZodType>()): Fiel
       const families = new Set(real.map((m) => m.family))
       const family: FieldFamily = families.size === 1 ? [...families][0] : "other"
       const optional = hasNone || nullish || real.some((m) => m.optional)
-      const record =
-        family === "record" && real.length > 0 && real.every((m) => m.record !== undefined)
-          ? // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-            real.every((m) => m.record?.targets !== undefined)
-            ? {
-                targets: [...new Set(real.flatMap((m) => m.record?.targets ?? []))],
-              }
-            : {}
-          : undefined
+      let record: Record<string, never> | undefined | { targets: string[] }
+      if (family === "record" && real.length > 0 && real.every((m) => m.record !== undefined)) {
+        record = real.every((m) => m.record?.targets !== undefined)
+          ? { targets: [...new Set(real.flatMap((m) => m.record?.targets ?? []))] }
+          : {}
+      }
       return {
         children: [],
         family,

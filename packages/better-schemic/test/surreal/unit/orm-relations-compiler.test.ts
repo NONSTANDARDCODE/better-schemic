@@ -1,6 +1,3 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping, @typescript-eslint/no-non-null-assertion, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. Fixtures assert values whose presence the test guarantees. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
-// The relation resolver + where-owner classifier in isolation: direction resolution (auto/explicit
-// and its fail-fast guards), the edge/target split, logical-group handling and the teaching errors.
 import { describe, expect, test } from "bun:test"
 
 import { surql } from "../../../src/surreal"
@@ -11,14 +8,29 @@ import {
   edgeMeta,
   edgeTraversal,
   findEdge,
+  type OwnedWhere,
   resolveEdge,
   targetMetas,
 } from "../../../src/surreal/orm/compiler/relations"
 import { schema } from "../../../src/surreal/orm/schema"
 import { relation, s, table } from "../../../src/surreal/pure"
+import { required } from "../../required"
 import { fakeConn, ok } from "../orm-fixtures"
 
 import { schemaDef } from "./orm-writes-fixtures"
+const classify = (where: unknown): OwnedWhere =>
+  classifyWhereByOwner({
+    context: "where.likes",
+    edge: likes,
+    idOwner: "edge",
+    operation: "op",
+    targets: [user, post],
+    where,
+  })
+
+const MAGIC_5 = 5
+// The relation resolver + where-owner classifier in isolation: direction resolution (auto/explicit
+// and its fail-fast guards), the edge/target split, logical-group handling and the teaching errors.
 
 const code = (fn: () => unknown): string | undefined => {
   try {
@@ -31,9 +43,9 @@ const code = (fn: () => unknown): string | undefined => {
 
 const client = orm(fakeConn(() => [ok([])]).conn, { schema: schemaDef })
 const index = client.$index
-const user = index.tables.get("users")!
-const post = index.tables.get("posts")!
-const likes = index.tables.get("likes")!
+const user = required(index.tables.get("users"))
+const post = required(index.tables.get("posts"))
+const likes = required(index.tables.get("likes"))
 
 describe("resolveEdge", () => {
   test("auto prefers outgoing, falls back to incoming", () => {
@@ -66,43 +78,33 @@ describe("resolveEdge", () => {
 
 describe("edgeTraversal", () => {
   test("arrow + target rendering (edge-only, single, multi, wildcard)", () => {
-    expect(edgeTraversal({ edge: "likes", direction: "out" })).toBe("->likes")
-    expect(edgeTraversal({ edge: "likes", direction: "in" })).toBe("<-likes")
-    expect(edgeTraversal({ edge: "likes", direction: "both" })).toBe("<->likes")
-    expect(edgeTraversal({ edge: "likes", direction: "out", targets: ["post"] })).toBe(
+    expect(edgeTraversal({ direction: "out", edge: "likes" })).toBe("->likes")
+    expect(edgeTraversal({ direction: "in", edge: "likes" })).toBe("<-likes")
+    expect(edgeTraversal({ direction: "both", edge: "likes" })).toBe("<->likes")
+    expect(edgeTraversal({ direction: "out", edge: "likes", targets: ["post"] })).toBe(
       "->likes->post",
     )
     expect(
       edgeTraversal({
-        edge: "likes",
         direction: "out",
+        edge: "likes",
         targets: ["post", "user"],
       }),
     ).toBe("->likes->(post, user)")
-    expect(edgeTraversal({ edge: "likes", direction: "out", targets: [] })).toBe("->likes->?")
+    expect(edgeTraversal({ direction: "out", edge: "likes", targets: [] })).toBe("->likes->?")
     expect(
       edgeTraversal({
-        edge: "likes",
         direction: "out",
+        edge: "likes",
         edgeFilter: "score > 1",
-        targets: ["post"],
         targetFilter: "name = 'x'",
+        targets: ["post"],
       }),
     ).toBe("->(likes WHERE score > 1)->(post WHERE name = 'x')")
   })
 })
 
 describe("classifyWhereByOwner", () => {
-  const classify = (where: unknown) =>
-    classifyWhereByOwner({
-      where,
-      edge: likes,
-      targets: [user, post],
-      idOwner: "edge",
-      operation: "op",
-      context: "where.likes",
-    })
-
   test("undefined / null -> empty; a lowerable fragment -> fragment", () => {
     expect(classify(undefined)).toEqual({})
     expect(classify(null)).toEqual({})
@@ -110,7 +112,7 @@ describe("classifyWhereByOwner", () => {
   })
 
   test("a non-object, non-fragment -> ValidationError", () => {
-    expect(code(() => classify(5))).toBe("ValidationError")
+    expect(code(() => classify(MAGIC_5))).toBe("ValidationError")
   })
 
   test("edge-only field -> edge; target field -> target; unknown -> UnknownField", () => {
@@ -139,12 +141,12 @@ describe("classifyWhereByOwner", () => {
   test("targets: [] treats every non-edge field as a target", () => {
     expect(
       classifyWhereByOwner({
-        where: { name: "A" },
+        context: "where",
         edge: likes,
-        targets: [],
         idOwner: "target",
         operation: "op",
-        context: "where",
+        targets: [],
+        where: { name: "A" },
       }),
     ).toEqual({ target: { name: "A" } })
   })
@@ -153,18 +155,18 @@ describe("classifyWhereByOwner", () => {
     const U = table("amb_user", { name: s.string() })
     const E = relation("amb_edge", { name: s.string() }).from(U).to(U)
     const idx = orm(fakeConn(() => [ok([])]).conn, {
-      schema: schema({ users: U, edges: E }),
+      schema: schema({ edges: E, users: U }),
     }).$index
-    const edge = idx.tables.get("edges")!
+    const edge = required(idx.tables.get("edges"))
     expect(
       code(() =>
         classifyWhereByOwner({
-          where: { name: "x" },
+          context: "where",
           edge,
-          targets: [idx.tables.get("users")!],
           idOwner: "edge",
           operation: "op",
-          context: "where",
+          targets: [required(idx.tables.get("users"))],
+          where: { name: "x" },
         }),
       ),
     ).toBe("ValidationError")
@@ -173,11 +175,11 @@ describe("classifyWhereByOwner", () => {
   test("no edge meta: fields fall to the target", () => {
     expect(
       classifyWhereByOwner({
-        where: { name: "A" },
-        targets: [user],
+        context: "where",
         idOwner: "target",
         operation: "op",
-        context: "where",
+        targets: [user],
+        where: { name: "A" },
       }),
     ).toEqual({ target: { name: "A" } })
   })
@@ -187,13 +189,15 @@ describe("relations — extra branches", () => {
   test("findEdge matches the schema KEY, and a relation-less table has no known keys", () => {
     const Solo = table("solo", { name: s.string() })
     const keyed = orm(fakeConn(() => [ok([])]).conn, {
-      schema: schema({ users: user.def, posts: post.def, rel: likes.def }),
+      schema: schema({ posts: post.def, rel: likes.def, users: user.def }),
     }).$index
-    const keyedUser = keyed.tables.get("users")!
+    const keyedUser = required(keyed.tables.get("users"))
     expect(findEdge(keyedUser, "rel")?.name).toBe("likes")
-    const solo = orm(fakeConn(() => [ok([])]).conn, {
-      schema: schema({ solo: Solo }),
-    }).$index.tables.get("solo")!
+    const solo = required(
+      orm(fakeConn(() => [ok([])]).conn, {
+        schema: schema({ solo: Solo }),
+      }).$index.tables.get("solo"),
+    )
     expect(code(() => resolveEdge(solo, "ghost", undefined, "op"))).toBe("UnknownField")
   })
 
@@ -213,30 +217,30 @@ describe("relations — extra branches", () => {
 
   test("ownsField follows links and edges", () => {
     const U = table("link_user", {
-      name: s.string(),
       mentor: s.recordId("link_user").optional(),
+      name: s.string(),
     })
     const idx = orm(fakeConn(() => [ok([])]).conn, {
       schema: schema({ users: U }),
     }).$index
-    const u = idx.tables.get("users")!
+    const u = required(idx.tables.get("users"))
     expect(
       classifyWhereByOwner({
-        where: { mentor: "user:1" },
-        targets: [u],
+        context: "where",
         idOwner: "target",
         operation: "op",
-        context: "where",
+        targets: [u],
+        where: { mentor: "user:1" },
       }),
     ).toEqual({ target: { mentor: "user:1" } })
     // a nested edge name owns it too.
     expect(
       classifyWhereByOwner({
-        where: { likes: { some: { score: 1 } } },
-        targets: [user],
+        context: "where",
         idOwner: "target",
         operation: "op",
-        context: "where",
+        targets: [user],
+        where: { likes: { some: { score: 1 } } },
       }),
     ).toEqual({ target: { likes: { some: { score: 1 } } } })
   })
@@ -244,22 +248,22 @@ describe("relations — extra branches", () => {
   test("logical groups: scalar entries are ignored, nested logicals recurse", () => {
     expect(
       classifyWhereByOwner({
-        where: { AND: [{ score: { gt: 1 } }, 5] },
+        context: "where",
         edge: likes,
-        targets: [user, post],
         idOwner: "edge",
         operation: "op",
-        context: "where",
+        targets: [user, post],
+        where: { AND: [{ score: { gt: 1 } }, MAGIC_5] },
       }),
-    ).toEqual({ edge: { AND: [{ score: { gt: 1 } }, 5] } })
+    ).toEqual({ edge: { AND: [{ score: { gt: 1 } }, MAGIC_5] } })
     expect(
       classifyWhereByOwner({
-        where: { AND: { AND: { score: { gt: 1 } } } },
+        context: "where",
         edge: likes,
-        targets: [user, post],
         idOwner: "edge",
         operation: "op",
-        context: "where",
+        targets: [user, post],
+        where: { AND: { AND: { score: { gt: 1 } } } },
       }),
     ).toEqual({ edge: { AND: { AND: { score: { gt: 1 } } } } })
   })
@@ -269,12 +273,12 @@ describe("relations — extra branches", () => {
     expect(
       code(() =>
         classifyWhereByOwner({
-          where: { likes: { some: { score: 1 } } },
+          context: "where",
           edge: user,
-          targets: [post],
           idOwner: "target",
           operation: "op",
-          context: "where",
+          targets: [post],
+          where: { likes: { some: { score: 1 } } },
         }),
       ),
     ).toBe("ValidationError")
@@ -282,17 +286,17 @@ describe("relations — extra branches", () => {
 
   test("resolveEdge matches an incoming edge by its schema KEY", () => {
     const keyed = orm(fakeConn(() => [ok([])]).conn, {
-      schema: schema({ users: user.def, posts: post.def, rel: likes.def }),
+      schema: schema({ posts: post.def, rel: likes.def, users: user.def }),
     }).$index
-    const keyedPost = keyed.tables.get("posts")!
+    const keyedPost = required(keyed.tables.get("posts"))
     expect(resolveEdge(keyedPost, "rel", undefined, "op").direction).toBe("in")
     expect(
       classifyWhereByOwner({
-        where: { rel: { some: { score: 1 } } },
-        targets: [keyedPost],
+        context: "where",
         idOwner: "target",
         operation: "op",
-        context: "where",
+        targets: [keyedPost],
+        where: { rel: { some: { score: 1 } } },
       }),
     ).toEqual({ target: { rel: { some: { score: 1 } } } })
   })
@@ -300,12 +304,12 @@ describe("relations — extra branches", () => {
   test("id with an empty target set routes by idOwner", () => {
     expect(
       classifyWhereByOwner({
-        where: { id: "user:1" },
+        context: "where",
         edge: likes,
-        targets: [],
         idOwner: "target",
         operation: "op",
-        context: "where",
+        targets: [],
+        where: { id: "user:1" },
       }),
     ).toEqual({ target: { id: "user:1" } })
   })

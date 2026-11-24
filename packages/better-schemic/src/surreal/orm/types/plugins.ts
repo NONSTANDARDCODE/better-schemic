@@ -72,11 +72,11 @@ export type PluginSpec<Cfg = unknown> = {
   readonly config?: Cfg
   readonly description?: string
   /** Methods grafted onto the client. */
-  // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-  extendClient?(this: PluginContext<Cfg>, ctx: PluginClientContext): object
+
+  extendClient?(this: PluginContext<Cfg>, ctx: PluginClientContext): Record<string, unknown>
   /** Methods grafted onto every delegate. */
-  // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-  extendModel?(this: PluginContext<Cfg>, ctx: PluginModelContext): object
+
+  extendModel?(this: PluginContext<Cfg>, ctx: PluginModelContext): Record<string, unknown>
   /** Observation hooks contributed by the plugin. */
   readonly hooks?: Hooks
   /** Stable, unique id (a duplicate fails fast at bootstrap). */
@@ -94,8 +94,8 @@ export type PluginSpec<Cfg = unknown> = {
    * operation entirely (it resolves `undefined` without touching the database).
    * SYNCHRONOUS: compilation is eager, so async work belongs in a hook.
    */
-  // eslint-disable-next-line @typescript-eslint/no-invalid-void-type -- callback pode retornar nada (void) ou false; API pública estável
-  transform?(this: PluginContext<Cfg>, operation: Operation): false | void
+
+  transform?(this: PluginContext<Cfg>, operation: Operation): false | undefined
   readonly version?: string
 }
 
@@ -116,15 +116,14 @@ type UnionToIntersection<U> = (U extends unknown ? (k: U) => void : never) exten
   ? I
   : never
 
-// eslint-disable-next-line @typescript-eslint/no-generated-empty-object-type -- `EmptyArgs` é o tipo NEUTRO da interseção de args; não é um objeto vazio acidental
+// eslint-disable-next-line @typescript-eslint/no-generated-empty-object-type -- default neutro sem index signature
 type EmptyArgs = Record<never, never>
 
 /** The extra args ONE plugin contributes to `K` (distributes over unions). Plugin args are always
  * OPTIONAL — the plugin applies its own defaults when they omitt them. */
 type ArgsOf<T, K extends string> = T extends { operationArgs?: infer M }
   ? K extends keyof M
-    ? // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-      M[K] extends object
+    ? M[K] extends Record<string, unknown>
       ? Partial<M[K]>
       : EmptyArgs
     : EmptyArgs

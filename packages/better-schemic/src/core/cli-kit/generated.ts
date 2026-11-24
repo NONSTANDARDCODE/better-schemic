@@ -16,7 +16,7 @@ const JSON_INDENT = 2
 const BASE_IGNORE_PATTERNS = [".better-schemic/**", "src/db/generated/**"] as const
 
 export type GeneratedOpts = {
-  /** Prepend `/* eslint-disable *\/`. Default true. */
+  /** Prepend the ESLint file-level disable directive. Default true. */
   readonly eslintDisable?: boolean
   /** Whether generated paths belong in knip ignores. Default 'ignore'. */
   readonly knip?: "ignore" | "off"

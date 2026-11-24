@@ -155,8 +155,9 @@ function resolveOptions(
       ? { retries: { ...defaults?.retries, ...options?.retries } }
       : {}),
   }
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- modo inválido pode chegar via JS sem tipagem; checagem é load-bearing
-  if (merged.mode !== undefined && merged.mode !== "sdk") {
+
+  const mode = merged.mode as string | undefined
+  if (mode !== undefined && mode !== "sdk") {
     throw new OrmError(
       "UnsupportedCapability",
       `${operation}: mode "${String(merged.mode)}" is not supported on SurrealDB 3.2.0 — BEGIN/COMMIT do not survive across separate RPC calls, so only the SDK's managed transaction ("sdk") can be correct.`,
@@ -261,15 +262,12 @@ function isConnectionError(error: OrmError): boolean {
 
 /** Does the normalized failure match one of the configured retry reasons? */
 function isRetryable(error: OrmError, on: readonly RetryReason[]): boolean {
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const reason of on) {
-    if (reason === "writeConflict" && error.code === "WriteConflict") return true
-
-    if (reason === "serializationFailure" && error.code === "SerializationFailure") return true
-
-    if (reason === "connectionError" && isConnectionError(error)) return true
-  }
-  return false
+  return on.some(
+    (reason) =>
+      (reason === "writeConflict" && error.code === "WriteConflict") ||
+      (reason === "serializationFailure" && error.code === "SerializationFailure") ||
+      (reason === "connectionError" && isConnectionError(error)),
+  )
 }
 
 /** Delay before the next attempt (`delayMs` may be a function; `jitter` spreads contention). */
@@ -315,8 +313,8 @@ function attemptError(e: unknown, resolved: ResolvedOptions): OrmError {
 
 /** Run `afterCommit` side effects — their failures never undo the commit (reported, not thrown). */
 async function runAfterCommit(state: TransactionState): Promise<void> {
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const callback of state.afterCommit) {
+  await state.afterCommit.reduce(async (previous, callback) => {
+    await previous
     try {
       await callback()
     } catch (error) {
@@ -325,19 +323,19 @@ async function runAfterCommit(state: TransactionState): Promise<void> {
         error,
       )
     }
-  }
+  }, Promise.resolve())
 }
 
 /** Run `afterRollback` side effects — their failures never mask the rollback error. */
 async function runAfterRollback(state: TransactionState, reason: unknown): Promise<void> {
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const callback of state.afterRollback) {
+  await state.afterRollback.reduce(async (previous, callback) => {
+    await previous
     try {
       await callback(reason)
     } catch (error) {
       console.error("[better-schemic] transaction: an afterRollback callback failed.", error)
     }
-  }
+  }, Promise.resolve())
 }
 
 /**
@@ -402,7 +400,7 @@ export async function runTransaction<T, S extends SchemaInput = SchemaInput>(
   }
   if (hooks) await hooks.beforeTransaction(txPayload)
 
-  let timedOut = false
+  const timeout = { reached: false }
   let current: TransactionConnection | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   const deadline =
@@ -410,71 +408,66 @@ export async function runTransaction<T, S extends SchemaInput = SchemaInput>(
       ? undefined
       : new Promise<never>((_, reject) => {
           timer = setTimeout(() => {
-            timedOut = true
+            timeout.reached = true
             void current?.cancel().catch(() => {
               /* cancelbest-effort */
             })
             reject(timeoutError())
           }, resolved.timeoutMs)
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- checagem defensiva em runtime (valores ausentes/mutados por callback); tipo TS é otimista
-          timer.unref?.()
+
+          ;(timer as { unref?: () => void }).unref?.()
         })
 
-  const attemptLoop = (async (): Promise<T> => {
-    let lastError: unknown
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (let attempt = 1; attempt <= resolved.retries.attempts; attempt++) {
-      const state = new TransactionState()
-      host.$setRootScope(state)
-      let txConn: TransactionConnection | undefined
-      try {
-        txConn = await begin(host.conn, "transaction")
-        current = txConn
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- checagem defensiva em runtime (valores ausentes/mutados por callback); tipo TS é otimista
-        if (timedOut) throw timeoutError()
+  const attemptOnce = async (attempt: number): Promise<T> => {
+    const state = new TransactionState()
+    host.$setRootScope(state)
+    let txConn: TransactionConnection | undefined
+    try {
+      txConn = await begin(host.conn, "transaction")
+      current = txConn
 
-        const txHost = host.buildTransactionClient(txConn, state)
-        const value = await fn(txHost as unknown as TransactionClient<S>)
-        // A swallowed rollback signal still aborts: the state is the source of truth.
-        if (state.rolledBack) throw new RollbackSignalError(state.rollbackReason)
+      if (timeout.reached) throw timeoutError()
 
-        await txConn.commit()
-        state.active = false
-        current = undefined
-        await runAfterCommit(state)
-        if (hooks) {
-          await hooks.afterTransactionCommit({
-            ...txPayload,
-            durationMs: performance.now() - txStarted,
-          })
-        }
-        return value
-      } catch (error) {
-        state.active = false
-        current = undefined
-        if (txConn) {
-          await txConn.cancel().catch(() => {
-            /* cancel é best-effort */
-          })
-        }
+      const txHost = host.buildTransactionClient(txConn, state)
+      const value = await fn(txHost as unknown as TransactionClient<S>)
+      // A swallowed rollback signal still aborts: the state is the source of truth.
+      if (state.rolledBack) throw new RollbackSignalError(state.rollbackReason)
 
-        await runAfterRollback(state, error)
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- checagem defensiva em runtime (valores ausentes/mutados por callback); tipo TS é otimista
-        if (timedOut) throw timeoutError()
-
-        const normalized = attemptError(error, resolved)
-        lastError = normalized
-        if (attempt < resolved.retries.attempts && isRetryable(normalized, resolved.retries.on)) {
-          await sleep(retryDelay(resolved.retries, attempt, normalized))
-          continue
-        }
-        throw normalized
-      } finally {
-        host.$setRootScope(undefined)
+      await txConn.commit()
+      state.active = false
+      current = undefined
+      await runAfterCommit(state)
+      if (hooks) {
+        await hooks.afterTransactionCommit({
+          ...txPayload,
+          durationMs: performance.now() - txStarted,
+        })
       }
+      return value
+    } catch (error) {
+      state.active = false
+      current = undefined
+      if (txConn) {
+        await txConn.cancel().catch(() => {
+          /* cancel é best-effort */
+        })
+      }
+
+      await runAfterRollback(state, error)
+
+      if (timeout.reached) throw timeoutError()
+
+      const normalized = attemptError(error, resolved)
+      if (attempt < resolved.retries.attempts && isRetryable(normalized, resolved.retries.on)) {
+        await sleep(retryDelay(resolved.retries, attempt, normalized))
+        return await attemptOnce(attempt + 1)
+      }
+      throw normalized
+    } finally {
+      host.$setRootScope(undefined)
     }
-    throw normalizeError(lastError, { operation: "transaction" })
-  })()
+  }
+  const attemptLoop = attemptOnce(1)
 
   try {
     return await (deadline ? Promise.race([attemptLoop, deadline]) : attemptLoop)

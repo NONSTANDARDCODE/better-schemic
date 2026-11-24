@@ -21,7 +21,7 @@ import type { ExplainResult, SqlPreview, ThrowingResult } from "../results"
 import type { CallContext } from "./context"
 import type { IncludeArg, WithIncludes } from "./include"
 import type { AnyTableDef, ElementOf, SchemaInput } from "./schema"
-import type { WhereInput } from "./where"
+import type { MaxDepth, WhereInput } from "./where"
 
 /** Any fragment usable as a projection expression. */
 export type SelectExpr = Surql
@@ -232,16 +232,20 @@ type ShapeResult<T, Sel> = Simplify<
 >
 
 /** A projection entry's value is a nested select when it's a plain object (not a fragment). */
+/** True for object-like types, without the banned `object` keyword. */
+type IsObjectLike<V> = [V] extends [bigint | boolean | null | number | string | symbol | undefined]
+  ? false
+  : unknown extends V
+    ? false
+    : true
+
 type IsSubSelect<V> = V extends true
   ? false
   : V extends string
     ? false
     : V extends SelectExpr
       ? false
-      : // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-        V extends object
-        ? true
-        : false
+      : IsObjectLike<V>
 
 /** The shape one projection entry contributes. */
 type EntryShape<TD extends AnyTableDef, K extends PropertyKey, V> = V extends true
@@ -307,8 +311,7 @@ export type ResultOf<TD extends AnyTableDef, A, S = SchemaInput> = ApplySplit<
           : App<TD>,
     S,
     A extends { include: infer I } ? I : undefined,
-    // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal de profundidade faz parte do contrato recursivo do tipo (API pública)
-    3
+    MaxDepth
   >
 >
 

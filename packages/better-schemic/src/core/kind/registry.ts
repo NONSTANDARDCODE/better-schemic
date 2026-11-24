@@ -20,8 +20,12 @@
  * neutral upper bound for a kind's authoring-object type (a driver's concrete `TableDef`/`FnDef` is a
  * structural subtype).
  */
-/** Heterogeneous engine erasure — the seam where core forgets a kind's concrete authoring/portable types. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- apagamento bivariante no seam heterogêneo; `unknown` rejeitaria engines reais.
+/**
+ * Heterogeneous engine erasure — the seam where core forgets a kind's concrete authoring/portable
+ * types. Method syntax keeps parameter positions BIVARIANT, so a `KindEngine<TableDef, Table>` is
+ * assignable without a wildcard at this internal seam.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- erasure bivariante: a forma estrutural rejeita engines concretos com `TableDef`.
 export type AnyKindEngine = KindEngine<any, any>
 
 export type Definable = {

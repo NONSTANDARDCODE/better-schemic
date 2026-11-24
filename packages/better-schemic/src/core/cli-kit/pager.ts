@@ -18,16 +18,25 @@ function gitConfig(key: string): string | undefined {
  * `$PAGER`. A user with `core.pager = delta` gets delta for free, with their own config.
  */
 export function resolvePager(): string | undefined {
-  /* eslint-disable @typescript-eslint/prefer-nullish-coalescing -- `||` ignora strings vazias de env/config, preservando a resolução git-like */
-  return (
-    gitConfig("pager.diff") ||
-    gitConfig("core.pager") ||
-    process.env.GIT_PAGER ||
-    process.env.PAGER ||
-    undefined
-  )
-  /* eslint-enable @typescript-eslint/prefer-nullish-coalescing */
+  // git-like resolution: the FIRST NON-EMPTY value wins — `||` semantics, evaluated on demand so a
+  // higher-priority pager avoids the next `git config` subprocess.
+  let resolved: string | undefined
+  ;[
+    (): string | undefined => gitConfig("pager.diff"),
+    (): string | undefined => gitConfig("core.pager"),
+    (): string | undefined => process.env.GIT_PAGER,
+    (): string | undefined => process.env.PAGER,
+  ].some((read) => {
+    const value = read()
+    if (!value) return false
+    resolved = value
+    return true
+  })
+  return resolved
 }
+
+/** Steps over an escape sequence (the backslash plus its escaped character). */
+const ESCAPE_STEP = 2
 
 /** Shells that must never uss it as a pager: the diff text would become their script. */
 const SHELLS = new Set([
@@ -64,37 +73,46 @@ export function parsePagerCommand(pager: string): string[] {
     current = ""
     has = false
   }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = 0; i < pager.length; i++) {
-    const ch = pager[i]
+  const scan = (index: number): void => {
+    if (index >= pager.length) return
+    const ch = pager[index]
     if (quote) {
-      if (ch === quote) quote = undefined
-      else if (ch === "\\" && quote === '"' && i + 1 < pager.length) {
-        current += pager[++i]
+      if (ch === quote) {
+        quote = undefined
+        scan(index + 1)
+      } else if (ch === "\\" && quote === '"' && index + 1 < pager.length) {
+        current += pager[index + 1]
         has = true
+        scan(index + ESCAPE_STEP)
       } else {
         current += ch
         has = true
+        scan(index + 1)
       }
-      continue
+      return
     }
     if (ch === '"' || ch === "'") {
       quote = ch
       has = true
-      continue
+      scan(index + 1)
+      return
     }
-    if (ch === "\\" && i + 1 < pager.length) {
-      current += pager[++i]
+    if (ch === "\\" && index + 1 < pager.length) {
+      current += pager[index + 1]
       has = true
-      continue
+      scan(index + ESCAPE_STEP)
+      return
     }
     if (ch === " " || ch === "\t" || ch === "\n") {
       push()
-      continue
+      scan(index + 1)
+      return
     }
     current += ch
     has = true
+    scan(index + 1)
   }
+  scan(0)
   push()
   return out
 }

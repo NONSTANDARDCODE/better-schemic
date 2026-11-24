@@ -142,9 +142,9 @@ export function compileRead(
   })
 
   const selection = selectedTopLevelKeys(args.select)
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of compiled.keys) {
-    if (!selection.keys.has(key)) continue
+
+  compiled.keys.forEach((key) => {
+    if (!selection.keys.has(key)) return
 
     const includeSpec = compiled.specs.find((entry) => entry.key === key)
     if (includeSpec?.kind !== "link-fetch") {
@@ -154,13 +154,13 @@ export function compileRead(
         { field: key, operation },
       )
     }
-  }
+  })
 
   const extraParts = [...compiled.parts]
   if (!selection.star) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const link of compiled.passthrough)
+    compiled.passthrough.forEach((link) => {
       if (!selection.keys.has(link)) extraParts.unshift(renderPath(link))
+    })
   }
 
   // SPLIT is an idiom the SERVER requires in the selection ("Missing split idiom … in statement
@@ -269,24 +269,26 @@ function selectedTopLevelKeys(select: unknown): {
 
   if (Array.isArray(select)) {
     const keys = new Set<string>()
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const key of select) if (typeof key === "string") keys.add(pathSegments(key)[0])
+
+    select.forEach((key) => {
+      if (typeof key === "string") keys.add(pathSegments(key)[0])
+    })
 
     return { keys, star: false }
   }
   if (isPlainObject(select)) {
     const keys = new Set<string>()
     let star = false
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const key of Object.keys(select)) {
-      if (select[key] === undefined || select[key] === false) continue
+
+    Object.keys(select).forEach((key) => {
+      if (select[key] === undefined || select[key] === false) return
 
       if (key === "*") {
         star = true
-        continue
+        return
       }
       keys.add(pathSegments(key)[0])
-    }
+    })
     return { keys, star }
   }
   return { keys: new Set(), star: false }
@@ -334,14 +336,14 @@ export function compileOrderBy(orderBy: unknown, binds: Binds, operation: string
     )
   }
   const parts: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const entry of entries) {
-    if (entry === undefined) continue
+
+  entries.forEach((entry) => {
+    if (entry === undefined) return
 
     const bare = renderBareFragment(entry, binds)
     if (bare !== undefined) {
       parts.push(bare)
-      continue
+      return
     }
     if (!isPlainObject(entry)) {
       throw compileError(
@@ -350,13 +352,13 @@ export function compileOrderBy(orderBy: unknown, binds: Binds, operation: string
         { operation },
       )
     }
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [key, direction] of Object.entries(entry)) {
-      if (direction === undefined) continue
+
+    Object.entries(entry).forEach(([key, direction]) => {
+      if (direction === undefined) return
 
       if (typeof direction === "string") {
         const upper = direction.toUpperCase()
-        // eslint-disable-next-line max-depth -- parser/compilador com despacho aninhado; achatar mudaria a precedência das cláusulas
+
         if (upper !== "ASC" && upper !== "DESC") {
           throw compileError(
             "ValidationError",
@@ -365,20 +367,20 @@ export function compileOrderBy(orderBy: unknown, binds: Binds, operation: string
           )
         }
         parts.push(`${renderPath(key)} ${upper}`)
-        continue
+        return
       }
       const expr = renderBareFragment(direction, binds)
       if (expr !== undefined) {
         parts.push(expr)
-        continue
+        return
       }
       throw compileError(
         "ValidationError",
         `${operation}: orderBy entry "${key}" must be "asc" | "desc" or a fragment (got ${describeValue(direction)}).`,
         { operation },
       )
-    }
-  }
+    })
+  })
   if (parts.length === 0) {
     throw compileError(
       "ValidationError",

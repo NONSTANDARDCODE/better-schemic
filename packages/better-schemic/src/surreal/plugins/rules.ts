@@ -42,22 +42,15 @@ const fail = (message: string, operation: string, table?: string): never => {
 /** Known keys of a model: columns, links, adjacent edge names and the id. */
 function knownFields(index: SchemaIndex, table: string): Set<string> {
   const meta = index.byName.get(table)
-  const out = new Set<string>(["id"])
-  if (!meta || "schemaless" in meta) return out
+  if (!meta || "schemaless" in meta) return new Set(["id"])
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of meta.columns.keys()) out.add(key)
-
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of meta.links.keys()) out.add(key)
-
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const edge of meta.outgoing) out.add(edge.name)
-
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const edge of meta.incoming) out.add(edge.name)
-
-  return out
+  return new Set<string>([
+    "id",
+    ...meta.columns.keys(),
+    ...meta.links.keys(),
+    ...meta.outgoing.map((edge) => edge.name),
+    ...meta.incoming.map((edge) => edge.name),
+  ])
 }
 
 /** Check the top-level keys of a filter/payload against the schema. */
@@ -70,17 +63,17 @@ function assertFields(
 ): void {
   if (typeof value !== "object" || value === null) return
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of Object.keys(value)) {
-    if (LOGICAL.has(key) || key === "*" || key.includes(".") || key.includes("[")) continue
-
-    if (!known.has(key)) {
-      throw new OrmError(
-        "UnknownField",
-        `${operation}: "${key}" is not a field of "${table}" (${what}). Known: ${[...known].join(", ")}.`,
-        { field: key, operation, table },
-      )
-    }
+  const unknown = Object.keys(value).find(
+    (key) =>
+      !(LOGICAL.has(key) || key === "*" || key.includes(".") || key.includes("[")) &&
+      !known.has(key),
+  )
+  if (unknown !== undefined) {
+    throw new OrmError(
+      "UnknownField",
+      `${operation}: "${unknown}" is not a field of "${table}" (${what}). Known: ${[...known].join(", ")}.`,
+      { field: unknown, operation, table },
+    )
   }
 }
 
@@ -146,6 +139,9 @@ export function rules(options: RulesOptions = {}): Plugin {
   })
 }
 
+/** Default ceiling for the `recommended`/`strict` presets. */
+const DEFAULT_MAX_LIMIT = 1000
+
 /** The conservative preset: `$unsafe` off, no unfiltered destructive writes. */
 export function safe(options: RulesOptions = {}): Plugin {
   return rules({
@@ -159,8 +155,7 @@ export function safe(options: RulesOptions = {}): Plugin {
 export function recommended(options: RulesOptions & { maxLimit?: number } = {}): Plugin {
   return rules({
     destructiveWriteWithoutWhere: true,
-    // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-    maxLimit: options.maxLimit ?? 1000,
+    maxLimit: options.maxLimit ?? DEFAULT_MAX_LIMIT,
     noRawUnsafe: true,
     requireLimit: true,
     ...options,
@@ -171,8 +166,7 @@ export function recommended(options: RulesOptions & { maxLimit?: number } = {}):
 export function strict(options: RulesOptions = {}): Plugin {
   return rules({
     destructiveWriteWithoutWhere: true,
-    // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-    maxLimit: options.maxLimit ?? 1000,
+    maxLimit: options.maxLimit ?? DEFAULT_MAX_LIMIT,
     noRawUnsafe: true,
     requireLimit: true,
     requireOrderByForCursor: true,

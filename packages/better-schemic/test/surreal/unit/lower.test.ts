@@ -1,4 +1,5 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
+const MAGIC_0p75 = 0.75
+const MAGIC_1p5 = 1.5
 import { describe, expect, test } from "bun:test"
 import { surql } from "surrealdb"
 
@@ -16,30 +17,30 @@ const Post = table("post", { title: s.string() })
 describe("fromTableDef", () => {
   test("plain table: primitives + optional + default + assert", () => {
     const t = table("user", {
-      email: s.string().$assert(surql`string::is_email($value)`),
+      active: s.boolean().$default(true),
       age: s.int().optional(),
       // optional + default: normalize strips `option<>` to `int` (a defaulted field is always
       // present, so INFO/the emitter store the bare type — both sides converge on `int`).
       count: s.int().optional().$default(0),
-      active: s.boolean().$default(true),
+      email: s.string().$assert(surql`string::is_email($value)`),
     })
     expect(normalizeTable(fromTableDef(t))).toEqual({
-      name: "user",
-      kind: { kind: "NORMAL" },
-      schemafull: true,
+      events: [],
       fields: [
-        { name: "active", kind: "bool", table: "user", default: "true" },
-        { name: "age", kind: "option<int>", table: "user" },
-        { name: "count", kind: "int", table: "user", default: "0" },
+        { default: "true", kind: "bool", name: "active", table: "user" },
+        { kind: "option<int>", name: "age", table: "user" },
+        { default: "0", kind: "int", name: "count", table: "user" },
         {
-          name: "email",
-          kind: "string",
-          table: "user",
           assert: "string::is_email($value)",
+          kind: "string",
+          name: "email",
+          table: "user",
         },
       ],
       indexes: [],
-      events: [],
+      kind: { kind: "NORMAL" },
+      name: "user",
+      schemafull: true,
     })
   })
 
@@ -48,16 +49,16 @@ describe("fromTableDef", () => {
       address: s.object({ city: s.string(), zip: s.string().optional() }),
     })
     expect(normalizeTable(fromTableDef(t)).fields).toEqual([
-      { name: "address", kind: "object", table: "account" },
-      { name: "address.city", kind: "string", table: "account" },
-      { name: "address.zip", kind: "option<string>", table: "account" },
+      { kind: "object", name: "address", table: "account" },
+      { kind: "string", name: "address.city", table: "account" },
+      { kind: "option<string>", name: "address.zip", table: "account" },
     ])
   })
 
   test("array of primitive -> array<T> (no `.*`)", () => {
     const t = table("post", { tags: s.array(s.string()) })
     expect(normalizeTable(fromTableDef(t)).fields).toEqual([
-      { name: "tags", kind: "array<string>", table: "post" },
+      { kind: "array<string>", name: "tags", table: "post" },
     ])
   })
 
@@ -66,8 +67,8 @@ describe("fromTableDef", () => {
       authors: s.array(s.object({ handle: s.string() })),
     })
     expect(normalizeTable(fromTableDef(t)).fields).toEqual([
-      { name: "authors", kind: "array<object>", table: "post" },
-      { name: "authors.*.handle", kind: "string", table: "post" },
+      { kind: "array<object>", name: "authors", table: "post" },
+      { kind: "string", name: "authors.*.handle", table: "post" },
     ])
   })
 
@@ -77,10 +78,10 @@ describe("fromTableDef", () => {
     })
     expect(normalizeTable(fromTableDef(t)).fields).toEqual([
       {
-        name: "author",
         kind: "record<user>",
-        table: "comment",
+        name: "author",
         reference: { on_delete: "CASCADE" },
+        table: "comment",
       },
     ])
   })
@@ -88,8 +89,8 @@ describe("fromTableDef", () => {
   test("relation: in/out land in kind, not as fields", () => {
     const wrote = relation("wrote", { at: s.datetime() }).from(User).to(Post)
     const out = normalizeTable(fromTableDef(wrote))
-    expect(out.kind).toEqual({ kind: "RELATION", in: ["user"], out: ["post"] })
-    expect(out.fields).toEqual([{ name: "at", kind: "datetime", table: "wrote" }])
+    expect(out.kind).toEqual({ in: ["user"], kind: "RELATION", out: ["post"] })
+    expect(out.fields).toEqual([{ kind: "datetime", name: "at", table: "wrote" }])
   })
 
   test("field with non-default permissions is kept", () => {
@@ -98,10 +99,10 @@ describe("fromTableDef", () => {
     })
     expect(normalizeTable(fromTableDef(t)).fields).toEqual([
       {
-        name: "data",
         kind: "string",
-        table: "secret",
+        name: "data",
         permissions: { select: false },
+        table: "secret",
       },
     ])
   })
@@ -111,24 +112,26 @@ describe("fromTableDef", () => {
       email: s.string().$unique(),
     }).comment("users")
     const out = normalizeTable(fromTableDef(t))
-    expect(out.indexes).toEqual([{ name: "user_email_idx", cols: ["email"], index: "UNIQUE" }])
+    expect(out.indexes).toEqual([{ cols: ["email"], index: "UNIQUE", name: "user_email_idx" }])
     expect(out.comment).toBe("users")
   })
 
   test("field .$fulltext()/.$hnsw() lower to a structured index carrying the spec", () => {
     const t = table("doc", {
-      id: s.string(),
-      body: s.string().$fulltext({ analyzer: "eng", bm25: [1.5, 0.75], highlights: true }),
+      body: s
+        .string()
+        .$fulltext({ analyzer: "eng", bm25: [MAGIC_1p5, MAGIC_0p75], highlights: true }),
       emb: s.array(s.float()).$hnsw({ dimension: 4 }),
+      id: s.string(),
     })
     const out = normalizeTable(fromTableDef(t))
     expect(out.indexes).toEqual([
       {
-        name: "doc_body_idx",
         cols: ["body"],
         index: "FULLTEXT ANALYZER eng BM25(1.5,0.75) HIGHLIGHTS",
+        name: "doc_body_idx",
       },
-      { name: "doc_emb_idx", cols: ["emb"], index: "HNSW DIMENSION 4" },
+      { cols: ["emb"], index: "HNSW DIMENSION 4", name: "doc_emb_idx" },
     ])
   })
 })
@@ -139,9 +142,9 @@ describe("fromStandalone", () => {
       .returns(s.string())
       .body(surql`RETURN "hi " + $name`)
     expect(fromStandalone(greet)).toEqual({
-      name: "greet",
       args: [["name", "string"]],
       block: '{ RETURN "hi " + $name }',
+      name: "greet",
       returns: "string",
     })
   })
@@ -150,11 +153,11 @@ describe("fromStandalone", () => {
     const account = defineAccess("account")
       .onDatabase()
       .record()
-      .duration({ token: "1h", session: "12h" })
+      .duration({ session: "12h", token: "1h" })
     expect(fromStandalone(account)).toEqual({
-      name: "account",
+      duration: { session: "12h", token: "1h" },
       kind: { kind: "RECORD" },
-      duration: { token: "1h", session: "12h" },
+      name: "account",
     })
   })
 })

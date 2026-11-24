@@ -19,6 +19,7 @@ import type {
   SchemaIndex,
 } from "./meta"
 import { buildSchemaIndex } from "./schema"
+import { stringCoerce } from "./text"
 import type { AnyTableDef, SchemaDef, SchemaInput } from "./types/schema"
 
 /** One field of a table/edge, in plain data. */
@@ -129,15 +130,15 @@ function plain(value: unknown): unknown {
     if (typeof text === "string") return text
 
     const out: Record<string, unknown> = {}
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [key, item] of Object.entries(value)) {
+
+    Object.entries(value).forEach(([key, item]) => {
       const normalized = plain(item)
       if (normalized !== undefined) out[key] = normalized
-    }
+    })
     return out
   }
-  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringify de valor opaco é intencional (toJSON/toString definidos pelo chamador)
-  return String(value)
+
+  return stringCoerce(value)
 }
 
 /** Render an expression (string or BoundQuery) as SurrealQL text. */
@@ -211,8 +212,8 @@ function describeTable(key: string, def: AnyTableDef, index: SchemaIndex): Table
         name: edge.name,
       })),
     ],
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- checagem defensiva em runtime (valores ausentes/mutados por callback); tipo TS é otimista
-    links: [...(meta?.links?.values() ?? [])].map((link) => ({
+
+    links: [...(meta?.links.values() ?? [])].map((link) => ({
       field: link.field,
       ...(link.targets ? { targets: link.targets } : {}),
       cardinality: link.cardinality,
@@ -245,15 +246,14 @@ export function describeSchema(input: SchemaDef | SchemaInput): SchemaDescriptor
   const index: SchemaIndex = buildSchemaIndex(input)
   const tables: TableDescriptor[] = []
   const schemaless: { key: string; name: string }[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [key, meta] of index.tables) tables.push(describeTable(key, meta.def, index))
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [key, meta] of index.schemaless) schemaless.push({ key, name: meta.name })
+  ;[...index.tables].forEach(([key, meta]) => tables.push(describeTable(key, meta.def, index)))
+
+  ;[...index.schemaless].forEach(([key, meta]) => schemaless.push({ key, name: meta.name }))
 
   const functions: FunctionDescriptor[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [key, fn] of index.functions) {
+
+  ;[...index.functions].forEach(([key, fn]) => {
     const config = (fn.def as unknown as { config?: Record<string, unknown> }).config ?? {}
     functions.push({
       args: [...fn.args.values()].map((arg) => ({
@@ -268,7 +268,7 @@ export function describeSchema(input: SchemaDef | SchemaInput): SchemaDescriptor
       permissions: plain(config.permissions ?? {}),
       ...(typeof config.comment === "string" ? { comment: config.comment } : {}),
     })
-  }
+  })
 
   return { functions, schemaless, tables, version: 1 }
 }

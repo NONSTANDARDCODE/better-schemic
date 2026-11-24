@@ -1,4 +1,5 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
+const MAGIC_123 = 123
+const MAGIC_5 = 5
 // M2 — the write RETURN semantics and the plan decode: `before` state, `diff` patch combining
 // across statements, and the eager guards (skipDuplicates, relate sugar, timeout, updateEach
 // select). The core write goldens live in `orm-writes.test.ts`; fixtures in `orm-writes-fixtures`.
@@ -13,7 +14,7 @@ import { codeOf, data, lastCall, LIKE_ROW, makeClient, ROW, schemaDef } from "./
 
 describe("return semantics — before/diff and the batch decode", () => {
   test("create return:'before' resolves null (nothing existed before)", async () => {
-    const { client, calls } = makeClient([])
+    const { calls, client } = makeClient([])
     const result = await client.users.create({ data, return: "before" })
     expect(result).toBeNull()
     expect(lastCall(calls).sql).toBe(
@@ -25,16 +26,16 @@ describe("return semantics — before/diff and the batch decode", () => {
     const ops = [{ op: "replace", path: "/age", value: 2 }]
     const { client } = makeClient([ops])
     const many = await client.users.updateMany({
-      where: { age: { gt: 0 } },
       data: { active: false },
       return: "diff",
+      where: { age: { gt: 0 } },
     })
     expect(many).toEqual(ops)
 
     const one = await client.users.patch({
-      where: { id: "user:1" },
       patches: [{ op: "replace", path: "/age", value: 3 }],
       return: "diff",
+      where: { id: "user:1" },
     })
     expect(one).toEqual(ops)
   })
@@ -50,10 +51,10 @@ describe("return semantics — before/diff and the batch decode", () => {
     )
     const client = orm(conn, { schema: schemaDef }) as Client<typeof schemaDef>
     const result = await client.users.update({
-      where: { id: "user:1" },
       data: { active: true },
-      unset: ["age"],
       return: "diff",
+      unset: ["age"],
+      where: { id: "user:1" },
     })
     expect(result).toEqual([
       { op: "replace", path: "/s1", value: 1 },
@@ -82,24 +83,24 @@ describe("return semantics — before/diff and the batch decode", () => {
   })
 
   test("upsert RETURN DIFF with expressions is rejected before any query", () => {
-    const { client, calls } = makeClient()
+    const { calls, client } = makeClient()
     expect(
       codeOf(() =>
         client.users.upsert({
-          where: { id: "user:1" },
           create: { id: "user:1", ...data },
-          update: { age: surql`age + 1` },
-          return: "diff",
           onMissing: "create",
+          return: "diff",
+          update: { age: surql`age + 1` },
+          where: { id: "user:1" },
         }),
       ),
     ).toBe("ReturnNotSupported")
     expect(
       codeOf(() =>
         client.users.upsert({
-          where: { id: "user:1" },
           data: { age: surql`age + 1` },
           return: "diff",
+          where: { id: "user:1" },
         }),
       ),
     ).toBe("ReturnNotSupported")
@@ -107,13 +108,13 @@ describe("return semantics — before/diff and the batch decode", () => {
   })
 
   test("upsert LET/IF honors return:'before' on both branches", async () => {
-    const { client, calls } = makeClient()
+    const { calls, client } = makeClient()
     await client.users.upsert({
-      where: { id: "user:1" },
       create: { id: "user:1", ...data },
-      update: { age: surql`age + 1` },
-      return: "before",
       onMissing: "create",
+      return: "before",
+      update: { age: surql`age + 1` },
+      where: { id: "user:1" },
     })
     const sql = lastCall(calls).sql
     expect(sql).toContain("THEN CREATE user:1 CONTENT $p1 RETURN NONE")
@@ -121,7 +122,7 @@ describe("return semantics — before/diff and the batch decode", () => {
   })
 
   test("upsertMany conflict with an explicit update map compiles LET/IF (full create)", async () => {
-    const { conn, calls } = fakeConn((sql) =>
+    const { calls, conn } = fakeConn((sql) =>
       sql.split("\n").map((line) => {
         if (line.startsWith("IF")) return ok([ROW])
         return ok(null)
@@ -129,8 +130,8 @@ describe("return semantics — before/diff and the batch decode", () => {
     )
     const client = orm(conn, { schema: schemaDef }) as Client<typeof schemaDef>
     const result = await client.users.upsertMany({
-      data: [{ ...data }],
       conflict: "email",
+      data: [{ ...data }],
       update: { age: surql`age + 1` },
     })
     const sql = calls[0]?.sql ?? ""
@@ -145,14 +146,14 @@ describe("return semantics — before/diff and the batch decode", () => {
 
   test("upsertMany conflict must be a single-field UNIQUE index", () => {
     const { client } = makeClient()
-    expect(codeOf(() => client.users.upsertMany({ data: [{ ...data }], conflict: "age" }))).toBe(
+    expect(codeOf(() => client.users.upsertMany({ conflict: "age", data: [{ ...data }] }))).toBe(
       "UniqueTargetRequired",
     )
     expect(
       codeOf(() =>
         client.users.upsertMany({
-          data: [{ ...data }],
           conflict: "email",
+          data: [{ ...data }],
           update: "drop" as never,
         }),
       ),
@@ -173,9 +174,9 @@ describe("return semantics — before/diff and the batch decode", () => {
 
 describe("eager guards — skipDuplicates, relate sugar, unrelate timeout, updateEach", () => {
   test("skipDuplicates: id-less rows compile with a generated id; non-objects still fail", async () => {
-    const { client, calls } = makeClient()
+    const { calls, client } = makeClient()
     expect(
-      codeOf(() => client.users.createMany({ data: [5 as never], skipDuplicates: true })),
+      codeOf(() => client.users.createMany({ data: [MAGIC_5 as never], skipDuplicates: true })),
     ).toBe("ValidationError")
     await client.users.createMany({ data: [data, data], skipDuplicates: true })
     expect(calls[0]?.sql).toBe(
@@ -187,12 +188,12 @@ describe("eager guards — skipDuplicates, relate sugar, unrelate timeout, updat
   })
 
   test("relate sugar validates the edge and codec-checks its data", async () => {
-    const { client, calls } = makeClient([{ id: new RecordId("post", "1"), title: "T" }])
+    const { calls, client } = makeClient([{ id: new RecordId("post", "1"), title: "T" }])
     expect(
       codeOf(() =>
         client.posts.create({
           data: { title: "T" },
-          relate: [{ from: "user:1", edge: "nope", to: "$self" }],
+          relate: [{ edge: "nope", from: "user:1", to: "$self" }],
         }),
       ),
     ).toBe("ValidationError")
@@ -202,10 +203,10 @@ describe("eager guards — skipDuplicates, relate sugar, unrelate timeout, updat
           data: { title: "T" },
           relate: [
             {
-              from: "user:1",
-              edge: "likes",
-              to: "$self",
               data: { score: "x" as never },
+              edge: "likes",
+              from: "user:1",
+              to: "$self",
             },
           ],
         }),
@@ -215,7 +216,7 @@ describe("eager guards — skipDuplicates, relate sugar, unrelate timeout, updat
 
     await client.posts.create({
       data: { title: "T" },
-      relate: [{ from: "user:1", edge: "likes", to: "$self" }],
+      relate: [{ edge: "likes", from: "user:1", to: "$self" }],
       return: "none",
     })
     expect(lastCall(calls).sql).toContain("RETURN NONE;")
@@ -227,7 +228,7 @@ describe("eager guards — skipDuplicates, relate sugar, unrelate timeout, updat
       codeOf(() =>
         client.posts.create({
           data: { title: "T" },
-          relate: [{ from: "user:1", edge: "likes", to: "$self" }],
+          relate: [{ edge: "likes", from: "user:1", to: "$self" }],
           return: "diff" as never,
         }),
       ),
@@ -239,47 +240,47 @@ describe("eager guards — skipDuplicates, relate sugar, unrelate timeout, updat
     expect(
       codeOf(() =>
         client.likes.relateMany({
-          data: [{ from: "user:1", to: "post:1", return: "before" } as never],
+          data: [{ from: "user:1", return: "before", to: "post:1" } as never],
         }),
       ),
     ).toBe("ValidationError")
   })
 
   test("unrelate / unrelateMany thread the timeout", async () => {
-    const { client, calls } = makeClient([LIKE_ROW])
+    const { calls, client } = makeClient([LIKE_ROW])
     await client.likes.unrelate({
       from: "user:1",
-      to: "post:1",
       timeout: "2s",
+      to: "post:1",
     })
     expect(lastCall(calls).sql).toBe(
       "DELETE likes WHERE in = user:1 AND out = post:1 RETURN BEFORE TIMEOUT 2s;",
     )
     await client.likes.unrelateMany({
-      where: { score: { lt: 3 } },
       timeout: 500,
+      where: { score: { lt: 3 } },
     })
     expect(lastCall(calls).sql).toBe("DELETE likes WHERE score < $p0 RETURN BEFORE TIMEOUT 500ms;")
   })
 
   test("updateEach compiles select before the write and projects the rows", async () => {
-    const { client, calls } = makeClient([ROW])
+    const { calls, client } = makeClient([ROW])
     expect(
       codeOf(() =>
         client.users.updateEach({
-          data: [{ id: "user:1", age: 31 }],
-          select: 123 as never,
+          data: [{ age: 31, id: "user:1" }],
+          select: MAGIC_123 as never,
         }),
       ),
     ).toBe("ValidationError")
     expect(calls).toHaveLength(0)
 
     const result = await client.users.updateEach({
-      data: [{ id: "user:1", age: 31 }],
-      select: { id: true, age: true },
+      data: [{ age: 31, id: "user:1" }],
+      select: { age: true, id: true },
     })
     expect(result.count).toBe(1)
-    expect(result.data?.[0]).toEqual({ id: ROW.id, age: ROW.age })
+    expect(result.data?.[0]).toEqual({ age: ROW.age, id: ROW.id })
   })
 
   test("updateEach rejects onEmpty:'throw' with return:'none'", () => {
@@ -287,9 +288,9 @@ describe("eager guards — skipDuplicates, relate sugar, unrelate timeout, updat
     expect(
       codeOf(() =>
         client.users.updateEach({
-          data: [{ id: "user:1", age: 1 }],
-          return: "none",
+          data: [{ age: 1, id: "user:1" }],
           onEmpty: "throw",
+          return: "none",
         }),
       ),
     ).toBe("ValidationError")

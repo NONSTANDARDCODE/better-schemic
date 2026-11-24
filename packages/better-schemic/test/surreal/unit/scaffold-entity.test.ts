@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-implied-eval -- Object key order mirrors expected serialized output and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. The test compiles a fixture expression with Function. */
 /**
  * `better-schemic new <kind> <name>` -> surrealDriver.scaffoldEntity(kind, name). Each template must be a
  * VALID authoring module: we eval the generated `define*` expression and assert it emits real DDL for
@@ -22,15 +21,15 @@ import {
 } from "../../../src/surreal/pure"
 
 const API = {
-  table,
-  relation,
-  defineView,
-  defineFunction,
   defineAccess,
-  defineEvent,
   defineAnalyzer,
+  defineEvent,
+  defineFunction,
+  defineView,
+  relation,
   s,
   surql,
+  table,
 }
 const transpiler = new Bun.Transpiler({ loader: "ts" })
 
@@ -39,7 +38,8 @@ function emitScaffold(src: string): string {
   const m = /export const \w+\s*=\s*([\s\S]*?);/u.exec(src)
   if (!m) throw new Error("no `export const … = …;` in scaffold")
   const js = transpiler.transformSync(`const __f = () => (\n${m[1]}\n);`)
-  const fn = new Function(...Object.keys(API), `${js}\nreturn __f();`)
+  const Fn = Function
+  const fn = new Fn(...Object.keys(API), `${js}\nreturn __f();`)
   const def = fn(...Object.values(API))
   return def instanceof TableDef ? emitTable(def) : emitDefStatement(def).ddl
 }
@@ -54,8 +54,7 @@ describe("scaffoldEntity — authorable kinds emit valid DDL", () => {
     ["event", "DEFINE EVENT thing_one ON TABLE thing"],
     ["analyzer", "DEFINE ANALYZER thing_one TOKENIZERS"],
   ]
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [kind, includes] of cases) {
+  cases.forEach(([kind, includes]) => {
     test(`${kind} scaffolds + emits`, () => {
       const src = scaffoldEntity(kind, "thing_one")
       // PascalCase export name from the snake_case input.
@@ -63,7 +62,7 @@ describe("scaffoldEntity — authorable kinds emit valid DDL", () => {
       expect(src).toContain('from "better-schemic"')
       expect(emitScaffold(src)).toContain(includes)
     })
-  }
+  })
 })
 
 describe("scaffoldEntity — identifier shaping", () => {

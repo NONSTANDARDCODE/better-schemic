@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/require-await -- Object key order mirrors expected serialized output and must stay as authored. Mock methods match async interfaces without awaiting. */
 import { describe, expect, test } from "bun:test"
 
 import {
@@ -21,25 +20,28 @@ type PAccess = {
 
 const registry = new KindRegistry()
 const tableEngine: KindEngine<PTable, PTable> = {
-  lower: (t) => t,
   emit: (t) => [`TABLE ${t.name}`],
+  lower: (t) => t,
   remove: (t) => [`DROP TABLE ${t.name}`],
 }
 registry.define({
-  name: "table",
   build: (name: string): PTable => ({ kind: "table", name }),
+  name: "table",
   ...tableEngine,
 })
 const accessEngine: KindEngine<PAccess, PAccess> = {
-  lower: (a) => a,
   emit: (a) => [`DEFINE ACCESS ${a.name} KEY $secret`],
-  remove: (a) => [`REMOVE ACCESS ${a.name}`],
-  introspect: async () => [{ kind: "access", name: "api" }],
   excludeFromMigrations: true, // the flag under test
+  introspect: async () => {
+    await Promise.resolve()
+    return [{ kind: "access", name: "api" }]
+  },
+  lower: (a) => a,
+  remove: (a) => [`REMOVE ACCESS ${a.name}`],
 }
 registry.define({
-  name: "access",
   build: (name: string): PAccess => ({ kind: "access", name }),
+  name: "access",
   ...accessEngine,
 })
 
@@ -96,13 +98,13 @@ describe("excludeFromMigrations", () => {
 describe("excludeFromMigrations predicate (per-object)", () => {
   const predicateRegistry = new KindRegistry()
   predicateRegistry.define({
-    name: "access",
     build: (name: string): PAccess => ({ kind: "access", name }),
-    lower: (a) => a,
     emit: (a) => [`DEFINE ACCESS ${a.name}`],
-    remove: (a) => [`REMOVE ACCESS ${a.name}`],
     // The predicate under test: `secret_*` objects unmanag them.
     excludeFromMigrations: (p) => p.name.startsWith("secret_"),
+    lower: (a) => a,
+    name: "access",
+    remove: (a) => [`REMOVE ACCESS ${a.name}`],
   })
   const pub: PAccess = { kind: "access", name: "public_a" }
   const secret: PAccess = { kind: "access", name: "secret_a" }

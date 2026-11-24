@@ -62,8 +62,9 @@ export type OrmOptions = {
 export type SchemaArg<S extends SchemaInput> = S | SchemaDef<S>
 
 /** A project helper attached with `extends` (an object, or a factory receiving the client). */
-// eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-export type Extension = ((client: ClientRuntime) => object) | object
+
+export type Extension =
+  ((client: ClientRuntime) => Record<string, unknown>) | Record<string, unknown>
 
 /**
  * The public client type: lifecycle members + one {@link ModelDelegate} per schema key
@@ -144,8 +145,10 @@ export type Client<
      * Attach project helpers to the client (object or factory receiving the client). A name
      * colliding with an existing member fails fast.
      */
-    // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-    extends<T extends object>(extension: ((client: Client<S, C, P>) => T) | T): Client<S, C, P> & T
+
+    extends<T extends Record<string, unknown>>(
+      extension: ((client: Client<S, C, P>) => T) | T,
+    ): Client<S, C, P> & T
     /** Database functions: dynamic `fn.call(name, args)` + one typed shortcut per schema function. */
     readonly fn: FnSurface<S>
     /** A client over a scoped, disposable SDK session (its own auth/session context). */

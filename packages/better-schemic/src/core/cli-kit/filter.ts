@@ -128,13 +128,13 @@ export function mergeStored(
   f: Filter,
 ): StoredSnapshot {
   const merged = new Map<string, PortableObject>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const o of snapshotObjects(prev.schema))
+  snapshotObjects(prev.schema).forEach((o) => {
     if (!passesFilter(registry, o, f)) merged.set(objKey(o), o)
+  })
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const o of snapshotObjects(next.schema))
+  snapshotObjects(next.schema).forEach((o) => {
     if (passesFilter(registry, o, f)) merged.set(objKey(o), o)
+  })
 
   return {
     driver: next.driver,

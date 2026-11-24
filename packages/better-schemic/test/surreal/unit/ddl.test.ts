@@ -1,7 +1,8 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping, @typescript-eslint/explicit-function-return-type, unicorn/no-array-callback-reference -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. s.map e construtor de schema, nao Array.prototype.map: os argumentos sao schemas, nao callbacks. */
+const smap = s.map.bind(s)
+
 import { describe, expect, test } from "bun:test"
 import { surql } from "surrealdb"
-import { z } from "zod"
+import { z, type ZodString } from "zod"
 
 import { schemaStruct } from "../../../src/surreal/cli/lower"
 import { structuredSnapshot } from "../../../src/surreal/cli/structure"
@@ -15,13 +16,33 @@ import {
   type Shape,
   table,
   type TableDef,
+  type WithSmartId,
 } from "../../../src/surreal/pure"
+const tbl = (
+  perms: Parameters<TableDef<string, Shape>["permissions"]>[0],
+): TableDef<"t", WithSmartId<"t", { name: SField<ZodString> }>> =>
+  table("t", { name: s.string() }).permissions(perms)
+
+const head = (t: TableDef<string, Shape>): string => emitTable(t).split("\n")[0]
+
+const MAGIC_0p5 = 0.5
+const MAGIC_10 = 10
+const MAGIC_100 = 100
+const MAGIC_120 = 120
+const MAGIC_2 = 2
+const MAGIC_254 = 254
+const MAGIC_3 = 3
+const MAGIC_4 = 4
+const MAGIC_42 = 42
+const MAGIC_5 = 5
+const MAGIC_6 = 6
+const MAGIC_8 = 8
 
 /** DDL for a single standalone field `x` on table `t`. */
-const ddl = (field: AnyField, opts?: Parameters<typeof emitField>[3]) =>
+const ddl = (field: AnyField, opts?: Parameters<typeof emitField>[typeof MAGIC_3]): string =>
   emitField("x", "t", field, opts)
 /** The bare SurrealQL type a field infers to (for leaf-type assertions). */
-const typeOf = (field: AnyField) => {
+const typeOf = (field: AnyField): string => {
   const m = /TYPE (.+);$/u.exec(ddl(field))
   if (!m) throw new Error(`no TYPE in: ${ddl(field)}`)
   return m[1]
@@ -276,13 +297,13 @@ describe("ASSERT generation", () => {
   })
 
   test("string $min/$max -> string::len bounds (AND-joined)", () => {
-    expect(ddl(s.string().$min(1).$max(120))).toBe(
+    expect(ddl(s.string().$min(1).$max(MAGIC_120))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE string ASSERT string::len($value) >= 1 AND string::len($value) <= 120;",
     )
   })
 
   test("string $length -> string::len equality", () => {
-    expect(ddl(s.string().$length(8))).toBe(
+    expect(ddl(s.string().$length(MAGIC_8))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE string ASSERT string::len($value) == 8;",
     )
   })
@@ -294,7 +315,7 @@ describe("ASSERT generation", () => {
   })
 
   test("number $min/$max -> bare value bounds", () => {
-    expect(ddl(s.number().$min(0).$max(10))).toBe(
+    expect(ddl(s.number().$min(0).$max(MAGIC_10))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE number ASSERT $value >= 0 AND $value <= 10;",
     )
   })
@@ -309,13 +330,13 @@ describe("ASSERT generation", () => {
   })
 
   test("a $-constraint also applies the matching Zod check app-side", () => {
-    const f = s.string().$min(2).$max(4)
+    const f = s.string().$min(MAGIC_2).$max(MAGIC_4)
     expect(f.schema.safeParse("ab").success).toBe(true)
     expect(f.schema.safeParse("a").success).toBe(false)
     expect(f.schema.safeParse("abcde").success).toBe(false)
     const n = s.number().$gte(0).$lte(1)
-    expect(n.schema.safeParse(0.5).success).toBe(true)
-    expect(n.schema.safeParse(2).success).toBe(false)
+    expect(n.schema.safeParse(MAGIC_0p5).success).toBe(true)
+    expect(n.schema.safeParse(MAGIC_2).success).toBe(false)
   })
 
   test("custom $assert(surql`…`) pushes the inlined expression", () => {
@@ -328,7 +349,7 @@ describe("ASSERT generation", () => {
     // s.email() already baked string::is_email; the custom $assert repeats it -> deduped.
     const f = s
       .email()
-      .$max(254)
+      .$max(MAGIC_254)
       .$assert(surql`string::is_email($value)`)
     expect(ddl(f)).toBe(
       "DEFINE FIELD x ON TABLE t TYPE string ASSERT string::is_email($value) AND string::len($value) <= 254;",
@@ -342,7 +363,7 @@ describe("ASSERT generation", () => {
         new SField(
           z
             .email()
-            .min(5)
+            .min(MAGIC_5)
             .regex(/@example\.com$/u),
         ).$assert(),
       ),
@@ -350,97 +371,97 @@ describe("ASSERT generation", () => {
       "DEFINE FIELD x ON TABLE t TYPE string ASSERT string::is_email($value) AND string::len($value) >= 5 AND $value = /@example\\.com$/;",
     )
     // number: inclusive vs exclusive bounds.
-    expect(ddl(new SField(z.number().gte(0).lt(100)).$assert())).toBe(
+    expect(ddl(new SField(z.number().gte(0).lt(MAGIC_100)).$assert())).toBe(
       "DEFINE FIELD x ON TABLE t TYPE number ASSERT $value >= 0 AND $value < 100;",
     )
   })
 
   test("array $min/$max -> array::len bounds; NEVER a type size", () => {
-    expect(ddl(s.array(s.int()).$max(6))).toBe(
+    expect(ddl(s.array(s.int()).$max(MAGIC_6))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE array<int> ASSERT array::len($value) <= 6;",
     )
-    expect(ddl(s.array(s.int()).$min(1).$max(6))).toBe(
+    expect(ddl(s.array(s.int()).$min(1).$max(MAGIC_6))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE array<int> ASSERT array::len($value) >= 1 AND array::len($value) <= 6;",
     )
   })
 
   test("array $length -> exact array<T, N> + array::len equality", () => {
-    expect(ddl(s.array(s.string()).$length(4))).toBe(
+    expect(ddl(s.array(s.string()).$length(MAGIC_4))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE array<string, 4> ASSERT array::len($value) == 4;",
     )
     // Zod-native `.length()` is app-side but still infers the exact type (no ASSERT).
-    expect(typeOf(s.array(s.string()).length(4))).toBe("array<string, 4>")
+    expect(typeOf(s.array(s.string()).length(MAGIC_4))).toBe("array<string, 4>")
   })
 
   test("set $max -> array::len bound; $size -> exact set<T, N>", () => {
-    expect(ddl(s.set(s.int()).$max(5))).toBe(
+    expect(ddl(s.set(s.int()).$max(MAGIC_5))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE set<int> ASSERT array::len($value) <= 5;",
     )
-    expect(ddl(s.set(s.int()).$size(5))).toBe(
+    expect(ddl(s.set(s.int()).$size(MAGIC_5))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE set<int, 5> ASSERT array::len($value) == 5;",
     )
     // Zod-native `.size()` is app-side but still infers the exact type (no ASSERT).
-    expect(typeOf(s.set(s.int()).size(5))).toBe("set<int, 5>")
+    expect(typeOf(s.set(s.int()).size(MAGIC_5))).toBe("set<int, 5>")
     // `$length` is string/array ; a set has no `.length`.
-    expect(ddl(s.set(s.int()).$length(5))).toBe("DEFINE FIELD x ON TABLE t TYPE set<int>;")
+    expect(ddl(s.set(s.int()).$length(MAGIC_5))).toBe("DEFINE FIELD x ON TABLE t TYPE set<int>;")
   })
 
   test("union bound only when ALL members share one family", () => {
     // Same-family unions: a literal counts as its value family, so "OK" + string is a STRING union.
-    expect(ddl(s.union([s.literal("OK"), s.string()]).$max(10))).toBe(
+    expect(ddl(s.union([s.literal("OK"), s.string()]).$max(MAGIC_10))).toBe(
       `DEFINE FIELD x ON TABLE t TYPE "OK" | string ASSERT string::len($value) <= 10;`,
     )
     // Numbers (with or without literals/none-ish members) -> bare value bound.
-    expect(ddl(s.union([s.int(), s.float()]).$max(10))).toBe(
+    expect(ddl(s.union([s.int(), s.float()]).$max(MAGIC_10))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE int | float ASSERT $value <= 10;",
     )
-    expect(ddl(s.union([s.int(), s.literal(0)]).$min(2))).toBe(
+    expect(ddl(s.union([s.int(), s.literal(0)]).$min(MAGIC_2))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE int | 0 ASSERT $value >= 2;",
     )
     // All-arrays -> array::len.
-    expect(ddl(s.union([s.array(s.int()), s.array(s.string())]).$length(2))).toBe(
+    expect(ddl(s.union([s.array(s.int()), s.array(s.string())]).$length(MAGIC_2))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE array<int> | array<string> ASSERT array::len($value) == 2;",
     )
     // MIXED families have no single valid function (`string::len` would measure a number's
     // SQL-string form), so no bound pushs it — author an explicit `$assert` instead.
-    expect(ddl(s.union([s.int(), s.string()]).$min(2))).toBe(
+    expect(ddl(s.union([s.int(), s.string()]).$min(MAGIC_2))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE int | string;",
     )
-    expect(ddl(s.union([s.array(s.int()), s.string()]).$length(2))).toBe(
+    expect(ddl(s.union([s.array(s.int()), s.string()]).$length(MAGIC_2))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE array<int> | string;",
     )
-    expect(ddl(s.union([s.string(), s.boolean()]).$max(2))).toBe(
+    expect(ddl(s.union([s.string(), s.boolean()]).$max(MAGIC_2))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE string | bool;",
     )
   })
 
   test("a standalone literal/enum no-ops (no Zod .min/.max to refine)", () => {
-    expect(ddl(s.literal("OK").$max(10))).toBe(`DEFINE FIELD x ON TABLE t TYPE "OK";`)
+    expect(ddl(s.literal("OK").$max(MAGIC_10))).toBe(`DEFINE FIELD x ON TABLE t TYPE "OK";`)
     expect(ddl(s.enum(["a", "b"]).$min(1))).toBe(`DEFINE FIELD x ON TABLE t TYPE "a" | "b";`)
   })
 
   test("$-constraints work through optional/nullable (schemaType + constrain unwrap)", () => {
     // `.optional()` is safe unguarded: SurrealDB skips ASSERT for NONE.
-    expect(ddl(s.string().optional().$min(3))).toBe(
+    expect(ddl(s.string().optional().$min(MAGIC_3))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE option<string> ASSERT string::len($value) >= 3;",
     )
     // `.nullable()` admits an explicit NULL (and SurrealDB runs asserts on NULL) -> guard it.
     expect(ddl(s.number().nullable().$gt(0))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE number | null ASSERT $value = NULL OR $value > 0;",
     )
-    expect(ddl(s.string().nullable().$min(3))).toBe(
+    expect(ddl(s.string().nullable().$min(MAGIC_3))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE string | null ASSERT $value = NULL OR string::len($value) >= 3;",
     )
     // `.nullish()` = option<T | null>: NONE is engine-skipped, NULL needs the guard.
-    expect(ddl(s.string().nullish().$min(3))).toBe(
+    expect(ddl(s.string().nullish().$min(MAGIC_3))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE option<string | null> ASSERT $value = NULL OR string::len($value) >= 3;",
     )
     // A null UNION member is ignorable for the bound (the guard admits the NULL itself).
-    expect(ddl(s.union([s.string(), s.null()]).$max(10))).toBe(
+    expect(ddl(s.union([s.string(), s.null()]).$max(MAGIC_10))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE string | null ASSERT $value = NULL OR string::len($value) <= 10;",
     )
     // A mixed union stays unconstrained through wrappers too.
-    expect(ddl(s.union([s.int(), s.string()]).optional().$max(2))).toBe(
+    expect(ddl(s.union([s.int(), s.string()]).optional().$max(MAGIC_2))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE option<int | string>;",
     )
     // A same-family wrapped union still bounds.
@@ -449,11 +470,11 @@ describe("ASSERT generation", () => {
         s
           .union([s.literal("OK"), s.string()])
           .optional()
-          .$max(2),
+          .$max(MAGIC_2),
       ),
     ).toBe(`DEFINE FIELD x ON TABLE t TYPE option<"OK" | string> ASSERT string::len($value) <= 2;`)
     // The Zod check lands on the inner schema; the wrappers preserv them.
-    const f = s.string().nullish().$min(3)
+    const f = s.string().nullish().$min(MAGIC_3)
     expect(f.schema.safeParse(undefined).success).toBe(true)
     expect(f.schema.safeParse(null).success).toBe(true)
     expect(f.schema.safeParse("ab").success).toBe(false)
@@ -513,24 +534,24 @@ describe("ASSERT generation", () => {
   })
 
   test("$assert() derives array/set bounds with array::len (and through wrappers)", () => {
-    expect(ddl(s.array(s.string()).min(2).max(5).$assert())).toBe(
+    expect(ddl(s.array(s.string()).min(MAGIC_2).max(MAGIC_5).$assert())).toBe(
       "DEFINE FIELD x ON TABLE t TYPE array<string> ASSERT array::len($value) >= 2 AND array::len($value) <= 5;",
     )
-    expect(ddl(s.array(s.string()).length(3).$assert())).toBe(
+    expect(ddl(s.array(s.string()).length(MAGIC_3).$assert())).toBe(
       "DEFINE FIELD x ON TABLE t TYPE array<string, 3> ASSERT array::len($value) == 3;",
     )
     // Zod sets use min_size/max_size/size_equals.
-    expect(ddl(s.set(s.int()).min(1).max(4).$assert())).toBe(
+    expect(ddl(s.set(s.int()).min(1).max(MAGIC_4).$assert())).toBe(
       "DEFINE FIELD x ON TABLE t TYPE set<int> ASSERT array::len($value) >= 1 AND array::len($value) <= 4;",
     )
-    expect(ddl(s.set(s.int()).size(3).$assert())).toBe(
+    expect(ddl(s.set(s.int()).size(MAGIC_3).$assert())).toBe(
       "DEFINE FIELD x ON TABLE t TYPE set<int, 3> ASSERT array::len($value) == 3;",
     )
-    expect(ddl(s.string().min(2).optional().$assert())).toBe(
+    expect(ddl(s.string().min(MAGIC_2).optional().$assert())).toBe(
       "DEFINE FIELD x ON TABLE t TYPE option<string> ASSERT string::len($value) >= 2;",
     )
     // A Zod map shares min_size/max_size — but it lowers to `object`, so no array::len nonsense.
-    expect(ddl(s.map(s.string(), s.int()).min(1).$assert())).toBe(
+    expect(ddl(smap(s.string(), s.int()).min(1).$assert())).toBe(
       "DEFINE FIELD x ON TABLE t TYPE object;\nDEFINE FIELD x.* ON TABLE t TYPE int;",
     )
   })
@@ -547,8 +568,8 @@ describe("ASSERT generation", () => {
     expect(arr.schema.safeParse(["a", "b", "c"]).success).toBe(true)
     expect(arr.schema.safeParse(["a", "b", "c", "d"]).success).toBe(false)
     const set = s.set(s.int(), { max: 2 })
-    expect(set.schema.safeParse(new Set([1, 2])).success).toBe(true)
-    expect(set.schema.safeParse(new Set([1, 2, 3])).success).toBe(false)
+    expect(set.schema.safeParse(new Set([1, MAGIC_2])).success).toBe(true)
+    expect(set.schema.safeParse(new Set([1, MAGIC_2, MAGIC_3])).success).toBe(false)
   })
 })
 
@@ -600,7 +621,7 @@ describe("nested structures expand into sub-fields", () => {
       "DEFINE FIELD x ON TABLE t TYPE object;",
       "DEFINE FIELD x.* ON TABLE t TYPE int;",
     ])
-    expect(ddl(s.map(z.string(), s.string())).split("\n")).toEqual([
+    expect(ddl(smap(z.string(), s.string())).split("\n")).toEqual([
       "DEFINE FIELD x ON TABLE t TYPE object;",
       "DEFINE FIELD x.* ON TABLE t TYPE string;",
     ])
@@ -627,7 +648,7 @@ describe("composite leaf types", () => {
   test("enum / literal", () => {
     expect(typeOf(s.enum(["admin", "member"]))).toBe(`"admin" | "member"`)
     expect(typeOf(s.literal("x"))).toBe(`"x"`)
-    expect(typeOf(s.literal(42))).toBe("42")
+    expect(typeOf(s.literal(MAGIC_42))).toBe("42")
     expect(typeOf(s.literal(true))).toBe("true")
   })
 
@@ -667,7 +688,7 @@ describe("edge branches", () => {
   })
 
   test("a $default with bindings is inlined into the DDL", () => {
-    expect(ddl(s.int().$default(surql`${42}`))).toBe(
+    expect(ddl(s.int().$default(surql`${MAGIC_42}`))).toBe(
       "DEFINE FIELD x ON TABLE t TYPE int DEFAULT 42;",
     )
   })
@@ -687,13 +708,13 @@ describe("recursive types", () => {
 
 describe("emitTable", () => {
   const User = table("user", {
-    id: z.string(),
-    name: s.string(),
-    role: s.enum(["admin", "member"]).$default(surql`"member"`),
     createdAt: s
       .datetime()
       .$default(surql`time::now()`)
       .$readonly(),
+    id: z.string(),
+    name: s.string(),
+    role: s.enum(["admin", "member"]).$default(surql`"member"`),
     settings: s.object({ theme: s.string().$default(surql`"light"`) }),
   }).comment("Users")
 
@@ -741,7 +762,7 @@ describe("emitTable", () => {
   })
 
   test("defineView().as() -> TYPE ANY SCHEMALESS AS <SELECT>, no DEFINE FIELD even with a shape", () => {
-    const v = defineView("adults", { name: s.string(), age: s.number() }).as(
+    const v = defineView("adults", { age: s.number(), name: s.string() }).as(
       surql`SELECT name, age FROM person WHERE age >= 18`,
     )
     const out = emitTable(v)
@@ -796,12 +817,12 @@ describe("emitTable", () => {
     }).schemafull()
     // The static output type is `{ x: string }`, but FLEXIBLE objects keep arbitrary keys at runtime
     // (matching the DB) — assert against the looser shape.
-    expect(t.fields.a.decode([{ x: "v", extra: 1 }] as never)).toEqual([
-      { x: "v", extra: 1 },
+    expect(t.fields.a.decode([{ extra: 1, x: "v" }] as never)).toEqual([
+      { extra: 1, x: "v" },
     ] as never)
-    expect(t.fields.o.decode({ x: "v", extra: 1 })).toEqual({
-      x: "v",
+    expect(t.fields.o.decode({ extra: 1, x: "v" })).toEqual({
       extra: 1,
+      x: "v",
     } as never)
   })
 
@@ -810,12 +831,12 @@ describe("emitTable", () => {
     // subclass); on a non-object field `applyObjectMode` passes the schema through unchanged, so there
     // is no FLEXIBLE and the field emits as without the call.
     const T = table("t", {
-      id: s.string(),
       a: s.string().flexible(),
       b: s.number().loose(),
       c: s.array(s.string()).strict(),
+      id: s.string(),
     })
-    const line = (n: string) =>
+    const line = (n: string): string | undefined =>
       emitTable(T)
         .split("\n")
         .find((l) => l.includes(` ${n} `))
@@ -879,9 +900,6 @@ describe("emitTable", () => {
 
 describe("PERMISSIONS", () => {
   /** The first line (table head) of a table's DDL. */
-  const head = (t: TableDef<string, Shape>) => emitTable(t).split("\n")[0]
-  const tbl = (perms: Parameters<TableDef<string, Shape>["permissions"]>[0]) =>
-    table("t", { name: s.string() }).permissions(perms)
 
   describe("renderPermissions algorithm (4 table ops)", () => {
     const ops = ["select", "create", "update", "delete"] as const
@@ -901,10 +919,10 @@ describe("PERMISSIONS", () => {
       expect(
         renderPermissions(
           {
-            select: surql`$auth.id != NONE`,
             create: false,
-            update: surql`id = $auth.id`,
             delete: surql`id = $auth.id`,
+            select: surql`$auth.id != NONE`,
+            update: surql`id = $auth.id`,
           },
           ops,
         ),
@@ -922,7 +940,7 @@ describe("PERMISSIONS", () => {
     test("two identical BoundQuery exprs auto-merge into one FOR clause", () => {
       expect(
         renderPermissions(
-          { select: surql`owner = $auth.id`, create: surql`owner = $auth.id` },
+          { create: surql`owner = $auth.id`, select: surql`owner = $auth.id` },
           ops,
         ),
       ).toBe("PERMISSIONS FOR select, create WHERE owner = $auth.id")
@@ -966,10 +984,10 @@ describe("PERMISSIONS", () => {
 
     test("per-op object with `same as` merge", () => {
       const T = tbl({
-        select: surql`$auth.id != NONE`,
         create: false,
-        update: surql`id = $auth.id`,
         delete: "same as update",
+        select: surql`$auth.id != NONE`,
+        update: surql`id = $auth.id`,
       })
       expect(head(T)).toBe(
         "DEFINE TABLE t TYPE NORMAL SCHEMAFULL PERMISSIONS FOR select WHERE $auth.id != NONE FOR create NONE FOR update, delete WHERE id = $auth.id;",
@@ -981,10 +999,10 @@ describe("PERMISSIONS", () => {
       // `FOR select WHERE … FOR update WHERE …` per-op, while the authoring emitter collapsed. Now both
       // collapse — matching SurrealDB's INFO form. (`delete NONE` is the table default, so it's omitted.)
       const T = table("doc", { id: s.string() }).permissions({
-        select: surql`$auth.id = id`,
-        update: "same as select",
         create: true,
         delete: false,
+        select: surql`$auth.id = id`,
+        update: "same as select",
       })
       const snap = structuredSnapshot(schemaStruct([T], []))
       const tableDdl = Object.values(snap.statements).find((st) =>

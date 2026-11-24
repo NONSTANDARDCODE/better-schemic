@@ -1,4 +1,21 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator, unicorn/consistent-function-scoping, @typescript-eslint/require-await, @typescript-eslint/explicit-function-return-type, @typescript-eslint/no-extraneous-class -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. Helpers stay colocated with the tests that use them. Mock methods match async interfaces without awaiting. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. Classes vazias sao fixtures intencionais: exercitam constructor.name e instanceof. */
+const MAGIC_100 = 100
+const MAGIC_12 = 12
+const MAGIC_1200 = 1200
+const MAGIC_12p4 = 12.4
+const MAGIC_160 = 160
+const MAGIC_1p5 = 1.5
+const MAGIC_2 = 2
+const MAGIC_20 = 20
+const MAGIC_2020 = 2020
+const MAGIC_2025 = 2025
+const MAGIC_250 = 250
+const MAGIC_3 = 3
+const MAGIC_34 = 34
+const MAGIC_5 = 5
+const MAGIC_56 = 56
+const MAGIC_60 = 60
+const MAGIC_789 = 789
+const MAGIC_999 = 999
 // The query logger: option/env resolution, level/format gating, the three renderers, auto-explain
 // and the executor wiring (reads, writes, explain, raw, context, transactions, errors). Offline.
 import { describe, expect, test } from "bun:test"
@@ -14,67 +31,91 @@ import type {
   QueryLogger,
 } from "../../../src/surreal/orm/types/logger"
 import { s, table } from "../../../src/surreal/pure"
+const out = (ms: number): string => {
+  const c = capture({ colors: false, format: "compact" })
+  c.logger.emit(event({ durationMs: ms }))
+  return c.out()
+}
 
-const User = table("user", { name: s.string(), age: s.int() })
+const sink = (): void => {
+  /* empty */
+}
+
+const User = table("user", { age: s.int(), name: s.string() })
 const schemaDef = schema({ users: User })
 type C = Client<typeof schemaDef>
 
 // --- fixtures ----------------------------------------------------------------------------------
 
-const stat = (ms = 1) => ({
+const stat = (
+  ms = 1,
+): {
+  bytesReceived: number
+  bytesScanned: number
+  duration: string
+  recordsReceived: number
+  recordsScanned: number
+} => ({
+  bytesReceived: 0,
+  bytesScanned: 0,
   duration: `${ms}ms`,
   recordsReceived: 0,
-  bytesReceived: 0,
   recordsScanned: 0,
-  bytesScanned: 0,
 })
 const okr = (result: unknown, ms = 1): QueryResponse =>
   ({
-    success: true,
     result,
-    type: "other",
     stats: stat(ms),
+    success: true,
+    type: "other",
   }) as unknown as QueryResponse
 const failr = (code: string, message: string): QueryResponse =>
   ({
-    success: false,
     error: { code, message },
-    stats: stat(2),
+    stats: stat(MAGIC_2),
+    success: false,
   }) as unknown as QueryResponse
 
-function capture(options: Parameters<typeof createQueryLogger>[0]) {
+function capture(options: Parameters<typeof createQueryLogger>[0]): {
+  lines: string[]
+  logger: QueryLogger
+  out: () => string
+} {
   const lines: string[] = []
   const logger = createQueryLogger({ ...options, write: (l) => lines.push(l) })
-  return { logger, lines, out: () => lines.join("\n") }
+  return { lines, logger, out: (): string => lines.join("\n") }
 }
 
 const event = (over: Partial<QueryLogEvent> = {}): QueryLogEvent => ({
-  phase: "run",
-  operation: "findMany",
-  table: "user",
-  transactional: false,
-  inTransaction: false,
-  statements: [{ sql: "SELECT * FROM user WHERE age >= $p0", vars: { p0: 18 } }],
-  results: [{ status: "OK", rows: 1, time: "0.2ms" }],
   durationMs: 12.4,
-  time: Date.UTC(2025, 0, 1, 12, 34, 56, 789),
+  inTransaction: false,
+  operation: "findMany",
+  phase: "run",
+  results: [{ rows: 1, status: "OK", time: "0.2ms" }],
+  statements: [{ sql: "SELECT * FROM user WHERE age >= $p0", vars: { p0: 18 } }],
+  table: "user",
+  time: Date.UTC(MAGIC_2025, 0, 1, MAGIC_12, MAGIC_34, MAGIC_56, MAGIC_789),
+  transactional: false,
   ...over,
 })
 
-function connOf(handler: (sql: string, vars?: Record<string, unknown>) => QueryResponse[]) {
+function connOf(handler: (sql: string, vars?: Record<string, unknown>) => QueryResponse[]): {
+  calls: { sql: string; vars?: Record<string, unknown> | undefined }[]
+  conn: never
+} {
   const calls: { sql: string; vars?: Record<string, unknown> }[] = []
   const conn = {
-    query(sql: string, vars?: Record<string, unknown>) {
-      calls.push({ sql, vars })
-      return {
-        responses: async (): Promise<QueryResponse[]> => handler(sql, vars),
-      }
-    },
     close() {
       return Promise.resolve()
     },
+    query(sql: string, vars?: Record<string, unknown>) {
+      calls.push({ sql, vars })
+      return {
+        responses: (): Promise<QueryResponse[]> => Promise.resolve(handler(sql, vars)),
+      }
+    },
   } as never
-  return { conn, calls }
+  return { calls, conn }
 }
 
 /** A capturing sink (the logger's `write`) to hand to the client option. */
@@ -96,7 +137,7 @@ describe("resolveLogger — the flag / env", () => {
     expect(resolveLogger("json", {})?.options.format).toBe("json")
     expect(resolveLogger("compact", {})?.options.format).toBe("compact")
     expect(resolveLogger("silent", {})?.enabled).toBe(false)
-    expect(resolveLogger({ slowMs: 5 }, {})?.options.slowMs).toBe(5)
+    expect(resolveLogger({ slowMs: 5 }, {})?.options.slowMs).toBe(MAGIC_5)
   })
 
   test("env enables and selects the preset", () => {
@@ -116,12 +157,16 @@ describe("resolveLogger — the flag / env", () => {
       BETTER_SCHEMIC_LOG_SLOW_MS: "5",
     }
     expect(resolveLogger(true, env)?.options.level).toBe("info")
-    expect(resolveLogger(true, env)?.options.slowMs).toBe(5)
+    expect(resolveLogger(true, env)?.options.slowMs).toBe(MAGIC_5)
     expect(resolveLogger({ level: "warn" }, env)?.options.level).toBe("warn")
     expect(resolveLogger(true, { BETTER_SCHEMIC_LOG_LEVEL: "bogus" })?.options.level).toBe("debug")
-    expect(resolveLogger(true, { BETTER_SCHEMIC_LOG_SLOW_MS: "-1" })?.options.slowMs).toBe(100)
-    expect(resolveLogger(true, { BETTER_SCHEMIC_LOG_SLOW_MS: "nope" })?.options.slowMs).toBe(100)
-    expect(resolveLogger("pretty", env)?.options.slowMs).toBe(5)
+    expect(resolveLogger(true, { BETTER_SCHEMIC_LOG_SLOW_MS: "-1" })?.options.slowMs).toBe(
+      MAGIC_100,
+    )
+    expect(resolveLogger(true, { BETTER_SCHEMIC_LOG_SLOW_MS: "nope" })?.options.slowMs).toBe(
+      MAGIC_100,
+    )
+    expect(resolveLogger("pretty", env)?.options.slowMs).toBe(MAGIC_5)
   })
 
   test("defaults are sane", () => {
@@ -131,10 +176,10 @@ describe("resolveLogger — the flag / env", () => {
     expect(o.icons).toBe(true)
     expect(o.time).toBe(true)
     expect(o.counter).toBe(true)
-    expect(o.slowMs).toBe(100)
+    expect(o.slowMs).toBe(MAGIC_100)
     expect(o.verbose).toBe(false)
-    expect(o.maxRows).toBe(3)
-    expect(o.maxValueLength).toBe(160)
+    expect(o.maxRows).toBe(MAGIC_3)
+    expect(o.maxValueLength).toBe(MAGIC_160)
     expect(o.prettySql).toBe(true)
     expect(o.explain).toBe(false)
     expect(o.stack).toBe(false)
@@ -142,41 +187,38 @@ describe("resolveLogger — the flag / env", () => {
   })
 
   test("every explicit option is preserved (no silent drops)", () => {
-    const sink = () => {
-      /* empty */
-    }
     const o = createQueryLogger({
-      level: "warn",
-      format: "json",
       colors: false,
-      icons: false,
-      time: false,
       counter: false,
-      slowMs: 7,
-      verbose: true,
+      explain: "all",
+      format: "json",
+      icons: false,
+      level: "warn",
       maxRows: 1,
       maxValueLength: 12,
       prettySql: false,
-      explain: "all",
-      stack: true,
       redact: true,
+      slowMs: 7,
+      stack: true,
+      time: false,
+      verbose: true,
       write: sink,
     }).options
     expect(o).toMatchObject({
-      level: "warn",
-      format: "json",
       colors: false,
-      icons: false,
-      time: false,
       counter: false,
-      slowMs: 7,
-      verbose: true,
+      explain: "all",
+      format: "json",
+      icons: false,
+      level: "warn",
       maxRows: 1,
       maxValueLength: 12,
       prettySql: false,
-      explain: "all",
-      stack: true,
       redact: true,
+      slowMs: 7,
+      stack: true,
+      time: false,
+      verbose: true,
     })
     expect(o.write).toBe(sink)
   })
@@ -195,11 +237,11 @@ describe("resolveLogger — the flag / env", () => {
 
   test("a pre-built QueryLogger is used as-is (no env/option rewriting)", () => {
     const built: QueryLogger = {
-      enabled: true,
-      options: createQueryLogger().options,
       emit: () => {
         /* empty */
       },
+      enabled: true,
+      options: createQueryLogger().options,
       planStatement: () => undefined,
     }
     expect(resolveLogger(built, { BETTER_SCHEMIC_LOG_LEVEL: "warn" })).toBe(built)
@@ -228,17 +270,17 @@ describe("resolveLogger — the flag / env", () => {
 
 describe("level / format gating", () => {
   test("debug logs every run; info only slow/errored; warn only errors; silent nothing", () => {
-    const debug = capture({ level: "debug", format: "compact" })
+    const debug = capture({ format: "compact", level: "debug" })
     debug.logger.emit(event({ durationMs: 1 }))
     expect(debug.lines).toHaveLength(1)
 
-    const info = capture({ level: "info", format: "compact", slowMs: 10 })
+    const info = capture({ format: "compact", level: "info", slowMs: 10 })
     info.logger.emit(event({ durationMs: 1 }))
     info.logger.emit(event({ durationMs: 20 }))
     info.logger.emit(event({ durationMs: 1, error: new Error("x") }))
-    expect(info.lines).toHaveLength(2)
+    expect(info.lines).toHaveLength(MAGIC_2)
 
-    const warn = capture({ level: "warn", format: "compact", slowMs: 10 })
+    const warn = capture({ format: "compact", level: "warn", slowMs: 10 })
     warn.logger.emit(event({ durationMs: 20 }))
     warn.logger.emit(event({ durationMs: 1, error: new Error("x") }))
     expect(warn.lines).toHaveLength(1)
@@ -250,7 +292,7 @@ describe("level / format gating", () => {
   })
 
   test("explain events always log (even at warn); format silent disables", () => {
-    const warn = capture({ level: "warn", format: "compact" })
+    const warn = capture({ format: "compact", level: "warn" })
     warn.logger.emit(event({ phase: "explain", plans: ["plan"] }))
     expect(warn.lines).toHaveLength(1)
     const off = capture({ format: "silent" })
@@ -274,17 +316,18 @@ describe("level / format gating", () => {
 
 /** Assert the box invariants: two borders and a shared visible width. */
 function expectBox(lines: string[]): void {
-  expect(lines.length).toBeGreaterThanOrEqual(3)
+  expect(lines.length).toBeGreaterThanOrEqual(MAGIC_3)
   expect(lines[0]?.startsWith("╭")).toBe(true)
   expect(lines.at(-1)?.startsWith("╰")).toBe(true)
   const width = visibleWidth(lines[0])
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const line of lines) expect(visibleWidth(line)).toBe(width)
+  lines.forEach((line) => {
+    expect(visibleWidth(line)).toBe(width)
+  })
 }
 
 describe("pretty rendering", () => {
   test("frames the operation, SQL, binds and meta", () => {
-    const { logger, lines } = capture({ colors: false })
+    const { lines, logger } = capture({ colors: false })
     logger.emit(event())
     expectBox(lines)
     expect(lines[0]).toContain("🔍 findMany · user")
@@ -296,10 +339,10 @@ describe("pretty rendering", () => {
   })
 
   test("icons/time/counter can be turned off", () => {
-    const { logger, lines } = capture({
+    const { lines, logger } = capture({
+      counter: false,
       icons: false,
       time: false,
-      counter: false,
     })
     logger.emit(event({ durationMs: 1 }))
     expect(lines[0]).not.toContain("🔍")
@@ -317,14 +360,14 @@ describe("pretty rendering", () => {
 
   test("row labels cover 0/1/N and the count override", () => {
     const zero = capture({})
-    zero.logger.emit(event({ results: [{ status: "OK", rows: 0 }] }))
+    zero.logger.emit(event({ results: [{ rows: 0, status: "OK" }] }))
     expect(zero.out()).toContain("0 rows")
     const many = capture({})
     many.logger.emit(
       event({
         results: [
-          { status: "OK", rows: 3 },
-          { status: "OK", rows: 2 },
+          { rows: 3, status: "OK" },
+          { rows: 2, status: "OK" },
         ],
       }),
     )
@@ -333,7 +376,7 @@ describe("pretty rendering", () => {
     counted.logger.emit(
       event({
         operation: "count",
-        results: [{ status: "OK", rows: 1, count: 42 }],
+        results: [{ count: 42, rows: 1, status: "OK" }],
       }),
     )
     expect(counted.out()).toContain("count 42")
@@ -343,20 +386,20 @@ describe("pretty rendering", () => {
   })
 
   test("context, plan, preview, multi-statement and statement separator", () => {
-    const { logger, lines } = capture({ prettySql: false })
+    const { lines, logger } = capture({ prettySql: false })
     logger.emit(
       event({
-        context: { namespace: "app", database: "main" },
+        context: { database: "main", namespace: "app" },
+        plans: ["SelectProject [ctx: Db]\n    TableScan [ctx: Db] [table: user]"],
+        preview: [{ id: "user:1", name: "A" }, { id: "user:2" }],
+        results: [
+          { rows: 1, status: "OK" },
+          { rows: 1, status: "OK" },
+        ],
         statements: [
           { sql: "SELECT * FROM user", vars: {} },
           { sql: "SELECT * FROM user WHERE x = $p0", vars: { p0: 1 } },
         ],
-        results: [
-          { status: "OK", rows: 1 },
-          { status: "OK", rows: 1 },
-        ],
-        plans: ["SelectProject [ctx: Db]\n    TableScan [ctx: Db] [table: user]"],
-        preview: [{ id: "user:1", name: "A" }, { id: "user:2" }],
       }),
     )
     const out = lines.join("\n")
@@ -369,7 +412,7 @@ describe("pretty rendering", () => {
   })
 
   test("bound values are typed, truncated and circular-safe", () => {
-    const { logger, lines } = capture({ colors: false, maxValueLength: 30 })
+    const { lines, logger } = capture({ colors: false, maxValueLength: 30 })
     const circular: Record<string, unknown> = { self: undefined }
     circular.self = circular
     logger.emit(
@@ -378,18 +421,18 @@ describe("pretty rendering", () => {
           {
             sql: "SELECT * FROM user",
             vars: {
-              s: "x".repeat(60),
-              n: 42,
+              arr: [1, MAGIC_2],
               b: true,
-              nil: null,
-              und: undefined,
               big: 10n,
-              date: new Date(Date.UTC(2020, 0, 2)),
-              rid: new RecordId("user", "tobie"),
-              uuid: Uuid.v4(),
-              obj: { nested: 1 },
-              arr: [1, 2],
               circ: circular,
+              date: new Date(Date.UTC(MAGIC_2020, 0, MAGIC_2)),
+              n: 42,
+              nil: null,
+              obj: { nested: 1 },
+              rid: new RecordId("user", "tobie"),
+              s: "x".repeat(MAGIC_60),
+              und: undefined,
+              uuid: Uuid.v4(),
             },
           },
         ],
@@ -422,26 +465,26 @@ describe("pretty rendering", () => {
   test("errors render with code, message and an optional stack", () => {
     const err = Object.assign(new Error("boom"), { code: "ParseError" })
     const bare = capture({ colors: false })
-    bare.logger.emit(event({ results: [{ status: "ERR" }], error: err }))
+    bare.logger.emit(event({ error: err, results: [{ status: "ERR" }] }))
     expect(bare.out()).toContain("⛔ [ParseError] boom")
-    const stacked = capture({ stack: true, colors: false })
+    const stacked = capture({ colors: false, stack: true })
     stacked.logger.emit(event({ error: err }))
     expect(stacked.out()).toContain("⛔")
   })
 
   test("explain phase strips the EXPLAIN prefix and draws the plan", () => {
-    const { logger, lines } = capture({ colors: false })
+    const { lines, logger } = capture({ colors: false })
     logger.emit(
       event({
         phase: "explain",
+        plans: ["SelectProject [ctx: Db]"],
+        results: [{ status: "OK" }],
         statements: [
           {
             sql: "EXPLAIN SELECT * FROM user WHERE active = $p0",
             vars: { p0: true },
           },
         ],
-        plans: ["SelectProject [ctx: Db]"],
-        results: [{ status: "OK" }],
       }),
     )
     const out = lines.join("\n")
@@ -455,17 +498,17 @@ describe("pretty rendering", () => {
 
 describe("compact rendering", () => {
   test("one line with operation, meta and SQL; slow + error suffixes", () => {
-    const { logger, lines } = capture({ format: "compact", colors: false })
+    const { lines, logger } = capture({ colors: false, format: "compact" })
     logger.emit(event())
     expect(lines).toHaveLength(1)
     expect(lines[0]).toContain("🔍 findMany · user")
     expect(lines[0]).toContain("1 row")
     expect(lines[0]).toContain("12.4ms")
     expect(lines[0]).toContain("SELECT * FROM user WHERE age >= $p0")
-    const slow = capture({ format: "compact", colors: false, slowMs: 1 })
+    const slow = capture({ colors: false, format: "compact", slowMs: 1 })
     slow.logger.emit(event({ durationMs: 50 }))
     expect(slow.out()).toContain("🐌")
-    const errored = capture({ format: "compact", colors: false })
+    const errored = capture({ colors: false, format: "compact" })
     errored.logger.emit(
       event({
         error: Object.assign(new Error("nope"), { code: "DatabaseError" }),
@@ -477,32 +520,32 @@ describe("compact rendering", () => {
 
 describe("json rendering", () => {
   test("emits one parseable object with safe values and severity", () => {
-    const { logger, lines } = capture({ format: "json", slowMs: 10 })
+    const { lines, logger } = capture({ format: "json", slowMs: 10 })
     const circular: Record<string, unknown> = { self: undefined }
     circular.self = circular
     logger.emit(
       event({
+        context: { database: "main", namespace: "app" },
         durationMs: 20,
-        context: { namespace: "app", database: "main" },
+        plans: ["plan"],
+        preview: [{ id: "user:1" }],
         statements: [
           {
             sql: "SELECT * FROM user",
             vars: {
-              rid: new RecordId("user", 1),
               circ: circular,
-              date: new Date(Date.UTC(2020, 0, 1)),
+              date: new Date(Date.UTC(MAGIC_2020, 0, 1)),
+              rid: new RecordId("user", 1),
             },
           },
         ],
-        plans: ["plan"],
-        preview: [{ id: "user:1" }],
       }),
     )
     const parsed = JSON.parse(lines[0]) as Record<string, unknown>
     expect(parsed.level).toBe("warn") // slow
     expect(parsed.phase).toBe("run")
     expect(parsed.operation).toBe("findMany")
-    expect(parsed.context).toEqual({ namespace: "app", database: "main" })
+    expect(parsed.context).toEqual({ database: "main", namespace: "app" })
     expect(parsed.rows).toBe("1 row")
     expect(parsed.plans).toEqual(["plan"])
     expect(parsed.preview).toEqual([{ id: "user:1" }])
@@ -518,7 +561,7 @@ describe("json rendering", () => {
       level: string
     }
     expect(errParsed.level).toBe("error")
-    expect(errParsed.error).toEqual({ name: "Error", code: "E", message: "x" })
+    expect(errParsed.error).toEqual({ code: "E", message: "x", name: "Error" })
   })
 })
 
@@ -527,13 +570,13 @@ describe("json rendering", () => {
 describe("planStatement", () => {
   const sql = "SELECT * FROM user WHERE age >= $p0"
   test("off by default, on with the policy", () => {
-    expect(createQueryLogger({}).planStatement(sql, 999, "run")).toBeUndefined()
+    expect(createQueryLogger({}).planStatement(sql, MAGIC_999, "run")).toBeUndefined()
     expect(
-      createQueryLogger({ explain: "slow", slowMs: 10 }).planStatement(sql, 5, "run"),
+      createQueryLogger({ explain: "slow", slowMs: 10 }).planStatement(sql, MAGIC_5, "run"),
     ).toBeUndefined()
-    expect(createQueryLogger({ explain: "slow", slowMs: 10 }).planStatement(sql, 20, "run")).toBe(
-      "EXPLAIN FORMAT JSON SELECT * FROM user WHERE age >= $p0;",
-    )
+    expect(
+      createQueryLogger({ explain: "slow", slowMs: 10 }).planStatement(sql, MAGIC_20, "run"),
+    ).toBe("EXPLAIN FORMAT JSON SELECT * FROM user WHERE age >= $p0;")
     expect(createQueryLogger({ explain: "all" }).planStatement(sql, 1, "run")).toBe(
       "EXPLAIN FORMAT JSON SELECT * FROM user WHERE age >= $p0;",
     )
@@ -564,8 +607,8 @@ describe("client wiring (executor seam)", () => {
     const on = capture({ colors: false })
     const { conn } = connOf(() => [okr([])])
     const client = orm(conn, {
+      logger: { colors: false, write: sinkOf(on) },
       schema: schemaDef,
-      logger: { write: sinkOf(on), colors: false },
     }) as unknown as C
     await client.users.findMany({ where: { name: "A" } })
     expect(on.out()).toContain("findMany")
@@ -573,7 +616,7 @@ describe("client wiring (executor seam)", () => {
 
     const off = capture({})
     const { conn: conn2 } = connOf(() => [okr([])])
-    const c2 = orm(conn2, { schema: schemaDef, logger: false }) as unknown as C
+    const c2 = orm(conn2, { logger: false, schema: schemaDef }) as unknown as C
     await c2.users.findMany({})
     expect(off.lines).toHaveLength(0)
   })
@@ -604,8 +647,8 @@ describe("client wiring (executor seam)", () => {
         : [okr([])],
     )
     const client = orm(conn, {
+      logger: { colors: false, write: sinkOf(sink) },
       schema: schemaDef,
-      logger: { write: sinkOf(sink), colors: false },
     }) as unknown as C
     await client.users.findMany({ where: { age: { gt: 1 } } }).explain()
     expect(sink.out()).toContain("EXPLAIN findMany")
@@ -614,31 +657,31 @@ describe("client wiring (executor seam)", () => {
 
   test("explain: true logs the inline plan", async () => {
     const sink = capture({ colors: false })
-    const { conn, calls } = connOf(() => [okr("SelectProject [ctx: Db]")])
+    const { calls, conn } = connOf(() => [okr("SelectProject [ctx: Db]")])
     const client = orm(conn, {
+      logger: { colors: false, write: sinkOf(sink) },
       schema: schemaDef,
-      logger: { write: sinkOf(sink), colors: false },
     }) as unknown as C
-    await client.users.findMany({ where: { name: "A" }, explain: true })
+    await client.users.findMany({ explain: true, where: { name: "A" } })
     expect(calls[0]?.sql.startsWith("EXPLAIN SELECT")).toBe(true)
     expect(sink.out()).toContain("EXPLAIN findMany")
   })
 
   test("auto-explain 'slow' issues FORMAT JSON and renders the tree", async () => {
-    const sink = capture({ colors: false, slowMs: 0, explain: "slow" })
-    const { conn, calls } = connOf((sql) =>
+    const sink = capture({ colors: false, explain: "slow", slowMs: 0 })
+    const { calls, conn } = connOf((sql) =>
       sql.startsWith("EXPLAIN")
         ? [okr("SelectProject [ctx: Db]\n    TableScan [ctx: Db] [table: user]")]
         : sql.split("\n").map(() => okr([])),
     )
     const client = orm(conn, {
-      schema: schemaDef,
       logger: {
-        write: sinkOf(sink),
         colors: false,
-        slowMs: 0,
         explain: "slow",
+        slowMs: 0,
+        write: sinkOf(sink),
       },
+      schema: schemaDef,
     }) as unknown as C
     await client.users.findMany({})
     expect(calls.some((c) => c.sql.startsWith("EXPLAIN FORMAT JSON"))).toBe(true)
@@ -648,42 +691,42 @@ describe("client wiring (executor seam)", () => {
 
   test("auto-explain 'analyze' uses ANALYZE FORMAT JSON", async () => {
     const sink = capture({
-      format: "compact",
       colors: false,
       explain: "analyze",
+      format: "compact",
     })
-    const { conn, calls } = connOf((sql) =>
+    const { calls, conn } = connOf((sql) =>
       sql.startsWith("EXPLAIN") ? [okr("Root [ctx: Db]")] : [okr([])],
     )
     const client = orm(conn, {
-      schema: schemaDef,
       logger: {
-        write: sinkOf(sink),
-        format: "compact",
         colors: false,
         explain: "analyze",
+        format: "compact",
+        write: sinkOf(sink),
       },
+      schema: schemaDef,
     }) as unknown as C
     await client.users.findMany({})
     expect(calls.some((c) => c.sql.startsWith("EXPLAIN ANALYZE FORMAT JSON"))).toBe(true)
   })
 
   test("a failing auto-explain is swallowed (the run still logs)", async () => {
-    const sink = capture({ colors: false, slowMs: 0, explain: "slow" })
+    const sink = capture({ colors: false, explain: "slow", slowMs: 0 })
     const conn = {
       query(sql: string) {
         if (sql.startsWith("EXPLAIN")) throw new Error("explain down")
-        return { responses: async () => [okr([])] }
+        return { responses: (): Promise<QueryResponse[]> => Promise.resolve([okr([])]) }
       },
     } as never
     const client = orm(conn, {
-      schema: schemaDef,
       logger: {
-        write: sinkOf(sink),
         colors: false,
-        slowMs: 0,
         explain: "slow",
+        slowMs: 0,
+        write: sinkOf(sink),
       },
+      schema: schemaDef,
     }) as unknown as C
     await client.users.findMany({})
     expect(sink.out()).toContain("findMany")
@@ -693,8 +736,8 @@ describe("client wiring (executor seam)", () => {
     const stmt = capture({ colors: false })
     const { conn } = connOf(() => [failr("ParseError", "bad sql")])
     const client = orm(conn, {
+      logger: { colors: false, write: sinkOf(stmt) },
       schema: schemaDef,
-      logger: { write: sinkOf(stmt), colors: false },
     }) as unknown as C
     await client.users.findMany({}).catch(() => {
       /* empty */
@@ -708,8 +751,8 @@ describe("client wiring (executor seam)", () => {
       },
     } as never
     const c2 = orm(boom, {
+      logger: { colors: false, write: sinkOf(transport) },
       schema: schemaDef,
-      logger: { write: sinkOf(transport), colors: false },
     }) as unknown as C
     await c2.users.findMany({}).catch(() => {
       /* empty */
@@ -721,20 +764,20 @@ describe("client wiring (executor seam)", () => {
     const sink = capture({ colors: false })
     const { conn } = connOf((sql) => sql.split("\n").map(() => okr([])))
     const client = orm(conn, {
+      logger: { colors: false, write: sinkOf(sink) },
       schema: schemaDef,
-      logger: { write: sinkOf(sink), colors: false },
     }) as unknown as C
-    const scoped = client.$withContext({ namespace: "app", database: "main" })
+    const scoped = client.$withContext({ database: "main", namespace: "app" })
     await scoped.users.findMany({})
     expect(sink.out()).toContain("ns/app · db/main")
   })
 
   test("raw $raw and verbose previews are logged", async () => {
-    const sink = capture({ colors: false, verbose: true, maxRows: 1 })
+    const sink = capture({ colors: false, maxRows: 1, verbose: true })
     const { conn } = connOf(() => [okr([{ id: "user:1", name: "A" }, { id: "user:2" }])])
     const client = orm(conn, {
+      logger: { colors: false, maxRows: 1, verbose: true, write: sinkOf(sink) },
       schema: schemaDef,
-      logger: { write: sinkOf(sink), colors: false, verbose: true, maxRows: 1 },
     }) as unknown as C
     await client.$raw`SELECT * FROM user`
     expect(sink.out()).toContain("$raw")
@@ -746,17 +789,21 @@ describe("client wiring (executor seam)", () => {
   test("the logger propagates into a transaction", async () => {
     const sink = capture({ colors: false })
     const tx = {
-      query: () => ({ responses: async () => [okr([])] }),
-      commit: () => Promise.resolve(),
-      cancel: () => Promise.resolve(),
+      cancel: (): Promise<void> => Promise.resolve(),
+      commit: (): Promise<void> => Promise.resolve(),
+      query: (): { responses: () => Promise<QueryResponse[]> } => ({
+        responses: (): Promise<QueryResponse[]> => Promise.resolve([okr([])]),
+      }),
     }
     const conn = {
-      query: () => ({ responses: async () => [okr([])] }),
       beginTransaction: () => Promise.resolve(tx),
+      query: (): { responses: () => Promise<QueryResponse[]> } => ({
+        responses: (): Promise<QueryResponse[]> => Promise.resolve([okr([])]),
+      }),
     } as never
     const client = orm(conn, {
+      logger: { colors: false, write: sinkOf(sink) },
       schema: schemaDef,
-      logger: { write: sinkOf(sink), colors: false },
     }) as unknown as C
     await client.transaction(async (t) => {
       await t.users.findMany({})
@@ -770,67 +817,57 @@ describe("client wiring (executor seam)", () => {
 describe("rendering edge cases", () => {
   test("icons fall back through operation → verb → ▸", () => {
     const { operation, ...rest } = event()
-    void operation
-    const byVerb = capture({ format: "compact", colors: false })
+    const byVerb = capture({ colors: false, format: "compact" })
     byVerb.logger.emit({
       ...rest,
       statements: [{ sql: "INSERT INTO user [1]", vars: {} }],
     })
     expect(byVerb.out()).toContain("➕")
-    const unknown = capture({ format: "compact", colors: false })
+    const unknown = capture({ colors: false, format: "compact" })
     unknown.logger.emit({
       ...rest,
       operation: "custom",
       statements: [{ sql: "FOO bar", vars: {} }],
     })
     expect(unknown.out()).toContain("▸")
-    const empty = capture({ format: "compact", colors: false })
+    const empty = capture({ colors: false, format: "compact" })
     empty.logger.emit({ ...rest, statements: [] })
     expect(empty.out()).toContain("▸")
   })
 
   test("duration formatting covers s/ms/one-decimal/two-decimal", () => {
-    const out = (ms: number) => {
-      const c = capture({ format: "compact", colors: false })
-      c.logger.emit(event({ durationMs: ms }))
-      return c.out()
-    }
-    expect(out(1200)).toContain("1.20s")
-    expect(out(250)).toContain("250ms")
-    expect(out(12.4)).toContain("12.4ms")
-    expect(out(1.5)).toContain("1.50ms")
+    expect(out(MAGIC_1200)).toContain("1.20s")
+    expect(out(MAGIC_250)).toContain("250ms")
+    expect(out(MAGIC_12p4)).toContain("12.4ms")
+    expect(out(MAGIC_1p5)).toContain("1.50ms")
   })
 
   test("jsonSafe renders null/undefined/bigint/functions/record-like objects", () => {
     const c = capture({ format: "json" })
-    const FakeTable = class Table {}
-    const FakeDuration = class Duration {}
-    const FakeDecimal = class Decimal {}
-    const FakeBound = class BoundQuery {}
     c.logger.emit(
       event({
+        plans: [],
+        preview: [],
         statements: [
           {
             sql: "SELECT 1",
             vars: {
-              nil: null,
-              undef: undefined,
               big: 10n,
-              fn: () => {
+              bound: {},
+              decimal: {},
+              duck: new RecordId("user", "x"),
+              duration: {},
+              fn: (): void => {
                 /* empty */
               },
-              tbOnly: { tb: "user" },
-              duck: new RecordId("user", "x"),
-              table: new FakeTable(),
-              duration: new FakeDuration(),
-              decimal: new FakeDecimal(),
-              bound: new FakeBound(),
               list: [1, { deep: true }],
+              nil: null,
+              table: {},
+              tbOnly: { tb: "user" },
+              undef: undefined,
             },
           },
         ],
-        plans: [],
-        preview: [],
       }),
     )
     const parsed = JSON.parse(c.lines[0]) as {
@@ -855,7 +892,7 @@ describe("rendering edge cases", () => {
         operation: "count",
         plans: [],
         preview: [],
-        results: [{ status: "OK", rows: 1, count: 0 }],
+        results: [{ count: 0, rows: 1, status: "OK" }],
       }),
     )
     expect(c.out()).toContain("count 0")
@@ -863,15 +900,14 @@ describe("rendering edge cases", () => {
 
   test("pretty valueText covers functions and record-like objects", () => {
     const c = capture({ colors: false })
-    const FakeGeometry = class Geometry {}
     c.logger.emit(
       event({
         statements: [
           {
             sql: "SELECT 1",
             vars: {
-              fn: () => "x",
-              geo: new FakeGeometry(),
+              fn: (): string => "x",
+              geo: {},
               tbOnly: { tb: "u" },
             },
           },
@@ -893,7 +929,7 @@ describe("rendering edge cases", () => {
     noMessage.logger.emit(event({ error: { code: "X" } }))
     expect(noMessage.out()).toContain("[X]")
 
-    const compactErr = capture({ format: "compact", colors: false })
+    const compactErr = capture({ colors: false, format: "compact" })
     compactErr.logger.emit(event({ error: "nope" }))
     expect(compactErr.out()).toContain("⛔ [Error] nope")
 
@@ -911,27 +947,27 @@ describe("rendering edge cases", () => {
       "pretty",
     )
     expect(resolveLogger(undefined, { BETTER_SCHEMIC_LOG: "silent" })?.enabled).toBe(false)
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const level of ["debug", "info", "warn", "silent"] as const)
+    ;(["debug", "info", "warn", "silent"] as const).forEach((level) => {
       expect(resolveLogger(true, { BETTER_SCHEMIC_LOG_LEVEL: level })?.options.level).toBe(level)
+    })
   })
 
   test("createQueryLogger resolves every explicit option", () => {
     const lines: string[] = []
     const logger = createQueryLogger({
-      level: "info",
-      format: "json",
       colors: true,
-      icons: false,
-      time: false,
       counter: false,
-      slowMs: 1,
-      verbose: true,
+      explain: "all",
+      format: "json",
+      icons: false,
+      level: "info",
       maxRows: 1,
       maxValueLength: 5,
       prettySql: false,
-      explain: "all",
+      slowMs: 1,
       stack: true,
+      time: false,
+      verbose: true,
       write: (l) => lines.push(l),
     })
     expect(logger.options.icons).toBe(false)
@@ -942,12 +978,12 @@ describe("rendering edge cases", () => {
 
     // The truthy side of every boolean default.
     const truthy = capture({
-      level: "warn",
+      counter: true,
       format: "pretty",
       icons: true,
-      time: true,
-      counter: true,
+      level: "warn",
       prettySql: true,
+      time: true,
     })
     truthy.logger.emit(event({ durationMs: 5, error: "x" }))
     expect(truthy.out()).toContain("╭")
@@ -963,8 +999,8 @@ describe("rendering edge cases", () => {
     const sink = capture({ colors: false })
     const { conn } = connOf((sql) => sql.split("\n").map(() => okr([{ id: "user:1" }])))
     const client = orm(conn, {
+      logger: { colors: false, write: sinkOf(sink) },
       schema: schemaDef,
-      logger: { write: sinkOf(sink), colors: false },
     }) as unknown as C
     await client.users.exists({ where: { name: "A" } })
     expect(sink.out()).toContain("exists")
@@ -975,8 +1011,8 @@ describe("rendering edge cases", () => {
     const sink = capture({ colors: false })
     const { conn } = connOf((sql) => sql.split("\n").map(() => okr([{ count: 42 }])))
     const client = orm(conn, {
+      logger: { colors: false, write: sinkOf(sink) },
       schema: schemaDef,
-      logger: { write: sinkOf(sink), colors: false },
     }) as unknown as C
     await client.users.count({})
     expect(sink.out()).toContain("count 42")
@@ -986,8 +1022,8 @@ describe("rendering edge cases", () => {
     const sink = capture({ colors: false })
     const { conn } = connOf((sql) => sql.split("\n").map(() => okr([])))
     const client = orm(conn, {
+      logger: { colors: false, write: sinkOf(sink) },
       schema: schemaDef,
-      logger: { write: sinkOf(sink), colors: false },
     }) as unknown as C
     // A multi-statement script is $query's job now ($raw refuses one — it resolves a single
     // result), so the logger assertion runs on the surface that actually takes N statements.

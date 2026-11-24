@@ -38,11 +38,8 @@ const COLREF = Symbol.for("better-schemic.surrealdb.colref")
 
 /** Resolve a known schema reference to its spliced TEXT, or `undefined` to bind it as a value. */
 function markerText(v: unknown): string | undefined {
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- argumento any vem de internals do Zod/SDK (fronteira sem tipos)
-  if (v instanceof TableDef) return escapeIdent(v.name)
-
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- argumento any vem de internals do Zod/SDK (fronteira sem tipos)
-  if (v instanceof Table) return escapeIdent(v.name)
+  if (v instanceof TableDef) return escapeIdent(v.name as string)
+  if (v instanceof Table) return escapeIdent(v.name as string)
 
   if (v instanceof FunctionDef) return `fn::${v.name}`
 
@@ -73,27 +70,30 @@ function surqlTag<R extends unknown[] = unknown[]>(
 ): Surql<R> {
   // Fold marker values into the string parts; everything else binds via the SDK tag as before
   // (a nested BoundQuery composes natively).
-  const parts: string[] = [strings[0]]
-  const rest: unknown[] = []
-  // eslint-disable-next-line functional/no-loop-statements, unicorn-plugin/no-for-loop -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica / índice do loop é usado para alinhar duas listas paralelas
-  for (let i = 0; i < values.length; i++) {
-    const text = markerText(values[i])
-    if (text !== undefined) {
-      parts[parts.length - 1] += text + strings[i + 1]
-      continue
-    }
-    const frag = markerFragment(values[i])
-    if (frag === undefined && hasRefDeep(values[i])) {
-      // A plain array/object CARRYING refs (`[$after.id]`, `{ to: [email] }`) splices as a
-      // SurrealQL literal with each ref spliced — binding it whole would serialize the refs.
-      const ctx = { vars: {} as Record<string, unknown> }
-      rest.push(new BoundQuery(renderData(values[i], ctx), ctx.vars))
-      parts.push(strings[i + 1])
-      continue
-    }
-    rest.push(frag ?? values[i])
-    parts.push(strings[i + 1])
-  }
+  const { parts, rest } = values.reduce<{ parts: string[]; rest: unknown[] }>(
+    (acc, value, i) => {
+      const text = markerText(value)
+      if (text !== undefined) {
+        const last = acc.parts.length - 1
+        return {
+          parts: [...acc.parts.slice(0, last), acc.parts[last] + text + strings[i + 1]],
+          rest: acc.rest,
+        }
+      }
+      const frag = markerFragment(value)
+      if (frag === undefined && hasRefDeep(value)) {
+        // A plain array/object CARRYING refs (`[$after.id]`, `{ to: [email] }`) splices as a
+        // SurrealQL literal with each ref spliced — binding it whole would serialize the refs.
+        const ctx = { vars: {} as Record<string, unknown> }
+        return {
+          parts: [...acc.parts, strings[i + 1]],
+          rest: [...acc.rest, new BoundQuery(renderData(value, ctx), ctx.vars)],
+        }
+      }
+      return { parts: [...acc.parts, strings[i + 1]], rest: [...acc.rest, frag ?? value] }
+    },
+    { parts: [strings[0]], rest: [] },
+  )
   const tsa = Object.assign([...parts], {
     raw: [...parts],
   }) as unknown as TemplateStringsArray

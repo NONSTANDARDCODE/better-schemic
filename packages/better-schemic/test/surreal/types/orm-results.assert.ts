@@ -1,5 +1,6 @@
 // M0.3 — TYPE assertions for the result wrappers (`ThrowingResult` / `BatchResult` / `StatementResult`).
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
+
 import { describe, it } from "node:test"
 
 import { assertType } from "../../../../../scripts/type-assert"

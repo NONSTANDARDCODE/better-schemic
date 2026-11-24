@@ -68,56 +68,53 @@ export function tokenDiff(before: string, after: string): string {
   // A full LCS matrix is O(m*n) cells; above the cap, keep the common prefix/suffix and mark the
   // middle removed + added (a valid, coarser word diff — never an OOM).
   if (m * n > TOKEN_LCS_LIMIT) {
-    let start = 0
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    while (start < m && start < n && a[start] === b[start]) start++
+    const head = Array.from({ length: Math.min(m, n) }, (_, i) => i)
+    const start = head.find((i) => a[i] !== b[i]) ?? head.length
     let endA = m
     let endB = n
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    Array.from({ length: Math.min(m, n) }).some(() => {
+      if (endA <= start || endB <= start || a[endA - 1] !== b[endB - 1]) return true
       endA--
       endB--
-    }
-    const out: string[] = []
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (let i = 0; i < start; i++) out.push(eq(a[i]))
-
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (let i = start; i < endA; i++) out.push(del(a[i]))
-
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (let j = start; j < endB; j++) out.push(ins(b[j]))
-
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (let i = endA; i < m; i++) out.push(eq(a[i]))
-
-    return out.join(" ")
+      return false
+    })
+    return [
+      ...a.slice(0, start).map((t) => eq(t)),
+      ...a.slice(start, endA).map((t) => del(t)),
+      ...b.slice(start, endB).map((t) => ins(t)),
+      ...a.slice(endA, m).map((t) => eq(t)),
+    ].join(" ")
   }
   const dp: number[][] = Array.from({ length: m + 1 }, () => Array.from({ length: n + 1 }, () => 0))
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = m - 1; i >= 0; i--) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (let j = n - 1; j >= 0; j--)
+  Array.from({ length: m }, (_, k) => m - 1 - k).forEach((i) => {
+    Array.from({ length: n }, (_, k) => n - 1 - k).forEach((j) => {
       dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
-  }
+    })
+  })
   const out: string[] = []
   let i = 0
   let j = 0
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (i < m && j < n) {
-    if (a[i] === b[j]) {
+  Array.from({ length: m + n }).some(() => {
+    if (i >= m && j >= n) return true
+    if (i >= m) {
+      out.push(ins(b[j]))
+      j++
+    } else if (j >= n) {
+      out.push(del(a[i]))
+      i++
+    } else if (a[i] === b[j]) {
       out.push(eq(a[i]))
       i++
       j++
-    } else if (dp[i + 1][j] >= dp[i][j + 1]) out.push(del(a[i++]))
-    else out.push(ins(b[j++]))
-  }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (i < m) out.push(del(a[i++]))
-
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (j < n) out.push(ins(b[j++]))
-
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      out.push(del(a[i]))
+      i++
+    } else {
+      out.push(ins(b[j]))
+      j++
+    }
+    return false
+  })
   return out.join(" ")
 }
 
@@ -162,8 +159,7 @@ function collapseWs(text: string): string {
 function groupByFile(items: DiffItem[]): { header: string; items: DiffItem[] }[] {
   const order: string[] = []
   const byKey = new Map<string, DiffItem[]>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const it of items) {
+  items.forEach((it) => {
     const key = it.file ?? `\0${it.table}` // \0 can't collide with a real path
     let group = byKey.get(key)
     if (!group) {
@@ -172,7 +168,7 @@ function groupByFile(items: DiffItem[]): { header: string; items: DiffItem[] }[]
       order.push(key)
     }
     group.push(it)
-  }
+  })
   return order.map((key) => {
     const group = byKey.get(key) ?? []
     return {
@@ -200,28 +196,25 @@ export function formatPatch(diff: Diff): string {
   if (items.length === 0) return ""
 
   const out: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const { header, items: group } of groupByFile(items)) {
+  groupByFile(items).forEach(({ header, items: group }) => {
     const lines: string[] = []
     let dels = 0
     let adds = 0
     const push = (text: string, sign: "+" | "-"): void => {
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const l of text.split("\n")) {
+      text.split("\n").forEach((l) => {
         lines.push(`${sign}${l}`)
         if (sign === "+") adds++
         else dels++
-      }
+      })
     }
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const it of group) {
+    group.forEach((it) => {
       if (it.op === "add") push(it.ddl, "+")
       else if (it.op === "remove") push(it.old, "-")
       else {
         push(it.before, "-")
         push(it.after, "+")
       }
-    }
+    })
     out.push(
       `diff --git a/${header} b/${header}`,
       `--- a/${header}`,
@@ -229,7 +222,7 @@ export function formatPatch(diff: Diff): string {
       `@@ -${dels ? 1 : 0},${dels} +${adds ? 1 : 0},${adds} @@`,
       ...lines,
     )
-  }
+  })
   return `${out.join("\n")}\n`
 }
 
@@ -238,8 +231,7 @@ function formatFull(diff: Diff, inline = false): string {
   const byKey = new Map((diff.items ?? []).map((it) => [it.key, it]))
   const out: string[] = []
   let prev: string | undefined
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const f of diff.full ?? []) {
+  ;(diff.full ?? []).forEach((f) => {
     if (prev !== undefined && f.table !== prev) out.push("")
 
     const it = byKey.get(f.key)
@@ -254,12 +246,13 @@ function formatFull(diff: Diff, inline = false): string {
       )
     }
     prev = f.table
-  }
+  })
   const removed = (diff.items ?? []).filter((it) => it.op === "remove")
   if (removed.length > 0) {
     out.push("")
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const it of removed) out.push(renderItem(it, inline))
+    removed.forEach((it) => {
+      out.push(renderItem(it, inline))
+    })
   }
   return out.join("\n")
 }
@@ -293,14 +286,12 @@ export function formatDiff(
  */
 export function summarizeKinds(registry: KindRegistry, items: readonly { kind: string }[]): string {
   const counts = new Map<string, number>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const it of items) counts.set(it.kind, (counts.get(it.kind) ?? 0) + 1)
+  items.forEach((it) => counts.set(it.kind, (counts.get(it.kind) ?? 0) + 1))
 
   const parts: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [kind, n] of counts) {
+  counts.forEach((n, kind) => {
     const d = registry.display(kind)
     parts.push(`${n} ${n === 1 ? d.label : d.plural}`)
-  }
+  })
   return parts.join(", ")
 }

@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-magic-numbers -- Literal values are intentional test data and must stay as authored. */
+const MAGIC_25 = 25
 // The driver-side EXPLODE's inverse: `fromStructured` fans a schema into per-kind portable objects and
 // `toStructured` reassembles the `DbStructured` (every opaque kind carrying its `native`), plus the
 // `fn::` dependency-edge dedupe.
@@ -24,13 +24,13 @@ describe("fromStructured / toStructured (all kinds)", () => {
     const T = table("ex_t", { name: s.string() })
     const A = defineAccess("ex_acc").onDatabase().record()
     const An = defineAnalyzer("ex_an")
-    const P = defineParam("ex_p", 25)
+    const P = defineParam("ex_p", MAGIC_25)
 
     const objects = explodeSchema([T], [F, A, An, P])
     const kinds = new Set<string>(objects.map((o) => o.kind))
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const k of ["table", "function", "access", "analyzer", "param"])
+    ;["table", "function", "access", "analyzer", "param"].forEach((k) => {
       expect(kinds.has(k)).toBe(true)
+    })
 
     const db = toStructured(objects)
     expect(db.tables.map((t) => t.name)).toContain("ex_t")

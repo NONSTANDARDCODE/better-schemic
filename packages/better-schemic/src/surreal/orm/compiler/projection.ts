@@ -144,8 +144,8 @@ export function compileProjection(
 
   if (Array.isArray(select)) {
     const fields: ProjectedField[] = []
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const key of select) {
+
+    select.forEach((key) => {
       if (typeof key !== "string") {
         throw compileError(
           "ValidationError",
@@ -156,7 +156,7 @@ export function compileProjection(
       // The server returns a dotted path NESTED (`SELECT address.city` → `{ address: { city } }`),
       // the leaf decodes from the nested raw path even though the projected key stays literal.
       fields.push(projectedFieldFor(meta, [key], pathSegments(key), key.split("."), split))
-    }
+    })
     if (fields.length === 0) {
       throw compileError(
         "ValidationError",
@@ -188,10 +188,10 @@ export function compileProjection(
 
   const fields: ProjectedField[] = []
   const parts: string[] = []
-  let star = false
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [key, entry] of Object.entries(select)) {
-    if (entry === undefined || entry === false) continue
+  const star = select["*"] === true
+
+  Object.entries(select).forEach(([key, entry]) => {
+    if (entry === undefined || entry === false) return
 
     if (key === "*") {
       if (entry !== true) {
@@ -199,11 +199,10 @@ export function compileProjection(
           operation,
         })
       }
-      star = true
-      continue
+      return
     }
     compileEntry(meta, key, entry, [], parts, fields, binds, operation, split)
-  }
+  })
 
   if (value) {
     if (star) {
@@ -291,8 +290,10 @@ function buildStarSchema(
     }
     shape[field] = element
   }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const field of passthrough) shape[field] = z.unknown().optional()
+
+  passthrough.forEach((field) => {
+    shape[field] = z.unknown().optional()
+  })
 
   let schema: z.ZodType = zObject(shape)
   if (omit.length > 0) schema = (schema as unknown as { partial(): z.ZodType }).partial()
@@ -392,12 +393,9 @@ function longestKey(
   entries: Record<string, unknown>,
   segments: readonly string[],
 ): undefined | { readonly end: number; readonly key: string } {
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let end = segments.length; end > 0; end--) {
-    const key = segments.slice(0, end).join(".")
-    if (key in entries) return { end, key }
-  }
-  return undefined
+  const ends = segments.map((_, index) => segments.length - index)
+  const found = ends.find((end) => segments.slice(0, end).join(".") in entries)
+  return found === undefined ? undefined : { end: found, key: segments.slice(0, found).join(".") }
 }
 
 /** Is `path` the same as, or a descendant of, `ancestor`? */
@@ -448,13 +446,16 @@ export function omittedPaths(omit: unknown): readonly (readonly string[])[] {
 export function projectionKeys(form: ProjectionForm): ReadonlySet<string> {
   const keys = new Set<string>()
   if (form.kind === "list") {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const field of form.fields) keys.add(pathSegments(field)[0])
+    form.fields.forEach((field) => {
+      keys.add(pathSegments(field)[0])
+    })
 
     return keys
   }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of Object.keys(form.entries)) keys.add(pathSegments(key)[0])
+
+  Object.keys(form.entries).forEach((key) => {
+    keys.add(pathSegments(key)[0])
+  })
 
   return keys
 }
@@ -500,12 +501,12 @@ function compileEntry(
   }
   if (isPlainObject(entry)) {
     const nested = [...prefix, key]
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [childKey, child] of Object.entries(entry)) {
-      if (child === undefined || child === false) continue
+
+    Object.entries(entry).forEach(([childKey, child]) => {
+      if (child === undefined || child === false) return
 
       compileEntry(meta, childKey, child, nested, parts, fields, binds, operation, split)
-    }
+    })
     return
   }
   if (isLowerableValue(entry)) {
@@ -636,41 +637,32 @@ type PathSegment = {
 /** Parse a projection path into segments, keeping bracket semantics. */
 function parsePath(segments: readonly string[]): readonly PathSegment[] {
   const out: PathSegment[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const raw of segments) {
+
+  segments.forEach((raw) => {
     const matches = [...raw.matchAll(/\[(\d+|\*)\]/gu)]
     const name = raw.replaceAll(/\[\d+\]|\[\*\]/gu, "")
     let mode: PathSegment["mode"] = "auto"
     if (matches.some((m) => m[1] === "*")) mode = "many"
     else if (matches.length > 0) mode = "index"
     out.push({ mode, name })
-  }
+  })
   return out
 }
 
 /** Unwrap option/nullable/default/readonly/pipe/catch to the shape that owns the field. */
 function unwrap(schema: z.ZodType): z.ZodType {
-  let current = schema
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (;;) {
-    const def = zdef(current)
-    if (
-      def.type === "optional" ||
-      def.type === "nullable" ||
-      def.type === "default" ||
-      def.type === "prefault" ||
-      def.type === "readonly" ||
-      def.type === "catch"
-    ) {
-      current = def.innerType as z.ZodType
-      continue
-    }
-    if (def.type === "pipe") {
-      current = def.out as z.ZodType
-      continue
-    }
-    return current
-  }
+  const def = zdef(schema)
+  if (
+    def.type === "optional" ||
+    def.type === "nullable" ||
+    def.type === "default" ||
+    def.type === "prefault" ||
+    def.type === "readonly" ||
+    def.type === "catch"
+  )
+    return unwrap(def.innerType as z.ZodType)
+  if (def.type === "pipe") return unwrap(def.out as z.ZodType)
+  return schema
 }
 
 /**
@@ -684,17 +676,17 @@ function leafSchema(
   const shape = (meta.def.object as { shape?: Record<string, z.ZodType> }).shape
   if (!shape || segments.length === 0) return { each: false }
 
-  let current: z.ZodType = meta.def.object
-  let each = false
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const segment of segments) {
-    const step = descend(current, segment)
+  const walk = (
+    index: number,
+    current: z.ZodType,
+    each: boolean,
+  ): { each: boolean; schema?: z.ZodType } => {
+    if (index === segments.length) return { each, schema: current }
+    const step = descend(current, segments[index])
     if (!step.next) return { each }
-
-    current = step.next
-    each = each || step.each
+    return walk(index + 1, step.next, each || step.each)
   }
-  return { each, schema: current }
+  return walk(0, meta.def.object, false)
 }
 
 /** Descend one path segment; arrays unwrap (and mark `each`) unless the segment is an explicit index. */
@@ -707,8 +699,8 @@ function descend(current: z.ZodType, segment: PathSegment): { each: boolean; nex
     return { each: segment.mode !== "index" || step.each, next: step.next }
   }
   if (def.type === "object") {
-    const child = (def.shape as Record<string, z.ZodType>)[segment.name]
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- checagem defensiva em runtime (valores ausentes/mutados por callback); tipo TS é otimista
+    const child = (def.shape as Record<string, undefined | z.ZodType>)[segment.name]
+
     if (!child) return { each: false }
 
     if (segment.mode === "auto") return { each: false, next: child }
@@ -734,8 +726,8 @@ function omitListOf(omit: unknown, operation: string): readonly string[] {
       { operation },
     )
   }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const field of omit) {
+
+  omit.forEach((field) => {
     if (typeof field !== "string" || !field) {
       throw compileError(
         "ValidationError",
@@ -743,6 +735,6 @@ function omitListOf(omit: unknown, operation: string): readonly string[] {
         { operation },
       )
     }
-  }
+  })
   return omit as readonly string[]
 }

@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 import { mergeUnits, type RenderedUnit, unifiedDiff } from "better-schemic/core"
 import { describe, expect, test } from "bun:test"
 
@@ -7,11 +6,11 @@ const tableUnit = (
   code: string,
   imports = [`import { s, table } from "better-schemic";`],
 ): RenderedUnit => ({
+  code,
+  exportName,
+  imports,
   kind: "table",
   name: exportName.toLowerCase(),
-  exportName,
-  code,
-  imports,
 })
 
 const MIRROR = { keepLocalFields: false, keepLocalObjects: false }
@@ -23,7 +22,7 @@ const USER = `export const User = table("user", {
 })
   .schemaless();`
 
-const fileWith = (...consts: string[]) =>
+const fileWith = (...consts: string[]): string =>
   `import { s, table } from "better-schemic";\n\n${consts.join("\n\n")}\n`
 
 describe("mergeUnits", () => {
@@ -132,11 +131,11 @@ export const greet = defineFunction("greet", { name: s.string() })
   .returns(s.string())
   .body(surql\`RETURN "hello";\`);`
     const unit: RenderedUnit = {
+      code: desired,
+      exportName: "greet",
+      imports: [`import { defineFunction, s, surql } from "better-schemic";`],
       kind: "function",
       name: "greet",
-      exportName: "greet",
-      code: desired,
-      imports: [`import { defineFunction, s, surql } from "better-schemic";`],
     }
     const { content } = mergeUnits(src, [unit], MIRROR)
     expect(content).toContain(`RETURN "hello"`)

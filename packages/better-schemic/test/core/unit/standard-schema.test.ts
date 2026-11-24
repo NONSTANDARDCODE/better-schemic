@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-magic-numbers -- Literal values are intentional test data and must stay as authored. */
+const MAGIC_123 = 123
 import { describe, expect, test } from "bun:test"
 import * as z from "zod"
 
@@ -41,7 +41,7 @@ describe("Standard Schema", () => {
     const ok = field["~standard"].validate("hi")
     expect(ok).toEqual({ value: "hi" })
 
-    const bad = field["~standard"].validate(123) as { issues?: unknown[] }
+    const bad = field["~standard"].validate(MAGIC_123) as { issues?: unknown[] }
     expect(Array.isArray(bad.issues)).toBe(true)
   })
 

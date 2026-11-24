@@ -10,6 +10,7 @@ import { RecordId } from "surrealdb"
 import { escapeIdentSafe as escapeIdent } from "../../ident"
 import { hasRefDeep } from "../../pure"
 import type { ModelMeta, SchemaIndex } from "../meta"
+import { stringCoerce } from "../text"
 
 import {
   type Binds,
@@ -495,8 +496,8 @@ function compileUpsertBranches(
     if (recordIdText(createId) !== recordIdText(target.id)) {
       throw compileError(
         "ValidationError",
-        // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringify de valor opaco é intencional (toJSON/toString definidos pelo chamador)
-        `${operation}: "create.id" (${String(createId)}) must match where.id (${target.id}).`,
+
+        `${operation}: "create.id" (${stringCoerce(createId)}) must match where.id (${target.id}).`,
         { operation, table: meta.name },
       )
     }
@@ -859,8 +860,8 @@ function resolveUpsertTarget(
     ) {
       throw compileError(
         "ValidationError",
-        // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringify de valor opaco é intencional (toJSON/toString definidos pelo chamador)
-        `${operation}: "data.id" (${String(args.data.id)}) must match where.id (${String((args.where as { id?: unknown }).id)}) — they name the same record.`,
+
+        `${operation}: "data.id" (${stringCoerce(args.data.id)}) must match where.id (${stringCoerce((args.where as { id?: unknown }).id)}) — they name the same record.`,
         { field: "id", operation, table: meta.name },
       )
     }
@@ -930,8 +931,8 @@ function assertDeltaCreateId(
   if (recordIdText(createId) !== recordIdText(target.id)) {
     throw compileError(
       "ValidationError",
-      // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringify de valor opaco é intencional (toJSON/toString definidos pelo chamador)
-      `${operation}: "create.id" (${String(createId)}) must match where.id (${target.id}).`,
+
+      `${operation}: "create.id" (${stringCoerce(createId)}) must match where.id (${target.id}).`,
       { operation, table: meta.name },
     )
   }
@@ -1246,8 +1247,8 @@ function buildEachRows(
         { field: by, operation, table: meta.name },
       )
     }
-    // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringify de valor opaco é intencional (toJSON/toString definidos pelo chamador)
-    const key = String(byValue)
+
+    const key = stringCoerce(byValue)
     if (seen.has(key)) {
       throw compileError(
         "ValidationError",
@@ -1257,8 +1258,10 @@ function buildEachRows(
     }
     seen.add(key)
     const fields: Record<string, unknown> = {}
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [field, value] of Object.entries(item)) if (field !== by) fields[field] = value
+
+    Object.entries(item).forEach(([field, value]) => {
+      if (field !== by) fields[field] = value
+    })
 
     if (fields.id !== undefined) {
       throw compileError(

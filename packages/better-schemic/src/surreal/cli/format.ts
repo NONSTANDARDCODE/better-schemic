@@ -19,31 +19,38 @@ type Opts = {
   width?: number
 }
 
+/** Characters consumed by a backslash escape inside a string literal. */
+const ESCAPE_STEP = 2
+
 /** Scan past a string literal starting at `i` (quote char at `text[i]`); returns the index AFTER
  * the closing quote. */
 function skipString(text: string, i: number): number {
   const quote = text[i]
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let j = i + 1; j < text.length; j++) {
-    if (text[j] === "\\") j++
-    else if (text[j] === quote) return j + 1
+  const scan = (j: number): number => {
+    if (j >= text.length) return text.length
+    if (text[j] === "\\") return scan(j + ESCAPE_STEP)
+    if (text[j] === quote) return j + 1
+    return scan(j + 1)
   }
-  return text.length
+  return scan(i + 1)
 }
 
 /** The index of the bracket matching `text[open]` (quote-aware), or -1. */
 function matchBracket(text: string, open: number): number {
   const pairs: Record<string, string> = { "(": ")", "[": "]", "{": "}" }
   const close = pairs[text[open]]
-  let depth = 0
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = open; i < text.length; i++) {
+  const scan = (i: number, depth: number): number => {
+    if (i >= text.length) return -1
     const c = text[i]
-    if (c === '"' || c === "'") i = skipString(text, i) - 1
-    else if (c === text[open]) depth++
-    else if (c === close && --depth === 0) return i
+    if (c === '"' || c === "'") return scan(skipString(text, i), depth)
+    if (c === text[open]) return scan(i + 1, depth + 1)
+    if (c === close) {
+      const next = depth - 1
+      return next === 0 ? i : scan(i + 1, next)
+    }
+    return scan(i + 1, depth)
   }
-  return -1
+  return scan(open, 0)
 }
 
 /** Split on a top-level separator (outside strings/brackets). */
@@ -51,17 +58,22 @@ function topSplit(text: string, sep: string): string[] {
   const out: string[] = []
   let depth = 0
   let start = 0
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = 0; i < text.length; i++) {
+  const scan = (i: number): void => {
+    if (i >= text.length) return
     const c = text[i]
-    if (c === '"' || c === "'") i = skipString(text, i) - 1
-    else if (c === "{" || c === "[" || c === "(") depth++
+    if (c === '"' || c === "'") {
+      scan(skipString(text, i))
+      return
+    }
+    if (c === "{" || c === "[" || c === "(") depth++
     else if (c === "}" || c === "]" || c === ")") depth--
     else if (c === sep && depth === 0) {
       out.push(text.slice(start, i))
       start = i + 1
     }
+    scan(i + 1)
   }
+  scan(0)
   out.push(text.slice(start))
   return out.map((s) => s.trim()).filter((s) => s.length > 0)
 }
@@ -70,8 +82,8 @@ function topSplit(text: string, sep: string): string[] {
 function collapse(text: string): string {
   let out = ""
   let pending = false
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = 0; i < text.length; i++) {
+  const scan = (i: number): void => {
+    if (i >= text.length) return
     const c = text[i]
     if (c === '"' || c === "'") {
       const j = skipString(text, i)
@@ -79,18 +91,21 @@ function collapse(text: string): string {
 
       pending = false
       out += text.slice(i, j)
-      i = j - 1
-      continue
+      scan(j)
+      return
     }
     if (/\s/u.test(c)) {
       pending = out.length > 0
-      continue
+      scan(i + 1)
+      return
     }
     if (pending) out += " "
 
     pending = false
     out += c
+    scan(i + 1)
   }
+  scan(0)
   return out
 }
 
@@ -115,40 +130,42 @@ function fmtStatement(stmt: string, level: number, indent: string, width: number
   // not a call; the body block inside still formats via the block recursion.
   let breakAt = -1
   if (!fits && !/^DEFINE\b/iu.test(stmt.trim())) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (let i = 0; i < stmt.length; i++) {
+    const MIN_BREAK_ARGS = 2
+    const scan = (i: number): void => {
+      if (i >= stmt.length) return
       const c = stmt[i]
       if (c === '"' || c === "'") {
-        i = skipString(stmt, i) - 1
-        continue
+        scan(skipString(stmt, i))
+        return
       }
       if (c === "(" && /[A-Za-z0-9_:]/u.test(stmt[i - 1] ?? "")) {
         const end = matchBracket(stmt, i)
-        // eslint-disable-next-line max-depth -- parser com estado mutável; extrair helpers mudaria a semântica
-        if (end === -1) continue
-
-        // eslint-disable-next-line @typescript-eslint/no-magic-numbers, max-depth -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset) / parser com estado mutável; extrair helpers mudaria a semântica
-        if (topSplit(stmt.slice(i + 1, end), ",").length >= 2) breakAt = i
-
-        i = end
-        continue
+        if (end === -1) {
+          scan(i + 1)
+          return
+        }
+        if (topSplit(stmt.slice(i + 1, end), ",").length >= MIN_BREAK_ARGS) breakAt = i
+        scan(end + 1)
+        return
       }
       if (c === "(" || c === "[" || c === "{") {
         const end = matchBracket(stmt, i)
-        // eslint-disable-next-line max-depth -- parser com estado mutável; extrair helpers mudaria a semântica
-        if (end !== -1) i = end
+        scan(end === -1 ? i + 1 : end + 1)
+        return
       }
+      scan(i + 1)
     }
+    scan(0)
   }
   let out = ""
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = 0; i < stmt.length; i++) {
+  const render = (i: number): void => {
+    if (i >= stmt.length) return
     const c = stmt[i]
     if (c === '"' || c === "'") {
       const j = skipString(stmt, i)
       out += stmt.slice(i, j)
-      i = j - 1
-      continue
+      render(j)
+      return
     }
     if (c === "(" && i === breakAt) {
       const end = matchBracket(stmt, i)
@@ -157,26 +174,28 @@ function fmtStatement(stmt: string, level: number, indent: string, width: number
       out += `(\n${args
         .map((a) => `${pad}${fmtStatement(a, level + 1, indent, width)},`)
         .join("\n")}\n${indent.repeat(level)})`
-      i = end
-      continue
+      render(end + 1)
+      return
     }
     if (c === "{") {
       const end = matchBracket(stmt, i)
       if (end === -1) {
         out += c
-        continue
+        render(i + 1)
+        return
       }
       const inner = stmt.slice(i + 1, end).trim()
-      // eslint-disable-next-line unicorn/prefer-ternary -- if/else mais legível para ramos com efeitos colaterais
-      if (isBlockBody(inner))
-        out += `{\n${fmtStatements(inner, level + 1, indent, width)}\n${indent.repeat(level)}}`
-      else out += fmtData(stmt.slice(i, end + 1), level, indent, width)
+      out += isBlockBody(inner)
+        ? `{\n${fmtStatements(inner, level + 1, indent, width)}\n${indent.repeat(level)}}`
+        : fmtData(stmt.slice(i, end + 1), level, indent, width)
 
-      i = end
-      continue
+      render(end + 1)
+      return
     }
     out += c
+    render(i + 1)
   }
+  render(0)
   return out
 }
 
@@ -215,8 +234,8 @@ function fmtStatements(body: string, level: number, indent: string, width: numbe
  */
 export function formatSurql(text: string, opts: Opts = {}): string {
   const indent = opts.indent ?? "  "
-  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-  const width = opts.width ?? 72
+  const DEFAULT_WIDTH = 72
+  const width = opts.width ?? DEFAULT_WIDTH
   const t = collapse(text.trim())
   if (t.startsWith("{") && matchBracket(t, 0) === t.length - 1) {
     const inner = t.slice(1, -1).trim()

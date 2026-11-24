@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // Server-free SQL preview: `.toSQL()` on lazy reads and the compile-`delegate.$sql.<op>`.
 // The preview derivs it from the SAME compiled statements the executor runs, so these goldens
 // compare it against the script a real call captures — no hardcoded SQL, no connection for preview.
@@ -11,20 +10,20 @@ import { s, table } from "../../../src/surreal/pure"
 import { fakeConn } from "../orm-fixtures"
 
 const User = table("user", {
-  name: s.string(),
-  age: s.int(),
   active: s.boolean(),
+  age: s.int(),
+  name: s.string(),
 })
 
 describe("SQL preview (server-free)", () => {
   test("read .toSQL() matches the script the real call sends, without a round-trip", async () => {
-    const { conn, calls } = fakeConn()
+    const { calls, conn } = fakeConn()
     const client = orm(conn, { schema: { users: User } })
 
     const pending = client.users.findMany({
-      where: { age: { gte: 18 } },
-      orderBy: [{ age: "desc" }],
       limit: 10,
+      orderBy: [{ age: "desc" }],
+      where: { age: { gte: 18 } },
     })
     const preview = pending.toSQL()
     expect(calls).toHaveLength(0)
@@ -41,7 +40,7 @@ describe("SQL preview (server-free)", () => {
   })
 
   test("explain: true results are still previewable", async () => {
-    const { conn, calls } = fakeConn()
+    const { calls, conn } = fakeConn()
     const client = orm(conn, { schema: { users: User } })
     // `explain: true` is eager (it runs EXPLAIN at call time) — `.toSQL()` adds no round-trip.
     const pending = client.users.findMany({ explain: true })
@@ -52,10 +51,10 @@ describe("SQL preview (server-free)", () => {
   })
 
   test("$withContext scopes are part of the previewed script", () => {
-    const { conn, calls } = fakeConn()
+    const { calls, conn } = fakeConn()
     const client = orm(conn, { schema: { users: User } })
     const preview = client
-      .$withContext({ namespace: "app", database: "main" })
+      .$withContext({ database: "main", namespace: "app" })
       .users.findMany()
       .toSQL()
     expect(preview.script.startsWith("USE NS app DB main;\n")).toBe(true)
@@ -63,26 +62,26 @@ describe("SQL preview (server-free)", () => {
   })
 
   test("write $sql preview is a true dry run (no connection, BEGIN/COMMIT included)", async () => {
-    const { conn, calls } = fakeConn()
+    const { calls, conn } = fakeConn()
     const client = orm(conn, { schema: { users: User } })
 
     const preview = client.users.$sql.create({
-      data: { name: "Aeon", age: 30, active: true },
+      data: { active: true, age: 30, name: "Aeon" },
     })
     expect(calls).toHaveLength(0)
     expect(preview.operation).toBe("create")
     expect(preview.transactional).toBe(false)
 
     await client.users.create({
-      data: { name: "Aeon", age: 30, active: true },
+      data: { active: true, age: 30, name: "Aeon" },
     })
     expect(preview.script).toBe(calls[0]?.sql)
     expect(preview.statements[0]?.vars).toEqual(calls[0]?.vars ?? {})
 
     const batch = client.users.$sql.createMany({
       data: [
-        { name: "A", age: 1, active: true },
-        { name: "B", age: 2, active: false },
+        { active: true, age: 1, name: "A" },
+        { active: false, age: 2, name: "B" },
       ],
     })
     expect(batch.transactional).toBe(true)
@@ -99,7 +98,7 @@ describe("SQL preview (server-free)", () => {
           throw new OrmError("ValidationError", "preview denied")
       },
     })
-    const client = orm(conn, { schema: { users: User }, plugins: [deny] })
+    const client = orm(conn, { plugins: [deny], schema: { users: User } })
     expect(() => client.users.$sql.findMany()).toThrow("preview denied")
     expect(() => client.users.findMany()).toThrow("preview denied")
   })

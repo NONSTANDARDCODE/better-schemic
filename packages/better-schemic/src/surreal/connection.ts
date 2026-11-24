@@ -47,21 +47,10 @@ export type SurrealConnectionConfig = {
  * a `ns/db @ url` display label for bulk reporting (an explicit config `key` wins over it).
  */
 export function surrealConnection(config: SurrealConnectionConfig): ConnectionEntry<Client>
-export function surrealConnection<Args = undefined>(
-  resolve: (
-    ctx: ResolveContext,
-    args: Args,
-  ) =>
-    | Promise<SurrealConnectionConfig | SurrealConnectionConfig[]>
-    | SurrealConnectionConfig
-    | SurrealConnectionConfig[],
-): ConnectionEntry<Client, Args>
 // The union-input form — what makes the factory itself usable as the CHAIN's driver marker
 // (`defineConfig().connection(name, surrealConnection, input)`): core's ChainableDriverFactory
-// calls it with `ConnectionInput<C, Args>`, which neither single-shape overload above accepts.
-// Last in the list, so direct static/resolver calls keep their precise inference.
+// calls it with `ConnectionInput<C, Args>`, which the static-config overload above doesn't accept.
 export function surrealConnection<Args = undefined>(
-  // eslint-disable-next-line @typescript-eslint/unified-signatures -- sobrecarga de input união preserva a inferência do factory encadeável
   input:
     | ((
         ctx: ResolveContext,

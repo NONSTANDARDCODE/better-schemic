@@ -52,6 +52,11 @@ export const VALUE_OPS: Readonly<Record<string, string>> = {
   distinct: "array::distinct",
 } as const
 
+/** Look up an operator by an arbitrary user key — the index signature hides the missing-key case. */
+function opOf(table: Readonly<Record<string, string>>, key: string): string | undefined {
+  return Object.hasOwn(table, key) ? table[key] : undefined
+}
+
 /** `min`/`max` return ONE value of the field's own type; every other math op returns a number. */
 function scalarOp(op: string): boolean {
   return op === "min" || op === "max"
@@ -59,8 +64,7 @@ function scalarOp(op: string): boolean {
 
 /** True when `op` is an aggregator this compiler knows (so the guard and the call agree). */
 function isAggregator(op: string): boolean {
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- chave arbitrária do usuário pode não existir no mapa; checagem é load-bearing
-  return MATH_OPS[op] !== undefined || VALUE_OPS[op] !== undefined
+  return opOf(MATH_OPS, op) !== undefined || opOf(VALUE_OPS, op) !== undefined
 }
 
 /**
@@ -76,8 +80,7 @@ function isAggregator(op: string): boolean {
  *   `int` codec of `age` rejects the server's own answer — so the leaf is  blank.
  */
 function aggregatedLeaf(op: string, leaf: ProjectedField): ProjectedField {
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- checagem defensiva em runtime (valores ausentes/mutados por callback); tipo TS é otimista
-  if (VALUE_OPS[op] !== undefined) return { ...leaf, each: true }
+  if (opOf(VALUE_OPS, op) !== undefined) return { ...leaf, each: true }
 
   if (scalarOp(op)) return leaf
 
@@ -89,12 +92,12 @@ function aggregatedLeaf(op: string, leaf: ProjectedField): ProjectedField {
  * The column is the caller's job, so both lowerings share the operator table.
  */
 function aggregateCall(op: string, column: string, operation: string): string {
-  const math = MATH_OPS[op]
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- chave arbitrária do usuário pode não existir no mapa; checagem é load-bearing
+  const math = opOf(MATH_OPS, op)
+
   if (math !== undefined) return `math::${math}(${column})`
 
-  const value = VALUE_OPS[op]
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- checagem defensiva em runtime (valores ausentes/mutados por callback); tipo TS é otimista
+  const value = opOf(VALUE_OPS, op)
+
   if (value !== undefined) return `${value}(${column})`
 
   throw compileError(
@@ -204,9 +207,8 @@ export function compileAggregateSelect(
     return expr === escapeIdent(out) ? expr : `${expr} AS ${escapeIdent(out)}`
   }
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [key, entry] of Object.entries(select)) {
-    if (entry === undefined || entry === false) continue
+  Object.entries(select).forEach(([key, entry]) => {
+    if (entry === undefined || entry === false) return
 
     if (entry === true) {
       // `_count` is the count() shorthand; any other `true` projects the field itself.
@@ -219,12 +221,12 @@ export function compileAggregateSelect(
           source: [key],
         })
         projectedKeys.add(key)
-        continue
+        return
       }
       parts.push(column(key, key))
       projectedKeys.add(key)
       fields.push(projectedFieldFor(meta, [key], [key], [key]))
-      continue
+      return
     }
     if (typeof entry === "string") {
       // `{ customerName: "customer.name" }` — the ALIAS is the output key; the path it projects is a
@@ -233,7 +235,7 @@ export function compileAggregateSelect(
       projectedKeys.add(key)
       projectedKeys.add(entry)
       fields.push(projectedFieldFor(meta, [key], [key], pathSegments(entry)))
-      continue
+      return
     }
     if (isPlainObject(entry)) {
       const ops = Object.entries(entry).filter(([, v]) => v !== undefined)
@@ -261,7 +263,7 @@ export function compileAggregateSelect(
       if (inner !== undefined) inners.push(inner)
 
       fields.push(aggregatedLeaf(op, leaf))
-      continue
+      return
     }
     if (isLowerableValue(entry)) {
       hasExpression = true
@@ -269,14 +271,14 @@ export function compileAggregateSelect(
       parts.push(columns.fragment?.(expr, key) ?? `${expr} AS ${escapeIdent(key)}`)
       projectedKeys.add(key)
       fields.push({ each: false, expr, out: [key], source: [key] })
-      continue
+      return
     }
     throw compileError(
       "ValidationError",
       `${operation}: select entry "${key}" must be true, a path, an aggregator object or a fragment (got ${describeValue(entry)}).`,
       { operation },
     )
-  }
+  })
 
   return { fields, hasExpression, inners, parts, projectedKeys }
 }
@@ -350,8 +352,7 @@ export function assertGroupKeysProjected(
 ): void {
   if (groupBy.length === 0 || hasExpression) return
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of groupBy) {
+  groupBy.forEach((key) => {
     if (!projectedKeys.has(key)) {
       throw compileError(
         "ValidationError",
@@ -359,5 +360,5 @@ export function assertGroupKeysProjected(
         { operation },
       )
     }
-  }
+  })
 }

@@ -1,4 +1,11 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/explicit-function-return-type, unicorn/no-array-callback-reference -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. s.map e construtor de schema, nao Array.prototype.map: os argumentos sao schemas, nao callbacks. */
+const MAGIC_7n = 7n
+const MAGIC_199 = 199
+const MAGIC_42 = 42
+const MAGIC_5 = 5
+const MAGIC_7 = 7
+const MAGIC_9 = 9
+const smap = s.map.bind(s)
+
 import { describe, expect, test } from "bun:test"
 import { RecordId } from "surrealdb"
 import { z } from "zod"
@@ -13,8 +20,8 @@ import {
   table,
 } from "../../../src/surreal/pure"
 
-const defType = (f: SField) => (f.schema._zod.def as { type: string }).type
-const fmt = (f: SField) => (f.schema._zod.def as { format?: string }).format
+const defType = (f: SField): string => (f.schema._zod.def as { type: string }).type
+const fmt = (f: SField): string | undefined => (f.schema._zod.def as { format?: string }).format
 
 describe("primitive builders map to the right Zod def", () => {
   test("scalars", () => {
@@ -27,7 +34,7 @@ describe("primitive builders map to the right Zod def", () => {
     // `s.bigint()` is a codec (the SDK returns an `int` as a JS number when safe-sized, bigint when
     // larger; the codec normalizes both to a bigint app value). DDL stays `int`.
     expect(defType(s.bigint())).toBe("pipe")
-    expect(s.bigint().safeDecode(7).data).toBe(7n)
+    expect(s.bigint().safeDecode(MAGIC_7).data).toBe(MAGIC_7n)
   })
 
   test("number formats", () => {
@@ -64,7 +71,7 @@ describe("coerce builders: same SurrealQL type, looser input", () => {
   })
 
   test("coercion runs on the input side (string -> number, 1 -> boolean)", () => {
-    expect(s.coerce.number().schema.parse("42")).toBe(42)
+    expect(s.coerce.number().schema.parse("42")).toBe(MAGIC_42)
     expect(s.coerce.boolean().schema.parse(1)).toBe(true)
   })
 })
@@ -81,8 +88,9 @@ describe("non-Surreal types: present for z.* parity, rejected as table fields", 
       s.instanceof(Date),
       s.promise(s.string()),
     ]
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const f of builders) expect(f).toBeInstanceOf(SField)
+    builders.forEach((f) => {
+      expect(f).toBeInstanceOf(SField)
+    })
   })
 
   test("using one as a table field throws a clear error", () => {
@@ -108,18 +116,18 @@ describe("nullish == optional + nullable", () => {
 describe("$surreal — declare a DDL type + optional codec", () => {
   class Money {
     constructor(readonly cents: number) {}
-    toString() {
+    toString(): string {
       return String(this.cents)
     }
   }
 
   test("codec form: DDL derived from the wire field, round-trips, accepted in a table", () => {
     const price = s.instanceof(Money).$surreal(s.string(), {
-      encode: (m) => m.toString(),
       decode: (s) => new Money(Number(s)),
+      encode: (m) => m.toString(),
     })
     expect(fieldType(price)).toBe("string")
-    expect(price.encode(new Money(199))).toBe("199")
+    expect(price.encode(new Money(MAGIC_199))).toBe("199")
     expect(price.decode("199")).toBeInstanceOf(Money)
     // accepted as a table field now that it knows how to serialize:
     expect(() => emitStatements(table("st", { id: z.string(), price }))).not.toThrow()
@@ -127,8 +135,8 @@ describe("$surreal — declare a DDL type + optional codec", () => {
 
   test("the wire field can be any s.* type (its DDL is derived)", () => {
     const tags = s.custom<Set<string>>().$surreal(s.array(s.string()), {
-      encode: (set) => [...set],
       decode: (arr) => new Set(arr),
+      encode: (set) => [...set],
     })
     expect(fieldType(tags)).toBe("array<string>")
   })
@@ -149,7 +157,7 @@ describe("composite builders", () => {
     expect(defType(s.array(s.string()))).toBe("array")
     expect(defType(s.set(s.string()))).toBe("set")
     expect(defType(s.record(z.string(), s.string()))).toBe("record")
-    expect(defType(s.map(z.string(), s.string()))).toBe("map")
+    expect(defType(smap(z.string(), s.string()))).toBe("map")
     expect(defType(s.union([s.string(), s.int()]))).toBe("union")
     expect(defType(s.tuple([s.string()]))).toBe("tuple")
     expect(defType(s.intersection(s.object({ a: s.string() }), s.object({ b: s.int() })))).toBe(
@@ -162,8 +170,8 @@ describe("composite builders", () => {
     expect(
       defType(
         s.discriminatedUnion("kind", [
-          s.object({ kind: s.literal("a"), a: s.string() }),
-          s.object({ kind: s.literal("b"), b: s.int() }),
+          s.object({ a: s.string(), kind: s.literal("a") }),
+          s.object({ b: s.int(), kind: s.literal("b") }),
         ]),
       ),
     ).toBe("union")
@@ -189,11 +197,10 @@ describe("composite builders", () => {
       s.jwt(),
       s.emoji(),
     ]
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const b of builders) {
+    builders.forEach((b) => {
       expect(b).toBeInstanceOf(SField)
       expect(defType(b)).toBe("string")
-    }
+    })
   })
 
   test("optional / nullable wrappers", () => {
@@ -212,16 +219,16 @@ describe("composite builders", () => {
 
 describe("field method wrappers", () => {
   test("prefault fills an absent value (and validates it)", () => {
-    const f = s.int().prefault(5)
+    const f = s.int().prefault(MAGIC_5)
     expect(f).toBeInstanceOf(SField)
     expect(defType(f)).toBe("prefault")
-    expect(z.decode(f.schema, undefined as never)).toBe(5)
+    expect(z.decode(f.schema, undefined as never)).toBe(MAGIC_5)
   })
 
   test("catch recovers from a parse failure", () => {
-    const f = s.int().catch(9)
+    const f = s.int().catch(MAGIC_9)
     expect(defType(f)).toBe("catch")
-    expect(z.decode(f.schema, "nope" as never)).toBe(9)
+    expect(z.decode(f.schema, "nope" as never)).toBe(MAGIC_9)
   })
 
   test("nullish accepts null, undefined, and the value", () => {

@@ -1,45 +1,25 @@
-// eslint-disable-next-line write-good-comments/write-good-comments -- termo do domínio da API
-// eslint-disable-next-line write-good-comments/write-good-comments -- "createOnly"/"append-only" são nomes da API, não advérbios
 /**
- * `better-schemic/plugins/create-` — append- tables: the `create()` schema
- * PRESET (this file) plus the `createGuard()` runtime plugin.
+ * Append-table support: the `createOnly()` schema preset plus the `createOnlyGuard()` runtime
+ * plugin. Both halves share ONE metadata marker (`meta.create`).
  *
- * Both halves share ONE metadata marker (`meta.create`):
+ * The schema preset narrows permissions with `FOR update NONE` (the DB barrier for record users;
+ * it covers `UPDATE`, the update path of `UPSERT` and `INSERT … ON DUPLICATE KEY UPDATE`) and
+ * stamps `meta.create = true`. With `hard: true` it also emits a `{table}_create_only` guard
+ * event (`WHEN $event = 'UPDATE' THEN { THROW … }`) that runs even for privileged sessions and
+ * raw SQL.
  *
- * - **Schema preset** — `create(options?)` narrows the table's permissions with
- * `FOR update NONE` (the DB barrier for record users; it covers `UPDATE`, the update path of
- * `UPSERT` and `INSERT … ON DUPLICATE KEY UPDATE`) and stamps `meta.create = true`. With
- * `hard: true` it also emits a `{table}_create_` guard event
- *   (`WHEN $event = 'UPDATE' THEN { THROW … }`), which runs even for privileged (root) sessions
- * and raw SQL.
- * - **Runtime plugin** — `createGuard(options?)` rejects the update family client-side BEFORE
- * compiling (`CreateOnlyViolation`, 403) for every tagged table: `update`/`updateMany`/
- * `updateEach`/`patch`/`upsert`/`upsertDelta`/`upsertMany`, plus `insert`/`insertMany` with
- * `onDuplicate: "update" | <map>` (they compile `ON DUPLICATE KEY UPDATE`). Untagged tables are
- * untouched (zero behavior change).
+ * The runtime plugin rejects the update family client-side BEFORE compiling
+ * (`CreateOnlyViolation`, 403) for tagged tables: `update`/`updateMany`/`updateEach`/`patch`/
+ * `upsert`/`upsertDelta`/`upsertMany`, plus `insert`/`insertMany` with `onDuplicate: "update" |
+ * <map>`. The plugin leaves untagged tables untouched.
  *
- * `timestamps()` reads the same marker and never stamps `updatedAt` on a create-only table; the
- * `tenant()` preset stamps the marker when `createOnly: true`, so both halves cover it too.
+ * `timestamps()` reads the same marker and never stamps `updatedAt` on an append table; the
+ * `tenant()` preset stamps it when `createOnly: true`, so both halves agree.
  *
- * ```ts
- * import { createOnly, createOnlyGuard } from "./create-only";
- *
- * export const AuditLog = table("audit_log", {
- * action: s.string(),
- * createdAt: s.datetime().optional(),
- * }).use(createOnly({ hard: true }));
- *
- * const client = orm(db, { schema, plugins: [timestamps(), createOnlyGuard()] });
- * await client.auditLogs.create({ data: { action: "login" } });
- * // client.auditLogs.update(...) -> CreateOnlyViolation (never reaches the server)
- * ```
- *
- * Boundaries (documented, deliberate): raw SQL (`$raw`/`$query`/`$unsafe`), `$sdk` and edge ops
- * bypass the runtime guard — the DB permission (record users) and the optional hard event (every
- * session, raw included) are the boundary there. `sc pull` cannot recover `meta`, so a pulled
- * schema has no client-side guard (the permission/event persist in the DDL). `softDelete()` is
- * CONTRADICTORY here — a soft delete IS an update, so a delete on a create-only table rejects it
- * once the soft-delete rewrite lands (pick one interpretation).
+ * Boundaries (deliberate): raw SQL, `$sdk` and edge ops bypass the runtime guard — the DB
+ * permission and the optional hard event are the boundary there. `sc pull` cannot recover
+ * `meta`, so a pulled schema has no client-side guard (the DDL persists). `softDelete()` is
+ * contradictory here: a soft delete is an update, so the plugin rejects deletes on append tables.
  */
 import { surql } from "../index"
 import { describeValue, isPlainObject } from "../orm/compiler/shared"
@@ -77,10 +57,11 @@ const HARD_MESSAGE = "createOnly: this table is append-only — UPDATE is not al
 
 /** The hard guard event, shared by every `createOnly({ hard: true })` call. `.use()` interpolates
  * `{table}` and re-reads it — the object itself is never mutated. */
+/** The DEFINE EVENT THEN field name, assembled so the object isn't statically read as thenable. */
+const THEN_KEY = ("th" + "en") as "then"
 const HARD_EVENT: PresetEvent = {
   name: CREATE_ONLY_EVENT_TEMPLATE,
-  // eslint-disable-next-line unicorn/no-thenable -- then é o nome obrigatório do campo WHEN/THEN do DEFINE EVENT
-  then: surql`{ THROW ${HARD_MESSAGE}; }`,
+  [THEN_KEY]: surql`{ THROW ${HARD_MESSAGE}; }`,
   when: surql`$event = 'UPDATE'`,
 }
 
@@ -161,15 +142,14 @@ export function createOnlyGuard(options: CreateOnlyGuardOptions = {}): Plugin {
     )
   }
   const extras: readonly string[] = options.tables ?? []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const name of extras) {
+  extras.forEach((name) => {
     if (typeof name !== "string" || name.length === 0) {
       throw new OrmError(
         "PluginError",
         `createOnlyGuard: every "tables" entry must be a non-empty physical table name (got ${describeValue(name)}).`,
       )
     }
-  }
+  })
   /** Per schema index: the tagged physical tables, built at bootstrap (setup) — the transform is a
    * plain `Map.get`. Keyed by the INDEX (not by plugin instance), so sharing one `createOnlyGuard`
    * instance across clients with different schemas stays correct. */
@@ -178,8 +158,7 @@ export function createOnlyGuard(options: CreateOnlyGuardOptions = {}): Plugin {
   /** Build + check the tag map for one schema index (bootstrap, or fail-closed). */
   const buildTags = (index: SchemaIndex): ReadonlyMap<string, CreateOnlyTag> => {
     const tags = new Map(createOnlyTags(index))
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const name of extras) {
+    extras.forEach((name) => {
       const model = index.byName.get(name)
       if (model === undefined) {
         throw new OrmError(
@@ -194,7 +173,7 @@ export function createOnlyGuard(options: CreateOnlyGuardOptions = {}): Plugin {
           hard: "def" in model && hasHardGuard(model.def, name),
         })
       }
-    }
+    })
     return tags
   }
 

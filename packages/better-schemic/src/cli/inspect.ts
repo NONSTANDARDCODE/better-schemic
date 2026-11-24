@@ -147,8 +147,9 @@ async function lsKind(
   console.log(style.bold(`${registry.display(kind).plural} (${addresses.length}) — ${source}`))
   if (addresses.length === 0) console.log(style.dim("  (none)"))
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const address of addresses) console.log(`  ${address}`)
+  addresses.forEach((address) => {
+    console.log(`  ${address}`)
+  })
 }
 
 /** `sc <kind> info <address>` — one entity's resolved DDL from the chosen source. */
@@ -195,8 +196,9 @@ async function overview(
   }
   console.log(style.bold(`Schema overview — ${source}`))
   const width = Math.max(0, ...rows.map((r) => r.label.length))
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const r of rows) console.log(`  ${r.label.padEnd(width)}  ${r.count}`)
+  rows.forEach((r) => {
+    console.log(`  ${r.label.padEnd(width)}  ${r.count}`)
+  })
 }
 
 /**
@@ -219,8 +221,7 @@ export function registerInspectVerbs(
     snapshot?: boolean
   }
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const kind of registry.names()) {
+  registry.names().forEach((kind) => {
     const engine = requireKind(registry, engines, kind)
     const group = groupFor(kind)
 
@@ -241,7 +242,7 @@ export function registerInspectVerbs(
         })
       },
     )
-  }
+  })
 
   // Verb-first forms, alongside the noun-first `sc <kind> ls`/`info`: `sc ls [kind]` (a cross-kind
   // overview when omitted, else that kind's entities) and `sc info <kind> <name>`. Same actions, so both

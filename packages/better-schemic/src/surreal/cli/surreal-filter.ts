@@ -35,9 +35,9 @@ export function included(f: Filter, s: DefineStatement): boolean {
 
 /** Keep the snapshot statements that pass the filter (for `diff`/`sync`/`generate`). */
 export function filterSnapshot(snap: Snapshot, f: Filter): Snapshot {
-  const statements: Record<string, DefineStatement> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [k, s] of Object.entries(snap.statements)) if (included(f, s)) statements[k] = s
+  const statements = Object.fromEntries(
+    Object.entries(snap.statements).filter(([, s]) => included(f, s)),
+  )
 
   return { ...snap, statements }
 }
@@ -48,12 +48,10 @@ export function filterSnapshot(snap: Snapshot, f: Filter): Snapshot {
  * leaves the snapshot's access untouched (no phantom add/remove) rather than dropping it.
  */
 export function mergeSnapshot(prev: Snapshot, next: Snapshot, f: Filter): Snapshot {
-  const statements: Record<string, DefineStatement> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [k, s] of Object.entries(prev.statements)) if (!included(f, s)) statements[k] = s
-
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [k, s] of Object.entries(next.statements)) if (included(f, s)) statements[k] = s
+  const statements = Object.fromEntries([
+    ...Object.entries(prev.statements).filter(([, s]) => !included(f, s)),
+    ...Object.entries(next.statements).filter(([, s]) => included(f, s)),
+  ])
 
   return { ...next, statements }
 }

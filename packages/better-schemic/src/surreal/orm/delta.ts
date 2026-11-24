@@ -30,20 +30,22 @@ export function computeFieldDelta(
   after: Record<string, unknown>,
 ): ComputedDelta {
   const keys = Object.keys(after)
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of Object.keys(before)) if (!Object.hasOwn(after, key)) keys.push(key)
+
+  Object.keys(before).forEach((key) => {
+    if (!Object.hasOwn(after, key)) keys.push(key)
+  })
 
   const oldPart: Record<string, unknown> = {}
   const afterPart: Record<string, unknown> = {}
   const changed: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of keys) {
-    if (equalAppValue(before[key], after[key])) continue
+
+  keys.forEach((key) => {
+    if (equalAppValue(before[key], after[key])) return
 
     oldPart[key] = before[key]
     afterPart[key] = after[key]
     changed.push(key)
-  }
+  })
   if (changed.length === 0) return { changed, delta: null }
 
   return { changed, delta: { new: afterPart, old: oldPart } }
@@ -89,8 +91,7 @@ function hasEquals(value: unknown): value is { equals(other: unknown): boolean }
 function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [i, element] of a.entries()) if (element !== b[i]) return false
+  if (a.entries().some(([i, element]) => element !== b[i])) return false
 
   return true
 }

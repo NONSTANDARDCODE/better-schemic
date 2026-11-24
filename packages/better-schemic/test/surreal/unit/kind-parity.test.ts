@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any, unicorn/consistent-function-scoping, unicorn/no-thenable, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Fixtures use any for duck-typed mocks. Helpers stay colocated with the tests that use them. Bun test calls return thenable handles that are not awaited. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // Kind-registry parity (docs/kind-registry-contract.md §3): the generic kind-registry path must reproduce
 // the driver's INTERNAL clause-level engine (`diffSnapshots` over `buildSnapshot`) for the
 // `table`/`index`/`event`/`function` kinds (access unmanags it — excludeFromMigrations — and asserted
@@ -11,7 +10,6 @@
 // Each diff scenario touches ONE table, so statement order is unambiguous. Cross-table EMIT ordering is
 // asserted separately via `emitKinds` (the registry uses dependency ordering — strictly more correct
 // than the legacy insertion order, e.g. a RELATION emits after its endpoints).
-
 import {
   defineAccess,
   defineAnalyzer,
@@ -30,32 +28,118 @@ import {
 } from "better-schemic/core"
 import { surrealDriver } from "better-schemic/driver"
 import { describe, expect, test } from "bun:test"
+import type { ZodInt, ZodString } from "zod"
 
 import { schemaStruct } from "../../../src/surreal/cli/lower"
-import { structuredSnapshot } from "../../../src/surreal/cli/structure"
+import { type Snapshot, structuredSnapshot } from "../../../src/surreal/cli/structure"
 import { diffSnapshots } from "../../../src/surreal/cli/surreal-diff"
 import { lowerAll, surrealKinds } from "../../../src/surreal/kinds/registry"
+import type {
+  AnalyzerDef,
+  FunctionDef,
+  JwtAccessDef,
+  RecordAccessDef,
+  SField,
+  TableDef,
+  WithSmartId,
+} from "../../../src/surreal/pure"
+import { THEN_KEY } from "../../then-key"
+const eng = (): AnalyzerDef => defineAnalyzer("eng").tokenizers("blank")
+
+const fnIdx = (up: string[]): number =>
+  up.findIndex((l): boolean => l.startsWith("DEFINE FUNCTION fn::fmt"))
+
+const fmt = (): FunctionDef<{ v: SField<ZodString> }, string> =>
+  defineFunction("fmt", { v: s.string() })
+    .returns(s.string())
+    .body(surql`RETURN $v`)
+
+const jwks = (): JwtAccessDef =>
+  defineAccess("ext").onDatabase().jwt({ url: "https://x/jwks.json" })
+
+const jwt = (): JwtAccessDef =>
+  defineAccess("jwt").onDatabase().jwt({ alg: "HS512", key: "secret" })
+
+const acct = (): RecordAccessDef =>
+  defineAccess("acct")
+    .onDatabase()
+    .record()
+    .signin(surql`SELECT 1`)
+
+const add = (): FunctionDef<{ a: SField<ZodInt>; b: SField<ZodInt> }, number> =>
+  defineFunction("add", { a: s.int(), b: s.int() })
+    .returns(s.int())
+    .body(surql`RETURN $a + $b`)
+
+const idx = (ddl: string[], re: RegExp): number => ddl.findIndex((l): boolean => re.test(l))
+
+const headers = (ddl: string[]): string[] =>
+  ddl.filter((l): boolean => /^DEFINE (TABLE|INDEX|EVENT)/u.test(l))
+
+const changed = (): TableDef<
+  "user",
+  WithSmartId<"user", { id: SField<ZodString>; n: SField<ZodInt> }>
+> =>
+  table("user", { id: s.string(), n: s.int() }).event("on_n", {
+    [THEN_KEY]: surql`UPDATE $after.id SET touched = false`,
+    when: surql`$before.n != $after.n`,
+  })
+
+const evented = (): TableDef<
+  "user",
+  WithSmartId<"user", { id: SField<ZodString>; n: SField<ZodInt> }>
+> =>
+  table("user", { id: s.string(), n: s.int() }).event("on_n", {
+    [THEN_KEY]: surql`UPDATE $after.id SET touched = true`,
+    when: surql`$before.n != $after.n`,
+  })
+
+const base = (): TableDef<
+  "m",
+  WithSmartId<"m", { a: SField<ZodString>; b: SField<ZodString>; id: SField<ZodString> }>
+> => table("m", { a: s.string(), b: s.string(), id: s.string() })
+
+const t2 = (): TableDef<"t", WithSmartId<"t", { id: SField<ZodString> }>> =>
+  table("t", { id: s.string() })
 
 // Lib-authored tables/defs vs the src-typed signatures: cast at the seam (as buildSnapshot does).
-type AnyArr = any[]
+type AnyArr = Parameters<typeof lowerAll>[0] | Parameters<typeof schemaStruct>[1]
 // The driver's INTERNAL clause-level engine over the CANONICAL snapshot (`structuredSnapshot` — the
 // SAME renderer the registry's `explode` uses, so divergences like DEFAULT quote style match).
-const legacy = (prevT: AnyArr, nextT: AnyArr, prevD: AnyArr = [], nextD: AnyArr = []) => {
-  const snap = (t: AnyArr, d: AnyArr) => structuredSnapshot(schemaStruct(t, d))
+const legacy = (
+  prevT: AnyArr,
+  nextT: AnyArr,
+  prevD: AnyArr = [],
+  nextD: AnyArr = [],
+): { down: string[]; up: string[] } => {
+  const snap = (t: AnyArr, d: AnyArr): Snapshot =>
+    structuredSnapshot(schemaStruct(t as never, d as never))
   const diff = diffSnapshots(snap(prevT, prevD), snap(nextT, nextD))
-  return { up: diff.up, down: diff.down }
+  return { down: diff.down, up: diff.up }
 }
-const registry = (prevT: AnyArr, nextT: AnyArr, prevD: AnyArr = [], nextD: AnyArr = []) => {
-  const { up, down } = planKinds(surrealKinds, lowerAll(prevT, prevD), lowerAll(nextT, nextD))
-  return { up, down }
+const registry = (
+  prevT: AnyArr,
+  nextT: AnyArr,
+  prevD: AnyArr = [],
+  nextD: AnyArr = [],
+): { down: string[]; up: string[] } => {
+  const { down, up } = planKinds(
+    surrealKinds,
+    lowerAll(prevT as never, prevD as never),
+    lowerAll(nextT as never, nextD as never),
+  )
+  return { down, up }
 }
 
 /** Assert the registry path == the fixed-slot path for a (prev -> next) schema change. */
-const parity = (prevT: AnyArr, nextT: AnyArr, prevD: AnyArr = [], nextD: AnyArr = []) => {
+const parity = (prevT: AnyArr, nextT: AnyArr, prevD: AnyArr = [], nextD: AnyArr = []): void => {
   expect(registry(prevT, nextT, prevD, nextD)).toEqual(legacy(prevT, nextT, prevD, nextD))
 }
 
-const User = () => table("user", { id: s.string(), name: s.string() })
+const User = (): TableDef<
+  "user",
+  WithSmartId<"user", { id: SField<ZodString>; name: SField<ZodString> }>
+> => table("user", { id: s.string(), name: s.string() })
 
 describe("table/field kind parity with surrealDriver.diff", () => {
   test("add a field", () => {
@@ -63,9 +147,9 @@ describe("table/field kind parity with surrealDriver.diff", () => {
       [User()],
       [
         table("user", {
+          email: s.email(),
           id: s.string(),
           name: s.string(),
-          email: s.email(),
         }),
       ],
     )
@@ -83,8 +167,8 @@ describe("table/field kind parity with surrealDriver.diff", () => {
       [
         table("user", {
           id: s.string(),
-          name: s.string(),
           legacy: s.string(),
+          name: s.string(),
         }),
       ],
       [User()],
@@ -105,26 +189,24 @@ describe("table/field kind parity with surrealDriver.diff", () => {
 
   test("COMPUTED change (OVERWRITE fallback inside the table kind)", () => {
     parity(
-      [table("t", { id: s.string(), c: s.string() })],
+      [table("t", { c: s.string(), id: s.string() })],
       [
         table("t", {
-          id: s.string(),
           c: s.string().$computed(surql`"x"`),
+          id: s.string(),
         }),
       ],
     )
   })
 
   test("table SCHEMAFULL <-> SCHEMALESS (table-head ALTER)", () => {
-    const t = () => table("t", { id: s.string() })
-    parity([t()], [t().schemaless()])
-    parity([t().schemaless()], [t()])
+    parity([t2()], [t2().schemaless()])
+    parity([t2().schemaless()], [t2()])
   })
 
   test("table COMMENT add/remove (table-head ALTER)", () => {
-    const t = () => table("t", { id: s.string() })
-    parity([t()], [t().comment("note")])
-    parity([t().comment("note")], [t()])
+    parity([t2()], [t2().comment("note")])
+    parity([t2().comment("note")], [t2()])
   })
 
   test("table TYPE change (NORMAL -> RELATION) OVERWRITE fallback", () => {
@@ -150,57 +232,45 @@ describe("table/field kind parity with surrealDriver.diff", () => {
       ],
       [
         table("user", {
+          email: s.email(),
           id: s.string(),
           name: s.string().optional(),
-          email: s.email(),
         }),
       ],
     )
   })
 
   test("identical schema -> empty plan", () => {
-    expect(registry([User()], [User()])).toEqual({ up: [], down: [] })
+    expect(registry([User()], [User()])).toEqual({ down: [], up: [] })
   })
 })
 
 describe("index kind parity", () => {
   test("add an index (field .$unique())", () => {
     parity(
-      [table("t", { id: s.string(), code: s.string() })],
-      [table("t", { id: s.string(), code: s.string().$unique() })],
+      [table("t", { code: s.string(), id: s.string() })],
+      [table("t", { code: s.string().$unique(), id: s.string() })],
     )
   })
 
   test("change an index (.$index() -> .$unique()) recreates", () => {
     parity(
-      [table("t", { id: s.string(), a: s.string().$index() })],
-      [table("t", { id: s.string(), a: s.string().$unique() })],
+      [table("t", { a: s.string().$index(), id: s.string() })],
+      [table("t", { a: s.string().$unique(), id: s.string() })],
     )
   })
 
   test("composite table .index() add", () => {
-    const base = () => table("m", { id: s.string(), a: s.string(), b: s.string() })
     parity([base()], [base().index("m_ab", ["a", "b"])])
   })
 })
 
 describe("event kind parity", () => {
-  const evented = () =>
-    table("user", { id: s.string(), n: s.int() }).event("on_n", {
-      when: surql`$before.n != $after.n`,
-      then: surql`UPDATE $after.id SET touched = true`,
-    })
-
   test("add an event", () => {
     parity([table("user", { id: s.string(), n: s.int() })], [evented()])
   })
 
   test("change an event (DEFINE EVENT OVERWRITE)", () => {
-    const changed = () =>
-      table("user", { id: s.string(), n: s.int() }).event("on_n", {
-        when: surql`$before.n != $after.n`,
-        then: surql`UPDATE $after.id SET touched = false`,
-      })
     parity([evented()], [changed()])
   })
 
@@ -210,14 +280,11 @@ describe("event kind parity", () => {
 })
 
 describe("cross-kind dependency ordering (emitKinds)", () => {
-  const headers = (ddl: string[]) => ddl.filter((l) => /^DEFINE (TABLE|INDEX|EVENT)/u.test(l))
-  const idx = (ddl: string[], re: RegExp) => ddl.findIndex((l) => re.test(l))
-
   test("an index + event cluster AFTER their table", () => {
     const t = table("user", {
-      id: s.string(),
       email: s.email().$unique(),
-    }).event("ev", { then: surql`UPDATE $after.id SET seen = true` })
+      id: s.string(),
+    }).event("ev", { [THEN_KEY]: surql`UPDATE $after.id SET seen = true` })
     const up = emitKinds(surrealKinds, lowerAll([t]))
     const at = idx(up, /^DEFINE TABLE user/u)
     expect(at).toBeGreaterThanOrEqual(0)
@@ -241,14 +308,14 @@ describe("buildKindDiff + snapshot round-trip", () => {
     const prev = lowerAll([User()])
     const next = lowerAll([
       table("user", {
+        email: s.email(),
         id: s.string(),
         name: s.string().optional(),
-        email: s.email(),
       }),
       table("post", { id: s.string(), title: s.string() }),
     ])
     const diff = buildKindDiff(surrealKinds, prev, next)
-    expect({ up: diff.up, down: diff.down }).toEqual(planKinds(surrealKinds, prev, next))
+    expect({ down: diff.down, up: diff.up }).toEqual(planKinds(surrealKinds, prev, next))
     // PER-FIELD display (Manuel's call, via the table kind's displayItems): a changed table reports
     // FIELD-level items (not a coarse whole-table item) — name changed, email added.
     const items = diff.items ?? []
@@ -261,26 +328,21 @@ describe("buildKindDiff + snapshot round-trip", () => {
 
   test("snapshotKinds -> JSON -> snapshotObjects round-trips to a zero diff", () => {
     const portable = lowerAll([
-      table("user", { id: s.string(), email: s.email().$unique() }).event("ev", {
-        then: surql`UPDATE $after.id SET seen = true`,
+      table("user", { email: s.email().$unique(), id: s.string() }).event("ev", {
+        [THEN_KEY]: surql`UPDATE $after.id SET seen = true`,
       }),
     ])
     const snap = snapshotKinds(portable)
     expect(Object.keys(snap.kinds).sort()).toEqual(["event", "index", "table"])
     const restored = snapshotObjects(JSON.parse(JSON.stringify(snap)))
     expect(planKinds(surrealKinds, restored, portable)).toEqual({
-      up: [],
       down: [],
+      up: [],
     })
   })
 })
 
 describe("function kind parity (opaque)", () => {
-  const add = () =>
-    defineFunction("add", { a: s.int(), b: s.int() })
-      .returns(s.int())
-      .body(surql`RETURN $a + $b`)
-
   test("add a function", () => {
     parity([], [], [], [add()])
   })
@@ -302,11 +364,6 @@ describe("access is managed PER OBJECT (key-free rides migrations; key-bearing s
   // MANAGED migration kind — byte-parity with the internal `diffSnapshots` engine. A key-bearing
   // TYPE JWT stays unmanaged: the canonical DDL omits the redacted KEY, so re-applying would rotate
   // it (managed out-of-band via `sc access push/diff/rotate`).
-  const acct = () =>
-    defineAccess("acct")
-      .onDatabase()
-      .record()
-      .signin(surql`SELECT 1`)
 
   test("adding a key-free access emits DEFINE ACCESS (parity)", () => {
     parity([], [], [], [acct()])
@@ -325,12 +382,10 @@ describe("access is managed PER OBJECT (key-free rides migrations; key-bearing s
   })
 
   test("a key-bearing TYPE JWT access stays unmanaged (no migration statements)", () => {
-    const jwt = () => defineAccess("jwt").onDatabase().jwt({ alg: "HS512", key: "secret" })
-    expect(registry([], [], [], [jwt()])).toEqual({ up: [], down: [] })
+    expect(registry([], [], [], [jwt()])).toEqual({ down: [], up: [] })
   })
 
   test("a JWKS-URL JWT access is key-free and managed (parity)", () => {
-    const jwks = () => defineAccess("ext").onDatabase().jwt({ url: "https://x/jwks.json" })
     parity([], [], [], [jwks()])
   })
 
@@ -349,12 +404,6 @@ describe("access is managed PER OBJECT (key-free rides migrations; key-bearing s
 })
 
 describe("fn:: dependency ordering (function emits before its caller)", () => {
-  const fmt = () =>
-    defineFunction("fmt", { v: s.string() })
-      .returns(s.string())
-      .body(surql`RETURN $v`)
-  const fnIdx = (up: string[]) => up.findIndex((l) => l.startsWith("DEFINE FUNCTION fn::fmt"))
-
   test("before a table whose field COMPUTED calls it", () => {
     const t = table("doc", {
       id: s.string(),
@@ -367,7 +416,7 @@ describe("fn:: dependency ordering (function emits before its caller)", () => {
 
   test("before an event whose THEN calls it", () => {
     const t = table("user", { id: s.string(), n: s.int() }).event("ev", {
-      then: surql`UPDATE $after.id SET x = fn::fmt("y")`,
+      [THEN_KEY]: surql`UPDATE $after.id SET x = fn::fmt("y")`,
     })
     const up = emitKinds(surrealKinds, lowerAll([t], [fmt()]))
     expect(fnIdx(up)).toBeGreaterThanOrEqual(0)
@@ -389,10 +438,9 @@ describe("analyzer dependency ordering (analyzer emits before its FULLTEXT index
   // Regression: a minimal `… FULLTEXT ANALYZER eng;` (default BM25 stripped) put the `;` flush against
   // the name, so the dep parss it as `eng;` ≠ the `eng` analyzer — the edge dropps it and the index
   // could emit before its analyzer (apply error). The dep must resolve so the analyzer comes first.
-  const eng = () => defineAnalyzer("eng").tokenizers("blank")
 
   test("table-level .index(fulltext) — analyzer before index", () => {
-    const t = table("doc", { id: s.string(), body: s.string() }).index("ft", ["body"], {
+    const t = table("doc", { body: s.string(), id: s.string() }).index("ft", ["body"], {
       fulltext: { analyzer: "eng" },
     })
     const up = emitKinds(surrealKinds, lowerAll([t], [eng()]))
@@ -405,8 +453,8 @@ describe("analyzer dependency ordering (analyzer emits before its FULLTEXT index
 
   test("field-level .$fulltext() — analyzer before index", () => {
     const t = table("doc2", {
-      id: s.string(),
       body: s.string().$fulltext("eng"),
+      id: s.string(),
     })
     const up = emitKinds(surrealKinds, lowerAll([t], [eng()]))
     expect(up.findIndex((l) => l.startsWith("DEFINE ANALYZER eng"))).toBeLessThan(
@@ -433,8 +481,8 @@ describe("flipped surrealDriver shape", () => {
     // explode fans the table into a table object + its index, each tagged by kind.
     expect(objs.map((o) => o.kind).sort()).toEqual(["index", "table"])
     expect(typeof surrealDriver.introspectAll).toBe("function")
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const m of ["lower", "emit", "diff", "introspect", "normalize", "equal"])
+    ;["lower", "emit", "diff", "introspect", "normalize", "equal"].forEach((m) => {
       expect((surrealDriver as unknown as Record<string, unknown>)[m]).toBeUndefined()
+    })
   })
 })

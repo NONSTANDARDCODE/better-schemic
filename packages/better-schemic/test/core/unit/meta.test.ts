@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
+const MAGIC_3 = 3
 // The neutral stored-snapshot + migration-file engine: the empty/mismatch fallbacks, the migration
 // listing, and the pure helpers (timestamp / checksum / slug).
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
@@ -19,25 +19,25 @@ import {
 
 const dir = mkdtempSync(path.join(tmpdir(), "meta-test-"))
 afterAll(() => {
-  rmSync(dir, { recursive: true, force: true })
+  rmSync(dir, { force: true, recursive: true })
 })
 
 describe("readSnapshot / writeSnapshot", () => {
   test("an absent snapshot reads as EMPTY (version 3, surrealdb)", () => {
     const empty = readSnapshot(path.join(dir, "none"))
-    expect(empty.version).toBe(3)
+    expect(empty.version).toBe(MAGIC_3)
     expect(empty.driver).toBe("surrealdb")
     expect(empty.schema).toEqual({ kinds: {} })
-    expect(EMPTY_STORED.version).toBe(3)
+    expect(EMPTY_STORED.version).toBe(MAGIC_3)
   })
 
   test("round-trips a written snapshot", () => {
     const meta = path.join(dir, "round")
     writeSnapshot(meta, {
-      version: 3,
       driver: "surrealdb",
-      schema: { kinds: { table: [] } },
       files: { t: "t.ts" },
+      schema: { kinds: { table: [] } },
+      version: 3,
     })
     const back = readSnapshot(meta)
     expect(back.files).toEqual({ t: "t.ts" })
@@ -49,7 +49,7 @@ describe("readSnapshot / writeSnapshot", () => {
     mkdirSync(meta, { recursive: true })
     writeFileSync(
       path.join(meta, "_snapshot.json"),
-      JSON.stringify({ version: 2, driver: "surrealdb", schema: {} }),
+      JSON.stringify({ driver: "surrealdb", schema: {}, version: 2 }),
     )
     expect(readSnapshot(meta).schema).toEqual({ kinds: {} })
   })
@@ -57,7 +57,7 @@ describe("readSnapshot / writeSnapshot", () => {
   test("a snapshot missing driver reads as EMPTY", () => {
     const meta = path.join(dir, "nodriver")
     mkdirSync(meta, { recursive: true })
-    writeFileSync(path.join(meta, "_snapshot.json"), JSON.stringify({ version: 3, schema: {} }))
+    writeFileSync(path.join(meta, "_snapshot.json"), JSON.stringify({ schema: {}, version: 3 }))
     expect(readSnapshot(meta).schema).toEqual({ kinds: {} })
   })
 
@@ -66,7 +66,7 @@ describe("readSnapshot / writeSnapshot", () => {
     mkdirSync(meta, { recursive: true })
     writeFileSync(
       path.join(meta, "_snapshot.json"),
-      JSON.stringify({ version: 3, driver: "surrealdb" }),
+      JSON.stringify({ driver: "surrealdb", version: 3 }),
     )
     expect(readSnapshot(meta).schema).toEqual({ kinds: {} })
   })
@@ -81,25 +81,24 @@ describe("readSnapshot / writeSnapshot", () => {
   test("a doctored snapshot never reaches the walkers (unsafe kinds / bad shapes read as EMPTY)", () => {
     const meta = path.join(dir, "doctored")
     mkdirSync(meta, { recursive: true })
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const schema of [
+    ;[
       { kinds: { __proto__: [] } },
       { kinds: { table: "not-an-array" } },
       { kinds: { table: [{ kind: 1, name: "x" }] } },
-    ]) {
+    ].forEach((schema) => {
       writeFileSync(
         path.join(meta, "_snapshot.json"),
-        JSON.stringify({ version: 3, driver: "surrealdb", schema }),
+        JSON.stringify({ driver: "surrealdb", schema, version: 3 }),
       )
       expect(readSnapshot(meta).schema).toEqual({ kinds: {} })
-    }
+    })
     writeFileSync(
       path.join(meta, "_snapshot.json"),
       JSON.stringify({
-        version: 3,
         driver: "surrealdb",
-        schema: { kinds: {} },
         files: { t: 42 },
+        schema: { kinds: {} },
+        version: 3,
       }),
     )
     expect(readSnapshot(meta).files).toEqual({})

@@ -53,8 +53,8 @@ export function compileGraphEdge(
     "direction",
     "wildcard",
   ])
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const option of Object.keys(options)) {
+
+  Object.keys(options).forEach((option) => {
     if (!allowed.has(option)) {
       throw compileError(
         "ValidationError",
@@ -62,7 +62,7 @@ export function compileGraphEdge(
         { field: key, operation },
       )
     }
-  }
+  })
   const wildcard = options.wildcard === true
   if (!edgeRef && !wildcard) {
     throw compileError(

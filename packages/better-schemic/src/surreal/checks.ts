@@ -95,24 +95,22 @@ export function exactSizeOf(
  * IS its inner type for DDL purposes: `$`-constraints and `$assert()` derivation read the inner, and
  * re-wrapping preserves `nullish()` (which is `optional<nullable<T>>`).
  */
+/** Recursively peel one nullish wrapper at a time, recording how to rebuild it. */
+function peelStep(inner: z.ZodType, wraps: ((s: z.ZodType) => z.ZodType)[]): z.ZodType {
+  const def = inner._zod.def as { innerType?: z.ZodType; type: string }
+  if (def.type === "optional") wraps.push((s) => s.optional())
+  else if (def.type === "nullable") wraps.push((s) => s.nullable())
+  else return inner
+
+  return def.innerType ? peelStep(def.innerType, wraps) : inner
+}
+
 export function peelNullish(schema: z.ZodType): {
   inner: z.ZodType
   wraps: ((s: z.ZodType) => z.ZodType)[]
 } {
   const wraps: ((s: z.ZodType) => z.ZodType)[] = []
-  let inner = schema
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (;;) {
-    const def = inner._zod.def as { innerType?: z.ZodType; type: string }
-    if (def.type === "optional") wraps.push((s) => s.optional())
-    else if (def.type === "nullable") wraps.push((s) => s.nullable())
-    else break
-
-    if (!def.innerType) break
-
-    inner = def.innerType
-  }
-  return { inner, wraps }
+  return { inner: peelStep(schema, wraps), wraps }
 }
 
 /**
@@ -122,8 +120,7 @@ export function peelNullish(schema: z.ZodType): {
  * {@link constraintFamily}).
  */
 function nativeFamily(schema: z.ZodType): BoundFamily | null {
-  // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check -- undefined cai no default
-  switch ((peelNullish(schema).inner._zod.def as { type?: string }).type) {
+  switch ((peelNullish(schema).inner._zod.def as { type?: string }).type ?? "") {
     case "string":
       return "string"
     case "number":
@@ -149,8 +146,7 @@ function constraintFamily(schema: z.ZodType): BoundFamily | null {
     type?: string
     values?: unknown[]
   }
-  // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check -- undefined cai no default
-  switch (def.type) {
+  switch (def.type ?? "") {
     case "literal": {
       const values = def.values ?? []
       if (values.every((v) => typeof v === "string")) return "string"
@@ -189,18 +185,48 @@ export function boundedFamily(schema: z.ZodType): BoundFamily | null {
   }
   if (def.type !== "union") return nativeFamily(schema)
 
-  const families = new Set<BoundFamily>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const member of def.options ?? []) {
+  const members = (def.options ?? []).filter((member) => {
     const t = (peelNullish(member).inner._zod.def as { type?: string }).type
-    if (t === "undefined" || t === "void" || t === "null") continue
+    return t !== "undefined" && t !== "void" && t !== "null"
+  })
+  const found = members.map((member) => constraintFamily(member))
+  if (found.some((family) => family === null)) return null
 
-    const family = constraintFamily(member)
-    if (!family) return null
-
-    families.add(family)
-  }
+  const families = new Set(found.filter((family): family is BoundFamily => family !== null))
   return families.size === 1 ? [...families][0] : null
+}
+
+/** The ASSERT fragments one Zod check contributes (possibly none). */
+function assertForCheck(d: ZodCheck["_zod"]["def"], len: string, isSet: boolean): string[] {
+  switch (d.check) {
+    case "min_length":
+      return [`${len}($value) >= ${d.minimum}`]
+    case "max_length":
+      return [`${len}($value) <= ${d.maximum}`]
+    case "length_equals":
+      return [`${len}($value) == ${d.length}`]
+    case "min_size":
+      return isSet ? [`array::len($value) >= ${d.minimum}`] : []
+    case "max_size":
+      return isSet ? [`array::len($value) <= ${d.maximum}`] : []
+    case "size_equals":
+      return isSet ? [`array::len($value) == ${d.size}`] : []
+    case "string_format":
+      if (d.format === "regex" && d.pattern) return [`$value = /${d.pattern.source}/`]
+      if (typeof d.format === "string") {
+        const frag = formatAssert(d.format)
+        return frag ? [frag] : []
+      }
+      return []
+    case "greater_than":
+      return [`$value >${d.inclusive ? "=" : ""} ${d.value}`]
+    case "less_than":
+      return [`$value <${d.inclusive ? "=" : ""} ${d.value}`]
+    case undefined:
+      return []
+    default:
+      return []
+  }
 }
 
 /**
@@ -234,48 +260,5 @@ export function deriveAsserts(schema: z.ZodType): string[] {
     if (frag) out.push(frag)
   }
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const c of def.checks ?? []) {
-    const d = c._zod.def
-    switch (d.check) {
-      case "min_length":
-        out.push(`${len}($value) >= ${d.minimum}`)
-        break
-      case "max_length":
-        out.push(`${len}($value) <= ${d.maximum}`)
-        break
-      case "length_equals":
-        out.push(`${len}($value) == ${d.length}`)
-        break
-      case "min_size":
-        if (isSet) out.push(`array::len($value) >= ${d.minimum}`)
-
-        break
-      case "max_size":
-        if (isSet) out.push(`array::len($value) <= ${d.maximum}`)
-
-        break
-      case "size_equals":
-        if (isSet) out.push(`array::len($value) == ${d.size}`)
-
-        break
-      case "string_format":
-        if (d.format === "regex" && d.pattern) out.push(`$value = /${d.pattern.source}/`)
-        else if (typeof d.format === "string") {
-          const frag = formatAssert(d.format)
-          // eslint-disable-next-line max-depth -- parser com estado mutável; extrair helpers mudaria a semântica
-          if (frag) out.push(frag)
-        }
-        break
-      case "greater_than":
-        out.push(`$value >${d.inclusive ? "=" : ""} ${d.value}`)
-        break
-      case "less_than":
-        out.push(`$value <${d.inclusive ? "=" : ""} ${d.value}`)
-        break
-      case undefined:
-        break
-    }
-  }
-  return out
+  return [...out, ...(def.checks ?? []).flatMap((c) => assertForCheck(c._zod.def, len, isSet))]
 }

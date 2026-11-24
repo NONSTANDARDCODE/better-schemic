@@ -13,6 +13,7 @@
 
 import { BoundQuery, Decimal, Duration, Geometry, RecordId, Table, Uuid } from "surrealdb"
 
+import { stringCoerce, stringifyJson, stringifyOpaque } from "../text"
 import type {
   LogFormat,
   LoggerOption,
@@ -170,8 +171,10 @@ export function createQueryLogger(options: LoggerOptions = {}): QueryLogger {
       else if (resolved.format === "compact")
         lines = [renderCompact(event, resolved, palette, counter)]
       else lines = renderPretty(event, resolved, palette, counter)
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const line of lines) resolved.write(line)
+
+      lines.forEach((line) => {
+        resolved.write(line)
+      })
     },
     enabled,
     options: resolved,
@@ -195,10 +198,9 @@ export function createQueryLogger(options: LoggerOptions = {}): QueryLogger {
 }
 
 /** Is this option an already-built logger (as opposed to a rendering-options bag)? */
-function isQueryLogger(value: LoggerOption): value is QueryLogger {
+function isQueryLogger(value: unknown): value is QueryLogger {
   return (
     typeof value === "object" &&
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- null é possível em runtime apesar do tipo
     value !== null &&
     "emit" in value &&
     typeof value.emit === "function" &&
@@ -291,27 +293,28 @@ function displaySql(sql: string, phase: QueryLogEvent["phase"]): string {
 }
 
 /** A JSON-safe rendering of one bound value (used by the `json` format). */
-// eslint-disable-next-line @typescript-eslint/no-restricted-types -- conjunto de ciclos precisa aceitar QUALQUER objeto (inclusive instâncias de classe)
-function jsonSafe(value: unknown, seen = new Set<object>()): unknown {
+
+function jsonSafe(value: unknown, seen = new Set<Record<string, unknown>>()): unknown {
   if (value === null || value === undefined) return value
 
   if (value instanceof Date) return value.toISOString()
 
   if (typeof value === "bigint") return String(value)
 
-  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- conversão de valor de log opaco para texto; toString customizado é intencional
-  if (isStringly(value)) return String(value)
+  if (isStringly(value)) return stringCoerce(value)
 
   if (typeof value !== "object") return value
 
-  if (seen.has(value)) return "[circular]"
+  if (seen.has(value as Record<string, unknown>)) return "[circular]"
 
-  seen.add(value)
+  seen.add(value as Record<string, unknown>)
   if (Array.isArray(value)) return value.map((v) => jsonSafe(v, seen))
 
   const out: Record<string, unknown> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [k, v] of Object.entries(value)) out[k] = jsonSafe(v, seen)
+
+  Object.entries(value).forEach(([k, v]) => {
+    out[k] = jsonSafe(v, seen)
+  })
 
   return out
 }
@@ -356,11 +359,9 @@ function valueText(value: unknown): string {
 
   if (typeof value === "number" || typeof value === "boolean") return String(value)
 
-  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- conversão de valor de log opaco para texto; toString customizado é intencional
-  if (isStringly(value)) return String(value)
+  if (isStringly(value)) return stringCoerce(value)
 
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-base-to-string -- JSON.stringify devolve undefined; stringify de valor opaco é intencional
-  return JSON.stringify(jsonSafe(value)) ?? String(value)
+  return stringifyJson(jsonSafe(value)) ?? stringifyOpaque(value)
 }
 
 /** `[redacted]` — the placeholder bound values mask them with when `redact` is on. */
@@ -412,17 +413,19 @@ function renderPretty(
   }
   if (event.plans && event.plans.length > 0) {
     body.push(palette.paint("\u001B[2m", "plan"))
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const plan of event.plans) body.push(...renderPlan(plan, palette))
+
+    event.plans.forEach((plan) => {
+      body.push(...renderPlan(plan, palette))
+    })
   }
   if (event.preview && event.preview.length > 0) {
     body.push(palette.paint("\u001B[2m", "rows"))
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const row of event.preview) {
+
+    event.preview.forEach((row) => {
       body.push(
         `${palette.paint("\u001B[90m", "↳")} ${renderValue(row, palette, opts.maxValueLength)}`,
       )
-    }
+    })
   }
   if (event.error !== undefined) body.push(...errorLines(event.error, palette, opts.stack))
 
@@ -458,8 +461,10 @@ function box(title: string, body: readonly string[], foot: string): string[] {
   const bodyW = body.reduce((max, line) => Math.max(max, visibleWidth(line)), 0)
   const width = Math.max(MIN_BOX_WIDTH, titleW + BOX_GUTTER, footW + BOX_GUTTER, bodyW)
   const lines = [`╭─ ${title} ${"─".repeat(Math.max(0, width - titleW - DECIMALS_ONE))}╮`]
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const line of body) lines.push(`│ ${padEnd(line, width)} │`)
+
+  body.forEach((line) => {
+    lines.push(`│ ${padEnd(line, width)} │`)
+  })
 
   lines.push(`╰─ ${foot} ${"─".repeat(Math.max(0, width - footW - DECIMALS_ONE))}╯`)
   return lines
@@ -476,13 +481,15 @@ function errorLines(error: unknown, palette: Palette, stack: boolean): string[] 
   const code = record.code ?? record.name ?? "Error"
   const message = record.message ?? String(error)
   const lines = [
-    // eslint-disable-next-line @typescript-eslint/no-base-to-string -- conversão de valor de log opaco para texto; toString customizado é intencional
-    `${palette.paint("\u001B[1;31m", `⛔ [${String(code)}]`)} ${palette.paint("\u001B[31m", String(message))}`,
+    `${palette.paint("\u001B[1;31m", `⛔ [${stringCoerce(code)}]`)} ${palette.paint("\u001B[31m", stringCoerce(message))}`,
   ]
   if (stack && typeof record.stack === "string") {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const line of record.stack.split("\n").slice(1, STACK_LINES))
-      lines.push(palette.paint("\u001B[2m", line.trim()))
+    record.stack
+      .split("\n")
+      .slice(1, STACK_LINES)
+      .forEach((line) => {
+        lines.push(palette.paint("\u001B[2m", line.trim()))
+      })
   }
   return lines
 }
@@ -516,8 +523,8 @@ function renderCompact(
     const record = event.error as { code?: unknown; message?: unknown }
     line += `  ${palette.paint(
       "\u001B[31m",
-      // eslint-disable-next-line @typescript-eslint/no-base-to-string -- conversão de valor de log opaco para texto; toString customizado é intencional
-      `⛔ [${String(record.code ?? "Error")}] ${String(record.message ?? event.error)}`,
+
+      `⛔ [${stringCoerce(record.code ?? "Error")}] ${stringCoerce(record.message ?? event.error)}`,
     )}`
   }
   return line
@@ -565,8 +572,8 @@ function renderJson(event: QueryLogEvent, level: string, opts: ResolvedLoggerOpt
       : {
           error: {
             code: (event.error as { code?: unknown }).code,
-            // eslint-disable-next-line @typescript-eslint/no-base-to-string -- mensagem de erro opaca cai no toString original
-            message: (event.error as { message?: unknown }).message ?? String(event.error),
+
+            message: (event.error as { message?: unknown }).message ?? stringCoerce(event.error),
             name: (event.error as { name?: unknown }).name ?? "Error",
           },
         }),

@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-unnecessary-condition -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Defensive checks document fixture intent. */
 import path from "node:path"
 
 import { describe, expect, it } from "bun:test"
@@ -11,10 +10,10 @@ const ENTRY = path.join(import.meta.dir, "../../../src/cli")
 
 function helpExitCode(args: string[]): number {
   const p = Bun.spawnSync(["bun", ENTRY, ...args, "--help"], {
-    stdout: "ignore",
     stderr: "ignore",
+    stdout: "ignore",
   })
-  return p.exitCode ?? -1
+  return p.exitCode
 }
 
 describe("CLI program constructs", () => {
@@ -22,8 +21,7 @@ describe("CLI program constructs", () => {
     expect(helpExitCode([])).toBe(0)
   })
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const cmd of [
+  ;[
     "init",
     "gen",
     "generate",
@@ -34,9 +32,9 @@ describe("CLI program constructs", () => {
     "seed",
     "pull",
     "new",
-  ]) {
+  ].forEach((cmd) => {
     it(`${cmd} --help exits 0`, () => {
       expect(helpExitCode([cmd])).toBe(0)
     })
-  }
+  })
 })

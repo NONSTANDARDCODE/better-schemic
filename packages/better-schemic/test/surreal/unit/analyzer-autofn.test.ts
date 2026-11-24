@@ -1,9 +1,11 @@
-/* eslint-disable unicorn/consistent-function-scoping, @typescript-eslint/explicit-function-return-type -- Helpers stay colocated with the tests that use them. Defensive checks document fixture intent. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 import { describe, expect, test } from "bun:test"
 
 import { surql } from "../../../src/surreal"
+import type { SnapshotStatement } from "../../../src/surreal/cli/structure"
 import { buildSnapshot } from "../../../src/surreal/cli/surreal-diff"
 import { defineAnalyzer, defineFunction, s } from "../../../src/surreal/pure"
+const stmts = (...defs: unknown[]): Record<string, SnapshotStatement> =>
+  buildSnapshot([], defs as Parameters<typeof buildSnapshot>[1]).statements
 
 // An analyzer's inline `.function(input => surql`…`)` auto-defines an `<analyzer>_fn` function. That
 // function must emitts it as its own DEFINE FUNCTION (the analyzer references it) — and an auto-name
@@ -12,9 +14,6 @@ describe("analyzer inline .function(cb) auto-defines fn::<analyzer>_fn", () => {
   const az = defineAnalyzer("custom")
     .function((input) => surql`string::lowercase(${input})`)
     .tokenizers("blank")
-
-  const stmts = (...defs: unknown[]) =>
-    buildSnapshot([], defs as Parameters<typeof buildSnapshot>[1]).statements
 
   test("emits the DEFINE FUNCTION, before the DEFINE ANALYZER that references it", () => {
     const snap = stmts(az)

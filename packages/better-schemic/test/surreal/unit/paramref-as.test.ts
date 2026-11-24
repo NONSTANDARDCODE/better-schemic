@@ -1,20 +1,22 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally unused type-probe values. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
-// ParamRef.as<T>() — the LEAF that types a `surql.$` param chain, so an out-of-band param
-// (`DEFINE PARAM $resend_api_key`) drops into typed positions: operands, Def.call args, and
-// surql.fn args. Type-cast; `as` joins path/toText/then as reserved proxy names.
+const concat = surql.fn.string.concat.bind(surql.fn.string)
+
 import { describe, expect, test } from "bun:test"
 
 import { defineFunction, ParamRef, s, surql } from "../../../src/surreal"
 import { block } from "../../../src/surreal/query"
+import type { Block } from "../../../src/surreal/surql/block"
 import { lowerExpr, mkRef } from "../../../src/surreal/surql/predicate"
 import type { Ctx } from "../../../src/surreal/surql/render"
+
+// ParamRef.as<T>() — the LEAF that types a `surql.$` param chain, so an out-of-band param
+// (`DEFINE PARAM $resend_api_key`) drops into typed positions: operands, Def.call args, and
+// surql.fn args. Type-cast; `as` joins path/toText/then as reserved proxy names.
 
 describe("surql.$ leaf typing", () => {
   test("types a param chain and still splices as text", () => {
     const key = surql.$.resend_api_key.as<string>()
     expect(key.toText()).toBe("$resend_api_key")
-    // eslint-disable-next-line unicorn/prefer-spread -- SurrealQL fn.concat builder, not Array.concat
-    const q = surql.fn.string.concat("Bearer ", key)
+    const q = concat("Bearer ", key)
     expect(q.query).toMatch(/^string::concat\(\$r\d+, \$resend_api_key\)$/u)
   })
 
@@ -22,14 +24,14 @@ describe("surql.$ leaf typing", () => {
     const email = surql.$.after.email.as<string>()
     expect(email.toText()).toBe("$after.email")
     const ctx: Ctx = { vars: {} }
-    expect(lowerExpr(mkRef({ root: { col: "name" }, kind: "string" }).eq(email), ctx)).toBe(
+    expect(lowerExpr(mkRef({ kind: "string", root: { col: "name" } }).eq(email), ctx)).toBe(
       "name = $after.email",
     )
   })
 
   test("typed: a mistyped leaf is rejected where the type matters", () => {
     const wrong = surql.$.resend_api_key.as<number>()
-    const _bad = () =>
+    const _bad = (): Block<{ name: string }, never> =>
       block()
         .let({ name: "x" })
         .if(
@@ -37,7 +39,7 @@ describe("surql.$ leaf typing", () => {
           (sv) => sv.name.eq(wrong),
           surql`RETURN 1`,
         )
-    void _bad
+    const _probe_40 = _bad
   })
 
   test("typed Def.call args accept the leaf", () => {

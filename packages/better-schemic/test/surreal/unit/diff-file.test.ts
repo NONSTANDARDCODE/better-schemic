@@ -1,21 +1,21 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 import { formatItems } from "better-schemic/core"
 import { describe, expect, test } from "bun:test"
 
-import { EMPTY_SNAPSHOT } from "../../../src/surreal/cli/structure"
+import { EMPTY_SNAPSHOT, type Snapshot } from "../../../src/surreal/cli/structure"
 import { buildSnapshot, diffSnapshots } from "../../../src/surreal/cli/surreal-diff"
 import { s, table } from "../../../src/surreal/pure"
 
 describe("diff file annotations", () => {
-  const User = table("user", { id: s.string(), email: s.email() })
+  const User = table("user", { email: s.email(), id: s.string() })
   const tables = [User] as unknown as Parameters<typeof buildSnapshot>[0]
   const FILE = "database/schema/tables/user.ts"
   const fileOf = new Map<unknown, string>([[User, `/proj/${FILE}`]])
-  const snapshot = () => buildSnapshot(tables, [], { fileOf, root: "/proj" })
+  const snapshot = (): Snapshot => buildSnapshot(tables, [], { fileOf, root: "/proj" })
 
   test("buildSnapshot stores the project-relative file per statement", () => {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const s of Object.values(snapshot().statements)) expect(s.file).toBe(FILE)
+    Object.values(snapshot().statements).forEach((s) => {
+      expect(s.file).toBe(FILE)
+    })
   })
 
   test("diffSnapshots carries the file onto add items", () => {
@@ -50,8 +50,8 @@ describe("diff file annotations", () => {
 
 describe("struct snapshot (offline diff --ts)", () => {
   const User = table("user", {
-    id: s.string(),
     age: s.int().optional(),
+    id: s.string(),
   })
   const tables = [User] as unknown as Parameters<typeof buildSnapshot>[0]
 

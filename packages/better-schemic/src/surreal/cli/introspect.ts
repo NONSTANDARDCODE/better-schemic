@@ -42,8 +42,7 @@ function cachedShadow<T>(key: string, produce: () => Promise<T>): Promise<T> {
 
   if (SHADOW_CACHE.size >= SHADOW_CACHE_MAX) SHADOW_CACHE.clear()
 
-  // eslint-disable-next-line @typescript-eslint/use-unknown-in-catch-callback-variable -- callback de promise herda tipo externo
-  const run = produce().catch((error) => {
+  const run = produce().catch((error: unknown) => {
     SHADOW_CACHE.delete(key)
     throw error
   })
@@ -166,8 +165,8 @@ async function replayMigrations(
   await db.query(`DEFINE DATABASE ${escapeIdent(shadowDb)};`)
   try {
     await db.use({ database: shadowDb, namespace })
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const m of listMigrations(config.migrationsDir)) {
+    await listMigrations(config.migrationsDir).reduce<Promise<void>>(async (prev, m) => {
+      await prev
       onApply?.(m.tag)
       const sql = readFileSync(nodePath.join(config.migrationsDir, m.file), "utf8")
       try {
@@ -178,7 +177,7 @@ async function replayMigrations(
           { cause: error },
         )
       }
-    }
+    }, Promise.resolve())
     return await introspect(db)
   } finally {
     await db.use({ database, namespace })
@@ -216,7 +215,9 @@ export async function verifyMigrations(
  * database and reading IT back — so the comparison is free of formatting noise. The shadow
  * database creats it and dropped in the target's namespace (needs root/namespace auth).
  */
-// eslint-disable-next-line unicorn/consistent-function-scoping -- helper local mantido junto do uso para coesão e legibilidade
+/** Strip backticks from an identifier so emitted and introspected spellings compare equal. */
+const untick = (s: string): string => s.replaceAll("`", "")
+
 export async function diffAgainstDb(
   db: Surreal,
   config: ResolvedConfig,
@@ -245,9 +246,9 @@ export async function diffAgainstDb(
   // sides, so no false diff), but that form can't applis it — the redacted KEY gones it. Swap in
   // the schema's emit DDL (which carries the key) for any DEFINE ACCESS in the apply plan.
   const accessEmit = new Map<string, string>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const s of Object.values(schema.statements))
+  Object.values(schema.statements).forEach((s) => {
     if (s.kind === "access") accessEmit.set(s.name, s.ddl)
+  })
 
   if (accessEmit.size > 0) {
     const swap = (stmt: string): string => {
@@ -263,13 +264,11 @@ export async function diffAgainstDb(
   // OVERWRITE`. The INFO-canonical diff form drops that OVERWRITE, so applying it to the live DB
   // fails "already exists" and aborts the whole `push`/`sync` transaction. Re-mark those
   // fields OVERWRITE in the apply plan — the comparison form above untouchs it.
-  const untick = (s: string): string => s.replaceAll("`", "")
   const overwriteFields = new Set<string>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const s of Object.values(schema.statements)) {
+  Object.values(schema.statements).forEach((s) => {
     if (s.kind === "field" && s.table && /^DEFINE FIELD OVERWRITE\b/u.test(s.ddl))
       overwriteFields.add(`${s.table}\u0000${untick(s.name)}`)
-  }
+  })
   if (overwriteFields.size > 0) {
     const fieldRef =
       /^DEFINE FIELD (?:OVERWRITE |IF NOT EXISTS )?(`[^`]+`|\S+) ON TABLE (`[^`]+`|\S+)/u

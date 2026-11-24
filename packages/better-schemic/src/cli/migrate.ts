@@ -42,6 +42,10 @@ import {
   writeSnapshot,
 } from "../core"
 
+/** One second in milliseconds — a migration tag collision bumps the timestamp by this much. */
+const MS_PER_SECOND = 1000
+const nextSecond = (date: Date): Date => new Date(date.getTime() + MS_PER_SECOND)
+
 /**
  * Build the canonical STORED snapshot from the authored schema: explode authoring into kinded
  * definables, lower via the registry, plus a name->source-file map (display-; attached to diff
@@ -56,18 +60,16 @@ function buildStored(
   const objects = lowerSchema(driver.registry, driver.explode(tables, defs))
   const files: Record<string, string> = {}
   const rel = (abs: string): string => (opts.root ? nodePath.relative(opts.root, abs) : abs)
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const t of tables) {
+  tables.forEach((t) => {
     const abs = opts.fileOf?.get(t)
     if (abs) files[t.name] = rel(abs)
-  }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const d of defs) {
+  })
+  defs.forEach((d) => {
     const abs = opts.fileOf?.get(d)
     // An event is file-linked under its owner table; other defs under their own name.
     const key = d.kind === "event" ? d.table : d.name
     if (abs && key) files[key] = rel(abs)
-  }
+  })
   return {
     driver: driver.name,
     files,
@@ -95,11 +97,10 @@ function attachFiles(
   prevFiles: Record<string, string | undefined>,
   nextFiles: Record<string, string | undefined>,
 ): void {
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const it of diff.items ?? []) {
+  ;(diff.items ?? []).forEach((it) => {
     const primary = it.op === "remove" ? prevFiles : nextFiles
     it.file = primary[it.table] ?? nextFiles[it.table] ?? prevFiles[it.table]
-  }
+  })
 }
 
 export type Direction = "down" | "up"
@@ -149,14 +150,13 @@ export async function planMigration(
  */
 function nextTag(migrationsDir: string, name: string, ext: string): string {
   const s = slug(name)
-  const date = new Date()
-  let tag = `${timestamp(date)}_${s}`
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (existsSync(nodePath.join(migrationsDir, `${tag}${ext}`))) {
-    date.setUTCSeconds(date.getUTCSeconds() + 1)
-    tag = `${timestamp(date)}_${s}`
+  const uniqueTag = (date: Date): string => {
+    const tag = `${timestamp(date)}_${s}`
+    return existsSync(nodePath.join(migrationsDir, `${tag}${ext}`))
+      ? uniqueTag(nextSecond(date))
+      : tag
   }
-  return tag
+  return uniqueTag(new Date())
 }
 
 export type PreparedMigration = {
@@ -310,8 +310,9 @@ export async function baseline(
 /** Delete every migration `.surql` file (the `meta/` snapshot leaves it intact); returns removed tags. */
 export function clearMigrationFiles(config: ResolvedConfig): string[] {
   const migs = listMigrations(config.migrationsDir, migExt(config))
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const m of migs) rmSync(nodePath.join(config.migrationsDir, m.file), { force: true })
+  migs.forEach((m) => {
+    rmSync(nodePath.join(config.migrationsDir, m.file), { force: true })
+  })
 
   return migs.map((m) => m.tag)
 }
@@ -381,15 +382,16 @@ export async function migrate(
 
   await mig.lock(db, table)
   try {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const m of pending) {
+    // Sequential: migrations apply in order, each committing its own bookkeeping.
+    await pending.reduce(async (previous, m) => {
+      await previous
       const content = readFileSync(nodePath.join(config.migrationsDir, m.file), "utf8")
       await mig.apply(db, table, {
         content,
         direction: "up",
         record: { checksum: checksum(content), file: m.file, tag: m.tag },
       })
-    }
+    }, Promise.resolve())
   } finally {
     await mig.unlock(db, table)
   }
@@ -430,9 +432,9 @@ export async function status(db: unknown, config: ResolvedConfig): Promise<Statu
     }
   })
   // Orphans: recorded applied in the DB but the file no longer exists on disk.
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const tag of applied.keys())
+  ;[...applied.keys()].forEach((tag) => {
     if (!fileTags.has(tag)) rows.push({ applied: true, missing: true, tag })
+  })
 
   return rows.sort((a, b) => a.tag.localeCompare(b.tag))
 }
@@ -462,15 +464,15 @@ export async function rollback(
 
   await mig.lock(db, table)
   try {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const m of toRevert) {
+    await toRevert.reduce(async (previous, m) => {
+      await previous
       const content = readFileSync(nodePath.join(config.migrationsDir, m.file), "utf8")
       await mig.apply(db, table, {
         content,
         direction: "down",
         record: { checksum: checksum(content), file: m.file, tag: m.tag },
       })
-    }
+    }, Promise.resolve())
   } finally {
     await mig.unlock(db, table)
   }
@@ -508,18 +510,19 @@ function locateSeeds(
   if (existsSync(base) && statSync(base).isDirectory()) {
     let index: string | undefined
     const scripts: SeedScript[] = []
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const f of readdirSync(base).sort()) {
-      // top-level script files are seeds; `.d.ts`, `_`-prefixed, and supporting files (`.surql`,
-      // `.sql`, …) skipp them — supporting files load them BY a seed (`import … with { type: "text" }`).
-      if (f.startsWith("_") || f.endsWith(".d.ts") || !SEED_EXT.test(f)) continue
+    readdirSync(base)
+      .sort()
+      .forEach((f) => {
+        // top-level script files are seeds; `.d.ts`, `_`-prefixed, and supporting files (`.surql`,
+        // `.sql`, …) skipp them — supporting files load them BY a seed (`import … with { type: "text" }`).
+        if (f.startsWith("_") || f.endsWith(".d.ts") || !SEED_EXT.test(f)) return
 
-      const path = nodePath.join(base, f)
-      if (statSync(path).isDirectory()) continue
+        const path = nodePath.join(base, f)
+        if (statSync(path).isDirectory()) return
 
-      if (seedName(f) === "index") index = path
-      else scripts.push({ name: seedName(f), path })
-    }
+        if (seedName(f) === "index") index = path
+        else scripts.push({ name: seedName(f), path })
+      })
     return { dir: { base, index, scripts } }
   }
   const file = SEED_EXT.test(base) ? base : `${base}.ts`
@@ -598,6 +601,8 @@ export async function seed(
   if (scripts.length === 0)
     throw new Error(`No seeds found in ${nodePath.relative(process.cwd(), base)}/.`)
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const s of scripts) await run(s)
+  await scripts.reduce(async (previous, s) => {
+    await previous
+    await run(s)
+  }, Promise.resolve())
 }

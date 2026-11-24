@@ -5,12 +5,10 @@
  */
 
 import type { IdStrategy } from "../pure"
-// eslint-disable-next-line unicorn/prefer-export-from -- re-export público preserva API; o tipo é usado aqui também
-import type { FieldFamily } from "../wire"
+import type { FieldFamily as WireFieldFamily } from "../wire"
+export type { FieldFamily } from "../wire"
 
 import type { AnyFunctionDef, AnyRelationDef, AnyTableDef } from "./types/schema"
-
-export type { FieldFamily }
 
 /**
  * The ORM create-id strategy RESOLVED for a table at index build: a generation strategy, or
@@ -33,8 +31,8 @@ export type RecordLinkMeta = {
 /** One public column of a table/edge — wire type + family + link metadata, no Zod leaking out. */
 export type ColumnMeta = {
   /** Array/set element family (for `array`/`set`). */
-  readonly element?: FieldFamily
-  readonly family: FieldFamily
+  readonly element?: WireFieldFamily
+  readonly family: WireFieldFamily
   readonly name: string
   readonly optional: boolean
   /** Present when the column is (or contains) a record link. */

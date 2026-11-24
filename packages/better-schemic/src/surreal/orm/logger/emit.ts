@@ -104,20 +104,17 @@ export async function emitRoundTrip(conn: Explainable, log: RoundTripLog): Promi
     }
   }
 
-  const statementError =
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- resposta de EXPLAIN pode não trazer erro na forma tipada
-    log.error ?? userResponses.find((r) => r !== undefined && !r.success)?.error
+  const statementError = log.error ?? userResponses.find((r) => !r.success)?.error
 
   // `verbose` previews the primary result's first rows (bounded by `maxRows`).
   let preview: undefined | unknown[]
   if (logger.options.verbose) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break; map/reduce não pode encerrar no primeiro match
-    for (const response of userResponses) {
-      if (response.success && Array.isArray(response.result) && response.result.length > 0) {
-        preview = (response.result as unknown[]).slice(0, logger.options.maxRows)
-        break
-      }
-    }
+    const withRows = userResponses.find(
+      (response) =>
+        response.success && Array.isArray(response.result) && response.result.length > 0,
+    )
+    if (withRows?.success && Array.isArray(withRows.result))
+      preview = (withRows.result as unknown[]).slice(0, logger.options.maxRows)
   }
 
   logger.emit({

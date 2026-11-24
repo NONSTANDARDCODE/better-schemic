@@ -1,23 +1,51 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-meaningless-void-operator, unicorn/consistent-function-scoping, unicorn/no-thenable, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally unused type-probe values. Helpers stay colocated with the tests that use them. Bun test calls return thenable handles that are not awaited. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // Typed-fragments PHASE 2: typed contextual callbacks on authoring slots — events ((e) => ...),
 // field clauses ((f) => ...), function bodies ((a) => ... typed by arg names), permissions
 // ((p) => ...), and .subject(User) authoring metadata on record accesses. Plain Expr forms remain.
 import { describe, expect, test } from "bun:test"
+import type { ZodString } from "zod"
 
 import { defineAccess, defineEvent, defineFunction, s, surql, table } from "../../../src/surreal"
 import { emitDefStatement, emitTable } from "../../../src/surreal/ddl"
+import type { FunctionDef, SField, TableDef, WithSmartId } from "../../../src/surreal/pure"
+import { THEN_KEY } from "../../then-key"
+const _badP0 = (): TableDef<"x", WithSmartId<"x", { author: SField<ZodString> }>> =>
+  table("x", { author: s.string() }).permissions((p) => ({
+    // @ts-expect-error — no such column
+    update: surql`${p.row.auther} = ${p.auth.id}`,
+  }))
+
+const _badP1 = (): FunctionDef<{ email: SField<ZodString> }> =>
+  defineFunction("x", { email: s.string() })
+    // @ts-expect-error — no such arg
+    .body((a) => surql`RETURN ${a.emial}`)
+
+const _badP2 = (): TableDef<
+  "p2_user",
+  WithSmartId<
+    "p2_user",
+    {
+      email: SField<ZodString>
+      name: SField<ZodString>
+      title: SField<ZodString>
+    }
+  >
+> =>
+  User.event("x", {
+    // @ts-expect-error — no such column on p2_user
+    [THEN_KEY]: (e) => surql`RETURN ${e.after.emial}`,
+  })
 
 const User = table("p2_user", {
-  name: s.string(),
   email: s.string(),
+  name: s.string(),
   title: s.string(),
 })
 
 describe("event callbacks — typed $after/$before/$event", () => {
   test("(e) => ... : typed row refs splice, e.event.eq uses canonical single quotes", () => {
     const T = User.event("p2_notify", {
+      [THEN_KEY]: (e) => surql`RETURN ${e.after.email}`,
       when: (e) => e.event.eq("CREATE"),
-      then: (e) => surql`RETURN ${e.after.email}`,
     })
     const ddl = emitTable(T)
       .split("\n")
@@ -27,18 +55,13 @@ describe("event callbacks — typed $after/$before/$event", () => {
   })
 
   test("typed: a wrong column on e.after is a compile error", () => {
-    const _bad = () =>
-      User.event("x", {
-        // @ts-expect-error — no such column on p2_user
-        then: (e) => surql`RETURN ${e.after.emial}`,
-      })
-    void _bad
+    const _probe = _badP0
   })
 
   test("standalone defineEvent gets the same typed ctx from the TableDef", () => {
     const ev = defineEvent(User, "p2_standalone", {
+      [THEN_KEY]: (e) => surql`RETURN ${e.before.name}`,
       when: (e) => e.event.neq("DELETE"),
-      then: (e) => surql`RETURN ${e.before.name}`,
     })
     const { ddl } = emitDefStatement(ev)
     expect(ddl).toContain("WHEN $event != 'DELETE'")
@@ -49,11 +72,11 @@ describe("event callbacks — typed $after/$before/$event", () => {
 describe("field-clause callbacks — $value / $this refs", () => {
   test("$value((f) => ...) splices $value; $computed((f) => ...) splices $this.<path>", () => {
     const T = table("p2_fields", {
-      title: s.string(),
       password: s.string().$value((f) => surql`crypto::bcrypt::generate(${f.value})`, {
         optional: false,
       }),
       slug: s.string().$computed((f) => surql`string::slug(${f.this.title})`),
+      title: s.string(),
     })
     const ddl = emitTable(T)
     expect(ddl).toContain("VALUE crypto::bcrypt::generate($value)")
@@ -74,19 +97,15 @@ describe("field-clause callbacks — $value / $this refs", () => {
 describe("function-body callbacks — args typed by NAME", () => {
   test("(a) => ... : arg refs splice as $<name>; a typo is a compile error", () => {
     const Verify = defineFunction("p2_verify", {
-      email: s.string(),
       code: s.string(),
+      email: s.string(),
     })
       .returns(s.boolean())
       .body((a) => surql`RETURN ${a.email} = ${a.code}`)
     const { ddl } = emitDefStatement(Verify)
     expect(ddl).toContain("RETURN $email = $code")
 
-    const _bad = () =>
-      defineFunction("x", { email: s.string() })
-        // @ts-expect-error — no such arg
-        .body((a) => surql`RETURN ${a.emial}`)
-    void _bad
+    const _probe = _badP1
   })
 })
 
@@ -104,12 +123,7 @@ describe("permissions callbacks — bare row columns + $auth", () => {
   })
 
   test("typed: a wrong column on p.row is a compile error", () => {
-    const _bad = () =>
-      table("x", { author: s.string() }).permissions((p) => ({
-        // @ts-expect-error — no such column
-        update: surql`${p.row.auther} = ${p.auth.id}`,
-      }))
-    void _bad
+    const _probe = _badP2
   })
 
   test("FunctionDef.permissions takes the ctx too (no row)", () => {

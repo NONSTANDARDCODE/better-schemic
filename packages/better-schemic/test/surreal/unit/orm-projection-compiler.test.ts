@@ -1,6 +1,10 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion, unicorn/prefer-top-level-await, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures assert values whose presence the test guarantees. Zod catch is a schema method, not a promise chain. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+const MAGIC_5 = 5
 // The projection compiler in isolation: `select`/`omit`/`value` guards, the star-schema reshaping
 // and the Zod-shape codec walker (`projectedFieldFor` / `resolveLeafCodec`).
+
+const catchOf = (value: string): ReturnType<ReturnType<typeof s.string>["catch"]> =>
+  s.string().catch(value)
+
 import { describe, expect, test } from "bun:test"
 
 import { surql } from "../../../src/surreal"
@@ -10,9 +14,10 @@ import {
   projectedFieldFor,
   resolveLeafCodec,
 } from "../../../src/surreal/orm/compiler/projection"
-import { createBinds } from "../../../src/surreal/orm/compiler/shared"
+import { type Binds, createBinds } from "../../../src/surreal/orm/compiler/shared"
 import { schema } from "../../../src/surreal/orm/schema"
 import { s, table } from "../../../src/surreal/pure"
+import { required } from "../../required"
 import { fakeConn, ok } from "../orm-fixtures"
 
 import { schemaDef } from "./orm-writes-fixtures"
@@ -28,21 +33,23 @@ const code = (fn: () => unknown): string | undefined => {
 
 const { conn } = fakeConn(() => [ok([])])
 const client = orm(conn, { schema: schemaDef })
-const meta = client.$index.tables.get("users")!
-const sm = orm(fakeConn(() => [ok([])]).conn, {
-  schema: schema({ audit: "audit_log" }),
-}).$index.schemaless.get("audit")!
-const b = () => createBinds()
+const meta = required(client.$index.tables.get("users"))
+const sm = required(
+  orm(fakeConn(() => [ok([])]).conn, {
+    schema: schema({ audit: "audit_log" }),
+  }).$index.schemaless.get("audit"),
+)
+const b = (): Binds => createBinds()
 
 describe("compileProjection", () => {
   test("select shape guards: non-array/non-object, empty, non-string array entry", () => {
-    expect(code(() => compileProjection(meta, 5, undefined, false, b(), "select"))).toBe(
+    expect(code(() => compileProjection(meta, MAGIC_5, undefined, false, b(), "select"))).toBe(
       "ValidationError",
     )
     expect(code(() => compileProjection(meta, [], undefined, false, b(), "select"))).toBe(
       "ValidationError",
     )
-    expect(code(() => compileProjection(meta, [5], undefined, false, b(), "select"))).toBe(
+    expect(code(() => compileProjection(meta, [MAGIC_5], undefined, false, b(), "select"))).toBe(
       "ValidationError",
     )
     // `null` behaves like `undefined` (full row).
@@ -56,7 +63,7 @@ describe("compileProjection", () => {
     expect(compileProjection(meta, ["name"], undefined, true, b(), "select").spec.value).toBe(true)
     expect(
       code(() =>
-        compileProjection(meta, { name: true, age: true }, undefined, true, b(), "select"),
+        compileProjection(meta, { age: true, name: true }, undefined, true, b(), "select"),
       ),
     ).toBe("ValidationError")
   })
@@ -120,24 +127,24 @@ describe("projectedFieldFor / resolveLeafCodec", () => {
 // A schema exercising the codec walker's less-common shapes: set fields, wrapped fields
 // (nullable/default/prefault/readonly/catch) and nested arrays.
 const Extra = table("extra", {
-  tags: s.set(s.string()),
+  caught: catchOf("x"),
+  cube: s.array(s.array(s.array(s.int()))),
   maybe: s.string().nullable(),
-  withDefault: s.string().default("x"),
   pre: s.string().prefault("x"),
   ro: s.string().readonly(),
-  caught: s.string().catch("x"),
-  cube: s.array(s.array(s.array(s.int()))),
+  tags: s.set(s.string()),
+  withDefault: s.string().default("x"),
 })
 const extraIndex = orm(fakeConn(() => [ok([])]).conn, {
   schema: schema({ extras: Extra }),
 }).$index
-const extra = extraIndex.tables.get("extras")!
+const extra = required(extraIndex.tables.get("extras"))
 
 describe("projection — wrapped/set/nested codecs", () => {
   test("wrapped fields unwrap to their inner codec", () => {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const field of ["maybe", "withDefault", "pre", "ro", "caught"])
+    ;["maybe", "withDefault", "pre", "ro", "caught"].forEach((field) => {
       expect(resolveLeafCodec(extra, [field]).schema).toBeDefined()
+    })
   })
 
   test("set fields use valueType; a nested array index/star sets each", () => {

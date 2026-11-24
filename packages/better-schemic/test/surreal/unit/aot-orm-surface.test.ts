@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // Bun AOT — ORM-side surfaces: client cache, lazy resolver, and the generated static façade.
 import { describe, expect, test } from "bun:test"
 
@@ -20,8 +19,8 @@ describe("ORM client factory — per-connection cache", () => {
   test("cache: 'weak' returns the same client, peek/dispose are explicit", () => {
     const { conn } = fakeConn()
     const factory = createOrmClientFactory({
-      schema: schemaDef,
       cache: "weak",
+      schema: schemaDef,
     })
     const a = factory(conn)
     expect(factory(conn)).toBe(a)
@@ -61,11 +60,11 @@ describe("ORM client resolver — late binding without dynamic import", () => {
 describe("sc generate:orm — renderer", () => {
   test("emits static getters for fixed members + schema models", () => {
     const source = renderOrmSurface({
-      models: ["customers", "orders"],
-      schemaImport: "./db/schema",
-      schemaExport: "schema",
-      providerImport: "./db/orm-provider",
       clientExpr: "getOrmClient",
+      models: ["customers", "orders"],
+      providerImport: "./db/orm-provider",
+      schemaExport: "schema",
+      schemaImport: "./db/schema",
     })
     expect(source).toContain("get customers()")
     expect(source).toContain("get orders()")

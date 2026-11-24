@@ -74,8 +74,9 @@ async function main(): Promise<void> {
   })
 
   if (!result.success) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const log of result.logs) console.error(`[build] ${log.level}: ${log.message}`)
+    result.logs.forEach((log) => {
+      console.error(`[build] ${log.level}: ${log.message}`)
+    })
 
     process.exit(1)
   }
@@ -96,16 +97,17 @@ async function main(): Promise<void> {
           ),
         )
       : null
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const output of result.outputs) {
-      if (output.kind !== "entry-point" || !output.path.endsWith(".js")) continue
+    await Promise.all(
+      result.outputs.map(async (output) => {
+        if (output.kind !== "entry-point" || !output.path.endsWith(".js")) return
 
-      if (shebangOutputs && !shebangOutputs.has(output.path)) continue
+        if (shebangOutputs && !shebangOutputs.has(output.path)) return
 
-      const source = await output.text()
-      // Bun.build has no `banner` in every Bun version we support — own the shebang instead.
-      if (!source.startsWith("#!")) await Bun.write(output.path, SHEBANG + source)
-    }
+        const source = await output.text()
+        // Bun.build has no `banner` in every Bun version we support — own the shebang instead.
+        if (!source.startsWith("#!")) await Bun.write(output.path, SHEBANG + source)
+      }),
+    )
   }
 
   if (config.dts) {
@@ -116,8 +118,9 @@ async function main(): Promise<void> {
     })
     if (proc.exitCode !== 0) {
       console.error(`[build] declarations failed: tsgo -p ${config.dts}`)
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- `exitCode` pode ser null em runtime quando o processo foi sinalizado.
-      process.exit(proc.exitCode ?? 1)
+      // A signaled process reports `null` at runtime despite the typed `number`.
+      const exitCode = proc.exitCode as null | number
+      process.exit(exitCode ?? 1)
     }
   }
 

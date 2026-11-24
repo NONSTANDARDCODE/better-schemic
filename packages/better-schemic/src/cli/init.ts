@@ -47,16 +47,15 @@ export function init(cwd: string, driver: Driver): InitResult {
 
   const created: string[] = []
   const skipped: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [rel, content] of Object.entries(files)) {
+  Object.entries(files).forEach(([rel, content]) => {
     const abs = nodePath.resolve(cwd, rel)
     if (existsSync(abs)) {
       skipped.push(rel)
-      continue
+      return
     }
     mkdirSync(nodePath.dirname(abs), { recursive: true })
     writeFileSync(abs, content)
     created.push(rel)
-  }
+  })
   return { created, skipped }
 }

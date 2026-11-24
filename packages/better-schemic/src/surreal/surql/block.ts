@@ -48,21 +48,31 @@ import {
 export function hasTopLevelSemi(text: string): boolean {
   let depth = 0
   let quote: "'" | '"' | null = null
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i]
-    if (quote) {
-      if (ch === "\\") i++
-      else if (ch === quote) quote = null
-
-      continue
+  let skipNext = false
+  return text.split("").some((ch) => {
+    if (skipNext) {
+      skipNext = false
+      return false
     }
-    if (ch === '"' || ch === "'") quote = ch
-    else if (ch === "(" || ch === "{" || ch === "[") depth++
-    else if (ch === ")" || ch === "}" || ch === "]") depth--
-    else if (ch === ";" && depth === 0) return true
-  }
-  return false
+    if (quote !== null) {
+      if (ch === "\\") skipNext = true
+      else if (ch === quote) quote = null
+      return false
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch
+      return false
+    }
+    if (ch === "(" || ch === "{" || ch === "[") {
+      depth++
+      return false
+    }
+    if (ch === ")" || ch === "}" || ch === "]") {
+      depth--
+      return false
+    }
+    return ch === ";" && depth === 0
+  })
 }
 
 /** Anything that lowers to a composable fragment (builders, blocks, `Def.call(...)`). */
@@ -75,8 +85,7 @@ type ToQuery = {
  * itself. */
 export type ValueOf<X> = X extends Expr
   ? boolean
-  : // eslint-disable-next-line @typescript-eslint/no-explicit-any -- any necessário na fronteira de internals Zod/SDK
-    X extends Block<any, infer R>
+  : X extends Block<Record<string, unknown>, infer R>
     ? R
     : X extends BoundQuery<[infer T]>
       ? T
@@ -172,15 +181,12 @@ export class Block<V extends Record<string, unknown>, R> {
   ) {}
 
   private refs(): BlockRefs<V> {
-    const out: Record<string, unknown> = {}
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const m of this.meta) {
-      out[m.name] = mkRef({
-        elem: m.elem,
-        kind: m.kind,
-        root: { text: `$${m.name}` },
-      })
-    }
+    const out = Object.fromEntries(
+      this.meta.map((m) => [
+        m.name,
+        mkRef({ elem: m.elem, kind: m.kind, root: { text: `$${m.name}` } }),
+      ]),
+    )
     return out as BlockRefs<V>
   }
 
@@ -238,18 +244,21 @@ export class Block<V extends Record<string, unknown>, R> {
         "block().let() got an empty object — bind at least one var: .let({ name: value }).",
       )
     }
-    // eslint-disable-next-line unicorn/no-this-assignment, @typescript-eslint/no-this-alias, @typescript-eslint/no-explicit-any -- alias de this necessário no builder encadeável / any necessário na fronteira de internals Zod/SDK
-    let out: Block<any, R> = this
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [name, v] of entries) {
-      Block.checkName("let", name)
-      const { elem, kind } = kindOfValue(v)
-      out = out.next((ctx) => `LET $${name} = ${valueText(v, ctx)}`, {
-        elem,
-        kind,
-        name,
-      })
-    }
+    const out = entries.reduce<Block<Record<string, unknown>, R>>(
+      (acc, [name, v]) => {
+        Block.checkName("let", name)
+        const { elem, kind } = kindOfValue(v)
+        return acc.next<Record<string, unknown>, R>(
+          (ctx) => `LET $${name} = ${valueText(v, ctx)}`,
+          {
+            elem,
+            kind,
+            name,
+          },
+        )
+      },
+      this as Block<Record<string, unknown>, R>,
+    )
     return out as Block<V & { [K in keyof O]: ValueOf<O[K]> }, R>
   }
 
@@ -270,8 +279,7 @@ export class Block<V extends Record<string, unknown>, R> {
     then: Body<V>,
     otherwise?: Body<V>,
   ): Block<V, R> {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- asserção necessária para a inferência da API pública
-    const c = toExpr(this.resolve(cond) as Predicate)
+    const c = toExpr(this.resolve(cond))
     return this.next<V, R>((ctx) => {
       let sql = `IF ${stripOuterParens(lowerExpr(c, ctx))} ${this.bodyText(then, ctx)}`
       if (otherwise !== undefined) sql += ` ELSE ${this.bodyText(otherwise, ctx)}`
@@ -339,19 +347,14 @@ export class Block<V extends Record<string, unknown>, R> {
     const texts = this.stmts.map((f) => f(ctx))
     // Canonical block forms: empty `{ }` (a valid no-op body), single `{ stmt }`,
     // multi `{ s1; s2; }` — matching INFO's printer.
-    const body =
-      texts.length === 0
-        ? "{ }"
-        : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-          texts.length === 1
-          ? `{ ${texts[0]} }`
-          : `{ ${texts.join("; ")}; }`
+    let body = "{ }"
+    if (texts.length === 1) body = `{ ${texts[0]} }`
+    else if (texts.length > 1) body = `{ ${texts.join("; ")}; }`
     return toFragment({ sql: body, vars: ctx.vars }, (sql) => sql)
   }
 }
 
 /** Start a typed statement block — `block().let("n", …).if((s) => s.n.gt(100), …)`. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- {} é o padrão genérico que preserva a inferência do schema
-export function block(): Block<{}, never> {
+export function block(): Block<Record<string, never>, never> {
   return new Block()
 }

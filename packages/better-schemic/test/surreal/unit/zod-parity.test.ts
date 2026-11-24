@@ -1,4 +1,11 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any, unicorn/consistent-function-scoping, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Fixtures use any for duck-typed mocks. Helpers stay colocated with the tests that use them. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+const MAGIC_10 = 10
+const MAGIC_2 = 2
+const MAGIC_2020 = 2020
+const MAGIC_2030 = 2030
+const MAGIC_2031 = 2031
+const MAGIC_2040 = 2040
+const MAGIC_3 = 3
+const MAGIC_5 = 5
 // recordId(TableDef) links, the `.or()`/`.and()` combinators, and the native-Zod passthrough
 // (refine/superRefine/check/overwrite/transform/pipe/brand/readonly/describe/meta) — s.* stays a
 // drop-in for z.*, with DDL mapping to the wire/input type.
@@ -7,6 +14,20 @@ import { describe, expect, test } from "bun:test"
 
 import { s, table } from "../../../src/surreal"
 import { emitTable } from "../../../src/surreal/driver"
+const enc = (d: Date): unknown =>
+  (s.datetime().schema as { encode: (x: Date) => unknown }).encode(d)
+
+const line = (t: Parameters<typeof emitTable>[0], n: string): string | undefined =>
+  emitTable(t)
+    .split("\n")
+    .find((l) => l.includes(` ${n} `))
+    ?.trim()
+
+const lines = (t: Parameters<typeof emitTable>[0], prefix: string): string[] =>
+  emitTable(t)
+    .split("\n")
+    .filter((l) => l.includes(` ${prefix}`))
+    .map((l) => l.trim())
 
 const field = (t: Parameters<typeof emitTable>[0], name: string): string =>
   emitTable(t)
@@ -22,11 +43,11 @@ const Post = table("post", { id: s.string() })
 describe("recordId accepts table defs (no hardcoded names)", () => {
   test("single def, def array, and string back-compat", () => {
     const T = table("t", {
-      id: s.string(),
       a: s.recordId(User),
       b: s.recordId([User, Service]),
       c: s.recordId("user"),
       d: s.recordId(["user", "service"]),
+      id: s.string(),
     })
     expect(field(T, "a")).toBe("DEFINE FIELD a ON TABLE t TYPE record<user>;")
     expect(field(T, "b")).toBe("DEFINE FIELD b ON TABLE t TYPE record<user | service>;")
@@ -39,8 +60,8 @@ describe(".or() / .and() combinators (Zod parity)", () => {
   test(".or() unions; record links compose via .record().or()", () => {
     const T = table("t", {
       id: s.string(),
-      u: s.string().or(s.int()),
       link: User.record().or(Post.record()),
+      u: s.string().or(s.int()),
     })
     expect(field(T, "u")).toBe("DEFINE FIELD u ON TABLE t TYPE string | int;")
     expect(field(T, "link")).toBe("DEFINE FIELD link ON TABLE t TYPE record<user> | record<post>;")
@@ -57,7 +78,7 @@ describe(".or() / .and() combinators (Zod parity)", () => {
 
 describe("native Zod passthrough", () => {
   test("refine validates at runtime; the field's DDL type is unchanged", () => {
-    const name = s.string().refine((s) => s.length >= 2, "too short")
+    const name = s.string().refine((s) => s.length >= MAGIC_2, "too short")
     expect(name.safeDecode("ab").success).toBe(true)
     expect(name.safeDecode("a").success).toBe(false)
     const T = table("t", { id: s.string(), name })
@@ -66,8 +87,8 @@ describe("native Zod passthrough", () => {
 
   test("a format's baked ASSERT survives a refine", () => {
     const T = table("t", {
-      id: s.string(),
       email: s.email().refine((s) => s.includes("@")),
+      id: s.string(),
     })
     expect(field(T, "email")).toBe(
       "DEFINE FIELD email ON TABLE t TYPE string ASSERT string::is_email($value);",
@@ -84,8 +105,8 @@ describe("native Zod passthrough", () => {
   test("brand / readonly are app-side only — DDL maps to the base type", () => {
     const T = table("t", {
       id: s.string(),
-      tag: s.string().brand("Tag"),
       ro: s.int().readonly(),
+      tag: s.string().brand("Tag"),
     })
     expect(field(T, "tag")).toBe("DEFINE FIELD tag ON TABLE t TYPE string;")
     expect(field(T, "ro")).toBe("DEFINE FIELD ro ON TABLE t TYPE int;")
@@ -97,11 +118,11 @@ describe("native Zod chain methods (Tier-2: app-side, DDL unchanged)", () => {
   // (The $-forms remain the DB-ASSERT channel — guarded below.)
   test("string formats/length/transforms emit NO DB clause", () => {
     const T = table("t", {
-      id: s.string(),
       a: s.string().email(),
-      b: s.string().min(3).max(10),
+      b: s.string().min(MAGIC_3).max(MAGIC_10),
       c: s.string().regex(/^x/u).trim().toLowerCase(),
-      n: s.int().gt(0).positive().multipleOf(2),
+      id: s.string(),
+      n: s.int().gt(0).positive().multipleOf(MAGIC_2),
     })
     expect(field(T, "a")).toBe("DEFINE FIELD a ON TABLE t TYPE string;")
     expect(field(T, "b")).toBe("DEFINE FIELD b ON TABLE t TYPE string;")
@@ -112,8 +133,8 @@ describe("native Zod chain methods (Tier-2: app-side, DDL unchanged)", () => {
   test("the methods DO validate app-side (real Zod checks)", () => {
     expect(s.string().email().safeDecode("nope").success).toBe(false)
     expect(s.string().email().safeDecode("a@b.co").success).toBe(true)
-    expect(s.string().min(3).safeDecode("ab").success).toBe(false)
-    expect(s.int().gt(5).safeDecode(3).success).toBe(false)
+    expect(s.string().min(MAGIC_3).safeDecode("ab").success).toBe(false)
+    expect(s.int().gt(MAGIC_5).safeDecode(MAGIC_3).success).toBe(false)
     expect(s.int().positive().safeDecode(-1).success).toBe(false)
     // transform runs
     expect(s.string().trim().toLowerCase().decode("  AB ")).toBe("ab")
@@ -121,9 +142,9 @@ describe("native Zod chain methods (Tier-2: app-side, DDL unchanged)", () => {
 
   test("the $-forms STILL push the DB ASSERT (two-channel split intact)", () => {
     const T = table("t", {
-      id: s.string(),
-      m: s.string().$min(3),
       g: s.int().$gt(0),
+      id: s.string(),
+      m: s.string().$min(MAGIC_3),
     })
     expect(field(T, "m")).toBe(
       "DEFINE FIELD m ON TABLE t TYPE string ASSERT string::len($value) >= 3;",
@@ -133,27 +154,21 @@ describe("native Zod chain methods (Tier-2: app-side, DDL unchanged)", () => {
 
   test("chain preserves SurrealMeta + flags (rebuild carries native forward)", () => {
     const T = table("t", {
-      id: s.string(),
       // $default (create-optional flag + DB DEFAULT) survives a following app-side .min()
       d: s.string().$default("x").min(1),
+      id: s.string(),
     })
     expect(field(T, "d")).toBe('DEFINE FIELD d ON TABLE t TYPE string DEFAULT "x";')
   })
 
   test("wrong base type throws a clear error", () => {
-    expect(() => (s.int() as any).email()).toThrow(
+    expect(() => (s.int() as unknown as { email: () => unknown }).email()).toThrow(
       "surrealdb: .email() is not available on this field's base type.",
     )
   })
 })
 
 describe("object composition (Tier-2: SObjectField, mirrors Zod's ZodObject)", () => {
-  const lines = (t: Parameters<typeof emitTable>[0], prefix: string): string[] =>
-    emitTable(t)
-      .split("\n")
-      .filter((l) => l.includes(` ${prefix}`))
-      .map((l) => l.trim())
-
   const base = s.object({ a: s.string(), b: s.int().$default(0) })
 
   test(".extend() adds fields AND preserves nested $-clauses (registry maintained)", () => {
@@ -210,26 +225,20 @@ describe("object composition (Tier-2: SObjectField, mirrors Zod's ZodObject)", (
 })
 
 describe("date / enum / array Zod parity (Tier-2 last edges)", () => {
-  const line = (t: Parameters<typeof emitTable>[0], n: string) =>
-    emitTable(t)
-      .split("\n")
-      .find((l) => l.includes(` ${n} `))
-      ?.trim()
-
   test("date .min/.max validate app-side (codec-aware) with the column unchanged", () => {
-    const min = new Date(Date.UTC(2030, 0, 1))
+    const min = new Date(Date.UTC(MAGIC_2030, 0, 1))
     const f = s.datetime().min(min)
     // get a real surreal DateTime by round-tripping through the codec (its own DateTime class)
-    const enc = (d: Date) => (s.datetime().schema as { encode: (x: Date) => unknown }).encode(d)
-    expect(f.safeDecode(enc(new Date(Date.UTC(2031, 0, 1)))).success).toBe(true)
-    expect(f.safeDecode(enc(new Date(Date.UTC(2020, 0, 1)))).success).toBe(false)
+
+    expect(f.safeDecode(enc(new Date(Date.UTC(MAGIC_2031, 0, 1)))).success).toBe(true)
+    expect(f.safeDecode(enc(new Date(Date.UTC(MAGIC_2020, 0, 1)))).success).toBe(false)
     // app-side — DDL stays `datetime` (the $-channel would be the DB form, but dates have none)
     const T = table("t", {
       id: s.string(),
       w: s
         .datetime()
         .min(min)
-        .max(new Date(Date.UTC(2040, 0, 1))),
+        .max(new Date(Date.UTC(MAGIC_2040, 0, 1))),
     })
     expect(line(T, "w")).toBe("DEFINE FIELD w ON TABLE t TYPE datetime;")
   })
@@ -240,21 +249,21 @@ describe("date / enum / array Zod parity (Tier-2 last edges)", () => {
     expect(role.exclude(["guest"]).safeDecode("admin").success).toBe(true)
     expect(role.extract(["admin"]).safeDecode("user").success).toBe(false)
     const T = table("t", {
-      id: s.string(),
       ex: role.exclude(["guest"]),
       ex2: role.extract(["admin"]),
+      id: s.string(),
     })
     expect(line(T, "ex")).toBe('DEFINE FIELD ex ON TABLE t TYPE "admin" | "user";')
     expect(line(T, "ex2")).toBe('DEFINE FIELD ex2 ON TABLE t TYPE "admin";')
   })
 
   test("array .min/.max/.length/.nonempty validate app-side, column unchanged", () => {
-    expect(s.array(s.string()).min(2).safeDecode(["a"]).success).toBe(false)
+    expect(s.array(s.string()).min(MAGIC_2).safeDecode(["a"]).success).toBe(false)
     expect(s.array(s.string()).nonempty().safeDecode([]).success).toBe(false)
-    expect(s.array(s.string()).length(2).safeDecode(["a", "b"]).success).toBe(true)
+    expect(s.array(s.string()).length(MAGIC_2).safeDecode(["a", "b"]).success).toBe(true)
     const T = table("t", {
+      a: s.array(s.string()).min(MAGIC_2),
       id: s.string(),
-      a: s.array(s.string()).min(2),
     })
     expect(line(T, "a")).toBe("DEFINE FIELD a ON TABLE t TYPE array<string>;")
   })

@@ -12,38 +12,45 @@ const debugEnabled = (): boolean =>
 
 const errMsg = (err: unknown): string => (err instanceof Error ? err.message : safeText(err))
 
+// JSON.stringify declares `string` but yields undefined for functions/symbols at runtime.
+const stringify = (value: unknown): string | undefined => JSON.stringify(value)
+
 /** Stringify an unknown thrown value without relying on Object's default `[object Object]`. */
 function safeText(v: unknown): string {
   if (typeof v === "string") return v
   if (typeof v === "number" || typeof v === "boolean" || typeof v === "bigint") return String(v)
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- `JSON.stringify` devolve undefined em runtime para funções/símbolos.
-  return JSON.stringify(v) ?? ""
+  return stringify(v) ?? ""
 }
 
 /** Guard against a cyclic `.cause` chain when printing an error's ancestry. */
 const MAX_CAUSE_DEPTH = 8
 
+/** The CLI's single exit seam — a forced exit so lingering SDK handles can't hold the process open. */
+const exitProcess = process.exit.bind(process)
+const exit: (code?: null | number | string) => never = (code) =>
+  Reflect.apply(exitProcess, undefined, [code])
+
 /** Run `action`, then exit (0 on success / the set exitCode; 1 on a thrown error, printed cleanly). */
 export function runAction(action: () => Promise<void>): void {
   action().then(
-    // eslint-disable-next-line unicorn/no-process-exit -- CLI deve devolver o exitCode ao shell; throw não preserva o código.
-    () => process.exit(process.exitCode ?? 0),
+    () => exit(process.exitCode ?? 0),
     (error: unknown) => {
       console.error(`\n${fail(errMsg(error))}`)
       if (debugEnabled() || process.argv.includes("--stack")) {
-        // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-        for (let e: unknown = error, depth = 0; e && depth < MAX_CAUSE_DEPTH; depth++) {
+        const printCause = (e: unknown, depth: number): void => {
+          if (!e || depth >= MAX_CAUSE_DEPTH) return
           console.error(style.dim(e instanceof Error ? (e.stack ?? safeText(e)) : safeText(e)))
-          e = e instanceof Error ? e.cause : undefined
-          if (e) console.error(style.dim("caused by:"))
+          const cause = e instanceof Error ? e.cause : undefined
+          if (cause) console.error(style.dim("caused by:"))
+          printCause(cause, depth + 1)
         }
+        printCause(error, 0)
       } else {
         console.error(
           style.dim("(re-run with BETTER_SCHEMIC_DEBUG=1 or --stack for the stack trace)"),
         )
       }
-      // eslint-disable-next-line unicorn/no-process-exit -- CLI deve devolver o código de falha ao shell.
-      process.exit(1)
+      exit(1)
     },
   )
 }

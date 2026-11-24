@@ -77,10 +77,10 @@ export function extractArithmetic(
 
   const steps: ArithmeticStep[] = []
   const clean: Record<string, unknown> = { ...data }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [field, value] of Object.entries(data)) {
+
+  Object.entries(data).forEach(([field, value]) => {
     const marker = adjustmentOf(value)
-    if (!marker) continue
+    if (!marker) return
 
     if (!allow) {
       throw compileError(
@@ -92,7 +92,7 @@ export function extractArithmetic(
     assertAdjustment(meta, field, marker, operation)
     steps.push(loweringOf(marker, field))
     Reflect.deleteProperty(clean, field)
-  }
+  })
   return { clean, steps }
 }
 
@@ -373,19 +373,20 @@ export function setBody(
 ): string {
   const parts: string[] = []
   if (isPlainObject(encoded)) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [field, value] of Object.entries(encoded)) {
-      if (value === undefined) continue
+    Object.entries(encoded).forEach(([field, value]) => {
+      if (value === undefined) return
 
       if (deep && isPlainObject(value)) {
         flattenAssignments(value, [field], parts, binds)
-        continue
+        return
       }
       parts.push(`${renderPath(field)} = ${renderValue(value, binds, binds.ctx())}`)
-    }
+    })
   }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const step of steps) parts.push(renderStep(step, binds))
+
+  steps.forEach((step) => {
+    parts.push(renderStep(step, binds))
+  })
 
   return `SET ${parts.join(", ")}`
 }

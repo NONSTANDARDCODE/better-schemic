@@ -75,8 +75,8 @@ export function createFnOperations(ctx: DelegateContext): FnSurface {
   // here once (`shortcut`), and adding a function cannot land on one surface but not the other.
   const surface: Record<string, unknown> = { call }
   const expr: Record<string, unknown> = { call: exprCall }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [key, meta] of ctx.index.functions) {
+
+  ;[...ctx.index.functions].forEach(([key, meta]) => {
     // `call`/`expr` are the surface's own entry points; a schema entry with either key would be
     // shadowed (or would shadow) them.
     if (key === "call" || key === "expr") {
@@ -91,7 +91,7 @@ export function createFnOperations(ctx: DelegateContext): FnSurface {
       call(entry.name, positionalArgs(entry, args, `fn.${key}`))
     expr[key] = (args?: unknown): Surql =>
       exprCall(entry.name, positionalArgs(entry, args, `fn.expr.${key}`))
-  }
+  })
   surface.expr = expr
 
   return surface as unknown as FnSurface

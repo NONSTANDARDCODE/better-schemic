@@ -1,11 +1,10 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 import { describe, expect, test } from "bun:test"
 
-import { resolveConnectionConfig } from "../../../src/core/cli-kit/config"
+import { resolveConnectionConfig, type ResolvedConfig } from "../../../src/core/cli-kit/config"
 import type { OrmConfig } from "../../../src/core/config"
 
 const config = { connections: {} } as OrmConfig
-const rc = (conn: { migrations?: string; schema: string }) =>
+const rc = (conn: { migrations?: string; schema: string }): ResolvedConfig =>
   resolveConnectionConfig(config, "default", conn, "testdriver", "/proj")
 
 describe("migrations dir defaults RELATIVE TO THE SCHEMA (the documented contract)", () => {
@@ -24,7 +23,7 @@ describe("migrations dir defaults RELATIVE TO THE SCHEMA (the documented contrac
   })
 
   test("an explicit migrations override still resolves from the project root", () => {
-    expect(rc({ schema: "./src/database/schema", migrations: "./mig" }).migrationsDir).toBe(
+    expect(rc({ migrations: "./mig", schema: "./src/database/schema" }).migrationsDir).toBe(
       "/proj/mig",
     )
   })

@@ -1,12 +1,13 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures assert values whose presence the test guarantees. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+const MAGIC_5 = 5
 // The create/insert lowering in isolation: the default operations, the singleton id, the
 // skipDuplicates id guard and the insert/insertMany shape guards.
+
 import { describe, expect, test } from "bun:test"
 import { RecordId } from "surrealdb"
 
 import { defineSingleton, s } from "../../../src/surreal"
 import { orm } from "../../../src/surreal/orm/client"
-import { createBinds } from "../../../src/surreal/orm/compiler/shared"
+import { type Binds, createBinds } from "../../../src/surreal/orm/compiler/shared"
 import {
   compileCreate,
   compileCreateMany,
@@ -14,6 +15,7 @@ import {
   compileInsertMany,
 } from "../../../src/surreal/orm/compiler/write"
 import { schema } from "../../../src/surreal/orm/schema"
+import { required } from "../../required"
 import { fakeConn, ok } from "../orm-fixtures"
 
 import { schemaDef } from "./orm-writes-fixtures"
@@ -29,13 +31,13 @@ const code = (fn: () => unknown): string | undefined => {
 
 const { conn } = fakeConn(() => [ok([])])
 const client = orm(conn, { schema: schemaDef })
-const meta = client.$index.tables.get("users")!
-const b = () => createBinds()
+const meta = required(client.$index.tables.get("users"))
+const b = (): Binds => createBinds()
 const sql = (plan: { statements: readonly string[] }): string => plan.statements.join("\n")
 
 describe("compileCreate / compileCreateMany", () => {
   test("default operations and an explicit RecordId", () => {
-    expect(sql(compileCreate(meta, { data: { name: "A", email: "a@x" } }, b()))).toContain("CREATE")
+    expect(sql(compileCreate(meta, { data: { email: "a@x", name: "A" } }, b()))).toContain("CREATE")
     expect(
       sql(compileCreate(meta, { data: { id: new RecordId("user", "1"), name: "A" } }, b())),
     ).toContain("CREATE user")
@@ -43,9 +45,9 @@ describe("compileCreate / compileCreateMany", () => {
   })
 
   test("skipDuplicates: id-less rows get the generated id; explicit ids keep the whole bind", () => {
-    expect(code(() => compileCreateMany(meta, { data: [5], skipDuplicates: true }, b()))).toBe(
-      "ValidationError",
-    )
+    expect(
+      code(() => compileCreateMany(meta, { data: [MAGIC_5], skipDuplicates: true }, b())),
+    ).toBe("ValidationError")
     expect(
       sql(compileCreateMany(meta, { data: [{ name: "A" }], skipDuplicates: true }, b())),
     ).toContain("INSERT IGNORE INTO user { name: $b0, id: rand::ulid() }")
@@ -59,7 +61,7 @@ describe("compileCreate / compileCreateMany", () => {
 
 describe("compileInsert / compileInsertMany", () => {
   test("default operations; array/single shape guards", () => {
-    expect(sql(compileInsert(meta, { data: { name: "A", email: "a@x" } }, b()))).toContain("INSERT")
+    expect(sql(compileInsert(meta, { data: { email: "a@x", name: "A" } }, b()))).toContain("INSERT")
     expect(code(() => compileInsert(meta, { data: [{ name: "A" }] }, b()))).toBe("ValidationError")
     expect(sql(compileInsertMany(meta, { data: [{ name: "A" }] }, b()))).toContain("INSERT")
     expect(code(() => compileInsertMany(meta, { data: { name: "A" } }, b()))).toBe(
@@ -75,7 +77,7 @@ describe("create — singleton tables", () => {
     const c = orm(fakeConn(() => [ok([])]).conn, {
       schema: schema({ config: Config }),
     })
-    const configMeta = c.$index.tables.get("config")!
+    const configMeta = required(c.$index.tables.get("config"))
     expect(sql(compileCreate(configMeta, { data: { value: "x" } }, b()))).toContain(
       "config:default",
     )

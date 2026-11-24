@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally ignored values. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -9,11 +8,15 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { seed } from "../../../src/cli/migrate"
 
 /** A fake driver connection that records which seeds ran + any SQL they applied. */
-function recorder() {
+function recorder(): {
+  db: { query: (s: string) => number; ran: (n: string) => number }
+  ran: string[]
+  sql: string[]
+} {
   const ran: string[] = []
   const sql: string[] = []
   return {
-    db: { ran: (n: string) => ran.push(n), query: (s: string) => sql.push(s) },
+    db: { query: (s: string): number => sql.push(s), ran: (n: string): number => ran.push(n) },
     ran,
     sql,
   }
@@ -21,7 +24,7 @@ function recorder() {
 
 describe("seed (folder of named scripts)", () => {
   let root: string
-  const cfg = () => ({ root }) as unknown as ResolvedConfig
+  const cfg = (): ResolvedConfig => ({ root }) as unknown as ResolvedConfig
 
   beforeEach(() => {
     root = mkdtempSync(path.join(tmpdir(), "better-schemic-seed-"))
@@ -47,7 +50,9 @@ describe("seed (folder of named scripts)", () => {
       "export default async (db: any) => { db.ran('index'); };\n",
     )
   })
-  afterEach(() => rmSync(root, { recursive: true, force: true }))
+  afterEach(() => {
+    rmSync(root, { force: true, recursive: true })
+  })
 
   it("runs only index.ts when no name/--all is given", async () => {
     const r = recorder()
@@ -74,9 +79,14 @@ describe("seed (folder of named scripts)", () => {
   })
 
   it("errors with the available names on an unknown seed", async () => {
-    await expect(seed(recorder().db, cfg(), { name: "nope" })).rejects.toThrow(
-      /No seed named "nope".*users, data/u,
-    )
+    const pending = seed(recorder().db, cfg(), { name: "nope" }) as unknown as Promise<unknown>
+    let failure: unknown
+    try {
+      await pending
+    } catch (error) {
+      failure = error
+    }
+    expect(String(failure)).toMatch(/No seed named "nope".*users, data/u)
   })
 
   it("ignores `_`-prefixed files and `.d.ts` declarations", async () => {

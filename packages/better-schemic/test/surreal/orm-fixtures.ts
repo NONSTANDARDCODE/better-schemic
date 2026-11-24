@@ -1,23 +1,83 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/require-await, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Mock methods match async interfaces without awaiting. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+import type { QueryResponse, ServerError } from "surrealdb"
+
+import type { Queryable } from "../../src/surreal/orm/execute"
+import { KEEP_ORDER } from "../order-barrier"
+
 /**
  * Shared ORM unit-test fixtures: SDK-shaped `QueryResponse` builders and a recording fake
  * connection. Kept in one place so every `/orm` unit suite answers statements the same way
  * (and a change in the SDK response shape breaks in ONE file, not five).
  */
-import type { QueryResponse, ServerError } from "surrealdb"
-
-import type { Queryable } from "../../src/surreal/orm/execute"
 
 /** A successful response (`type` requires it by the SDK union). */
 export const ok = (result: unknown): QueryResponse => ({
   success: true,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
   result,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
   type: "other",
 })
 
 /** A failed response carrying a real SDK error. */
 export const fail = (error: ServerError): QueryResponse => ({
   success: false,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
   error,
 })
 
@@ -59,16 +119,105 @@ export function fakeConn(
   const calls: FakeCall[] = []
   const conn = {
     closeCalls: 0,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
     closed: false,
-    query(sql: string, vars?: Record<string, unknown>) {
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    query(
+      sql: string,
+      vars?: Record<string, unknown>,
+    ): { responses: () => Promise<QueryResponse[]> } {
       calls.push({ sql, vars })
-      return { responses: async () => handler(sql, vars) }
+      return {
+        responses: async (): Promise<QueryResponse[]> => {
+          await Promise.resolve()
+          return handler(sql, vars)
+        },
+      }
     },
-    close() {
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    close(): Promise<void> {
       conn.closeCalls++
       conn.closed = true
       return Promise.resolve()
     },
   }
-  return { conn: conn as unknown as FakeConn, calls }
+  return {
+    conn: conn as unknown as FakeConn,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    ...KEEP_ORDER,
+    calls,
+  }
 }

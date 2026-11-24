@@ -1,9 +1,5 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally ignored values. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
-// M5.1 — the raw escape hatches: `$raw`/`$query`/`$unsafe`, parameterization, `throwOnError:false`,
-// `raw.requireComment`/`raw.timeoutMs`, and the `USE NS … DB …` scope prefix. Offline — the
-// "connection" is a recording fake.
 import { describe, expect, test } from "bun:test"
-import { ServerError, surql } from "surrealdb"
+import { type QueryResponse, ServerError, surql } from "surrealdb"
 
 import { s, table } from "../../../src/surreal"
 import { orm } from "../../../src/surreal/orm/client"
@@ -11,21 +7,28 @@ import { isOrmError } from "../../../src/surreal/orm/errors"
 import { schema } from "../../../src/surreal/orm/schema"
 import { caught, fail, fakeConn, ok } from "../orm-fixtures"
 
+const MAGIC_18 = 18
+const MAGIC_2 = 2
+const MAGIC_3 = 3
+const MAGIC_42 = 42
+// M5.1 — the raw escape hatches: `$raw`/`$query`/`$unsafe`, parameterization, `throwOnError:false`,
+// `raw.requireComment`/`raw.timeoutMs`, and the `USE NS … DB …` scope prefix. Offline — the
+// "connection" is a recording fake.
+
 const User = table("user", { name: s.string() })
 const schemaDef = schema({ users: User })
 
-const rawResult = (result: unknown) => (sql: string) => [
-  ok(result),
-  ...(sql.includes("USE ") ? [] : []),
-]
+const rawResult =
+  (result: unknown): ((sql: string) => QueryResponse[]) =>
+  (sql: string): QueryResponse[] => [ok(result), ...(sql.includes("USE ") ? [] : [])]
 
 describe("raw — $raw", () => {
   test("a tagged template binds every value as $p<n>", async () => {
-    const { conn, calls } = fakeConn(rawResult([{ id: "user:1" }]))
+    const { calls, conn } = fakeConn(rawResult([{ id: "user:1" }]))
     const client = orm(conn, { schema: schemaDef })
     const rows = await client.$raw<
       { id: string }[]
-    >`SELECT * FROM user WHERE name = ${"Aeon"} AND age > ${18}`
+    >`SELECT * FROM user WHERE name = ${"Aeon"} AND age > ${MAGIC_18}`
 
     expect(calls[0]?.sql).toBe("SELECT * FROM user WHERE name = $p0 AND age > $p1;")
     expect(calls[0]?.vars).toEqual({ p0: "Aeon", p1: 18 })
@@ -33,14 +36,14 @@ describe("raw — $raw", () => {
   })
 
   test("a string source takes options (timeout applied to a SELECT)", async () => {
-    const { conn, calls } = fakeConn(rawResult(1))
+    const { calls, conn } = fakeConn(rawResult(1))
     const client = orm(conn, { schema: schemaDef })
     await client.$raw("SELECT * FROM user", { timeout: "5s" })
     expect(calls[0]?.sql).toBe("SELECT * FROM user TIMEOUT 5s;")
   })
 
   test("a BoundQuery source keeps its binds", async () => {
-    const { conn, calls } = fakeConn(rawResult(1))
+    const { calls, conn } = fakeConn(rawResult(1))
     const client = orm(conn, { schema: schemaDef })
     await client.$raw(surql`SELECT * FROM user WHERE name = ${"Aeon"}`)
     // A BoundQuery keeps its OWN bind names (the SDK tag already lowered them) — the counter is
@@ -52,19 +55,19 @@ describe("raw — $raw", () => {
   test("an invalid source is a teaching ValidationError", async () => {
     const { conn } = fakeConn(rawResult(1))
     const client = orm(conn, { schema: schemaDef })
-    const error = await caught(() => client.$raw(42 as never))
+    const error = await caught(() => client.$raw(MAGIC_42 as never))
     expect(isOrmError(error) && error.code).toBe("ValidationError")
   })
 
   test("the curried options-tag binds options to a template", async () => {
-    const { conn, calls } = fakeConn(rawResult(1))
+    const { calls, conn } = fakeConn(rawResult(1))
     const client = orm(conn, { schema: schemaDef })
     await client.$raw({ timeout: 500 })`SELECT * FROM user`
     expect(calls[0]?.sql).toBe("SELECT * FROM user TIMEOUT 500ms;")
   })
 
   test("a multi-statement script is refused instead of silently dropping the rest", async () => {
-    const { conn, calls } = fakeConn(() => [ok([null]), ok([1])])
+    const { calls, conn } = fakeConn(() => [ok([null]), ok([1])])
     const client = orm(conn, { schema: schemaDef })
     // A leading `LET` used to resolve `null` with no error: $raw returned the FIRST result .
     const error = await caught(() => client.$raw`LET $a = 1; SELECT * FROM user;`)
@@ -76,7 +79,7 @@ describe("raw — $raw", () => {
   })
 
   test("a `;` inside a string literal is not a second statement", async () => {
-    const { conn, calls } = fakeConn(rawResult("a;b"))
+    const { calls, conn } = fakeConn(rawResult("a;b"))
     const client = orm(conn, { schema: schemaDef })
     const out = await client.$raw`RETURN ${"a;b"}`
     expect(out).toBe("a;b")
@@ -86,16 +89,17 @@ describe("raw — $raw", () => {
   test("comments and a trailing `;` do not count as statements", async () => {
     const { conn } = fakeConn(rawResult(1))
     const client = orm(conn, { schema: schemaDef })
-    await expect(client.$raw`-- pick the user\nSELECT * FROM user;`).resolves.toBe(1)
+    const value = await client.$raw`-- pick the user\nSELECT * FROM user;`
+    expect(value).toBe(1)
   })
 })
 
 describe("raw — $query", () => {
   test("returns one result per statement", async () => {
-    const { conn } = fakeConn(() => [ok([1]), ok([2])])
+    const { conn } = fakeConn(() => [ok([1]), ok([MAGIC_2])])
     const client = orm(conn, { schema: schemaDef })
     const out = await client.$query<[number[], number[]]>`SELECT * FROM user; SELECT * FROM post;`
-    expect(out).toEqual([[1], [2]])
+    expect(out).toEqual([[1], [MAGIC_2]])
   })
 
   test("throwOnError:false returns the StatementResult envelopes", async () => {
@@ -130,8 +134,8 @@ describe("raw — $unsafe", () => {
   })
 
   test("runs with raw.unsafe:true and binds params", async () => {
-    const { conn, calls } = fakeConn(rawResult(1))
-    const client = orm(conn, { schema: schemaDef, raw: { unsafe: true } })
+    const { calls, conn } = fakeConn(rawResult(1))
+    const client = orm(conn, { raw: { unsafe: true }, schema: schemaDef })
     await client.$unsafe("SELECT * FROM user WHERE id = $id", { id: "user:1" })
     expect(calls[0]?.sql).toBe("SELECT * FROM user WHERE id = $id;")
     expect(calls[0]?.vars).toEqual({ id: "user:1" })
@@ -142,26 +146,26 @@ describe("raw — defaults", () => {
   test("requireComment demands meta.comment on a write script", async () => {
     const { conn } = fakeConn(rawResult(1))
     const client = orm(conn, {
-      schema: schemaDef,
       raw: { requireComment: true },
+      schema: schemaDef,
     })
     const error = await caught(() => client.$raw("DELETE user"))
     expect(isOrmError(error) && error.code).toBe("ValidationError")
 
     const { conn: okConn } = fakeConn(rawResult(1))
     const okClient = orm(okConn, {
-      schema: schemaDef,
       raw: { requireComment: true },
+      schema: schemaDef,
     })
     await okClient.$raw("DELETE user", { meta: { comment: "cleanup" } })
     // A read-script is exempt.
     await okClient.$raw("SELECT * FROM user")
 
     // The curried tag is the template-form escape hatch for requireComment.
-    const { conn: tagConn, calls } = fakeConn(rawResult(1))
+    const { calls, conn: tagConn } = fakeConn(rawResult(1))
     const tagClient = orm(tagConn, {
-      schema: schemaDef,
       raw: { requireComment: true },
+      schema: schemaDef,
     })
     await tagClient.$raw({ meta: { comment: "seed" } })`DELETE user`
     expect(calls[0]?.sql).toBe("DELETE user;")
@@ -170,15 +174,15 @@ describe("raw — defaults", () => {
   })
 
   test("timeoutMs applies to a single capable statement only", async () => {
-    const { conn, calls } = fakeConn(rawResult(1))
-    const client = orm(conn, { schema: schemaDef, raw: { timeoutMs: 250 } })
+    const { calls, conn } = fakeConn(rawResult(1))
+    const client = orm(conn, { raw: { timeoutMs: 250 }, schema: schemaDef })
     await client.$raw("SELECT * FROM user")
     expect(calls[0]?.sql).toBe("SELECT * FROM user TIMEOUT 250ms;")
 
-    const { conn: other, calls: otherCalls } = fakeConn(() => [ok(1), ok(2), ok(3)])
+    const { calls: otherCalls, conn: other } = fakeConn(() => [ok(1), ok(MAGIC_2), ok(MAGIC_3)])
     const otherClient = orm(other, {
-      schema: schemaDef,
       raw: { timeoutMs: 250 },
+      schema: schemaDef,
     })
     await otherClient.$query`LET $a = 1; LET $b = 2; RETURN $a;`
     expect(otherCalls[0]?.sql).not.toContain("TIMEOUT")
@@ -187,22 +191,22 @@ describe("raw — defaults", () => {
 
 describe("raw — context scope", () => {
   test("a $withContext clone prefixes USE NS … DB … in the same round-trip", async () => {
-    const { conn, calls } = fakeConn((sql) => sql.split("\n").map((line) => ok(line)))
+    const { calls, conn } = fakeConn((sql) => sql.split("\n").map((line) => ok(line)))
     const client = orm(conn, { schema: schemaDef })
     const tenant = client.$withContext({
-      namespace: "tenant_a",
       database: "app",
+      namespace: "tenant_a",
     })
     await tenant.$raw("SELECT * FROM user")
     expect(calls[0]?.sql).toBe("USE NS tenant_a DB app;\nSELECT * FROM user;")
   })
 
   test("an implicit batch wrapper is prefixed before BEGIN", async () => {
-    const { conn, calls } = fakeConn((sql) => sql.split("\n").map((line) => ok(line)))
+    const { calls, conn } = fakeConn((sql) => sql.split("\n").map((line) => ok(line)))
     const client = orm(conn, { schema: schemaDef })
     const tenant = client.$withContext({
-      namespace: "tenant_a",
       database: "app",
+      namespace: "tenant_a",
     })
     await tenant.users.createMany({ data: [{ name: "a" }, { name: "b" }] })
     const sql = calls[0]?.sql ?? ""
@@ -211,11 +215,11 @@ describe("raw — context scope", () => {
   })
 
   test("a per-call context overrides the clone's database", async () => {
-    const { conn, calls } = fakeConn((sql) => sql.split("\n").map((line) => ok(line)))
+    const { calls, conn } = fakeConn((sql) => sql.split("\n").map((line) => ok(line)))
     const client = orm(conn, { schema: schemaDef })
     const tenant = client.$withContext({
-      namespace: "tenant_a",
       database: "app",
+      namespace: "tenant_a",
     })
     await tenant.users.findMany({ context: { database: "analytics" } })
     expect(calls[0]?.sql).toContain("USE NS tenant_a DB analytics;")

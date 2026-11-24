@@ -74,13 +74,9 @@ const io: CommandIo = {
 
 /** Pre-scan argv for `-c`/`--config <path>` so registration loads the right project's driver. */
 function configFromArgv(argv: string[]): string | undefined {
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === "-c" || argv[i] === "--config") return argv[i + 1]
-
-    if (argv[i].startsWith("--config=")) return argv[i].slice("--config=".length)
-  }
-  return undefined
+  const at = argv.findIndex((a) => a === "-c" || a === "--config" || a.startsWith("--config="))
+  if (at === -1) return undefined
+  return argv[at].startsWith("--config=") ? argv[at].slice("--config=".length) : argv[at + 1]
 }
 
 /**
@@ -94,14 +90,12 @@ export function toParsedArgs(
   opts: Record<string, unknown>,
 ): ParsedCommandArgs {
   const flags: ParsedCommandArgs["flags"] = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const f of cmd.args?.flags ?? []) {
+  ;(cmd.args?.flags ?? []).forEach((f) => {
     const v = opts[f.name]
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-boolean-literal-compare -- `=== true` normaliza flags ausentes (undefined) para false; removê-lo altera o contrato.
-    flags[f.name] = f.value ? (v as string | undefined) : (v as boolean) === true
+    flags[f.name] = f.value ? (v as string | undefined) : Boolean(v)
     if (f.required && (v === undefined || v === false))
       throw new Error(`\`sc ${cmd.kind} ${cmd.verb}\` requires --${f.name}`)
-  }
+  })
   return { flags, positionals }
 }
 
@@ -117,11 +111,10 @@ function addCommand(kindGroup: Command, cmd: DriverCommand, resolveOpts: () => R
     .summary(cmd.summary)
     .description(usage ? `${cmd.summary}\n\nArguments: ${usage}` : cmd.summary)
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const f of cmd.args?.flags ?? []) {
+  ;(cmd.args?.flags ?? []).forEach((f) => {
     const flag = f.value ? `--${f.name} <value>` : `--${f.name}`
     verb.option(flag, f.help ?? "")
-  }
+  })
 
   verb.action((args: string[], opts: Record<string, unknown>) => {
     runAction(async () => {
@@ -201,6 +194,7 @@ export async function registerDriverCommands(program: Command): Promise<void> {
   registerInspectVerbs(program, driver, groupFor, resolveOpts)
 
   // The driver's own verbs (e.g. `access rotate`) on top of the universal ls/info.
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const cmd of driver.commands ?? []) addCommand(groupFor(cmd.kind), cmd, resolveOpts)
+  ;(driver.commands ?? []).forEach((cmd) => {
+    addCommand(groupFor(cmd.kind), cmd, resolveOpts)
+  })
 }

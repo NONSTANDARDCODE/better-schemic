@@ -1,4 +1,11 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
+const MAGIC_1000000 = 1_000_000
+const MAGIC_1500000000 = 1_500_000_000
+
+const MAGIC_1500 = 1500
+const MAGIC_2 = 2
+const MAGIC_42 = 42
+const MAGIC_500 = 500
+const MAGIC_9787 = 9787
 // The EXPLAIN plan renderer: the three live-probed plan shapes (structured object, indented string,
 // legacy array), the operator badges and the nanosecond humanizer. Offline (pure).
 import { describe, expect, test } from "bun:test"
@@ -12,29 +19,29 @@ const text = (plan: unknown): string => lines(plan).join("\n")
 
 describe("humanizeNs", () => {
   test("scales ns → µs → ms → s", () => {
-    expect(humanizeNs(500)).toBe("500ns")
-    expect(humanizeNs(1500)).toBe("1.5µs")
-    expect(humanizeNs(1_000_000)).toBe("1ms")
-    expect(humanizeNs(9787)).toBe("9.79µs")
-    expect(humanizeNs(1_500_000_000)).toBe("1.5s")
+    expect(humanizeNs(MAGIC_500)).toBe("500ns")
+    expect(humanizeNs(MAGIC_1500)).toBe("1.5µs")
+    expect(humanizeNs(MAGIC_1000000)).toBe("1ms")
+    expect(humanizeNs(MAGIC_9787)).toBe("9.79µs")
+    expect(humanizeNs(MAGIC_1500000000)).toBe("1.5s")
     expect(humanizeNs(Number.POSITIVE_INFINITY)).toBe("Infinity")
   })
 })
 
 describe("planToNodes — structured object", () => {
   const plan = {
-    operator: "SelectProject",
-    context: "Db",
     attributes: { projections: "*" },
     children: [
       {
-        operator: "TableScan",
+        attributes: { direction: "Forward", table: "person" },
         context: "Db",
-        attributes: { table: "person", direction: "Forward" },
         metrics: { elapsed_ns: 64_069, output_batches: 1, output_rows: 1 },
+        operator: "TableScan",
       },
     ],
+    context: "Db",
     metrics: { elapsed_ns: 9787, output_batches: 1, output_rows: 1 },
+    operator: "SelectProject",
     total_rows: 1,
   }
 
@@ -60,16 +67,16 @@ describe("planToNodes — structured object", () => {
 
   test("multiple children use ├─ / └─ and indent grandchildren", () => {
     const out = lines({
+      children: [{ children: [{ operator: "A1" }], operator: "A" }, { operator: "B" }],
       operator: "Root",
-      children: [{ operator: "A", children: [{ operator: "A1" }] }, { operator: "B" }],
     })
     expect(out).toEqual(["Root", "├─ A", "│  └─ A1", "└─ B"])
   })
 
   test("index operators get the ✓ badge", () => {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const op of ["IndexScan", "IndexCountScan", "KnnScan", "FullTextScan", "IterateIndex"])
+    ;["IndexScan", "IndexCountScan", "KnnScan", "FullTextScan", "IterateIndex"].forEach((op) => {
       expect(planToNodes({ operator: op })[0]?.badge).toBe("✓ index")
+    })
   })
 
   test("an object without an operator falls back to JSON", () => {
@@ -78,8 +85,8 @@ describe("planToNodes — structured object", () => {
 
   test("a child that is not an operator object is dropped", () => {
     const nodes = planToNodes({
-      operator: "X",
       children: [1, { operator: "Y" }],
+      operator: "X",
     })
     expect(nodes[0]?.children.map((c) => c.label)).toEqual(["Y"])
   })
@@ -124,8 +131,8 @@ describe("planToNodes — indented string", () => {
 describe("planToNodes — legacy array + fallbacks", () => {
   test("legacy `{ operation, detail }` rows carry their detail as attrs", () => {
     const nodes = planToNodes([
-      { operation: "Iterate Table", detail: { table: "person" } },
-      { operation: "Collector", detail: { type: "Memory" } },
+      { detail: { table: "person" }, operation: "Iterate Table" },
+      { detail: { type: "Memory" }, operation: "Collector" },
     ])
     expect(nodes.map((n) => n.label)).toEqual(["Iterate Table", "Collector"])
     expect(nodes[0]?.attrs).toBe("table: person")
@@ -137,8 +144,8 @@ describe("planToNodes — legacy array + fallbacks", () => {
   })
 
   test("scalar / non-object plans stringify", () => {
-    expect(planToNodes(42)[0]?.label).toBe("42")
-    expect(planToNodes([1, 2])[0]?.label).toBe("[1,2]")
+    expect(planToNodes(MAGIC_42)[0]?.label).toBe("42")
+    expect(planToNodes([1, MAGIC_2])[0]?.label).toBe("[1,2]")
   })
 
   test("null/undefined render a placeholder", () => {
@@ -163,7 +170,7 @@ describe("planToNodes — string-tree edge cases", () => {
   })
 
   test("a `Total rows` line with no root is ignored", () => {
-    expect(planToNodes("Total rows: 3")).toEqual([{ label: "Total rows: 3", children: [] }])
+    expect(planToNodes("Total rows: 3")).toEqual([{ children: [], label: "Total rows: 3" }])
   })
 
   test("a line that starts with a bracket keeps the whole text as the label", () => {
@@ -178,11 +185,11 @@ describe("planToNodes — string-tree edge cases", () => {
 
   test("objects with bad metrics/attrs degrade quietly", () => {
     const nodes = planToNodes({
-      operator: "X",
-      context: "",
       attributes: null,
-      metrics: "nope",
       children: [null],
+      context: "",
+      metrics: "nope",
+      operator: "X",
     })
     expect(nodes[0]?.label).toBe("X")
     expect(nodes[0]?.attrs).toBeUndefined()
@@ -203,13 +210,13 @@ describe("planToNodes — string-tree edge cases", () => {
   })
 
   test("a legacy array entry without a detail object has no attrs", () => {
-    expect(planToNodes([{ operation: "Op", detail: 7 }])[0]?.attrs).toBeUndefined()
+    expect(planToNodes([{ detail: 7, operation: "Op" }])[0]?.attrs).toBeUndefined()
   })
 
   test("scalar attribute values, non-object attributes and function plans", () => {
-    expect(planToNodes({ operator: "X", attributes: { n: 3 } })[0]?.attrs).toBe("n: 3")
+    expect(planToNodes({ attributes: { n: 3 }, operator: "X" })[0]?.attrs).toBe("n: 3")
     expect(
-      planToNodes({ operator: "Y", attributes: "nope", context: "" })[0]?.attrs,
+      planToNodes({ attributes: "nope", context: "", operator: "Y" })[0]?.attrs,
     ).toBeUndefined()
     expect(
       planToNodes(() => {

@@ -37,13 +37,11 @@ function validateData(schema: z.ZodType, data: unknown, operation: string, table
     const result = schema.safeParse(item)
     if (result.success) return
 
-    const issue = result.error.issues[0]
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
-    const path = issue?.path?.join(".")
+    const issue = result.error.issues[0] as undefined | z.core.$ZodIssue
+    const path = issue?.path.join(".")
     const where = Array.isArray(data) ? ` (item ${index})` : ""
     throw new OrmError(
       "ValidationError",
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
       `zod: ${operation} on "${table}"${where}${path ? ` at "${path}"` : ""}: ${issue?.message ?? "invalid data"}.`,
       { details: result.error.issues, field: path, operation, table },
     )
@@ -70,8 +68,7 @@ export function zod(options: ZodPluginOptions): Plugin {
 
       if (isUpdate && !validate.update) return
 
-      const schema = options.schemas[op.table]
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
+      const schema = options.schemas[op.table] as undefined | z.ZodType
       if (!schema) return
 
       // `{ increment/decrement: n }` wrappers become their operand so the app schema validates

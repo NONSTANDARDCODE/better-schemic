@@ -80,13 +80,12 @@ async function resolveVersion(arg: string): Promise<string> {
     }
   ).version
   const published = await publishedVersions("better-schemic")
-  let next = bump(cur)
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (published.has(next)) {
-    console.log(`skipping ${next} — already published on npm`)
-    next = bump(next)
+  const skipPublished = (candidate: string): string => {
+    if (!published.has(candidate)) return candidate
+    console.log(`skipping ${candidate} — already published on npm`)
+    return skipPublished(bump(candidate))
   }
-  return next
+  return skipPublished(bump(cur))
 }
 const version = await resolveVersion(versionArg)
 if (versionArg === "next") console.log(`auto-bumped -> ${version}`)
@@ -96,20 +95,18 @@ if (versionArg === "next") console.log(`auto-bumped -> ${version}`)
 // six files it touches and restore them before exiting.
 const LOCK = nodePath.join(ROOT, "bun.lock")
 const snapshot = async (): Promise<Map<string, string>> => {
-  const files = new Map<string, string>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const p of ORDER) {
-    const path = nodePath.join(pkgDir(p), "package.json")
-    files.set(path, await Bun.file(path).text())
-  }
-  files.set(LOCK, await Bun.file(LOCK).text())
-  return files
+  const entries = await Promise.all(
+    ORDER.map(async (p) => {
+      const path = nodePath.join(pkgDir(p), "package.json")
+      return [path, await Bun.file(path).text()] as const
+    }),
+  )
+  return new Map([...entries, [LOCK, await Bun.file(LOCK).text()] as const])
 }
 const restore = async (files: Map<string, string> | null): Promise<void> => {
   if (!files) return
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [path, text] of files) await Bun.write(path, text)
+  await Promise.all([...files].map(async ([path, text]) => Bun.write(path, text)))
 }
 const before = dryRun ? await snapshot() : null
 const abort = async (msg: string): Promise<never> => {
@@ -119,13 +116,14 @@ const abort = async (msg: string): Promise<never> => {
 }
 
 // 1. set every package's version (targeted edit — don't reformat the file)
-// eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-for (const p of ORDER) {
-  const path = nodePath.join(pkgDir(p), "package.json")
-  const txt = await Bun.file(path).text()
-  await Bun.write(path, txt.replace(/"version":\s*"[^"]*"/u, `"version": "${version}"`))
-  console.log(`${dryRun ? "would set" : "set"} ${displayName(p)} -> ${version}`)
-}
+await Promise.all(
+  ORDER.map(async (p) => {
+    const path = nodePath.join(pkgDir(p), "package.json")
+    const txt = await Bun.file(path).text()
+    await Bun.write(path, txt.replace(/"version":\s*"[^"]*"/u, `"version": "${version}"`))
+    console.log(`${dryRun ? "would set" : "set"} ${displayName(p)} -> ${version}`)
+  }),
+)
 
 // 2. rebuild the lockfile so `workspace:*` rewrites to the NEW version (a bare bump won't refresh it)
 console.log("rebuilding lockfile...")
@@ -134,8 +132,8 @@ await $`bun install`.cwd(ROOT).quiet()
 
 // 3. pack-verify both packages carry the new version BEFORE publishing anything (a wrong version
 // can't fixs it without burning the version).
-// eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-for (const p of ORDER) {
+await ORDER.reduce(async (previous, p) => {
+  await previous
   // `bun pm pack` names the tarball after the package: `<name>-<version>.tgz`.
   const tgz = `${p}-${version}.tgz`
   await $`bun pm pack`.cwd(pkgDir(p)).quiet()
@@ -147,7 +145,7 @@ for (const p of ORDER) {
     await abort(`ABORT: ${p} packs version ${manifest.version}, expected ${version}.`)
 
   console.log(`verified ${p}@${manifest.version}`)
-}
+}, Promise.resolve())
 
 if (dryRun) {
   await restore(before)
@@ -158,11 +156,11 @@ if (dryRun) {
 // 4. publish the runtime first, then the scaffolder (prepack builds each).
 // `--tag latest` is explicit on purpose: bun refuses to infer `latest` for a prerelease, and these
 // packages are alpha- — the newest alpha must stay the default install (see the header).
-// eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-for (const p of ORDER) {
+await ORDER.reduce(async (previous, p) => {
+  await previous
   console.log(`publishing ${displayName(p)}@${version}...`)
   await $`bun publish --tag latest`.cwd(pkgDir(p))
-}
+}, Promise.resolve())
 console.log(
   `\nReleased better-schemic + create-better-schemic ${version}. Verify: bun pm view better-schemic version`,
 )

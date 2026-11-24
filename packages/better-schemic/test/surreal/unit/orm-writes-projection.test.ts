@@ -1,34 +1,55 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/require-await, @typescript-eslint/no-unused-vars, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Mock methods match async interfaces without awaiting. Type queries and callback signatures need fixture values. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+const MAGIC_10 = 10
+const MAGIC_31 = 31
 // Write projections (`select`/`omit` riding `RETURN <projection>`) and numeric adjustments
 // (`{ increment }`/`{ decrement }` → `SET f ±= $p`): the server-vs-client lowering, the decode,
 // and the teaching guards. Core write goldens live in `orm-writes.test.ts`.
 import { describe, expect, test } from "bun:test"
 import { Decimal, RecordId } from "surrealdb"
+import type { ZodArray, ZodInt, ZodString } from "zod"
 
 import { surql } from "../../../src/surreal"
 import { adjustmentOf, stripAdjustments } from "../../../src/surreal/orm/arithmetic"
 import { type Client, orm } from "../../../src/surreal/orm/client"
-import type { OrmError } from "../../../src/surreal/orm/errors"
+import type { OrmError, OrmErrorCode } from "../../../src/surreal/orm/errors"
 import { schema } from "../../../src/surreal/orm/schema"
-import { s, table } from "../../../src/surreal/pure"
-import { fakeConn, ok } from "../orm-fixtures"
+import { s, type SField, table, type TableDef, type WithSmartId } from "../../../src/surreal/pure"
+import { KEEP_ORDER } from "../../order-barrier"
+import { type FakeCall, type FakeConn, fakeConn, ok } from "../orm-fixtures"
 
 import { codeOf, data, lastCall, makeClient, ROW, schemaDef, stable } from "./orm-writes-fixtures"
 
 describe("write projections — server-side RETURN", () => {
   test("update/create/insert tail carry the projection", async () => {
-    const { client, calls } = makeClient([{ name: "A" }])
+    const { calls, client } = makeClient([{ name: "A" }])
     const updated = await client.users.update({
-      where: { id: "user:1" },
       data: { age: 2 },
       select: { name: true },
+      where: { id: "user:1" },
     })
     expect(updated).toEqual({ name: "A" })
     expect(lastCall(calls).sql).toBe("UPDATE user:1 MERGE $p0 RETURN name;")
 
     await client.users.create({
       data,
-      select: { name: true, age: true },
+      select: {
+        name: true,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        ...KEEP_ORDER,
+        age: true,
+      },
     })
     expect(lastCall(calls).sql).toBe(
       'CREATE type::record(s"user", rand::ulid()) CONTENT $p0 RETURN name, age;',
@@ -42,40 +63,40 @@ describe("write projections — server-side RETURN", () => {
   })
 
   test("nested paths, aliases and expression entries render like reads", async () => {
-    const { client, calls } = makeClient([{ address: { city: "SP" } }])
+    const { calls, client } = makeClient([{ address: { city: "SP" } }])
     await client.users.update({
-      where: { id: "user:1" },
       data: { age: 2 },
       select: { address: { city: true }, city: "address.city" },
+      where: { id: "user:1" },
     })
     expect(lastCall(calls).sql).toBe(
       "UPDATE user:1 MERGE $p0 RETURN address.city, address.city AS city;",
     )
 
     await client.users.update({
-      where: { id: "user:1" },
       data: { age: 2 },
       select: { upper: surql`string::uppercase(name)`.as<string>() },
+      where: { id: "user:1" },
     })
     expect(calls.at(-1)?.sql).toContain("AS upper")
   })
 
   test("`*` + extra entries and ONLY forms", async () => {
-    const { client, calls } = makeClient([ROW])
+    const { calls, client } = makeClient([ROW])
     await client.users.update({
-      where: { id: "user:1" },
       data: { age: 2 },
       select: { "*": true, age: true },
+      where: { id: "user:1" },
     })
     expect(lastCall(calls).sql).toBe("UPDATE user:1 MERGE $p0 RETURN *, age;")
   })
 
   test("upsert (strict), upsertMany and updateEach tail the projection", async () => {
-    const { client, calls } = makeClient([{ name: "A" }])
+    const { calls, client } = makeClient([{ name: "A" }])
     await client.users.upsert({
-      where: { id: "user:1" },
       data: { age: 2 },
       select: { name: true },
+      where: { id: "user:1" },
     })
     expect(lastCall(calls).sql).toBe("UPDATE ONLY user:1 MERGE $p0 RETURN name;")
 
@@ -86,38 +107,38 @@ describe("write projections — server-side RETURN", () => {
     expect(lastCall(calls).sql).toContain("RETURN name;")
 
     await client.users.updateEach({
-      data: [{ id: "user:1", age: 2 }],
+      data: [{ age: 2, id: "user:1" }],
       select: { age: true },
     })
     expect(lastCall(calls).sql).toBe("UPDATE user MERGE $p1 WHERE id = $p0 RETURN age;")
   })
 
   test("relate carries the projection in the same statement", async () => {
-    const { client, calls } = makeClient([{ score: 5 }])
+    const { calls, client } = makeClient([{ score: 5 }])
     const edge = await client.likes.relate({
-      from: "user:1",
-      to: "post:1",
       data: { score: 5 },
+      from: "user:1",
       select: { score: true },
+      to: "post:1",
     })
     expect(edge).toEqual({ score: 5 })
     expect(lastCall(calls).sql).toBe("RELATE user:1->likes->post:1 SET score = $p0 RETURN score;")
   })
 
   test("patch / unset / onDuplicate also carry the projection", async () => {
-    const { client, calls } = makeClient([{ tags: ["a"] }])
+    const { calls, client } = makeClient([{ tags: ["a"] }])
     await client.users.patch({
-      where: { id: "user:1" },
       patches: [{ op: "add", path: "/tags/-", value: "b" }],
       select: { tags: true },
+      where: { id: "user:1" },
     })
     expect(lastCall(calls).sql).toBe("UPDATE user:1 PATCH $p0 RETURN tags;")
 
     await client.users.update({
-      where: { id: "user:1" },
       data: { age: 2 },
-      unset: ["active"],
       select: { age: true },
+      unset: ["active"],
+      where: { id: "user:1" },
     })
     expect(lastCall(calls).sql).toContain("UNSET active RETURN age;")
 
@@ -130,7 +151,7 @@ describe("write projections — server-side RETURN", () => {
   })
 
   test("batch (createMany) projects every statement", async () => {
-    const { client, calls } = makeClient([{ name: "A" }])
+    const { calls, client } = makeClient([{ name: "A" }])
     const many = await client.users.createMany({
       data: [{ ...data }],
       select: { name: true },
@@ -142,12 +163,12 @@ describe("write projections — server-side RETURN", () => {
   })
 
   test("skipDuplicates, insert and return:'before' create tails", async () => {
-    const { client, calls } = makeClient([])
+    const { calls, client } = makeClient([])
 
     await client.users.createMany({
       data: [{ id: "user:a", ...data }],
-      skipDuplicates: true,
       select: { name: true },
+      skipDuplicates: true,
     })
     expect(lastCall(calls).sql).toBe("INSERT IGNORE INTO user $p0 RETURN name;")
 
@@ -169,11 +190,11 @@ describe("write projections — server-side RETURN", () => {
   })
 
   test("a star-only select is a no-op (no RETURN clause, full decode)", async () => {
-    const { client, calls } = makeClient([ROW])
+    const { calls, client } = makeClient([ROW])
     const row = await client.users.update({
-      where: { id: "user:1" },
       data: { age: 2 },
       select: { "*": true },
+      where: { id: "user:1" },
     })
     expect(row).toEqual(ROW)
     expect(lastCall(calls).sql).toBe("UPDATE user:1 MERGE $p0;")
@@ -181,15 +202,15 @@ describe("write projections — server-side RETURN", () => {
     const ops = [{ op: "replace", path: "/age", value: 3 }]
     const { client: diffClient } = makeClient([ops])
     await diffClient.users.update({
-      where: { id: "user:1" },
       data: { age: 3 },
       omit: [],
       return: "diff",
+      where: { id: "user:1" },
     })
   })
 
   test("insert diff+select is rejected; relate before/relateMany project", async () => {
-    const { client, calls } = makeClient([])
+    const { calls, client } = makeClient([])
     expect(
       codeOf(() =>
         client.users.insert({
@@ -203,8 +224,8 @@ describe("write projections — server-side RETURN", () => {
       codeOf(() =>
         client.users.insertMany({
           data: [{ id: "user:a", ...data }],
-          return: "diff",
           omit: ["email"],
+          return: "diff",
         }),
       ),
     ).toBe("ReturnNotSupported")
@@ -212,25 +233,25 @@ describe("write projections — server-side RETURN", () => {
       codeOf(() =>
         client.likes.relate({
           from: "user:1",
-          to: "post:1",
           return: "diff",
           select: { score: true },
+          to: "post:1",
         }),
       ),
     ).toBe("ReturnNotSupported")
 
     const before = await client.likes.relate({
-      from: "user:1",
-      to: "post:1",
       data: { score: 5 },
+      from: "user:1",
       return: "before",
       select: { score: true },
+      to: "post:1",
     })
     expect(before).toBeNull()
     expect(lastCall(calls).sql).toBe("RELATE user:1->likes->post:1 SET score = $p0 RETURN BEFORE;")
 
     await client.likes.relateMany({
-      data: [{ from: "user:1", to: "post:1", data: { score: 1 } }],
+      data: [{ data: { score: 1 }, from: "user:1", to: "post:1" }],
       select: { score: true },
     })
     expect(lastCall(calls).sql).toBe("RELATE user:1->likes->post:1 SET score = $p0 RETURN score;")
@@ -239,80 +260,80 @@ describe("write projections — server-side RETURN", () => {
 
 describe("write projections — client-side (before/delete/omit)", () => {
   test("return:'before' keeps RETURN BEFORE and decodes the projection client-side", async () => {
-    const { client, calls } = makeClient([ROW])
+    const { calls, client } = makeClient([ROW])
     const before = await client.users.update({
-      where: { id: "user:1" },
       data: { age: 31 },
       return: "before",
-      select: { name: true, city: "address.city" },
+      select: { city: "address.city", name: true },
+      where: { id: "user:1" },
     })
-    expect(before).toEqual({ name: "A", city: "SP" })
+    expect(before).toEqual({ city: "SP", name: "A" })
     expect(lastCall(calls).sql).toBe("UPDATE user:1 MERGE $p0 RETURN BEFORE;")
   })
 
   test("delete projects the removed row client-side", async () => {
-    const { client, calls } = makeClient([ROW])
+    const { calls, client } = makeClient([ROW])
     const removed = await client.users.delete({
-      where: { id: "user:1" },
       select: { name: true },
+      where: { id: "user:1" },
     })
     expect(removed).toEqual({ name: "A" })
     expect(lastCall(calls).sql).toBe("DELETE user:1 RETURN BEFORE;")
   })
 
   test("omit strips fields client-side (RETURN … OMIT is a parse error)", async () => {
-    const { client, calls } = makeClient([ROW])
+    const { calls, client } = makeClient([ROW])
     const row = await client.users.update({
-      where: { id: "user:1" },
       data: { age: 2 },
       omit: ["email", "tags"],
+      where: { id: "user:1" },
     })
     expect(row).toEqual({
-      id: ROW.id,
-      name: "A",
-      age: 30,
       active: true,
       address: { city: "SP" },
+      age: 30,
+      id: ROW.id,
+      name: "A",
     })
     expect(lastCall(calls).sql).toBe("UPDATE user:1 MERGE $p0;")
   })
 
   test("upsertDelta + select projects record/before (and the delta covers those fields)", async () => {
     const envelope = {
-      before: ROW,
       after: { ...ROW, age: 31 },
+      before: ROW,
     }
     const { conn } = fakeConn(() => [ok([envelope])])
     const client = orm(conn, { schema: schemaDef }) as Client<typeof schemaDef>
     const out = await client.users.upsertDelta({
-      where: { id: "user:1" },
       data: { age: 31 },
       select: { age: true },
+      where: { id: "user:1" },
     })
     expect(out).toEqual({
-      record: { age: 31 },
-      created: false,
       before: { age: 30 },
-      delta: { old: { age: 30 }, new: { age: 31 } },
       changed: ["age"],
+      created: false,
+      delta: { new: { age: 31 }, old: { age: 30 } },
+      record: { age: 31 },
     })
   })
 
   test("omit applies client-side to upsertDelta and updateEach too", async () => {
-    const envelope = { before: ROW, after: { ...ROW, age: 31 } }
+    const envelope = { after: { ...ROW, age: 31 }, before: ROW }
     const { conn } = fakeConn(() => [ok([envelope])])
     const client = orm(conn, { schema: schemaDef }) as Client<typeof schemaDef>
     const out = await client.users.upsertDelta({
-      where: { id: "user:1" },
       data: { age: 31 },
       omit: ["email"],
+      where: { id: "user:1" },
     })
     expect(out.record).not.toHaveProperty("email")
-    expect(out.record.age).toBe(31)
+    expect(out.record.age).toBe(MAGIC_31)
 
     const each = makeClient([ROW])
     const result = await each.client.users.updateEach({
-      data: [{ id: "user:1", age: 2 }],
+      data: [{ age: 2, id: "user:1" }],
       omit: ["email"],
     })
     expect(result.data?.[0]).not.toHaveProperty("email")
@@ -320,24 +341,24 @@ describe("write projections — client-side (before/delete/omit)", () => {
   })
 
   test("expression entries are rejected when only the client can project", () => {
-    const { client, calls } = makeClient([ROW])
+    const { calls, client } = makeClient([ROW])
     const expression = { upper: surql`string::uppercase(name)`.as<string>() }
     expect(
       codeOf(() =>
         client.users.update({
-          where: { id: "user:1" },
           data: { age: 2 },
           return: "before",
           select: expression,
+          where: { id: "user:1" },
         }),
       ),
     ).toBe("ReturnNotSupported")
     expect(
       codeOf(() =>
         client.users.upsertDelta({
-          where: { id: "user:1" },
           data: { age: 2 },
           select: expression,
+          where: { id: "user:1" },
         }),
       ),
     ).toBe("ReturnNotSupported")
@@ -349,10 +370,10 @@ describe("write projections — client-side (before/delete/omit)", () => {
     expect(
       codeOf(() =>
         client.users.update({
-          where: { id: "user:1" },
           data: { age: 2 },
           return: "diff",
           select: { age: true },
+          where: { id: "user:1" },
         }),
       ),
     ).toBe("ReturnNotSupported")
@@ -360,8 +381,8 @@ describe("write projections — client-side (before/delete/omit)", () => {
       codeOf(() =>
         client.users.create({
           data,
-          return: "diff",
           omit: ["email"],
+          return: "diff",
         }),
       ),
     ).toBe("ReturnNotSupported")
@@ -377,10 +398,10 @@ describe("write projections — client-side (before/delete/omit)", () => {
   })
 
   test("create.relate sugar projects client-side", async () => {
-    const { client, calls } = makeClient([{ name: "A" }])
+    const { calls, client } = makeClient([{ name: "A" }])
     await client.users.create({
       data,
-      relate: [{ from: "user:1", edge: "likes", to: "post:1" }],
+      relate: [{ edge: "likes", from: "user:1", to: "post:1" }],
       select: { name: true },
     })
     expect(lastCall(calls).sql).toContain("RETURN $__created;")
@@ -389,57 +410,57 @@ describe("write projections — client-side (before/delete/omit)", () => {
 
 describe("projections across the upsert lowerings", () => {
   test("strict upsert targets project (unique field, before → client)", async () => {
-    const { client, calls } = makeClient([{ age: 30 }])
+    const { calls, client } = makeClient([{ age: 30 }])
     await client.users.upsert({
-      where: { email: "a@x" },
       data: { age: 30 },
       select: { age: true },
+      where: { email: "a@x" },
     })
     expect(lastCall(calls).sql).toBe("UPDATE user MERGE $p0 WHERE email = $p1 RETURN age;")
 
     await client.users.upsert({
-      where: { id: "user:1" },
       data: { age: 30 },
       return: "before",
       select: { age: true },
+      where: { id: "user:1" },
     })
     expect(lastCall(calls).sql).toBe("UPDATE ONLY user:1 MERGE $p0 RETURN BEFORE;")
   })
 
   test("create-mode upsert lowerings carry the projection", async () => {
-    const { client, calls } = makeClient([{ age: 30 }])
+    const { calls, client } = makeClient([{ age: 30 }])
     await client.users.upsert({
-      where: { id: "user:1" },
       data: { age: 30 },
       onMissing: "create",
       select: { age: true },
+      where: { id: "user:1" },
     })
     expect(lastCall(calls).sql).toContain("UPSERT user:1 MERGE $p0 RETURN age;")
 
     await client.users.upsert({
-      where: { email: "a@x" },
-      data: { email: "a@x", age: 30 },
+      data: { age: 30, email: "a@x" },
       onMissing: "create",
       select: { age: true },
+      where: { email: "a@x" },
     })
     expect(lastCall(calls).sql).toContain("RETURN age;")
 
     await client.users.upsert({
-      where: { email: "a@x" },
-      data: { id: "user:1", email: "a@x", age: 30 },
+      data: { age: 30, email: "a@x", id: "user:1" },
       onMissing: "create",
       select: { age: true },
+      where: { email: "a@x" },
     })
     expect(lastCall(calls).sql).toContain("RETURN age;")
   })
 
   test("expression upserts project EACH LET/IF branch", async () => {
-    const { client, calls } = makeClient([{ age: 30 }])
+    const { calls, client } = makeClient([{ age: 30 }])
     await client.users.upsert({
-      where: { id: "user:1" },
       data: { age: surql`age + 1`.as<number>() },
       onMissing: "create",
       select: { age: true },
+      where: { id: "user:1" },
     })
     const sql = lastCall(calls).sql
     expect(sql).toContain("RETURN age ELSE")
@@ -447,10 +468,10 @@ describe("projections across the upsert lowerings", () => {
   })
 
   test("upsertMany, targetless upsert and upsertDelta project", async () => {
-    const { client, calls } = makeClient([ROW])
+    const { calls, client } = makeClient([ROW])
     await client.users.upsertMany({
-      data: [{ ...data }],
       conflict: "email",
+      data: [{ ...data }],
       select: { age: true },
     })
     expect(lastCall(calls).sql).toContain("RETURN age;")
@@ -464,7 +485,7 @@ describe("projections across the upsert lowerings", () => {
     await client.users.upsert({ data: { ...data }, return: "before" })
     expect(lastCall(calls).sql).toContain("RETURN BEFORE;")
 
-    const envelope = { before: ROW, after: { ...ROW, age: 31 } }
+    const envelope = { after: { ...ROW, age: 31 }, before: ROW }
     const { conn } = fakeConn(() => [ok([envelope])])
     const deltaClient = orm(conn, {
       schema: schemaDef,
@@ -479,84 +500,84 @@ describe("projections across the upsert lowerings", () => {
 
 describe("arithmetic adjustments — lowering", () => {
   test("merge mode compiles SET with += / -= (and flattens nested objects)", async () => {
-    const { client, calls } = makeClient()
+    const { calls, client } = makeClient()
     await client.users.update({
-      where: { id: "user:1" },
       data: { age: { increment: 1 } },
+      where: { id: "user:1" },
     })
     expect(lastCall(calls).sql).toBe("UPDATE user:1 SET age += $p0;")
 
     await client.users.update({
+      data: { age: { decrement: 2 }, name: "B" },
       where: { id: "user:1" },
-      data: { name: "B", age: { decrement: 2 } },
     })
     expect(lastCall(calls).sql).toBe("UPDATE user:1 SET name = $p0, age -= $p1;")
 
     await client.users.update({
-      where: { id: "user:1" },
       data: { address: { city: "X" }, age: { increment: 1 } },
+      where: { id: "user:1" },
     })
     expect(lastCall(calls).sql).toBe("UPDATE user:1 SET address.city = $p0, age += $p1;")
 
     // An empty nested object is a MERGE no-op — it contributes NO assignment.
     await client.users.update({
-      where: { id: "user:1" },
       data: { address: {}, age: { increment: 1 } },
+      where: { id: "user:1" },
     })
     expect(lastCall(calls).sql).toBe("UPDATE user:1 SET age += $p0;")
   })
 
   test("mode set keeps top-level assignments; content/replace reject adjustments", async () => {
-    const { client, calls } = makeClient()
+    const { calls, client } = makeClient()
     await client.users.update({
-      where: { id: "user:1" },
+      data: { age: { increment: 1 }, name: "B" },
       mode: "set",
-      data: { name: "B", age: { increment: 1 } },
+      where: { id: "user:1" },
     })
     expect(lastCall(calls).sql).toBe("UPDATE user:1 SET name = $p0, age += $p1;")
 
     expect(
       codeOf(() =>
         client.users.update({
-          where: { id: "user:1" },
-          mode: "content",
           data: { ...data, age: { increment: 1 } as never },
+          mode: "content",
+          where: { id: "user:1" },
         }),
       ),
     ).toBe("ValidationError")
   })
 
   test("updateMany/updateEach/strict upsert lower adjustments", async () => {
-    const { client, calls } = makeClient()
+    const { calls, client } = makeClient()
     await client.users.updateMany({
-      where: { active: true },
       data: { age: { increment: 1 } },
+      where: { active: true },
     })
     expect(lastCall(calls).sql).toBe("UPDATE user SET age += $p1 WHERE active = $p0;")
 
     await client.users.updateEach({
       data: [
-        { id: "user:1", age: { increment: 1 } },
-        { id: "user:2", age: { decrement: 3 } },
+        { age: { increment: 1 }, id: "user:1" },
+        { age: { decrement: 3 }, id: "user:2" },
       ],
     })
     expect(lastCall(calls).sql).toContain("SET age += $p1 WHERE id = $p0;")
     expect(lastCall(calls).sql).toContain("SET age -= $p3 WHERE id = $p2;")
 
     await client.users.upsert({
-      where: { id: "user:1" },
       data: { age: { decrement: 1 } },
+      where: { id: "user:1" },
     })
     expect(lastCall(calls).sql).toBe("UPDATE ONLY user:1 SET age -= $p0;")
   })
 
   test("distinct create/update: the update branch adjusts through LET/IF", async () => {
-    const { client, calls } = makeClient([ROW])
+    const { calls, client } = makeClient([ROW])
     await client.users.upsert({
-      where: { id: "user:1" },
-      onMissing: "create",
       create: { id: "user:1", ...data },
+      onMissing: "create",
       update: { age: { increment: 1 } },
+      where: { id: "user:1" },
     })
     const sql = lastCall(calls).sql
     expect(sql).toContain("LET $__existing")
@@ -564,23 +585,23 @@ describe("arithmetic adjustments — lowering", () => {
   })
 
   test("expression operands splice; fragments work in merge mode", async () => {
-    const { client, calls } = makeClient()
+    const { calls, client } = makeClient()
     await client.users.update({
-      where: { id: "user:1" },
       data: { age: { increment: surql`2`.as<number>() } },
+      where: { id: "user:1" },
     })
     expect(lastCall(calls).sql).toContain("SET age += ")
   })
 
   test("Decimal operands bind; replace/patch modes reject adjustments", async () => {
     const Ledger = table("ledger", { balance: s.decimal() })
-    const { conn, calls } = fakeConn(() => [ok([])])
+    const { calls, conn } = fakeConn(() => [ok([])])
     const ledger = orm(conn, {
       schema: schema({ ledgers: Ledger }),
     })
     await ledger.ledgers.update({
-      where: { id: "ledger:1" },
       data: { balance: { increment: new Decimal("1.5") } },
+      where: { id: "ledger:1" },
     })
     const call = calls.at(-1)
     expect(call?.sql).toBe("UPDATE ledger:1 SET balance += $p0;")
@@ -590,9 +611,9 @@ describe("arithmetic adjustments — lowering", () => {
     expect(
       codeOf(() =>
         client.users.update({
-          where: { id: "user:1" },
-          mode: "replace",
           data: { ...data, age: { increment: 1 } as never },
+          mode: "replace",
+          where: { id: "user:1" },
         }),
       ),
     ).toBe("ValidationError")
@@ -601,7 +622,7 @@ describe("arithmetic adjustments — lowering", () => {
 
 describe("arithmetic adjustments — guards", () => {
   test("create-shaped writes reject markers with a teaching error", () => {
-    const { client, calls } = makeClient()
+    const { calls, client } = makeClient()
     const bad = { ...data, age: { increment: 1 } }
     expect(codeOf(() => client.users.create({ data: bad as never }))).toBe("ValidationError")
     expect(codeOf(() => client.users.createMany({ data: [bad as never] }))).toBe("ValidationError")
@@ -611,19 +632,19 @@ describe("arithmetic adjustments — guards", () => {
     expect(
       codeOf(() =>
         client.users.upsert({
-          where: { id: "user:1" },
-          onMissing: "create",
           data: { age: { increment: 1 } },
+          onMissing: "create",
+          where: { id: "user:1" },
         }),
       ),
     ).toBe("ValidationError")
     expect(
       codeOf(() =>
         client.users.upsert({
-          where: { id: "user:1" },
-          onMissing: "create",
           create: { id: "user:1", ...bad } as never,
+          onMissing: "create",
           update: { age: 1 },
+          where: { id: "user:1" },
         }),
       ),
     ).toBe("ValidationError")
@@ -644,13 +665,13 @@ describe("arithmetic adjustments — guards", () => {
   })
 
   test("bad targets and operands fail eagerly", () => {
-    const { client, calls } = makeClient()
+    const { calls, client } = makeClient()
     // non-numeric field
     expect(
       codeOf(() =>
         client.users.update({
-          where: { id: "user:1" },
           data: { name: { increment: 1 } as never },
+          where: { id: "user:1" },
         }),
       ),
     ).toBe("ValidationError")
@@ -658,8 +679,8 @@ describe("arithmetic adjustments — guards", () => {
     expect(
       codeOf(() =>
         client.users.update({
-          where: { id: "user:1" },
           data: { ghost: { increment: 1 } } as never,
+          where: { id: "user:1" },
         }),
       ),
     ).toBe("ValidationError")
@@ -667,8 +688,8 @@ describe("arithmetic adjustments — guards", () => {
     expect(
       codeOf(() =>
         client.users.update({
-          where: { id: "user:1" },
           data: { id: { increment: 1 } } as never,
+          where: { id: "user:1" },
         }),
       ),
     ).toBe("ValidationError")
@@ -676,8 +697,8 @@ describe("arithmetic adjustments — guards", () => {
     expect(
       codeOf(() =>
         client.users.update({
-          where: { id: "user:1" },
           data: { age: { increment: "x" } as never },
+          where: { id: "user:1" },
         }),
       ),
     ).toBe("ValidationError")
@@ -689,22 +710,22 @@ describe("arithmetic adjustments — guards", () => {
     expect(
       codeOf(() =>
         client.likes.relate({
+          data: { score: { increment: 1 } },
           from: "user:1",
           to: "post:1",
-          data: { score: { increment: 1 } },
         }),
       ),
     ).toBe("ValidationError")
   })
 
   test("a schemaless delegate adjusts any field (no column metadata to check)", async () => {
-    const { conn, calls } = fakeConn(() => [ok([])])
+    const { calls, conn } = fakeConn(() => [ok([])])
     const client = orm(conn, {
       schema: schema({ loose: "loose_table" }),
     })
     await client.loose.update({
-      where: { id: "loose_table:1" },
       data: { counter: { increment: 1 } },
+      where: { id: "loose_table:1" },
     })
     const call = calls.at(-1)
     expect(call?.sql).toBe("UPDATE loose_table:1 SET counter += $p0;")
@@ -714,35 +735,35 @@ describe("arithmetic adjustments — guards", () => {
 describe("adjustment markers — parsing and stripping", () => {
   test("adjustmentOf recognizes exactly-one-key plain markers", () => {
     expect(adjustmentOf({ increment: 1 })).toEqual({
-      op: "+",
       family: "number",
-      value: 1,
       kind: "increment",
+      op: "+",
+      value: 1,
     })
     expect(adjustmentOf({ decrement: 0 })).toEqual({
-      op: "-",
       family: "number",
-      value: 0,
       kind: "decrement",
+      op: "-",
+      value: 0,
     })
     // The array family: same one-key reserved shape, a different target field.
     expect(adjustmentOf({ append: "x" })).toEqual({
-      op: "+",
       family: "array",
-      value: "x",
       kind: "append",
+      op: "+",
+      value: "x",
     })
     expect(adjustmentOf({ remove: "x" })).toEqual({
-      op: "-",
       family: "array",
-      value: "x",
       kind: "remove",
+      op: "-",
+      value: "x",
     })
     expect(adjustmentOf({ union: ["x"] })).toEqual({
-      op: "+",
       family: "array",
-      value: ["x"],
       kind: "union",
+      op: "+",
+      value: ["x"],
     })
     expect(adjustmentOf({ increment: 1, other: 2 })).toBeUndefined()
     expect(adjustmentOf({ nope: 1 })).toBeUndefined()
@@ -753,10 +774,10 @@ describe("adjustment markers — parsing and stripping", () => {
     // A null-prototype object passes the plain-object guard (proto !== null is false).
     const bare = Object.assign(Object.create(null), { increment: 2 })
     expect(adjustmentOf(bare)).toEqual({
-      op: "+",
       family: "number",
-      value: 2,
       kind: "increment",
+      op: "+",
+      value: 2,
     })
   })
 
@@ -786,63 +807,82 @@ describe("adjustment markers — parsing and stripping", () => {
 
 describe("array adjustments — append/remove/union/at", () => {
   const Tag = table("tagged", {
+    labels: s.array(s.string()),
     name: s.string(),
     score: s.int(),
-    labels: s.array(s.string()),
   })
   const tagSchema = schema({ tagged: Tag })
 
   const tagClient = (
-    result: unknown = [{ id: new RecordId("tagged", "1"), name: "x", score: 0, labels: ["a"] }],
-  ) => {
-    const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok(result)))
-    return { client: orm(conn, { schema: tagSchema }), calls }
+    result: unknown = [{ id: new RecordId("tagged", "1"), labels: ["a"], name: "x", score: 0 }],
+  ): {
+    calls: FakeCall[]
+    client: Client<
+      {
+        readonly tagged: TableDef<
+          "tagged",
+          WithSmartId<
+            "tagged",
+            {
+              labels: SField<ZodArray<ZodString>>
+              name: SField<ZodString>
+              score: SField<ZodInt>
+            }
+          >
+        >
+      },
+      FakeConn
+    >
+  } => {
+    const { calls, conn } = fakeConn((sql) => sql.split("\n").map(() => ok(result)))
+    return { calls, client: orm(conn, { schema: tagSchema }) }
   }
 
   test("append/remove lower to the compound assignment forms", async () => {
-    const { client, calls } = tagClient()
+    const { calls, client } = tagClient()
     await client.tagged.update({
-      where: { id: "tagged:1" },
       data: { labels: { append: "b" } },
+      where: { id: "tagged:1" },
     })
     expect(lastCall(calls).sql).toBe("UPDATE tagged:1 SET labels += $p0;")
     expect(lastCall(calls).vars).toEqual({ p0: "b" })
 
     await client.tagged.update({
-      where: { id: "tagged:1" },
       data: { labels: { append: ["b", "c"] } },
+      where: { id: "tagged:1" },
     })
     expect(lastCall(calls).sql).toBe("UPDATE tagged:1 SET labels += $p0;")
 
     await client.tagged.update({
-      where: { id: "tagged:1" },
       data: { labels: { remove: "b" } },
+      where: { id: "tagged:1" },
     })
     expect(lastCall(calls).sql).toBe("UPDATE tagged:1 SET labels -= $p0;")
   })
 
   test("union uses array::union (the only DEDUPING merge) and at assigns an index", async () => {
-    const { client, calls } = tagClient()
+    const { calls, client } = tagClient()
     await client.tagged.update({
-      where: { id: "tagged:1" },
       data: { labels: { union: ["b"] } },
+      where: { id: "tagged:1" },
     })
     expect(lastCall(calls).sql).toBe("UPDATE tagged:1 SET labels = array::union(labels, $p0);")
 
     await client.tagged.update({
-      where: { id: "tagged:1" },
       data: { labels: { at: { index: 0, value: "z" } } },
+      where: { id: "tagged:1" },
     })
     expect(lastCall(calls).sql).toBe("UPDATE tagged:1 SET labels[0] = $p0;")
     expect(lastCall(calls).vars).toEqual({ p0: "z" })
   })
 
   test("an array marker on a non-array field teaches the family", async () => {
-    const { client, calls } = tagClient()
+    await Promise.resolve()
+    const { calls, client } = tagClient()
     const code = codeOf(() =>
       client.tagged.update({
-        where: { id: "tagged:1" },
         data: { name: { append: "b" } },
+        where: { id: "tagged:1" },
       } as never),
     )
     expect(code).toBe("ValidationError")
@@ -851,28 +891,28 @@ describe("array adjustments — append/remove/union/at", () => {
     expect(
       codeOf(() =>
         client.tagged.update({
-          where: { id: "tagged:1" },
           data: { labels: { increment: 1 } },
+          where: { id: "tagged:1" },
         } as never),
       ),
     ).toBe("ValidationError")
   })
 
   test("a malformed `at` operand is refused before the round-trip", () => {
-    const { client, calls } = tagClient()
+    const { calls, client } = tagClient()
     expect(
       codeOf(() =>
         client.tagged.update({
-          where: { id: "tagged:1" },
           data: { labels: { at: { index: -1, value: "z" } } },
+          where: { id: "tagged:1" },
         } as never),
       ),
     ).toBe("ValidationError")
     expect(
       codeOf(() =>
         client.tagged.update({
-          where: { id: "tagged:1" },
           data: { labels: { at: "z" } },
+          where: { id: "tagged:1" },
         } as never),
       ),
     ).toBe("ValidationError")
@@ -880,11 +920,11 @@ describe("array adjustments — append/remove/union/at", () => {
   })
 
   test("an array marker on a create-shaped payload is refused like a numeric one", () => {
-    const { client, calls } = tagClient()
+    const { calls, client } = tagClient()
     expect(
       codeOf(() =>
         client.tagged.create({
-          data: { name: "x", labels: { append: "b" } },
+          data: { labels: { append: "b" }, name: "x" },
         } as never),
       ),
     ).toBe("ValidationError")
@@ -894,32 +934,50 @@ describe("array adjustments — append/remove/union/at", () => {
   test("stripAdjustments substitutes the array operand for the zod plugin", () => {
     expect(
       stripAdjustments({
-        name: "x",
         labels: { append: "b" },
-        tags: { union: ["a"] },
+        name: "x",
         note: surql`"kept"`,
+        tags: { union: ["a"] },
       }),
-    ).toEqual({ name: "x", labels: "b", tags: ["a"], note: surql`"kept"` })
+    ).toEqual({ labels: "b", name: "x", note: surql`"kept"`, tags: ["a"] })
   })
 })
 
 describe("adjustment modifiers — when/else/coalesce", () => {
   const Tag = table("tagged", {
+    labels: s.array(s.string()),
     name: s.string(),
     score: s.int(),
-    labels: s.array(s.string()),
   })
   const tagSchema = schema({ tagged: Tag })
-  const tagClient = () => {
-    const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok([])))
-    return { client: orm(conn, { schema: tagSchema }), calls }
+  const tagClient = (): {
+    calls: FakeCall[]
+    client: Client<
+      {
+        readonly tagged: TableDef<
+          "tagged",
+          WithSmartId<
+            "tagged",
+            {
+              labels: SField<ZodArray<ZodString>>
+              name: SField<ZodString>
+              score: SField<ZodInt>
+            }
+          >
+        >
+      },
+      FakeConn
+    >
+  } => {
+    const { calls, conn } = fakeConn((sql) => sql.split("\n").map(() => ok([])))
+    return { calls, client: orm(conn, { schema: tagSchema }) }
   }
 
   test("union + coalesce seeds a missing array (seed binds before the operand)", async () => {
-    const { client, calls } = tagClient()
+    const { calls, client } = tagClient()
     await client.tagged.update({
+      data: { labels: { coalesce: [], union: ["b"] } },
       where: { id: "tagged:1" },
-      data: { labels: { union: ["b"], coalesce: [] } },
     })
     expect(lastCall(calls)).toEqual({
       sql: "UPDATE tagged:1 SET labels = array::union(labels ?? $p0, $p1);",
@@ -928,10 +986,10 @@ describe("adjustment modifiers — when/else/coalesce", () => {
   })
 
   test("append + coalesce seeds a missing array with the compound effect", async () => {
-    const { client, calls } = tagClient()
+    const { calls, client } = tagClient()
     await client.tagged.update({
-      where: { id: "tagged:1" },
       data: { labels: { append: "b", coalesce: [] } },
+      where: { id: "tagged:1" },
     })
     expect(lastCall(calls)).toEqual({
       sql: "UPDATE tagged:1 SET labels = (labels ?? $p0) + [$p1];",
@@ -940,10 +998,10 @@ describe("adjustment modifiers — when/else/coalesce", () => {
   })
 
   test("when guards the effect and defaults the ELSE to the current value", async () => {
-    const { client, calls } = tagClient()
+    const { calls, client } = tagClient()
     await client.tagged.update({
-      where: { id: "tagged:1" },
       data: { score: { increment: 1, when: surql`score < 100` } },
+      where: { id: "tagged:1" },
     })
     expect(lastCall(calls)).toEqual({
       sql: "UPDATE tagged:1 SET score = IF score < 100 THEN score + $p0 ELSE score END;",
@@ -951,8 +1009,8 @@ describe("adjustment modifiers — when/else/coalesce", () => {
     })
 
     await client.tagged.update({
-      where: { id: "tagged:1" },
       data: { labels: { append: "b", when: surql`score > 0` } },
+      where: { id: "tagged:1" },
     })
     expect(lastCall(calls)).toEqual({
       sql: "UPDATE tagged:1 SET labels = IF score > 0 THEN labels + [$p0] ELSE labels END;",
@@ -960,8 +1018,8 @@ describe("adjustment modifiers — when/else/coalesce", () => {
     })
 
     await client.tagged.update({
-      where: { id: "tagged:1" },
       data: { labels: { remove: "b", when: surql`score > 0` } },
+      where: { id: "tagged:1" },
     })
     expect(lastCall(calls)).toEqual({
       sql: "UPDATE tagged:1 SET labels = IF score > 0 THEN labels - [$p0] ELSE labels END;",
@@ -970,10 +1028,10 @@ describe("adjustment modifiers — when/else/coalesce", () => {
   })
 
   test("else: value renders a bind; else: 'throw' aborts with the field name", async () => {
-    const { client, calls } = tagClient()
+    const { calls, client } = tagClient()
     await client.tagged.update({
+      data: { score: { decrement: 1, else: 0, when: surql`score > 0` } },
       where: { id: "tagged:1" },
-      data: { score: { decrement: 1, when: surql`score > 0`, else: 0 } },
     })
     expect(lastCall(calls)).toEqual({
       sql: "UPDATE tagged:1 SET score = IF score > 0 THEN score - $p0 ELSE $p1 END;",
@@ -981,15 +1039,15 @@ describe("adjustment modifiers — when/else/coalesce", () => {
     })
 
     await client.tagged.update({
-      where: { id: "tagged:1" },
       data: {
         labels: {
-          union: ["b"],
           coalesce: [],
-          when: surql`score > 0`,
           else: "throw",
+          union: ["b"],
+          when: surql`score > 0`,
         },
       },
+      where: { id: "tagged:1" },
     })
     expect(lastCall(calls)).toEqual({
       sql: 'UPDATE tagged:1 SET labels = IF score > 0 THEN array::union(labels ?? $p0, $p1) ELSE THROW s"adjustment guard failed on labels" END;',
@@ -998,10 +1056,10 @@ describe("adjustment modifiers — when/else/coalesce", () => {
   })
 
   test("updateMany renders the guard after the WHERE bind", async () => {
-    const { client, calls } = tagClient()
+    const { calls, client } = tagClient()
     await client.tagged.updateMany({
-      where: { name: "x" },
       data: { score: { increment: 1, when: surql`score < 10` } },
+      where: { name: "x" },
     })
     expect(lastCall(calls).sql).toBe(
       "UPDATE tagged SET score = IF score < 10 THEN score + $p1 ELSE score END WHERE name = $p0;",
@@ -1009,10 +1067,10 @@ describe("adjustment modifiers — when/else/coalesce", () => {
   })
 
   test("a guard fragment keeps its own binds (merged, not interpolated)", async () => {
-    const { client, calls } = tagClient()
+    const { calls, client } = tagClient()
     await client.tagged.update({
+      data: { score: { increment: 1, when: surql`score < ${MAGIC_10}` } },
       where: { id: "tagged:1" },
-      data: { score: { increment: 1, when: surql`score < ${10}` } },
     })
     expect(stable(lastCall(calls).sql, lastCall(calls).vars)).toEqual({
       sql: "UPDATE tagged:1 SET score = IF score < $frag0 THEN score + $p0 ELSE score END;",
@@ -1021,12 +1079,12 @@ describe("adjustment modifiers — when/else/coalesce", () => {
   })
 
   test("the distinct create/update upsert branch lowers the guard through LET/IF", async () => {
-    const { client, calls } = makeClient([ROW])
+    const { calls, client } = makeClient([ROW])
     await client.users.upsert({
-      where: { id: "user:1" },
-      onMissing: "create",
       create: { id: "user:1", ...data },
+      onMissing: "create",
       update: { age: { increment: 1, when: surql`age < 100` } },
+      where: { id: "user:1" },
     })
     const sql = lastCall(calls).sql
     expect(sql).toContain("SET age = IF age < 100 THEN age + ")
@@ -1036,24 +1094,24 @@ describe("adjustment modifiers — when/else/coalesce", () => {
 
 describe("adjustment operand classification — the decision table", () => {
   const T = table("operand", {
+    labels: s.array(s.string()),
     name: s.string(),
     score: s.int(),
-    labels: s.array(s.string()),
   })
   const row = {
     id: new RecordId("operand", 1),
+    labels: [],
     name: "n",
     score: 1,
-    labels: [],
   }
 
-  const code = (field: string, marker: unknown) => {
-    const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok([row])))
+  const code = (field: string, marker: unknown): "OK" | OrmErrorCode => {
+    const { conn } = fakeConn((sql) => sql.split("\n").map(() => ok([row])))
     const client = orm(conn, { schema: schema({ t: T }) })
     try {
       void client.t.update({
+        data: { [field]: marker },
         where: { id: "operand:1" },
-        data: { [field]: marker } as never,
       })
       return "OK"
     } catch (error) {
@@ -1099,11 +1157,11 @@ describe("adjustment operand classification — the decision table", () => {
   })
 
   test("a schemaless delegate adjusts any field (no column metadata to check)", () => {
-    const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok([row])))
+    const { calls, conn } = fakeConn((sql) => sql.split("\n").map(() => ok([row])))
     const client = orm(conn, { schema: schema({ t: "t" }) })
     void client.t.update({
-      where: { id: "t:1" },
       data: { anything: { increment: 1 } },
+      where: { id: "t:1" },
     })
     expect(calls[0]?.sql).toContain("anything += $p0")
   })

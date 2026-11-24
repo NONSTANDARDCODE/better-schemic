@@ -31,23 +31,26 @@ const envMs = (name: string, fallback: number): number => {
   return Number.isFinite(n) && n > 0 ? n : fallback
 }
 
-// eslint-disable-next-line write-good-comments/write-good-comments -- termo do domínio da API
 /**
- * Ceiling on the SDK's websocket connect. Generous ON PURPOSE: a busy machine can take
+ * Ceiling on the SDK's websocket connect. Generous on purpose: a busy machine can take
  * seconds to complete the handshake against a healthy server, and a tight ceiling turns
  * that into a spurious "is the server running?" — under a loaded parallel test gate `sc migrate`
  * aborted at the old 5s while the server was up and answering.
  *
- * A DOWN server is not what this bounds; {@link assertReachable} catches that in ~a second. (The
- * SDK does not reject quickly on a refused port even with `reconnect: false` — measured: a closed
+ * A down server is not what this bounds; {@link assertReachable} catches that in ~a second. (The
+ * SDK does not reject on a refused port even with `reconnect: false` — measured: a closed
  * port burned the whole ceiling — so this alone cannot distinguish "down" from "slow".)
  */
-// eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-const CONNECT_TIMEOUT_MS = envMs("BETTER_SCHEMIC_CONNECT_TIMEOUT_MS", 30_000)
+const DEFAULT_CONNECT_TIMEOUT_MS = 30_000
+const CONNECT_TIMEOUT_MS = envMs("BETTER_SCHEMIC_CONNECT_TIMEOUT_MS", DEFAULT_CONNECT_TIMEOUT_MS)
 
 /** How long the pre-flight TCP probe waits before declaring the host unreachable. */
-// eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-const PROBE_TIMEOUT_MS = envMs("BETTER_SCHEMIC_PROBE_TIMEOUT_MS", 2000)
+const DEFAULT_PROBE_TIMEOUT_MS = 2000
+const PROBE_TIMEOUT_MS = envMs("BETTER_SCHEMIC_PROBE_TIMEOUT_MS", DEFAULT_PROBE_TIMEOUT_MS)
+
+/** Default ports for secure URL schemes. */
+const SECURE_PORT = 443
+const PLAIN_PORT = 80
 
 /**
  * Pre-flight: can we even open a TCP socket to the endpoint? This is what makes a DOWN server fail
@@ -63,8 +66,7 @@ async function assertReachable(url: string): Promise<void> {
     if (!/^(wss?|https?):$/u.test(u.protocol)) return
     // not a TCP endpoint — nothing to probe
     host = u.hostname
-    // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-    port = Number(u.port) || (/^(wss|https):$/u.test(u.protocol) ? 443 : 80)
+    port = Number(u.port) || (/^(wss|https):$/u.test(u.protocol) ? SECURE_PORT : PLAIN_PORT)
   } catch {
     return // unparseable — let the SDK produce the error
   }
@@ -143,13 +145,10 @@ export async function connect(
     }
     if (username && password) {
       // Scope the signin to the requested level (mirrors `surreal sql --auth-level`).
-      const auth =
-        level === "root"
-          ? { password, username }
-          : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-            level === "namespace"
-            ? { namespace, password, username }
-            : { database, namespace, password, username }
+      let auth: { database?: string; namespace?: string; password: string; username: string }
+      if (level === "root") auth = { password, username }
+      else if (level === "namespace") auth = { namespace, password, username }
+      else auth = { database, namespace, password, username }
       try {
         await db.signin(auth)
       } catch (error) {

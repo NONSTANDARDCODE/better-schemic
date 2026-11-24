@@ -71,21 +71,21 @@ export function compileWhere(
   }
 
   const parts: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [key, value] of Object.entries(where)) {
-    if (value === undefined) continue
+
+  Object.entries(where).forEach(([key, value]) => {
+    if (value === undefined) return
 
     if (key === "AND" || key === "OR") {
       parts.push(paren(compileLogical(key, value, binds, options)))
-      continue
+      return
     }
     if (key === "NOT") {
       parts.push(`NOT (${compileLogical("AND", value, binds, options)})`)
-      continue
+      return
     }
     const compiled = compileFieldValue(key, value, binds, options)
     if (compiled !== undefined) parts.push(compiled)
-  }
+  })
   return parts.length > 0 ? joinAnd(parts) : undefined
 }
 
@@ -332,8 +332,8 @@ function compileSingleLink(
   }
   const target = relation.targets.length === 1 ? relation.targets[0] : undefined
   const parts: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [op, operand] of operators) {
+
+  operators.forEach(([op, operand]) => {
     if (!isFilterObject(operand)) {
       throw compileError(
         "ValidationError",
@@ -355,7 +355,7 @@ function compileSingleLink(
       )
     }
     parts.push(op === "isNot" ? `NOT (${predicate})` : predicate)
-  }
+  })
   return joinAnd(parts)
 }
 
@@ -522,9 +522,9 @@ function compileAnyAll(prefix: "*" | "?", context: FieldFilterContext, operand: 
     lte: "<=",
   }
   const parts: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [op, bound] of Object.entries(operand)) {
-    if (bound === undefined) continue
+
+  Object.entries(operand).forEach(([op, bound]) => {
+    if (bound === undefined) return
 
     const symbol = SYMBOLS[op]
     if (!symbol) {
@@ -537,7 +537,7 @@ function compileAnyAll(prefix: "*" | "?", context: FieldFilterContext, operand: 
     parts.push(
       `${path} ${prefix}${symbol} ${renderValue(coerceRecord(context, bound), binds, ctx)}`,
     )
-  }
+  })
   if (parts.length === 0) {
     throw compileError(
       "ValidationError",
@@ -671,8 +671,8 @@ function compileCollection(
   const targets = resolved === undefined ? [] : targetMetas(relation.index, resolved.targets)
 
   const parts: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [op, operand] of operators) {
+
+  operators.forEach(([op, operand]) => {
     let base = path
     let filtered: string
     if (resolved) {
@@ -714,7 +714,7 @@ function compileCollection(
     if (op === "some") parts.push(`count(${filtered}) > 0`)
     else if (op === "none") parts.push(`count(${filtered}) = 0`)
     else parts.push(`count(${base}) = count(${filtered})`)
-  }
+  })
   return joinAnd(parts)
 }
 
@@ -932,16 +932,16 @@ function requireFlag(op: string, operand: unknown): void {
 function escapeRegexSlashes(source: string): string {
   let out = ""
   let backslashes = 0
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const ch of source) {
+
+  source.split("").forEach((ch) => {
     if (ch === "\\") {
       backslashes++
       out += ch
-      continue
+      return
     }
     out += ch === "/" && backslashes % PARITY === 0 ? "\\/" : ch
     backslashes = 0
-  }
+  })
   return out
 }
 

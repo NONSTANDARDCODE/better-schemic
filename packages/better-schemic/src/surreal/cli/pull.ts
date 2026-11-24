@@ -119,8 +119,9 @@ function toParsed(f: StructField): ParsedField {
 
 const pascal = (name: string): string =>
   name
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access -- retorno any vem de parser/SDK dinâmico; contrato externo não tipado / método any vem de internals do Zod/SDK (fronteira sem tipos) / acesso dinâmico na fronteira Zod/SDK; o valor vem de any externo
-    .replaceAll(/(^|[_-])([a-z])/gu, (_, __, c) => c.toUpperCase())
+    .replaceAll(/(^|[_-])([a-z])/gu, (_match: string, _prefix: string, c: string) =>
+      c.toUpperCase(),
+    )
     .replaceAll(/[^A-Za-z0-9]/gu, "")
 
 /**
@@ -135,14 +136,19 @@ const pascal = (name: string): string =>
  * backtick/`${` in a DB expression can't end the template and execute as TS.
  * - `commentText` — collapses newlines in `//` comments (a newline would turn the rest into code).
  */
+/** First control character that file names replace. */
+const FIRST_CONTROL_CODE = 32
+/** DEL control character. */
+const DEL_CODE = 127
+
 function safeFileName(name: string): string {
-  let out = ""
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const ch of name) {
-    const code = ch.codePointAt(0) ?? 0
-    // eslint-disable-next-line @typescript-eslint/no-magic-numbers, unicorn/number-literal-case -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset) / Prettier e unicorn discordam sobre a caixa dos dígitos hexadecimais
-    out += ch === "/" || ch === "\\" || code < 0x20 || code === 0x7f ? "_" : ch
-  }
+  const out = name
+    .split("")
+    .map((ch) => {
+      const code = ch.codePointAt(0) ?? 0
+      return ch === "/" || ch === "\\" || code < FIRST_CONTROL_CODE || code === DEL_CODE ? "_" : ch
+    })
+    .join("")
   const cleaned = out.replace(/^\.+/u, "_")
   return cleaned || "_"
 }
@@ -156,24 +162,18 @@ function surqlBody(text: string): string {
   return text.replaceAll("\\", "\\\\").replaceAll("`", "\\`").replaceAll("${", "\\${")
 }
 
+/** Longest generated comment line. */
+const MAX_COMMENT_LENGTH = 500
+
 function commentText(text: string): string {
-  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-  return text.replaceAll(/[\r\n\u2028\u2029]+/gu, " ").slice(0, 500)
+  return text.replaceAll(/[\r\n\u2028\u2029]+/gu, " ").slice(0, MAX_COMMENT_LENGTH)
 }
 
 /** All `record<…>` target table names in a type expression (handles option/array/union nesting). */
 function recordTargets(kind: string): string[] {
-  const out: string[] = []
-  const re = /record<([^>]+)>/gu
-  let m: null | RegExpExecArray = re.exec(kind)
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (m) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const t of m[1].split("|")) out.push(t.trim())
-
-    m = re.exec(kind)
-  }
-  return out
+  return [...kind.matchAll(/record<([^>]+)>/gu)].flatMap((m) =>
+    m[1].split("|").map((t) => t.trim()),
+  )
 }
 
 /** The pulled tables a table points at: `record<…>` field targets + relation endpoints. */
@@ -182,17 +182,18 @@ function tableRefs(t: StructTable, pulled: Set<string>): Set<string> {
   const add = (n: string): void => {
     if (pulled.has(n)) out.add(n)
   }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const f of t.fields) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const tgt of recordTargets(f.kind)) add(tgt)
-  }
+  t.fields.forEach((f) => {
+    recordTargets(f.kind).forEach((tgt) => {
+      add(tgt)
+    })
+  })
   if (t.kind.kind === "RELATION") {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const n of t.kind.in ?? []) add(n)
-
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const n of t.kind.out ?? []) add(n)
+    ;(t.kind.in ?? []).forEach((n) => {
+      add(n)
+    })
+    ;(t.kind.out ?? []).forEach((n) => {
+      add(n)
+    })
   }
   return out
 }
@@ -201,15 +202,19 @@ function tableRefs(t: StructTable, pulled: Set<string>): Set<string> {
 function reachable(graph: Map<string, Set<string>>, start: string): Set<string> {
   const seen = new Set<string>()
   const stack = [...(graph.get(start) ?? [])]
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (stack.length > 0) {
+  const visitNext = (): void => {
     const n = stack.pop()
-    if (n === undefined || seen.has(n)) continue
+    if (n === undefined) return
+    if (seen.has(n)) {
+      visitNext()
+      return
+    }
 
     seen.add(n)
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const m of graph.get(n) ?? []) stack.push(m)
+    ;(graph.get(n) ?? []).forEach((m) => stack.push(m))
+    visitNext()
   }
+  visitNext()
   return seen
 }
 
@@ -394,20 +399,18 @@ type FieldNode = {
 /** Build a nested tree from dotted field paths (`settings.theme`, `tags.*`). */
 function fieldTree(fields: { name: string; parsed: ParsedField }[]): FieldNode {
   const root: FieldNode = { children: new Map() }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const f of fields) {
+  fields.forEach((f) => {
     let node = root
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const seg of f.name.split(".")) {
+    f.name.split(".").forEach((seg) => {
       let child = node.children.get(seg)
       if (!child) {
         child = { children: new Map() }
         node.children.set(seg, child)
       }
       node = child
-    }
+    })
     node.parsed = f.parsed
-  }
+  })
   return root
 }
 
@@ -573,9 +576,14 @@ function indexSpecOpts(spec: string): null | string {
   if (spec.startsWith("HNSW ") || spec.startsWith("DISKANN ")) {
     const algo = spec.startsWith("HNSW") ? "hnsw" : "diskann"
     const toks = spec.split(/\s+/u).slice(1)
+    const TOKEN_PAIR = 2
     const kv: Record<string, string> = {}
-    // eslint-disable-next-line functional/no-loop-statements, @typescript-eslint/no-magic-numbers -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (let i = 0; i < toks.length; i += 2) kv[toks[i]] = toks[i + 1] ?? ""
+    const scan = (i: number): void => {
+      if (i >= toks.length) return
+      kv[toks[i]] = toks[i + 1] ?? ""
+      scan(i + TOKEN_PAIR)
+    }
+    scan(0)
 
     const f: string[] = [`dimension: ${kv.DIMENSION}`]
     if (kv.DIST) f.push(`dist: ${JSON.stringify(kv.DIST.toLowerCase())}`)
@@ -646,8 +654,9 @@ function renderTableConst(t: StructTable, ctx: RenderCtx): { code: string; facto
   const singletonId = idField ? /^'(.*)'$/u.exec(idField.kind)?.[1] : undefined
 
   const name = ctx.constOf(t.name)
-  // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-  const factory = isRelation ? "relation" : singletonId === undefined ? "table" : "defineSingleton"
+  let factory = "table"
+  if (isRelation) factory = "relation"
+  else if (singletonId !== undefined) factory = "defineSingleton"
   // A `record<self>` field needs the callback shape so `self` is in scope.
   const head = ctx.usesSelf
     ? `export const ${name} = ${factory}(${JSON.stringify(t.name)}, (self) => ({`
@@ -685,8 +694,7 @@ function renderTableConst(t: StructTable, ctx: RenderCtx): { code: string; facto
   const tperm = renderPerms(t.permissions, ["select", "create", "update", "delete"], false)
   if (tperm) close += `\n  .permissions(${tperm})`
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const idx of t.indexes) {
+  t.indexes.forEach((idx) => {
     const cols = idx.cols.map((c) => JSON.stringify(c)).join(", ")
     const parts: string[] = []
     if (idx.index === "UNIQUE") parts.push("unique: true")
@@ -699,9 +707,8 @@ function renderTableConst(t: StructTable, ctx: RenderCtx): { code: string; facto
 
     const opts = parts.length > 0 ? `, { ${parts.join(", ")} }` : ""
     close += `\n  .index(${JSON.stringify(idx.name)}, [${cols}]${opts})`
-  }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const ev of t.events) {
+  })
+  t.events.forEach((ev) => {
     // Drop a `WHEN true` (SurrealDB's stored form of an omitted WHEN). Author bodies as `surql\`…\``.
     const when =
       ev.when !== undefined && ev.when !== "true" ? `when: ${tpl(ev.when, "    ")}, ` : ""
@@ -713,10 +720,12 @@ function renderTableConst(t: StructTable, ctx: RenderCtx): { code: string; facto
     // otherwise the non-default knobs keep them.
     let asyncOpt = ""
     if (ev.async) {
+      const DEFAULT_MAX_DEPTH = 3
       const knobs = [
         ev.retry !== undefined && ev.retry !== 1 ? `retry: ${ev.retry}` : "",
-        // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-        ev.maxdepth !== undefined && ev.maxdepth !== 3 ? `maxDepth: ${ev.maxdepth}` : "",
+        ev.maxdepth !== undefined && ev.maxdepth !== DEFAULT_MAX_DEPTH
+          ? `maxDepth: ${ev.maxdepth}`
+          : "",
       ].filter(Boolean)
       asyncOpt = `async: ${knobs.length > 0 ? `{ ${knobs.join(", ")} }` : "true"}, `
     }
@@ -732,7 +741,7 @@ function renderTableConst(t: StructTable, ctx: RenderCtx): { code: string; facto
       close += `\n  .event(${JSON.stringify(ev.name)}, {\n    ${entries.join(",\n    ")},\n  })`
     } else
       close += `\n  .event(${JSON.stringify(ev.name)}, { ${asyncOpt}${when}then: ${then}${comment} })`
-  }
+  })
   body.push(`${close};`)
 
   return { code: body.join("\n"), factory }
@@ -750,9 +759,12 @@ function tableUnit(t: StructTable, ctx: RenderCtx): RenderedUnit {
   const needsS = t.view === undefined && code.includes("s.")
   const imports = [`import { ${needsS ? "s, " : ""}${factory} } from "better-schemic";`]
   // Cross-table value imports (one per referenced table, sorted, self excluded).
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const dep of [...ctx.imports].filter((d) => d !== t.name).sort())
-    imports.push(`import { ${ctx.constOf(dep)} } from "./${safeFileName(dep)}";`)
+  ;[...ctx.imports]
+    .filter((d) => d !== t.name)
+    .sort()
+    .forEach((dep) => {
+      imports.push(`import { ${ctx.constOf(dep)} } from "./${safeFileName(dep)}";`)
+    })
 
   // `surql` lives in surrealdb (where hand-authored files import it from) — a separate line, never
   // folded into the better-schemic import (which would reprint/reorder that import on every pull).
@@ -859,17 +871,17 @@ function topoSort<T extends { deps: string[]; name: string }>(items: T[]): T[] {
     if (done.has(it.name) || onStack.has(it.name)) return
 
     onStack.add(it.name)
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const dep of it.deps) {
+    it.deps.forEach((dep) => {
       const d = byName.get(dep)
       if (d) visit(d)
-    }
+    })
     onStack.delete(it.name)
     done.add(it.name)
     out.push(it)
   }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const it of items) visit(it)
+  items.forEach((it) => {
+    visit(it)
+  })
 
   return out
 }
@@ -905,6 +917,7 @@ export async function planPull(
   let loadError: unknown
   try {
     loaded = await loadDefs(config.schemaPath)
+    const schema = loaded
     oob = new Set(
       loaded.defs
         .filter(
@@ -914,11 +927,10 @@ export async function planPull(
         )
         .map((d) => (d as { name: string }).name),
     )
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const t of loaded.tables) {
-      const file = loaded.fileOf.get(t)
+    schema.tables.forEach((t) => {
+      const file = schema.fileOf.get(t)
       if (file) tableLoc.set(t.name, file)
-    }
+    })
   } catch (error) {
     oob = undefined
     loadError = error
@@ -953,6 +965,7 @@ export async function planPull(
   // The directory layout always required a loadable schema (its entity scan imports every module):
   // surface the captured load error instead of re-importing to throw.
   if (!loaded) throw loadError
+  const localEntities = loaded.localEntities
 
   const dir = config.schemaPath
   const groups = new Map<string, RenderedUnit[]>()
@@ -961,32 +974,27 @@ export async function planPull(
     if (arr) arr.push(u)
     else groups.set(abs, [u])
   }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const t of tables) {
+  tables.forEach((t) => {
     add(
       tableLoc.get(t.name) ?? nodePath.join(dir, "tables", `${safeFileName(t.name)}.ts`),
       tableUnit(t, makeCtx(t)),
     )
-  }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const fn of functions)
+  })
+  functions.forEach((fn) => {
     add(nodePath.join(dir, "functions", `${safeFileName(fn.name)}.ts`), functionUnit(fn))
-
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const a of accesses)
+  })
+  accesses.forEach((a) => {
     add(nodePath.join(dir, "access", `${safeFileName(a.name)}.ts`), accessUnit(a))
-
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const an of analyzers)
+  })
+  analyzers.forEach((an) => {
     add(nodePath.join(dir, "analyzers", `${safeFileName(an.name)}.ts`), analyzerUnit(an))
-
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const pm of params)
+  })
+  params.forEach((pm) => {
     add(nodePath.join(dir, "params", `${safeFileName(pm.name)}.ts`), paramUnit(pm))
-
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const sq of sequences)
+  })
+  sequences.forEach((sq) => {
     add(nodePath.join(dir, "sequences", `${safeFileName(sq.name)}.ts`), sequenceUnit(sq))
+  })
 
   const files = [...groups].map(([abs, units]) =>
     planFile(abs, units, keepLocal, config, () =>
@@ -1013,12 +1021,11 @@ export async function planPull(
     ...sequences.map((s) => s.name),
   ])
   const planned = new Set(files.map((f) => f.abs))
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [file, info] of loaded.localEntities) {
-    if (planned.has(file)) continue
+  localEntities.forEach((info, file) => {
+    if (planned.has(file)) return
 
     const localOnly = info.entities.filter((e) => !dbNames.has(e.name))
-    if (localOnly.length === 0) continue
+    if (localOnly.length === 0) return
 
     const before = readFileSync(file, "utf8")
     const deletable = !keepLocal && info.pureSchema && localOnly.length === info.entities.length
@@ -1030,7 +1037,7 @@ export async function planPull(
       localOnly: { fields: [], objects: localOnly.map((e) => e.exportName) },
       rel: nodePath.relative(config.root, file),
     })
-  }
+  })
   files.sort((a, b) => a.rel.localeCompare(b.rel))
   return { files, root: config.root }
 }
@@ -1111,8 +1118,7 @@ function filterBuilderExpr(filter: string): string {
   if (!m) return JSON.stringify(filter.toLowerCase())
 
   const name = m[1].toLowerCase()
-  const inner = m[2]
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
+  const inner = m[2] as string | undefined
   if (inner === undefined) {
     return name === "ascii" || name === "lowercase" || name === "uppercase"
       ? `f.${name}`
@@ -1122,8 +1128,8 @@ function filterBuilderExpr(filter: string): string {
 
   if (name === "ngram" || name === "edgengram") {
     const nums = inner.split(",").map((s) => s.trim())
-    // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-    if (nums.length === 2 && nums.every((n) => /^\d+$/u.test(n)))
+    const NGRAM_ARGS = 2
+    if (nums.length === NGRAM_ARGS && nums.every((n) => /^\d+$/u.test(n)))
       return `f.${name}(${nums[0]}, ${nums[1]})`
   }
   // `mapper("…")` — `inner` is already a quoted string literal (case preserved); pass it through.
@@ -1136,14 +1142,15 @@ function filterBuilderExpr(filter: string): string {
  * const (tokenizer names lowercased back to the authored form; filters rendered via the typed builder
  * callback; `lowerAnalyzer` re-uppercases for the canonical/diff comparison). A bare analyzer renders
  * `defineAnalyzer(name)`. */
-// eslint-disable-next-line unicorn/consistent-function-scoping -- helper local mantido junto do uso para coesão e legibilidade
+/** Render a tokenizer list as quoted lowercase literals. */
+const tokenList = (xs: string[]): string =>
+  xs.map((x) => JSON.stringify(x.toLowerCase())).join(", ")
+
 function renderAnalyzerConst(a: StructAnalyzer): string {
-  const tokList = (xs: string[]): string =>
-    xs.map((x) => JSON.stringify(x.toLowerCase())).join(", ")
   let expr = `defineAnalyzer(${JSON.stringify(a.name)})`
   if (a.function) expr += `.function(${JSON.stringify(a.function)})`
 
-  if (a.tokenizers?.length) expr += `.tokenizers(${tokList(a.tokenizers)})`
+  if (a.tokenizers?.length) expr += `.tokenizers(${tokenList(a.tokenizers)})`
 
   if (a.filters?.length) expr += `.filters((f) => [${a.filters.map(filterBuilderExpr).join(", ")}])`
 
@@ -1228,14 +1235,15 @@ function sequenceUnit(s: StructSequence): RenderedUnit {
   }
 }
 
+/** PascalCase const name for a table. */
+const constOf = (name: string): string => safeConst(name)
+
 /** Build the per-table {@link RenderCtx} factory: cycle-aware ref resolution + import accumulation. */
-// eslint-disable-next-line unicorn/consistent-function-scoping -- helper local mantido junto do uso para coesão e legibilidade
 function ctxFactory(tables: StructTable[]): (t: StructTable) => RenderCtx {
   // Reference graph (record<…> targets + relation endpoints) → cycle-aware imports / ordering.
   const pulled = new Set(tables.map((t) => t.name))
   const graph = new Map(tables.map((t) => [t.name, tableRefs(t, pulled)]))
   const resolve = makeResolver(graph, pulled)
-  const constOf = (n: string): string => safeConst(n)
   return (t) => ({
     allowSelf: t.kind.kind !== "RELATION", // table takes the `self` callback
     constOf,
@@ -1251,16 +1259,17 @@ export function renderSchemaToTS(db: DbStructured): string {
   return assembleCombined(db, ctxFactory(db.tables))
 }
 
+/** Sort rank for an import source: the better-schemic barrel comes first. */
+const importRank = (s: string): number => (s === "../index" ? 0 : 1)
+
 /** Merge units' import lines into a deduped block (union of specifiers per source). */
 function mergeImports(units: RenderedUnit[]): string[] {
   const bySource = new Map<string, Set<string>>()
   const order: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const u of units) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const line of u.imports) {
+  units.forEach((u) => {
+    u.imports.forEach((line) => {
       const m = /import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']/u.exec(line)
-      if (!m) continue
+      if (!m) return
 
       let set = bySource.get(m[2])
       if (!set) {
@@ -1268,17 +1277,15 @@ function mergeImports(units: RenderedUnit[]): string[] {
         bySource.set(m[2], set)
         order.push(m[2])
       }
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const s of m[1]
+      m[1]
         .split(",")
         .map((x) => x.trim())
-        .filter(Boolean))
-        set.add(s)
-    }
-  }
+        .filter(Boolean)
+        .forEach((s) => set.add(s))
+    })
+  })
   // better-schemic first, then the relative cross-file imports (sorted).
-  // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-  order.sort((a, b) => (a === "../index" ? -1 : b === "../index" ? 1 : a.localeCompare(b)))
+  order.sort((a, b) => importRank(a) - importRank(b) || a.localeCompare(b))
   return order.map(
     (src) => `import { ${[...(bySource.get(src) ?? [])].join(", ")} } from "${src}";`,
   )
@@ -1300,34 +1307,34 @@ export function renderPerFile(
     if (arr) arr.push(u)
     else byFile.set(file, [u])
   }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const t of db.tables) add(fileFor("table", t.name), tableUnit(t, makeCtx(t)))
-
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const fn of db.functions) add(fileFor("function", fn.name), functionUnit(fn))
-
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const a of db.accesses) add(fileFor("access", a.name), accessUnit(a))
-
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const an of db.analyzers) add(fileFor("access", an.name), analyzerUnit(an))
-
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const pm of db.params) add(fileFor("access", pm.name), paramUnit(pm))
-
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const sq of db.sequences ?? []) add(fileFor("access", sq.name), sequenceUnit(sq))
+  db.tables.forEach((t) => {
+    add(fileFor("table", t.name), tableUnit(t, makeCtx(t)))
+  })
+  db.functions.forEach((fn) => {
+    add(fileFor("function", fn.name), functionUnit(fn))
+  })
+  db.accesses.forEach((a) => {
+    add(fileFor("access", a.name), accessUnit(a))
+  })
+  db.analyzers.forEach((an) => {
+    add(fileFor("access", an.name), analyzerUnit(an))
+  })
+  db.params.forEach((pm) => {
+    add(fileFor("access", pm.name), paramUnit(pm))
+  })
+  ;(db.sequences ?? []).forEach((sq) => {
+    add(fileFor("access", sq.name), sequenceUnit(sq))
+  })
 
   const out = new Map<string, string>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [file, units] of byFile) {
+  byFile.forEach((units, file) => {
     out.set(
       file,
       units.length === 1
         ? unitModule(units[0])
         : `${mergeImports(units).join("\n")}\n\n${units.map((u) => u.code).join("\n\n")}\n`,
     )
-  }
+  })
   return out
 }
 

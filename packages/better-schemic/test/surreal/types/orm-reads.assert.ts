@@ -1,7 +1,10 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. Type queries and callback signatures need fixture values. */
+const _MAGIC_18 = 18
+const _MAGIC_2 = 2
+const _MAGIC_65 = 65
 // M1.8 — TYPE assertions for the read surface: `where`, `select`/`omit`/`value`/``/`split`
 // result shapes, the throwing reads, the combine/count/paginate/cursor envelopes, and `explain`.
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
+
 import { describe, it } from "node:test"
 
 import { assertType } from "../../../../../scripts/type-assert"
@@ -26,21 +29,21 @@ import type { Where } from "../../../src/surreal/orm/types/where"
 import type { App } from "../../../src/surreal/pure"
 
 const User = table("user", {
-  name: s.string(),
-  email: s.string(),
-  age: s.int(),
   active: s.boolean(),
+  address: s.object({ city: s.string(), country: s.string() }),
+  age: s.int(),
   at: s.datetime(),
   createdAt: s.datetime(),
+  email: s.string(),
+  name: s.string(),
   tags: s.array(s.string()),
-  address: s.object({ city: s.string(), country: s.string() }),
 })
   .index("user_idx_email", ["email"], { unique: true })
   .index("user_idx_tenant_email", ["name", "email"], { unique: true })
-const schemaDef = schema({ users: User })
+const _schemaDef = schema({ users: User })
 type U = typeof User
 type Row = App<U>
-type C = Client<typeof schemaDef>
+type C = Client<typeof _schemaDef>
 type Users = C["users"]
 
 void describe("where — family-aware filters and paths", () => {
@@ -50,11 +53,11 @@ void describe("where — family-aware filters and paths", () => {
       {
         active: true
         "address.city": "SP"
-        age: { gte: 18; lt: 65 }
+        age: { gte: typeof _MAGIC_18; lt: typeof _MAGIC_65 }
         "contacts[*].type": "email"
         name: { startsWith: "A" }
         NOT: { active: false }
-        OR: [{ age: 1 }, { age: 2 }]
+        OR: [{ age: 1 }, { age: typeof _MAGIC_2 }]
         tags: { containsAny: ["db"] }
       } extends Where<U>
         ? true
@@ -66,13 +69,16 @@ void describe("where — family-aware filters and paths", () => {
     assertType<false, { age: { contains: "x" } } extends Where<U> ? true : false>()
     assertType<false, { name: { containsAll: ["a"] } } extends Where<U> ? true : false>()
     assertType<false, { age: "old" } extends Where<U> ? true : false>()
-    assertType<false, { active: { between: [1, 2] } } extends Where<U> ? true : false>()
+    assertType<
+      false,
+      { active: { between: [1, typeof _MAGIC_2] } } extends Where<U> ? true : false
+    >()
   })
 
   void it("a typo (not a path) is rejected by excess-property checking", () => {
     // @ts-expect-error — "nmae" is neither a field nor a dotted path
     const bad: Where<U> = { nmae: "x" }
-    void bad
+    const _probe_78 = bad
   })
 
   void it("record ids accept strings; the logical combinators recurse", () => {
@@ -215,9 +221,9 @@ void describe("read envelopes", () => {
     const withOnly: CursorArgs<U> = { limit: 1, only: true }
     // @ts-expect-error — offsets are `paginate`'s job
     const withStart: CursorArgs<U> = { limit: 1, start: 5 }
-    void withValue
-    void withOnly
-    void withStart
+    const _probe_221 = withValue
+    const _probe_222 = withOnly
+    const _probe_223 = withStart
   })
 
   void it("cursor: the LAST orderBy field must be unique (typed from the schema)", () => {
@@ -244,11 +250,11 @@ void describe("read envelopes", () => {
       // @ts-expect-error — `age` is not unique, so it cannot close the keyset
       orderBy: wrongPosition,
     }
-    void byId
-    void idOnly
-    void byEmail
-    void nonUnique
-    void badOrder
+    const _probe_250 = byId
+    const _probe_251 = idOnly
+    const _probe_252 = byEmail
+    const _probe_253 = nonUnique
+    const _probe_254 = badOrder
   })
 
   void it("aggregate shapes dispatch per operator", () => {

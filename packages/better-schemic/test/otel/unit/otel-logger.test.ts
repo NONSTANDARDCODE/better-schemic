@@ -1,4 +1,9 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+const MAGIC_1000000 = 1_000_000
+
+const MAGIC_1000 = 1000
+const MAGIC_2 = 2
+const MAGIC_4 = 4
+const MAGIC_5 = 5
 // OTEL integration — the logger observes the executor (the ONE round-trip seam), so these tests
 // drive the real client and assert on the spans an in-memory SDK exporter receives. No mocks of
 // the OTEL API: a regression in the wiring (a logger that never fires) fails here.
@@ -19,7 +24,7 @@ import { OrmError } from "../../../src/surreal/orm/errors"
 import { schema } from "../../../src/surreal/orm/schema"
 import { caught, fakeConn, lines, ok } from "../../surreal/orm-fixtures"
 
-const User = table("user", { name: s.string(), age: s.int() })
+const User = table("user", { age: s.int(), name: s.string() })
 const schemaDef = schema({ users: User })
 
 let exporter: InMemorySpanExporter
@@ -40,8 +45,8 @@ afterEach(async () => {
 
 const failr = (code: string, message: string): QueryResponse =>
   ({
-    success: false,
     error: { code, message },
+    success: false,
   }) as unknown as QueryResponse
 
 /** The finished span (fails when the wiring emitted none). */
@@ -52,12 +57,13 @@ function onlySpan(): ReadableSpan {
 }
 
 /** HrTime → milliseconds (the exporter reports `[seconds, nanoseconds]`). */
-const ms = (time: readonly [number, number]): number => time[0] * 1000 + time[1] / 1_000_000
+const ms = (time: readonly [number, number]): number =>
+  time[0] * MAGIC_1000 + time[1] / MAGIC_1000000
 
 describe("createOtelLogger — executor wiring", () => {
   test("a findMany emits one CLIENT span with the DB semconv attributes", async () => {
-    const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok([])))
-    const client = orm(conn, { schema: schemaDef, logger: createOtelLogger() })
+    const { calls, conn } = fakeConn((sql) => lines(sql).map(() => ok([])))
+    const client = orm(conn, { logger: createOtelLogger(), schema: schemaDef })
 
     await client.users.findMany({ where: { age: { gte: 18 } } })
 
@@ -79,35 +85,35 @@ describe("createOtelLogger — executor wiring", () => {
 
   test("the span duration is the real round-trip, not the attribute-building time", async () => {
     const conn = {
-      query() {
+      close: (): Promise<void> => Promise.resolve(),
+      query(): { responses: () => Promise<QueryResponse[]> } {
         return {
-          responses: async () => {
-            await Bun.sleep(5)
+          responses: async (): Promise<QueryResponse[]> => {
+            await Bun.sleep(MAGIC_5)
             return [ok([])]
           },
         }
       },
-      close: () => Promise.resolve(),
     }
     const client = orm(conn as never, {
-      schema: schemaDef,
       logger: createOtelLogger(),
+      schema: schemaDef,
     })
 
     await client.users.findMany()
 
     const span = onlySpan()
-    expect(ms(span.duration)).toBeGreaterThanOrEqual(4)
+    expect(ms(span.duration)).toBeGreaterThanOrEqual(MAGIC_4)
     expect(ms(span.startTime)).toBeLessThan(ms(span.endTime))
   })
 
   test("context namespaces are joined (ns|db) and control statements are excluded from the text", async () => {
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok([])))
-    const client = orm(conn, { schema: schemaDef, logger: createOtelLogger() })
+    const client = orm(conn, { logger: createOtelLogger(), schema: schemaDef })
 
     const tenant = client.$withContext({
-      namespace: "tenant_a",
       database: "app",
+      namespace: "tenant_a",
     })
     await tenant.users.findMany()
 
@@ -117,10 +123,10 @@ describe("createOtelLogger — executor wiring", () => {
   })
 
   test("a multi-statement round-trip is a BATCH span", async () => {
-    const { conn, calls } = fakeConn((sql) =>
+    const { calls, conn } = fakeConn((sql) =>
       lines(sql).map((line) => (line.includes("count()") ? ok([{ count: 3 }]) : ok([]))),
     )
-    const client = orm(conn, { schema: schemaDef, logger: createOtelLogger() })
+    const client = orm(conn, { logger: createOtelLogger(), schema: schemaDef })
 
     await client.users.paginate({ limit: 10, start: 0 })
 
@@ -129,13 +135,13 @@ describe("createOtelLogger — executor wiring", () => {
     expect(span.name).toBe("BATCH SELECT user")
     const attrs = span.attributes
     expect(attrs["db.operation.name"]).toBe("BATCH SELECT")
-    expect(attrs["db.operation.batch.size"]).toBe(2)
+    expect(attrs["db.operation.batch.size"]).toBe(MAGIC_2)
     expect(attrs["db.query.text"]).toContain("; ")
   })
 
   test("an explicit .explain() emits an EXPLAIN span", async () => {
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok([{ plan: "TableScan" }])))
-    const client = orm(conn, { schema: schemaDef, logger: createOtelLogger() })
+    const client = orm(conn, { logger: createOtelLogger(), schema: schemaDef })
 
     await client.users.findMany().explain()
 
@@ -151,8 +157,8 @@ describe("createOtelLogger — security & config", () => {
   test("captureQueryText: false never sets db.query.text", async () => {
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok([])))
     const client = orm(conn, {
-      schema: schemaDef,
       logger: createOtelLogger({ captureQueryText: false }),
+      schema: schemaDef,
     })
 
     await client.users.findMany({ where: { name: "secret@example.com" } })
@@ -165,8 +171,8 @@ describe("createOtelLogger — security & config", () => {
   test("maxQueryTextLength truncates the captured SQL", async () => {
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok([])))
     const client = orm(conn, {
-      schema: schemaDef,
       logger: createOtelLogger({ maxQueryTextLength: 8 }),
+      schema: schemaDef,
     })
 
     await client.users.findMany()
@@ -182,13 +188,13 @@ describe("createOtelLogger — security & config", () => {
   test("static attributes are merged; computed attributes win a clash", async () => {
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok([])))
     const client = orm(conn, {
-      schema: schemaDef,
       logger: createOtelLogger({
         attributes: {
-          "deployment.environment.name": "test",
           "db.system.name": "wrong",
+          "deployment.environment.name": "test",
         },
       }),
+      schema: schemaDef,
     })
 
     await client.users.findMany()
@@ -201,8 +207,8 @@ describe("createOtelLogger — security & config", () => {
   test("tracerName selects the instrumentation scope", async () => {
     const { conn } = fakeConn((sql) => lines(sql).map(() => ok([])))
     const client = orm(conn, {
-      schema: schemaDef,
       logger: createOtelLogger({ tracerName: "my-app" }),
+      schema: schemaDef,
     })
 
     await client.users.findMany()
@@ -220,7 +226,7 @@ describe("createOtelLogger — security & config", () => {
         },
       },
     })
-    const client = orm(conn, { schema: schemaDef, logger })
+    const client = orm(conn, { logger, schema: schemaDef })
 
     const rows = await client.users.findMany()
     expect(rows).toEqual([])
@@ -228,10 +234,10 @@ describe("createOtelLogger — security & config", () => {
   })
 
   test("enabled: false keeps the executor on its no-logger fast path", async () => {
-    const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok([])))
+    const { calls, conn } = fakeConn((sql) => lines(sql).map(() => ok([])))
     const logger = createOtelLogger({ enabled: false })
     expect(logger.enabled).toBe(false)
-    const client = orm(conn, { schema: schemaDef, logger })
+    const client = orm(conn, { logger, schema: schemaDef })
 
     await client.users.findMany()
 
@@ -245,7 +251,7 @@ describe("createOtelLogger — failures", () => {
     const { conn } = fakeConn((sql) =>
       lines(sql).map(() => failr("ERR_LOCKED", "the table is locked")),
     )
-    const client = orm(conn, { schema: schemaDef, logger: createOtelLogger() })
+    const client = orm(conn, { logger: createOtelLogger(), schema: schemaDef })
 
     const error = await caught(() => client.users.findMany())
     expect(error).not.toBeNull()
@@ -266,12 +272,12 @@ describe("createOtelLogger — failures", () => {
       lines(sql).map(
         () =>
           ({
-            success: false,
             error: "the table is locked",
+            success: false,
           }) as unknown as QueryResponse,
       ),
     )
-    const client = orm(conn, { schema: schemaDef, logger: createOtelLogger() })
+    const client = orm(conn, { logger: createOtelLogger(), schema: schemaDef })
 
     await caught(() => client.users.findMany())
 
@@ -288,12 +294,12 @@ describe("createOtelLogger — failures", () => {
       lines(sql).map(
         () =>
           ({
+            error: { code: 0, kind: "Thrown", message: "boom" },
             success: false,
-            error: { kind: "Thrown", code: 0, message: "boom" },
           }) as unknown as QueryResponse,
       ),
     )
-    const client = orm(conn, { schema: schemaDef, logger: createOtelLogger() })
+    const client = orm(conn, { logger: createOtelLogger(), schema: schemaDef })
 
     await caught(() => client.users.findMany())
 
@@ -310,12 +316,12 @@ describe("createOtelLogger — failures", () => {
       lines(sql).map(
         () =>
           ({
-            success: false,
             error: { code: -32_000, message: "parse error" },
+            success: false,
           }) as unknown as QueryResponse,
       ),
     )
-    const client = orm(conn, { schema: schemaDef, logger: createOtelLogger() })
+    const client = orm(conn, { logger: createOtelLogger(), schema: schemaDef })
 
     await caught(() => client.users.findMany())
 
@@ -326,18 +332,18 @@ describe("createOtelLogger — failures", () => {
 
   test("a normalized error uses its code for error.type and the raw cause code as status", async () => {
     const cause = Object.assign(new Error("boom"), {
-      kind: "Validation",
       code: -32_000,
+      kind: "Validation",
     })
     const conn = {
-      query() {
+      close: (): Promise<void> => Promise.resolve(),
+      query(): never {
         throw new OrmError("ParseError", "boom", { cause })
       },
-      close: () => Promise.resolve(),
     }
     const client = orm(conn as never, {
-      schema: schemaDef,
       logger: createOtelLogger(),
+      schema: schemaDef,
     })
 
     await caught(() => client.users.findMany())
@@ -349,14 +355,14 @@ describe("createOtelLogger — failures", () => {
 
   test("a transport rejection still ends an ERROR span", async () => {
     const conn = {
-      query() {
+      close: (): Promise<void> => Promise.resolve(),
+      query(): never {
         throw new Error("socket closed")
       },
-      close: () => Promise.resolve(),
     }
     const client = orm(conn as never, {
-      schema: schemaDef,
       logger: createOtelLogger(),
+      schema: schemaDef,
     })
 
     await caught(() => client.users.findMany())

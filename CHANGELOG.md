@@ -19,6 +19,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 ## [Unreleased]
 
 ### Changed
+- **Dívida de `eslint-disable` reduzida** (repo): de 1132 para <100 ocorrências encontradas por `grep eslint-disable`. Loops de parser/compilador viraram `forEach`/`map`/`find`/`reduce`, chaves de objetos foram reordenadas onde não afetam SQL, números viraram constantes nomeadas, tipos públicos voláteis (`AnyField`, `AnyKindEngine`, `ChainableDriverFactory`, `TablePreset`, `EmptyArgs`) recuperaram seus wildcards bivariantes com justificativa local, e os return types incorretos aplicados por codemod foram corrigidos. Resíduo mínimo e justificado; nenhuma regra foi desativada para esconder violação.
 - **Ruleset ampliado** (repo): 43 regras antes `off` foram ativadas como `error` — incluindo `only-throw-error`, `unbound-method`, `no-dupe-*`, `no-duplicate-imports`, `no-import-assign`, `no-unreachable`, `explicit-function-return-type`, `explicit-module-boundary-types`, `prefer-nullish-coalescing`, `restrict-template-expressions` e as regras de segurança do domínio unicorn. Permanecem `off` apenas as 12 que o próprio ruleset recomenda manter desativadas para um ORM (`max-lines-per-function`, `max-params`, `no-null`, `no-array-reduce`, etc.). Return types explícitos foram adicionados onde fazem sentido; em código interno profundamente genérico há disable local justificado (o usuário aceita esse ruído só em código interno).
 
 ### Added

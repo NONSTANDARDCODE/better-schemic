@@ -1,35 +1,37 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-explicit-any, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Fixtures use any for duck-typed mocks. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
-// Pure logic of the `ls`/`info` inspection commands: source-flag resolution (declared default,
-// --snapshot/--live mutually exclusive), table-scoped addressing (parent hook, owner fallback), and
-// per-kind address listing.
 import type { KindEngine, KindRegistry, PortableObject } from "better-schemic/core"
 import { describe, expect, test } from "bun:test"
 
 import { addressesOfKind, addressOf, pickSource, requireKind } from "../../../src/cli/inspect"
 
-const fakeRegistry = (names: string[]) => ({ names: () => names }) as unknown as KindRegistry
+// Pure logic of the `ls`/`info` inspection commands: source-flag resolution (declared default,
+// --snapshot/--live mutually exclusive), table-scoped addressing (parent hook, owner fallback), and
+// per-kind address listing.
 
+const fakeRegistry = (names: string[]): KindRegistry =>
+  ({ names: (): string[] => names }) as unknown as KindRegistry
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- fake engine bivariante para o erasure de kinds.
 type FakeEngine = KindEngine<any, any>
 
 // A minimal fake engine: emit joins a `ddl` field; owner/parent read `table`/`parent` fields off the
 // object. `owner` = diff clustering, `parent` = addressing (the CLI prefers parent).
 function fakeEngine(opts: { owner?: boolean; parent?: boolean } = {}): FakeEngine {
   return {
-    lower: (a: PortableObject) => a,
     emit: (o: PortableObject & { ddl?: string }) => [o.ddl ?? o.name],
-    remove: () => [],
+    lower: (a: PortableObject) => a,
     owner: opts.owner
-      ? (o: PortableObject & { table?: string }) => ({
+      ? (o: PortableObject & { table?: string }): { kind: string; name: string } => ({
           kind: "table",
           name: o.table ?? "",
         })
       : undefined,
     parent: opts.parent
-      ? (o: PortableObject & { parent?: string }) => ({
+      ? (o: PortableObject & { parent?: string }): { kind: string; name: string } => ({
           kind: "table",
           name: o.parent ?? "",
         })
       : undefined,
+    remove: () => [],
   }
 }
 
@@ -48,7 +50,7 @@ describe("pickSource", () => {
     expect(pickSource({ live: true })).toBe("live")
   })
   test("--snapshot + --live is a teaching error", () => {
-    expect(() => pickSource({ snapshot: true, live: true })).toThrow(/mutually exclusive/u)
+    expect(() => pickSource({ live: true, snapshot: true })).toThrow(/mutually exclusive/u)
   })
 })
 
@@ -70,7 +72,7 @@ describe("addressOf", () => {
     expect(
       addressOf(
         fakeEngine({ owner: true, parent: true }),
-        obj("index", "email", { table: "clusterTbl", parent: "addrTbl" }),
+        obj("index", "email", { parent: "addrTbl", table: "clusterTbl" }),
       ),
     ).toBe("addrTbl.email")
   })

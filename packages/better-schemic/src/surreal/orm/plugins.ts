@@ -87,8 +87,8 @@ export type PluginPipeline = {
 /** Check the plugin list (unique, non-empty ids). */
 function validatePlugins(plugins: readonly Plugin[]): void {
   const seen = new Set<string>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const plugin of plugins) {
+
+  plugins.forEach((plugin) => {
     if (typeof plugin.id !== "string" || plugin.id.length === 0)
       throw new OrmError("PluginError", "every plugin needs a non-empty `id`.")
 
@@ -99,7 +99,7 @@ function validatePlugins(plugins: readonly Plugin[]): void {
       )
     }
     seen.add(plugin.id)
-  }
+  })
 }
 
 /** Build the pipeline for a client, or `undefined` when there is no plugin. */
@@ -117,56 +117,55 @@ export function createPluginPipeline(
   return {
     extendClient(ctx): Record<string, unknown> {
       const out: Record<string, unknown> = {}
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const plugin of plugins) {
-        if (typeof plugin.extendClient !== "function") continue
+
+      plugins.forEach((plugin) => {
+        if (typeof plugin.extendClient !== "function") return
 
         try {
           Object.assign(out, plugin.extendClient.call(pluginContext(plugin, {}), ctx))
         } catch (error) {
           throw pluginFailure(plugin, "extendClient", error)
         }
-      }
+      })
       return out
     },
     extendModel(ctx, state): Record<string, unknown> {
       const out: Record<string, unknown> = {}
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const plugin of plugins) {
-        if (typeof plugin.extendModel !== "function") continue
+
+      plugins.forEach((plugin) => {
+        if (typeof plugin.extendModel !== "function") return
 
         try {
           Object.assign(out, plugin.extendModel.call(pluginContext(plugin, state), ctx))
         } catch (error) {
           throw pluginFailure(plugin, "extendModel", error)
         }
-      }
+      })
       return out
     },
     hasTransforms,
     hooks,
     plugins,
     setup(index): void {
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const plugin of plugins) {
-        if (typeof plugin.setup !== "function") continue
+      plugins.forEach((plugin) => {
+        if (typeof plugin.setup !== "function") return
 
         try {
           plugin.setup.call(pluginContext(plugin, {}), { index })
         } catch (error) {
           throw pluginFailure(plugin, "setup", error)
         }
-      }
+      })
     },
     transform(operation): boolean {
       let skipped = false
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const plugin of plugins) {
-        if (typeof plugin.transform !== "function") continue
+
+      plugins.forEach((plugin) => {
+        if (typeof plugin.transform !== "function") return
 
         const result = plugin.transform.call(pluginContext(plugin, operation.state), operation)
         if (result === false) skipped = true
-      }
+      })
       // A `where`/`data` bag created by a transform flushs it into `args` now, so a plugin
       // that merely READS `op.where` never injects an empty object into the compiled operation.
       operation.commit()

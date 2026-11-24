@@ -288,8 +288,8 @@ export function compileCursor(
 /** Reject the clauses cursor can't keyset over (plus the removed/renamed args). */
 function rejectPaginationArgs(args: CursorArgs, operation: string): void {
   rejectRemovedArgs(args, operation)
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of ["groupBy", "groupAll", "split"] as const) {
+
+  ;(["groupBy", "groupAll", "split"] as const).forEach((key) => {
     if (args[key] !== undefined) {
       throw compileError(
         "ClauseNotSupported",
@@ -297,7 +297,7 @@ function rejectPaginationArgs(args: CursorArgs, operation: string): void {
         { operation },
       )
     }
-  }
+  })
   if (args.value === true) {
     throw compileError(
       "ClauseNotSupported",
@@ -327,8 +327,8 @@ function cursorOrder(orderBy: unknown, meta: ModelMeta, operation: string): read
   if (orderBy === undefined) order.push({ direction: "asc", field: "id" })
   else {
     const entries = Array.isArray(orderBy) ? orderBy : [orderBy]
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const entry of entries) {
+
+    entries.forEach((entry) => {
       if (!isPlainObject(entry)) {
         throw compileError(
           "CursorTiebreakerRequired",
@@ -336,12 +336,10 @@ function cursorOrder(orderBy: unknown, meta: ModelMeta, operation: string): read
           { operation },
         )
       }
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const [field, direction] of Object.entries(entry)) {
-        // eslint-disable-next-line max-depth -- parser/compilador com despacho aninhado; achatar mudaria a precedência das cláusulas
-        if (direction === undefined) continue
 
-        // eslint-disable-next-line max-depth -- parser/compilador com despacho aninhado; achatar mudaria a precedência das cláusulas
+      Object.entries(entry).forEach(([field, direction]) => {
+        if (direction === undefined) return
+
         if (direction !== "asc" && direction !== "desc") {
           throw compileError(
             "CursorTiebreakerRequired",
@@ -350,8 +348,8 @@ function cursorOrder(orderBy: unknown, meta: ModelMeta, operation: string): read
           )
         }
         order.push({ direction, field })
-      }
-    }
+      })
+    })
   }
   if (order.length === 0) {
     throw compileError(

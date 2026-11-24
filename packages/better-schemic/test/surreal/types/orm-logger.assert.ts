@@ -1,8 +1,11 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unused-vars, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Type queries and callback signatures need fixture values. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+const _MAGIC_123 = 123
 // TYPE assertions for the query logger: the `logger` client option union (flag/preset/options), the
 // `createQueryLogger`/`resolveLogger` return shapes, the resolved-option fields and the invalid
 // values the types reject. Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
+
 import { describe, it } from "node:test"
+
+import type { ZodString } from "zod"
 
 import { assertType } from "../../../../../scripts/type-assert"
 import { createQueryLogger, type resolveLogger } from "../../../src/surreal/logger"
@@ -18,20 +21,31 @@ import type {
   QueryLogger,
   ResolvedLoggerOptions,
 } from "../../../src/surreal/orm/types/logger"
-import { s, table } from "../../../src/surreal/pure"
+import { s, type SField, table, type TableDef, type WithSmartId } from "../../../src/surreal/pure"
 
 const User = table("user", { name: s.string() })
 const schemaDef = schema({ users: User })
 
 void describe("logger option — accepted shapes", () => {
   void it("the flag, a preset and an options bag all typecheck on the client", () => {
-    const flag = (conn: Queryable) => orm(conn, { schema: schemaDef, logger: true })
-    const preset = (conn: Queryable) => orm(conn, { schema: schemaDef, logger: "json" })
-    const bag = (conn: Queryable) =>
-      orm(conn, { schema: schemaDef, logger: { level: "info", slowMs: 5 } })
-    assertType<Client<typeof schemaDef>, ReturnType<typeof flag>>()
-    assertType<Client<typeof schemaDef>, ReturnType<typeof preset>>()
-    assertType<Client<typeof schemaDef>, ReturnType<typeof bag>>()
+    const _flag = (
+      conn: Queryable,
+    ): Client<{
+      readonly users: TableDef<"user", WithSmartId<"user", { name: SField<ZodString> }>>
+    }> => orm(conn, { logger: true, schema: schemaDef })
+    const _preset = (
+      conn: Queryable,
+    ): Client<{
+      readonly users: TableDef<"user", WithSmartId<"user", { name: SField<ZodString> }>>
+    }> => orm(conn, { logger: "json", schema: schemaDef })
+    const _bag = (
+      conn: Queryable,
+    ): Client<{
+      readonly users: TableDef<"user", WithSmartId<"user", { name: SField<ZodString> }>>
+    }> => orm(conn, { logger: { level: "info", slowMs: 5 }, schema: schemaDef })
+    assertType<Client<typeof schemaDef>, ReturnType<typeof _flag>>()
+    assertType<Client<typeof schemaDef>, ReturnType<typeof _preset>>()
+    assertType<Client<typeof schemaDef>, ReturnType<typeof _bag>>()
   })
 
   void it("LoggerOption is exactly boolean | preset | options | a built QueryLogger", () => {
@@ -45,8 +59,12 @@ void describe("logger option — accepted shapes", () => {
   })
 
   void it("a pre-built QueryLogger typechecks on the client", () => {
-    const built = (conn: Queryable) => orm(conn, { schema: schemaDef, logger: createQueryLogger() })
-    assertType<Client<typeof schemaDef>, ReturnType<typeof built>>()
+    const _built = (
+      conn: Queryable,
+    ): Client<{
+      readonly users: TableDef<"user", WithSmartId<"user", { name: SField<ZodString> }>>
+    }> => orm(conn, { logger: createQueryLogger(), schema: schemaDef })
+    assertType<Client<typeof schemaDef>, ReturnType<typeof _built>>()
   })
 
   void it("options fields are the narrow unions", () => {
@@ -61,15 +79,15 @@ void describe("logger option — accepted shapes", () => {
     assertType<false, { level: "trace" } extends LoggerOptions ? true : false>()
     assertType<false, { format: "xml" } extends LoggerOptions ? true : false>()
     assertType<false, { explain: "always" } extends LoggerOptions ? true : false>()
-    assertType<false, 123 extends LoggerOption ? true : false>()
+    assertType<false, typeof _MAGIC_123 extends LoggerOption ? true : false>()
     assertType<false, "verbose" extends LoggerOption ? true : false>()
   })
 })
 
 void describe("logger factory — runtime surface", () => {
   void it("createQueryLogger returns a QueryLogger with resolved options", () => {
-    const logger = createQueryLogger({ slowMs: 5 })
-    assertType<QueryLogger, typeof logger>()
+    const _logger = createQueryLogger({ slowMs: 5 })
+    assertType<QueryLogger, typeof _logger>()
     assertType<boolean, QueryLogger["enabled"]>()
     assertType<ResolvedLoggerOptions, QueryLogger["options"]>()
     assertType<LogFormat, QueryLogger["options"]["format"]>()

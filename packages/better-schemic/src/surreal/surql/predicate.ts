@@ -262,8 +262,7 @@ export type FieldRef<T> = FieldRefOps<T> &
           bigint | boolean | Date | number | readonly unknown[] | RecordId | string | Uint8Array,
         ]
           ? unknown
-          : // eslint-disable-next-line @typescript-eslint/no-restricted-types -- object é o tipo exato das builtins object::* do SurrealDB
-            [NonNullable<T>] extends [object]
+          : [NonNullable<T>] extends [Record<string, unknown>]
             ? { [K in keyof NonNullable<T>]-?: FieldRef<NonNullable<T>[K]> }
             : unknown))
 
@@ -280,6 +279,8 @@ const allMethodNames: readonly string[] = [
  * parens emit them where precedence requires them, matching the DB's canonical printer
  *  (redundant parens would phantom-diff DDL round-trips). */
 const OP_PREC: Record<string, number> = { "*": 7, "+": 6, "-": 6, "/": 7 }
+/** Length of the `op:` prefix on derived method names. */
+const OP_PREFIX_LENGTH = 3
 
 function derivedMethod(state: RefState, spec: RefMethodSpec) {
   return (...args: unknown[]): FieldRef<unknown> => {
@@ -290,8 +291,7 @@ function derivedMethod(state: RefState, spec: RefMethodSpec) {
     let wrap: RefState["wrap"]
     let opPrec: number | undefined
     if (spec.fn.startsWith("op:")) {
-      // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-      const op = spec.fn.slice(3)
+      const op = spec.fn.slice(OP_PREFIX_LENGTH)
       const prec = OP_PREC[op]
       opPrec = prec
       // lhs needs parens when it's a LOWER-precedence op chain; rhs also when EQUAL (`a - (b - c)`).
@@ -481,23 +481,22 @@ export function mkRef(state: RefState): FieldRef<unknown> {
     return new BoundQuery(text, ctx.vars)
   }
   if (state.kind !== "other") {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [name, spec] of Object.entries(refMethods[state.kind]))
+    Object.entries(refMethods[state.kind]).forEach(([name, spec]) => {
       impl[name] = derivedMethod(state, spec)
+    })
   }
   if (state.kind === "array") attachClosureMethods(impl, state)
 
   if (state.kind === "other") {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const name of allMethodNames) {
-      if (name in impl) continue
+    allMethodNames.forEach((name) => {
+      if (name in impl) return
 
       impl[name] = (): never => {
         throw new Error(
           `.${name}() needs the value's runtime kind (string/number/array/datetime), which is unknown here — call the builtin explicitly instead: surql.fn.<ns>.<fn>(...).`,
         )
       }
-    }
+    })
   }
   const ref = brandRef(impl)
   // PROPERTY PATHS: an unknown string key on a PLAIN ref (no derived wrap) is a child ref —

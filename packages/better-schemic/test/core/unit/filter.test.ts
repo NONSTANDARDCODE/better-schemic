@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // The kind filter: filterKinds over PortableObject[], where owned objects (index/event with
 // owner -> table) follow their table's inclusion and an event honors --events.
 // A fake registry supplies the owner hooks the filter reads.
@@ -14,34 +13,35 @@ type Owned = {
 
 const reg = new KindRegistry()
 const opaque = {
-  lower: (o: Owned) => o,
-  emit: () => [],
-  remove: () => [],
+  emit: (): never[] => [],
+  lower: (o: Owned): Owned => o,
+  remove: (): never[] => [],
 }
-const ownedBy = (o: Owned) => (o.table ? { kind: "table", name: o.table } : undefined)
+const ownedBy = (o: Owned): undefined | { kind: string; name: string } =>
+  o.table ? { kind: "table", name: o.table } : undefined
 
-reg.define({ name: "table", build: (o: Owned) => o, ...opaque })
+reg.define({ build: (o: Owned) => o, name: "table", ...opaque })
 reg.define({
+  build: (o: Owned) => o,
   name: "index",
-  build: (o: Owned) => o,
   ...opaque,
   owner: ownedBy,
 })
 reg.define({
-  name: "event",
   build: (o: Owned) => o,
+  name: "event",
   ...opaque,
   owner: ownedBy,
 })
-reg.define({ name: "function", build: (o: Owned) => o, ...opaque })
-reg.define({ name: "access", build: (o: Owned) => o, ...opaque })
+reg.define({ build: (o: Owned) => o, name: "function", ...opaque })
+reg.define({ build: (o: Owned) => o, name: "access", ...opaque })
 
 const obj = (kind: string, name: string, table?: string): Owned => ({
   kind,
   name,
   ...(table ? { table } : {}),
 })
-const keys = (os: PortableObject[]) => os.map((o) => `${o.kind}:${o.name}`)
+const keys = (os: PortableObject[]): string[] => os.map((o): string => `${o.kind}:${o.name}`)
 
 const schema = [
   obj("table", "user"),

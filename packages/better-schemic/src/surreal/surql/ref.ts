@@ -17,7 +17,6 @@ export type FieldRefBase<T> = {
 }
 
 /** Brand a ref implementation with the neutral {@link FieldRefBase} carrier. */
-// eslint-disable-next-line @typescript-eslint/no-restricted-types -- object é o tipo exato das builtins object::* do SurrealDB
-export function brandRef<I extends object, T = unknown>(impl: I): I & FieldRefBase<T> {
+export function brandRef<I, T = unknown>(impl: I): I & FieldRefBase<T> {
   return impl as I & FieldRefBase<T>
 }

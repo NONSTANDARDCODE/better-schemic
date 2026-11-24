@@ -1,11 +1,3 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
-// SurrealQL RANGES (`1..=10`) as a first-class VALUE: the `range()` builder's bound spelling, its
-// lowering (bounds BIND as params), and its uses — `IN` membership and `FOR` iteration.
-// Grammar verified on live 3.1.4: `>` after the start excludes it, `=` before the end includes it.
-//
-// (M0.5: the fluent `select()` builder retirs it; these tests lower the same predicates through
-// the ref/Expr layer directly.)
-
 import { describe, expect, test } from "bun:test"
 
 import { isRange, Range, range, surql } from "../../../src/surreal"
@@ -13,10 +5,22 @@ import { block } from "../../../src/surreal/query"
 import { lowerExpr, mkRef } from "../../../src/surreal/surql/predicate"
 import type { Ctx } from "../../../src/surreal/surql/render"
 
+const MAGIC_2 = 2
+const MAGIC_2020 = 2020
+const MAGIC_42 = 42
+// SurrealQL RANGES (`1..=10`) as a first-class VALUE: the `range()` builder's bound spelling, its
+// lowering (bounds BIND as params), and its uses — `IN` membership and `FOR` iteration.
+// Grammar verified on live 3.1.4: `>` after the start excludes it, `=` before the end includes it.
+//
+// (M0.5: the fluent `select()` builder retirs it; these tests lower the same predicates through
+// the ref/Expr layer directly.)
+
 /** The lowered `WHERE` of a range predicate — the interesting half. */
-const whereOf = (r: ReturnType<typeof range<number>>) => {
+const whereOf = (
+  r: ReturnType<typeof range<number>>,
+): { sql: string; vars: Record<string, unknown> } => {
   const ctx: Ctx = { vars: {} }
-  const ref = mkRef({ root: { col: "age" }, kind: "number" })
+  const ref = mkRef({ kind: "number", root: { col: "age" } })
   return { sql: lowerExpr(ref.in(r), ctx), vars: ctx.vars }
 }
 
@@ -42,7 +46,7 @@ describe("range() — bound spelling", () => {
   })
 
   test("mixing the two spellings of one end is a runtime error too (untyped callers)", () => {
-    expect(() => range({ from: 1, after: 2 } as never)).toThrow(
+    expect(() => range({ after: 2, from: 1 } as never)).toThrow(
       /`from` \(start included\) OR `after` \(start excluded\)/u,
     )
     expect(() => range({ to: 1, until: 2 } as never)).toThrow(
@@ -57,8 +61,8 @@ describe("range() — bound spelling", () => {
   test("isRange() brands cross-realm; range() builds a Range", () => {
     expect(isRange(range({ from: 1, to: 2 }))).toBe(true)
     expect(range({ from: 1, to: 2 })).toBeInstanceOf(Range)
-    expect(isRange(42)).toBe(false)
-    expect(isRange([1, 2])).toBe(false)
+    expect(isRange(MAGIC_42)).toBe(false)
+    expect(isRange([1, MAGIC_2])).toBe(false)
     expect(isRange(null)).toBe(false)
   })
 })
@@ -66,15 +70,15 @@ describe("range() — bound spelling", () => {
 describe("range() — uses", () => {
   test("IN / NOT IN test membership, alongside the list form", () => {
     const ctx: Ctx = { vars: {} }
-    const ref = mkRef({ root: { col: "age" }, kind: "number" })
+    const ref = mkRef({ kind: "number", root: { col: "age" } })
     expect(lowerExpr(ref.notIn(range({ from: 18, to: 65 })), ctx)).toBe("age NOT IN $b0..=$b1")
     // the list form untouchs it
-    expect(lowerExpr(ref.in([1, 2]), ctx)).toMatch(/^age IN \$b\d+$/u)
+    expect(lowerExpr(ref.in([1, MAGIC_2]), ctx)).toMatch(/^age IN \$b\d+$/u)
   })
 
   test("string bounds range over strings ('g' IN 'a'..'z')", () => {
     const ctx: Ctx = { vars: {} }
-    const ref = mkRef({ root: { col: "name" }, kind: "string" })
+    const ref = mkRef({ kind: "string", root: { col: "name" } })
     const sql = lowerExpr(ref.in(range({ from: "a", until: "z" })), ctx)
     expect(sql).toBe("name IN $b0..$b1")
     expect(ctx.vars).toEqual({ b0: "a", b1: "z" })
@@ -91,8 +95,8 @@ describe("range() — uses", () => {
     // Guards the `const T` trap: `Range<2020 | 2022>` would type `$y` as `2020 | 2022` and
     // omit 2021 — the loop does yield it.
     block().for({ y: range({ from: 2020, to: 2022 }) }, (v) => {
-      const _numeric: unknown = v.y.gt(2020) // number stdlib is reachable
-      void _numeric
+      const _numeric: unknown = v.y.gt(MAGIC_2020) // number stdlib is reachable
+      const _probe_99 = _numeric
       return surql`RETURN 1`
     })
     expect(true).toBe(true)

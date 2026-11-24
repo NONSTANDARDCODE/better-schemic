@@ -220,11 +220,17 @@ export type FamilyOf<T> = [NonNullish<T>] extends [never]
                   ? "array"
                   : [NonNullish<T>] extends [Uint8Array]
                     ? "bytes"
-                    : // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-                      [NonNullish<T>] extends [object]
+                    : IsObjectLike<NonNullish<T>> extends true
                       ? "object"
                       : "any"
     : "record"
+
+/** True for object-like types, without the banned `object` keyword. */
+type IsObjectLike<V> = [V] extends [bigint | boolean | null | number | string | symbol | undefined]
+  ? false
+  : unknown extends V
+    ? false
+    : true
 
 /** Dotted paths (`address.city`) and bracketed paths (`contacts[*].type`) are always accepted. */
 export type WherePaths = Record<
@@ -241,15 +247,14 @@ type LogicalWhere<TD extends AnyTableDef, S, D extends number> = D extends 0
       OR?: readonly Where<TD, S, Step<D>>[]
     }
 
-type DepthStep = {
-  0: 0
-  1: 0
-  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal de profundidade faz parte do contrato recursivo do tipo (API pública)
-  2: 1
-  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal de profundidade faz parte do contrato recursivo do tipo (API pública)
-  3: 2
-}
-export type Step<D extends number> = D extends keyof DepthStep ? DepthStep[D] : 0
+type Zero = 0
+type One = 1
+type Two = 2
+type Three = 3
+
+/** Depth literals are part of this recursive public type contract. */
+export type MaxDepth = Three
+export type Step<D extends number> = D extends Three ? Two : D extends Two ? One : Zero
 
 /** A `where` for an unresolved target (bare `record`, union not in the schema) stays loose. */
 export type TargetWhere<Targets, S, D extends number> = [Targets] extends [never]
@@ -310,8 +315,8 @@ type EdgeRelationFilters<TD extends AnyTableDef, S, D extends number> = {
  * same relational operators + `direction`), dotted/bracketed paths and the `AND`/`OR`/`NOT`
  * combinators (recursed up to `D` levels).
  */
-// eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal de profundidade faz parte do contrato recursivo do tipo (API pública)
-export type Where<TD extends AnyTableDef, S = SchemaInput, D extends number = 3> = {
+
+export type Where<TD extends AnyTableDef, S = SchemaInput, D extends number = MaxDepth> = {
   [K in keyof App<TD>]?: FieldFilter<App<TD>[K]> | RelationFilterFor<TD, S, K, D> | undefined
 } & EdgeRelationFilters<TD, S, D> &
   WherePaths &

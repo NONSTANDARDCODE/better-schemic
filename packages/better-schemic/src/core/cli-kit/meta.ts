@@ -90,32 +90,32 @@ function isValidStoredSnapshot(v: unknown): v is StoredSnapshot {
   const snap = v as Partial<StoredSnapshot>
   if (snap.version !== SNAPSHOT_VERSION || typeof snap.driver !== "string") return false
 
-  const schema = snap.schema as undefined | { kinds?: unknown }
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- `null` passa como objeto: snapshot vem de disco e pode conter null.
+  const schema: unknown = snap.schema
   if (typeof schema !== "object" || schema === null) return false
 
-  const kinds = schema.kinds
+  const kinds: unknown = (schema as { kinds?: unknown }).kinds
   if (typeof kinds !== "object" || kinds === null || Array.isArray(kinds)) return false
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [kind, items] of Object.entries(kinds)) {
+  const kindsValid = Object.entries(kinds).every(([kind, items]) => {
     if (UNSAFE_KEYS.has(kind) || !Array.isArray(items)) return false
 
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const item of items) {
+    return items.every((item: unknown) => {
       if (typeof item !== "object" || item === null) return false
 
       const obj = item as { kind?: unknown; name?: unknown }
-      if (typeof obj.kind !== "string" || typeof obj.name !== "string") return false
-    }
-  }
-  if (snap.files !== undefined) {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- `null` passa como objeto: snapshot vem de disco e pode conter null.
-    if (typeof snap.files !== "object" || snap.files === null || Array.isArray(snap.files))
-      return false
+      return typeof obj.kind === "string" && typeof obj.name === "string"
+    })
+  })
+  if (!kindsValid) return false
 
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const value of Object.values(snap.files)) if (typeof value !== "string") return false
+  const files: unknown = snap.files
+  if (files !== undefined) {
+    if (typeof files !== "object" || files === null || Array.isArray(files)) return false
+
+    if (
+      !Object.values(files as Record<string, unknown>).every((value) => typeof value === "string")
+    )
+      return false
   }
   return true
 }

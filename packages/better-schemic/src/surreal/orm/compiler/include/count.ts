@@ -47,8 +47,7 @@ export function compileCount(meta: TableMeta, entry: unknown, ctx: CompileCtx): 
     )
   }
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of keys) {
+  keys.forEach((key) => {
     const options = select[key]
     if (options !== true && !isPlainObject(options)) {
       throw compileError(
@@ -58,9 +57,7 @@ export function compileCount(meta: TableMeta, entry: unknown, ctx: CompileCtx): 
       )
     }
     if (isPlainObject(options)) {
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const option of Object.keys(options)) {
-        // eslint-disable-next-line max-depth -- parser/compilador com despacho aninhado; achatar mudaria a precedência das cláusulas
+      Object.keys(options).forEach((option) => {
         if (option !== "where" && option !== "direction") {
           throw compileError(
             "ValidationError",
@@ -68,7 +65,7 @@ export function compileCount(meta: TableMeta, entry: unknown, ctx: CompileCtx): 
             { field: key, operation },
           )
         }
-      }
+      })
     }
     const source = `_count_${key}`
     ctx.claimFlat(source)
@@ -76,7 +73,7 @@ export function compileCount(meta: TableMeta, entry: unknown, ctx: CompileCtx): 
     const link = meta.links.get(key)
     if (link) {
       compileLinkCount(key, link, options, ctx, source)
-      continue
+      return
     }
     if (!findEdge(meta, key)) {
       throw new OrmError(
@@ -86,7 +83,7 @@ export function compileCount(meta: TableMeta, entry: unknown, ctx: CompileCtx): 
       )
     }
     compileEdgeCount(meta, key, options, ctx, source)
-  }
+  })
 }
 
 /** `count(friends[WHERE …])` — an array link (NONE-safe). */

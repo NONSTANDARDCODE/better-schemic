@@ -88,6 +88,16 @@ const MIN_POLL_MS = 500
 /** Width of the label column in `sc config show`. */
 const CONFIG_LABEL_WIDTH = 11
 
+/** The CLI's single exit seam — a forced exit so lingering SDK handles can't hold the process open. */
+const exitProcess = process.exit.bind(process)
+const exit = (code?: null | number | string): never => Reflect.apply(exitProcess, undefined, [code])
+
+// JSON.stringify declares `string` but yields undefined for functions/symbols at runtime.
+const stringify = (value: unknown): string | undefined => JSON.stringify(value)
+
+/** True for an explicit `true` flag — an absent/false force must still prompt. */
+const isTrue = (value: unknown): boolean => value === true
+
 /** Print one aligned `key: value` row of a diagnostic listing. */
 const printRow = (k: string, v: string): void => {
   console.log(style.dim(`  ${k.padEnd(CONFIG_LABEL_WIDTH)} ${v}`))
@@ -97,8 +107,7 @@ const printRow = (k: string, v: string): void => {
 const textOf = (v: unknown): string => {
   if (typeof v === "string") return v
   if (typeof v === "number" || typeof v === "boolean" || typeof v === "bigint") return String(v)
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- `JSON.stringify` devolve undefined em runtime para funções/símbolos.
-  return JSON.stringify(v) ?? ""
+  return stringify(v) ?? ""
 }
 
 /** The driver a resolved connection uses (its package loads it by the resolution engine). */
@@ -117,8 +126,9 @@ async function withDb(
   fn: (db: unknown, config: ResolvedConfig) => Promise<void>,
 ): Promise<void> {
   const targets = await resolveTargets(opts)
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const config of targets) {
+  // Sequential reduce: connections open and close one at a time, in target order.
+  await targets.reduce(async (previous, config) => {
+    await previous
     if (targets.length > 1) console.log(style.bold(`\n[${config.connection}]`))
 
     const driver = getDriver(config.driver)
@@ -128,7 +138,7 @@ async function withDb(
     } finally {
       await driver.close(db)
     }
-  }
+  }, Promise.resolve())
 }
 
 const errMsg = (err: unknown): string => (err instanceof Error ? err.message : String(err))
@@ -140,8 +150,7 @@ const errMsg = (err: unknown): string => (err instanceof Error ? err.message : S
 function formatDuplicates(dups: Map<string, string[]>, root: string): string[] {
   return [...dups].map(([name, files]) => {
     const counts = new Map<string, number>()
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const f of files) counts.set(f, (counts.get(f) ?? 0) + 1)
+    files.forEach((f) => counts.set(f, (counts.get(f) ?? 0) + 1))
 
     const label = [...counts]
       .map(([f, n]) => {
@@ -267,8 +276,7 @@ function watchLoop(
     const stop = (): void => {
       watcher.close()
       clearTimeout(timer)
-      // eslint-disable-next-line unicorn/no-process-exit -- encerramento controlado do watcher; o exitcode é contrato do CLI.
-      void Promise.resolve(cleanup?.()).finally(() => process.exit(0))
+      void Promise.resolve(cleanup?.()).finally(() => exit(0))
     }
     process.once("SIGINT", stop)
     process.once("SIGTERM", stop)
@@ -358,11 +366,13 @@ program
   .action(() => {
     run(() => {
       const { created, skipped } = init(process.cwd(), getDriver(DRIVER_NAME))
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const f of created) console.log(`  ${style.green("+")} ${f}`)
+      created.forEach((f) => {
+        console.log(`  ${style.green("+")} ${f}`)
+      })
 
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const f of skipped) console.log(style.dim(`  · ${f} (exists, skipped)`))
+      skipped.forEach((f) => {
+        console.log(style.dim(`  · ${f} (exists, skipped)`))
+      })
 
       console.log(
         created.length > 0
@@ -444,11 +454,10 @@ kindFlags(
             // ONE schema load feeds the file map (offline, also the desired side).
             const loaded = await loadDefs(config.schemaPath)
             const loc = new Map<string, string>()
-            // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-            for (const t of loaded.tables) {
+            loaded.tables.forEach((t) => {
               const file = loaded.fileOf.get(t)
               if (file) loc.set(t.name, file)
-            }
+            })
             // Map each object to its source file (where it lives in the schema, else its kind folder
             // — the driver names the folder per kind via the registry's display metadata).
             const fileFor = (kind: string, name: string): string => {
@@ -509,6 +518,9 @@ kindFlags(
                 throw new Error(`the "${driverName}" driver does not support \`diff --ts --live\`.`)
 
               const db = persistent ?? (await driver.connect(config, opts))
+              const closeTransient = async (): Promise<void> => {
+                if (!persistent) await driver.close(db)
+              }
               try {
                 const { current, desired } = await driver.diffTsLive(
                   db,
@@ -519,8 +531,7 @@ kindFlags(
                 )
                 await showTsDiff(current, desired, "Schema matches the live database.")
               } finally {
-                // eslint-disable-next-line max-depth -- bloco de limpeza garante o close; extrair mudaria o fluxo de erro.
-                if (!persistent) await driver.close(db)
+                await closeTransient()
               }
             } else {
               if (!driver.renderSchema)
@@ -594,12 +605,11 @@ const genAction = (
       )
       if (existing.length > 0) {
         const migDir = nodePath.relative(config.root, config.migrationsDir)
-        const proceed =
-          // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- `force: false` deve continuar para o prompt, não encerrar como false.
-          opts.force ||
-          (await confirmPrompt(
-            `Replace ${plural(existing.length, "migration")} in ${migDir} with a single baseline?`,
-          ))
+        const proceed = isTrue(opts.force)
+          ? true
+          : await confirmPrompt(
+              `Replace ${plural(existing.length, "migration")} in ${migDir} with a single baseline?`,
+            )
         if (!proceed) {
           throw new Error(
             `${plural(existing.length, "migration")} already exist in ${migDir} — a baseline would re-define objects they already created.\n  Re-run \`better-schemic gen --baseline --force\` to replace them with one fresh baseline.`,
@@ -809,8 +819,9 @@ dbFlags(
         console.log(ok("Up to date — no pending migrations."))
         return
       }
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const e of applied) console.log(`  ${style.green("↑")} ${e.tag}`)
+      applied.forEach((e) => {
+        console.log(`  ${style.green("↑")} ${e.tag}`)
+      })
 
       console.log(`\n${ok(`Applied ${plural(applied.length, "migration")}.`)}`)
     }),
@@ -831,8 +842,7 @@ dbFlags(program.command("status").description("Show applied vs pending migration
           console.log("No migrations yet. Run `better-schemic gen`.")
           return
         }
-        // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-        for (const r of rows) {
+        rows.forEach((r) => {
           if (r.missing) {
             console.log(
               `  ${style.yellow("⚠ missing")}  ${r.tag} ${style.dim("(applied in the DB, file deleted)")}`,
@@ -843,7 +853,7 @@ dbFlags(program.command("status").description("Show applied vs pending migration
             )
           } else if (r.applied) console.log(`  ${style.green("✓ applied")}  ${r.tag}`)
           else console.log(style.dim(`  · pending  ${r.tag}`))
-        }
+        })
         const pending = rows.filter((r) => !r.applied).length
         const drifted = rows.filter((r) => r.drift).length
         const missing = rows.filter((r) => r.missing).length
@@ -936,9 +946,9 @@ dbFlags(
       )
       if (dups.size > 0) {
         console.log(`  ${fail(duplicateHeader(dups.size))}`)
-        // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-        for (const line of formatDuplicates(dups, config.root))
+        formatDuplicates(dups, config.root).forEach((line) => {
           console.log(style.dim(`    ${line}`))
+        })
 
         process.exitCode = 1
       }
@@ -956,8 +966,9 @@ dbFlags(
     }
     const params = Object.entries(config.params)
     if (params.length > 0) {
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const [k, v] of params) printRow(k, redactValue(k, v))
+      params.forEach(([k, v]) => {
+        printRow(k, redactValue(k, v))
+      })
     } else printRow("params", "(none)")
 
     console.log(style.bold("\nVersions"))
@@ -995,8 +1006,9 @@ dbFlags(
         console.log(ok("Nothing to roll back."))
         return
       }
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const e of reverted) console.log(`  ${style.yellow("↓")} ${e.tag}`)
+      reverted.forEach((e) => {
+        console.log(`  ${style.yellow("↓")} ${e.tag}`)
+      })
 
       console.log(`\n${ok(`Rolled back ${plural(reverted.length, "migration")}.`)}`)
     }),
@@ -1144,16 +1156,15 @@ dbFlags(
 
 /** Print the per-file create/update diffs of a pull plan (unchanged files omitt them). */
 function printPullPlan(plan: PullPlan): void {
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const f of plan.files) {
-    if (f.action === "unchanged") continue
+  plan.files.forEach((f) => {
+    if (f.action === "unchanged") return
 
     console.log(`\n${actionLabel(f.action)} ${style.bold(f.rel)}`)
     if (f.action === "delete") {
       console.log(
         style.dim(`  whole file removed — ${f.localOnly.objects.join(", ")} not in the database`),
       )
-      continue
+      return
     }
     console.log(
       lineDiff(f.before, f.after)
@@ -1161,22 +1172,21 @@ function printPullPlan(plan: PullPlan): void {
         .map((l) => `  ${l}`)
         .join("\n"),
     )
-  }
+  })
 }
 
 /** List the local- fields/objects a mirror pull would drop. */
 function printLocalOnly(files: PullFilePlan[]): void {
   console.log(`\n${style.yellow("! local-only schema, not in the database:")}`)
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const f of files) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const fld of f.localOnly.fields)
+  files.forEach((f) => {
+    f.localOnly.fields.forEach((fld) => {
       console.log(style.dim(`    ${f.rel}: ${fld.exportName} → ${fld.fields.join(", ")}`))
+    })
 
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const obj of f.localOnly.objects)
+    f.localOnly.objects.forEach((obj) => {
       console.log(style.dim(`    ${f.rel}: ${obj} (whole definition)`))
-  }
+    })
+  })
   console.log(style.dim("  keep with --merge, or drop with --discard."))
 }
 
@@ -1270,16 +1280,15 @@ function pullPollLoop(
         `Polling ${config.connection} every ${intervalMs / MS_PER_SECOND}s — ctrl-c to stop.`,
       ),
     )
-    let stopped = false
+    const state = { stopped: false }
     const stop = (): void => {
-      stopped = true
-      // eslint-disable-next-line unicorn/no-process-exit -- encerramento controlado do modo watch; o exitcode é contrato do CLI.
-      void Promise.resolve(driver.close(db)).finally(() => process.exit(0))
+      state.stopped = true
+      void Promise.resolve(driver.close(db)).finally(() => exit(0))
     }
     process.once("SIGINT", stop)
     process.once("SIGTERM", stop)
     const tick = async (): Promise<void> => {
-      if (stopped) return
+      if (state.stopped) return
 
       try {
         const printed = await pullPass(db, config, opts, true)
@@ -1288,8 +1297,9 @@ function pullPollLoop(
       } catch (error) {
         console.error(`\n${fail(errMsg(error))}`)
       }
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- `stopped` muda no handler de sinal DURANTE o await; o TS não modela essa mutação assíncrona.
-      if (!stopped) setTimeout(() => void tick(), intervalMs)
+      // A signal handler flips this DURING the await above; TS can't model that async mutation.
+      const isStopped = (): boolean => state.stopped
+      if (!isStopped()) setTimeout(() => void tick(), intervalMs)
     }
     void tick()
   })
@@ -1349,8 +1359,7 @@ async function bootstrap(): Promise<void> {
   await registerDriverCommands(program).catch(() => void 0)
   if (process.argv.length <= ARGV_START) {
     program.outputHelp()
-    // eslint-disable-next-line unicorn/no-process-exit -- `sc` sem argumentos só mostra a ajuda e encerra com sucesso.
-    process.exit(0)
+    exit(0)
   }
   await program.parseAsync()
 }

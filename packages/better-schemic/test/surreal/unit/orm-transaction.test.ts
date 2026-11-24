@@ -1,15 +1,21 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/require-await, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock methods match async interfaces without awaiting. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
-// M4.1 — `client.transaction`: the managed-transaction runtime over a recording fake. Covers
-// commit/cancel, rollback, nested scope, afterCommit/afterRollback, retries, deadline, the
-// `inTransaction` threading (batches skip their implicit BEGIN) and option validation.
 import { describe, expect, test } from "bun:test"
 import type { QueryResponse } from "surrealdb"
 
-import { orm } from "../../../src/surreal/orm/client"
+import { type Client, orm } from "../../../src/surreal/orm/client"
 import { isOrmError, OrmError } from "../../../src/surreal/orm/errors"
 import { schema } from "../../../src/surreal/orm/schema"
 import { s, table } from "../../../src/surreal/pure"
 import { caught, lines, ok } from "../orm-fixtures"
+
+const MAGIC_150 = 150
+const MAGIC_2 = 2
+const MAGIC_200 = 200
+const MAGIC_3 = 3
+const MAGIC_42 = 42
+const MAGIC_50 = 50
+// M4.1 — `client.transaction`: the managed-transaction runtime over a recording fake. Covers
+// commit/cancel, rollback, nested scope, afterCommit/afterRollback, retries, deadline, the
+// `inTransaction` threading (batches skip their implicit BEGIN) and option validation.
 
 const User = table("user", { name: s.string() })
 const schemaDef = schema({ users: User })
@@ -20,25 +26,38 @@ type TxCall = {
 }
 
 /** A fake managed transaction: records statements, counts commit/cancel. */
-function fakeTx() {
+function fakeTx(): {
+  calls: TxCall[]
+  cancel(): Promise<void>
+  cancelled: number
+  commit(): Promise<void>
+  committed: number
+  query(sql: string, vars?: Record<string, unknown>): { responses: () => Promise<QueryResponse[]> }
+} {
   const calls: TxCall[] = []
   const tx = {
     calls,
-    committed: 0,
-    cancelled: 0,
-    query(sql: string, vars?: Record<string, unknown>) {
-      calls.push({ sql, vars })
-      return {
-        responses: async (): Promise<QueryResponse[]> => lines(sql).map(() => ok([])),
-      }
+    cancel(): Promise<void> {
+      tx.cancelled++
+      return Promise.resolve()
     },
-    commit() {
+    cancelled: 0,
+    commit(): Promise<void> {
       tx.committed++
       return Promise.resolve()
     },
-    cancel() {
-      tx.cancelled++
-      return Promise.resolve()
+    committed: 0,
+    query(
+      sql: string,
+      vars?: Record<string, unknown>,
+    ): { responses: () => Promise<QueryResponse[]> } {
+      calls.push({ sql, vars })
+      return {
+        responses: async (): Promise<QueryResponse[]> => {
+          await Promise.resolve()
+          return lines(sql).map(() => ok([]))
+        },
+      }
     },
   }
   return tx
@@ -48,27 +67,68 @@ function fakeTx() {
 function fakeRoot(
   onBegin?: (count: number) => void,
   handler?: (sql: string, vars?: Record<string, unknown>) => QueryResponse[],
-) {
+): {
+  beginCalls: number
+  beginTransaction(): Promise<{
+    calls: TxCall[]
+    cancel(): Promise<void>
+    cancelled: number
+    commit(): Promise<void>
+    committed: number
+    query(
+      sql: string,
+      vars?: Record<string, unknown>,
+    ): { responses: () => Promise<QueryResponse[]> }
+  }>
+  query(sql: string, vars?: Record<string, unknown>): { responses: () => Promise<QueryResponse[]> }
+  rootCalls: TxCall[]
+  transactions: {
+    calls: TxCall[]
+    cancel(): Promise<void>
+    cancelled: number
+    commit(): Promise<void>
+    committed: number
+    query(
+      sql: string,
+      vars?: Record<string, unknown>,
+    ): { responses: () => Promise<QueryResponse[]> }
+  }[]
+} {
   const rootCalls: TxCall[] = []
   const transactions: ReturnType<typeof fakeTx>[] = []
   const conn = {
     beginCalls: 0,
-    rootCalls,
-    transactions,
-    query(sql: string, vars?: Record<string, unknown>) {
-      rootCalls.push({ sql, vars })
-      return {
-        responses: async (): Promise<QueryResponse[]> =>
-          handler ? handler(sql, vars) : lines(sql).map(() => ok([])),
-      }
-    },
-    beginTransaction() {
+    beginTransaction(): Promise<{
+      calls: TxCall[]
+      cancel(): Promise<void>
+      cancelled: number
+      commit(): Promise<void>
+      committed: number
+      query(
+        sql: string,
+        vars?: Record<string, unknown>,
+      ): { responses: () => Promise<QueryResponse[]> }
+    }> {
       conn.beginCalls++
       onBegin?.(conn.beginCalls)
       const tx = fakeTx()
       transactions.push(tx)
       return Promise.resolve(tx)
     },
+    query(
+      sql: string,
+      vars?: Record<string, unknown>,
+    ): { responses: () => Promise<QueryResponse[]> } {
+      rootCalls.push({ sql, vars })
+      return {
+        responses: async (): Promise<QueryResponse[]> => {
+          await Promise.resolve()
+          return handler ? handler(sql, vars) : lines(sql).map(() => ok([]))
+        },
+      }
+    },
+    rootCalls,
+    transactions,
   }
   return conn
 }
@@ -76,7 +136,7 @@ function fakeRoot(
 const clientOver = (
   conn: ReturnType<typeof fakeRoot>,
   transaction?: Parameters<typeof orm>[1]["transaction"],
-) =>
+): Client<typeof schemaDef, never> =>
   orm(conn as never, {
     schema: schemaDef,
     ...(transaction === undefined ? {} : { transaction }),
@@ -90,9 +150,9 @@ describe("client.transaction — commit/cancel/rollback", () => {
     const client = clientOver(conn)
     const value = await client.transaction(async (tx) => {
       await tx.users.findMany({ where: { name: "A" } })
-      return 42
+      return MAGIC_42
     })
-    expect(value).toBe(42)
+    expect(value).toBe(MAGIC_42)
     expect(conn.beginCalls).toBe(1)
     expect(conn.transactions[0]?.committed).toBe(1)
     expect(conn.transactions[0]?.cancelled).toBe(0)
@@ -117,6 +177,7 @@ describe("client.transaction — commit/cancel/rollback", () => {
     const client = clientOver(conn)
     const err = await caught(() =>
       client.transaction(async () => {
+        await Promise.resolve()
         throw new OrmError("AssertionFailed", "nope")
       }),
     )
@@ -130,6 +191,7 @@ describe("client.transaction — commit/cancel/rollback", () => {
     const client = clientOver(conn)
     const err = await caught(() =>
       client.transaction(async (tx) => {
+        await Promise.resolve()
         tx.rollback("saldo insuficiente")
         return "unreachable"
       }),
@@ -147,6 +209,7 @@ describe("client.transaction — commit/cancel/rollback", () => {
     const client = clientOver(conn)
     const err = await caught(() =>
       client.transaction(async (tx) => {
+        await Promise.resolve()
         try {
           tx.rollback("swallowed")
         } catch {
@@ -180,7 +243,10 @@ describe("client.transaction — commit/cancel/rollback", () => {
     const client = clientOver(conn)
     const err = await caught(() =>
       client.transaction(async () => {
-        await client.transaction(async () => "again")
+        await client.transaction(async () => {
+          await Promise.resolve()
+          return "again"
+        })
       }),
     )
     expect(codeOf(err)).toBe("TransactionAlreadyActive")
@@ -192,6 +258,7 @@ describe("client.transaction — commit/cancel/rollback", () => {
     const client = clientOver(conn)
     const events: string[] = []
     await client.transaction(async (tx) => {
+      await Promise.resolve()
       tx.afterCommit(() => {
         events.push("commit")
       })
@@ -205,6 +272,7 @@ describe("client.transaction — commit/cancel/rollback", () => {
     const client2 = clientOver(conn2)
     await caught(() =>
       client2.transaction(async (tx) => {
+        await Promise.resolve()
         tx.afterCommit(() => {
           events.push("commit2")
         })
@@ -222,12 +290,13 @@ describe("client.transaction — commit/cancel/rollback", () => {
     const client = clientOver(conn)
     const events: string[] = []
     await client.transaction(async () => {
+      await Promise.resolve()
       client.afterCommit(() => {
         events.push("root-scope")
       })
     })
     expect(events).toEqual(["root-scope"])
-    const err = (() => {
+    const err = ((): unknown => {
       try {
         client.afterCommit(() => {
           /* empty */
@@ -246,9 +315,10 @@ describe("client.transaction — commit/cancel/rollback", () => {
     const client = clientOver(conn)
     let tx: undefined | { afterCommit(cb: () => void): void }
     await client.transaction(async (handle) => {
+      await Promise.resolve()
       tx = handle
     })
-    const err = (() => {
+    const err = ((): unknown => {
       try {
         tx?.afterCommit(() => {
           /* empty */
@@ -269,6 +339,7 @@ describe("client.transaction — retries and deadline", () => {
     let attempts = 0
     const err = await caught(() =>
       client.transaction(async () => {
+        await Promise.resolve()
         attempts++
         throw new OrmError("WriteConflict", "conflict")
       }),
@@ -285,13 +356,14 @@ describe("client.transaction — retries and deadline", () => {
     })
     let attempts = 0
     const value = await client.transaction(async () => {
+      await Promise.resolve()
       attempts++
-      if (attempts < 3) throw new OrmError("WriteConflict", "again")
+      if (attempts < MAGIC_3) throw new OrmError("WriteConflict", "again")
       return "ok"
     })
     expect(value).toBe("ok")
-    expect(attempts).toBe(3)
-    expect(conn.beginCalls).toBe(3)
+    expect(attempts).toBe(MAGIC_3)
+    expect(conn.beginCalls).toBe(MAGIC_3)
     // Every failed attempt cancells it; the last one committed.
     expect(conn.transactions.map((t) => t.cancelled)).toEqual([1, 1, 0])
     expect(conn.transactions.map((t) => t.committed)).toEqual([0, 0, 1])
@@ -303,6 +375,7 @@ describe("client.transaction — retries and deadline", () => {
     let attempts = 0
     await caught(() =>
       client.transaction(async () => {
+        await Promise.resolve()
         attempts++
         throw new OrmError("AssertionFailed", "no retry")
       }),
@@ -317,12 +390,13 @@ describe("client.transaction — retries and deadline", () => {
     })
     let attempts = 0
     const value = await client.transaction(async () => {
+      await Promise.resolve()
       attempts++
       if (attempts === 1) throw new OrmError("DatabaseError", "connection reset by peer")
       return "recovered"
     })
     expect(value).toBe("recovered")
-    expect(attempts).toBe(2)
+    expect(attempts).toBe(MAGIC_2)
   })
 
   test("timeout cancels the transaction and fails with DatabaseError details.timedOut", async () => {
@@ -332,7 +406,7 @@ describe("client.transaction — retries and deadline", () => {
       client.transaction(
         async () => {
           await new Promise((resolve) => {
-            setTimeout(resolve, 200)
+            setTimeout(resolve, MAGIC_200)
           })
           return "late"
         },
@@ -353,7 +427,7 @@ describe("client.transaction — retries and deadline", () => {
     const started = client.transaction(
       async () => {
         await new Promise((resolve) => {
-          setTimeout(resolve, 50)
+          setTimeout(resolve, MAGIC_50)
         })
         return "late"
       },
@@ -362,7 +436,7 @@ describe("client.transaction — retries and deadline", () => {
     // The managed tx creates it synchronously inside the call; a cancelled transaction can't
     // commit, so the late settle throws — exercising the `if (timedOut)` catch arm. The final
     // wait lets that background settle land inside this test (not after the process exits).
-    conn.transactions[0].commit = () => Promise.reject(new Error("cancelled"))
+    conn.transactions[0].commit = (): Promise<void> => Promise.reject(new Error("cancelled"))
     const err = await caught(() => started)
     expect(codeOf(err)).toBe("DatabaseError")
     expect((err as OrmError).details).toMatchObject({
@@ -370,16 +444,22 @@ describe("client.transaction — retries and deadline", () => {
     })
     expect(conn.transactions[0]?.cancelled).toBe(1)
     await new Promise((resolve) => {
-      setTimeout(resolve, 150)
+      setTimeout(resolve, MAGIC_150)
     })
   })
 
   test("duration strings are accepted for timeout", async () => {
     const conn = fakeRoot()
     const client = clientOver(conn)
-    const value = await client.transaction(async () => "fast", {
-      timeout: "1s",
-    })
+    const value = await client.transaction(
+      async () => {
+        await Promise.resolve()
+        return "fast"
+      },
+      {
+        timeout: "1s",
+      },
+    )
     expect(value).toBe("fast")
   })
 })
@@ -389,9 +469,15 @@ describe("client.transaction — options validation and unsupported features", (
     const conn = fakeRoot()
     const client = clientOver(conn)
     const err = await caught(() =>
-      client.transaction(async () => "x", {
-        mode: "sql" as never,
-      }),
+      client.transaction(
+        async () => {
+          await Promise.resolve()
+          return "x"
+        },
+        {
+          mode: "sql" as never,
+        },
+      ),
     )
     expect(codeOf(err)).toBe("UnsupportedCapability")
     expect((err as Error).message).toContain("sdk")
@@ -401,16 +487,28 @@ describe("client.transaction — options validation and unsupported features", (
     const conn = fakeRoot()
     const client = clientOver(conn)
     const thrown = await caught(() =>
-      client.transaction(async () => "x", {
-        isolation: "snapshot",
-        onUnsupported: "throw",
-      }),
+      client.transaction(
+        async () => {
+          await Promise.resolve()
+          return "x"
+        },
+        {
+          isolation: "snapshot",
+          onUnsupported: "throw",
+        },
+      ),
     )
     expect(codeOf(thrown)).toBe("UnsupportedCapability")
-    const ignored = await client.transaction(async () => "x", {
-      isolation: "snapshot",
-      onUnsupported: "ignore",
-    })
+    const ignored = await client.transaction(
+      async () => {
+        await Promise.resolve()
+        return "x"
+      },
+      {
+        isolation: "snapshot",
+        onUnsupported: "ignore",
+      },
+    )
     expect(ignored).toBe("x")
   })
 
@@ -425,11 +523,17 @@ describe("client.transaction — options validation and unsupported features", (
       { timeout: "30 minutes" },
       { timeout: -5 },
     ]
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const options of cases) {
-      const err = await caught(() => client.transaction(async () => "x", options))
-      expect(codeOf(err)).toBe("ValidationError")
-    }
+    await Promise.all(
+      [...cases].map(async (options) => {
+        const err = await caught(() =>
+          client.transaction(async () => {
+            await Promise.resolve()
+            return "x"
+          }, options),
+        )
+        expect(codeOf(err)).toBe("ValidationError")
+      }),
+    )
   })
 
   test("a connection without beginTransaction fails with UnsupportedCapability", async () => {
@@ -439,7 +543,12 @@ describe("client.transaction — options validation and unsupported features", (
       query: conn.query.bind(conn),
     }
     const client = orm(bare as never, { schema: schemaDef })
-    const err = await caught(() => client.transaction(async () => "x"))
+    const err = await caught(() =>
+      client.transaction(async () => {
+        await Promise.resolve()
+        return "x"
+      }),
+    )
     expect(codeOf(err)).toBe("UnsupportedCapability")
   })
 
@@ -450,6 +559,7 @@ describe("client.transaction — options validation and unsupported features", (
     const err = await caught(() =>
       client.transaction(
         async () => {
+          await Promise.resolve()
           attempts++
           throw new OrmError("WriteConflict", "conflict")
         },

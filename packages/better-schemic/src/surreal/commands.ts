@@ -15,10 +15,20 @@ import type { AccessDef, ParamDef } from "./pure"
 
 type Ctx = CommandContext<Surreal>
 
+/** Run async work over items in order (IO output order is part of the CLI contract). */
+async function forEachSequential<T>(
+  items: readonly T[],
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  await items.reduce<Promise<void>>(async (prev, item) => {
+    await prev
+    await fn(item)
+  }, Promise.resolve())
+}
+
 /** Read a required positional by index, with a clear error naming the missing arg. */
 function pos(a: ParsedCommandArgs, i: number, name: string): string {
-  const v = a.positionals[i]
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
+  const v = a.positionals[i] as string | undefined
   if (v === undefined || v === "") throw new Error(`missing <${name}>`)
 
   return v
@@ -30,8 +40,8 @@ async function rows<T = unknown>(
   sql: string,
   vars?: Record<string, unknown>,
 ): Promise<T[]> {
-  const [first] = await conn.query<[T[]]>(sql, vars)
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
+  const result = await conn.query<[T[]]>(sql, vars)
+  const first = result[0] as T[] | undefined
   return first ?? []
 }
 
@@ -121,9 +131,10 @@ function compareAccess(a: StructAccess, l: StructAccess): string[] {
   if ((a.comment ?? "") !== (l.comment ?? "")) out.push("comment")
 
   // Durations: compare the ones the author explicitly set (SurrealDB materializes defaults on read).
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of ["grant", "token", "session"] as const)
+  const durationKeys = ["grant", "token", "session"] as const
+  durationKeys.forEach((key) => {
     if (a.duration?.[key] && a.duration[key] !== l.duration?.[key]) out.push(`duration ${key}`)
+  })
 
   return out
 }
@@ -162,13 +173,9 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
     kind: "param",
     async run(ctx: Ctx, a: ParsedCommandArgs): Promise<void> {
       const only = a.positionals[0]
-      const flagValue =
-        typeof a.flags.value === "string"
-          ? a.flags.value
-          : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-            typeof a.flags.env === "string"
-            ? process.env[a.flags.env]
-            : undefined
+      let flagValue: string | undefined
+      if (typeof a.flags.value === "string") flagValue = a.flags.value
+      else if (typeof a.flags.env === "string") flagValue = process.env[a.flags.env]
       if (typeof a.flags.env === "string" && flagValue === undefined)
         throw new Error(`environment variable ${a.flags.env} is not set`)
 
@@ -182,8 +189,7 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
         )
       }
       const dryRun = Boolean(a.flags["dry-run"])
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const def of params) {
+      await forEachSequential(params, async (def) => {
         const stmt = emitDefStatement(def, { exists: "overwrite" })
         let vars: Record<string, unknown> | undefined
         if (def.config.mode === "secret" && def.config.secret)
@@ -198,11 +204,11 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
         }
         if (dryRun) {
           ctx.io.info(stmt.ddl) // the value is a $__value placeholder — nothing to redact
-          continue
+          return
         }
         await ctx.conn.query(stmt.ddl, vars)
         ctx.io.ok(`pushed param "$${def.name}"`)
-      }
+      })
       if (dryRun) ctx.io.ok(`dry-run — ${params.length} param(s) not applied`)
     },
     summary:
@@ -217,16 +223,14 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
       if (authored.length === 0) throw new Error("no defineParam definitions in the schema")
 
       const live = await liveParams(ctx)
-      let bad = 0
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const def of authored) {
+      const bad = await authored.reduce<Promise<number>>(async (accPromise, def) => {
+        const bad = await accPromise
         const liveValue = live.get(def.name)
         if (liveValue === undefined) {
           ctx.io.fail(
             `missing  $${def.name} — not defined live (sc param push${def.config.mode === "value" ? " or sc push" : ""})`,
           )
-          bad++
-          continue
+          return bad + 1
         }
         if (def.config.mode === "secret" && def.config.secret) {
           // Compare : the live value is readable to root, but never printed here.
@@ -240,10 +244,11 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
             ctx.io.fail(
               `stale    $${def.name} — live value differs from ${def.config.secret.kind}:${def.config.secret.name} (sc param push ${def.name})`,
             )
-            bad++
+            return bad + 1
           }
         } else ctx.io.ok(`present  $${def.name}`)
-      }
+        return bad
+      }, Promise.resolve(0))
       if (bad) throw new Error(`${bad} param(s) need attention`)
     },
     summary:
@@ -264,11 +269,10 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
         return
       }
 
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const p of db.params) {
+      db.params.forEach((p) => {
         const value = secretNames.has(p.name) ? "<redacted>" : p.value
         ctx.io.info(`$${p.name} = ${value}${p.permissions === false ? "  [PERMISSIONS NONE]" : ""}`)
-      }
+      })
     },
     summary: "list live DEFINE PARAMs (values of authored secret params are REDACTED)",
     verb: "list",
@@ -342,18 +346,17 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
         )
       }
       const dryRun = Boolean(a.flags["dry-run"])
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const def of accesses) {
+      await forEachSequential(accesses, async (def) => {
         // OVERWRITE so push is idempotent (create-or-replace); secrets resolve to bound params at apply.
         const ddl = emitDefStatement(def, { exists: "overwrite" }).ddl
         const resolved = await resolveBindings(ctx, def)
         if (dryRun) {
           ctx.io.info(ddl)
-          continue
+          return
         }
         await ctx.conn.query(ddl, resolved)
         ctx.io.ok(`pushed access "${def.name}"`)
-      }
+      })
       if (dryRun) ctx.io.ok(`dry-run — ${accesses.length} access(es) not applied`)
     },
     summary:
@@ -423,8 +426,7 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
       const liveByName = new Map(live.map((l) => [l.name, l]))
       const authoredNames = new Set(defs.map((d) => d.name))
       let differ = 0
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const def of defs) {
+      defs.forEach((def) => {
         const authored = lowerAccess(def)
         const l = liveByName.get(def.name)
         if (l) {
@@ -443,16 +445,15 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
             `    (has secret key — key changes aren't detected here; use: sc access rotate ${def.name})`,
           )
         }
-      }
+      })
       // Orphans: live accesses with no authored def (when diffing the whole set, not a single name).
       if (!only) {
-        // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-        for (const l of live) {
+        live.forEach((l) => {
           if (!authoredNames.has(l.name)) {
             ctx.io.info(`- ${l.name}  orphan — in database, not in schema (not removed)`)
             differ++
           }
-        }
+        })
       }
       ctx.io.ok(differ ? `${differ} access(es) differ` : "all accesses in sync")
     },
@@ -482,14 +483,18 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
 
       const col = kv.slice(0, eq)
       const val = kv.slice(eq + 1)
-      // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-      const limit = Math.max(1, Math.floor(Number(a.flags.limit ?? 100)) || 100)
+      const DEFAULT_FIND_LIMIT = 100
+      const limit = Math.max(
+        1,
+        Math.floor(Number(a.flags.limit ?? DEFAULT_FIND_LIMIT)) || DEFAULT_FIND_LIMIT,
+      )
       // table + column are identifiers (escaped); the value is a BOUND param.
       const sql = `SELECT * FROM type::table($tbl) WHERE ${escapeIdent(col)} = $val LIMIT ${limit}`
       const found = await rows(ctx.conn, sql, { tbl: table, val })
       ctx.io.ok(`${found.length} row(s)`)
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const r of found) ctx.io.info(JSON.stringify(r))
+      found.forEach((r) => {
+        ctx.io.info(JSON.stringify(r))
+      })
     },
     summary: "SELECT * FROM <table> WHERE <col=value> [--limit N]",
     verb: "find",

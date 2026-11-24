@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/explicit-function-return-type, @typescript-eslint/explicit-module-boundary-types -- o tipo de retorno concreto do spec do plugin (extendModel/extra de estado) é inferido por `definePlugin` e precisa fluir para o delegate; anotá-lo como `Plugin` apagaria `$forTenant` e os extras para o consumidor. */
 /**
  * The `tenantRls` runtime half of `plugins/tenant` — client-side row-level tenant isolation for
  * PRIVILEGED sessions (where `$auth`/DDL permissions do not filter). Reads the `meta.tenant` marker
@@ -21,7 +20,7 @@ import { OrmError } from "../orm/errors"
 import { operationFamily } from "../orm/hooks"
 import type { SchemaIndex, TableMeta } from "../orm/meta"
 import { definePlugin } from "../orm/plugins"
-import type { Operation, PluginState } from "../orm/types/plugins"
+import type { Operation, Plugin, PluginModelContext, PluginState } from "../orm/types/plugins"
 import type { AnyTableDef } from "../orm/types/schema"
 
 import { assertIdent, isIdent } from "./tenant-shared"
@@ -58,6 +57,8 @@ export interface TenantModelExtras {
   /** A clone of this delegate scoped to `tenant` (via `$withState`) — chainable; the original
    * delegate keeps its state. The scope resolves as `$state.<plugin id>` > `tenantRls({ tenant })`. */
   $forTenant(tenant: TenantRef): this
+  /** Lets the spec meet `PluginSpec`'s `Record<string, unknown>` graft contract. */
+  readonly [key: string]: unknown
 }
 
 /** The parsed runtime tag of one tenant-scoped table. */
@@ -80,7 +81,7 @@ function tenantMetaOf(meta: TableMeta | { def: AnyTableDef }): unknown {
 
 /** Parse + check a `meta.tenant` marker (fails bootstrap with the table named). */
 function parseTag(raw: unknown, table: string): TenantTag {
-  const malformed = () =>
+  const malformed = (): OrmError =>
     new OrmError(
       "SchemaInvalid",
       `plugins/tenant: table "${table}" has a malformed meta.tenant tag — expected { column: string, principal?: string, softDelete?: string | false, createOnly?: boolean }.`,
@@ -286,11 +287,13 @@ function injectCreateData(
   scope: RecordId,
   data: unknown = op.args.data,
 ): void {
-  // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-  const items = Array.isArray(data) ? data : data === undefined ? [] : [data]
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const item of items) {
-    if (!isPlainObject(item)) continue
+  let items: readonly unknown[]
+  if (Array.isArray(data)) items = data
+  else if (data === undefined) items = []
+  else items = [data]
+
+  items.forEach((item) => {
+    if (!isPlainObject(item)) return
     // the compiler rejects a non-object payload itself
     const current = item[tag.column]
     if (current !== undefined && !sameTenant(current, scope, tag)) {
@@ -301,7 +304,7 @@ function injectCreateData(
       )
     }
     item[tag.column] = scope
-  }
+  })
 }
 
 /** Check an update payload's tenant value (an equal value normalizs it to the scoped
@@ -312,14 +315,16 @@ function assertUpdateData(
   scope: RecordId,
   data: unknown = op.args.data,
 ): void {
-  // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-  const items = Array.isArray(data) ? data : data === undefined ? [] : [data]
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const item of items) {
-    if (!isPlainObject(item)) continue
+  let items: readonly unknown[]
+  if (Array.isArray(data)) items = data
+  else if (data === undefined) items = []
+  else items = [data]
+
+  items.forEach((item) => {
+    if (!isPlainObject(item)) return
 
     const current = item[tag.column]
-    if (current === undefined) continue
+    if (current === undefined) return
 
     if (!sameTenant(current, scope, tag)) {
       throw violationError(
@@ -329,27 +334,28 @@ function assertUpdateData(
       )
     }
     item[tag.column] = scope
-  }
+  })
 }
 
 /** Reject a JSON Patch that targets the tenant column (top-level paths). */
 function assertPatches(op: Operation, tag: TenantTag): void {
-  const patches = op.args.patches
+  const patches: unknown = op.args.patches
   if (!Array.isArray(patches)) return
+  const entries = patches as readonly unknown[]
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const entry of patches) {
-    if (!isPlainObject(entry) || typeof entry.path !== "string") continue
-
-    const path = entry.path
-    if (path === `/${tag.column}` || path.startsWith(`/${tag.column}/`)) {
-      throw violationError(
-        op,
-        tag,
-        `the JSON Patch touches "/${tag.column}"`,
-        `The tenant column is READONLY and scope-owned — remove the patch op.`,
-      )
-    }
+  const bad = entries.find(
+    (entry) =>
+      isPlainObject(entry) &&
+      typeof entry.path === "string" &&
+      (entry.path === `/${tag.column}` || entry.path.startsWith(`/${tag.column}/`)),
+  )
+  if (bad !== undefined) {
+    throw violationError(
+      op,
+      tag,
+      `the JSON Patch touches "/${tag.column}"`,
+      `The tenant column is READONLY and scope-owned — remove the patch op.`,
+    )
   }
 }
 
@@ -380,20 +386,28 @@ function columnError(value: unknown): OrmError {
  * {@link OrmError} `TenantRequired` BEFORE compiling; forged/divergent values throw
  * `TenantViolation`. Untagged tables pass through untouched (zero behavior change).
  */
-export function tenantRls(options: TenantRlsOptions = {}) {
+/** The plugin with the delegate extras it grafts on. */
+type TenantRlsPlugin = Plugin<{
+  readonly column: string
+  readonly tables: readonly string[]
+  readonly tenant?: (() => null | TenantRef | undefined) | TenantRef
+}> & {
+  extendModel(ctx: PluginModelContext): TenantModelExtras
+}
+
+export const tenantRls: (options?: TenantRlsOptions) => TenantRlsPlugin = (options = {}) => {
   const fallbackColumn = options.column ?? "tenant_id"
   if (!isIdent(fallbackColumn)) throw columnError(options.column)
 
   const extras: readonly string[] = options.tables ?? []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const name of extras) {
+  extras.forEach((name) => {
     if (typeof name !== "string" || !name) {
       throw new OrmError(
         "PluginError",
         `tenantRls: every "tables" entry must be a non-empty physical table name (got ${describeValue(name)}).`,
       )
     }
-  }
+  })
   /** Per schema index: physical table -> tag, built at bootstrap (setup) — the transform is a
    * plain map lookup. Keyed by the INDEX (not by plugin instance), so sharing one `tenantRls`
    * instance across clients with different schemas stays correct. */
@@ -402,17 +416,15 @@ export function tenantRls(options: TenantRlsOptions = {}) {
   /** Build + check the tag map for one schema index (bootstrap, or fail-closed). */
   const buildTags = (index: SchemaIndex): Map<string, TenantTag> => {
     const tags = new Map<string, TenantTag>()
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const meta of index.tables.values()) {
+    index.tables.forEach((meta) => {
       const raw = tenantMetaOf(meta)
-      if (raw === undefined) continue
+      if (raw === undefined) return
 
       const tag = parseTag(raw, meta.name)
       validateTag(tag, meta)
       tags.set(meta.name, tag)
-    }
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const name of extras) {
+    })
+    extras.forEach((name) => {
       const model = index.byName.get(name)
       if (model === undefined) {
         throw new OrmError(
@@ -423,14 +435,14 @@ export function tenantRls(options: TenantRlsOptions = {}) {
       }
       if ("schemaless" in model) {
         tags.set(name, { column: fallbackColumn, createOnly: false })
-        continue
+        return
       }
       const raw = tenantMetaOf(model)
       const tag =
         raw === undefined ? { column: fallbackColumn, createOnly: false } : parseTag(raw, name)
       validateTag(tag, model)
       tags.set(name, tag)
-    }
+    })
     return tags
   }
 

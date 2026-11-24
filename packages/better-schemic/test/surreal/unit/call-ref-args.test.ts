@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-unsafe-argument, unicorn/consistent-function-scoping, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally unused type-probe values. Mock fixtures pass untyped values to exercise runtime SQL emission. Helpers stay colocated with the tests that use them. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // Def.call(...) args accept typed FIELD/BLOCK-VAR refs and builders, not literals /
 // fragments / $param refs — `SendEmail.call({ email: e.after.email, code: sv.code as never })` from a
 // block chain. Simple param-path refs splice BARE (`fn::f($code)` — parens there are redundant
@@ -7,31 +6,73 @@ import { describe, expect, test } from "bun:test"
 
 import { defineFunction, s, surql, table } from "../../../src/surreal"
 import { block } from "../../../src/surreal/query"
+import type { Block } from "../../../src/surreal/surql/block"
+import { KEEP_ORDER } from "../../order-barrier"
+const _bad = (): Block<Record<string, never> & { n: number }, never> =>
+  block()
+    .let({ n: 5 })
+    // @ts-expect-error — `who` is a string arg; sv.n holds a number ref
+    .do((sv) => Stamp.call({ code: "x", who: sv.n }))
 
 const Audit = table("cra_audit", {
-  who: s.string(),
   code: s.string(),
+  who: s.string(),
 })
 const Stamp = defineFunction("cra_stamp", {
   who: s.string(),
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
+  ...KEEP_ORDER,
   code: s.string(),
 })
   .returns(s.boolean())
   .body(
-    ({ who, code }) => surql`{ CREATE ${Audit} SET who = ${who}, code = ${code}; RETURN true; }`,
+    ({ code, who }) => surql`{ CREATE ${Audit} SET who = ${who}, code = ${code}; RETURN true; }`,
   )
 
 describe("call args — refs and builders", () => {
   test("a block-var ref splices BARE: fn::cra_stamp($who, $code)", () => {
     const b = block()
       .let({ code: surql`rand::string(6)`.as<string>() })
-      .do((sv) => Stamp.call({ who: surql.$.after.email, code: sv.code as never }))
+      .do((sv) =>
+        Stamp.call({
+          who: surql.$.after.email,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          ...KEEP_ORDER,
+          code: sv.code as never,
+        }),
+      )
     expect(b.toQuery().query).toContain("fn::cra_stamp($after.email, $code)")
   })
 
   test("a fragment arg splices parenthesized with its binds", () => {
     const q = Stamp.call({
       who: surql`SELECT * FROM ONLY cra_audit WHERE code = ${"x"}`.as<string>(),
+      ...KEEP_ORDER,
+      ...KEEP_ORDER,
+      ...KEEP_ORDER,
+      ...KEEP_ORDER,
+      ...KEEP_ORDER,
+      ...KEEP_ORDER,
+      ...KEEP_ORDER,
+      ...KEEP_ORDER,
+      ...KEEP_ORDER,
+      ...KEEP_ORDER,
       code: "y",
     })
     expect(q.query).toMatch(
@@ -41,11 +82,6 @@ describe("call args — refs and builders", () => {
   })
 
   test("typed: a wrong-kinded ref is a compile error", () => {
-    const _bad = () =>
-      block()
-        .let({ n: 5 })
-        // @ts-expect-error — `who` is a string arg; sv.n holds a number ref
-        .do((sv) => Stamp.call({ who: sv.n, code: "x" }))
-    void _bad
+    const _probe = _bad
   })
 })

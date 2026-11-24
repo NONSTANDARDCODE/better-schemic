@@ -16,8 +16,14 @@ const JSON_INDENT = 2
 const ARGV_START = 2
 /** Tail of the install log shown when installation fails. */
 const INSTALL_ERROR_TAIL = 8
+/** `--pm` consumes the flag and its value. */
+const ARG_STEP = 2
 const bold = (s: string): string => `\u001B[1m${s}\u001B[0m`
 const dim = (s: string): string => `\u001B[2m${s}\u001B[0m`
+
+/** The CLI's single exit seam — every path reports its code through this typed function. */
+const exitProcess = process.exit.bind(process)
+const exit = (code?: null | number | string): never => Reflect.apply(exitProcess, undefined, [code])
 
 const PMS = ["bun", "npm", "pnpm", "yarn"] as const
 type Pm = (typeof PMS)[number]
@@ -32,33 +38,35 @@ type Options = {
 
 function parseArgs(argv: string[]): Options {
   const o: Options = { git: true, yes: false }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]
+  const consume = (index: number): void => {
+    if (index >= argv.length) return
+    const a = argv[index]
     if (a === "-y" || a === "--yes") o.yes = true
     else if (a === "--no-install") o.install = false
     else if (a === "--no-git") o.git = false
-    else if (a === "--pm") o.pm = argv[++i]
-    else if (a === "-h" || a === "--help") {
+    else if (a === "--pm") {
+      o.pm = argv[index + 1]
+      consume(index + ARG_STEP)
+      return
+    } else if (a === "-h" || a === "--help") {
       printHelp()
-      // eslint-disable-next-line unicorn/no-process-exit -- CLI: `--help` encerra com código 0.
-      process.exit(0)
+      exit(0)
     } else if (a.startsWith("-"))
       // An unknown OPTION is an error, never a directory name — a typo must not scaffold a folder
       // named after the flag's value.
-
       unknownOption(a)
     else o.dir ??= a
+    consume(index + 1)
   }
+  consume(0)
   return o
 }
 
 /** Refuse an unknown option with the usage (an exit, so the caller never continues). */
-function unknownOption(option: string): never {
+function unknownOption(option: string): void {
   console.error(`Unknown option: ${option}\n`)
   printHelp()
-  // eslint-disable-next-line unicorn/no-process-exit -- CLI: opção inválida encerra com código 1.
-  process.exit(1)
+  exit(1)
 }
 
 function printHelp(): void {
@@ -74,21 +82,20 @@ Options:
   -h, --help        show this help`)
 }
 
+/** With `stdio: inherit`, spawnSync reports null stdout/stderr at runtime despite the types. */
+const text = (value: unknown): string => (typeof value === "string" ? value : "")
+
 /** Which package manager invoked us (from npm_config_user_agent), for a sensible default. */
 function detectPm(): Pm {
   const ua = process.env.npm_config_user_agent ?? ""
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const pm of PMS) if (ua.startsWith(pm)) return pm
-
-  return "npm"
+  return PMS.find((pm) => ua.startsWith(pm)) ?? "npm"
 }
 
 /** Abort cleanly on Ctrl-C / cancel from any prompt. */
 function abortIfCancel<T>(value: T): Exclude<T, symbol> {
   if (p.isCancel(value)) {
     p.cancel("Cancelled.")
-    // eslint-disable-next-line unicorn/no-process-exit -- CLI: cancelamento do prompt encerra com código 1.
-    process.exit(1)
+    exit(1)
   }
   return value as Exclude<T, symbol>
 }
@@ -154,19 +161,19 @@ function applyPackageJson(target: string, name: string): string {
     dependencies?: Record<string, string>
     scripts?: Record<string, string>
   }
-  pkg.dependencies ??= {}
+  const dependencies = (pkg.dependencies ??= {})
   const added: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [k, v] of Object.entries(deps)) {
-    if (!(k in pkg.dependencies)) {
-      pkg.dependencies[k] = v
+  Object.entries(deps).forEach(([k, v]) => {
+    if (!(k in dependencies)) {
+      dependencies[k] = v
       added.push(k)
     }
-  }
-  pkg.dependencies = Object.fromEntries(Object.entries(pkg.dependencies).sort())
-  pkg.scripts ??= {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [k, v] of Object.entries(SCRIPTS)) if (!(k in pkg.scripts)) pkg.scripts[k] = v
+  })
+  pkg.dependencies = Object.fromEntries(Object.entries(dependencies).sort())
+  const scripts = (pkg.scripts ??= {})
+  Object.entries(SCRIPTS).forEach(([k, v]) => {
+    if (!(k in scripts)) scripts[k] = v
+  })
 
   writeFileSync(path, `${JSON.stringify(pkg, null, JSON_INDENT)}\n`)
   return added.length > 0
@@ -213,8 +220,7 @@ function run(
     encoding: "utf8",
     stdio: capture ? "pipe" : "inherit",
   })
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- com `stdio: inherit`, spawnSync devolve stdout/stderr null em runtime.
-  return { ok: r.status === 0, out: `${r.stdout ?? ""}${r.stderr ?? ""}` }
+  return { ok: r.status === 0, out: `${text(r.stdout)}${text(r.stderr)}` }
 }
 
 /**
@@ -255,8 +261,8 @@ async function main(): Promise<void> {
       }),
     )
   }
-  // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- `||=` também cobre --dir "" (diretório vazio cai no padrão).
-  dir ||= "better-schemic-app"
+  // An empty `--dir ""` resolves to the default, matching the old `||=` behavior.
+  dir = dir && dir.length > 0 ? dir : "better-schemic-app"
   const target = nodePath.resolve(process.cwd(), dir)
   const name = nodePath.basename(target)
   mkdirSync(target, { recursive: true })
@@ -271,8 +277,7 @@ async function main(): Promise<void> {
     )
     if (!ok) {
       p.cancel("Aborted.")
-      // eslint-disable-next-line unicorn/no-process-exit -- CLI: recusa de sobrescrever diretório encerra com código 1.
-      process.exit(1)
+      exit(1)
     }
   }
 
@@ -290,11 +295,9 @@ async function main(): Promise<void> {
   let pm: Pm = (opts.pm as Pm | undefined) ?? detected
   if (!PMS.includes(pm)) {
     p.cancel(`Unknown package manager "${pm}". Known: ${PMS.join(", ")}.`)
-    // eslint-disable-next-line unicorn/no-process-exit -- CLI: gerenciador inválido encerra com código 1.
-    process.exit(1)
+    exit(1)
   }
   if (install && !opts.pm && tty) {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- estreita o resultado do prompt (string | symbol) para a união Pm.
     pm = abortIfCancel(
       await p.select({
         initialValue: detected,
@@ -304,7 +307,7 @@ async function main(): Promise<void> {
           value: m,
         })),
       }),
-    ) as Pm
+    )
   }
 
   // 3. write/merge the project envelope (fresh for a new project, merge into an existing one)
@@ -326,8 +329,7 @@ async function main(): Promise<void> {
       s.stop(`${pm} install failed`)
       p.log.error(r.out.trim().split("\n").slice(-INSTALL_ERROR_TAIL).join("\n"))
       p.outro(`Fix the install, then run ${bold("better-schemic init")}.`)
-      // eslint-disable-next-line unicorn/no-process-exit -- CLI: falha na instalação encerra com código 1.
-      process.exit(1)
+      exit(1)
     }
     s.stop("Dependencies installed")
     p.log.step("Scaffolding the schema")
@@ -352,6 +354,5 @@ try {
   await main()
 } catch (error: unknown) {
   p.log.error(error instanceof Error ? error.message : String(error))
-  // eslint-disable-next-line unicorn/no-process-exit -- CLI: erro não tratado encerra com código 1.
-  process.exit(1)
+  exit(1)
 }

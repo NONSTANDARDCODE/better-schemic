@@ -29,9 +29,9 @@ describe("secret refs", () => {
   })
 
   test("inherited Object members never resolve as secrets (hasOwn + string check)", () => {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const name of ["constructor", "toString", "__proto__", "hasOwnProperty"])
+    ;["constructor", "toString", "__proto__", "hasOwnProperty"].forEach((name) => {
       expect(() => envSecretProvider.resolve(env(name))).toThrow(/not set in the environment/u)
+    })
     expect(isSecretRef(env(""))).toBe(false)
   })
 })

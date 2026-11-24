@@ -1,25 +1,36 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
-// M6.3 — the `zod` validation plugin: check write `data` with user Zod schemas (path in the
-// ValidationError), and skip unconfigured tables. Offline.
 import { describe, expect, test } from "bun:test"
 import { RecordId } from "surrealdb"
-import { z } from "zod"
+import { z, type ZodInt, type ZodString } from "zod"
 
 import { surql } from "../../../src/surreal"
 import { orm } from "../../../src/surreal/orm/client"
 import { schema } from "../../../src/surreal/orm/schema"
+import type { Client } from "../../../src/surreal/orm/types/client"
+import type { Plugin } from "../../../src/surreal/orm/types/plugins"
 import { zod } from "../../../src/surreal/plugins/zod"
-import { s, table } from "../../../src/surreal/pure"
-import { fakeConn, lines, ok } from "../orm-fixtures"
+import { s, type SField, table, type TableDef, type WithSmartId } from "../../../src/surreal/pure"
+import { type FakeConn, fakeConn, lines, ok } from "../orm-fixtures"
+
+const MAGIC_2 = 2
+// M6.3 — the `zod` validation plugin: check write `data` with user Zod schemas (path in the
+// ValidationError), and skip unconfigured tables. Offline.
 
 const User = table("user", { name: s.string() })
 const schemaDef = schema({ users: User })
 
-const clientWith = (schemas: Record<string, z.ZodType>) => {
+const clientWith = (
+  schemas: Record<string, z.ZodType>,
+): Client<
+  {
+    readonly users: TableDef<"user", WithSmartId<"user", { name: SField<ZodString> }>>
+  },
+  FakeConn,
+  readonly [Plugin]
+> => {
   const { conn } = fakeConn((sql) =>
     lines(sql).map(() => ok([{ id: new RecordId("user", 1), name: "A" }])),
   )
-  return orm(conn, { schema: schemaDef, plugins: [zod({ schemas })] })
+  return orm(conn, { plugins: [zod({ schemas })], schema: schemaDef })
 }
 
 const codeOf = async (fn: () => unknown): Promise<string | undefined> => {
@@ -32,7 +43,7 @@ const codeOf = async (fn: () => unknown): Promise<string | undefined> => {
 }
 
 describe("zod — write validation", () => {
-  const schemaFor = { user: z.object({ name: z.string().min(2) }) }
+  const schemaFor = { user: z.object({ name: z.string().min(MAGIC_2) }) }
 
   test("accepts valid data and rejects invalid with a ValidationError", async () => {
     const client = clientWith(schemaFor)
@@ -62,8 +73,8 @@ describe("zod — write validation", () => {
       lines(sql).map(() => ok([{ id: new RecordId("user", 1), name: "A" }])),
     )
     const client = orm(conn, {
-      schema: schemaDef,
       plugins: [zod({ schemas: schemaFor, validate: { create: false } })],
+      schema: schemaDef,
     })
     expect(await codeOf(() => client.users.create({ data: { name: "A" } }))).toBeUndefined()
   })
@@ -73,14 +84,14 @@ describe("zod — write validation", () => {
       lines(sql).map(() => ok([{ id: new RecordId("user", 1), name: "A" }])),
     )
     const client = orm(conn, {
-      schema: schemaDef,
       plugins: [zod({ schemas: schemaFor, validate: { update: false } })],
+      schema: schemaDef,
     })
     expect(
       await codeOf(() =>
         client.users.update({
-          where: { id: new RecordId("user", 1) },
           data: { name: "A" },
+          where: { id: new RecordId("user", 1) },
         }),
       ),
     ).toBeUndefined()
@@ -91,8 +102,8 @@ describe("zod — write validation", () => {
     expect(
       await codeOf(() =>
         client.users.patch({
-          where: { id: new RecordId("user", 1) },
           patches: [{ op: "replace", path: "/name", value: "Aeon" }],
+          where: { id: new RecordId("user", 1) },
         }),
       ),
     ).toBeUndefined()
@@ -103,8 +114,8 @@ describe("zod — write validation", () => {
     expect(
       await codeOf(() =>
         client.users.upsertDelta({
-          where: { id: "user:1" },
           data: { name: "A" },
+          where: { id: "user:1" },
         }),
       ),
     ).toBe("ValidationError")
@@ -122,15 +133,15 @@ describe("zod — write validation", () => {
       ),
     )
     const valid = orm(conn, {
-      schema: schemaDef,
       plugins: [zod({ schemas: schemaFor })],
+      schema: schemaDef,
     })
     expect(
       await codeOf(() =>
         valid.users.upsertDelta({
-          where: { id: "user:1" },
           data: { name: "Aeon" },
           onMissing: "create",
+          where: { id: "user:1" },
         }),
       ),
     ).toBeUndefined()
@@ -146,13 +157,22 @@ describe("zod — numeric adjustments", () => {
       name: z.string().optional(),
     }),
   }
-  const acctClient = () => {
+  const acctClient = (): Client<
+    {
+      readonly accounts: TableDef<
+        "acct",
+        WithSmartId<"acct", { balance: SField<ZodInt>; name: SField<ZodString> }>
+      >
+    },
+    FakeConn,
+    readonly [Plugin]
+  > => {
     const { conn } = fakeConn((sql) =>
-      lines(sql).map(() => ok([{ id: new RecordId("acct", 1), balance: 10, name: "A" }])),
+      lines(sql).map(() => ok([{ balance: 10, id: new RecordId("acct", 1), name: "A" }])),
     )
     return orm(conn, {
-      schema: acctSchema,
       plugins: [zod({ schemas: rules })],
+      schema: acctSchema,
     })
   }
 
@@ -161,8 +181,8 @@ describe("zod — numeric adjustments", () => {
     expect(
       await codeOf(() =>
         client.accounts.update({
-          where: { id: "acct:1" },
           data: { balance: { increment: 5 } },
+          where: { id: "acct:1" },
         }),
       ),
     ).toBeUndefined()
@@ -170,8 +190,8 @@ describe("zod — numeric adjustments", () => {
     expect(
       await codeOf(() =>
         client.accounts.update({
-          where: { id: "acct:1" },
           data: { balance: { increment: -5 } },
+          where: { id: "acct:1" },
         }),
       ),
     ).toBe("ValidationError")
@@ -182,8 +202,8 @@ describe("zod — numeric adjustments", () => {
     expect(
       await codeOf(() =>
         client.accounts.update({
-          where: { id: "acct:1" },
           data: { balance: { increment: surql`1`.as<number>() } },
+          where: { id: "acct:1" },
         }),
       ),
     ).toBeUndefined()

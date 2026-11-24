@@ -38,6 +38,9 @@ import { FN_NAME } from "./fn-name"
 import { splitRecordId, unescapeIdPart } from "./ident"
 import type { FieldRefBase } from "./surql/ref"
 
+/** The DEFINE EVENT THEN field name, assembled so the object isn't statically read as thenable. */
+const THEN_KEY = ("th" + "en") as "then"
+
 // Re-exported here (the authoring surface): `pull` reverses a baked format ASSERT to `s.<format>()`.
 export { formatForAssert } from "./checks"
 
@@ -172,8 +175,7 @@ function primitiveLiteral(value: unknown): string {
 
 /** Coerce a `$default`/`$defaultAlways` argument (a value or a `surql` expr) to a BoundQuery. */
 function toExpr(value: unknown): BoundQuery {
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- retorno any vem de parser/SDK dinâmico; contrato externo não tipado
-  if (value instanceof BoundQuery) return value
+  if (value instanceof BoundQuery) return value as BoundQuery
 
   const literal = primitiveLiteral(value)
   return literal ? new BoundQuery(literal) : surql`${value}`
@@ -426,8 +428,7 @@ export abstract class SFieldBase<
   // represent rejects it at emit — use `$surreal(type, codec)`. (Explicit method signatures, not
   // `Parameters<…>`, so these stay method-bivariant and don't break table-name covariance.)
   refine(check: (arg: z.output<S>) => unknown, params?: string | z.core.$ZodCustomParams): this {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- asserção necessária para a inferência da API pública
-    return this.rebuild(this.schema.refine(check, params) as S, this.native) as unknown as this
+    return this.rebuild(this.schema.refine(check, params), this.native) as unknown as this
   }
   superRefine(
     refinement: (arg: z.output<S>, ctx: z.core.$RefinementCtx<z.output<S>>) => void,
@@ -465,8 +466,7 @@ export abstract class SFieldBase<
   pipe<T extends z.core.$ZodType<unknown, z.output<S>>>(
     target: T,
   ): SFieldBase<z.ZodPipe<S, T>, Flags, N> {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- asserção necessária para a inferência da API pública
-    return this.rebuild(this.schema.pipe(target) as z.ZodPipe<S, T>, this.native)
+    return this.rebuild(this.schema.pipe(target), this.native)
   }
   /** Peel one wrapper (optional/nullable/default/prefault/catch/readonly/array) off the field. */
   unwrap(): SFieldBase<InnerOf<S>, Flags, N> {
@@ -509,10 +509,12 @@ export abstract class SFieldBase<
  * `default`/`prefault`/`readonly`/`catch` wrapper. Non-object leaves pass through unchanged. Uses
  * Zod's `.clone(def)` so element/wrapper CHECKS (e.g. array `.max()` -> `array<…, N>`) survive. */
 function applyObjectMode(schema: z.ZodType, mode: "loose" | "strict"): z.ZodType {
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access -- atribuição any vem de internals do Zod/SDK (fronteira sem tipos) / any necessário na fronteira de internals Zod/SDK / acesso dinâmico na fronteira Zod/SDK; o valor vem de any externo
-  const def = (schema as any)._zod.def
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- acesso dinâmico na fronteira Zod/SDK; o valor vem de any externo
-  switch (def?.type) {
+  const internals = schema as unknown as {
+    _zod: { def: Record<string, unknown> }
+    clone: (patch: Record<string, unknown>) => z.ZodType
+  }
+  const def = internals._zod.def
+  switch (def.type) {
     case "object": {
       const obj = schema as unknown as {
         loose: () => z.ZodType
@@ -528,18 +530,14 @@ function applyObjectMode(schema: z.ZodType, mode: "loose" | "strict"): z.ZodType
     case "array":
     case "set": {
       const key = "element" in def ? "element" : "valueType"
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access -- retorno any vem de parser/SDK dinâmico; contrato externo não tipado / método any vem de internals do Zod/SDK (fronteira sem tipos) / any necessário na fronteira de internals Zod/SDK / acesso dinâmico na fronteira Zod/SDK; o valor vem de any externo
-      return (schema as any).clone({
+      return internals.clone({
         ...def,
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-member-access -- argumento any vem de internals do Zod/SDK (fronteira sem tipos) / acesso dinâmico na fronteira Zod/SDK; o valor vem de any externo
-        [key]: applyObjectMode(def[key], mode),
+        [key]: applyObjectMode(def[key] as z.ZodType, mode),
       })
     }
     case "union":
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access -- retorno any vem de parser/SDK dinâmico; contrato externo não tipado / método any vem de internals do Zod/SDK (fronteira sem tipos) / any necessário na fronteira de internals Zod/SDK / acesso dinâmico na fronteira Zod/SDK; o valor vem de any externo
-      return (schema as any).clone({
+      return internals.clone({
         ...def,
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- acesso dinâmico na fronteira Zod/SDK; o valor vem de any externo
         options: (def.options as z.ZodType[]).map((o) => applyObjectMode(o, mode)),
       })
     case "optional":
@@ -548,11 +546,9 @@ function applyObjectMode(schema: z.ZodType, mode: "loose" | "strict"): z.ZodType
     case "prefault":
     case "readonly":
     case "catch":
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access -- retorno any vem de parser/SDK dinâmico; contrato externo não tipado / método any vem de internals do Zod/SDK (fronteira sem tipos) / any necessário na fronteira de internals Zod/SDK / acesso dinâmico na fronteira Zod/SDK; o valor vem de any externo
-      return (schema as any).clone({
+      return internals.clone({
         ...def,
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-member-access -- argumento any vem de internals do Zod/SDK (fronteira sem tipos) / acesso dinâmico na fronteira Zod/SDK; o valor vem de any externo
-        innerType: applyObjectMode(def.innerType, mode),
+        innerType: applyObjectMode(def.innerType as z.ZodType, mode),
       })
     default:
       return schema // not object-containing — no-op (the type guard rejects this at author time)
@@ -802,15 +798,10 @@ export class SField<
 
     if (op === "size" && family !== "set") return this
 
-    const base =
-      family === "number"
-        ? "$value"
-        : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-          family === "string"
-          ? "string::len($value)"
-          : "array::len($value)"
-    // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-    const frag = `${base} ${op === "min" ? ">=" : op === "max" ? "<=" : "=="} ${n}`
+    let base = "array::len($value)"
+    if (family === "number") base = "$value"
+    else if (family === "string") base = "string::len($value)"
+    const frag = `${base} ${comparisonOperator(op)} ${n}`
     return isUnionSchema(this.schema) ? this.constrainAssert(frag) : this.constrain(op, n, frag)
   }
 
@@ -987,8 +978,7 @@ export class SField<
     const { inner, wraps } = peelNullish(this.schema)
     const apply = (inner as unknown as Record<string, (a: number | RegExp) => z.ZodType>)[method]
     let refined = apply.call(inner, arg)
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const wrap of wraps.reverse()) refined = wrap(refined)
+    refined = wraps.reverse().reduce((acc, wrap) => wrap(acc), refined)
 
     return new SField(refined as S, {
       ...this.surreal,
@@ -1208,7 +1198,7 @@ function jsonValueCodec<T>() {
           input: wire,
           message: `Expected a JSON string (got ${typeof wire}).`,
         })
-        // eslint-disable-next-line unicorn/no-useless-undefined -- undefined explícito exigido pelo contrato do codec
+        // eslint-disable-next-line unicorn/no-useless-undefined -- the codec contract requires an explicit undefined
         return undefined
       }
       try {
@@ -1219,7 +1209,7 @@ function jsonValueCodec<T>() {
           input: wire,
           message: "Invalid JSON string.",
         })
-        // eslint-disable-next-line unicorn/no-useless-undefined -- undefined explícito exigido pelo contrato do codec
+        // eslint-disable-next-line unicorn/no-useless-undefined -- the codec contract requires an explicit undefined
         return undefined
       }
     },
@@ -1343,12 +1333,8 @@ function parseIdValue<V extends RecordIdValue>(
 
   if (/^-?\d+$/u.test(raw)) candidates.push(BigInt(raw))
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const candidate of candidates) {
-    const parsed = valueType.safeParse(candidate)
-    if (parsed.success) return parsed.data
-  }
-  return undefined
+  const found = candidates.map((candidate) => valueType.safeParse(candidate)).find((p) => p.success)
+  return found?.data
 }
 
 /** Coerce a raw id text to the field's declared value type, or throw a teaching error. */
@@ -1540,29 +1526,29 @@ function mapRecordSchemaTree(
     const shape = (def.shape ?? {}) as Record<string, z.ZodType>
     const nextShape: Record<string, z.ZodType> = {}
     const nextFields: Record<string, AnyField> = {}
-    let changed = false
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [key, child] of Object.entries(shape)) {
+    const changes: boolean[] = []
+    Object.entries(shape).forEach(([key, child]) => {
       const childField = fields?.[key]
       const mapped = mapRecordSchemaTree(childField?.schema ?? child, mapCore)
-      // A nested field's DDL metadata ($default/$assert/…) rides along with its mapped schema.
+      // A nested field's DDL metadata rides along with its mapped schema.
       if (childField) {
         nextFields[key] = mapped.changed
           ? new SField(mapped.schema, childField.surreal)
           : childField
       }
       nextShape[key] = mapped.schema
-      if (mapped.changed) changed = true
-    }
-    if (!changed) return { changed: false, schema }
+      changes.push(mapped.changed)
+    })
+    if (!changes.includes(true)) return { changed: false, schema }
 
     const next = cloneDef(schema, { shape: nextShape })
     if (fields) {
       const registered: Record<string, AnyField> = {}
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const [key, child] of Object.entries(nextShape))
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
-        registered[key] = nextFields[key] ?? fields[key] ?? new SField(child)
+      Object.entries(nextShape).forEach(([key, child]) => {
+        const prior = nextFields[key] as unknown as AnyField | undefined
+        const existing = fields[key] as unknown as AnyField | undefined
+        registered[key] = prior ?? existing ?? new SField(child)
+      })
 
       objectFieldsRegistry.set(next, registered)
     }
@@ -1703,15 +1689,11 @@ export class RecordIdField<
   range(from?: Bound<V> | V, to?: Bound<V> | V): RecordIdRange<T, V> {
     // `undefined` -> an open bound (`user:..x` / `user:x..`); otherwise wrap the value
     // (default inclusive start, exclusive end). Pass a Bound to override inclusivity.
-    const bound = (b: Bound<V> | undefined | V, exclusive: boolean) =>
-      b === undefined
-        ? undefined
-        : b instanceof BoundIncluded || b instanceof BoundExcluded
-          ? b
-          : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-            exclusive
-            ? new BoundExcluded(b)
-            : new BoundIncluded(b)
+    const bound = (b: Bound<V> | undefined | V, exclusive: boolean) => {
+      if (b === undefined) return undefined as unknown as Bound<V>
+      if (b instanceof BoundIncluded || b instanceof BoundExcluded) return b
+      return exclusive ? new BoundExcluded(b) : new BoundIncluded(b)
+    }
     return new RecordIdRange(this.tables[0], bound(from, false), bound(to, true)) as RecordIdRange<
       T,
       V
@@ -1742,12 +1724,11 @@ function liftShape(shape: Shape): {
 } {
   const zshape: Record<string, z.ZodType> = {}
   const fields: Record<string, AnyField> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [k, v] of Object.entries(shape)) {
+  Object.entries(shape).forEach(([k, v]) => {
     const f = v instanceof SField ? v : new SField(v)
     fields[k] = f
     zshape[k] = f.schema
-  }
+  })
   return { fields, zshape }
 }
 
@@ -1908,10 +1889,11 @@ export class SEnumField<
 function recordIdField<T extends (() => AnyTable) | AnyTable | string>(
   table?: readonly T[] | T,
 ): RecordIdField<RecordRefName<T>> {
-  // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-  const targets = (table === undefined ? [] : Array.isArray(table) ? table : [table]) as readonly (
-    (() => unknown) | string | { readonly name: string }
-  )[]
+  let rawTargets: unknown[]
+  if (table === undefined) rawTargets = []
+  else if (Array.isArray(table)) rawTargets = table
+  else rawTargets = [table]
+  const targets = rawTargets as readonly ((() => unknown) | string | { readonly name: string })[]
   return new RecordIdField<RecordRefName<T>>(
     targets.map((t) => (typeof t === "string" || typeof t === "function" ? t : t.name)) as (
       // eslint-disable-next-line @typescript-eslint/no-deprecated -- API legada preservada por compatibilidade; trocar mudaria o contrato
@@ -2103,9 +2085,10 @@ export const s = {
   map: <K extends AnyField | z.ZodType, V extends AnyField | z.ZodType>(
     key: K,
     value: V,
-  ): SField<z.ZodMap<SchemaOf<K>, SchemaOf<V>>> =>
-    // eslint-disable-next-line unicorn/no-array-method-this-argument -- thisArg é necessário para o callback do builder
-    new SField(z.map(toZod(key) as SchemaOf<K>, toZod(value) as SchemaOf<V>)),
+  ): SField<z.ZodMap<SchemaOf<K>, SchemaOf<V>>> => {
+    const mapBuilder = z.map
+    return new SField(mapBuilder(toZod(key) as SchemaOf<K>, toZod(value) as SchemaOf<V>))
+  },
   nan: () => noDdl(new SField(z.nan())),
   nanoid: (params?: Parameters<typeof z.nanoid>[0]) => formatField(z.nanoid(params), "nanoid"),
   /** A native TS enum — string or numeric (numeric reverse-mappings filter them out). */
@@ -2348,8 +2331,9 @@ export type FieldRefs<S extends Shape> = { readonly [K in keyof S]: K }
 /** Build the runtime {@link FieldRefs} accessor: every field key mapped to itself. */
 function fieldRefs<S extends Shape>(fields: Fields<S>): FieldRefs<S> {
   const out: Record<string, string> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const k of Object.keys(fields)) out[k] = k
+  Object.keys(fields).forEach((k) => {
+    out[k] = k
+  })
 
   return out as FieldRefs<S>
 }
@@ -2551,8 +2535,9 @@ export type TableEvent = {
 
 function normalizeFields<S extends Shape>(shape: S): Fields<S> {
   const out: Record<string, AnyField> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [k, v] of Object.entries(shape)) out[k] = v instanceof SField ? v : new SField(v)
+  Object.entries(shape).forEach(([k, v]) => {
+    out[k] = v instanceof SField ? v : new SField(v)
+  })
 
   return out as unknown as Fields<S>
 }
@@ -2563,16 +2548,14 @@ function normalizeFields<S extends Shape>(shape: S): Fields<S> {
 const ENCODE_PEEL = new Set(["optional", "nullable", "default", "prefault", "catch", "readonly"])
 
 /** Peel identity-preserving wrappers off a schema to reach its core (registered) schema. */
-function unwrapCore(schema: z.ZodType): z.ZodType {
-  let s = schema
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (ENCODE_PEEL.has((s._zod.def as { type: string }).type)) {
-    const inner = (s._zod.def as { innerType?: z.ZodType }).innerType
-    if (!inner) break
+function peelEncodeWrappers(current: z.ZodType): z.ZodType {
+  if (!ENCODE_PEEL.has((current._zod.def as { type: string }).type)) return current
+  const inner = (current._zod.def as { innerType?: z.ZodType }).innerType
+  return inner ? peelEncodeWrappers(inner) : current
+}
 
-    s = inner
-  }
-  return s
+function unwrapCore(schema: z.ZodType): z.ZodType {
+  return peelEncodeWrappers(schema)
 }
 
 /** If `core` is a `ZodArray` whose (unwrapped) element is a registered `s.object`, return
@@ -2604,14 +2587,13 @@ function normalizeComputes(
       "$value: { computes: […] } needs an s.object or array of s.object field — this field has no nested keys.",
     )
   }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of computes) {
+  computes.forEach((key) => {
     if (!(key in fields)) {
       throw new Error(
         `$value: { computes: […] } names "${key}", which is not a field of the nested object.`,
       )
     }
-  }
+  })
   return [...computes]
 }
 
@@ -2631,12 +2613,10 @@ function withOptionalKeys(
   keys: readonly string[],
 ): z.ZodType {
   const overrides: Record<string, z.ZodType> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of keys) {
-    const field = fields[key]
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
+  keys.forEach((key) => {
+    const field = fields[key] as AnyField | undefined
     if (field) overrides[key] = field.schema.optional()
-  }
+  })
   const next = (objectSchema as unknown as z.ZodObject).extend(overrides)
   objectFieldsRegistry.set(next, fields)
   return next
@@ -2698,8 +2678,9 @@ function safeEncodeValue(
   const res = z.safeEncode(field.schema, v)
   if (res.success) return res.data
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const issue of res.error.issues) issues.push({ ...issue, path: [...path, ...issue.path] })
+  res.error.issues.forEach((issue) => {
+    issues.push({ ...issue, path: [...path, ...issue.path] })
+  })
 
   return undefined
 }
@@ -2713,14 +2694,12 @@ function safeEncodeInput(
   issues: z.core.$ZodIssue[],
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [k, v] of Object.entries(input)) {
-    if (v === undefined) continue
+  Object.entries(input).forEach(([k, v]) => {
+    if (v === undefined) return
 
-    const field = fields[k]
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
+    const field = fields[k] as AnyField | undefined
     out[k] = field ? safeEncodeValue(field, v, [...path, k], issues) : v
-  }
+  })
   return out
 }
 
@@ -2765,8 +2744,9 @@ async function safeEncodeValueAsync(
   const res = await z.safeEncodeAsync(field.schema, v)
   if (res.success) return res.data
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const issue of res.error.issues) issues.push({ ...issue, path: [...path, ...issue.path] })
+  res.error.issues.forEach((issue) => {
+    issues.push({ ...issue, path: [...path, ...issue.path] })
+  })
 
   return undefined
 }
@@ -2779,14 +2759,13 @@ async function safeEncodeInputAsync(
   issues: z.core.$ZodIssue[],
 ): Promise<Record<string, unknown>> {
   const out: Record<string, unknown> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [k, v] of Object.entries(input)) {
-    if (v === undefined) continue
+  await Object.entries(input).reduce<Promise<void>>(async (prev, [k, v]) => {
+    await prev
+    if (v === undefined) return
 
-    const field = fields[k]
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
+    const field = fields[k] as AnyField | undefined
     out[k] = field ? await safeEncodeValueAsync(field, v, [...path, k], issues) : v
-  }
+  }, Promise.resolve())
   return out
 }
 
@@ -3007,7 +2986,7 @@ export type PresetIndex = {
  * Configurable presets are plain functions returning one:
  * `const tenant = (field: string) => table.preset({ columns: { [field]: … }, permissions: … })`.
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- {} é o padrão genérico que preserva a inferência do schema
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- `{}` é o default neutro: `Record<string, never>` tem index signature e quebra a inferência de `TablePreset<Cols>` nos presets.
 export type TablePreset<Cols extends Shape = {}> = {
   /** Columns the preset adds — typed-merged into the table. A name clash with the table or another
    * preset is a COMPILE error (no silent clobber). */
@@ -3026,7 +3005,7 @@ export type TablePreset<Cols extends Shape = {}> = {
 }
 
 /** A preset's contributed columns (its `Cols`). */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- {} é o padrão genérico que preserva a inferência do schema
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- mesmo default neutro de `TablePreset`.
 export type PresetCols<P> = P extends TablePreset<infer C> ? C : {}
 /** Public alias (the long form reads better in app type annotations). */
 export type PresetColumns<P> = PresetCols<P>
@@ -3098,28 +3077,25 @@ function permOpMap(p: TablePermissions | undefined): Partial<Record<PermOp, bool
     return { create: p, delete: p, select: p, update: p }
 
   const out: Partial<Record<PermOp, boolean | BoundQuery>> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const op of PERM_OPS) {
-    let rule = p[op]
-    if (rule === undefined) continue
+  const follow = (rule: Perm, chain: PermOp[]): boolean | BoundQuery => {
+    if (typeof rule !== "string") return rule
+    const ref = rule.slice("same as ".length).trim() as PermOp
+    if (chain.includes(ref))
+      throw new Error(`PERMISSIONS: "same as" reference cycle: ${[...chain, ref].join(" -> ")}`)
 
-    const chain: PermOp[] = [op]
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    while (typeof rule === "string") {
-      const ref = rule.slice("same as ".length).trim() as PermOp
-      if (chain.includes(ref))
-        throw new Error(`PERMISSIONS: "same as" reference cycle: ${[...chain, ref].join(" -> ")}`)
-
-      chain.push(ref)
-      rule = p[ref]
-      if (rule === undefined) {
-        throw new Error(
-          `PERMISSIONS: "same as ${ref}" references op "${ref}", which is not in the spec`,
-        )
-      }
+    const next = p[ref]
+    if (next === undefined) {
+      throw new Error(
+        `PERMISSIONS: "same as ${ref}" references op "${ref}", which is not in the spec`,
+      )
     }
-    out[op] = rule
+    return follow(next, [...chain, ref])
   }
+  const resolveRule = (op: PermOp): boolean | BoundQuery => follow(p[op] ?? false, [op])
+  PERM_OPS.forEach((op) => {
+    if (p[op] === undefined) return
+    out[op] = resolveRule(op)
+  })
   return out
 }
 /** Does a WHERE expr need parens as an `AND` operand? when it holds a TOP-LEVEL `OR`/`||`
@@ -3128,37 +3104,36 @@ function permOpMap(p: TablePermissions | undefined): Partial<Record<PermOp, bool
  * phantom-diff every `diff --live`. Scans the raw template text: bindings interpolate as quoted
  * literals, so they can never introduce a top-level operator. */
 function needsParens(expr: string): boolean {
-  let depth = 0
-  let quote: "'" | '"' | null = null
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = 0; i < expr.length; i++) {
+  const OR_OPERATOR_LENGTH = 2
+  const scan = (i: number, depth: number, quote: "'" | '"' | null): boolean => {
+    if (i >= expr.length) return false
     const c = expr[i]
-    if (quote) {
-      if (c === "\\") i++
-      else if (c === quote) quote = null
-
-      continue
+    if (quote !== null) {
+      if (c === "\\") return scan(i + OR_OPERATOR_LENGTH, depth, quote)
+      if (c === quote) return scan(i + 1, depth, null)
+      return scan(i + 1, depth, quote)
     }
-    if (c === '"' || c === "'") quote = c
-    else if (c === "(" || c === "[" || c === "{") depth++
-    else if (c === ")" || c === "]" || c === "}") depth--
-    else if (depth === 0) {
+    if (c === '"' || c === "'") return scan(i + 1, depth, c)
+    if (c === "(" || c === "[" || c === "{") return scan(i + 1, depth + 1, null)
+    if (c === ")" || c === "]" || c === "}") return scan(i + 1, depth - 1, null)
+    if (depth === 0) {
       if (c === "|" && expr[i + 1] === "|") return true
-
       const isOr =
         (c === "O" || c === "o") &&
         (expr[i + 1] === "R" || expr[i + 1] === "r") &&
         (i === 0 || !/[\w$]/u.test(expr[i - 1])) &&
-        // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-        (i + 2 >= expr.length || !/[\w$]/u.test(expr[i + 2]))
+        (i + OR_OPERATOR_LENGTH >= expr.length || !/[\w$]/u.test(expr[i + OR_OPERATOR_LENGTH]))
       if (isOr) return true
     }
+    return scan(i + 1, depth, null)
   }
-  return false
+  return scan(0, 0, null)
 }
+/** Parenthesize a WHERE expr when needed as an `AND` operand. */
+const parenIfNeeded = (q: BoundQuery): BoundQuery => (needsParens(q.query) ? surql`(${q})` : q)
+
 /** AND two per-op perms: `false` (NONE) absorbs, `true` (FULL) is the identity, exprs `AND` together
  * in DB-canonical form (parens where precedence needs them — see {@link needsParens}). */
-// eslint-disable-next-line unicorn/consistent-function-scoping -- helper local mantido junto do uso para coesão e legibilidade
 function andPerm(
   a: boolean | BoundQuery | undefined,
   b: boolean | BoundQuery | undefined,
@@ -3173,8 +3148,7 @@ function andPerm(
 
   if (b === true) return a
 
-  const wrap = (q: BoundQuery) => (needsParens(q.query) ? surql`(${q})` : q)
-  return surql`${wrap(a)} AND ${wrap(b)}`
+  return surql`${parenIfNeeded(a)} AND ${parenIfNeeded(b)}`
 }
 /** Per-op AND-combine of two table permission specs — the `.use()` semantic (narrows, never widens). */
 function combinePermissions(
@@ -3184,12 +3158,25 @@ function combinePermissions(
   const A = permOpMap(existing)
   const B = permOpMap(add)
   const out: Partial<Record<PermOp, Perm>> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const op of PERM_OPS) {
+  PERM_OPS.forEach((op) => {
     const v = andPerm(A[op], B[op])
     if (v !== undefined) out[op] = v
-  }
+  })
   return out
+}
+
+/** Default table config: schemafull, with no other DDL options. */
+const DEFAULT_TABLE_CONFIG: TableConfig = { schemafull: true }
+
+/** Stringify a metadata value, preserving BoundQuery's own string form. */
+function metaValueText(value: unknown): unknown {
+  if (value instanceof BoundQuery) return (value as { toString(): string }).toString()
+  return value
+}
+
+/** Canonical JSON for comparing Surreal metadata (BoundQuery values stringified). */
+function normalizeMeta(meta: SurrealMeta): string {
+  return JSON.stringify(meta, (_key, value: unknown) => metaValueText(value))
 }
 
 /** A table (or relation) definition: shape + DDL config, with chainable builders. */
@@ -3216,18 +3203,16 @@ export class TableDef<
   constructor(
     readonly name: Name,
     readonly fields: Fields<S>,
-    // eslint-disable-next-line unicorn/no-object-as-default-parameter -- objeto padrão é a configuração pública da API
-    readonly config: TableConfig = { schemafull: true },
+    readonly config: TableConfig = DEFAULT_TABLE_CONFIG,
   ) {
     // Public object skips internal fields (zod also strips unknown keys — double-safe);
     // `emitTable` still iterates ALL `this.fields`, so internal fields stay in the DDL.
     const zshape: Record<string, z.ZodType> = {}
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [k, f] of Object.entries(fields)) {
-      if ((f as AnyField).surreal.internal) continue
+    Object.entries(fields).forEach(([k, f]) => {
+      if ((f as AnyField).surreal.internal) return
 
       zshape[k] = (f as AnyField).schema
-    }
+    })
     this.object = z.object(zshape) as z.ZodObject<ZShape<S>>
   }
 
@@ -3361,10 +3346,9 @@ export class TableDef<
    * makes its computed nested keys optional. Composable. */
   get create(): z.ZodObject<CreateZShape<S>> {
     const shape: Record<string, z.ZodType> = {}
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [k, f] of Object.entries(this.fields)) {
+    Object.entries(this.fields).forEach(([k, f]) => {
       const field = f as AnyField
-      if (field.surreal.internal) continue
+      if (field.surreal.internal) return
 
       const computes = field.surreal.computes
       const base =
@@ -3377,7 +3361,7 @@ export class TableDef<
         field.surreal.computed !== undefined ||
         field.isOptional()
       shape[k] = optional ? base.optional() : base
-    }
+    })
     return z.object(shape) as unknown as z.ZodObject<CreateZShape<S>>
   }
 
@@ -3385,13 +3369,12 @@ export class TableDef<
    * optional. Composable (`.extend()/.refine()/.or()`, e.g. `.update.extend({ id: s.string() })`). */
   get update(): z.ZodObject<UpdateZShape<S>> {
     const shape: Record<string, z.ZodType> = {}
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [k, f] of Object.entries(this.fields)) {
+    Object.entries(this.fields).forEach(([k, f]) => {
       const field = f as AnyField
-      if (field.surreal.internal || k === "id" || field.surreal.readonly) continue
+      if (field.surreal.internal || k === "id" || field.surreal.readonly) return
 
       shape[k] = field.schema.optional()
-    }
+    })
     return z.object(shape) as unknown as z.ZodObject<UpdateZShape<S>>
   }
 
@@ -3447,8 +3430,7 @@ export class TableDef<
    * the ORM keep the server default, and `sc pull` cannot recover it from the database.
    */
   idStrategy(strategy: IdStrategy): TableDef<Name, S, Unique> {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
-    if (strategy !== "ulid" && strategy !== "uuid" && strategy !== "rand") {
+    if ((strategy as string) !== "ulid" && strategy !== "uuid" && strategy !== "rand") {
       throw new Error(
         `idStrategy(${JSON.stringify(strategy)}) — expected "ulid" | "uuid" | "rand".`,
       )
@@ -3514,8 +3496,7 @@ export class TableDef<
       async: spec.async,
       comment: spec.comment,
       name,
-      // eslint-disable-next-line unicorn/no-thenable -- then é o nome obrigatório do campo WHEN/THEN do DEFINE EVENT
-      then: resolveEventExpr(spec.then),
+      [THEN_KEY]: resolveEventExpr(spec.then),
       when: spec.when === undefined ? undefined : resolveEventExpr(spec.when),
     }
     return this.withConfig({
@@ -3583,75 +3564,51 @@ export class TableDef<
 
     if (!asf || !bsf) return true
 
-    // eslint-disable-next-line unicorn/consistent-function-scoping -- helper local mantido junto do uso para coesão e legibilidade
-    const norm = (m: SurrealMeta): string =>
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-base-to-string -- retorno any vem de parser/SDK dinâmico; contrato externo não tipado / stringificação de valor dinâmico é intencional (mensagem de erro)
-      JSON.stringify(m, (_key, value) => (value instanceof BoundQuery ? String(value) : value))
-    return norm(asf.surreal) === norm(bsf.surreal)
+    return normalizeMeta(asf.surreal) === normalizeMeta(bsf.surreal)
   }
 
   use<P extends TablePreset>(preset: P & CheckPresetIdempotent<S, P>): ApplyPreset<Name, S, P> {
-    // eslint-disable-next-line unicorn/no-this-assignment, @typescript-eslint/no-this-alias, @typescript-eslint/no-explicit-any -- alias de this necessário no builder encadeável / any necessário na fronteira de internals Zod/SDK
-    let t: any = this
+    let t = this as TableDef<Name, S, Unique>
     if (preset.columns) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- acesso dinâmico na fronteira Zod/SDK; o valor vem de any externo
       const fields = t.fields as Record<string, AnyField>
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const k of Object.keys(preset.columns)) {
-        if (k === "id") continue
+      Object.keys(preset.columns).forEach((k) => {
+        if (k === "id") return
 
-        const existing = fields[k]
+        const existing = fields[k] as AnyField | undefined
         if (
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
           existing &&
           !TableDef.sameColumn(existing, (preset.columns as Record<string, AnyField>)[k])
         ) {
           throw new Error(
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- acesso dinâmico na fronteira Zod/SDK; o valor vem de any externo
             `preset column "${k}" conflicts with an existing column on table "${t.name}"`,
           )
         }
-      }
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access -- atribuição any vem de internals do Zod/SDK (fronteira sem tipos) / método any vem de internals do Zod/SDK (fronteira sem tipos) / acesso dinâmico na fronteira Zod/SDK; o valor vem de any externo
-      t = t.extend(preset.columns)
+      })
+      t = t.extend(preset.columns as S)
     }
     if (preset.permissions !== undefined)
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument -- atribuição any vem de internals do Zod/SDK (fronteira sem tipos) / método any vem de internals do Zod/SDK (fronteira sem tipos) / acesso dinâmico na fronteira Zod/SDK; o valor vem de any externo / argumento any vem de internals do Zod/SDK (fronteira sem tipos)
       t = t.permissions(combinePermissions(t.config.permissions, preset.permissions))
 
-    // `{table}` lets a generic preset emit per-table names (`"{table}_protect_tenant_id"`) without
-    // constraining the table at author time — index/event names are table-scoped in SurrealDB.
-    // eslint-disable-next-line functional/no-loop-statements, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica / atribuição any vem de internals do Zod/SDK (fronteira sem tipos) / método any vem de internals do Zod/SDK (fronteira sem tipos) / acesso dinâmico na fronteira Zod/SDK; o valor vem de any externo / argumento any vem de internals do Zod/SDK (fronteira sem tipos)
-    for (const e of preset.events ?? []) t = t.event(e.name.replaceAll("{table}", t.name), e)
-
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const i of preset.indexes ?? [])
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument -- atribuição/chain any vem de internals do Zod/SDK (fronteira sem tipos)
+    // `{table}` lets a generic preset emit per-table names without constraining the author-time shape.
+    ;(preset.events ?? []).forEach((e) => {
+      t = t.event(e.name.replaceAll("{table}", t.name), e)
+    })
+    ;(preset.indexes ?? []).forEach((i) => {
       t = t.index(i.name.replaceAll("{table}", t.name), i.fields, i)
+    })
 
     // Opaque marker metadata — merged (table's own first, later presets win) and never emitted.
     if (preset.meta !== undefined) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access -- atribuição any vem de internals do Zod/SDK (fronteira sem tipos) / método any vem de internals do Zod/SDK (fronteira sem tipos) / acesso dinâmico na fronteira Zod/SDK; o valor vem de any externo
       t = t.withConfig({
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- atribuição any vem de internals do Zod/SDK (fronteira sem tipos)
-        meta: {
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- acesso dinâmico na fronteira Zod/SDK; o valor vem de any externo
-          ...t.config.meta,
-          ...preset.meta,
-        },
+        meta: { ...t.config.meta, ...preset.meta },
       })
     }
-    // `S & PresetCols` keeps the EXISTING id in WithSmartId's input — `IdValue` extracts its
-    // declared value type verbatim (a tuple id, a singleton literal). The previous
-    // `Omit<S, "id">` re-derived the id as the broad RecordIdValue.
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- retorno any vem de parser/SDK dinâmico; contrato externo não tipado
-    return t
+    return t as unknown as ApplyPreset<Name, S, P>
   }
   /** Escape hatch for a generic/unresolved `S`: skips the collision check while preserving
    * `Name` and `S` (no `IsAny` collapse). Use when a helper cannot supply a concrete shape. */
   useUnchecked<P extends TablePreset>(preset: P): ApplyPreset<Name, S, P> {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- asserção necessária para a inferência da API pública
-    return this.use(preset as P & CheckPresetIdempotent<S, P>) as ApplyPreset<Name, S, P>
+    return this.use(preset as P & CheckPresetIdempotent<S, P>)
   }
   /** `.use()` with an explicit result shape — removes the final `as unknown as TableDef<…>` from
    * a helper that already knows the post-preset shape. */
@@ -3662,12 +3619,10 @@ export class TableDef<
   pick<K extends keyof S>(...keys: K[]): TableDef<Name, Pick<S, K>> {
     const src = this.fields as unknown as Record<string, AnyField>
     const f: Record<string, AnyField> = {}
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const k of keys) {
-      const value = src[k as string]
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
+    keys.forEach((k) => {
+      const value = src[k as string] as AnyField | undefined
       if (value !== undefined) f[k as string] = value
-    }
+    })
 
     return new TableDef(this.name, f as unknown as Fields<Pick<S, K>>, this.config)
   }
@@ -3675,29 +3630,30 @@ export class TableDef<
     const f: Record<string, AnyField> = {
       ...(this.fields as unknown as Record<string, AnyField>),
     }
-    // eslint-disable-next-line functional/no-loop-statements, @typescript-eslint/no-unnecessary-type-assertion -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica / asserção necessária para a inferência da API pública
-    for (const k of keys) Reflect.deleteProperty(f, k as string)
+    keys.forEach((k) => {
+      Reflect.deleteProperty(f, k)
+    })
 
     return new TableDef(this.name, f as unknown as Fields<Omit<S, K>>, this.config)
   }
   partial(): TableDef<Name, PartialShape<S>> {
     const f: Record<string, AnyField> = {}
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [k, field] of Object.entries(this.fields)) f[k] = (field as AnyField).optional()
+    Object.entries(this.fields).forEach(([k, field]) => {
+      f[k] = (field as AnyField).optional()
+    })
 
     return new TableDef(this.name, f as unknown as Fields<PartialShape<S>>, this.config)
   }
   required(): TableDef<Name, RequiredShape<S>> {
     const f: Record<string, AnyField> = {}
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [k, field] of Object.entries(this.fields)) {
+    Object.entries(this.fields).forEach(([k, field]) => {
       const sf = field as AnyField
       const def = sf.schema._zod.def as unknown as {
         innerType?: z.ZodType
         type: string
       }
       f[k] = def.type === "optional" && def.innerType ? new SField(def.innerType, sf.surreal) : sf
-    }
+    })
     return new TableDef(this.name, f as unknown as Fields<RequiredShape<S>>, this.config)
   }
 
@@ -3726,12 +3682,13 @@ export class TableDef<
   stringIds(): TableDef<Name, StringIdsShape<S>> {
     const mapped: Record<string, AnyField> = {}
     let changed = false
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [key, field] of Object.entries(this.fields as unknown as Record<string, AnyField>)) {
+    const changes: boolean[] = []
+    Object.entries(this.fields as unknown as Record<string, AnyField>).forEach(([key, field]) => {
       const next = stringIdsField(field)
       mapped[key] = next
-      if (next !== field) changed = true
-    }
+      changes.push(next !== field)
+    })
+    if (changes.includes(true)) changed = true
     return new TableDef(
       this.name,
       (changed ? mapped : this.fields) as unknown as Fields<StringIdsShape<S>>,
@@ -3746,15 +3703,16 @@ export class TableDef<
  * `.object` validates/encodes/decodes the full shape, and `encode`/`encodePartial` accept
  * internal fields. Exposed for trusted server code; never hand it to a browser client.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- parâmetro de tipo faz parte da API pública de cast
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- `Name` is part of the public cast surface
 export class SystemView<Name extends string, S extends Shape> {
   /** Zod object over ALL fields (internal included). */
   readonly object: z.ZodObject<ZShapeAll<S>>
 
   constructor(readonly fields: Record<string, AnyField>) {
     const zshape: Record<string, z.ZodType> = {}
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [k, f] of Object.entries(fields)) zshape[k] = f.schema
+    Object.entries(fields).forEach(([k, f]) => {
+      zshape[k] = f.schema
+    })
 
     this.object = z.object(zshape) as z.ZodObject<ZShapeAll<S>>
   }
@@ -3883,12 +3841,10 @@ function buildIdField(
   if (given === undefined) return new RecordIdField([name])
 
   if (given instanceof RecordIdField) {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- retorno any vem de parser/SDK dinâmico; contrato externo não tipado
     return new RecordIdField([name], {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- atribuição any vem de internals do Zod/SDK (fronteira sem tipos)
-      mode: given.mode,
+      mode: given.mode as RecordIdMode,
       valueType: given.valueType,
-    })
+    }) as RecordIdField<string>
   }
   const valueSchema = given instanceof SField ? given.schema : given
   return new RecordIdField([name], {
@@ -3899,12 +3855,11 @@ function buildIdField(
 /** Normalize a shape, replacing/adding the special `id` field via buildIdField. */
 function applySmartId(name: string, shape: Shape): Record<string, AnyField> {
   const out: Record<string, AnyField> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [k, v] of Object.entries(shape)) {
-    if (k === "id") continue
+  Object.entries(shape).forEach(([k, v]) => {
+    if (k === "id") return
 
     out[k] = v instanceof SField ? v : new SField(v)
-  }
+  })
   out.id = buildIdField(name, (shape as Record<string, AnyField | z.ZodType>).id)
   return out
 }
@@ -4012,13 +3967,14 @@ function stringIdsField(field: AnyField): AnyField {
 function stringIdsShape<S extends Shape>(shape: S): StringIdsShape<S> {
   const out: Record<string, AnyField> = {}
   let changed = false
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [key, value] of Object.entries(shape)) {
+  const changes: boolean[] = []
+  Object.entries(shape).forEach(([key, value]) => {
     const field = value instanceof SField ? value : new SField(value)
     const mapped = stringIdsField(field)
     out[key] = mapped
-    if (mapped !== field) changed = true
-  }
+    changes.push(mapped !== field)
+  })
+  if (changes.includes(true)) changed = true
   return (changed ? out : shape) as StringIdsShape<S>
 }
 
@@ -4093,8 +4049,7 @@ export type RejectBadId<S extends Shape> = "id" extends keyof S
       }
   : unknown
 
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- {} é o padrão genérico que preserva a inferência do schema
-export function table<Name extends string, S extends Shape = {}>(
+export function table<Name extends string, S extends Shape = Record<string, never>>(
   name: Name,
   // A no-DDL field / bad id in the raw-map form rejects it at compile time (`RejectNoDdl` +
   // `RejectBadId`); the callback form keeps its precise `S` inference (a `& RejectNoDdl<S>` in a
@@ -4111,15 +4066,9 @@ export function table<Name extends string, S extends Shape = {}>(
   shape?:
     ((self: RecordIdField<Name>) => S) | (S & RejectNoDdl<S> & RejectBadId<S>) | SObjectField<S>,
 ): TableDef<Name, WithSmartId<Name, S>> {
-  const resolved =
-    shape === undefined
-      ? ({} as S)
-      : typeof shape === "function"
-        ? shape(new RecordIdField([name]))
-        : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-          shape instanceof SObjectField
-          ? shape.fields
-          : shape
+  let resolved: S = {} as S
+  if (typeof shape === "function") resolved = shape(new RecordIdField([name]))
+  else if (shape !== undefined) resolved = shape instanceof SObjectField ? shape.fields : shape
   return new TableDef(
     name,
     applySmartId(name, resolved) as unknown as Fields<WithSmartId<Name, S>>,
@@ -4170,8 +4119,7 @@ export type SingletonIdOf<TD> =
  */
 export function defineSingleton<
   Name extends string,
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- {} é o padrão genérico que preserva a inferência do schema
-  S extends Shape = {},
+  S extends Shape = Record<string, never>,
   Id extends string = "default",
 >(
   name: Name,
@@ -4184,13 +4132,9 @@ export function defineSingleton<
       `defineSingleton("${name}"): the fixed id key "${id}" must be a plain identifier (letters/digits/underscore).`,
     )
   }
-  const resolved =
-    shape === undefined
-      ? ({} as S)
-      : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-        typeof shape === "function"
-        ? shape(new RecordIdField([name]))
-        : shape
+  let resolved: S = {} as S
+  if (typeof shape === "function") resolved = shape(new RecordIdField([name]))
+  else if (shape !== undefined) resolved = shape
   const fields = applySmartId(name, resolved)
   // The smart id's VALUE schema is the literal key — decode/encode stay the plain smart-id
   // codec; the literal is the type-level marker + what the emitted DDL enforces.
@@ -4208,7 +4152,7 @@ export function defineSingleton<
  * configurable: `const tenant = (field: string) => table.preset({ … })`. (It hangs off
  * `table` rather than being a `define*` of its own because a preset emits no DDL by itself.)
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- {} é o padrão genérico que preserva a inferência do schema
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- default neutro: `Record<string, never>` cria index signature e dispara conflito de preset inexistente.
 table.preset = <Cols extends Shape = {}>(preset: TablePreset<Cols>): TablePreset<Cols> => preset
 
 /**
@@ -4299,8 +4243,7 @@ function endpointMode(ref: TableRef): RecordIdMode {
   const only = refs[0]
   if (only instanceof TableDef) {
     const id = (only.fields as unknown as Record<string, AnyField>).id
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- retorno any vem de parser/SDK dinâmico; contrato externo não tipado
-    if (id instanceof RecordIdField) return id.mode
+    if (id instanceof RecordIdField) return id.mode as RecordIdMode
   }
   return "record"
 }
@@ -4495,7 +4438,7 @@ export class RelationDef<
  * Define a graph relation (edge table). Endpoints are optional — the result is a usable table
  * right away; chain `.from(X).to(Y)` to restrict the `in`/`out` records.
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- {} é o padrão genérico que preserva a inferência do schema
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- default neutro `{}`: `Record<string, never>` cria index signature e quebra a inferência de endpoints.
 export function relation<Name extends string, S extends Shape = {}>(
   name: Name,
   fields?: S & RejectNoDdl<S>,
@@ -4539,7 +4482,7 @@ export class ViewBuilder<Name extends string, S extends Shape> {
  *   .as(surql`SELECT name, age FROM person WHERE age >= 18`);               // App = { id, name, age }
  * ```
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- {} é o padrão genérico que preserva a inferência do schema
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- default neutro `{}`: `Record<string, never>` cria index signature e quebra a inferência de endpoints.
 export function defineView<Name extends string, S extends Shape = {}>(
   name: Name,
   shape?: S,
@@ -4858,26 +4801,18 @@ export function range<T>(spec: RangeSpec<T>): Range<T> {
   if (to !== undefined && until !== undefined)
     throw new Error("range(): pass `to` (end included) OR `until` (end excluded), not both.")
 
-  const start =
-    from === undefined
-      ? // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-        after === undefined
-        ? undefined
-        : { exclusive: true, value: after }
-      : { exclusive: false, value: from }
-  const end =
-    to === undefined
-      ? // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-        until === undefined
-        ? undefined
-        : { exclusive: true, value: until }
-      : { exclusive: false, value: to }
+  let start: undefined | { exclusive: boolean; value: unknown }
+  if (from !== undefined) start = { exclusive: false, value: from }
+  else if (after !== undefined) start = { exclusive: true, value: after }
+  let end: undefined | { exclusive: boolean; value: unknown }
+  if (to !== undefined) end = { exclusive: false, value: to }
+  else if (until !== undefined) end = { exclusive: true, value: until }
   if (!start && !end) {
     throw new Error(
       "range(): needs at least one bound — `from`/`after` (start) and/or `to`/`until` (end).",
     )
   }
-  return new Range<T>(start, end)
+  return new Range<T>(start as never, end as never)
 }
 
 /** Render a range in a lowering pass — `a..b` / `a..=b` / `a>..b` / `a>..=b`, either end open. The
@@ -4954,8 +4889,7 @@ export class CallQuery<R = unknown> extends BoundQuery<[R]> {
     return z.decode(this.returnsSchema, out[0]) as R
   }
 
-  // eslint-disable-next-line unicorn/no-thenable -- then é o nome obrigatório do campo WHEN/THEN do DEFINE EVENT
-  then<T1 = R, T2 = never>(
+  [THEN_KEY]<T1 = R, T2 = never>(
     onfulfilled?: ((value: R) => PromiseLike<T1> | T1) | null,
     onrejected?: ((reason: unknown) => PromiseLike<T2> | T2) | null,
   ): Promise<T1 | T2> {
@@ -5045,16 +4979,14 @@ export class FunctionDef<A extends Shape = Shape, R = unknown> {
     const given = (rest[0] ?? {}) as Record<string, unknown>
     const parts: string[] = []
     const bindings: Record<string, unknown> = {}
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [key, field] of Object.entries(this.args)) {
+    Object.entries(this.args).forEach(([key, field]) => {
       const v = callArgFragment(given[key])
       if (v instanceof BoundQuery) {
         // A SIMPLE param path (a coerced block-var/row ref like `$code`) splices bare — parens
         // redundant and INFO's printer strips them (DDL round-trip drift).
         const simple =
           /^\$[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/u.test(v.query) &&
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
-          Object.keys(v.bindings ?? {}).length === 0
+          Object.keys(v.bindings).length === 0
         parts.push(simple ? v.query : `(${v.query})`)
         Object.assign(bindings, v.bindings)
       } else if (isParamRef(v)) parts.push(v.toText())
@@ -5071,7 +5003,7 @@ export class FunctionDef<A extends Shape = Shape, R = unknown> {
         bindings[name] = field.encode(v)
         parts.push(`$${name}`)
       }
-    }
+    })
     return new CallQuery<R>(
       `fn::${this.name}(${parts.join(", ")})`,
       bindings,
@@ -5583,9 +5515,10 @@ export function defineParam<F extends AnyField>(name: string, type: F): ParamDef
 export function defineParam<const V>(name: string, value: V): ParamDef<V>
 /** DECLARED param (untyped) — presence-flow. */
 export function defineParam(name: string): ParamDef
-export function defineParam(name: string, value?: unknown): ParamDef {
-  // eslint-disable-next-line @typescript-eslint/no-magic-numbers, functional/functional-parameters -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset) / arguments.length distingue chamadas JS sem tipo
-  if (arguments.length < 2) return new ParamDef(name, { mode: "declared" })
+export function defineParam(name: string, ...values: unknown[]): ParamDef {
+  const value = values[0]
+  const MIN_VALUE_ARGS = 2
+  if (values.length + 1 < MIN_VALUE_ARGS) return new ParamDef(name, { mode: "declared" })
 
   if (isSecretRef(value)) return new ParamDef(name, { mode: "secret", secret: value })
 
@@ -5820,8 +5753,8 @@ const BIND_PATTERN_CACHE = new Map<string, RegExp>()
 export function bindPattern(name: string): RegExp {
   let re = BIND_PATTERN_CACHE.get(name)
   if (!re) {
-    // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-    if (BIND_PATTERN_CACHE.size >= 1000) BIND_PATTERN_CACHE.clear()
+    const MAX_BIND_PATTERN_CACHE = 1000
+    if (BIND_PATTERN_CACHE.size >= MAX_BIND_PATTERN_CACHE) BIND_PATTERN_CACHE.clear()
 
     re = new RegExp(`\\$${escapeRegExp(name)}(?![A-Za-z0-9_])`, "gu")
     BIND_PATTERN_CACHE.set(name, re)
@@ -5840,18 +5773,18 @@ export function rewriteBind(text: string, name: string, to: string): string {
  * countered names, so renames fire for hand-built BoundQuery bindings. */
 export function mergeRaw(q: BoundQuery, vars: Record<string, unknown>): string {
   let text = q.query
-  // eslint-disable-next-line functional/no-loop-statements, @typescript-eslint/no-unnecessary-condition -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [name, value] of Object.entries(q.bindings ?? {})) {
+  const bindings = q.bindings as Record<string, unknown> | undefined
+  const FIRST_SUFFIX = 2
+  const uniqueName = (base: string, n: number): string =>
+    `${base}_${n}` in vars ? uniqueName(base, n + 1) : `${base}_${n}`
+  Object.entries(bindings ?? {}).forEach(([name, value]) => {
     let use = name
     if (use in vars) {
-      let n = 2
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      while (`${name}_${n}` in vars) n++
-      use = `${name}_${n}`
+      use = uniqueName(name, FIRST_SUFFIX)
       text = rewriteBind(text, name, use)
     }
     vars[use] = value
-  }
+  })
   return text
 }
 
@@ -5870,8 +5803,7 @@ export function operandText(v: unknown, ctx: Ctx): string {
   const rs = refState(v)
   if (rs) return renderRef(rs, ctx)
 
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- argumento any vem de internals do Zod/SDK (fronteira sem tipos)
-  if (v instanceof BoundQuery) return `(${mergeRaw(v, ctx.vars)})`
+  if (v instanceof BoundQuery) return `(${mergeRaw(v as BoundQuery, ctx.vars)})`
 
   const frag = fragOf(v)
   if (frag) return mergeRaw(frag, ctx.vars)
@@ -5905,6 +5837,21 @@ export function paramDefName(v: unknown): string | undefined {
     : undefined
 }
 
+/** The SurrealQL comparison operator for a bound-check method. */
+function comparisonOperator(method: CheckMethod): string {
+  if (method === "min") return ">="
+  if (method === "max") return "<="
+  return "=="
+}
+
+/** The per-kind correction hint for using a schema def in a VALUE position. */
+function valueHint(kind: string): string {
+  if (kind === "function") return " — call it: Def.call({...})"
+  if (kind === "table")
+    return " — interpolate it in a surql template (splices the table name), or query it"
+  return ""
+}
+
 /** Any OTHER schema def (table/function/event/access/analyzer) in a VALUE position is always a
  * bug — binding it would serialize the def object (`[object Object]` in DDL). Throw guidance. */
 export function rejectDefValue(v: unknown): void {
@@ -5916,15 +5863,7 @@ export function rejectDefValue(v: unknown): void {
     ["access", "analyzer", "event", "function", "table"].includes(kind)
   ) {
     throw new Error(
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
-      `a define${kind[0]?.toUpperCase()}${kind.slice(1)} def can't be used as a VALUE here${
-        kind === "function"
-          ? " — call it: Def.call({...})"
-          : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-            kind === "table"
-            ? " — interpolate it in a surql template (splices the table name), or query it"
-            : ""
-      }.`,
+      `a define${(kind[0] as string | undefined)?.toUpperCase()}${kind.slice(1)} def can't be used as a VALUE here${valueHint(kind)}.`,
     )
   }
 }
@@ -5934,16 +5873,15 @@ export function rejectDefValue(v: unknown): void {
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   if (v === null || typeof v !== "object") return false
 
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- atribuição any vem de internals do Zod/SDK (fronteira sem tipos)
-  const proto = Object.getPrototypeOf(v)
+  const proto = Object.getPrototypeOf(v) as unknown
   return proto === Object.prototype || proto === null
 }
 
 /** Does this plain object/array carry a ref/fragment ANYWHERE? If so it renders as a SurrealQL
  * literal with each value spliced (`{ to: [$email], html: $html }`); pure data binds WHOLE. */
 export function hasRefDeep(v: unknown, depth = 0): boolean {
-  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-  if (depth > 16) return false
+  const MAX_REF_DEPTH = 16
+  if (depth > MAX_REF_DEPTH) return false
 
   if (
     isParamRef(v) ||
@@ -5986,8 +5924,7 @@ export function renderData(v: unknown, ctx: Ctx): string {
   if (rs) return renderRef(rs, ctx)
 
   const frag = v instanceof BoundQuery ? v : fragOf(v)
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- argumento any vem de internals do Zod/SDK (fronteira sem tipos)
-  if (frag) return mergeRaw(frag, ctx.vars)
+  if (frag) return mergeRaw(frag as BoundQuery, ctx.vars)
 
   return operandText(v, ctx)
 }

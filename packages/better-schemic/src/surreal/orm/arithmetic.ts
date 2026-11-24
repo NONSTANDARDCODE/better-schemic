@@ -59,17 +59,15 @@ export function adjustmentOf(value: unknown): Adjustment | undefined {
   const proto = Object.getPrototypeOf(value) as null | Record<string, unknown>
   if (proto !== null && proto !== Object.prototype) return undefined
 
-  let kind: string | undefined
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of Object.keys(value)) {
-    if (ARITHMETIC_KINDS.has(key)) {
-      // Two markers in one wrapper is NOT a marker (it stays a literal value, as before).
-      if (kind !== undefined) return undefined
-
-      kind = key
-    } else if (!MODIFIER_KEYS.has(key)) return undefined
-  }
-  if (kind === undefined) return undefined
+  const keys = Object.keys(value)
+  const markers = keys.filter((key) => ARITHMETIC_KINDS.has(key))
+  // Two markers in one wrapper is NOT a marker (it stays a literal value, as before).
+  if (
+    markers.length !== 1 ||
+    keys.some((key) => !ARITHMETIC_KINDS.has(key) && !MODIFIER_KEYS.has(key))
+  )
+    return undefined
+  const kind = markers[0]
 
   const marker = value as Record<string, unknown>
   const operand = marker[kind]
@@ -114,15 +112,15 @@ export function stripAdjustments(data: unknown): unknown {
   if (adjustment) return data
 
   const out: Record<string, unknown> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+
+  Object.entries(data as Record<string, unknown>).forEach(([key, value]) => {
     const marker = adjustmentOf(value)
     if (marker) {
       if (literalOperand(marker.value)) out[key] = marker.value
 
-      continue // an expression operand can't be schema-validated
+      return // an expression operand can't be schema-validated
     }
     out[key] = value
-  }
+  })
   return out
 }

@@ -1,6 +1,6 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-non-null-assertion, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Fixtures assert values whose presence the test guarantees. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // The combine compiler in isolation: `count`/`exists` clause tails, and every `combine`
 // select-entry shape (true / path / string / math / collect / expression / bad) plus its guards.
+
 import { describe, expect, test } from "bun:test"
 
 import { surql } from "../../../src/surreal"
@@ -10,8 +10,9 @@ import {
   compileCount,
   compileExists,
 } from "../../../src/surreal/orm/compiler/aggregate"
-import { createBinds } from "../../../src/surreal/orm/compiler/shared"
+import { type Binds, createBinds } from "../../../src/surreal/orm/compiler/shared"
 import { schema } from "../../../src/surreal/orm/schema"
+import { required } from "../../required"
 import { fakeConn, ok } from "../orm-fixtures"
 
 import { schemaDef } from "./orm-writes-fixtures"
@@ -27,21 +28,23 @@ const code = (fn: () => unknown): string | undefined => {
 
 const { conn } = fakeConn(() => [ok([])])
 const client = orm(conn, { schema: schemaDef })
-const meta = client.$index.tables.get("users")!
-const b = () => createBinds()
+const meta = required(client.$index.tables.get("users"))
+const b = (): Binds => createBinds()
 
-const sm = orm(fakeConn(() => [ok([])]).conn, {
-  schema: schema({ audit: "audit_log" }),
-}).$index.schemaless.get("audit")!
+const sm = required(
+  orm(fakeConn(() => [ok([])]).conn, {
+    schema: schema({ audit: "audit_log" }),
+  }).$index.schemaless.get("audit"),
+)
 
 describe("compileCount / compileExists", () => {
   test("defaults and every clause tail", () => {
     expect(compileCount(meta, {}, b())).toContain("count()")
     expect(compileExists(meta, {}, b())).toContain("VALUE id")
     const withAll = {
-      with: { index: "i" },
-      version: new Date("2025-01-01T00:00:00Z"),
       timeout: 5,
+      version: new Date("2025-01-01T00:00:00Z"),
+      with: { index: "i" },
     } as never
     expect(compileCount(meta, withAll, b())).toContain("WITH INDEX i")
     const exists = compileExists(meta, withAll, b())
@@ -67,8 +70,8 @@ describe("compileAggregate", () => {
       meta,
       {
         select: {
-          lo: { min: "age" },
           hi: { max: "age" },
+          lo: { min: "age" },
           total: { sum: "age" },
         },
       },
@@ -84,8 +87,8 @@ describe("compileAggregate", () => {
       compileAggregate(
         meta,
         {
-          select: { _count: true, x: surql`count() + 1` },
           groupBy: ["active"],
+          select: { _count: true, x: surql`count() + 1` },
         },
         b(),
       ).sql,
@@ -99,10 +102,10 @@ describe("compileAggregate", () => {
       "ValidationError",
     )
     // a `false`/`undefined` entry skipps it, the rest compiles.
-    expect(compileAggregate(meta, { select: { a: false, _count: true } }, b()).sql).toContain(
+    expect(compileAggregate(meta, { select: { _count: true, a: false } }, b()).sql).toContain(
       "count()",
     )
-    expect(compileAggregate(meta, { select: { a: undefined, _count: true } }, b()).sql).toContain(
+    expect(compileAggregate(meta, { select: { _count: true, a: undefined } }, b()).sql).toContain(
       "count()",
     )
     // aggregator field must be a string path.

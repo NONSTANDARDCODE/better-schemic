@@ -1,4 +1,6 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping, unicorn/no-thenable, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. Bun test calls return thenable handles that are not awaited. Defensive checks document fixture intent. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+const MAGIC_10 = 10
+const MAGIC_100 = 100
+const MAGIC_2 = 2
 // Typed-fragments PHASE 3 (2/3): block() — the typed statement-block builder. LET vars type
 // through the chain (s.n is a real ref of the value's kind), IF/FOR/RETURN/THROW give statement
 // parity, and the block is a fragment: it interpolates into surql templates and every authoring
@@ -8,10 +10,16 @@ import { describe, expect, test } from "bun:test"
 import { defineFunction, s, surql, table } from "../../../src/surreal"
 import { emitDefStatement, emitTable } from "../../../src/surreal/ddl"
 import { block } from "../../../src/surreal/query"
+import { THEN_KEY } from "../../then-key"
+const ifWith = (body: Parameters<ReturnType<typeof block>["if"]>[1]): string =>
+  block()
+    .let({ n: 1 })
+    .if((sv) => sv.n.gt(0), body)
+    .toQuery().query
 
 const Post = table("blk_post", {
-  title: s.string(),
   author: s.string(),
+  title: s.string(),
   views: s.number(),
 })
 
@@ -21,13 +29,13 @@ describe("lowering", () => {
       .let({
         n: surql`(SELECT count() FROM blk_post GROUP ALL)[0].count OR 0`.as<number>(),
       })
-      .if((sv) => sv.n.gt(100), surql`RETURN 'big'`)
+      .if((sv) => sv.n.gt(MAGIC_100), surql`RETURN 'big'`)
       .return((sv) => sv.n)
       .toQuery()
     expect(q.query).toMatch(
       /^\{ LET \$n = \(SELECT count\(\) FROM blk_post GROUP ALL\)\[0\]\.count OR 0; IF \$n > \$sub__\d+_b0 \{ RETURN 'big' \}; RETURN \$n; \}$/u,
     )
-    expect(Object.values(q.bindings ?? {})).toEqual([100])
+    expect(Object.values(q.bindings)).toEqual([MAGIC_100])
   })
 
   test("typed let vars: a literal number var is a NUMBER ref — .plus flows", () => {
@@ -46,7 +54,7 @@ describe("lowering", () => {
     expect(q.query).toMatch(
       /^\{ LET \$greeting = \$sub__\d+_b0; RETURN string::uppercase\(\$greeting\); \}$/u,
     )
-    expect(Object.values(q.bindings ?? {})).toEqual(["hello"])
+    expect(Object.values(q.bindings)).toEqual(["hello"])
   })
 
   test("for loops: FOR $item IN <iterable> { body } with a typed loop var", () => {
@@ -65,7 +73,7 @@ describe("lowering", () => {
   test("throw: a plain string binds", () => {
     const q = block().throw("nope").toQuery()
     expect(q.query).toMatch(/^\{ THROW \$sub__\d+_b0 \}$/u)
-    expect(Object.values(q.bindings ?? {})).toEqual(["nope"])
+    expect(Object.values(q.bindings)).toEqual(["nope"])
   })
 
   test("do(): an arbitrary statement (fragments splice bare)", () => {
@@ -81,7 +89,7 @@ describe("lowering", () => {
   test("if/else with nested block()s", () => {
     const q = block()
       .let({ n: 5 })
-      .if((sv) => sv.n.gte(10), block().return(surql`'big'`), block().return(surql`'small'`))
+      .if((sv) => sv.n.gte(MAGIC_10), block().return(surql`'big'`), block().return(surql`'small'`))
       .toQuery()
     expect(q.query).toMatch(
       /IF \$n >= \$sub__\d+_b1 \{ RETURN 'big' \} ELSE \{ RETURN 'small' \}; \}$/u,
@@ -95,12 +103,6 @@ describe("lowering", () => {
 })
 
 describe("body canonicalization + value kinds", () => {
-  const ifWith = (body: Parameters<ReturnType<typeof block>["if"]>[1]) =>
-    block()
-      .let({ n: 1 })
-      .if((sv) => sv.n.gt(0), body)
-      .toQuery().query
-
   test("a semicolon inside a quoted string is not top-level", () => {
     expect(ifWith(surql`RETURN 'a;b'`)).toContain("{ RETURN 'a;b' }")
     expect(ifWith(surql`RETURN "a;b"`)).toContain('{ RETURN "a;b" }')
@@ -151,11 +153,11 @@ describe("composition", () => {
 describe("authoring slots take blocks directly (Fragmentable)", () => {
   test("event THEN: block() emits as the braced body", () => {
     const T = Post.event("blk_notify", {
-      when: (e) => e.event.eq("CREATE"),
-      then: (e) =>
+      [THEN_KEY]: (e) =>
         block()
           .let({ who: e.after.author })
           .do(surql`UPDATE ${Post} SET views += 1 WHERE author = $who`),
+      when: (e) => e.event.eq("CREATE"),
     })
     const ddl = emitTable(T)
       .split("\n")
@@ -197,7 +199,7 @@ describe("object bindings — refactor safety extras", () => {
   })
 
   test(".for with more than one binding key throws", () => {
-    expect(() => block().for({ a: [1], b: [2] }, surql`RETURN 1`)).toThrow(
+    expect(() => block().for({ a: [1], b: [MAGIC_2] }, surql`RETURN 1`)).toThrow(
       /exactly ONE loop binding/u,
     )
   })

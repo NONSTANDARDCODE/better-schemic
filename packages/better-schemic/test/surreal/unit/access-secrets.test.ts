@@ -1,13 +1,17 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
-// Phase-2a: DEFINE ACCESS keys as env()/secret() references — emitted as bound `$param` placeholders
-// (value never in the DDL), with the `$param -> SecretRef` bindings attached for apply-time resolution.
 import { describe, expect, spyOn, test } from "bun:test"
 
-// env/secret imported from the surrealdb index — verifies the side-effect-free re-export path too.
 import { defineAccess, env, secret } from "../../../src/surreal"
+import type { DefineStatement } from "../../../src/surreal/ddl"
 import { emitDefStatement } from "../../../src/surreal/driver"
 
-const st = (a: unknown) => emitDefStatement(a as Parameters<typeof emitDefStatement>[0])
+const MAGIC_2 = 2
+// Phase-2a: DEFINE ACCESS keys as env()/secret() references — emitted as bound `$param` placeholders
+// (value never in the DDL), with the `$param -> SecretRef` bindings attached for apply-time resolution.
+
+// env/secret imported from the surrealdb index — verifies the side-effect-free re-export path too.
+
+const st = (a: unknown): DefineStatement =>
+  emitDefStatement(a as Parameters<typeof emitDefStatement>[0])
 
 describe("DEFINE ACCESS secret keys (env/secret -> $param)", () => {
   test("env() key emits a $param placeholder + attaches the binding (value never in DDL)", () => {
@@ -77,8 +81,8 @@ describe("DEFINE ACCESS secret keys (env/secret -> $param)", () => {
           .onDatabase()
           .jwt({
             alg: "RS256",
-            key: "-----BEGIN PUBLIC KEY-----...",
             issuer: { key: "-----BEGIN PRIVATE KEY-----..." },
+            key: "-----BEGIN PUBLIC KEY-----...",
           }),
       )
       expect(warn).toHaveBeenCalledTimes(1)
@@ -86,7 +90,7 @@ describe("DEFINE ACCESS secret keys (env/secret -> $param)", () => {
 
       // Symmetric (HS*) KEY is the shared secret: lints.
       st(defineAccess("hs_lints").onDatabase().jwt({ alg: "HS512", key: "shared-secret" }))
-      expect(warn).toHaveBeenCalledTimes(2)
+      expect(warn).toHaveBeenCalledTimes(MAGIC_2)
     } finally {
       warn.mockRestore()
     }

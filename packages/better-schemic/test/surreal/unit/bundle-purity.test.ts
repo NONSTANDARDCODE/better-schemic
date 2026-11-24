@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -24,17 +23,17 @@ async function bundledSources(entry: string, named: string): Promise<string[]> {
     )
     const result = await Bun.build({
       entrypoints: [probe],
-      target: "node",
       format: "esm",
       metafile: true,
       // The package's own deps stay external — we are asking WHICH OF OUR FILES pull them in.
       packages: "external",
+      target: "node",
     })
     if (!result.success || !result.metafile)
       throw new Error(`bundle failed: ${result.logs.map((l) => l.message).join("; ")}`)
     return Object.keys(result.metafile.inputs).map((p) => path.resolve(p))
   } finally {
-    rmSync(dir, { recursive: true, force: true })
+    rmSync(dir, { force: true, recursive: true })
   }
 }
 

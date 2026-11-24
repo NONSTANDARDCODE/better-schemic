@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
+const MAGIC_100 = 100
 // Property-based tests for the core CLI kind-filter — the pure parser that turns `--tables [names]` /
 // `--no-tables` flags into a `Filter`. The invariants: the parse is deterministic, defaults match the
 // documented policy (access opt-in), a comma/space list splits into its non-empty tokens, and
@@ -8,7 +8,7 @@ import fc from "fast-check"
 
 import { inCat, parseFilter } from "../../../src/core/cli-kit/filter"
 
-const RUNS = Number(process.env.PBT_RUNS ?? 100)
+const RUNS = Number(process.env.PBT_RUNS ?? MAGIC_100)
 const SEED = process.env.PBT_SEED ? Number(process.env.PBT_SEED) : undefined
 const check = (prop: fc.IProperty<unknown>): void => {
   fc.assert(prop, {
@@ -29,18 +29,17 @@ const flagValue = fc.oneof(
 describe("parseFilter — pure flag parser", () => {
   test("defaults: tables/functions/events on, access OFF (opt-in)", () => {
     const f = parseFilter({})
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const cat of ["tables", "functions", "events"] as const) {
+    ;(["tables", "functions", "events"] as const).forEach((cat) => {
       expect(f[cat].on).toBe(true)
       expect(f[cat].names).toBeUndefined()
-    }
+    })
     expect(f.access.on).toBe(false)
   })
 
   test("a comma list yields exactly its non-empty trimmed tokens", () => {
     const token = fc.stringMatching(/^[A-Za-z0-9_]{1,6}$/u)
     check(
-      fc.property(fc.array(token, { minLength: 1, maxLength: 5 }), (tokens) => {
+      fc.property(fc.array(token, { maxLength: 5, minLength: 1 }), (tokens) => {
         const joined = tokens.join(",")
         const parsed = parseFilter({ tables: joined })
         expect([...(parsed.tables.names ?? [])].sort()).toEqual([...new Set(tokens)].sort())
@@ -54,8 +53,8 @@ describe("parseFilter — pure flag parser", () => {
     check(
       fc.property(
         fc.array(fc.oneof(token, fc.constant(""), fc.constant("  ")), {
-          minLength: 1,
           maxLength: 6,
+          minLength: 1,
         }),
         (tokens) => {
           const parsed = parseFilter({ functions: tokens.join(",") })
@@ -88,16 +87,16 @@ describe("parseFilter — pure flag parser", () => {
     check(
       fc.property(flagValue, flagValue, flagValue, flagValue, (t, f, e, a) => {
         const once = parseFilter({
-          tables: t,
-          functions: f,
-          events: e,
           access: a,
+          events: e,
+          functions: f,
+          tables: t,
         })
         const twice = parseFilter({
-          tables: t,
-          functions: f,
-          events: e,
           access: a,
+          events: e,
+          functions: f,
+          tables: t,
         })
         expect(JSON.stringify(twice)).toBe(JSON.stringify(once))
       }),
@@ -108,13 +107,13 @@ describe("parseFilter — pure flag parser", () => {
 describe("inCat — category gate", () => {
   test("matches `on && (!names || names.has(name))`", () => {
     const cat = fc.record({
-      on: fc.boolean(),
       names: fc.option(fc.uniqueArray(fc.string(), { maxLength: 4 }), {
         nil: undefined,
       }),
+      on: fc.boolean(),
     })
     check(
-      fc.property(cat, fc.string(), ({ on, names }, name) => {
+      fc.property(cat, fc.string(), ({ names, on }, name) => {
         const expected = on && (!names || names.includes(name))
         // Build the Set form the API expects.
         const c = { on, ...(names ? { names: new Set(names) } : {}) }

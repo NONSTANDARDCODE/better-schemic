@@ -7,6 +7,7 @@
 import { escapeIdentSafe as escapeIdent, unescapeIdPart } from "../../ident"
 import { hasRefDeep } from "../../pure"
 import type { ModelMeta, SchemaIndex } from "../meta"
+import { stringCoerce } from "../text"
 
 import {
   type Binds,
@@ -258,8 +259,8 @@ function endpointText(
 
   const declared =
     meta !== undefined && isTableMeta(meta) ? (meta.endpoints?.[direction] ?? []) : []
-  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringify de valor opaco é intencional (toJSON/toString definidos pelo chamador)
-  const text = String(value)
+
+  const text = stringCoerce(value)
   const parts = splitRecordId(text)
   if (!parts) {
     // A BARE endpoint is unambiguous when the relation declares one table for this

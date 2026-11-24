@@ -81,18 +81,15 @@ function buildEntry(cat: DriverCatalog, slug: string, ex: Example): ManifestEntr
   return entry
 }
 
-// eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-for (const cat of CATALOGS) {
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const group of cat.groups) {
+CATALOGS.forEach((cat) => {
+  cat.groups.forEach((group) => {
     const slug = groupSlug(group.file)
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const ex of group.examples) {
+    group.examples.forEach((ex) => {
       entries.push(buildEntry(cat, slug, ex))
       verified++
-    }
-  }
-}
+    })
+  })
+})
 
 const { commit, hash } = writeManifest({
   entries,

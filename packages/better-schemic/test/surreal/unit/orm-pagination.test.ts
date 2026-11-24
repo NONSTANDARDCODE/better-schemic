@@ -1,36 +1,58 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures assert values whose presence the test guarantees. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
-// M1.6 — `paginate` (offset pages): the data + count statements compile in ONE round-trip and the
-// envelope math is golden-asserted. Offline. `cursor` lives in `orm-cursor.test.ts`.
 import { describe, expect, test } from "bun:test"
 import { RecordId } from "surrealdb"
 
 import { orm } from "../../../src/surreal/orm/client"
 import { compilePaginate } from "../../../src/surreal/orm/compiler/pagination"
+import type { ProjectionSpec } from "../../../src/surreal/orm/compiler/projection"
 import { createBinds } from "../../../src/surreal/orm/compiler/shared"
 import type { OrmError } from "../../../src/surreal/orm/errors"
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema"
 import { s, table } from "../../../src/surreal/pure"
+import { required } from "../../required"
 import { fakeConn, lines, ok } from "../orm-fixtures"
 
+const MAGIC_2 = 2
+const MAGIC_3 = 3
+// M1.6 — `paginate` (offset pages): the data + count statements compile in ONE round-trip and the
+// envelope math is golden-asserted. Offline. `cursor` lives in `orm-cursor.test.ts`.
+
 const User = table("user", {
-  name: s.string(),
-  age: s.int(),
   active: s.boolean(),
+  age: s.int(),
+  name: s.string(),
   tags: s.array(s.string()),
 })
 const index = buildSchemaIndex({ users: User })
-const meta = index.tables.get("users")!
+const meta = required(index.tables.get("users"))
 
-const fullUser = (id: string, over: Record<string, unknown> = {}) => ({
+const fullUser = (
+  id: string,
+  over: Record<string, unknown> = {},
+): {
+  active: boolean
+  age: number
+  id: RecordId<"user", string>
+  name: string
+  tags: never[]
+} => ({
+  active: true,
+  age: 20,
   id: new RecordId("user", id),
   name: `u${id}`,
-  age: 20,
-  active: true,
   tags: [],
   ...over,
 })
 
-function compilePaginateArgs(args: Record<string, unknown>) {
+function compilePaginateArgs(args: Record<string, unknown>): {
+  count: boolean
+  countSql?: string | undefined
+  dataSql: string
+  limit: number
+  probe: boolean
+  projection: ProjectionSpec
+  start: number
+  vars: Record<string, unknown>
+} {
   const binds = createBinds()
   const plan = compilePaginate(meta, args, binds)
   return { ...plan, vars: binds.vars }
@@ -48,9 +70,9 @@ function codeOf(fn: () => unknown): string | undefined {
 describe("paginate — compilation", () => {
   test("data + count in two statements, binds shared", () => {
     const plan = compilePaginateArgs({
-      where: { active: true },
       limit: 10,
       start: 20,
+      where: { active: true },
     })
     expect(plan.dataSql).toBe("SELECT * FROM user WHERE active = $p0 LIMIT $p1 START $p2")
     expect(plan.countSql).toBe("SELECT count() FROM user WHERE active = $p3 GROUP ALL")
@@ -59,7 +81,7 @@ describe("paginate — compilation", () => {
   })
 
   test("count:false probes LIMIT n+1 and skips the count statement", () => {
-    const plan = compilePaginateArgs({ limit: 10, count: false })
+    const plan = compilePaginateArgs({ count: false, limit: 10 })
     expect(plan.dataSql).toBe("SELECT * FROM user LIMIT $p0")
     expect(plan.countSql).toBeUndefined()
     expect(plan.probe).toBe(true)
@@ -68,9 +90,9 @@ describe("paginate — compilation", () => {
 
   test("groupBy counts GROUPS via a subquery", () => {
     const plan = compilePaginateArgs({
-      select: { active: true },
       groupBy: ["active"],
       limit: 5,
+      select: { active: true },
     })
     expect(plan.dataSql).toBe("SELECT active FROM user GROUP BY active LIMIT $p0")
     expect(plan.countSql).toBe(
@@ -80,9 +102,9 @@ describe("paginate — compilation", () => {
 
   test("split counts the unfolded rows via a subquery", () => {
     const plan = compilePaginateArgs({
+      limit: 5,
       select: { tags: true },
       split: "tags",
-      limit: 5,
     })
     expect(plan.countSql).toBe("SELECT count() FROM (SELECT tags FROM user SPLIT tags) GROUP ALL")
   })
@@ -95,8 +117,8 @@ describe("paginate — compilation", () => {
 
   test("range targets the record range in BOTH statements", () => {
     const plan = compilePaginateArgs({
-      range: { start: "user:1", end: "user:9", inclusive: true },
       limit: 3,
+      range: { end: "user:9", inclusive: true, start: "user:1" },
     })
     expect(plan.dataSql).toBe("SELECT * FROM user:1..=9 LIMIT $p0")
     expect(plan.countSql).toBe("SELECT count() FROM user:1..=9 GROUP ALL")
@@ -104,10 +126,10 @@ describe("paginate — compilation", () => {
 
   test("groupBy + where keeps the filter in the count subquery", () => {
     const plan = compilePaginateArgs({
-      select: { active: true },
-      where: { age: { gte: 18 } },
       groupBy: ["active"],
       limit: 5,
+      select: { active: true },
+      where: { age: { gte: 18 } },
     })
     expect(plan.dataSql).toBe("SELECT active FROM user WHERE age >= $p0 GROUP BY active LIMIT $p1")
     expect(plan.countSql).toBe(
@@ -120,40 +142,40 @@ describe("paginate — delegate envelope", () => {
   const rows = [fullUser("1"), fullUser("2"), fullUser("3")]
 
   test("count:true computes total/pageCount/hasNext/hasPrevious", async () => {
-    const { conn, calls } = fakeConn((sql) =>
+    const { calls, conn } = fakeConn((sql) =>
       lines(sql).map((line) => (line.includes("count()") ? ok([{ count: 25 }]) : ok(rows))),
     )
     const client = orm(conn, { schema: { users: User } })
     const page = await client.users.paginate({
-      where: { active: true },
       limit: 10,
       start: 20,
+      where: { active: true },
     })
     expect(calls).toHaveLength(1) // ONE round-trip for both statements
-    expect(page.data).toHaveLength(3)
+    expect(page.data).toHaveLength(MAGIC_3)
     expect(page.pagination).toEqual({
-      type: "offset",
-      page: 3,
-      perPage: 10,
-      total: 25,
-      pageCount: 3,
       hasNext: true,
       hasPrevious: true,
+      page: 3,
+      pageCount: 3,
+      perPage: 10,
+      total: 25,
+      type: "offset",
     })
   })
 
   test("count:false probes n+1 and omits total/pageCount", async () => {
-    const { conn, calls } = fakeConn((sql) => lines(sql).map(() => ok([...rows, fullUser("4")])))
+    const { calls, conn } = fakeConn((sql) => lines(sql).map(() => ok([...rows, fullUser("4")])))
     const client = orm(conn, { schema: { users: User } })
-    const page = await client.users.paginate({ limit: 3, count: false })
+    const page = await client.users.paginate({ count: false, limit: 3 })
     expect(calls[0]?.vars).toEqual({ p0: 4 }) // LIMIT n+1
-    expect(page.data).toHaveLength(3)
+    expect(page.data).toHaveLength(MAGIC_3)
     expect(page.pagination).toEqual({
-      type: "offset",
-      page: 1,
-      perPage: 3,
       hasNext: true,
       hasPrevious: false,
+      page: 1,
+      perPage: 3,
+      type: "offset",
     })
     expect("total" in page.pagination).toBe(false)
   })
@@ -161,7 +183,7 @@ describe("paginate — delegate envelope", () => {
   test("a short page has no next", async () => {
     const { conn } = fakeConn((sql) =>
       lines(sql).map((line) =>
-        line.includes("count()") ? ok([{ count: 2 }]) : ok(rows.slice(0, 2)),
+        line.includes("count()") ? ok([{ count: 2 }]) : ok(rows.slice(0, MAGIC_2)),
       ),
     )
     const client = orm(conn, { schema: { users: User } })

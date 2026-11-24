@@ -208,10 +208,9 @@ export async function runScript(
 /** Merge every statement's binds, rejecting a name reused with a DIFFERENT value. */
 function mergeVars(statements: readonly Statement[]): Record<string, unknown> {
   const merged: Record<string, unknown> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [i, statement] of statements.entries()) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [name, value] of Object.entries(statement.vars ?? {})) {
+
+  statements.entries().forEach(([i, statement]) => {
+    Object.entries(statement.vars ?? {}).forEach(([name, value]) => {
       if (name in merged && !Object.is(merged[name], value)) {
         throw new OrmError(
           "ParseError",
@@ -220,8 +219,8 @@ function mergeVars(statements: readonly Statement[]): Record<string, unknown> {
         )
       }
       merged[name] = value
-    }
-  }
+    })
+  })
   return merged
 }
 
@@ -291,8 +290,9 @@ export async function execute<T = unknown>(
     // failed transaction" — including ones that ran BEFORE the failure. Those normalize to
     // `TransactionRollback`; the genuine cause (e.g. an AlreadyExists) is the failure to report.
     const failures = responses.map((r, i) => ({ i, r })).filter(({ r }) => r.status === "ERR")
-    const primary = failures.find(({ r }) => r.error?.code !== "TransactionRollback") ?? failures[0]
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- failure[0] pode faltar em runtime apesar do tipo não-nullish
+    const primary =
+      failures.find(({ r }) => r.error?.code !== "TransactionRollback") ?? failures.at(0)
+
     if (primary) {
       const error = primary.r.error
       if (error) throw error

@@ -74,8 +74,8 @@ export function keysetProjection(
   const omitted = omittedPaths(omit)
   const keys: CursorKey[] = []
   const aliases: KeysetAlias[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [index, { field }] of order.entries()) {
+
+  order.entries().forEach(([index, { field }]) => {
     const target = pathSegments(field)
     // ORDER BY resolves SELECT aliases: a projection entry that redefines the ordered name would
     // make the keyset ORDER BY sort by the alias while the WHERE predicate compares the stored
@@ -91,13 +91,13 @@ export function keysetProjection(
     }
     if (projectedInPlace(form, omitted, field)) {
       keys.push({ field })
-      continue
+      return
     }
     const alias = `${ALIAS_PREFIX}${index}`
     assertAliasFree(meta, form, alias, operation)
     aliases.push({ alias, path: field })
     keys.push({ alias, field })
-  }
+  })
   return { aliases, keys }
 }
 

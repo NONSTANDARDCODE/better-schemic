@@ -177,12 +177,12 @@ export type SqlPreviewDelegate<D> = {
 type WithPluginArgs<Base, P extends PluginList, K extends string> = Base & PluginArgs<P, K>
 
 /** A typed model delegate (`S` is the authored schema — relation typing needs it). */
-// eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- interface needed: `$withoutPlugins()`/`$withState()` return the polymorphic `this` type, unavailable in a type alias.
-export interface Delegate<
+
+export type Delegate<
   TD extends AnyTableDef = AnyTableDef,
   S = SchemaInput,
   P extends PluginList = readonly [],
-> {
+> = {
   readonly $model: ModelInfo
   /**
    * Compile- previews: `delegate.$sql.create({ data })` returns the exact SurrealQL + binds —
@@ -193,9 +193,9 @@ export interface Delegate<
   /** The delegate's plugin state (a flat bag shared by every plugin on this delegate). */
   readonly $state: PluginState
   /** A clone of the delegate that ignores every plugin (transforms, hooks, extensions). */
-  $withoutPlugins(): this
+  $withoutPlugins(): Delegate<TD, S, P>
   /** A clone of the delegate with `patch` merged into its plugin state. */
-  $withState(state: PluginState): this
+  $withState(state: PluginState): Delegate<TD, S, P>
   /**
    * Grouped combines — `count()`, `math::*` and `array::*` with `GROUP BY`/`GROUP ALL`.
    *
@@ -442,8 +442,8 @@ export function createDelegate<TD extends AnyTableDef = AnyTableDef>(
     const pipeline = localCtx.pipeline
     if (pipeline && enabled) {
       const extensions = pipeline.extendModel({ index: ctx.index, model: delegate }, state)
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const [name, value] of Object.entries(extensions)) {
+
+      Object.entries(extensions).forEach(([name, value]) => {
         if (name in delegate) {
           throw new OrmError(
             "PluginError",
@@ -451,7 +451,7 @@ export function createDelegate<TD extends AnyTableDef = AnyTableDef>(
           )
         }
         delegate[name] = value
-      }
+      })
     }
     return delegate as unknown as Delegate<TD>
   }
@@ -504,11 +504,11 @@ function wrapOperations(
   }
 
   const out: Record<string, unknown> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const kind of Object.keys(operations)) {
+
+  Object.keys(operations).forEach((kind) => {
     out[kind] = (args: Record<string, unknown> = {}): unknown =>
       dispatch(kind as OperationKind, args)
-  }
+  })
   return out
 }
 

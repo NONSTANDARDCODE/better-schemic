@@ -1,8 +1,6 @@
-/* eslint-disable perfectionist/sort-objects, unicorn/consistent-function-scoping, unicorn/no-thenable, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Helpers stay colocated with the tests that use them. Bun test calls return thenable handles that are not awaited. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // Import `s`/`table` by package name (like the CLI does) so the table types line up with the
 // `better-schemic/core`-typed signatures in cli/diff (avoids src-vs-lib duplicate-declaration errors).
 import {
-  type AccessDef,
   defineAccess,
   defineEvent,
   defineFunction,
@@ -15,6 +13,8 @@ import { formatPatch, summarizeKinds, tokenDiff } from "better-schemic/core"
 import { emitTable } from "better-schemic/driver"
 import { describe, expect, test } from "bun:test"
 
+import type { AuthoredDef } from "../../../src/core"
+import type { DiffItem } from "../../../src/core/cli-kit/diff"
 import { EMPTY_SNAPSHOT } from "../../../src/surreal/cli/structure"
 import {
   buildSnapshot,
@@ -22,6 +22,10 @@ import {
   renderMigration,
 } from "../../../src/surreal/cli/surreal-diff"
 import { surrealKinds } from "../../../src/surreal/kinds/registry"
+import { KEEP_ORDER } from "../../order-barrier"
+import { THEN_KEY } from "../../then-key"
+const ddlOf2 = (a: AuthoredDef): string =>
+  diffSnapshots(EMPTY_SNAPSHOT, buildSnapshot([], [a])).up[0]
 
 const User = table("user", { id: s.string(), name: s.string() })
 
@@ -55,9 +59,9 @@ describe("diff engine", () => {
     const prev = buildSnapshot([User])
     const next = buildSnapshot([
       table("user", {
+        email: s.email(),
         id: s.string(),
         name: s.string(),
-        email: s.email(),
       }),
     ])
     const diff = diffSnapshots(prev, next)
@@ -88,19 +92,19 @@ describe("diff engine", () => {
   })
 
   test("COMPUTED change falls back to DEFINE … OVERWRITE (no ALTER form)", () => {
-    const prev = buildSnapshot([table("t", { id: s.string(), c: s.string() })])
+    const prev = buildSnapshot([table("t", { c: s.string(), id: s.string() })])
     const next = buildSnapshot([
       table("t", {
-        id: s.string(),
         c: s.string().$computed(surql`"x"`),
+        id: s.string(),
       }),
     ])
     expect(diffSnapshots(prev, next).up[0]).toContain("DEFINE FIELD OVERWRITE c")
   })
 
   test("changed index -> REMOVE + DEFINE (ALTER INDEX can't change fields)", () => {
-    const prev = buildSnapshot([table("t", { id: s.string(), a: s.string().$index() })])
-    const next = buildSnapshot([table("t", { id: s.string(), a: s.string().$unique() })])
+    const prev = buildSnapshot([table("t", { a: s.string().$index(), id: s.string() })])
+    const next = buildSnapshot([table("t", { a: s.string().$unique(), id: s.string() })])
     const up = diffSnapshots(prev, next).up
     expect(up.some((s) => s.startsWith("REMOVE INDEX"))).toBe(true)
     expect(up.some((s) => /^DEFINE INDEX .*UNIQUE;$/u.test(s))).toBe(true)
@@ -141,8 +145,8 @@ describe("diff engine", () => {
 
   test("renderMigration wraps statements in an IF $direction up/down branch", () => {
     const m = renderMigration("0001_x", {
-      up: ["DEFINE TABLE x TYPE NORMAL SCHEMAFULL;"],
       down: ["REMOVE TABLE IF EXISTS x;"],
+      up: ["DEFINE TABLE x TYPE NORMAL SCHEMAFULL;"],
     })
     expect(m).toContain('IF $direction = "up" {')
     expect(m).toContain("} ELSE {")
@@ -158,16 +162,16 @@ describe("display items", () => {
   test("diffSnapshots tags each object as add / remove / change", () => {
     const before = table("user", {
       id: s.string(),
-      name: s.string(),
       legacy: s.string(),
+      name: s.string(),
     })
     const after = table("user", {
+      email: s.email(),
       id: s.string(),
       name: s.string().optional(),
-      email: s.email(),
     })
     const items = diffSnapshots(buildSnapshot([before]), buildSnapshot([after])).items
-    const byOp = (op: string) => items?.filter((i) => i.op === op) ?? []
+    const byOp = (op: string): DiffItem[] => items?.filter((i): boolean => i.op === op) ?? []
     expect(byOp("add").map((i) => i.key)).toContain("field:user:email")
     expect(byOp("remove").map((i) => i.key)).toContain("field:user:legacy")
     const change = byOp("change")[0]
@@ -202,13 +206,13 @@ describe("formatPatch (unified diff)", () => {
   test("emits per-table .sql hunks with -/+ lines (removes show the old DEFINE)", () => {
     const before = table("user", {
       id: s.string(),
-      name: s.string(),
       legacy: s.string(),
+      name: s.string(),
     })
     const after = table("user", {
+      email: s.email(),
       id: s.string(),
       name: s.string().optional(),
-      email: s.email(),
     })
     const patch = formatPatch(diffSnapshots(buildSnapshot([before]), buildSnapshot([after])))
     // No source file in this fixture → the section falls back to the bare object name.
@@ -231,10 +235,10 @@ describe("formatPatch (unified diff)", () => {
 
 describe("indexes", () => {
   const Indexed = table("member", {
-    id: s.string(),
     email: s.email().$unique(),
-    handle: s.string().$index(),
     first: s.string(),
+    handle: s.string().$index(),
+    id: s.string(),
     last: s.string(),
   }).index("member_full_name", ["first", "last"])
 
@@ -258,10 +262,10 @@ describe("indexes", () => {
   })
 
   test("adding just an index → one DEFINE INDEX up / REMOVE INDEX down", () => {
-    const before = table("t", { id: s.string(), code: s.string() })
+    const before = table("t", { code: s.string(), id: s.string() })
     const after = table("t", {
-      id: s.string(),
       code: s.string().$unique(),
+      id: s.string(),
     })
     const diff = diffSnapshots(buildSnapshot([before]), buildSnapshot([after]))
     expect(diff.up).toEqual(["DEFINE INDEX t_code_idx ON TABLE t FIELDS code UNIQUE;"])
@@ -276,16 +280,16 @@ describe("indexes", () => {
 
 describe("events", () => {
   const Evented = table("user", {
-    id: s.string(),
     email: s.email(),
+    id: s.string(),
     verified: s.boolean(),
   })
     .event("reverify", {
+      [THEN_KEY]: surql`UPDATE $after.id SET verified = false`,
       when: surql`$before.email != $after.email`,
-      then: surql`UPDATE $after.id SET verified = false`,
     })
     .event("log_changes", {
-      then: [surql`UPDATE $after.id SET a = 1`, surql`UPDATE $after.id SET b = 2`],
+      [THEN_KEY]: [surql`UPDATE $after.id SET a = 1`, surql`UPDATE $after.id SET b = 2`],
     })
 
   test(".event() emits DEFINE EVENT with WHEN + THEN", () => {
@@ -303,8 +307,8 @@ describe("events", () => {
   test("adding an event → DEFINE EVENT up / REMOVE EVENT down", () => {
     const before = table("t", { id: s.string(), n: s.int() })
     const after = before.event("on_n", {
+      [THEN_KEY]: surql`UPDATE $after.id SET touched = true`,
       when: surql`$before.n != $after.n`,
-      then: surql`UPDATE $after.id SET touched = true`,
     })
     const diff = diffSnapshots(buildSnapshot([before]), buildSnapshot([after]))
     expect(diff.up).toEqual([
@@ -326,14 +330,14 @@ describe("events", () => {
   })
 
   test("standalone defineEvent compiles to the same statement as inline .event()", () => {
-    const Base = table("user", { id: s.string(), email: s.email() })
+    const Base = table("user", { email: s.email(), id: s.string() })
     const inline = Base.event("reverify", {
+      [THEN_KEY]: surql`UPDATE $after.id SET verified = false`,
       when: surql`$before.email != $after.email`,
-      then: surql`UPDATE $after.id SET verified = false`,
     })
     const standalone = defineEvent(Base, "reverify", {
+      [THEN_KEY]: surql`UPDATE $after.id SET verified = false`,
       when: surql`$before.email != $after.email`,
-      then: surql`UPDATE $after.id SET verified = false`,
     })
     const key = "event:user:reverify"
     expect(buildSnapshot([Base], [standalone]).statements[key].ddl).toBe(
@@ -344,7 +348,7 @@ describe("events", () => {
   test("standalone events ride into buildSnapshot's second arg", () => {
     const Base = table("user", { id: s.string(), n: s.int() })
     const ev = defineEvent(Base, "on_n", {
-      then: surql`UPDATE $after.id SET touched = true`,
+      [THEN_KEY]: surql`UPDATE $after.id SET touched = true`,
     })
     const up = diffSnapshots(EMPTY_SNAPSHOT, buildSnapshot([Base], [ev])).up
     expect(up).toContain(
@@ -355,8 +359,6 @@ describe("events", () => {
 
 describe("functions", () => {
   const User = table("user", { id: s.string() })
-  const ddlOf = (fn: ReturnType<typeof defineFunction>) =>
-    diffSnapshots(EMPTY_SNAPSHOT, buildSnapshot([], [fn])).up[0]
 
   test("emits DEFINE FUNCTION with s-typed args + returns, permissions, comment", () => {
     const greet = defineFunction("greet", { name: s.string() })
@@ -364,7 +366,7 @@ describe("functions", () => {
       .body(surql`RETURN "Hi " + $name`)
       .permissions(false)
       .comment("greeter")
-    expect(ddlOf(greet)).toBe(
+    expect(ddlOf2(greet)).toBe(
       `DEFINE FUNCTION fn::greet($name: string) -> string {
   RETURN "Hi " + $name;
 } PERMISSIONS NONE COMMENT "greeter";`,
@@ -374,16 +376,26 @@ describe("functions", () => {
   test("s-typed args infer SurrealQL types (record/int), bare body is braced", () => {
     const fn = defineFunction("touch", {
       who: User.record(),
+      ...KEEP_ORDER,
+      ...KEEP_ORDER,
+      ...KEEP_ORDER,
+      ...KEEP_ORDER,
+      ...KEEP_ORDER,
+      ...KEEP_ORDER,
+      ...KEEP_ORDER,
+      ...KEEP_ORDER,
+      ...KEEP_ORDER,
+      ...KEEP_ORDER,
       n: s.int(),
     }).body(surql`UPDATE $who SET hits = $n`)
-    expect(ddlOf(fn)).toBe(
+    expect(ddlOf2(fn)).toBe(
       "DEFINE FUNCTION fn::touch($who: record<user>, $n: int) {\n  UPDATE $who SET hits = $n;\n};",
     )
   })
 
   test("a surql`{ … }` block body is not double-braced", () => {
     const fn = defineFunction("noop", {}).body(surql`{ RETURN NONE }`)
-    expect(ddlOf(fn)).toBe("DEFINE FUNCTION fn::noop() {\n  RETURN NONE;\n};")
+    expect(ddlOf2(fn)).toBe("DEFINE FUNCTION fn::noop() {\n  RETURN NONE;\n};")
   })
 
   test("adding a function → DEFINE FUNCTION up / REMOVE FUNCTION down", () => {
@@ -410,16 +422,14 @@ describe("functions", () => {
 })
 
 describe("access", () => {
-  const ddlOf = (a: AccessDef) => diffSnapshots(EMPTY_SNAPSHOT, buildSnapshot([], [a])).up[0]
-
   test("emits DEFINE ACCESS RECORD with auto-braced SIGNUP/SIGNIN + DURATION", () => {
     const account = defineAccess("account")
       .onDatabase()
       .record()
       .signup(surql`CREATE user CONTENT { email: $email }`)
       .signin(surql`SELECT * FROM user WHERE email = $email`)
-      .duration({ token: "1h", session: "12h" })
-    expect(ddlOf(account)).toBe(
+      .duration({ session: "12h", token: "1h" })
+    expect(ddlOf2(account)).toBe(
       "DEFINE ACCESS account ON DATABASE TYPE RECORD SIGNUP {\n" +
         "  CREATE user CONTENT { email: $email };\n" +
         "} SIGNIN {\n" +
@@ -452,13 +462,13 @@ describe("access", () => {
       .onDatabase()
       .jwt({ alg: "HS512", key: "secret" })
       .duration({ token: "1h" })
-    expect(ddlOf(sym)).toBe(
+    expect(ddlOf2(sym)).toBe(
       `DEFINE ACCESS api ON DATABASE TYPE JWT ALGORITHM HS512 KEY "secret" DURATION FOR TOKEN 1h;`,
     )
     const jwks = defineAccess("api2").onDatabase().jwt({
       url: "https://example.com/jwks.json",
     })
-    expect(ddlOf(jwks)).toBe(
+    expect(ddlOf2(jwks)).toBe(
       `DEFINE ACCESS api2 ON DATABASE TYPE JWT URL "https://example.com/jwks.json";`,
     )
   })
@@ -468,11 +478,11 @@ describe("access", () => {
       .onDatabase()
       .bearer({ for: "record" })
       .duration({ grant: "30d", session: "12h" })
-    expect(ddlOf(svc)).toBe(
+    expect(ddlOf2(svc)).toBe(
       "DEFINE ACCESS svc ON DATABASE TYPE BEARER FOR RECORD " +
         "DURATION FOR GRANT 30d, FOR SESSION 12h;",
     )
-    expect(ddlOf(defineAccess("u").onDatabase().bearer({ for: "user" }))).toBe(
+    expect(ddlOf2(defineAccess("u").onDatabase().bearer({ for: "user" }))).toBe(
       "DEFINE ACCESS u ON DATABASE TYPE BEARER FOR USER;",
     )
   })
@@ -481,9 +491,9 @@ describe("access", () => {
 describe("batch 1: set / computed / changefeed / count", () => {
   test("s.set() emits set<T> (distinct from array<T>)", () => {
     const t = table("t", {
+      arr: s.array(s.string()),
       id: s.string(),
       tags: s.set(s.string()),
-      arr: s.array(s.string()),
     })
     const ddl = emitTable(t)
     expect(ddl).toContain("DEFINE FIELD tags ON TABLE t TYPE set<string>;")
@@ -492,13 +502,13 @@ describe("batch 1: set / computed / changefeed / count", () => {
 
   test("$computed emits a COMPUTED field; option<> is stripped", () => {
     const t = table("person", {
-      id: s.string(),
       first: s.string(),
-      last: s.string(),
       full: s
         .string()
         .optional()
         .$computed(surql`string::concat(first, " ", last)`),
+      id: s.string(),
+      last: s.string(),
     })
     expect(emitTable(t)).toContain(
       `DEFINE FIELD full ON TABLE person TYPE string COMPUTED string::concat(first, " ", last);`,

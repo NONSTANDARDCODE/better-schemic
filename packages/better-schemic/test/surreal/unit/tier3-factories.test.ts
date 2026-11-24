@@ -1,12 +1,22 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+const MAGIC_5n = 5n
+const MAGIC_m1n = -1n
+const MAGIC_1E40 = 1e40
+const MAGIC_3p5 = 3.5
+const MAGIC_42 = 42
+const MAGIC_5 = 5
 // Tier-3 Zod-parity factories: the long-tail `s.*` so a `z.` -> `s.` find-replace is a literal drop-in.
 import { describe, expect, test } from "bun:test"
 import { z } from "zod"
 
 import { s, table } from "../../../src/surreal"
 import { emitTable } from "../../../src/surreal/driver"
+const line3 = (t: Parameters<typeof emitTable>[0], n: string): string | undefined =>
+  emitTable(t)
+    .split("\n")
+    .find((l) => l.includes(` ${n} `))
+    ?.trim()
 
-const line = (t: Parameters<typeof emitTable>[0], n: string) =>
+const line = (t: Parameters<typeof emitTable>[0], n: string): string | undefined =>
   emitTable(t)
     .split("\n")
     .find((l) => l.includes(` ${n} `))
@@ -15,7 +25,6 @@ const line = (t: Parameters<typeof emitTable>[0], n: string) =>
 describe("Tier-3 string-format factories (app-side; DDL `string`)", () => {
   test("each emits a plain `string` column", () => {
     const T = table("t", {
-      id: s.string(),
       a: s.uuidv4(),
       b: s.uuidv6(),
       c: s.uuidv7(),
@@ -24,10 +33,11 @@ describe("Tier-3 string-format factories (app-side; DDL `string`)", () => {
       f: s.hex(),
       g: s.mac(),
       h: s.hash("sha256"),
+      id: s.string(),
     })
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const k of ["a", "b", "c", "d", "e", "f", "g", "h"])
+    ;["a", "b", "c", "d", "e", "f", "g", "h"].forEach((k) => {
       expect(line(T, k)).toBe(`DEFINE FIELD ${k} ON TABLE t TYPE string;`)
+    })
   })
 
   test("they validate app-side", () => {
@@ -41,15 +51,15 @@ describe("Tier-3 string-format factories (app-side; DDL `string`)", () => {
 describe("Tier-3 iso.* string formats (distinct from native datetime/duration codecs)", () => {
   test("nested s.iso.* emit `string`", () => {
     const T = table("t", {
-      id: s.string(),
       d: s.iso.date(),
-      ti: s.iso.time(),
       dt: s.iso.datetime(),
       du: s.iso.duration(),
+      id: s.string(),
+      ti: s.iso.time(),
     })
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const k of ["d", "ti", "dt", "du"])
+    ;["d", "ti", "dt", "du"].forEach((k) => {
       expect(line(T, k)).toBe(`DEFINE FIELD ${k} ON TABLE t TYPE string;`)
+    })
     // native datetime stays the codec type (datetime), NOT string
     expect(line(table("t", { id: s.string(), n: s.datetime() }), "n")).toBe(
       "DEFINE FIELD n ON TABLE t TYPE datetime;",
@@ -61,8 +71,8 @@ describe("Tier-3 strictObject / looseObject", () => {
   test("strictObject -> object, looseObject -> object FLEXIBLE, both composable", () => {
     const T = table("t", {
       id: s.string(),
-      so: s.strictObject({ a: s.string() }),
       lo: s.looseObject({ a: s.string() }),
+      so: s.strictObject({ a: s.string() }),
     })
     expect(line(T, "so")).toBe("DEFINE FIELD so ON TABLE t TYPE object;")
     expect(line(T, "lo")).toBe("DEFINE FIELD lo ON TABLE t TYPE object FLEXIBLE;")
@@ -80,7 +90,7 @@ describe("Tier-3 structural: json / stringbool / codec", () => {
   })
 
   test("stringbool -> string wire (DDL), bool app", () => {
-    const T = table("t", { id: s.string(), b: s.stringbool() })
+    const T = table("t", { b: s.stringbool(), id: s.string() })
     expect(line(T, "b")).toBe("DEFINE FIELD b ON TABLE t TYPE string;")
     expect(s.stringbool().safeDecode("true").data).toBe(true)
     expect(s.stringbool().safeDecode("false").data).toBe(false)
@@ -93,68 +103,56 @@ describe("Tier-3 structural: json / stringbool / codec", () => {
     })
     const T = table("t", { id: s.string(), n: c })
     expect(line(T, "n")).toBe("DEFINE FIELD n ON TABLE t TYPE string;")
-    expect(c.safeDecode("42").data).toBe(42)
-    expect(c.safeEncode(42).data).toBe("42")
+    expect(c.safeDecode("42").data).toBe(MAGIC_42)
+    expect(c.safeEncode(MAGIC_42).data).toBe("42")
   })
 })
 
 describe("Bucket-2 numerics (float32/float64/int64/uint64)", () => {
-  const line = (t: Parameters<typeof emitTable>[0], n: string) =>
-    emitTable(t)
-      .split("\n")
-      .find((l) => l.includes(` ${n} `))
-      ?.trim()
-
   test("float* -> `float`, int64/uint64 -> `int`", () => {
     const T = table("t", {
-      id: s.string(),
       a: s.float32(),
       b: s.float64(),
       c: s.int64(),
       d: s.uint64(),
+      id: s.string(),
     })
-    expect(line(T, "a")).toBe("DEFINE FIELD a ON TABLE t TYPE float;")
-    expect(line(T, "b")).toBe("DEFINE FIELD b ON TABLE t TYPE float;")
-    expect(line(T, "c")).toBe("DEFINE FIELD c ON TABLE t TYPE int;")
-    expect(line(T, "d")).toBe("DEFINE FIELD d ON TABLE t TYPE int;")
+    expect(line3(T, "a")).toBe("DEFINE FIELD a ON TABLE t TYPE float;")
+    expect(line3(T, "b")).toBe("DEFINE FIELD b ON TABLE t TYPE float;")
+    expect(line3(T, "c")).toBe("DEFINE FIELD c ON TABLE t TYPE int;")
+    expect(line3(T, "d")).toBe("DEFINE FIELD d ON TABLE t TYPE int;")
   })
 
   test("they validate app-side", () => {
-    expect(s.float32().safeDecode(1e40).success).toBe(false)
-    expect(s.int64().safeDecode(5n).success).toBe(true)
+    expect(s.float32().safeDecode(MAGIC_1E40).success).toBe(false)
+    expect(s.int64().safeDecode(MAGIC_5n).success).toBe(true)
     // The SDK returns an `int` as a JS number when it's safe-sized; the bigint codec coerces it.
-    expect(s.int64().safeDecode(5).success).toBe(true)
-    expect(s.int64().safeDecode(5).data).toBe(5n)
-    expect(s.int64().safeDecode(3.5).success).toBe(false) // non-integer rejected at the wire
-    expect(s.uint64().safeDecode(-1n).success).toBe(false) // unsigned
+    expect(s.int64().safeDecode(MAGIC_5).success).toBe(true)
+    expect(s.int64().safeDecode(MAGIC_5).data).toBe(MAGIC_5n)
+    expect(s.int64().safeDecode(MAGIC_3p5).success).toBe(false) // non-integer rejected at the wire
+    expect(s.uint64().safeDecode(MAGIC_m1n).success).toBe(false) // unsigned
   })
 })
 
 describe("Full drop-in tail: stringFormat/templateLiteral/keyof/partialRecord/looseRecord/xor/preprocess", () => {
-  const line = (t: Parameters<typeof emitTable>[0], n: string) =>
-    emitTable(t)
-      .split("\n")
-      .find((l) => l.includes(` ${n} `))
-      ?.trim()
-
   test("DDL mappings", () => {
     const T = table("t", {
       id: s.string(),
+      ko: s.keyof(s.object({ a: s.string(), b: s.string() })),
+      lr: s.looseRecord(z.string(), s.number()),
+      pp: s.preprocess(String, s.string()),
+      pr: s.partialRecord(z.string(), s.number()),
       sf: s.stringFormat("slug", (v: string) => /^[a-z-]+$/u.test(v)),
       tl: s.templateLiteral(["user_", z.number()]),
-      ko: s.keyof(s.object({ a: s.string(), b: s.string() })),
-      pr: s.partialRecord(z.string(), s.number()),
-      lr: s.looseRecord(z.string(), s.number()),
       xo: s.xor([s.string(), s.number()]),
-      pp: s.preprocess(String, s.string()),
     })
-    expect(line(T, "sf")).toBe("DEFINE FIELD sf ON TABLE t TYPE string;")
-    expect(line(T, "tl")).toBe("DEFINE FIELD tl ON TABLE t TYPE string;") // template_literal -> string
-    expect(line(T, "ko")).toBe('DEFINE FIELD ko ON TABLE t TYPE "a" | "b";')
-    expect(line(T, "pr")).toBe("DEFINE FIELD pr ON TABLE t TYPE object;")
-    expect(line(T, "lr")).toBe("DEFINE FIELD lr ON TABLE t TYPE object;")
-    expect(line(T, "xo")).toBe("DEFINE FIELD xo ON TABLE t TYPE string | number;")
-    expect(line(T, "pp")).toBe("DEFINE FIELD pp ON TABLE t TYPE any;") // preprocess = app-side, no DDL
+    expect(line3(T, "sf")).toBe("DEFINE FIELD sf ON TABLE t TYPE string;")
+    expect(line3(T, "tl")).toBe("DEFINE FIELD tl ON TABLE t TYPE string;") // template_literal -> string
+    expect(line3(T, "ko")).toBe('DEFINE FIELD ko ON TABLE t TYPE "a" | "b";')
+    expect(line3(T, "pr")).toBe("DEFINE FIELD pr ON TABLE t TYPE object;")
+    expect(line3(T, "lr")).toBe("DEFINE FIELD lr ON TABLE t TYPE object;")
+    expect(line3(T, "xo")).toBe("DEFINE FIELD xo ON TABLE t TYPE string | number;")
+    expect(line3(T, "pp")).toBe("DEFINE FIELD pp ON TABLE t TYPE any;") // preprocess = app-side, no DDL
   })
 
   test("app-side validation", () => {

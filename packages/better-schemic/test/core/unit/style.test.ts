@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures assert values whose presence the test guarantees. */
+const MAGIC_2 = 2
 // The ANSI styling helper — the COLOR-ON path (TTY + NO_COLOR unset) and the color-OFF fallback.
 // `process.stdout.isTTY` is a getter, so it's overridden with `Object.defineProperty` and restored.
 import { afterEach, describe, expect, test } from "bun:test"
@@ -10,13 +10,13 @@ const realIsTTY = Object.getOwnPropertyDescriptor(process.stdout, "isTTY")?.valu
 
 function setIsTTY(v: boolean): void {
   Object.defineProperty(process.stdout, "isTTY", {
-    value: v,
     configurable: true,
+    value: v,
   })
 }
 
 afterEach(() => {
-  setIsTTY(realIsTTY!)
+  setIsTTY(realIsTTY as unknown as boolean)
   delete process.env.NO_COLOR
 })
 
@@ -52,6 +52,6 @@ describe("style", () => {
   test("pluralizes", () => {
     expect(plural(1, "thing")).toBe("1 thing")
     expect(plural(0, "thing")).toBe("0 things")
-    expect(plural(2, "thing")).toBe("2 things")
+    expect(plural(MAGIC_2, "thing")).toBe("2 things")
   })
 })

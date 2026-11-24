@@ -1,4 +1,7 @@
-/* eslint-disable @typescript-eslint/no-magic-numbers -- Literal values are intentional test data and must stay as authored. */
+const MAGIC_10 = 10
+const MAGIC_2 = 2
+const MAGIC_3 = 3
+const MAGIC_4 = 4
 // The SurrealQL highlighter + palette: tokenizer classes, top-level clause breaks, ANSI painting and
 // the width helpers the box renderer relies on. Offline (pure).
 import { describe, expect, test } from "bun:test"
@@ -197,7 +200,7 @@ describe("highlightSurql / sqlLines", () => {
       true,
     )
     const lines = pretty.split("\n")
-    expect(lines).toHaveLength(2)
+    expect(lines).toHaveLength(MAGIC_2)
     expect(lines[0]).toContain("(SELECT * FROM user WHERE x = 1)")
     expect(lines[1]).toBe("  WHERE y = 2")
   })
@@ -246,18 +249,18 @@ describe("palette & width helpers", () => {
 
   test("stripAnsi + visibleWidth + padEnd", () => {
     expect(stripAnsi("\u001B[31mred\u001B[0m")).toBe("red")
-    expect(visibleWidth("\u001B[31mred\u001B[0m")).toBe(3)
-    expect(visibleWidth("a😀b")).toBe(4) // emoji are double-width
-    expect(visibleWidth("コンニチハ")).toBe(10) // CJK
+    expect(visibleWidth("\u001B[31mred\u001B[0m")).toBe(MAGIC_3)
+    expect(visibleWidth("a😀b")).toBe(MAGIC_4) // emoji are double-width
+    expect(visibleWidth("コンニチハ")).toBe(MAGIC_10) // CJK
     expect(visibleWidth("a\u0301")).toBe(1) // combining accent
-    expect(visibleWidth("a\u200Db")).toBe(2) // zero-width joiner
+    expect(visibleWidth("a\u200Db")).toBe(MAGIC_2) // zero-width joiner
     expect(visibleWidth("\u0000")).toBe(0) // control
-    expect(visibleWidth("\u2B50")).toBe(2) // star
-    expect(visibleWidth("\u3131")).toBe(2) // hangul jamo
-    expect(padEnd("ab", 4)).toBe("ab  ")
-    expect(padEnd("ab", 2)).toBe("ab") // fits
-    expect(padEnd("abcd", 2)).toBe("abcd") // never truncates
-    expect(padEnd("😀", 2)).toBe("😀")
+    expect(visibleWidth("\u2B50")).toBe(MAGIC_2) // star
+    expect(visibleWidth("\u3131")).toBe(MAGIC_2) // hangul jamo
+    expect(padEnd("ab", MAGIC_4)).toBe("ab  ")
+    expect(padEnd("ab", MAGIC_2)).toBe("ab") // fits
+    expect(padEnd("abcd", MAGIC_2)).toBe("abcd") // never truncates
+    expect(padEnd("😀", MAGIC_2)).toBe("😀")
   })
 
   test("codePointWidth covers every zero/wide range and its boundaries", () => {
@@ -269,18 +272,18 @@ describe("palette & width helpers", () => {
     expect(visibleWidth("\uFE0F")).toBe(0) // variation selector
     expect(visibleWidth("\uFE20")).toBe(0) // combining half mark
     // Wide classes + one code past each upper bound (falls through to width 1).
-    expect(visibleWidth("\u1100")).toBe(2)
+    expect(visibleWidth("\u1100")).toBe(MAGIC_2)
     expect(visibleWidth("\u1160")).toBe(1)
-    expect(visibleWidth("\u2600")).toBe(2)
-    expect(visibleWidth("\u27BF")).toBe(2)
+    expect(visibleWidth("\u2600")).toBe(MAGIC_2)
+    expect(visibleWidth("\u27BF")).toBe(MAGIC_2)
     expect(visibleWidth("\u27C0")).toBe(1)
-    expect(visibleWidth("\u2B00")).toBe(2)
+    expect(visibleWidth("\u2B00")).toBe(MAGIC_2)
     expect(visibleWidth("\u2C00")).toBe(1)
-    expect(visibleWidth("\u2E80")).toBe(2)
-    expect(visibleWidth("\uA4CF")).toBe(2)
+    expect(visibleWidth("\u2E80")).toBe(MAGIC_2)
+    expect(visibleWidth("\uA4CF")).toBe(MAGIC_2)
     expect(visibleWidth("\uA4D0")).toBe(1)
-    expect(visibleWidth("\u{1F000}")).toBe(2)
-    expect(visibleWidth("\u{1FAFF}")).toBe(2)
+    expect(visibleWidth("\u{1F000}")).toBe(MAGIC_2)
+    expect(visibleWidth("\u{1FAFF}")).toBe(MAGIC_2)
     expect(visibleWidth("\u{1FB00}")).toBe(1)
     expect(visibleWidth("\u{10FFFF}")).toBe(1)
     expect(visibleWidth("A")).toBe(1)

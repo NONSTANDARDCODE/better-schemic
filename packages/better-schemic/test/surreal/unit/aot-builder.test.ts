@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // Bun AOT — fluent builder at runtime: the chain is an identity/DDL-preserving authoring surface.
 import { describe, expect, test } from "bun:test"
 
@@ -6,7 +5,7 @@ import { s, table } from "../../../src/surreal"
 import { emitTable } from "../../../src/surreal/ddl"
 
 describe("AOT — fluent table builder", () => {
-  const shape = { name: s.string(), active: s.boolean() }
+  const shape = { active: s.boolean(), name: s.string() }
   const meta = { createdAt: s.datetime().$readonly() }
   const extra = { deletedAt: s.datetime().optional() }
 

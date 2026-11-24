@@ -1,6 +1,6 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-non-null-assertion, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Fixtures assert values whose presence the test guarantees. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // The RELATE lowering in isolation: the default operations, endpoint validation, named/empty edge
 // ids and the `create.relate` sugar guards. Direct calls pin the failure codes.
+
 import { describe, expect, test } from "bun:test"
 
 import { orm } from "../../../src/surreal/orm/client"
@@ -12,9 +12,10 @@ import {
   relateStatement,
   relateSugar,
 } from "../../../src/surreal/orm/compiler/relate"
-import { createBinds } from "../../../src/surreal/orm/compiler/shared"
+import { type Binds, createBinds } from "../../../src/surreal/orm/compiler/shared"
 import { schema } from "../../../src/surreal/orm/schema"
 import { relation } from "../../../src/surreal/pure"
+import { required } from "../../required"
 import { fakeConn, ok } from "../orm-fixtures"
 
 import { schemaDef } from "./orm-writes-fixtures"
@@ -30,9 +31,9 @@ const code = (fn: () => unknown): string | undefined => {
 
 const { conn } = fakeConn(() => [ok([])])
 const client = orm(conn, { schema: schemaDef })
-const likes = client.$index.tables.get("likes")!
-const user = client.$index.tables.get("users")!
-const b = () => createBinds()
+const likes = required(client.$index.tables.get("likes"))
+const user = required(client.$index.tables.get("users"))
+const b = (): Binds => createBinds()
 
 describe("relate / unrelate — defaults and guards", () => {
   test("default operations; named and empty edge ids", () => {
@@ -47,9 +48,9 @@ describe("relate / unrelate — defaults and guards", () => {
     )
     expect(compileUnrelateMany(likes, { all: true }, b()).statements[0]).toContain("DELETE")
     expect(
-      compileRelate(likes, { from: "user:1", to: "post:1", id: "likes:1" }, b()).statements[0],
+      compileRelate(likes, { from: "user:1", id: "likes:1", to: "post:1" }, b()).statements[0],
     ).toContain("likes:1")
-    expect(code(() => compileRelate(likes, { from: "user:1", to: "post:1", id: "" }, b()))).toBe(
+    expect(code(() => compileRelate(likes, { from: "user:1", id: "", to: "post:1" }, b()))).toBe(
       "ValidationError",
     )
   })
@@ -60,11 +61,11 @@ describe("relate / unrelate — defaults and guards", () => {
     )
     expect(
       code(() =>
-        compileRelateMany(likes, { data: [{ from: "user:1", to: "post:1", return: "none" }] }, b()),
+        compileRelateMany(likes, { data: [{ from: "user:1", return: "none", to: "post:1" }] }, b()),
       ),
     ).toBe("ValidationError")
     expect(
-      compileRelateMany(likes, { data: [{ from: "user:1", to: "post:1", return: "after" }] }, b())
+      compileRelateMany(likes, { data: [{ from: "user:1", return: "after", to: "post:1" }] }, b())
         .statements,
     ).toHaveLength(1)
     expect(code(() => compileUnrelate(likes, { to: "post:1" }, b()))).toBe("ValidationError")
@@ -76,11 +77,11 @@ describe("relate / unrelate — defaults and guards", () => {
     )
     const stmt = relateStatement(
       {
-        from: "user:1",
-        edge: "likes",
-        to: "post:1",
         data: { score: 1 },
+        edge: "likes",
+        from: "user:1",
         ret: "after",
+        to: "post:1",
       },
       b(),
       "relate",
@@ -89,7 +90,7 @@ describe("relate / unrelate — defaults and guards", () => {
     expect(
       code(() =>
         relateStatement(
-          { from: undefined, edge: "likes", to: "post:1", ret: "after" },
+          { edge: "likes", from: undefined, ret: "after", to: "post:1" },
           b(),
           "relate",
         ),
@@ -102,7 +103,7 @@ describe("relate / unrelate — defaults and guards", () => {
     const c = orm(fakeConn(() => [ok([])]).conn, {
       schema: schema({ bare: Bare }),
     })
-    const bare = c.$index.tables.get("bare")!
+    const bare = required(c.$index.tables.get("bare"))
     expect(compileRelate(bare, { from: "x:1", to: "y:1" }, b()).statements[0]).toContain("x:1")
   })
 })
@@ -110,7 +111,7 @@ describe("relate / unrelate — defaults and guards", () => {
 describe("relateSugar", () => {
   test("def edge, missing keys, unknown/table edges, no resolver", () => {
     expect(
-      relateSugar([{ from: "user:1", edge: { name: "likes" }, to: "post:1" }], "create", likes)[0]
+      relateSugar([{ edge: { name: "likes" }, from: "user:1", to: "post:1" }], "create", likes)[0]
         ?.edge,
     ).toContain("likes")
     expect(code(() => relateSugar([{ edge: "likes", to: "post:1" }], "create", likes))).toBe(
@@ -122,7 +123,7 @@ describe("relateSugar", () => {
     expect(
       code(() =>
         relateSugar(
-          [{ from: "user:1", edge: "ghost", to: "post:1" }],
+          [{ edge: "ghost", from: "user:1", to: "post:1" }],
           "create",
           likes,
           () => undefined,
@@ -130,15 +131,15 @@ describe("relateSugar", () => {
       ),
     ).toBe("ValidationError")
     expect(
-      code(() => relateSugar([{ from: "user:1", edge: 5, to: "post:1" }], "create", likes)),
+      code(() => relateSugar([{ edge: 5, from: "user:1", to: "post:1" }], "create", likes)),
     ).toBe("ValidationError")
     expect(
       code(() =>
-        relateSugar([{ from: "user:1", edge: "user", to: "post:1" }], "create", likes, () => user),
+        relateSugar([{ edge: "user", from: "user:1", to: "post:1" }], "create", likes, () => user),
       ),
     ).toBe("ValidationError")
     const entries = relateSugar(
-      [{ from: "user:1", edge: "likes", to: "post:1", data: { score: 1 } }],
+      [{ data: { score: 1 }, edge: "likes", from: "user:1", to: "post:1" }],
       "create",
       likes,
     )

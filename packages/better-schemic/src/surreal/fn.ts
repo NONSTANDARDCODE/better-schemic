@@ -231,16 +231,11 @@ export const fn = {
   },
   /** `object::*`. */
   object: {
-    // eslint-disable-next-line @typescript-eslint/no-restricted-types -- object é o tipo exato das builtins object::* do SurrealDB
-    entries: f1<object, [string, unknown][]>("object::entries"),
-    // eslint-disable-next-line @typescript-eslint/no-restricted-types -- object é o tipo exato das builtins object::* do SurrealDB
-    from_entries: f1<[string, unknown][], object>("object::from_entries"),
-    // eslint-disable-next-line @typescript-eslint/no-restricted-types -- object é o tipo exato das builtins object::* do SurrealDB
-    keys: f1<object, string[]>("object::keys"),
-    // eslint-disable-next-line @typescript-eslint/no-restricted-types -- object é o tipo exato das builtins object::* do SurrealDB
-    len: f1<object, number>("object::len"),
-    // eslint-disable-next-line @typescript-eslint/no-restricted-types -- object é o tipo exato das builtins object::* do SurrealDB
-    values: f1<object, unknown[]>("object::values"),
+    entries: f1<Record<string, unknown>, [string, unknown][]>("object::entries"),
+    from_entries: f1<[string, unknown][], Record<string, unknown>>("object::from_entries"),
+    keys: f1<Record<string, unknown>, string[]>("object::keys"),
+    len: f1<Record<string, unknown>, number>("object::len"),
+    values: f1<Record<string, unknown>, unknown[]>("object::values"),
   },
   /** `parse::*` — email/url part extraction. */
   parse: {
@@ -302,9 +297,8 @@ export const fn = {
     origin: f0<string>("session::origin"),
     token: f0<unknown>("session::token"),
   },
-  /** `sleep(duration)`. */
-  // eslint-disable-next-line @typescript-eslint/no-invalid-void-type -- void é o tipo de retorno real de sleep()
-  sleep: f1<unknown, void>("sleep"),
+  /** `sleep(duration)`. SurrealDB returns NONE, which maps to `undefined`. */
+  sleep: f1<unknown, undefined>("sleep"),
   /** `string::*` — text operations + validators. */
   string: {
     concat: fv<string, string>("string::concat"),

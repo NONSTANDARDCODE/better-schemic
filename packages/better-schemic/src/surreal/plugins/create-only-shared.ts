@@ -51,9 +51,9 @@ export function createOnlyTags(index: SchemaIndex): ReadonlyMap<string, CreateOn
   if (cached !== undefined) return cached
 
   const tags = new Map<string, CreateOnlyTag>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const meta of index.tables.values())
+  index.tables.forEach((meta) => {
     if (isCreateOnlyDef(meta.def)) tags.set(meta.name, { hard: hasHardGuard(meta.def, meta.name) })
+  })
 
   cache.set(index, tags)
   return tags

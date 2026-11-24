@@ -12,20 +12,18 @@
 import * as z from "zod"
 
 // `SFieldBase` is INVARIANT in its native-metadata slot `N` (the protected `rebuild(native: N)` makes
-// N contravariant while `native`/`blank` make it covariant). So a dialect field — `SField` with
-// `N = SurrealMeta` — is NOT assignable to a fixed `N = unknown`, which would make `AnyField` reject
-// real dialect fields (e.g. `.or(s.int())`). At THIS cross-dialect boundary `N` is "any
-// dialect's metadata": erase it to `any` (bivariant) so every driver's field is an `AnyField`. The
-// concrete `N` preservs it everywhere it matters — each driver's own field type keeps `N = <D>Meta`.
+// N contravariant while `native`/`blank` make it covariant). At THIS cross-dialect boundary helpers
+// read the Zod schema + opaque native bag, so the erasure is a STRUCTURAL view — it never mentions N
+// and every driver's field is assignable to it (e.g. `.or(s.int())`). The concrete N stays on each
+// driver's own field type everywhere it matters.
 
-/** Any field of ANY dialect — the base type the helpers + wrappers accept. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- apagamento bivariante do slot de metadados: tipo público, `unknown` rejeitaria fields reais.
+/** Any field of ANY dialect — bivariant erasure of the native bag (see the comment above). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- erasure bivariante: a covariância de `native` rejeita fields de outros dialetos sem `any`.
 export type AnyField = SFieldBase<z.ZodType, string, any>
 
 /** The Zod schema a field (or a raw Zod schema) carries. */
 export type SchemaOf<F> =
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mesmo apagamento bivariante de `AnyField`.
-  F extends SFieldBase<infer S, string, any> ? S : F extends z.ZodType ? F : never
+  F extends SFieldBase<infer S, string, infer _N> ? S : F extends z.ZodType ? F : never
 
 /** The `Flags` channel a field carries (driver `$`-methods brand it; widens to `string` for `Shape`). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mesmo apagamento bivariante de `AnyField`.
@@ -138,20 +136,17 @@ export abstract class SFieldBase<
   }
   /** Zod's `.spa` alias for {@link safeParseAsync} (drop-in). */
   spa(value: unknown): Promise<z.ZodSafeParseResult<z.output<S>>> {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- alias Zod `spa`: contrato de drop-in, não mudar para `safeDecodeAsync`.
-    return this.safeParseAsync(value)
+    return z.safeDecodeAsync(this.schema, value as never)
   }
 
   // --- Zod reflection + interop (drop-in for `z.*`), delegated to the inner schema ---
-  /** Does this field accept `undefined`? (Zod reflection.) */
+  /** Does this field accept `undefined`? (Zod reflection — a safe decode of `undefined`.) */
   isOptional(): boolean {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- reflexão Zod de drop-in: o campo expõe a API Zod sem alteração.
-    return this.schema.isOptional()
+    return z.safeDecode(this.schema, undefined as never).success
   }
-  /** Does this field accept `null`? (Zod reflection.) */
+  /** Does this field accept `null`? (Zod reflection — a safe decode of `null`.) */
   isNullable(): boolean {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- reflexão Zod de drop-in: o campo expõe a API Zod sem alteração.
-    return this.schema.isNullable()
+    return z.safeDecode(this.schema, null as never).success
   }
   /** Read back the description set via {@link describe} / {@link meta}. */
   get description(): string | undefined {
@@ -163,8 +158,7 @@ export abstract class SFieldBase<
   }
   /** Register the wrapped schema in a Zod registry for metadata interop; returns the field. */
   register(...args: Parameters<S["register"]>): this {
-    // eslint-disable-next-line @typescript-eslint/unbound-method -- `Reflect.apply` já recebe o `thisArg` explícito; o spread não infere tupla em S genérico.
-    Reflect.apply(this.schema.register, this.schema, args)
+    Reflect.apply(this.schema.register.bind(this.schema), this.schema, args)
     return this
   }
 
@@ -220,8 +214,7 @@ export abstract class SFieldBase<
   // --- Native Zod passthrough (drop-in for `z.*`): app-side validation / transform / metadata,
   // delegated to the inner schema. The dialect-DDL side stays under the driver's `$`-methods. ---
   refine(check: (arg: z.output<S>) => unknown, params?: string | z.core.$ZodCustomParams): this {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- a asserção preserva o subtipo `S` do schema encadeado.
-    return this.rebuild(this.schema.refine(check, params) as S, this.native) as unknown as this
+    return this.rebuild(this.schema.refine(check, params), this.native) as unknown as this
   }
   superRefine(
     refinement: (arg: z.output<S>, ctx: z.core.$RefinementCtx<z.output<S>>) => void,
@@ -234,8 +227,7 @@ export abstract class SFieldBase<
   overwrite(fn: (x: z.output<S>) => z.output<S>): this {
     return this.rebuild(this.schema.overwrite(fn), this.native) as unknown as this
   }
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- `B` preserva a marca literal na API pública (DX de inferência).
-  brand<B extends PropertyKey = PropertyKey>(value?: B): this {
+  brand(value?: PropertyKey): this {
     return this.rebuild(this.schema.brand(value), this.native) as unknown as this
   }
   /** Zod's app-side metadata (JSON-schema/docs) — distinct from a driver's `$comment()`. */
@@ -259,8 +251,7 @@ export abstract class SFieldBase<
   pipe<T extends z.core.$ZodType<unknown, z.output<S>>>(
     target: T,
   ): SFieldBase<z.ZodPipe<S, T>, Flags, N> {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- a asserção preserva `T` no tipo do pipe encadeado.
-    return this.rebuild(this.schema.pipe(target) as z.ZodPipe<S, T>, this.native)
+    return this.rebuild(this.schema.pipe(target), this.native)
   }
   /** Peel one wrapper (optional/nullable/default/prefault/catch/readonly/array) off the field. */
   unwrap(): SFieldBase<InnerOf<S>, Flags, N> {
@@ -303,13 +294,8 @@ export abstract class SFieldBase<
 /** Is `v` an `s.*` field wrapper? Duck-typed (NOT `instanceof`): user code and the CLI can load
  *  different copies of core, and a field from the other copy must still unwrap. */
 function isFieldWrapper(v: unknown): v is { schema: z.ZodType } {
-  const schema = (v as null | { schema?: { safeParse?: unknown } })?.schema
-  return (
-    typeof schema === "object" &&
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- `null` passa como objeto: campo de outro copy do core pode trazer `schema: null`.
-    schema !== null &&
-    typeof schema.safeParse === "function"
-  )
+  const schema = (v as null | { schema?: null | { safeParse?: unknown } })?.schema
+  return typeof schema === "object" && schema !== null && typeof schema.safeParse === "function"
 }
 
 /** Unwrap a field to its Zod schema (raw Zod schemas pass through). */

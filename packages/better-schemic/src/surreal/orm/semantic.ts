@@ -60,8 +60,9 @@ export function defineMetric<
   const select: Record<string, unknown> = { _count: true }
   if (spec.measure.op !== "count") select.value = { [spec.measure.op]: spec.measure.field }
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const dimension of dimensions) select[dimension] = dimension
+  dimensions.forEach((dimension) => {
+    select[dimension] = dimension
+  })
 
   return {
     key: spec.key,
@@ -88,9 +89,9 @@ export type GlossaryTerm = {
 export function defineGlossary<const T extends Readonly<Record<string, GlossaryTerm>>>(
   terms: T,
 ): T {
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [term, entry] of Object.entries(terms))
+  Object.entries(terms).forEach(([term, entry]) => {
     if (!entry.definition) throw new Error(`glossary: term "${term}" needs a definition.`)
+  })
 
   return terms
 }
@@ -129,14 +130,14 @@ export function lineage(
       ...(metric.measure.op === "count" ? [] : [metric.measure.field]),
       ...metric.dimensions,
     ]
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const field of fields) {
+
+    fields.forEach((field) => {
       if (!model.columns.has(field)) {
         throw new Error(
           `lineage: metric "${metric.key}" reads "${field}", which is not a column of "${metric.table}".`,
         )
       }
-    }
+    })
     return {
       dimensions: metric.dimensions,
       fields,

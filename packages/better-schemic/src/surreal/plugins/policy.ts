@@ -112,20 +112,18 @@ function compile(index: SchemaIndex, options: PolicyOptions): readonly CompiledR
       const models = targets
         ? [...targets].map((name) => index.byName.get(name)).filter((model) => model !== undefined)
         : [...index.tables.values()]
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const model of models) {
-        if (!("columns" in model)) continue
-        // schemaless entries have no declared columns
-        // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-        for (const field of referenced) {
-          // eslint-disable-next-line max-depth -- validação de coluna com estado mutável; extrair helper mudaria a semântica
-          if (!model.columns.has(field)) {
-            throw new OrmError(
-              "PluginError",
-              `policy: field "${field}" is not a column of "${model.name}" — check the rule's field names.`,
-              { field, table: model.name },
-            )
-          }
+      // schemaless entries have no declared columns
+      const offending = models.find(
+        (model) => "columns" in model && referenced.some((field) => !model.columns.has(field)),
+      )
+      if (offending && "columns" in offending) {
+        const field = referenced.find((f) => !offending.columns.has(f))
+        if (field !== undefined) {
+          throw new OrmError(
+            "PluginError",
+            `policy: field "${field}" is not a column of "${offending.name}" — check the rule's field names.`,
+            { field, table: offending.name },
+          )
         }
       }
     }
@@ -180,8 +178,7 @@ export function definePolicy(
   maybeOptions?: PolicyOptions,
 ): Plugin {
   const options: PolicyOptions = maybeOptions ?? (schemaOrOptions as PolicyOptions)
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
-  if (!Array.isArray(options?.rules))
+  if (!Array.isArray((options as { rules?: unknown }).rules))
     throw new OrmError("PluginError", "policy: `rules` must be an array.")
 
   return definePlugin({
@@ -192,15 +189,14 @@ export function definePolicy(
       compile(index, options)
     },
     transform(op) {
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const rule of compile(op.index, options)) {
-        if (rule.targets && !rule.targets.has(op.table)) continue
+      compile(op.index, options).forEach((rule) => {
+        if (rule.targets && !rule.targets.has(op.table)) return
 
-        if (!operationMatches(rule, op)) continue
+        if (!operationMatches(rule, op)) return
 
         if (rule.effect === "require") {
           const key = rule.require
-          if (key === undefined) continue
+          if (key === undefined) return
           if (op.meta?.[key] === undefined || op.meta[key] === null) {
             throw new OrmError(
               "PolicyRequired",
@@ -208,19 +204,18 @@ export function definePolicy(
               { field: key, operation: op.kind, table: op.table },
             )
           }
-          continue
+          return
         }
 
         if (rule.effect === "scope") {
-          // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-          for (const [field, value] of Object.entries(rule.filter ?? {}))
+          Object.entries(rule.filter ?? {}).forEach(([field, value]) => {
             op.scope[field] = asFilter(value)
-
-          continue
+          })
+          return
         }
 
         // deny — field-scoped rules apply to write payloads.
-        if (!touchesFields(rule, op)) continue
+        if (!touchesFields(rule, op)) return
 
         const field = rule.fields?.[0]
         throw new OrmError(
@@ -230,7 +225,7 @@ export function definePolicy(
               `Use $withoutPlugins() only in trusted admin code; the DB permission is the boundary.`,
           { field, operation: op.kind, table: op.table },
         )
-      }
+      })
     },
   })
 }

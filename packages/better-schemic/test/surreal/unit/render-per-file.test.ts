@@ -1,34 +1,82 @@
-/* eslint-disable perfectionist/sort-objects, unicorn/consistent-function-scoping, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Helpers stay colocated with the tests that use them. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 import { describe, expect, test } from "bun:test"
 
 import { renderPerFile } from "../../../src/surreal/cli/pull"
-import type { DbStructured, StructField, StructTable } from "../../../src/surreal/cli/structure"
+import type {
+  DbStructured,
+  StructField,
+  StructPermissions,
+  StructTable,
+} from "../../../src/surreal/cli/structure"
 import { formatForAssert } from "../../../src/surreal/pure"
+const render = (fields: StructField[]): string => {
+  const db: DbStructured = {
+    accesses: [],
+    analyzers: [],
+    functions: [],
+    params: [],
+    tables: [
+      {
+        events: [],
+        fields,
+        indexes: [],
+        kind: { kind: "NORMAL" },
+        name: "t",
+        schemafull: true,
+      },
+    ],
+  }
+  return renderPerFile(db, (_k, n) => `${n}.ts`).get("t.ts") ?? ""
+}
+
+const sf = (
+  name: string,
+  kind: string,
+  extra: Partial<StructField> = {},
+): {
+  assert?: string | undefined
+  comment?: string | undefined
+  computed?: string | undefined
+  default?: string | undefined
+  default_always?: boolean | undefined
+  flexible?: boolean | undefined
+  kind: string
+  name: string
+  permissions?: StructPermissions | undefined
+  readonly?: boolean | undefined
+  reference?: undefined | { on_delete?: string | undefined }
+  table: string
+  value?: string | undefined
+} => ({
+  kind,
+  name,
+  table: "t",
+  ...extra,
+})
 
 const f = (name: string, kind: string, table: string): StructField => ({
-  name,
   kind,
+  name,
   table,
 })
 const t = (name: string, fields: StructField[]): StructTable => ({
-  name,
-  kind: { kind: "NORMAL" },
-  schemafull: true,
+  events: [],
   fields,
   indexes: [],
-  events: [],
+  kind: { kind: "NORMAL" },
+  name,
+  schemafull: true,
 })
 
 describe("renderPerFile", () => {
   const db: DbStructured = {
+    accesses: [],
+    analyzers: [],
+    functions: [],
+    params: [],
     tables: [
       t("user", [f("id", "string", "user"), f("name", "string", "user")]),
       t("post", [f("id", "string", "post"), f("author", "record<user>", "post")]),
     ],
-    functions: [],
-    accesses: [],
-    analyzers: [],
-    params: [],
   }
 
   test("renders one module per object, keyed by file path", () => {
@@ -51,37 +99,37 @@ describe("renderPerFile", () => {
 
   test("literal defaults render bare; expressions stay surql (with surql from surrealdb)", () => {
     const withDefaults: DbStructured = {
+      accesses: [],
+      analyzers: [],
+      functions: [],
+      params: [],
       tables: [
         {
-          name: "thing",
-          kind: { kind: "NORMAL" },
-          schemafull: true,
-          indexes: [],
           events: [],
           fields: [
-            { name: "id", kind: "string", table: "thing" },
+            { kind: "string", name: "id", table: "thing" },
             // a bare literal — must round-trip as a plain JS value, not wrapped in surql
             {
-              name: "archived",
-              kind: "bool",
               default: "false",
+              kind: "bool",
+              name: "archived",
               table: "thing",
             },
-            { name: "count", kind: "int", default: "0", table: "thing" },
+            { default: "0", kind: "int", name: "count", table: "thing" },
             // an expression — must stay tagged surql, and pull surql in from surrealdb
             {
-              name: "createdAt",
-              kind: "datetime",
               default: "time::now()",
+              kind: "datetime",
+              name: "createdAt",
               table: "thing",
             },
           ],
+          indexes: [],
+          kind: { kind: "NORMAL" },
+          name: "thing",
+          schemafull: true,
         },
       ],
-      functions: [],
-      accesses: [],
-      analyzers: [],
-      params: [],
     }
     const out = renderPerFile(withDefaults, (_k, n) => `${n}.ts`).get("thing.ts")
     if (!out) throw new Error("no thing.ts")
@@ -96,38 +144,38 @@ describe("renderPerFile", () => {
 
   test("a record field's REFERENCE round-trips to .$reference(...) (VALUE preserved)", () => {
     const withRef: DbStructured = {
+      accesses: [],
+      analyzers: [],
+      functions: [],
+      params: [],
       tables: [
         t("account", [f("id", "string", "account")]),
         {
-          name: "comment",
-          kind: { kind: "NORMAL" },
-          schemafull: true,
-          indexes: [],
           events: [],
           fields: [
             f("id", "string", "comment"),
             // bare REFERENCE (or the materialized default IGNORE) -> .$reference()
             {
-              name: "ref",
               kind: "record<account>",
+              name: "ref",
               reference: {},
               table: "comment",
             },
             // ON DELETE UNSET *and* a VALUE — the original bug dropped the reference entirely.
             {
-              name: "author",
               kind: "record<account>",
+              name: "author",
               reference: { on_delete: "UNSET" },
-              value: "fn::validate::user_exists()",
               table: "comment",
+              value: "fn::validate::user_exists()",
             },
           ],
+          indexes: [],
+          kind: { kind: "NORMAL" },
+          name: "comment",
+          schemafull: true,
         },
       ],
-      functions: [],
-      accesses: [],
-      analyzers: [],
-      params: [],
     }
     const out = renderPerFile(withRef, (_k, n) => `${n}.ts`).get("comment.ts") ?? ""
     expect(out).toContain(".$reference()")
@@ -148,32 +196,6 @@ describe("formatForAssert", () => {
 })
 
 describe("pull reverses native codecs / string formats", () => {
-  const sf = (name: string, kind: string, extra: Partial<StructField> = {}) => ({
-    name,
-    kind,
-    table: "t",
-    ...extra,
-  })
-  const render = (fields: StructField[]): string => {
-    const db: DbStructured = {
-      tables: [
-        {
-          name: "t",
-          kind: { kind: "NORMAL" },
-          schemafull: true,
-          fields,
-          indexes: [],
-          events: [],
-        },
-      ],
-      functions: [],
-      accesses: [],
-      analyzers: [],
-      params: [],
-    }
-    return renderPerFile(db, (_k, n) => `${n}.ts`).get("t.ts") ?? ""
-  }
-
   test("string-format asserts reverse to the builder; the $assert is dropped", () => {
     const out = render([
       sf("id", "string"),
@@ -260,6 +282,10 @@ describe("pull reverses native codecs / string formats", () => {
     // can define record fields named `in`/`out` (`DEFINE FIELD in ON order TYPE record<person>`);
     // pull was dropping them along with relation endpoints. They must survive on a NORMAL table.
     const db: DbStructured = {
+      accesses: [],
+      analyzers: [],
+      functions: [],
+      params: [],
       tables: [
         t("order", [
           f("currency", "string", "order"),
@@ -267,10 +293,6 @@ describe("pull reverses native codecs / string formats", () => {
           f("out", "record<product>", "order"),
         ]),
       ],
-      functions: [],
-      accesses: [],
-      analyzers: [],
-      params: [],
     }
     const out = renderPerFile(db, (_k, n) => `${n}.ts`).get("order.ts") ?? ""
     expect(out).toContain("export const Order = table(")
@@ -280,24 +302,24 @@ describe("pull reverses native codecs / string formats", () => {
 
   test("a RELATION still omits implicit in/out (endpoints render via from/to)", () => {
     const db: DbStructured = {
+      accesses: [],
+      analyzers: [],
+      functions: [],
+      params: [],
       tables: [
         {
-          name: "likes",
-          kind: { kind: "RELATION", in: ["person"], out: ["product"] },
-          schemafull: true,
+          events: [],
           fields: [
             f("since", "datetime", "likes"),
             f("in", "record<person>", "likes"),
             f("out", "record<product>", "likes"),
           ],
           indexes: [],
-          events: [],
+          kind: { in: ["person"], kind: "RELATION", out: ["product"] },
+          name: "likes",
+          schemafull: true,
         },
       ],
-      functions: [],
-      accesses: [],
-      analyzers: [],
-      params: [],
     }
     const out = renderPerFile(db, (_k, n) => `${n}.ts`).get("likes.ts") ?? ""
     expect(out).toContain("export const Likes = relation(")

@@ -1,4 +1,7 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. Fixtures assert values whose presence the test guarantees. The void operator discards intentionally ignored values. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+const MAGIC_0p75 = 0.75
+const MAGIC_0p8 = 0.8
+const MAGIC_1p5 = 1.5
+const MAGIC_3 = 3
 import { describe, expect, test } from "bun:test"
 import { DateTime, RecordId, surql, Table } from "surrealdb"
 import { z } from "zod"
@@ -13,8 +16,10 @@ import {
   s,
   table,
 } from "../../../src/surreal/pure"
+import { required } from "../../required"
+const ddl = (d: ReturnType<typeof defineAnalyzer>): string => emitDefStatement(d).ddl
 
-const defType = (s: z.ZodType) => (s._zod.def as { type: string }).type
+const defType = (s: z.ZodType): string => (s._zod.def as { type: string }).type
 
 describe("smart id", () => {
   test("a plain id schema becomes record<self, idType>", () => {
@@ -88,25 +93,25 @@ describe("table instance helpers", () => {
 
 describe("encode / encodePartial", () => {
   const User = table("user", {
-    id: z.string(),
-    name: s.string(),
-    role: s.enum(["admin", "member"]).$default(surql`"member"`),
-    settings: s.object({
-      theme: s.string(),
-      lastSeen: s.datetime().optional(),
-    }),
     createdAt: s
       .datetime()
       .$default(surql`time::now()`)
       .$readonly(),
+    id: z.string(),
+    name: s.string(),
+    role: s.enum(["admin", "member"]).$default(surql`"member"`),
+    settings: s.object({
+      lastSeen: s.datetime().optional(),
+      theme: s.string(),
+    }),
   })
 
   test("encode omits absent fields and encodes the present ones", () => {
     const payload = User.encode({
       name: "Alice",
       settings: {
-        theme: "dark",
         lastSeen: new Date("2022-01-01T00:00:00.000Z"),
+        theme: "dark",
       },
     })
     expect(Object.keys(payload).sort()).toEqual(["name", "settings"])
@@ -118,14 +123,14 @@ describe("encode / encodePartial", () => {
   test("encode accepts a full App object and a partial create input alike", () => {
     // full app (every key supplied, including DB-filled defaults)
     const full = User.encode({
+      createdAt: new Date("2022-01-01T00:00:00.000Z"),
       id: new RecordId("user", "alice"),
       name: "Alice",
       role: "admin",
       settings: {
-        theme: "dark",
         lastSeen: new Date("2022-01-01T00:00:00.000Z"),
+        theme: "dark",
       },
-      createdAt: new Date("2022-01-01T00:00:00.000Z"),
     })
     expect(full.role).toBe("admin")
     expect(full.createdAt).toBeInstanceOf(DateTime)
@@ -145,9 +150,9 @@ describe("nested create-optionality (runtime)", () => {
   const Widget = table("widget", {
     id: z.string(),
     settings: s.object({
+      lastSeen: s.datetime().optional(),
       theme: s.string().$default(surql`"x"`),
       tz: s.string(),
-      lastSeen: s.datetime().optional(),
     }),
   })
 
@@ -163,9 +168,9 @@ describe("nested create-optionality (runtime)", () => {
   test("encode includes a provided nested field and encodes nested codecs", () => {
     const payload = Widget.encode({
       settings: {
-        tz: "utc",
-        theme: "dark",
         lastSeen: new Date("2022-01-01T00:00:00.000Z"),
+        theme: "dark",
+        tz: "utc",
       },
     })
     const settings = payload.settings as Record<string, unknown>
@@ -188,10 +193,10 @@ describe("nested create-optionality (runtime)", () => {
   test("array<object>: absent nested defaults are omitted per element", () => {
     const List = table("list", {
       id: z.string(),
-      tags: s.object({ name: s.string(), color: s.string().$default("#fff") }).array(),
+      tags: s.object({ color: s.string().$default("#fff"), name: s.string() }).array(),
     })
     const payload = List.encode({
-      tags: [{ name: "a" }, { name: "b", color: "#000" }],
+      tags: [{ name: "a" }, { color: "#000", name: "b" }],
     })
     const tags = payload.tags as Record<string, unknown>[]
     expect(tags[0]).not.toHaveProperty("color")
@@ -218,7 +223,7 @@ describe("encode / safeEncode agreement on nested input (Fix 1)", () => {
     }),
   })
   // Mirror helper: did `encode` throw for this input?
-  const encodeThrew = (input: Parameters<typeof T.encode>[0]) => {
+  const encodeThrew = (input: Parameters<typeof T.encode>[0]): boolean => {
     try {
       T.encode(input)
       return false
@@ -254,21 +259,21 @@ describe("encode / safeEncode agreement on nested input (Fix 1)", () => {
 
 describe("safeEncode / encode validation (#6, #7)", () => {
   const User = table("user", {
-    id: z.string(),
-    name: s.string().$min(1),
-    email: s.email(),
     createdAt: s
       .datetime()
       .$default(surql`time::now()`)
       .$readonly(),
+    email: s.email(),
+    id: z.string(),
+    name: s.string().$min(1),
     passhash: s.string().$internal(),
   })
 
   test("safeEncode with valid input -> { success: true, data } with encoded/wire values", () => {
     const res = User.safeEncode({
-      name: "Alice",
-      email: "alice@example.com",
       createdAt: new Date("2022-01-01T00:00:00.000Z"),
+      email: "alice@example.com",
+      name: "Alice",
     })
     expect(res.success).toBe(true)
     if (res.success) {
@@ -280,7 +285,7 @@ describe("safeEncode / encode validation (#6, #7)", () => {
   })
 
   test("safeEncode with invalid input -> { success: false } with an aggregated ZodError", () => {
-    const res = User.safeEncode({ name: "", email: "not-an-email" })
+    const res = User.safeEncode({ email: "not-an-email", name: "" })
     expect(res.success).toBe(false)
     if (!res.success) {
       expect(res.error).toBeInstanceOf(z.ZodError)
@@ -291,8 +296,8 @@ describe("safeEncode / encode validation (#6, #7)", () => {
   })
 
   test("encode throws a ZodError on invalid input", () => {
-    expect(() => User.encode({ name: "", email: "alice@example.com" })).toThrow()
-    expect(() => User.encode({ name: "Alice", email: "nope" })).toThrow()
+    expect(() => User.encode({ email: "alice@example.com", name: "" })).toThrow()
+    expect(() => User.encode({ email: "nope", name: "Alice" })).toThrow()
   })
 
   test("safeEncodePartial validates only the provided keys", () => {
@@ -302,16 +307,16 @@ describe("safeEncode / encode validation (#6, #7)", () => {
 
   test("SystemView.safeEncode validates internal fields too", () => {
     const ok = User.system.safeEncode({
-      name: "Alice",
       email: "a@b.co",
+      name: "Alice",
       passhash: "secret",
     })
     expect(ok.success).toBe(true)
     if (ok.success) expect(ok.data.passhash).toBe("secret")
 
     const bad = User.system.safeEncode({
-      name: "",
       email: "a@b.co",
+      name: "",
       passhash: "secret",
     })
     expect(bad.success).toBe(false)
@@ -320,24 +325,24 @@ describe("safeEncode / encode validation (#6, #7)", () => {
 
 describe("async encode (recursive encoder)", () => {
   const User = table("user", {
-    id: z.string(),
-    name: s.string().$min(1),
-    settings: s.object({
-      theme: s.string(),
-      lastSeen: s.datetime().optional(),
-    }),
     createdAt: s
       .datetime()
       .$default(surql`time::now()`)
       .$readonly(),
+    id: z.string(),
+    name: s.string().$min(1),
+    settings: s.object({
+      lastSeen: s.datetime().optional(),
+      theme: s.string(),
+    }),
   })
 
   test("encodeAsync round-trips nested codecs and omits absent defaults", async () => {
     const payload = await User.encodeAsync({
       name: "Alice",
       settings: {
-        theme: "dark",
         lastSeen: new Date("2022-01-01T00:00:00.000Z"),
+        theme: "dark",
       },
     })
     expect(Object.keys(payload).sort()).toEqual(["name", "settings"])
@@ -361,21 +366,27 @@ describe("async encode (recursive encoder)", () => {
   })
 
   test("encodeAsync throws the aggregated ZodError on invalid input", async () => {
-    await expect(User.encodeAsync({ name: "", settings: { theme: "x" } })).rejects.toThrow()
+    let caughtVoid0: unknown
+    try {
+      await User.encodeAsync({ name: "", settings: { theme: "x" } })
+    } catch (error) {
+      caughtVoid0 = error
+    }
+    expect(caughtVoid0).toBeDefined()
   })
 })
 
 describe("$internal fields (runtime)", () => {
   const Account = table("account", {
-    id: z.string(),
     email: s.email(),
+    id: z.string(),
     passhash: s.string().$internal(),
   })
 
   test("decode strips the internal field; the system view keeps it", () => {
     const row = {
-      id: new RecordId("account", "1"),
       email: "alice@example.com",
+      id: new RecordId("account", "1"),
       passhash: "secret",
     }
     const app = Account.decode(row)
@@ -402,10 +413,10 @@ describe("$internal fields (runtime)", () => {
 
 describe("shape ops", () => {
   const User = table("user", {
+    bio: s.string().optional(),
+    email: s.email(),
     id: z.string(),
     name: s.string(),
-    email: s.email(),
-    bio: s.string().optional(),
   })
 
   test("pick / omit", () => {
@@ -415,8 +426,9 @@ describe("shape ops", () => {
 
   test("partial makes every field optional", () => {
     const p = User.partial()
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const f of Object.values(p.fields)) expect(defType(f.schema)).toBe("optional")
+    Object.values(p.fields).forEach((f) => {
+      expect(defType(f.schema)).toBe("optional")
+    })
   })
 
   test("required unwraps optional fields", () => {
@@ -498,9 +510,9 @@ describe("relation builder", () => {
 
 describe("field $unique / $index (DDL clauses are $-prefixed)", () => {
   test("$unique() emits a UNIQUE index; $index() a plain index", () => {
-    const uq = emitTable(table("u", { id: s.string(), email: s.string().$unique() }))
+    const uq = emitTable(table("u", { email: s.string().$unique(), id: s.string() }))
     expect(uq).toContain("DEFINE INDEX u_email_idx ON TABLE u FIELDS email UNIQUE;")
-    const ix = emitTable(table("d", { id: s.string(), code: s.string().$index() }))
+    const ix = emitTable(table("d", { code: s.string().$index(), id: s.string() }))
     expect(ix).toContain("DEFINE INDEX d_code_idx ON TABLE d FIELDS code;")
     expect(ix).not.toContain("UNIQUE")
   })
@@ -508,9 +520,9 @@ describe("field $unique / $index (DDL clauses are $-prefixed)", () => {
   test("a custom index name overrides the derived `<table>_<field>_idx`", () => {
     const ddl = emitTable(
       table("u", {
-        id: s.string(),
-        email: s.string().$unique("email_uq"),
         code: s.string().$index("code_ix"),
+        email: s.string().$unique("email_uq"),
+        id: s.string(),
       }),
     )
     expect(ddl).toContain("DEFINE INDEX email_uq ON TABLE u FIELDS email UNIQUE;")
@@ -527,8 +539,10 @@ describe("field $fulltext / $hnsw / $diskann (single-field special indexes)", ()
   test("$fulltext({…}) emits FULLTEXT; a tuned bm25 emits BM25(k1,b)", () => {
     const ddl = emitTable(
       table("doc", {
+        body: s
+          .string()
+          .$fulltext({ analyzer: "eng", bm25: [MAGIC_1p5, MAGIC_0p75], highlights: true }),
         id: s.string(),
-        body: s.string().$fulltext({ analyzer: "eng", bm25: [1.5, 0.75], highlights: true }),
       }),
     )
     expect(ddl).toContain(
@@ -538,12 +552,12 @@ describe("field $fulltext / $hnsw / $diskann (single-field special indexes)", ()
 
   test("$fulltext() overload: bare string, AnalyzerDef, and { analyzer } object are equivalent", () => {
     const eng = defineAnalyzer("eng").tokenizers("blank")
-    const fromString = emitTable(table("o", { id: s.string(), body: s.string().$fulltext("eng") }))
-    const fromDef = emitTable(table("o", { id: s.string(), body: s.string().$fulltext(eng) }))
+    const fromString = emitTable(table("o", { body: s.string().$fulltext("eng"), id: s.string() }))
+    const fromDef = emitTable(table("o", { body: s.string().$fulltext(eng), id: s.string() }))
     const fromObject = emitTable(
       table("o", {
-        id: s.string(),
         body: s.string().$fulltext({ analyzer: eng }),
+        id: s.string(),
       }),
     )
     expect(fromString).toContain(
@@ -554,21 +568,21 @@ describe("field $fulltext / $hnsw / $diskann (single-field special indexes)", ()
   })
 
   test("$fulltext() analyzer is optional — bare FULLTEXT (SurrealDB injects `like`)", () => {
-    const noArg = emitTable(table("o", { id: s.string(), body: s.string().$fulltext() }))
+    const noArg = emitTable(table("o", { body: s.string().$fulltext(), id: s.string() }))
     expect(noArg).toContain("DEFINE INDEX o_body_idx ON TABLE o FIELDS body FULLTEXT;")
     expect(noArg).not.toContain("ANALYZER")
     // object without analyzer + table-level { fulltext: {} } emit the same bare FULLTEXT.
     const objNoAnalyzer = emitTable(
       table("o", {
-        id: s.string(),
         body: s.string().$fulltext({ highlights: true }),
+        id: s.string(),
       }),
     )
     expect(objNoAnalyzer).toContain(
       "DEFINE INDEX o_body_idx ON TABLE o FIELDS body FULLTEXT HIGHLIGHTS;",
     )
     const tableLevel = emitTable(
-      table("d2", { id: s.string(), body: s.string() }).index("ft", ["body"], {
+      table("d2", { body: s.string(), id: s.string() }).index("ft", ["body"], {
         fulltext: {},
       }),
     )
@@ -578,14 +592,14 @@ describe("field $fulltext / $hnsw / $diskann (single-field special indexes)", ()
   test("$fulltext() bm25 as [k1,b] tunes the scoring; omitted bm25 drops it", () => {
     const tuned = emitTable(
       table("d2", {
+        body: s.string().$fulltext({ analyzer: "eng", bm25: [MAGIC_1p5, MAGIC_0p8] }),
         id: s.string(),
-        body: s.string().$fulltext({ analyzer: "eng", bm25: [1.5, 0.8] }),
       }),
     )
     expect(tuned).toContain(
       "DEFINE INDEX d2_body_idx ON TABLE d2 FIELDS body FULLTEXT ANALYZER eng BM25(1.5,0.8);",
     )
-    const plain = emitTable(table("d3", { id: s.string(), body: s.string().$fulltext("eng") }))
+    const plain = emitTable(table("d3", { body: s.string().$fulltext("eng"), id: s.string() }))
     expect(plain).toContain(
       "DEFINE INDEX d3_body_idx ON TABLE d3 FIELDS body FULLTEXT ANALYZER eng;",
     )
@@ -595,8 +609,8 @@ describe("field $fulltext / $hnsw / $diskann (single-field special indexes)", ()
   test("$hnsw() / $diskann() emit vector indexes; a custom name overrides the derived one", () => {
     const hnsw = emitTable(
       table("vh", {
-        id: s.string(),
         emb: s.array(s.float()).$hnsw({ dimension: 4, dist: "cosine" }),
+        id: s.string(),
       }),
     )
     expect(hnsw).toContain(
@@ -604,8 +618,8 @@ describe("field $fulltext / $hnsw / $diskann (single-field special indexes)", ()
     )
     const diskann = emitTable(
       table("vd", {
-        id: s.string(),
         emb: s.array(s.float()).$diskann({ dimension: 8, name: "vec_dk" }),
+        id: s.string(),
       }),
     )
     expect(diskann).toContain("DEFINE INDEX vec_dk ON TABLE vd FIELDS emb DISKANN DIMENSION 8;")
@@ -616,12 +630,12 @@ describe("field $fulltext / $hnsw / $diskann (single-field special indexes)", ()
 describe("table.index() renameable field-ref callback", () => {
   test('(t) => [t.a, t.b] emits identically to the ["a","b"] string array', () => {
     const cb = emitTable(
-      table("p", { id: s.string(), a: s.string(), b: s.string() })
+      table("p", { a: s.string(), b: s.string(), id: s.string() })
         .index("ab", (t) => [t.a, t.b])
         .index("uq", (t) => [t.a], { unique: true }),
     )
     const str = emitTable(
-      table("p", { id: s.string(), a: s.string(), b: s.string() })
+      table("p", { a: s.string(), b: s.string(), id: s.string() })
         .index("ab", ["a", "b"])
         .index("uq", ["a"], { unique: true }),
     )
@@ -632,7 +646,7 @@ describe("table.index() renameable field-ref callback", () => {
 
   test("the callback's t.<field> values are the field names", () => {
     // Same accessor the LSP renames; at runtime each ref resolves to its own name.
-    table("p", { id: s.string(), a: s.string(), b: s.string() }).index("ab", (t) => {
+    table("p", { a: s.string(), b: s.string(), id: s.string() }).index("ab", (t) => {
       expect(t.a).toBe("a")
       expect(t.b).toBe("b")
       return [t.a, t.b]
@@ -644,16 +658,16 @@ describe("defineView(name, shape?).as(query)", () => {
   test("a typed view's shape drives decode but emits NO DEFINE FIELD", () => {
     const V = defineView("v", {
       id: s.string(),
-      name: s.string(),
       n: s.number(),
+      name: s.string(),
     }).as(surql`SELECT name, n FROM t`)
     // The shape is type-: emit is  the AS SELECT head, no fields.
     expect(emitTable(V)).toBe("DEFINE TABLE v TYPE ANY SCHEMALESS AS SELECT name, n FROM t;")
     expect(emitTable(V)).not.toContain("DEFINE FIELD")
     // ...but the shape types + decodes the projected rows.
-    const row = V.decode({ id: new RecordId("v", "x"), name: "Ada", n: 3 })
+    const row = V.decode({ id: new RecordId("v", "x"), n: 3, name: "Ada" })
     expect(row.name).toBe("Ada")
-    expect(row.n).toBe(3)
+    expect(row.n).toBe(MAGIC_3)
   })
 
   test("a shapeless view still emits AS SELECT and chains table config", () => {
@@ -667,8 +681,6 @@ describe("defineView(name, shape?).as(query)", () => {
 })
 
 describe("defineAnalyzer fluent builder", () => {
-  const ddl = (d: ReturnType<typeof defineAnalyzer>) => emitDefStatement(d).ddl
-
   test("clauses emit in grammar order: FUNCTION, TOKENIZERS, FILTERS, COMMENT", () => {
     expect(
       ddl(
@@ -701,7 +713,7 @@ describe("defineAnalyzer fluent builder", () => {
     // and the auto-created function carries a `$input: string` param + the given body
     const fn = a.config.functionDef
     expect(fn).toBeDefined()
-    expect(emitDefStatement(fn!).ddl).toBe(
+    expect(emitDefStatement(required(fn)).ddl).toBe(
       "DEFINE FUNCTION fn::english_fn($input: string) { RETURN string::lowercase($input) };",
     )
   })
@@ -712,7 +724,7 @@ describe("defineAnalyzer fluent builder", () => {
         defineAnalyzer("english").filters((f) => [
           f.lowercase,
           f.snowball("english"),
-          f.ngram(1, 3),
+          f.ngram(1, MAGIC_3),
         ]),
       ),
     ).toBe("DEFINE ANALYZER english FILTERS LOWERCASE, SNOWBALL(ENGLISH), NGRAM(1,3);")

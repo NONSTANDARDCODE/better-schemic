@@ -228,8 +228,8 @@ export function encodeData(
   // BACKSTOP: adjustments extract them (and lowered) BEFORE encoding on every update path; any
   // payload that still carries one here is a create-shaped write (create/insert/relate/ON
   // DUPLICATE map), which has no previous value to adjust.
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [key, value] of Object.entries(data)) {
+
+  Object.entries(data).forEach(([key, value]) => {
     const marker = adjustmentOf(value)
     if (marker) {
       throw compileError(
@@ -238,7 +238,7 @@ export function encodeData(
         { field: key, operation, table: meta.name },
       )
     }
-  }
+  })
   if (!isTableMeta(meta)) return data
 
   const normalized: Record<string, unknown> = { ...data }
@@ -247,13 +247,13 @@ export function encodeData(
 
   const literals: Record<string, unknown> = {}
   const expressions: Record<string, unknown> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [key, value] of Object.entries(normalized)) {
-    if (value === undefined) continue
+
+  Object.entries(normalized).forEach(([key, value]) => {
+    if (value === undefined) return
 
     if (hasRefDeep(value)) expressions[key] = value
     else literals[key] = value
-  }
+  })
   let encoded: Record<string, unknown> = {}
   if (Object.keys(literals).length > 0) {
     const result =
@@ -587,9 +587,9 @@ export function flattenAssignments(
   binds: Binds,
 ): void {
   if (isPlainObject(value)) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [key, child] of Object.entries(value))
+    Object.entries(value).forEach(([key, child]) => {
       flattenAssignments(child, [...path, key], out, binds)
+    })
 
     return
   }
@@ -696,21 +696,23 @@ export function assignmentList(encoded: unknown, binds: Binds): string {
 
   const literals: Record<string, unknown> = {}
   const expressions: [string, unknown][] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [field, value] of Object.entries(encoded)) {
+
+  Object.entries(encoded).forEach(([field, value]) => {
     if (hasRefDeep(value)) expressions.push([field, value])
     else literals[field] = value
-  }
+  })
   const parts: string[] = []
   if (Object.keys(literals).length > 0) {
     const bind = binds.add(literals)
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const field of Object.keys(literals))
+
+    Object.keys(literals).forEach((field) => {
       parts.push(`${renderPath(field)} = ${bind}.${renderPath(field)}`)
+    })
   }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [field, value] of expressions)
+
+  expressions.forEach(([field, value]) => {
     parts.push(`${renderPath(field)} = ${renderValue(value, binds, binds.ctx())}`)
+  })
 
   return parts.join(", ")
 }
@@ -719,15 +721,14 @@ export function assignmentList(encoded: unknown, binds: Binds): string {
 export function updatableFields(encoded: unknown): string[] {
   const items = Array.isArray(encoded) ? encoded : [encoded]
   const fields = new Set<string>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const item of items) {
+
+  items.forEach((item) => {
     if (isPlainObject(item)) {
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const field of Object.keys(item))
-        // eslint-disable-next-line max-depth -- parser/compilador com despacho aninhado; achatar mudaria a precedência das cláusulas
+      Object.keys(item).forEach((field) => {
         if (field !== "id" && field !== "in" && field !== "out") fields.add(field)
+      })
     }
-  }
+  })
   return [...fields]
 }
 
@@ -743,8 +744,8 @@ export function unsetList(value: unknown, meta: ModelMeta, operation: string): r
       { operation, table: meta.name },
     )
   }
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const field of entries) {
+
+  entries.forEach((field) => {
     if (typeof field !== "string" || !field) {
       throw compileError(
         "ValidationError",
@@ -760,7 +761,7 @@ export function unsetList(value: unknown, meta: ModelMeta, operation: string): r
       )
     }
     requireColumn(meta, field, operation)
-  }
+  })
   return entries as readonly string[]
 }
 

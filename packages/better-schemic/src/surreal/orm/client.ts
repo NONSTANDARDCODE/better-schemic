@@ -166,8 +166,8 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
     this.ping = admin.ping
     this.export = admin.export
     this.import = admin.import
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [key, meta] of [...$index.tables, ...$index.schemaless]) {
+
+    ;[...$index.tables, ...$index.schemaless].forEach(([key, meta]) => {
       this.assertMemberAvailable(key, "schema key")
       // Lazy: the delegate (and its ~26 operation closures) builts it on FIRST access, so
       // transaction/fork clients over a large schema don't rebuild every delegate per attempt.
@@ -176,7 +176,7 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
         enumerable: true,
         get: () => this.delegateFor(key, meta),
       })
-    }
+    })
     // Plugins: run `setup` once (fail-fast) and graft `extendClient` methods (collision = error).
     if (scope.pipeline) {
       scope.pipeline.setup($index)
@@ -184,14 +184,16 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
         client: this,
         index: $index,
       })
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const [name, value] of Object.entries(methods)) {
+
+      Object.entries(methods).forEach(([name, value]) => {
         this.assertMemberAvailable(name, "extends")
         ;(this as Record<string, unknown>)[name] = value
-      }
+      })
     }
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const extension of scope.extensions ?? []) this.applyExtension(extension)
+
+    ;(scope.extensions ?? []).forEach((extension) => {
+      this.applyExtension(extension)
+    })
   }
 
   /**
@@ -220,8 +222,7 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
    * (`$query`/`$unsafe`, options, multi-statement) use the `$`-prefixed escape hatches.
    */
   query<T = unknown>(sql: string, vars?: Record<string, unknown>): Promise<T[]> {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime de SDK pode devolver menos resultados que o tipo promete
-    return this.conn.query<[T[]]>(sql, vars).then((r) => r[0] ?? [])
+    return this.conn.query<T[][]>(sql, vars).then((r) => r[0] ?? [])
   }
 
   /** The schema keys exposed as delegates, in schema order. */
@@ -353,8 +354,8 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
    * });
    * ```
    */
-  // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-  extends<T extends object>(extension: ((client: this) => T) | T): this & T {
+
+  extends<T extends Record<string, unknown>>(extension: ((client: this) => T) | T): this & T {
     const entry = extension as Extension
     this.extensions.push(entry)
     this.applyExtension(entry)
@@ -363,16 +364,12 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
 
   /** Apply one stored extension to THIS client (called on creation and by `extends`). */
   private applyExtension(extension: Extension): void {
-    const resolved =
-      typeof extension === "function"
-        ? // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-          (extension as (client: ClientRuntime) => object)(this)
-        : extension
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [name, value] of Object.entries(resolved)) {
+    const resolved = typeof extension === "function" ? extension(this) : extension
+
+    Object.entries(resolved).forEach(([name, value]) => {
       this.assertMemberAvailable(name, "extends")
       ;(this as Record<string, unknown>)[name] = value
-    }
+    })
   }
 
   /**
@@ -512,20 +509,7 @@ export function orm<
     readonly schema: SchemaArg<S>
   } & Omit<OrmOptions, "plugins">,
 ): Client<S, C, P>
-/** Lazy connection factory — resolves a connection at build time without importing the module
- *  that owns it, so a schema ↔ ORM import cycle needs no `await import()` in the hot path. */
-export function orm<
-  S extends SchemaInput,
-  C extends Queryable,
-  const P extends readonly Plugin[] = readonly [],
->(
-  // eslint-disable-next-line @typescript-eslint/unified-signatures -- sobrecargas separadas preservam a inferência literal de `schema` e `plugins`
-  factory: () => C,
-  options: {
-    readonly plugins?: P
-    readonly schema: SchemaArg<S>
-  } & Omit<OrmOptions, "plugins">,
-): Client<S, C, P>
+/** Lazy connection factory or an existing connection — one signature for both call shapes. */
 export function orm<
   S extends SchemaInput,
   C extends Queryable,
@@ -567,11 +551,10 @@ export function createOrmClientFactory<
     readonly schema: SchemaArg<S>
   } & Omit<OrmOptions, "cache" | "plugins">,
 ): OrmClientFactory<S, C, P> {
-  // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-  const cache = options.cache === "weak" ? new WeakMap<object, Client<S, C, P>>() : undefined
+  const cache =
+    options.cache === "weak" ? new WeakMap<Record<string, unknown>, Client<S, C, P>>() : undefined
   const build = (conn: C): Client<S, C, P> => {
-    // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-    const key = conn as object
+    const key = conn as unknown as Record<string, unknown>
     const hit = cache?.get(key)
     if (hit) return hit
 
@@ -580,10 +563,9 @@ export function createOrmClientFactory<
     return client
   }
   return Object.assign(build, {
-    // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-    dispose: (conn: C) => void cache?.delete(conn as object),
-    // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-    peek: (conn: C) => cache?.get(conn as object),
+    dispose: (conn: C) => void cache?.delete(conn as unknown as Record<string, unknown>),
+
+    peek: (conn: C) => cache?.get(conn as unknown as Record<string, unknown>),
   })
 }
 

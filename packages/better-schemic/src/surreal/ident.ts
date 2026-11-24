@@ -36,17 +36,22 @@ export function escapeIdentSafe(name: string): string {
  * Anything else passes through unchanged. The ONE unescape shared by the string-id codec and the
  * ORM's record-id parser, so `new RecordId(table, raw)` never re-escapes an already-escaped part.
  */
+/** Shortest length of a quote-delimited id part (one delimiter on each side). */
+const MIN_DELIMITED_LENGTH = 2
+/** Shortest length of a `u"…"`-delimited id part (`u`, `"` on each side). */
+const MIN_UUID_DELIMITED_LENGTH = 3
+/** Length of the `u"` prefix before a UUID id part. */
+const UUID_PREFIX_LENGTH = 2
+
 export function unescapeIdPart(text: string): string {
-  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-  if (text.length >= 2 && text.startsWith("⟨") && text.endsWith("⟩"))
+  if (text.length >= MIN_DELIMITED_LENGTH && text.startsWith("⟨") && text.endsWith("⟩"))
     return text.slice(1, -1).replaceAll("\\⟩", "⟩")
 
-  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-  if (text.length >= 2 && text.startsWith("`") && text.endsWith("`"))
+  if (text.length >= MIN_DELIMITED_LENGTH && text.startsWith("`") && text.endsWith("`"))
     return text.slice(1, -1).replaceAll("\\`", "`").replaceAll("\\\\", "\\")
 
-  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-  if (text.length >= 3 && text.startsWith('u"') && text.endsWith('"')) return text.slice(2, -1)
+  if (text.length >= MIN_UUID_DELIMITED_LENGTH && text.startsWith('u"') && text.endsWith('"'))
+    return text.slice(UUID_PREFIX_LENGTH, -1)
 
   return text
 }
@@ -63,9 +68,23 @@ export type RecordIdParts = {
  * both the authoring codec and the ORM compiler build on it (unescape the id part with
  * {@link unescapeIdPart} to get the RAW value).
  */
+/** Stringify a record-id input, preserving `RecordId`/custom `toString` objects. */
+function stringifyRecordIdValue(value: unknown): string {
+  if (typeof value === "string") return value
+  if (value === null || value === undefined) return ""
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint" ||
+    typeof value === "symbol"
+  )
+    return String(value)
+
+  return (value as { toString(): string }).toString()
+}
+
 export function splitRecordId(value: unknown): RecordIdParts | undefined {
-  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringificação de valor dinâmico é intencional (mensagem de erro)
-  const text = String(value ?? "")
+  const text = stringifyRecordIdValue(value)
   const colon = text.indexOf(":")
   if (colon === -1) return undefined
 

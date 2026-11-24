@@ -6,6 +6,36 @@ import { escapeIdent, Surreal } from "surrealdb"
 
 import type { SurrealZodCheckEmbedded } from "../config"
 
+/** Default ports for the URL schemes a Surreal endpoint can use. */
+const HTTPS_PORT = 443
+const HTTP_PORT = 80
+/** Raw TCP probe timeout before retrying. */
+const TCP_PROBE_TIMEOUT_MS = 250
+/** Delay between port probes. */
+const PORT_POLL_INTERVAL_MS = 10
+/** Delay between connection attempts. */
+const CONNECT_POLL_INTERVAL_MS = 100
+/** Per-attempt connect timeout. */
+const CONNECT_ATTEMPT_TIMEOUT_MS = 2000
+/** Boot deadline. */
+const READY_TIMEOUT_MS = 30_000
+/** Lines of captured stderr shown on failure. */
+const STDERR_TAIL_LINES = 3
+/** Random password entropy (bytes). */
+const PASSWORD_BYTES = 16
+/** Grace period before SIGKILL after SIGTERM. */
+const KILL_GRACE_MS = 2000
+
+/** The last non-empty line of captured stderr. */
+function lastStderrLine(text: string): string {
+  return (
+    text
+      .split("\n")
+      .reverse()
+      .find((line) => line.length > 0) ?? "no output"
+  )
+}
+
 /** Pick a free localhost TCP port by binding to :0 and reading it back. */
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -27,8 +57,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
     const t = setTimeout(() => {
       reject(new Error(msg))
     }, ms)
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
-    t.unref?.()
+    t.unref()
     void (async (): Promise<void> => {
       try {
         const value = await p
@@ -78,26 +107,26 @@ async function waitForPort(
 ): Promise<void> {
   const parsed = new URL(url)
   const host = parsed.hostname.replaceAll(/^\[|\]$/gu, "")
-  const port = Number(
-    // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-    parsed.port || (parsed.protocol === "wss:" || parsed.protocol === "https:" ? 443 : 80),
-  )
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) {
+  const defaultPort =
+    parsed.protocol === "wss:" || parsed.protocol === "https:" ? HTTPS_PORT : HTTP_PORT
+  const port = Number(parsed.port || defaultPort)
+
+  const probe = async (): Promise<void> => {
+    if (Date.now() >= deadline) {
+      const tail = stderr().split("\n").filter(Boolean).slice(-STDERR_TAIL_LINES).join(" | ")
       throw new Error(
-        // eslint-disable-next-line unicorn/prefer-array-find -- precisa do ÚLTIMO elemento verdadeiro; find retorna o primeiro
-        `surreal exited (${child.exitCode}): ${stderr().split("\n").filter(Boolean).pop() ?? "no output"}`,
+        `surreal did not open ${host}:${port} within 30s${tail ? ` — server stderr: ${tail}` : ""}`,
       )
     }
+    if (child.exitCode !== null)
+      throw new Error(`surreal exited (${child.exitCode}): ${lastStderrLine(stderr())}`)
     const accepted = await new Promise<boolean>((resolve) => {
       const socket = netConnect({ host, port })
       const done = (v: boolean): void => {
         socket.destroy()
         resolve(v)
       }
-      // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-      socket.setTimeout(250, () => {
+      socket.setTimeout(TCP_PROBE_TIMEOUT_MS, () => {
         done(false)
       })
       socket.once("connect", () => {
@@ -109,14 +138,10 @@ async function waitForPort(
     })
     if (accepted) return
 
-    // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-    await sleep(10)
+    await sleep(PORT_POLL_INTERVAL_MS)
+    return probe()
   }
-  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-  const tail = stderr().split("\n").filter(Boolean).slice(-3).join(" | ")
-  throw new Error(
-    `surreal did not open ${host}:${port} within 30s${tail ? ` — server stderr: ${tail}` : ""}`,
-  )
+  await probe()
 }
 
 /** Poll a Surreal connection until it succeeds, the process dies, or we time out. */
@@ -127,18 +152,19 @@ async function waitUntilReady(
   child: ChildProcess,
   stderr: () => string,
 ): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-  const deadline = Date.now() + 30_000
+  const deadline = Date.now() + READY_TIMEOUT_MS
   await waitForPort(url, child, deadline, stderr)
   const attempts: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) {
+
+  const attempt = async (): Promise<void> => {
+    if (Date.now() >= deadline) {
+      const tail = stderr().split("\n").filter(Boolean).slice(-STDERR_TAIL_LINES).join(" | ")
       throw new Error(
-        // eslint-disable-next-line unicorn/prefer-array-find -- precisa do ÚLTIMO elemento verdadeiro; find retorna o primeiro
-        `surreal exited (${child.exitCode}): ${stderr().split("\n").filter(Boolean).pop() ?? "no output"}`,
+        `surreal did not become ready within 30s at ${url} — last attempts: ${attempts.slice(-STDERR_TAIL_LINES).join("; ")}${tail ? ` — server stderr: ${tail}` : ""}`,
       )
     }
+    if (child.exitCode !== null)
+      throw new Error(`surreal exited (${child.exitCode}): ${lastStderrLine(stderr())}`)
     const db = new Surreal()
     try {
       // RACE each attempt against a short timeout: a HANGING connect (seen under the land gate)
@@ -149,8 +175,7 @@ async function waitUntilReady(
           await db.connect(url, { reconnect: false })
           await db.signin({ password, username })
         })(),
-        // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-        2000,
+        CONNECT_ATTEMPT_TIMEOUT_MS,
         "connect attempt timed out (2s)",
       )
       await db.close()
@@ -160,16 +185,11 @@ async function waitUntilReady(
       await db.close().catch(() => {
         /* ignore close errors */
       })
-      // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-      await sleep(100)
+      await sleep(CONNECT_POLL_INTERVAL_MS)
+      return attempt()
     }
   }
-  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-  const tail = stderr().split("\n").filter(Boolean).slice(-3).join(" | ")
-  throw new Error(
-    // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-    `surreal did not become ready within 30s at ${url} — last attempts: ${attempts.slice(-3).join("; ")}${tail ? ` — server stderr: ${tail}` : ""}`,
-  )
+  await attempt()
 }
 
 /**
@@ -184,8 +204,7 @@ export async function spawnEphemeralServer(bin = "surreal"): Promise<EphemeralSe
   const username = "root"
   // A RANDOM per-run password: the instance is loopback-bound, but a fixed root/root would let any
   // local process sign in (and `--allow-all` runs scripted functions) while a replay is in flight.
-  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-  const password = randomBytes(16).toString("hex")
+  const password = randomBytes(PASSWORD_BYTES).toString("hex")
   const child = spawn(
     bin,
     [
@@ -202,8 +221,7 @@ export async function spawnEphemeralServer(bin = "surreal"): Promise<EphemeralSe
     { stdio: ["ignore", "ignore", "pipe"] },
   )
   let stderr = ""
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
-  child.stderr?.on("data", (d) => {
+  child.stderr.on("data", (d) => {
     stderr += String(d)
   })
 
@@ -221,8 +239,7 @@ export async function spawnEphemeralServer(bin = "surreal"): Promise<EphemeralSe
       })
       child.kill("SIGTERM")
       // Hard-kill if it doesn't exit .
-      // eslint-disable-next-line @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unnecessary-condition -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-      setTimeout(() => child.kill("SIGKILL"), 2000).unref?.()
+      setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS).unref()
     })
   // Backstop: don't leak the process if the CLI exits abnormally.
   const onExit = (): void => {
@@ -285,8 +302,8 @@ export async function connectEmbedded(
     strict: cfg.strict,
     transaction_timeout: cfg.transaction_timeout,
   })
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any -- argumento any vem de internals do Zod/SDK (fronteira sem tipos) / any necessário na fronteira de internals Zod/SDK
-  const db = new Surreal({ engines } as any)
+  const options = { engines } as ConstructorParameters<typeof Surreal>[0]
+  const db = new Surreal(options)
   await db.connect(url)
   await db.query(`DEFINE NAMESPACE IF NOT EXISTS ${escapeIdent(namespace)}`)
   await db.use({ namespace })

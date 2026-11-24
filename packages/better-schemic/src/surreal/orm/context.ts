@@ -47,10 +47,8 @@ export function resolveContext(
 
 /** First defined string in the chain; a teaching error when none (or not a string) is available. */
 function pick(side: "database" | "namespace", ...candidates: readonly unknown[]): string {
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const candidate of candidates) {
-    if (candidate === undefined) continue
-
+  const candidate = candidates.find((value) => value !== undefined)
+  if (candidate !== undefined) {
     if (typeof candidate !== "string" || candidate.length === 0) {
       throw compileError(
         "ValidationError",
@@ -86,8 +84,8 @@ export function contextOption(
 /** Reject unknown `$withContext` keys (a typo would do nothing). */
 export function assertContextKeys(scope: OperationContext): void {
   const allowed = new Set(["namespace", "database", "meta"])
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of Object.keys(scope)) {
+
+  Object.keys(scope).forEach((key) => {
     if (!allowed.has(key)) {
       throw compileError(
         "ValidationError",
@@ -95,7 +93,7 @@ export function assertContextKeys(scope: OperationContext): void {
         { operation: "$withContext" },
       )
     }
-  }
+  })
 }
 
 /** Merge scope metadata → call metadata (the call wins); `undefined` when neither carries any. */

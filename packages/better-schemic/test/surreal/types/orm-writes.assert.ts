@@ -1,8 +1,8 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally unused type-probe values. Type queries and callback signatures need fixture values. */
 // M2.8 — TYPE assertions for the write surface: per-op args (`create`/`insert`/`update`/`patch`/
 // `upsert`/`delete`/`updateEach`/`relate`), the result envelopes dispatched by `return`, the
 // expression-carrying `data`, and the relation-RELATE surface.
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
+
 import { describe, it } from "node:test"
 
 import { assertType } from "../../../../../scripts/type-assert"
@@ -28,19 +28,19 @@ import type {
 import type { App } from "../../../src/surreal/pure"
 
 const User = table("user", {
-  name: s.string(),
-  email: s.string(),
-  age: s.int(),
   active: s.boolean(),
-  tags: s.array(s.string()),
   address: s.object({ city: s.string(), country: s.string() }),
+  age: s.int(),
+  email: s.string(),
+  name: s.string(),
+  tags: s.array(s.string()),
 }).index("uniq_email", ["email"], { unique: true })
 const Post = table("post", { title: s.string() })
 const Likes = relation("likes", { score: s.int() }).from(User).to(Post)
-const schemaDef = schema({ users: User, posts: Post, likes: Likes })
+const _schemaDef = schema({ likes: Likes, posts: Post, users: User })
 type U = typeof User
 type Row = App<U>
-type C = Client<typeof schemaDef>
+type C = Client<typeof _schemaDef>
 type Users = C["users"]
 type Likess = C["likes"]
 type L = typeof Likes
@@ -55,12 +55,12 @@ function typeProbes(): void {
   const created: Promise<BatchResult<Row>> = client.users.createMany({
     data: [
       {
-        name: "A",
-        email: "a@x",
-        age: 1,
         active: true,
-        tags: [],
         address: { city: "X", country: "Y" },
+        age: 1,
+        email: "a@x",
+        name: "A",
+        tags: [],
       },
     ],
   })
@@ -68,122 +68,122 @@ function typeProbes(): void {
 
   void client.users.create({
     data: {
-      name: "Aeon",
-      email: "aeon@x",
-      age: 30,
       active: true,
-      tags: [],
       address: { city: "SP", country: "BR" },
+      age: 30,
+      email: "aeon@x",
+      name: "Aeon",
+      tags: [],
     },
   })
   void client.users.update({
-    where: { id: "user:a" },
     data: { age: 31 },
+    where: { id: "user:a" },
   })
   void client.users.update({
-    where: { id: "user:a" },
     data: { age: surql`age + ${1}`.as<number>() },
+    where: { id: "user:a" },
   })
   // @ts-expect-error — "old" is not assignable to the int field
-  void client.users.update({ where: { id: "user:a" }, data: { age: "old" } })
+  void client.users.update({ data: { age: "old" }, where: { id: "user:a" } })
 
-  void client.users.upsert({ where: { id: "user:a" }, data: { age: 1 } })
+  void client.users.upsert({ data: { age: 1 }, where: { id: "user:a" } })
   void client.users.upsert({
-    where: { id: "user:a" },
     data: { age: 1 },
     onMissing: "create",
+    where: { id: "user:a" },
   })
   void client.users.upsert({
-    where: { id: "user:a" },
     create: {
-      name: "A",
-      email: "a@x",
-      age: 1,
       active: true,
-      tags: [],
       address: { city: "X", country: "Y" },
+      age: 1,
+      email: "a@x",
+      name: "A",
+      tags: [],
     },
-    update: { age: 2 },
     onMissing: "create",
+    update: { age: 2 },
+    where: { id: "user:a" },
   })
   void client.users.upsert({
-    where: { id: "user:a" },
     data: { age: 1 },
     // @ts-expect-error — onMissing is "create" | "throw"
     onMissing: "nope",
-  })
-  const upserted = client.users.upsert({
     where: { id: "user:a" },
-    data: { age: 1 },
   })
-  assertType<Promise<Row>, typeof upserted>()
+  const _upserted = client.users.upsert({
+    data: { age: 1 },
+    where: { id: "user:a" },
+  })
+  assertType<Promise<Row>, typeof _upserted>()
 
   // A target-less `upsert` is a plain CREATE; `data.id` alone infers the strict id target.
-  const targetless = client.users.upsert({
+  const _targetless = client.users.upsert({
     data: {
-      name: "B",
-      email: "b@x",
-      age: 2,
       active: true,
-      tags: [],
       address: { city: "X", country: "Y" },
+      age: 2,
+      email: "b@x",
+      name: "B",
+      tags: [],
     },
   })
-  assertType<Promise<Row>, typeof targetless>()
-  void client.users.upsert({ data: { id: "user:b", age: 2 } })
+  assertType<Promise<Row>, typeof _targetless>()
+  void client.users.upsert({ data: { age: 2, id: "user:b" } })
   void client.users.upsert({
-    data: { id: "user:b", age: 2 },
+    data: { age: 2, id: "user:b" },
     onMissing: "create",
   })
 
-  void client.users.upsertDelta({ where: { id: "user:a" }, data: { age: 1 } })
-  void client.users.upsertDelta({ data: { id: "user:a", age: 2 } })
+  void client.users.upsertDelta({ data: { age: 1 }, where: { id: "user:a" } })
+  void client.users.upsertDelta({ data: { age: 2, id: "user:a" } })
   void client.users.upsertDelta({
-    where: { id: "user:a" },
     data: { age: 1 },
     onMissing: "throw",
     timeout: "5s",
+    where: { id: "user:a" },
   })
   void client.users.upsertDelta({
-    where: { id: "user:a" },
     create: {
-      name: "A",
-      email: "a@x",
-      age: 1,
       active: true,
-      tags: [],
       address: { city: "X", country: "Y" },
+      age: 1,
+      email: "a@x",
+      name: "A",
+      tags: [],
     },
-    update: { age: 2 },
     mode: "merge",
-  })
-  void client.users.upsertDelta({
-    where: { email: "a@x" },
-    data: { email: "a@x", age: surql`age + 1`.as<number>() },
-    mode: "set",
-  })
-  void client.users.upsertDelta({
+    update: { age: 2 },
     where: { id: "user:a" },
+  })
+  void client.users.upsertDelta({
+    data: { age: surql`age + 1`.as<number>(), email: "a@x" },
+    mode: "set",
+    where: { email: "a@x" },
+  })
+  void client.users.upsertDelta({
     data: { age: 1 },
     // @ts-expect-error — mode "patch" is not part of upsertDelta
     mode: "patch",
+    where: { id: "user:a" },
   })
   void client.users.upsertDelta({
-    where: { id: "user:a" },
     data: { age: 1 },
     // @ts-expect-error — onMissing is "create" | "throw"
     onMissing: "nope",
+    where: { id: "user:a" },
   })
   void client.users.upsertDelta({
-    where: { id: "user:a" },
     // @ts-expect-error — "old" is not assignable to the int field
     data: { age: "old" },
+    where: { id: "user:a" },
   })
 
   // The result envelope narrows on `created` (tsgo checks each branch at compile time).
   const deltaResult = client.users.upsertDelta({
-    where: { id: "user:a" },
     data: { age: 1 },
+    where: { id: "user:a" },
   })
   assertType<Promise<UpsertDeltaResult<U>>, typeof deltaResult>()
   void deltaResult.then((row) => {
@@ -201,51 +201,51 @@ function typeProbes(): void {
   void client.users.updateMany({ data: { active: false } })
   void client.users.deleteMany({ where: { age: { lt: 1 } } })
   // @ts-expect-error — delete does not accept "after"
-  void client.users.delete({ where: { id: "user:a" }, return: "after" })
+  void client.users.delete({ return: "after", where: { id: "user:a" } })
 
   void client.users.updateEach({
     data: [
-      { id: "user:a", age: 1 },
-      { id: "user:b", age: 2 },
+      { age: 1, id: "user:a" },
+      { age: 2, id: "user:b" },
     ],
   })
   void client.users.updateEach({
     by: "email",
-    data: [{ email: "a@x", age: 3 }],
+    data: [{ age: 3, email: "a@x" }],
     onEmpty: "throw",
   })
   void client.users.updateEach({
     by: "email",
     // @ts-expect-error — `by: "email"` items must carry email
-    data: [{ id: "user:a", age: 3 }],
+    data: [{ age: 3, id: "user:a" }],
   })
 
   void client.posts.create({
     data: { title: "T" },
-    relate: [{ from: "user:a", edge: "likes", to: "$self" }],
+    relate: [{ edge: "likes", from: "user:a", to: "$self" }],
     return: "none",
   })
   void client.posts.create({
     data: { title: "T" },
-    relate: [{ from: "user:a", edge: "likes", to: "$self" }],
+    relate: [{ edge: "likes", from: "user:a", to: "$self" }],
     return: "before",
   })
   // @ts-expect-error — the relate batch rejects RETURN DIFF
   void client.posts.create({
     data: { title: "T" },
-    relate: [{ from: "user:a", edge: "likes", to: "$self" }],
+    relate: [{ edge: "likes", from: "user:a", to: "$self" }],
     return: "diff",
   })
 
   void client.likes.relate({
+    data: { score: 5 },
     from: "user:a",
     to: "post:p",
-    data: { score: 5 },
   })
   void client.likes.relateMany({
     data: [
       { from: "user:a", to: "post:p" },
-      { from: "user:b", to: "post:p", id: "first", data: { score: 1 } },
+      { data: { score: 1 }, from: "user:b", id: "first", to: "post:p" },
     ],
   })
   void client.likes.unrelate({ from: "user:a", to: "post:p" })
@@ -254,190 +254,190 @@ function typeProbes(): void {
   void client.likes.relate({ from: null, to: "post:p" })
 
   // --- projections on the returned rows (`select`/`omit`) ----------------------------------------
-  const selected = client.users.update({
-    where: { id: "user:a" },
+  const _selected = client.users.update({
     data: { age: 2 },
     select: { id: true, name: true },
-  })
-  assertType<ThrowingResult<{ id: Row["id"]; name: string }>, typeof selected>()
-
-  const aliased = client.users.update({
     where: { id: "user:a" },
+  })
+  assertType<ThrowingResult<{ id: Row["id"]; name: string }>, typeof _selected>()
+
+  const _aliased = client.users.update({
     data: { age: 2 },
     select: { city: "address.city" },
-  })
-  assertType<ThrowingResult<{ city: string }>, typeof aliased>()
-
-  const beforeSelected = client.users.update({
     where: { id: "user:a" },
+  })
+  assertType<ThrowingResult<{ city: string }>, typeof _aliased>()
+
+  const _beforeSelected = client.users.update({
     data: { age: 2 },
     return: "before",
     select: { name: true },
-  })
-  assertType<ThrowingResult<{ name: string }>, typeof beforeSelected>()
-
-  const deleted = client.users.delete({
     where: { id: "user:a" },
-    omit: ["email"],
   })
-  assertType<ThrowingResult<Omit<Row, "email">>, typeof deleted>()
+  assertType<ThrowingResult<{ name: string }>, typeof _beforeSelected>()
 
-  const createdProjected = client.users.create({
+  const _deleted = client.users.delete({
+    omit: ["email"],
+    where: { id: "user:a" },
+  })
+  assertType<ThrowingResult<Omit<Row, "email">>, typeof _deleted>()
+
+  const _createdProjected = client.users.create({
     data: {
-      name: "A",
-      email: "a@x",
-      age: 1,
       active: true,
-      tags: [],
       address: { city: "X", country: "Y" },
+      age: 1,
+      email: "a@x",
+      name: "A",
+      tags: [],
     },
     select: { name: true },
   })
-  assertType<Promise<{ name: string }>, typeof createdProjected>()
+  assertType<Promise<{ name: string }>, typeof _createdProjected>()
 
-  const batchSelected = client.users.updateMany({
-    where: { active: true },
+  const _batchSelected = client.users.updateMany({
     data: { age: 2 },
     select: { age: true },
+    where: { active: true },
   })
-  assertType<Promise<BatchResult<{ age: number }>>, typeof batchSelected>()
+  assertType<Promise<BatchResult<{ age: number }>>, typeof _batchSelected>()
 
   void client.users.updateEach({
-    data: [{ id: "user:a", age: 1 }],
+    data: [{ age: 1, id: "user:a" }],
     select: { name: true },
   })
 
   // --- numeric adjustments (`increment`/`decrement`) ---------------------------------------------
   void client.users.update({
-    where: { id: "user:a" },
     data: { age: { increment: 1 }, name: "B" },
+    where: { id: "user:a" },
   })
   void client.users.update({
-    where: { id: "user:a" },
     data: { age: { decrement: surql`2`.as<number>() } },
+    where: { id: "user:a" },
   })
   void client.users.updateEach({
-    data: [{ id: "user:a", age: { increment: 1 } }],
+    data: [{ age: { increment: 1 }, id: "user:a" }],
   })
   void client.users.upsert({
-    where: { id: "user:a" },
     data: { age: { decrement: 1 } },
+    where: { id: "user:a" },
   })
   void client.users.update({
-    where: { id: "user:a" },
     data: {
       // @ts-expect-error — increment needs a numeric field
       name: { increment: 1 },
     },
+    where: { id: "user:a" },
   })
   void client.users.update({
-    where: { id: "user:a" },
     data: {
       // @ts-expect-error — the operand must be numeric
       age: { increment: "x" },
     },
+    where: { id: "user:a" },
   })
   void client.users.create({
     data: {
-      name: "A",
-      email: "a@x",
+      active: true,
+      address: { city: "X", country: "Y" },
       // @ts-expect-error — create payloads don't take adjustments
       age: { increment: 1 },
-      active: true,
+      email: "a@x",
+      name: "A",
       tags: [],
-      address: { city: "X", country: "Y" },
     },
   })
 
   // --- array adjustments (`append`/`remove`/`union`/`at`) ------------------------------------------
   void client.users.update({
-    where: { id: "user:a" },
     data: { tags: { append: "new" } },
+    where: { id: "user:a" },
   })
   void client.users.update({
-    where: { id: "user:a" },
     data: { tags: { append: ["a", "b"] } },
+    where: { id: "user:a" },
   })
   void client.users.update({
-    where: { id: "user:a" },
     data: { tags: { remove: "old" } },
+    where: { id: "user:a" },
   })
   void client.users.update({
-    where: { id: "user:a" },
     data: { tags: { union: ["a"] } },
+    where: { id: "user:a" },
   })
   void client.users.update({
-    where: { id: "user:a" },
     data: { tags: { at: { index: 0, value: "x" } } },
+    where: { id: "user:a" },
   })
   void client.users.update({
-    where: { id: "user:a" },
     data: {
       // @ts-expect-error — a string field is not an array
       name: { append: "x" },
     },
+    where: { id: "user:a" },
   })
   void client.users.update({
-    where: { id: "user:a" },
     data: {
       // @ts-expect-error — a numeric field takes the NUMERIC markers, not the array ones
       age: { append: 1 },
     },
+    where: { id: "user:a" },
   })
   void client.users.update({
-    where: { id: "user:a" },
     data: {
       // @ts-expect-error — a numeric field takes the numeric markers
       name: { remove: "x" },
     },
+    where: { id: "user:a" },
   })
 
   // --- change MODIFIERS (`when`/`else`/`coalesce`) --------------------------------------------
   void client.users.update({
-    where: { id: "user:a" },
     data: {
       age: { increment: 1, when: surql`age < 150` },
-      tags: { union: ["vip"], coalesce: [] },
+      tags: { coalesce: [], union: ["vip"] },
     },
+    where: { id: "user:a" },
   })
   void client.users.update({
-    where: { id: "user:a" },
     data: {
       tags: {
         append: "vip",
         coalesce: ["vip"],
-        when: surql`active`,
         else: "throw",
+        when: surql`active`,
       },
     },
+    where: { id: "user:a" },
   })
   void client.users.update({
+    data: { age: { decrement: 1, else: 0, when: surql`age > 0` } },
     where: { id: "user:a" },
-    data: { age: { decrement: 1, when: surql`age > 0`, else: 0 } },
   })
   void client.users.update({
-    where: { id: "user:a" },
     data: {
       // @ts-expect-error — coalesce  seeds the UNION/APPEND array markers
-      age: { increment: 1, coalesce: [] },
+      age: { coalesce: [], increment: 1 },
     },
+    where: { id: "user:a" },
   })
   void client.users.update({
-    where: { id: "user:a" },
     data: {
       // @ts-expect-error — `when` can't guard `at`
       tags: { at: { index: 0, value: "x" }, when: surql`active` },
     },
+    where: { id: "user:a" },
   })
   void client.users.update({
-    where: { id: "user:a" },
     data: {
       // @ts-expect-error — `remove` doesn't take coalesce
-      tags: { remove: "x", coalesce: [] },
+      tags: { coalesce: [], remove: "x" },
     },
+    where: { id: "user:a" },
   })
 }
-void typeProbes
+const _probe_440 = typeProbes
 
 void describe("write results dispatch on the `return` literal", () => {
   void it("create resolves rows; none/before are null; diff is unknown[]", () => {

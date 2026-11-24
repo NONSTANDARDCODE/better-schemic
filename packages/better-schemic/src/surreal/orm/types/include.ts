@@ -28,7 +28,7 @@ import type {
 } from "./relations"
 import type { AnyTableDef, DefName, SchemaInput } from "./schema"
 import type { OrderByArg, SelectArg, SelectedShape, Simplify } from "./select"
-import type { EdgeDirection, EdgeOperand, Step, Where } from "./where"
+import type { EdgeDirection, EdgeOperand, MaxDepth, Step, Where } from "./where"
 
 /** The app rows of a def union (`Record<string, unknown>` for unresolved/wildcard targets). */
 export type AppOf<T> = [T] extends [never]
@@ -113,13 +113,22 @@ type CountFilter<TD extends AnyTableDef, S, K extends string> =
       }
     : {
         direction?: EdgeDirection
-        // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal de profundidade faz parte do contrato recursivo do tipo (API pública)
-        where?: EdgeOperand<EdgeDefAt<S, K>, EdgeTargetDefs<S, EdgeDefAt<S, K>, DefName<TD>>, S, 3>
+
+        where?: EdgeOperand<
+          EdgeDefAt<S, K>,
+          EdgeTargetDefs<S, EdgeDefAt<S, K>, DefName<TD>>,
+          S,
+          MaxDepth
+        >
       }
 
 /** The `include` argument: one optional entry per link, adjacent edge and `_count`. */
-// eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal de profundidade faz parte do contrato recursivo do tipo (API pública)
-export type IncludeArg<TD extends AnyTableDef, S = SchemaInput, D extends number = 3> = Simplify<
+
+export type IncludeArg<
+  TD extends AnyTableDef,
+  S = SchemaInput,
+  D extends number = MaxDepth,
+> = Simplify<
   {
     [K in LinkKeys<TD>]?: LinkIncludeArg<LinkTargetDefs<TD, S, K>, S, D>
   } & {

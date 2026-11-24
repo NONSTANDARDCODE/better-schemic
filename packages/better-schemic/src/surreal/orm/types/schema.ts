@@ -15,18 +15,18 @@
  * Everything the delegates expose (keys, row types, link/edge metadata, function signatures) is
  * extracted from this one object at the type level — there is no parallel schema and no codegen.
  */
-import type { App, FunctionDef, RecordIdMode, RelationDef, TableDef } from "../../pure"
+import type { App, FunctionDef, RecordIdMode, RelationDef, Shape, TableDef } from "../../pure"
 
 /** A typed table/edge def with its shape erased — the structural upper bound for schema entries. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- tipo de FRONTEIRA: a forma da tabela é apagada de propósito; unknown quebraria a inferência pública
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- erasure bivariante do shape: `Shape` estreita a inferência de filtros/writes e quebra os type-gates do ORM.
 export type AnyTableDef = TableDef<string, any>
 
 /** A relation (edge) def with shape + endpoint captures erased. The endpoint ID MODES stay broad
  *  (`RecordIdMode`), so a string-id relation is still an `AnyRelationDef`. */
 export type AnyRelationDef = RelationDef<
   string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- tipo de FRONTEIRA com forma apagada; unknown quebraria a inferência pública
-  any,
+  Shape,
   string,
   string,
   unknown,
@@ -36,7 +36,8 @@ export type AnyRelationDef = RelationDef<
 >
 
 /** A user-defined DB function def with its arg shape/return erased. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- tipo de FRONTEIRA: args/retorno apagados; a inferência vem do defineFunction concreto
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- erasure bivariante dos generics de args/retorno do function def.
 export type AnyFunctionDef = FunctionDef<any, any>
 
 /** One `schema` entry: a table, an edge, a function, or a schemaless table's physical name. */

@@ -44,10 +44,16 @@ const GEOMETRY_KINDS = new Set([
   "collection",
 ])
 
+/** Smallest quoted literal: one opening + one closing quote. */
+const MIN_QUOTED_LENGTH = 2
+
 /** Parse a (single/double) quoted string literal token, or null if it isn't one. */
 function parseStringLiteral(t: string): null | string {
-  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-  if (t.length >= 2 && (t.startsWith("'") || t.startsWith('"')) && t.at(-1) === t[0]) {
+  if (
+    t.length >= MIN_QUOTED_LENGTH &&
+    (t.startsWith("'") || t.startsWith('"')) &&
+    t.at(-1) === t[0]
+  ) {
     const body = t.slice(1, -1)
     return body.replaceAll(/\\(['"\\])/gu, "$1")
   }

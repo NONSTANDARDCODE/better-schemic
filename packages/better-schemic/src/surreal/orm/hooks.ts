@@ -92,11 +92,11 @@ type Handler = (info: never) => Promise<void> | void
 /** The hooks of one event, from every source, in order. */
 function collect(sources: readonly Hooks[], key: keyof Hooks): readonly Handler[] {
   const out: Handler[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const source of sources) {
+
+  sources.forEach((source) => {
     const handler: unknown = (source as Record<string, unknown>)[key]
     if (typeof handler === "function") out.push(handler as Handler)
-  }
+  })
   return out
 }
 
@@ -229,8 +229,10 @@ export function createHookDispatcher(
 
   /** Run `before*` handlers in order; a throw propagates (aborting the operation). */
   const runBefore = async (handlers: readonly Handler[], payload: unknown): Promise<void> => {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const handler of handlers) await handler(payload as never)
+    await handlers.reduce(async (previous, handler) => {
+      await previous
+      await handler(payload as never)
+    }, Promise.resolve())
   }
 
   /** Route a hook failure to `onError` (console when nobody listens). */
@@ -242,14 +244,15 @@ export function createHookDispatcher(
       )
       return
     }
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const handler of onError) {
+
+    await onError.reduce(async (previous, handler) => {
+      await previous
       try {
         await handler(payload as never)
       } catch (error) {
         console.error("[better-schemic] onError hook threw.", error)
       }
-    }
+    }, Promise.resolve())
   }
 
   /** Run `after*`/`on*Error` handlers; their own failures report them, never rethrown. */
@@ -264,8 +267,8 @@ export function createHookDispatcher(
     },
     fallback: ErrorHookPayload["operation"],
   ): Promise<void> => {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const handler of handlers) {
+    await handlers.reduce(async (previous, handler) => {
+      await previous
       try {
         await handler(payload as never)
       } catch (error) {
@@ -278,7 +281,7 @@ export function createHookDispatcher(
           ...(payload.meta === undefined ? {} : { meta: payload.meta }),
         })
       }
-    }
+    }, Promise.resolve())
   }
 
   const runAfter = (handlers: readonly Handler[], payload: AfterHookPayload): Promise<void> =>

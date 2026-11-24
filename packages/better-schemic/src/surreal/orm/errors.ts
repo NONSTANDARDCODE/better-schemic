@@ -208,10 +208,7 @@ const MESSAGE_CODES: readonly (readonly [RegExp, OrmErrorCode])[] = [
 ]
 
 function codeFromMessage(message: string): OrmErrorCode {
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [re, code] of MESSAGE_CODES) if (re.test(message)) return code
-
-  return "DatabaseError"
+  return MESSAGE_CODES.find(([re]) => re.test(message))?.[1] ?? "DatabaseError"
 }
 
 /** The table a server error names, when the structured details carry one. */

@@ -63,14 +63,13 @@ function isStandaloneDef(v: unknown): v is AuthoredDef {
 }
 
 function tsFiles(dir: string): string[] {
-  const out: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const entry of readdirSync(dir).sort()) {
-    const p = nodePath.join(dir, entry)
-    if (statSync(p).isDirectory()) out.push(...tsFiles(p))
-    else if (/\.(ts|mts|js|mjs)$/u.test(entry) && !entry.endsWith(".d.ts")) out.push(p)
-  }
-  return out
+  return readdirSync(dir)
+    .sort()
+    .flatMap((entry) => {
+      const p = nodePath.join(dir, entry)
+      if (statSync(p).isDirectory()) return tsFiles(p)
+      return /\.(ts|mts|js|mjs)$/u.test(entry) && !entry.endsWith(".d.ts") ? [p] : []
+    })
 }
 
 /** The schema module file(s) for a path: the file itself, or every module under the directory. */
@@ -130,22 +129,23 @@ export async function loadDefs(schemaPath: string): Promise<{
   const fileOf = new Map<AnyTable | AuthoredDef, string>()
   const seen = new Map<string, string[]>()
   const localEntities = new Map<string, LocalFileEntities>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const file of schemaFiles(schemaPath)) {
+  // Sequential reduce (not Promise.all): "last def of a name wins" depends on module order.
+  await schemaFiles(schemaPath).reduce(async (previous, file) => {
+    await previous
     const entries = Object.entries(
       (await importSchemaModule(jiti, file)) as Record<string, unknown>,
     )
     const entities: LocalFileEntities["entities"] = []
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [exportName, value] of entries)
+    entries.forEach(([exportName, value]) => {
       recordEntry(exportName, value, file, tables, defs, fileOf, seen, entities)
+    })
     if (entities.length > 0) {
       localEntities.set(file, {
         entities,
         pureSchema: entities.length === entries.length,
       })
     }
-  }
+  }, Promise.resolve())
   const rank = (t: AnyTable): number => (t.config.relation ? 1 : 0)
   const sorted = [...tables.values()].sort(
     (a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name),

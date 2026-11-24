@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // Ratified table-composition surface (cross-driver): P1 table(s.object()) + public .fields,
 // P2 TableDef.extend(), P3 derived .create/.update/.object. This file grows with each part.
 import { describe, expect, test } from "bun:test"
@@ -9,7 +8,7 @@ import { s, table } from "../../../src/surreal"
 import { emitTable } from "../../../src/surreal/ddl"
 
 describe("P1: table accepts s.object() + public .fields", () => {
-  const fields = { name: s.string(), email: s.email() }
+  const fields = { email: s.email(), name: s.string() }
 
   test("table(s.object(...)) emits identically to table(raw fields)", () => {
     const fromObject = emitTable(table("t", s.object(fields)))
@@ -38,7 +37,7 @@ describe("P1: table accepts s.object() + public .fields", () => {
 })
 
 describe("P2: TableDef.extend(shape | s.object())", () => {
-  const base = { name: s.string(), email: s.email() }
+  const base = { email: s.email(), name: s.string() }
   const audit = {
     createdAt: s.datetime().$readonly(),
     updatedAt: s.datetime().optional(),
@@ -70,18 +69,18 @@ describe("P2: TableDef.extend(shape | s.object())", () => {
 
 describe("P3: derived .create / .update / .object schemas", () => {
   const customer = table("customer", {
-    name: s.string(),
     balance: s.number(),
-    creditEnabled: s.boolean().$default(true), // DB-filled -> optional on create
     createdAt: s
       .datetime()
       .$default(surql`time::now()`)
       .$readonly(), // default -> create-optional; readonly -> not in update
+    creditEnabled: s.boolean().$default(true), // DB-filled -> optional on create
+    name: s.string(),
   })
 
   test(".create makes $default/readonly/id optional but keeps the rest required", () => {
     // The exact bug in the hand-rolled version: creditEnabled must NOT requirs it on create.
-    expect(customer.create.safeParse({ name: "a", balance: 0 }).success).toBe(true)
+    expect(customer.create.safeParse({ balance: 0, name: "a" }).success).toBe(true)
     // still requires the genuinely-required fields:
     expect(customer.create.safeParse({ name: "a" }).success).toBe(false)
   })
@@ -107,10 +106,10 @@ describe("P3: derived .create / .update / .object schemas", () => {
         path: ["balance"],
       })
     // create branch (no id, creditEnabled omitted — the fix):
-    expect(customerInput.safeParse({ name: "a", balance: 0 }).success).toBe(true)
+    expect(customerInput.safeParse({ balance: 0, name: "a" }).success).toBe(true)
     // update branch (id + a partial patch):
-    expect(customerInput.safeParse({ id: "customer:1", balance: 5 }).success).toBe(true)
+    expect(customerInput.safeParse({ balance: 5, id: "customer:1" }).success).toBe(true)
     // refine still bites:
-    expect(customerInput.safeParse({ name: "a", balance: -1 }).success).toBe(false)
+    expect(customerInput.safeParse({ balance: -1, name: "a" }).success).toBe(false)
   })
 })

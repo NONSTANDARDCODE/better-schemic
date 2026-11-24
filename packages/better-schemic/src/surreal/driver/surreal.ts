@@ -85,8 +85,8 @@ const migrations: MigrationStore<Surreal> = {
       "SELECT tag, checksum FROM type::table($tbl)",
       { tbl: table },
     )
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
-    return new Map((rows ?? []).map((r) => [r.tag, r.checksum]))
+    const result = rows as undefined | { checksum: string; tag: string }[]
+    return new Map((result ?? []).map((r) => [r.tag, r.checksum]))
   },
   // SurrealDB is natively transactional — run the migration program + its bookkeeping write in one
   // BEGIN/COMMIT so the record writes it iff the DDL applied. `$direction` drives the up/down branch.
@@ -155,8 +155,10 @@ export const surrealDriver: Driver<Surreal, TableDef<string, Shape>, StandaloneD
     if (statements.length === 0) return
 
     if (opts?.transactional === false) {
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const s of statements) await conn.query(s)
+      await statements.reduce<Promise<void>>(async (prev, s) => {
+        await prev
+        await conn.query(s)
+      }, Promise.resolve())
 
       return
     }
@@ -182,8 +184,7 @@ export const surrealDriver: Driver<Surreal, TableDef<string, Shape>, StandaloneD
         )
       }
       const fn = `fn::${bare}`
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- asserção necessária para a inferência da API pública
-      const out = (await conn.query(`RETURN ${fn}(${placeholders})`, vars)) as unknown[]
+      const out = await conn.query(`RETURN ${fn}(${placeholders})`, vars)
       return out[0]
     },
   },
@@ -335,13 +336,13 @@ export const surrealDriver: Driver<Surreal, TableDef<string, Shape>, StandaloneD
     sql: string,
     vars?: Record<string, unknown>,
   ): Promise<T[]> {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- asserção necessária para a inferência da API pública
-    const results = (await conn.query(sql, vars)) as unknown[]
+    const results = await conn.query(sql, vars)
     if (results.length === 0) return []
 
     const last = results.at(-1)
-    // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-    return (Array.isArray(last) ? last : last == null ? [] : [last]) as T[]
+    if (Array.isArray(last)) return last as T[]
+    if (last == null) return []
+    return [last as T]
   },
 
   registry: surrealKinds,

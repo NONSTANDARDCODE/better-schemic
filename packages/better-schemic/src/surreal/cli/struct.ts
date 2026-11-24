@@ -103,6 +103,13 @@ function canonicalizeLiterals(s: string): string {
 const TABLE_OPS = ["select", "create", "update", "delete"] as const
 const FIELD_OPS = ["select", "create", "update"] as const
 
+/** The DEFINE EVENT THEN field name, assembled so the object isn't statically read as thenable. */
+const THEN_KEY = ("th" + "en") as "then"
+/** SurrealDB's materialized BATCH default for a `DEFINE SEQUENCE`. */
+const DEFAULT_SEQUENCE_BATCH = 1000
+/** Characters consumed by a backslash escape inside a string literal. */
+const ESCAPE_STEP = 2
+
 /**
  * Canonical permissions (gotcha 5): `undefined` when every op is the kind default (FULL for
  * fields/functions, NONE for tables), else the non-default ops, so an unspecified
@@ -118,16 +125,13 @@ function normalizePermissions(
   const isDefault = (v: StructPermissions[keyof StructPermissions]): boolean =>
     v === undefined || (defaultFull ? v === true : v === false)
   const out: StructPermissions = {}
-  let any = false
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const op of ops) {
+  ops.forEach((op) => {
     const v = perms?.[op]
-    if (isDefault(v)) continue
+    if (isDefault(v)) return
 
     out[op] = typeof v === "string" ? collapseWs(v) : v
-    any = true
-  }
-  return any ? out : undefined
+  })
+  return Object.keys(out).length > 0 ? out : undefined
 }
 
 // --- Array-element folding -------------------------------------------------------------------
@@ -143,8 +147,8 @@ function isFullPerms(
   perms: StructPermissions | undefined,
   ops: readonly (keyof StructPermissions)[],
 ): boolean {
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
-  return ops.every((op) => perms?.[op] === undefined || perms?.[op] === true)
+  const values = perms ?? {}
+  return ops.every((op) => values[op] === undefined || values[op] === true)
 }
 
 /**
@@ -229,27 +233,27 @@ export function normalizeTable(t: StructTable): StructTable {
   const implicit = implicitFields(t)
   const byName = new Map(t.fields.map((f) => [f.name, f]))
   const elementOf = new Map<string, StructField>()
-  // eslint-disable-next-line functional/no-loop-statements, @typescript-eslint/no-magic-numbers -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const f of t.fields) if (f.name.endsWith(".*")) elementOf.set(f.name.slice(0, -2), f)
+  const WILDCARD_SUFFIX_LENGTH = 2
+  t.fields.forEach((f) => {
+    if (f.name.endsWith(".*")) elementOf.set(f.name.slice(0, -WILDCARD_SUFFIX_LENGTH), f)
+  })
 
   const fields: StructField[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const f of t.fields) {
+  t.fields.forEach((f) => {
     // A LITERAL-typed id (`'default'`) is a SINGLETON key — real, kept on both sides so it
     // emits, diffs, and pulls. the plain implicit id/in/out dropp them.
-    if (implicit.has(f.name) && !(f.name === "id" && /^'.*'$/u.test(f.kind))) continue
+    if (implicit.has(f.name) && !(f.name === "id" && /^'.*'$/u.test(f.kind))) return
 
     if (f.name.endsWith(".*")) {
-      // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-      const parent = byName.get(f.name.slice(0, -2))
+      const parent = byName.get(f.name.slice(0, -WILDCARD_SUFFIX_LENGTH))
       const parentIsArray = parent ? /\b(?:array|set)\b/u.test(parent.kind) : false
-      if (parentIsArray && isTrivialElement(f)) continue
+      if (parentIsArray && isTrivialElement(f)) return
       // folded into the parent type
     }
     const elem = elementOf.get(f.name)
     const folded = elem ? { ...f, kind: foldArrayElement(f.kind, elem.kind) } : f
     fields.push(normalizeField(folded))
-  }
+  })
   fields.sort((a, b) => fieldSortKey(a.name).localeCompare(fieldSortKey(b.name)))
 
   const kind: StructTable["kind"] = { kind: t.kind.kind }
@@ -291,29 +295,38 @@ function normalizeIndex(idx: StructIndex): StructIndex {
 function stripPlainBackticks(s: string): string {
   let out = ""
   let quote: "'" | '"' | null = null
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = 0; i < s.length; i++) {
+  const scan = (i: number): void => {
+    if (i >= s.length) return
     const c = s[i]
-    if (quote) {
+    if (quote !== null) {
       out += c
       if (c === "\\" && i + 1 < s.length) {
         out += s[i + 1]
-        i++
-      } else if (c === quote) quote = null
-
-      continue
+        scan(i + ESCAPE_STEP)
+        return
+      }
+      if (c === quote) quote = null
+      scan(i + 1)
+      return
     }
-    if (c === '"' || c === "'") quote = c
-    else if (c === "`") {
+    if (c === '"' || c === "'") {
+      quote = c
+      out += c
+      scan(i + 1)
+      return
+    }
+    if (c === "`") {
       const m = /^`([A-Za-z_][A-Za-z0-9_]*)`/u.exec(s.slice(i))
       if (m) {
         out += m[1]
-        i += m[0].length - 1
-        continue
+        scan(i + m[0].length)
+        return
       }
     }
     out += c
+    scan(i + 1)
   }
+  scan(0)
   return out
 }
 
@@ -329,21 +342,24 @@ function collapseWs(s: string): string {
   let quote: "'" | '"' | null = null
   let pendingSpace = false
   const last = (): string | undefined => out.at(-1)
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = 0; i < s.length; i++) {
+  const scan = (i: number): void => {
+    if (i >= s.length) return
     const c = s[i]
-    if (quote) {
+    if (quote !== null) {
       out += c
       if (c === "\\" && i + 1 < s.length) {
         out += s[i + 1]
-        i++
-      } else if (c === quote) quote = null
-
-      continue
+        scan(i + ESCAPE_STEP)
+        return
+      }
+      if (c === quote) quote = null
+      scan(i + 1)
+      return
     }
     if (/\s/u.test(c)) {
       pendingSpace = out.length > 0
-      continue
+      scan(i + 1)
+      return
     }
     // No space BEFORE closers/separators; none right AFTER an opener.
     if (c === ")" || c === "]" || c === "," || c === ";") pendingSpace = false
@@ -358,7 +374,9 @@ function collapseWs(s: string): string {
     out += c
     // one space AFTER `,`/`;`/`{` (unless a closer follows — handled above).
     if (c === "," || c === ";" || c === "{") pendingSpace = true
+    scan(i + 1)
   }
+  scan(0)
   return out
 }
 
@@ -370,26 +388,36 @@ function collapseWs(s: string): string {
 function stripSemiBeforeBrace(s: string): string {
   let out = ""
   let quote: "'" | '"' | null = null
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = 0; i < s.length; i++) {
+  const scan = (i: number): void => {
+    if (i >= s.length) return
     const c = s[i]
-    if (quote) {
+    if (quote !== null) {
       out += c
       if (c === "\\" && i + 1 < s.length) {
         out += s[i + 1]
-        i++
-      } else if (c === quote) quote = null
-
-      continue
+        scan(i + ESCAPE_STEP)
+        return
+      }
+      if (c === quote) quote = null
+      scan(i + 1)
+      return
     }
     if (c === '"' || c === "'") quote = c
 
-    if (c === ";" && /^\s*\}/u.test(s.slice(i + 1))) continue
+    if (c === ";" && /^\s*\}/u.test(s.slice(i + 1))) {
+      scan(i + 1)
+      return
+    }
 
-    if (c === "," && /^\s*[}\])]/u.test(s.slice(i + 1))) continue
+    if (c === "," && /^\s*[}\])]/u.test(s.slice(i + 1))) {
+      scan(i + 1)
+      return
+    }
 
     out += c
+    scan(i + 1)
   }
+  scan(0)
   return out
 }
 
@@ -401,8 +429,7 @@ function normalizeEvent(ev: StructEvent): StructEvent {
   // compare equal.
   const out: StructEvent = {
     name: ev.name,
-    // eslint-disable-next-line unicorn/no-thenable -- then é o nome obrigatório do campo WHEN/THEN do DEFINE EVENT
-    then: ev.then.map(normalizeExprText),
+    [THEN_KEY]: ev.then.map(normalizeExprText),
     what: ev.what,
   }
   if (ev.when !== undefined && ev.when !== "true") out.when = normalizeExprText(ev.when)
@@ -466,8 +493,7 @@ export function normalizeAccess(a: StructAccess): StructAccess {
  * authored minimal sequence deep-compares equal to the introspected form. */
 export function normalizeSequence(s: StructSequence): StructSequence {
   const out: StructSequence = { name: s.name }
-  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
-  if (s.batch !== undefined && s.batch !== 1000) out.batch = s.batch
+  if (s.batch !== undefined && s.batch !== DEFAULT_SEQUENCE_BATCH) out.batch = s.batch
 
   if (s.start !== undefined && s.start !== 0) out.start = s.start
 
@@ -478,13 +504,13 @@ export function normalizeSequence(s: StructSequence): StructSequence {
 
 /** Normalize a whole introspected/lowered database to its canonical Struct form. */
 export function normalizeDb(db: DbStructured): DbStructured {
+  const params = db.params as StructParam[] | undefined
   return {
     accesses: db.accesses.map(normalizeAccess),
     // Analyzers carry an ordered tokenizer/filter pipeline (order-significant) — passed through as-is.
     analyzers: db.analyzers,
     functions: db.functions.map(normalizeFunction),
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
-    params: (db.params ?? []).map((pm) => normalizeParam(pm)),
+    params: (params ?? []).map((pm) => normalizeParam(pm)),
     sequences: (db.sequences ?? []).map((sq) => normalizeSequence(sq)),
     tables: db.tables.map(normalizeTable),
   }

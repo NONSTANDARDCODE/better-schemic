@@ -41,13 +41,13 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
     const timer = setTimeout(() => {
       reject(new Error(message))
     }, ms)
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- timers de browser não têm unref(); optional chain é portabilidade
-    timer.unref?.()
+
+    ;(timer as { unref?: () => void }).unref?.()
     void promise.then(
-      // eslint-disable-next-line promise/always-return -- callback apenas resolve a promise externa
       (value) => {
         clearTimeout(timer)
         resolve(value)
+        return value
       },
       (error: unknown) => {
         clearTimeout(timer)

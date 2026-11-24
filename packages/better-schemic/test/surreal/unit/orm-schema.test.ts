@@ -1,30 +1,42 @@
-/* eslint-disable perfectionist/sort-objects, unicorn/consistent-function-scoping, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Helpers stay colocated with the tests that use them. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // M0.2 — `schema` + `SchemaIndex`: the runtime metadata pass over an authored schema
 // (columns/families, record links, graph adjacency, singletons, functions, schemaless entries) plus
 // the fail-fast validation that turns a bad schema module into an import-time `SchemaInvalid`.
 import { describe, expect, test } from "bun:test"
 
 import { OrmError } from "../../../src/surreal/orm/errors"
-import type { TableMeta } from "../../../src/surreal/orm/meta"
+import type { ColumnMeta, TableMeta } from "../../../src/surreal/orm/meta"
 import { buildSchemaIndex, isSchemaDef, schema } from "../../../src/surreal/orm/schema"
 import { defineFunction, defineSingleton, relation, s, table } from "../../../src/surreal/pure"
+const bad = (entries: Record<string, unknown>, re: RegExp): void => {
+  const err = ((): unknown => {
+    try {
+      buildSchemaIndex(entries as never)
+      return undefined
+    } catch (error) {
+      return error
+    }
+  })()
+  expect(err).toBeInstanceOf(OrmError)
+  expect((err as OrmError).code).toBe("SchemaInvalid")
+  expect((err as Error).message).toMatch(re)
+}
 
 const User = table("user", {
-  name: s.string(),
   age: s.int(),
-  bio: s.string().optional(),
   bestFriend: s.recordId("user").optional(),
-  reads: s.recordId("post").array(),
-  tags: s.array(s.string()),
-  scores: s.set(s.int()),
+  bio: s.string().optional(),
   location: s.geometry("point").optional(),
   meta: s.object({ city: s.string() }).optional(),
+  name: s.string(),
+  reads: s.recordId("post").array(),
   role: s.enum(["admin", "member"]),
+  scores: s.set(s.int()),
+  tags: s.array(s.string()),
 })
 
 const Post = table("post", {
-  title: s.string(),
   author: s.recordId(User),
+  title: s.string(),
 })
 
 const Likes = relation("likes", { score: s.int() }).from(User).to(Post)
@@ -34,12 +46,12 @@ const Config = defineSingleton("config", { theme: s.string() })
 const greet = defineFunction("greet", { name: s.string() }).returns(s.string())
 
 const schemaDef = schema({
-  users: User,
-  posts: Post,
-  likes: Likes,
+  audit: "audit_log",
   config: Config,
   greet,
-  audit: "audit_log",
+  likes: Likes,
+  posts: Post,
+  users: User,
 })
 
 const meta = (index: ReturnType<typeof buildSchemaIndex>, key: string): TableMeta => {
@@ -48,7 +60,7 @@ const meta = (index: ReturnType<typeof buildSchemaIndex>, key: string): TableMet
   return found
 }
 
-const column = (table: TableMeta, field: string) => {
+const column = (table: TableMeta, field: string): ColumnMeta => {
   const found = table.columns.get(field)
   if (!found) throw new Error(`missing column meta: ${table.key}.${field}`)
   return found
@@ -114,36 +126,36 @@ describe("SchemaIndex — columns and field families", () => {
 
   test("classifies collections with their element family", () => {
     expect(column(users, "tags")).toMatchObject({
-      family: "array",
       element: "string",
+      family: "array",
     })
     expect(column(users, "scores")).toMatchObject({
-      family: "set",
       element: "number",
+      family: "set",
     })
   })
 
   test("derives record links (single, optional, array, union) into `links`", () => {
     expect(column(users, "bestFriend").record).toEqual({
-      targets: ["user"],
       list: false,
       optional: true,
+      targets: ["user"],
     })
     expect(column(users, "reads").record).toEqual({
-      targets: ["post"],
       list: true,
       optional: false,
+      targets: ["post"],
     })
     expect(column(users, "id").record?.targets).toEqual(["user"])
 
     expect(users.links.get("bestFriend")).toMatchObject({
-      targets: ["user"],
       cardinality: "one",
       optional: true,
+      targets: ["user"],
     })
     expect(users.links.get("reads")).toMatchObject({
-      targets: ["post"],
       cardinality: "many",
+      targets: ["post"],
     })
     expect(users.links.has("name")).toBe(false)
   })
@@ -167,9 +179,9 @@ describe("SchemaIndex — graph adjacency and relations", () => {
   test("a relation is a table with endpoints + kind", () => {
     expect(likes.kind).toBe("relation")
     expect(likes.endpoints).toEqual({
+      enforced: false,
       from: ["user"],
       to: ["post"],
-      enforced: false,
     })
     expect(column(likes, "score").family).toBe("number")
     expect(likes.links.get("in")?.targets).toEqual(["user"])
@@ -190,7 +202,7 @@ describe("SchemaIndex — graph adjacency and relations", () => {
     const index2 = buildSchemaIndex({ free: Free })
     const free = meta(index2, "free")
     expect(free.kind).toBe("relation")
-    expect(free.endpoints).toEqual({ from: [], to: [], enforced: false })
+    expect(free.endpoints).toEqual({ enforced: false, from: [], to: [] })
   })
 })
 
@@ -211,20 +223,6 @@ describe("SchemaIndex — singletons and functions", () => {
 })
 
 describe("SchemaIndex — fail-fast validation (SchemaInvalid)", () => {
-  const bad = (entries: Record<string, unknown>, re: RegExp) => {
-    const err = (() => {
-      try {
-        buildSchemaIndex(entries as never)
-        return undefined
-      } catch (error) {
-        return error
-      }
-    })()
-    expect(err).toBeInstanceOf(OrmError)
-    expect((err as OrmError).code).toBe("SchemaInvalid")
-    expect((err as Error).message).toMatch(re)
-  }
-
   test("rejects an entry that is not a def or a schemaless name", () => {
     bad({ nope: 42 }, /not a table\/edge\/function/u)
   })
@@ -248,27 +246,27 @@ describe("SchemaIndex — fail-fast validation (SchemaInvalid)", () => {
 
   test("rejects a relation endpoint that no entry declares", () => {
     const Ghost = relation("ghost", {}).from("nobody").to("user")
-    bad({ users: User, ghost: Ghost }, /points to table "nobody"/u)
+    bad({ ghost: Ghost, users: User }, /points to table "nobody"/u)
   })
 
   test("accepts a relation endpoint that is a schemaless entry", () => {
     const Edge = relation("edge", {}).from("user").to("audit_log")
     const index = buildSchemaIndex({
-      users: User,
       audit: "audit_log",
       edge: Edge,
+      users: User,
     })
     expect(meta(index, "users").outgoing.map((e) => e.name)).toContain("edge")
   })
 
   test("rejects a record-link field that collides with a relation name", () => {
     const Person = table("person", {
-      name: s.string(),
       likes: s.recordId("post"),
+      name: s.string(),
     })
     const Post = table("post", { title: s.string() })
     const Likes = relation("likes", {}).from(Person).to(Post)
-    bad({ person: Person, post: Post, likes: Likes }, /record-link field "likes"/u)
+    bad({ likes: Likes, person: Person, post: Post }, /record-link field "likes"/u)
   })
 
   test("schema validates EAGERLY (import-time failure)", () => {

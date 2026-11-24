@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-dynamic-delete -- Helpers stay colocated with the tests that use them. Defensive checks document fixture intent. Assertions await void-returning matchers. Environment cleanup deletes dynamic keys. */
 // The diff pager resolution (git-style precedence) and the shell-free pipe-through helper.
 import { afterEach, describe, expect, test } from "bun:test"
 
@@ -17,11 +16,10 @@ const saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]])) as Record
 >
 
 afterEach(() => {
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const k of KEYS) {
-    if (saved[k] === undefined) delete process.env[k]
+  KEYS.forEach((k) => {
+    if (saved[k] === undefined) Reflect.deleteProperty(process.env, k)
     else process.env[k] = saved[k]
-  }
+  })
 })
 
 describe("resolvePager", () => {
@@ -59,7 +57,19 @@ describe("pipeThroughPager", () => {
   })
 
   test("refuses to run a shell as the pager (the diff would become its script)", async () => {
-    await expect(pipeThroughPager("sh -c 'cat'", "x")).rejects.toThrow(/refusing to run/u)
-    await expect(pipeThroughPager("/bin/bash", "x")).rejects.toThrow(/refusing to run/u)
+    let caughtVoid0: unknown
+    try {
+      await pipeThroughPager("sh -c 'cat'", "x")
+    } catch (error) {
+      caughtVoid0 = error
+    }
+    expect(String(caughtVoid0)).toMatch(/refusing to run/u)
+    let caughtVoid1: unknown
+    try {
+      await pipeThroughPager("/bin/bash", "x")
+    } catch (error) {
+      caughtVoid1 = error
+    }
+    expect(String(caughtVoid1)).toMatch(/refusing to run/u)
   })
 })

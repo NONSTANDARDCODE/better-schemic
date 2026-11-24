@@ -26,16 +26,28 @@ import { type FieldInfo, inferField } from "./wire"
 
 export { type FieldInfo, inferField } from "./wire"
 
+/** Sanitize a field path for use inside a derived index name. */
+function sanitizeIndexName(part: string): string {
+  return part.replaceAll(/[`]/gu, "").replaceAll(/[^a-zA-Z0-9]+/gu, "_")
+}
+
+/** The trailing clause of a lone (non-combined) index. */
+function indexTail(spec: string | undefined, unique: boolean | undefined): string {
+  if (spec) return ` ${spec}`
+  if (unique) return " UNIQUE"
+  return ""
+}
+
 /** Inline a BoundQuery's bindings into a literal SurrealQL string for DDL use. Exported so the
  * Struct-IR lowering (`fromTableDef`) renders DEFAULT/VALUE/COMPUTED/permission exprs identically. */
 export function inline(query: BoundQuery): string {
-  let out = query.query
-  // eslint-disable-next-line functional/no-loop-statements, @typescript-eslint/no-unnecessary-condition -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [name, value] of Object.entries(query.bindings ?? {})) {
-    // Boundary-aware: `$b1` must not rewrite the prefix of `$b10`.
-    out = out.replace(bindPattern(name), () => toSurqlString(value))
-  }
-  return out.trim()
+  return Object.entries(query.bindings)
+    .reduce(
+      // Boundary-aware: `$b1` must not rewrite the prefix of `$b10`.
+      (out, [name, value]) => out.replace(bindPattern(name), () => toSurqlString(value)),
+      query.query,
+    )
+    .trim()
 }
 
 /**
@@ -48,13 +60,10 @@ export function inline(query: BoundQuery): string {
 export function assertExpr(asserts: SurrealMeta["asserts"]): string {
   if (!asserts?.length) return ""
 
-  const frags: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const a of asserts) {
-    const frag = a instanceof BoundQuery ? inline(a) : a
-    if (frag && !frags.includes(frag)) frags.push(frag)
-  }
-  return frags.join(" AND ")
+  return asserts
+    .map((a) => (a instanceof BoundQuery ? inline(a) : a))
+    .filter((frag, i, all) => frag !== "" && all.indexOf(frag) === i)
+    .join(" AND ")
 }
 
 /**
@@ -76,13 +85,11 @@ const NULL_GUARD = "$value = NULL OR "
  * Used by `pull` to re-author a guarded assert as its bare form (the declared `| null` type already
  * carries the nullability, and the emitter re-adds the guard), and to make the guard idempotent.
  */
-export function stripNullGuard(expr: string): string {
-  const guard = /^\$value\s*=\s*NULL\s+OR\s+/u
-  let out = expr.trim()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (guard.test(out)) out = out.replace(guard, "")
+/** One or more stacked NULL-guard prefixes. */
+const NULL_GUARD_PREFIX = /^(?:\$value\s*=\s*NULL\s+OR\s+)+/u
 
-  return out.trim()
+export function stripNullGuard(expr: string): string {
+  return expr.trim().replace(NULL_GUARD_PREFIX, "").trim()
 }
 
 /**
@@ -127,12 +134,16 @@ export type DefineOptions = {
 }
 
 function existsPrefix(opts?: DefineOptions): string {
-  return opts?.exists === "overwrite"
-    ? "OVERWRITE "
-    : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-      opts?.exists === "ignore"
-      ? "IF NOT EXISTS "
-      : ""
+  if (opts?.exists === "overwrite") return "OVERWRITE "
+  if (opts?.exists === "ignore") return "IF NOT EXISTS "
+  return ""
+}
+
+/** The clause body a resolved permission rule contributes to a `FOR ...` group. */
+function permissionBody(rule: boolean | BoundQuery): string {
+  if (rule === true) return "FULL"
+  if (rule === false) return "NONE"
+  return `WHERE ${inline(rule)}`
 }
 
 /**
@@ -189,16 +200,13 @@ export function renderPermissions(
   }
 
   // Group present ops by their resolved rule's clause body (canonical order preserved).
-  const groups = new Map<string, PermOp[]>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const op of present) {
-    const rule = resolve(op, [])
-    // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-    const body = rule === true ? "FULL" : rule === false ? "NONE" : `WHERE ${inline(rule)}`
-    const group = groups.get(body)
+  const groups = present.reduce<Map<string, PermOp[]>>((acc, op) => {
+    const body = permissionBody(resolve(op, []))
+    const group = acc.get(body)
     if (group) group.push(op)
-    else groups.set(body, [op])
-  }
+    else acc.set(body, [op])
+    return acc
+  }, new Map())
   const clauses = [...groups].map(([body, group]) => `FOR ${group.join(", ")} ${body}`)
   return clauses.length > 0 ? `PERMISSIONS ${clauses.join(" ")}` : ""
 }
@@ -264,51 +272,64 @@ export function braceBody(e: Expr): string {
  * trailing `;` kept), so authored and introspected structs compare equal. A single statement stays
  * bare (a trailing `;` stripps it — INFO returns single `THEN`s without one).
  */
+/** Parser state for {@link blockThen}'s single whitespace/quote/`;` pass. */
+type ThenState = {
+  readonly depth: number
+  readonly out: string
+  readonly pendingSpace: boolean
+  readonly quote: "'" | '"' | null
+  readonly semis: readonly number[]
+  readonly skipNext: boolean
+}
+
+/** Advance the block-parser state by one character. */
+function stepThen(state: ThenState, c: string, next: string | undefined): ThenState {
+  if (state.skipNext) return { ...state, skipNext: false }
+
+  const { depth, out, pendingSpace, quote, semis } = state
+  if (quote !== null) {
+    if (c === "\\" && next !== undefined) return { ...state, out: out + c + next, skipNext: true }
+
+    return { ...state, out: out + c, quote: c === quote ? null : quote }
+  }
+  if (/\s/u.test(c)) return { ...state, pendingSpace: out.length > 0 }
+
+  const spaced = pendingSpace ? `${out} ` : out
+  if (c === '"' || c === "'") return { ...state, out: spaced + c, pendingSpace: false, quote: c }
+  if (c === "(" || c === "[" || c === "{")
+    return { ...state, depth: depth + 1, out: spaced + c, pendingSpace: false }
+  if (c === ")" || c === "]" || c === "}")
+    return { ...state, depth: depth - 1, out: spaced + c, pendingSpace: false }
+  if (c === ";" && depth === 0)
+    return { ...state, out: spaced + c, pendingSpace: false, semis: [...semis, spaced.length] }
+
+  return { ...state, out: spaced + c, pendingSpace: false }
+}
+
+/** Drop trailing statements and their semicolons (a lone one isn't a statement list). */
+function stripTrailingSemis(out: string, semis: number[]): { out: string; semis: number[] } {
+  if (!out.endsWith(";")) return { out, semis }
+  return stripTrailingSemis(out.slice(0, -1).trimEnd(), semis.slice(0, -1))
+}
+
 export function blockThen(e: Expr): string {
   const raw = eventClause(e)
   // One pass: collapse whitespace runs OUTSIDE strings to a single space; record top-level `;`.
-  let out = ""
-  let depth = 0
-  let quote: "'" | '"' | null = null
-  let pendingSpace = false
-  const topSemis: number[] = [] // indices into `out`
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = 0; i < raw.length; i++) {
-    const c = raw[i]
-    if (quote) {
-      out += c
-      if (c === "\\" && i + 1 < raw.length) {
-        out += raw[i + 1]
-        i++
-      } else if (c === quote) quote = null
-
-      continue
-    }
-    if (/\s/u.test(c)) {
-      pendingSpace = out.length > 0
-      continue
-    }
-    if (pendingSpace) {
-      out += " "
-      pendingSpace = false
-    }
-    if (c === '"' || c === "'") quote = c
-    else if (c === "(" || c === "[" || c === "{") depth++
-    else if (c === ")" || c === "]" || c === "}") depth--
-    else if (c === ";" && depth === 0) topSemis.push(out.length)
-
-    out += c
-  }
-  out = out.trim()
+  const chars = raw.split("")
+  const state = chars.reduce<ThenState>((st, c, i) => stepThen(st, c, chars[i + 1]), {
+    depth: 0,
+    out: "",
+    pendingSpace: false,
+    quote: null,
+    semis: [],
+    skipNext: false,
+  })
+  const out = state.out.trim()
   if (out.startsWith("{") && out.endsWith("}")) return out
   // author-braced — already canonical
-  // Strip trailing `;` (a lone one doesn't make a statement LIST).
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (out.endsWith(";")) {
-    topSemis.pop()
-    out = out.slice(0, -1).trimEnd()
-  }
-  return topSemis.length > 0 ? `{ ${out}; }` : out
+
+  const stripped = stripTrailingSemis(out, [...state.semis])
+  return stripped.semis.length > 0 ? `{ ${stripped.out}; }` : stripped.out
 }
 
 /** SurrealDB's materialized `DEFINE SEQUENCE` defaults — omitted from the DDL so an authored minimal
@@ -379,16 +400,9 @@ function emitFunction(fn: FunctionDef, opts?: DefineOptions): string {
 
   parts.push(braceBody(body))
   const p = fn.config.permissions
-  if (p !== undefined) {
-    parts.push(
-      p === true
-        ? "PERMISSIONS FULL"
-        : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-          p === false
-          ? "PERMISSIONS NONE"
-          : `PERMISSIONS ${eventClause(p)}`,
-    )
-  }
+  if (p === true) parts.push("PERMISSIONS FULL")
+  else if (p === false) parts.push("PERMISSIONS NONE")
+  else if (p !== undefined) parts.push(`PERMISSIONS ${eventClause(p)}`)
   if (fn.config.comment) parts.push(`COMMENT ${JSON.stringify(fn.config.comment)}`)
 
   return `${parts.join(" ")};`
@@ -596,13 +610,12 @@ export function emitDefStatement(def: StandaloneDef, opts?: DefineOptions): Defi
   if (def.kind === "function")
     return { ddl: emitFunction(def, opts), kind: "function", name: def.name }
 
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
-  if (def.kind === "sequence")
-    return { ddl: emitSequence(def, opts), kind: "sequence", name: def.name }
+  // EXHAUSTIVE: an unknown kind must name itself, not fall into a sibling emitter. The widened
+  // cast keeps this runtime guard for untyped schema modules while TS sees a SequenceDef here.
+  const kind = (def as { kind: string }).kind
+  if (kind !== "sequence") throw unknownDefKind(def as never)
 
-  // EXHAUSTIVE: never fall through to a sibling's emitter — a def of an unknown kind used to land in
-  // `emitFunction` and die on `fn.config.body`.
-  throw unknownDefKind(def)
+  return { ddl: emitSequence(def, opts), kind: "sequence", name: def.name }
 }
 
 /**
@@ -614,13 +627,13 @@ export function emitDefStatement(def: StandaloneDef, opts?: DefineOptions): Defi
  */
 export function inlineAnalyzerFunctions(defs: StandaloneDef[]): FunctionDef[] {
   const byName = new Map<string, string>() // fn name -> its DDL (explicit fns + already-taken auto fns)
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const d of defs) if (d.kind === "function") byName.set(d.name, emitFunction(d))
+  defs.forEach((d) => {
+    if (d.kind === "function") byName.set(d.name, emitFunction(d))
+  })
 
   const out: FunctionDef[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const d of defs) {
-    if (d.kind !== "analyzer" || !d.config.functionDef) continue
+  defs.forEach((d) => {
+    if (d.kind !== "analyzer" || !d.config.functionDef) return
 
     const fn = d.config.functionDef
     const ddl = emitFunction(fn)
@@ -636,7 +649,7 @@ export function inlineAnalyzerFunctions(defs: StandaloneDef[]): FunctionDef[] {
       byName.set(fn.name, ddl)
       out.push(fn)
     }
-  }
+  })
   return out
 }
 
@@ -774,10 +787,7 @@ function emit(
   // `.$diskann()` (a FULLTEXT/HNSW/DISKANN `spec`). When BOTH `spec` and UNIQUE sets them, two indexes
   // emit them with auto-derived names (`_idx` for the spec, `_uq` for UNIQUE).
   if (surreal?.index) {
-    // eslint-disable-next-line unicorn/consistent-function-scoping -- helper local mantido junto do uso para coesão e legibilidade
-    const sanitize = (p: string): string =>
-      p.replaceAll(/[`]/gu, "").replaceAll(/[^a-zA-Z0-9]+/gu, "_")
-    const base = `${table}_${sanitize(path)}`
+    const base = `${table}_${sanitizeIndexName(path)}`
 
     if (surreal.index.spec && surreal.index.unique) {
       // Two indexes on the same field — each independently nameable: the spec index takes the name
@@ -803,12 +813,7 @@ function emit(
         (surreal.index.unique
           ? (surreal.index.uniqueName ?? surreal.index.name)
           : surreal.index.name) ?? `${base}_idx`
-      const tail = surreal.index.spec
-        ? ` ${surreal.index.spec}`
-        : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-          surreal.index.unique
-          ? " UNIQUE"
-          : ""
+      const tail = indexTail(surreal.index.spec, surreal.index.unique)
       out.push({
         ddl: `DEFINE INDEX ${existsPrefix(opts)}${escapeIdent(idxName)} ON TABLE ${escapeIdent(table)} FIELDS ${path}${tail};`,
         kind: "index",
@@ -823,13 +828,11 @@ function emit(
   // sub-fields. A CUSTOMIZED element (FLEXIBLE / permissions / …) emits it with OVERWRITE. Other
   // parents (an `object` map's `.*` value) emit them .
   const isArray = /^(?:array|set)\b/u.test(info.type)
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const child of info.children) {
+  info.children.forEach((child) => {
     const childPath = `${path}${child.suffix}`
     if (isArray && child.suffix === ".*") {
       if (isTrivialElement(child.info, child.surreal)) {
-        // eslint-disable-next-line functional/no-loop-statements, max-depth -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica / parser com estado mutável; extrair helpers mudaria a semântica
-        for (const sub of child.info.children) {
+        child.info.children.forEach((sub) => {
           emit(
             `${childPath}${sub.suffix}`,
             table,
@@ -840,10 +843,10 @@ function emit(
             false,
             schemafull,
           )
-        }
+        })
       } else emit(childPath, table, child.info, child.surreal, opts, out, true, schemafull)
     } else emit(childPath, table, child.info, child.surreal, opts, out, false, schemafull)
-  }
+  })
 }
 
 /** Structured `DEFINE FIELD` statements for a field (and its nested subfields). `schemafull` is the
@@ -938,16 +941,14 @@ export function emitStatements(
   }
   // A view's rows comput them from its query — it has no DEFINE FIELD statements.
   if (!t.config.view) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [name, field] of Object.entries(t.fields)) {
-      if (implicit.has(name)) continue
-
-      out.push(...emitFieldStatements(name, t.name, field, opts, t.config.schemafull))
-    }
+    Object.entries(t.fields)
+      .filter(([name]) => !implicit.has(name))
+      .forEach(([name, field]) => {
+        out.push(...emitFieldStatements(name, t.name, field, opts, t.config.schemafull))
+      })
   }
   // Composite indexes declared via `.index(name, fields, …)`. A `count` index has no FIELDS.
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const idx of t.config.indexes ?? []) {
+  ;(t.config.indexes ?? []).forEach((idx) => {
     let spec: string
     if (idx.count) spec = "COUNT"
     else {
@@ -964,17 +965,16 @@ export function emitStatements(
       name: idx.name,
       table: t.name,
     })
-  }
+  })
   // Row-change events declared via `.event(name, { when?, then })`.
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const ev of t.config.events ?? []) {
+  ;(t.config.events ?? []).forEach((ev) => {
     out.push({
       ddl: emitEvent(t.name, ev, opts),
       kind: "event",
       name: ev.name,
       table: t.name,
     })
-  }
+  })
   return out
 }
 
@@ -1050,31 +1050,26 @@ const FIELD_DROPPABLE = new Set([
 export function alterField(
   table: string,
   path: string,
-  prev: Record<string, string> | undefined,
-  next: Record<string, string> | undefined,
+  prev: Record<string, string | undefined> | undefined,
+  next: Record<string, string | undefined> | undefined,
 ): null | string {
   if (!prev || !next) return null
 
-  const sets: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const k of FIELD_CLAUSE_ORDER) {
+  const sets = FIELD_CLAUSE_ORDER.reduce<null | string[]>((acc, k) => {
+    if (acc === null) return null
     const before = prev[k]
     const after = next[k]
-    if (before === after) continue
+    if (before === after) return acc
 
     if (k === "COMPUTED") return null
     // no `ALTER FIELD … COMPUTED` form
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
-    if (after !== undefined)
-      sets.push(after) // added or changed -> re-set (the fragment IS the ALTER set form)
-    else if (k === "PERMISSIONS")
-      sets.push("PERMISSIONS FULL") // no `DROP PERMISSIONS`; reset to the field default
-    else if (k === "TYPE")
-      return null // a field always has a TYPE; "removing" is meaningless -> OVERWRITE
-    else if (FIELD_DROPPABLE.has(k)) sets.push(`DROP ${k}`)
-    else return null
-  }
-  if (sets.length === 0) return null
+    if (after !== undefined) return [...acc, after] // added or changed -> re-set
+    if (k === "PERMISSIONS") return [...acc, "PERMISSIONS FULL"] // reset to the field default
+    if (k === "TYPE") return null // a field always has a TYPE -> OVERWRITE
+    if (FIELD_DROPPABLE.has(k)) return [...acc, `DROP ${k}`]
+    return null
+  }, [])
+  if (sets === null || sets.length === 0) return null
 
   return `ALTER FIELD ${path} ON TABLE ${escapeIdent(table)} ${sets.join(" ")};`
 }
@@ -1094,29 +1089,25 @@ const TABLE_DROPPABLE = new Set(["COMMENT"])
  */
 export function alterTable(
   name: string,
-  prev: Record<string, string> | undefined,
-  next: Record<string, string> | undefined,
+  prev: Record<string, string | undefined> | undefined,
+  next: Record<string, string | undefined> | undefined,
 ): null | string {
   if (!prev || !next) return null
 
-  const sets: string[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const k of TABLE_CLAUSE_ORDER) {
+  const sets = TABLE_CLAUSE_ORDER.reduce<null | string[]>((acc, k) => {
+    if (acc === null) return null
     const before = prev[k]
     const after = next[k]
-    if (before === after) continue
+    if (before === after) return acc
 
     if (!TABLE_ALTERABLE.has(k)) return null
     // TYPE / DROP changed -> OVERWRITE
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
-    if (after !== undefined)
-      sets.push(after) // added or changed -> re-set
-    else if (k === "PERMISSIONS")
-      sets.push("PERMISSIONS NONE") // no `DROP PERMISSIONS`; reset to the table default
-    else if (TABLE_DROPPABLE.has(k)) sets.push(`DROP ${k}`)
-    else return null // SCHEMA is never absent; anything else unexpected -> OVERWRITE
-  }
-  if (sets.length === 0) return null
+    if (after !== undefined) return [...acc, after] // added or changed -> re-set
+    if (k === "PERMISSIONS") return [...acc, "PERMISSIONS NONE"] // reset to the table default
+    if (TABLE_DROPPABLE.has(k)) return [...acc, `DROP ${k}`]
+    return null // SCHEMA is never absent; anything else unexpected -> OVERWRITE
+  }, [])
+  if (sets === null || sets.length === 0) return null
 
   return `ALTER TABLE ${escapeIdent(name)} ${sets.join(" ")};`
 }

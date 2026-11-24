@@ -91,14 +91,13 @@ export function compileIncludes(args: {
     specs,
   }
 
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [key, entry] of Object.entries(include)) {
-    if (entry === undefined || entry === false) continue
+  Object.entries(include).forEach(([key, entry]) => {
+    if (entry === undefined || entry === false) return
 
     claim(key)
     if (key === "_count") {
       compileCount(meta, entry, ctx)
-      continue
+      return
     }
     const wildcardEdge = isPlainObject(entry) && entry.wildcard === true
     const link = wildcardEdge ? undefined : meta.links.get(key)
@@ -111,12 +110,12 @@ export function compileIncludes(args: {
     }
     if (link) {
       compileLink(key, link, entry, ctx)
-      continue
+      return
     }
     const edge = wildcardEdge ? undefined : findEdge(meta, key)
     if (edge || wildcardEdge) {
       compileGraphEdge(meta, key, edge, entry, ctx)
-      continue
+      return
     }
     const { edges, links } = availableKeys(meta)
     const known = [...links.filter((field) => field !== "id"), ...edges]
@@ -125,7 +124,7 @@ export function compileIncludes(args: {
       `${operation}: include."${key}" is not a link or edge of "${meta.name}". Known relations: ${known.length > 0 ? known.join(", ") : "(none)"} (plus "_count").`,
       { details: { known }, field: key, operation, table: meta.name },
     )
-  }
+  })
 
   return { fetch, keys, parts, passthrough, specs }
 }

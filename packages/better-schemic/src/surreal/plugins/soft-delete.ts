@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/explicit-function-return-type, @typescript-eslint/explicit-module-boundary-types -- o tipo de retorno concreto do spec do plugin (config/operationArgs/extendModel) é inferido por `definePlugin` e precisa fluir para os métodos do delegate; anotá-lo como `Plugin` apagaria `restore`/`restoreById` para o consumidor. */
 /**
  * `better-schemic/plugins/soft-delete` — turn `delete` into a soft delete.
  *
@@ -20,6 +19,23 @@
 import { surql } from "../index"
 import { isReadOperation } from "../orm/hooks"
 import { definePlugin } from "../orm/plugins"
+import type { Plugin, PluginModelContext } from "../orm/types/plugins"
+
+/** The plugin's inferred config shape (every field materialized by the factory). */
+type SoftDeletePluginConfig = {
+  actorMeta: string
+  column: string
+  deletedBy: SoftDeleteOptions["deletedBy"]
+  tables: readonly string[]
+}
+
+/** The plugin's inferred type, including the delegate methods it grafts on. */
+type SoftDeletePlugin = Plugin<SoftDeletePluginConfig> & {
+  extendModel(ctx: PluginModelContext): {
+    restore: (args: { where: unknown }) => unknown
+    restoreById: (id: unknown) => unknown
+  }
+}
 
 /** The soft-delete plugin options. */
 export type SoftDeleteOptions = {
@@ -50,7 +66,7 @@ type Model = {
 }
 
 /** The `soft-delete` plugin. */
-export function softDelete(options: SoftDeleteOptions = {}) {
+export const softDelete: (options?: SoftDeleteOptions) => SoftDeletePlugin = (options = {}) => {
   const column = options.column ?? "deletedAt"
   const actorMeta = options.actorMeta ?? "actor"
   const owned = options.tables ? new Set(options.tables) : undefined
@@ -65,12 +81,12 @@ export function softDelete(options: SoftDeleteOptions = {}) {
     extendModel({ model }) {
       const m = model as Model
       return {
-        restore: (args: { where: unknown }) =>
+        restore: (args: { where: unknown }): unknown =>
           m.update({
             unset: [column],
             where: args.where,
           }),
-        restoreById: (id: unknown) =>
+        restoreById: (id: unknown): unknown =>
           m.update({
             unset: [column],
             where: { id },

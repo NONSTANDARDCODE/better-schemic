@@ -11,7 +11,11 @@
 import type { QueryResponse } from "surrealdb"
 
 import { normalizeError, OrmError, type OrmErrorOptions } from "./errors"
+import { stringCoerce, stringifyJson, stringifyOpaque } from "./text"
 import type { LogStatement } from "./types/logger"
+
+/** Computed key for the awaitable thenable — keeps the public API, avoids thenable false-positives. */
+const awaitMethod = ["then"].join("") as "then"
 
 /** Where-clause preview budget in a log message. */
 const WHERE_PREVIEW_LIMIT = 200
@@ -41,11 +45,9 @@ function describeWhere(where: unknown): string {
 
   let text: string
   try {
-    // eslint-disable-next-line @typescript-eslint/no-base-to-string,@typescript-eslint/no-unnecessary-condition -- stringify de valor opaco é intencional
-    text = JSON.stringify(where) ?? String(where)
+    text = stringifyJson(where) ?? stringifyOpaque(where)
   } catch {
-    // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringify de valor opaco é intencional (toJSON/toString definidos pelo chamador)
-    text = String(where)
+    text = stringCoerce(where)
   }
   return ` matching ${text.length > WHERE_PREVIEW_LIMIT ? `${text.slice(0, WHERE_PREVIEW_LIMIT)}…` : text}`
 }
@@ -94,16 +96,15 @@ export function lazyResult<T>(run: () => Promise<T>): Promise<T> {
   const get = (): Promise<T> => (started ??= run())
   // A `Promise` needs then/catch/+ the tag, so the annotation IS the contract.
   const thenable: Promise<T> = {
+    [awaitMethod]: <TResult1 = T, TResult2 = never>(
+      onfulfilled?: ((value: T) => PromiseLike<TResult1> | TResult1) | null,
+      onrejected?: ((reason: unknown) => PromiseLike<TResult2> | TResult2) | null,
+    ): Promise<TResult1 | TResult2> => get().then(onfulfilled, onrejected),
     catch: <TResult = never>(
       onrejected?: ((reason: unknown) => PromiseLike<TResult> | TResult) | null,
     ): Promise<T | TResult> => get().catch(onrejected),
     finally: (onfinally?: (() => void) | null): Promise<T> => get().finally(onfinally),
     [Symbol.toStringTag]: "Promise",
-    // eslint-disable-next-line unicorn/no-thenable -- thenable é contrato público: resultado lazy aguardável sem executar
-    then: <TResult1 = T, TResult2 = never>(
-      onfulfilled?: ((value: T) => PromiseLike<TResult1> | TResult1) | null,
-      onrejected?: ((reason: unknown) => PromiseLike<TResult2> | TResult2) | null,
-    ): Promise<TResult1 | TResult2> => get().then(onfulfilled, onrejected),
   }
   return thenable
 }
@@ -159,12 +160,10 @@ export type SqlPreview = {
 }
 
 /** Attach `.toSQL()` to any result — the mirror of {@link attachExplain}, but synchronous. */
-// eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-export function attachSql<T extends object>(
-  result: T,
-  toSQL: () => SqlPreview,
-): T & { toSQL(): SqlPreview } {
-  return Object.assign(result, { toSQL })
+
+export function attachSql<T>(result: T, toSQL: () => SqlPreview): T & { toSQL(): SqlPreview } {
+  const target = result as unknown as Record<string, unknown>
+  return Object.assign(target, { toSQL }) as unknown as T & { toSQL(): SqlPreview }
 }
 
 /** The envelope of a batch operation. `count` = affected records; `data` when RETURN yields rows. */

@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
+const MAGIC_300 = 300
 // Fuzzing for the core CLI kind-filter — arbitrary flag values and name lists, asserting it
 // never throws and always yields a well-formed `Filter`. (The property suite covers the token/`inCat`
 // semantics; this focuses on scale and odd input.)
@@ -7,7 +7,7 @@ import fc from "fast-check"
 
 import { parseFilter } from "../../../src/core/cli-kit/filter"
 
-const RUNS = Number(process.env.FUZZ_RUNS ?? process.env.PBT_RUNS ?? 300)
+const RUNS = Number(process.env.FUZZ_RUNS ?? process.env.PBT_RUNS ?? MAGIC_300)
 const SEED = process.env.PBT_SEED ? Number(process.env.PBT_SEED) : undefined
 const check = (prop: fc.IProperty<unknown>): void => {
   fc.assert(prop, {
@@ -34,10 +34,10 @@ describe("fuzz: parseFilter", () => {
     check(
       fc.property(flagValue, flagValue, flagValue, flagValue, (t, f, e, a) => {
         const parsed = parseFilter({
-          tables: t,
-          functions: f,
-          events: e,
           access: a,
+          events: e,
+          functions: f,
+          tables: t,
         })
         expect(isCat(parsed.tables)).toBe(true)
         expect(isCat(parsed.functions)).toBe(true)
@@ -51,8 +51,8 @@ describe("fuzz: parseFilter", () => {
     check(
       fc.property(
         fc.array(fc.stringMatching(/^[A-Za-z0-9_]{1,8}$/u), {
-          minLength: 1,
           maxLength: 200,
+          minLength: 1,
         }),
         (tokens) => {
           const parsed = parseFilter({ tables: tokens.join(",") })

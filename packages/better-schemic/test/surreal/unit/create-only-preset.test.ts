@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects, unicorn/consistent-function-scoping, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Helpers stay colocated with the tests that use them. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // M14 — the `createOnly()` schema PRESET: `PERMISSIONS FOR update NONE` (AND-narrowed with the
 // table's own), the `meta.createOnly` marker and the optional hard `{table}_create_only` event.
 // Offline (DDL strings).
@@ -10,10 +9,18 @@ import { isOrmError, type OrmError } from "../../../src/surreal/orm/errors"
 import { createOnly } from "../../../src/surreal/plugins/create-only"
 import { isCreateOnlyDef } from "../../../src/surreal/plugins/create-only-shared"
 import { tenant } from "../../../src/surreal/plugins/tenant"
+const hardError = (hard: unknown): unknown => {
+  try {
+    createOnly({ hard: hard as never })
+    return null
+  } catch (error) {
+    return error
+  }
+}
 
 const User = table("user", { name: s.string() })
 
-const ddl = (t: Parameters<typeof emitStatements>[0]) =>
+const ddl = (t: Parameters<typeof emitStatements>[0]): string[] =>
   emitStatements(t).map((statement) => statement.ddl)
 
 describe("createOnly() — golden DDL", () => {
@@ -27,7 +34,7 @@ describe("createOnly() — golden DDL", () => {
 
   test("AND-narrows the table's own permissions (never widens)", () => {
     const Log = table("log", { action: s.string() })
-      .permissions({ select: true, create: true, delete: true })
+      .permissions({ create: true, delete: true, select: true })
       .use(createOnly())
     expect(ddl(Log)[0]).toBe(
       "DEFINE TABLE log TYPE NORMAL SCHEMAFULL PERMISSIONS FOR select, create, delete FULL FOR update NONE;",
@@ -48,21 +55,12 @@ describe("createOnly() — golden DDL", () => {
   })
 
   test("a non-boolean hard is rejected early", () => {
-    const hardError = (hard: unknown): unknown => {
-      try {
-        createOnly({ hard: hard as never })
-        return null
-      } catch (error) {
-        return error
-      }
-    }
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const hard of [1, "yes", null]) {
+    ;[1, "yes", null].forEach((hard) => {
       const error = hardError(hard) as OrmError
       expect(isOrmError(error)).toBe(true)
       expect(error.code).toBe("SchemaInvalid")
       expect(error.message).toContain('"hard" must be a boolean')
-    }
+    })
   })
 })
 
@@ -97,8 +95,8 @@ describe("createOnly() — meta marker", () => {
     const base = table.preset({ meta: { owner: "acme" } })
     const tagged = table("log", {}).use(base).use(createOnly())
     expect(tagged.config.meta).toMatchObject({
-      owner: "acme",
       createOnly: true,
+      owner: "acme",
     })
   })
 })

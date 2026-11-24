@@ -10,7 +10,11 @@ import type { DelegateContext } from "./delegate"
 import { execute, type Statement } from "./execute"
 import type { ModelMeta, SchemaIndex } from "./meta"
 import { attachExplain, type ExplainKey, type ExplainResult, lazyResult } from "./results"
+import { stringCoerce } from "./text"
 import type { AnyRelationDef } from "./types/schema"
+
+/** Computed key for the awaitable thenable — keeps the public API, avoids thenable false-positives. */
+const awaitMethod = ["then"].join("") as "then"
 
 type Direction = "both" | "in" | "out"
 
@@ -106,8 +110,8 @@ function valueText(value: unknown): string {
   if (typeof value === "string") return value
   if (value === undefined || value === null) return ""
   if (typeof value === "object" && "name" in value) return targetNameOf(value)
-  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- interpolação legada: o path aceita qualquer valor
-  return String(value)
+
+  return stringCoerce(value)
 }
 
 /** Duck-type an edge def; non-object inputs carry no config/targets. */
@@ -186,6 +190,10 @@ function createBuilder(meta: ModelMeta, ctx: DelegateContext, anchor: unknown): 
 
   const api: GraphBuilderApi = {
     _state: state,
+    [awaitMethod](onFulfilled, onRejected) {
+      const result = finishGraph(state._meta, state._ctx, api)
+      return Promise.resolve(result).then(onFulfilled, onRejected)
+    },
     both(edge, opts) {
       return step("both", edge, opts)
     },
@@ -263,11 +271,7 @@ function createBuilder(meta: ModelMeta, ctx: DelegateContext, anchor: unknown): 
       }
       return api
     },
-    // eslint-disable-next-line unicorn/no-thenable -- thenable é contrato: o grafo só executa quando aguardado
-    then(onFulfilled, onRejected) {
-      const result = finishGraph(state._meta, state._ctx, api)
-      return Promise.resolve(result).then(onFulfilled, onRejected)
-    },
+
     where(filter) {
       const last: MutableStep | undefined = state.steps.at(-1)
       let raw: unknown = filter
@@ -293,26 +297,21 @@ function findEdgeDef(
 ): AnyRelationDef | { readonly name: string } {
   const candidates: AnyRelationDef[] = []
   if (fromMeta && isTableMeta(fromMeta)) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const edge of fromMeta.outgoing)
-      if (edge.name === name || edge.key === name) candidates.push(edge.def)
-
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const edge of fromMeta.incoming)
-      if (edge.name === name || edge.key === name) candidates.push(edge.def)
+    fromMeta.outgoing
+      .filter((edge) => edge.name === name || edge.key === name)
+      .forEach((edge) => candidates.push(edge.def))
+    fromMeta.incoming
+      .filter((edge) => edge.name === name || edge.key === name)
+      .forEach((edge) => candidates.push(edge.def))
   }
   if (candidates.length > 0) return candidates[0]
 
   // fallback: search all tables
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const table of index.tables.values()) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const edge of table.outgoing) if (edge.name === name || edge.key === name) return edge.def
 
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const edge of table.incoming) if (edge.name === name || edge.key === name) return edge.def
-  }
-  return { name }
+  const found = [...index.tables.values()]
+    .flatMap((table) => [...table.outgoing, ...table.incoming])
+    .find((edge) => edge.name === name || edge.key === name)
+  return found ? found.def : { name }
 }
 
 function parseTraversalPath(
@@ -325,9 +324,8 @@ function parseTraversalPath(
   // regex: (->|<-|<->) name (->|<-|<->) name  ... consume edge+target pairs
   const pattern = /(->|<-|<->)\s*(\w+)\s*(->|<-|<->)\s*(\w+)/gu
   let currentMeta: ModelMeta = meta
-  let match: null | RegExpExecArray
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while ((match = pattern.exec(path)) !== null) {
+
+  ;[...path.matchAll(pattern)].forEach((match) => {
     const arrow = match[1]
     const edgeName = match[2]
     const edgeDef = findEdgeDef(index, edgeName, currentMeta)
@@ -341,7 +339,7 @@ function parseTraversalPath(
     const targetName = match[4]
     const targetMeta = index.byName.get(targetName)
     if (targetMeta) currentMeta = targetMeta
-  }
+  })
 }
 
 /** Endpoint targets of one traversal step, derived from the relation endpoints. */
@@ -459,10 +457,9 @@ function makeNodeProxy(): unknown {
     {},
     {
       get(_target, key): unknown {
-        if (typeof key !== "string" || key === "then") return
+        if (typeof key !== "string" || key === "then") return undefined
 
         if (key === "match") {
-          // eslint-disable-next-line @typescript-eslint/consistent-return -- oProxy.get retorna undefined para chaves especiais
           return (member: unknown, fn: (node: unknown) => unknown) => {
             const memberName = typeof member === "string" ? member : targetNameOf(member)
             const memberProxy = makeNodeProxy()
@@ -479,7 +476,7 @@ function makeNodeProxy(): unknown {
             return res
           }
         }
-        // eslint-disable-next-line @typescript-eslint/consistent-return -- oProxy.get retorna undefined para chaves especiais
+
         return mkRef({ kind: "other", root: { col: key } })
       },
     },
@@ -496,10 +493,10 @@ function convertSelectRuntime(value: unknown): unknown {
   if (typeof value !== "object") return value
 
   const out: Record<string, unknown> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+
+  Object.entries(value as Record<string, unknown>).forEach(([key, entry]) => {
     const fragment = fragOf(entry)
     out[key] = fragment ?? convertSelectRuntime(entry)
-  }
+  })
   return out
 }

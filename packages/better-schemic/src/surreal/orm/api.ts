@@ -13,6 +13,7 @@ import { compileError } from "./compiler/shared"
 import { assertSessionBound } from "./context"
 import type { DelegateContext } from "./delegate"
 import { normalizeError, OrmError } from "./errors"
+import { stringCoerce } from "./text"
 import type { ApiBodyOptions, ApiOperations, ApiRequestOptions } from "./types/api"
 
 const HTTP_BAD_REQUEST = 400
@@ -65,13 +66,14 @@ export function createApiOperations(ctx: DelegateContext): ApiOperations {
     }
 
     let request = verb === "get" ? source.api().get(path) : source.api()[verb](path, options?.body)
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [name, value] of Object.entries(options?.headers ?? {}))
-      request = request.header(name, value)
 
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [name, value] of Object.entries(options?.query ?? {}))
-      request = request.query(name, String(value))
+    Object.entries(options?.headers ?? {}).forEach(([name, value]) => {
+      request = request.header(name, value)
+    })
+
+    Object.entries(options?.query ?? {}).forEach(([name, value]) => {
+      request = request.query(name, stringCoerce(value))
+    })
 
     let response: SdkApiResponse
     try {
@@ -79,8 +81,8 @@ export function createApiOperations(ctx: DelegateContext): ApiOperations {
     } catch (error) {
       throw normalizeError(error, { operation })
     }
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- checagem defensiva em runtime (valores ausentes/mutados por callback); tipo TS é otimista
-    const status = response?.status ?? 0
+
+    const status = response.status ?? 0
     if (status >= HTTP_BAD_REQUEST) {
       throw new OrmError(
         "DatabaseError",
@@ -109,7 +111,6 @@ function describeBody(body: unknown): string {
   try {
     return JSON.stringify(body)
   } catch {
-    // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringify de valor opaco é intencional (toJSON/toString definidos pelo chamador)
-    return String(body)
+    return stringCoerce(body)
   }
 }

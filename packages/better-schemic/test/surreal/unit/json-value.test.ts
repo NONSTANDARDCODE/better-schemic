@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/explicit-function-return-type -- callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // s.jsonValue<T>() — a JSON column that actually parses the JSON string into T on decode.
 import { describe, expect, test } from "bun:test"
 
@@ -57,7 +56,7 @@ describe("s.jsonValue<T>() — DDL parity", () => {
       parsed: s.jsonValue<Payload>(),
       plain: s.json(),
     })
-    const typeOf = (name: string) => fieldLine(J, name)?.split(" TYPE ")[1]
+    const typeOf = (name: string): string | undefined => fieldLine(J, name)?.split(" TYPE ")[1]
     const plain = typeOf("plain")
     expect(plain).toBeDefined()
     expect(typeOf("legacy")).toBe(plain)

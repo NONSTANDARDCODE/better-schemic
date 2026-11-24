@@ -1,4 +1,3 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/require-await, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Mock methods match async interfaces without awaiting. The void operator discards intentionally ignored values. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
@@ -10,7 +9,8 @@ describe("asyncDisposable mixin", () => {
   test("adds [Symbol.asyncDispose] that calls close", async () => {
     let closed = 0
     class Client {
-      async close() {
+      async close(): Promise<void> {
+        await Promise.resolve()
         closed++
       }
     }
@@ -23,7 +23,8 @@ describe("asyncDisposable mixin", () => {
   test("await using disposes at block exit", async () => {
     let closed = 0
     class Client {
-      async close() {
+      async close(): Promise<void> {
+        await Promise.resolve()
         closed++
       }
     }
@@ -41,10 +42,10 @@ describe("asyncDisposable mixin", () => {
 describe("resolveConnection", () => {
   const dir = mkdtempSync(path.join(import.meta.dir, "..", "..", ".orm-test-"))
   afterAll(() => {
-    rmSync(dir, { recursive: true, force: true })
+    rmSync(dir, { force: true, recursive: true })
   })
 
-  const writeConfig = (body: string) => {
+  const writeConfig = (body: string): void => {
     writeFileSync(
       path.join(dir, "better-schemic.config.ts"),
       `import { defineConfig } from "better-schemic/config";\n` +
@@ -74,8 +75,12 @@ describe("resolveConnection", () => {
 
   test("throws for an unknown connection name", async () => {
     writeConfig(`export default defineConfig({ connections: { default: conn() } });`)
-    await expect(resolveConnection({ cwd: dir, name: "nope" })).rejects.toThrow(
-      'connection "nope" is not defined',
-    )
+    let caughtVoid0: unknown
+    try {
+      await resolveConnection({ cwd: dir, name: "nope" })
+    } catch (error) {
+      caughtVoid0 = error
+    }
+    expect(String(caughtVoid0)).toMatch('connection "nope" is not defined')
   })
 })

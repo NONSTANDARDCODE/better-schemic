@@ -327,8 +327,8 @@ export function createWriteOperations(
 function prepare(
   meta: ModelMeta,
   operation: string,
-  // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-  args: object,
+
+  args: Record<string, unknown>,
   compile: (binds: Binds) => WritePlan,
   decode: (plan: WritePlan, rows: readonly unknown[]) => unknown,
   /** The hook payload when it isn't `args.data` (upsertDelta's distinct branches). */
@@ -364,9 +364,9 @@ async function runPrepared(ctx: DelegateContext, prepared: PreparedWrite): Promi
     hooks,
     {
       operation: prepared.operation as OperationKind,
+      surql: first.sql,
       table: prepared.meta.name,
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- tabela sem nome em runtime cairia em undefined; fallback defensivo
-      ...(first ? { surql: first.sql, vars: first.vars ?? {} } : {}),
+      vars: first.vars ?? {},
       ...(prepared.data === undefined ? {} : { data: prepared.data }),
       ...(prepared.where === undefined ? {} : { where: prepared.where }),
       ...(meta ? { meta } : {}),
@@ -426,31 +426,30 @@ function payloadIndexes(plan: WritePlan, rows: readonly unknown[]): readonly num
 /** The payload rows, one level flattened (a statement's array, or its single object). */
 function payloadRows(plan: WritePlan, rows: readonly unknown[]): unknown[] {
   const out: unknown[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const index of payloadIndexes(plan, rows)) {
+
+  payloadIndexes(plan, rows).forEach((index) => {
     const raw = rows[index]
-    if (raw === undefined || raw === null) continue
+    if (raw === undefined || raw === null) return
 
     if (Array.isArray(raw)) out.push(...(raw as readonly unknown[]))
     else out.push(raw)
-  }
+  })
   return out
 }
 
 /** The flat JSON Patch of every result statement (`[[ops]]` → `ops`, statements combined). */
 function payloadDiff(plan: WritePlan, rows: readonly unknown[]): unknown[] {
   const out: unknown[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const index of payloadIndexes(plan, rows)) {
-    const raw = rows[index]
-    if (!Array.isArray(raw)) continue
 
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const entry of raw) {
+  payloadIndexes(plan, rows).forEach((index) => {
+    const raw = rows[index]
+    if (!Array.isArray(raw)) return
+
+    raw.forEach((entry) => {
       if (Array.isArray(entry)) out.push(...(entry as readonly unknown[]))
       else out.push(entry)
-    }
-  }
+    })
+  })
   return out
 }
 

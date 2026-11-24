@@ -1,7 +1,3 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-restricted-types, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures assert values whose presence the test guarantees. Fixtures use object to probe schema typing. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
-// Decoder unit tests — `decodeRow`/`decodeRows` against the `ProjectionSpec` the compiler emits.
-// The delegate tests exercise compile+execute+decode together; this suite pins the decode contract
-// itself: codecs, star/omit, explicit paths (nested/implicit-array/index), value, split and failures.
 import { describe, expect, test } from "bun:test"
 import { DateTime, RecordId } from "surrealdb"
 import { z } from "zod"
@@ -14,55 +10,89 @@ import type { OrmError } from "../../../src/surreal/orm/errors"
 import type { ModelMeta } from "../../../src/surreal/orm/meta"
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema"
 import { s, table } from "../../../src/surreal/pure"
+import { required } from "../../required"
+
+const MAGIC_1103515245 = 1_103_515_245
+const MAGIC_12345 = 12_345
+const MAGIC_2147483647 = 2_147_483_647
+const MAGIC_0p7 = 0.7
+
+const MAGIC_1p5 = 1.5
+const MAGIC_2 = 2
+const MAGIC_3 = 3
+const MAGIC_31 = 31
+const MAGIC_500 = 500
+// Decoder unit tests — `decodeRow`/`decodeRows` against the `ProjectionSpec` the compiler emits.
+// The delegate tests exercise compile+execute+decode together; this suite pins the decode contract
+// itself: codecs, star/omit, explicit paths (nested/implicit-array/index), value, split and failures.
 
 const User = table("user", {
-  name: s.string(),
+  address: s.object({ city: s.string(), country: s.string() }),
   age: s.int(),
   at: s.datetime(),
-  tags: s.array(s.string()),
-  address: s.object({ city: s.string(), country: s.string() }),
   contacts: s.array(s.object({ type: s.string(), value: s.string() })),
+  name: s.string(),
+  tags: s.array(s.string()),
 })
 const index = buildSchemaIndex({ users: User })
-const meta = index.tables.get("users")!
+const meta = required(index.tables.get("users"))
 
 /** Compile the read and decode `rows` through its projection. */
-function decode(args: ReadArgs, rows: unknown[], table: ModelMeta = meta) {
+function decode(args: ReadArgs, rows: unknown[], table: ModelMeta = meta): unknown[] {
   const binds = createBinds()
   const compiled = compileRead(table, args, binds, "test")
   return decodeRows(rows, table, compiled.projection)
 }
 
-const rawAt = (iso: string) => new DateTime(new Date(iso))
-const fullRow = (over: Record<string, unknown> = {}) => ({
-  id: new RecordId("user", "u1"),
-  name: "Alice",
+const rawAt = (iso: string): DateTime => new DateTime(new Date(iso))
+const fullRow = (
+  over: Record<string, unknown> = {},
+): {
+  address: { city: string; country: string }
+  age: number
+  at: DateTime
+  contacts: { type: string; value: string }[]
+  id: RecordId<"user", string>
+  name: string
+  tags: string[]
+} => ({
+  address: { city: "SP", country: "BR" },
   age: 30,
   at: rawAt("2025-01-02T03:04:05Z"),
-  tags: ["db"],
-  address: { city: "SP", country: "BR" },
   contacts: [{ type: "email", value: "a@x" }],
+  id: new RecordId("user", "u1"),
+  name: "Alice",
+  tags: ["db"],
   ...over,
 })
 
 // A primitives-table (fast primitives + an array of primitives) — the compiled full-row
 // decoder's happy path, where Zod skipps it entirely.
 const Plain = table("plain", {
-  name: s.string(),
   count: s.int(),
-  ratio: s.number(),
-  ok: s.boolean(),
+  name: s.string(),
   note: s.string().optional(),
-  tags: s.array(s.string()),
+  ok: s.boolean(),
+  ratio: s.number(),
   strictTags: s.array(s.string()).min(1).optional(),
+  tags: s.array(s.string()),
 })
-const plainMeta = buildSchemaIndex({ plain: Plain }).tables.get("plain")!
-const plainRow = (over: Record<string, unknown> = {}) => ({
+const plainMeta = required(buildSchemaIndex({ plain: Plain }).tables.get("plain"))
+const plainRow = (
+  over: Record<string, unknown> = {},
+): {
+  count: number
+  id: RecordId<"plain", string>
+  name: string
+  ok: boolean
+  ratio: number
+  tags: string[]
+} => ({
+  count: 2,
   id: new RecordId("plain", "p1"),
   name: "n",
-  count: 2,
-  ratio: 1.5,
   ok: true,
+  ratio: 1.5,
   tags: ["a", "b"],
   ...over,
 })
@@ -71,11 +101,11 @@ describe("decode — compiled fast path (full rows)", () => {
   test("primitives + primitive arrays decode, unknown keys strip (Zod parity)", () => {
     const [row] = decode({}, [plainRow({ extra: "x" })], plainMeta) as Record<string, unknown>[]
     expect(row).toEqual({
+      count: 2,
       id: new RecordId("plain", "p1"),
       name: "n",
-      count: 2,
-      ratio: 1.5,
       ok: true,
+      ratio: 1.5,
       tags: ["a", "b"],
     })
     // A fresh array (Zod never aliases the input array).
@@ -84,27 +114,26 @@ describe("decode — compiled fast path (full rows)", () => {
 
   test("an absent optional is dropped; an explicit undefined is kept", () => {
     const [absent] = decode({}, [plainRow()], plainMeta) as Record<string, unknown>[]
-    expect(Object.hasOwn(absent as object, "note")).toBe(false)
+    expect(Object.hasOwn(absent, "note")).toBe(false)
     const [explicit] = decode({}, [plainRow({ note: undefined })], plainMeta) as Record<
       string,
       unknown
     >[]
-    expect(Object.hasOwn(explicit as object, "note")).toBe(true)
+    expect(Object.hasOwn(explicit, "note")).toBe(true)
     expect(explicit.note).toBeUndefined()
   })
 
   test("a mismatch falls back to Zod — same ValidationError with the field path", () => {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const bad of [
+    ;[
       { count: "x" },
       { count: 1.5 },
       { ok: 1 },
-      { tags: ["a", 2] },
+      { tags: ["a", MAGIC_2] },
       { tags: "not-array" },
       { ratio: Number.POSITIVE_INFINITY },
       { ratio: Number.NaN },
-    ]) {
-      const err = (() => {
+    ].forEach((bad) => {
+      const err = ((): OrmError | undefined => {
         try {
           decode({}, [plainRow(bad)], plainMeta)
           return undefined
@@ -114,11 +143,11 @@ describe("decode — compiled fast path (full rows)", () => {
       })()
       expect(err?.code).toBe("ValidationError")
       expect(err?.message).toMatch(/Validation failed at "/u)
-    }
+    })
   })
 
   test("a missing required fast field still throws (Zod parity)", () => {
-    const err = (() => {
+    const err = ((): OrmError | undefined => {
       try {
         decode({}, [{ id: new RecordId("plain", "p1"), name: "n" }], plainMeta)
         return undefined
@@ -130,7 +159,7 @@ describe("decode — compiled fast path (full rows)", () => {
   })
 
   test("array-level checks stay in Zod (an empty min-array still throws)", () => {
-    const err = (() => {
+    const err = ((): OrmError | undefined => {
       try {
         decode({}, [plainRow({ strictTags: [] })], plainMeta)
         return undefined
@@ -155,27 +184,27 @@ describe("decode — compiled fast path (full rows)", () => {
       undefined,
       null,
       "s",
-      3,
-      1.5,
+      MAGIC_3,
+      MAGIC_1p5,
       true,
       [],
       ["a"],
-      ["a", 2],
+      ["a", MAGIC_2],
       Number.NaN,
       Number.POSITIVE_INFINITY,
       { city: "x" },
     ]
     let seed = 7
-    const rnd = () => {
-      seed = (seed * 1_103_515_245 + 12_345) & 2_147_483_647
-      return seed / 2_147_483_647
+    const rnd = (): number => {
+      seed = (seed * MAGIC_1103515245 + MAGIC_12345) & MAGIC_2147483647
+      return seed / MAGIC_2147483647
     }
     const keys = ["name", "count", "ratio", "ok", "note", "tags", "strictTags", "extra"]
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (let i = 0; i < 500; i++) {
+    Array.from({ length: MAGIC_500 }).forEach(() => {
       const row: Record<string, unknown> = { id: new RecordId("plain", "p1") }
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const key of keys) if (rnd() < 0.7) row[key] = values[Math.floor(rnd() * values.length)]
+      keys.forEach((key) => {
+        if (rnd() < MAGIC_0p7) row[key] = values[Math.floor(rnd() * values.length)]
+      })
       let expected: unknown
       let actual: unknown
       let expectedError = false
@@ -187,21 +216,23 @@ describe("decode — compiled fast path (full rows)", () => {
       }
       try {
         actual = decodeRow(row, plainMeta, {
-          star: true,
           fields: [],
-          omit: [],
-          value: false,
           includes: [],
+          omit: [],
+          star: true,
+          value: false,
         })
       } catch {
         actualError = true
       }
       expect(actualError).toBe(expectedError)
       if (!expectedError && !actualError) {
-        expect(Object.keys(actual as object)).toEqual(Object.keys(expected as object))
+        expect(Object.keys(actual as Record<string, unknown>)).toEqual(
+          Object.keys(expected as Record<string, unknown>),
+        )
         expect(actual).toEqual(expected)
       }
-    }
+    })
   })
 })
 
@@ -219,8 +250,8 @@ describe("decode — full rows", () => {
 
   test("omit strips the keys even when the raw row carries them", () => {
     const [row] = decode({ omit: ["age", "at"] }, [fullRow()]) as Record<string, unknown>[]
-    expect(Object.keys(row as object)).not.toContain("age")
-    expect(Object.keys(row as object)).not.toContain("at")
+    expect(Object.keys(row)).not.toContain("age")
+    expect(Object.keys(row)).not.toContain("at")
     expect(row.name).toBe("Alice")
     expect(row.tags).toEqual(["db"])
   })
@@ -231,7 +262,7 @@ describe("decode — full rows", () => {
     ]) as Record<string, unknown>[]
     expect(row.name).toBe("Alice")
     expect(row.at).toBeInstanceOf(Date)
-    expect(row.bump).toBe(31)
+    expect(row.bump).toBe(MAGIC_31)
   })
 })
 
@@ -243,8 +274,8 @@ describe("decode — explicit projections", () => {
           select: {
             "address.city": true,
             city: "address.city",
-            "contacts[*].type": true,
             "contacts.type": true,
+            "contacts[*].type": true,
             "tags[0]": true,
           },
         },
@@ -268,8 +299,8 @@ describe("decode — explicit projections", () => {
   })
 
   test("a projected field missing from the raw row stays undefined", () => {
-    expect(decode({ select: { name: true, age: true } }, [{ name: "A" }])).toEqual([
-      { name: "A", age: undefined },
+    expect(decode({ select: { age: true, name: true } }, [{ name: "A" }])).toEqual([
+      { age: undefined, name: "A" },
     ])
   })
 
@@ -281,11 +312,11 @@ describe("decode — explicit projections", () => {
     }
     expect(
       decode(
-        { select: { who: true, "meta.at": true } },
-        [{ who: "u1", meta: { at: 1 } }],
+        { select: { "meta.at": true, who: true } },
+        [{ meta: { at: 1 }, who: "u1" }],
         schemaless,
       ),
-    ).toEqual([{ who: "u1", meta: { at: 1 } }])
+    ).toEqual([{ meta: { at: 1 }, who: "u1" }])
   })
 })
 
@@ -308,7 +339,7 @@ describe("decode — value and split", () => {
 
 describe("decode — failures are teaching errors", () => {
   test("a codec mismatch names the table and field", () => {
-    const err = (() => {
+    const err = ((): OrmError | undefined => {
       try {
         decode({ select: { at: true } }, [{ at: "not-a-datetime" }])
         return undefined
@@ -324,11 +355,11 @@ describe("decode — failures are teaching errors", () => {
   test("decodeRow is the single-row entry point", () => {
     expect(
       decodeRow(fullRow(), meta, {
-        star: true,
         fields: [],
-        omit: [],
-        value: false,
         includes: [],
+        omit: [],
+        star: true,
+        value: false,
       }),
     ).toMatchObject({ name: "Alice" })
   })

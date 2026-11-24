@@ -11,6 +11,8 @@
  * The shape is informational and may change between SurrealDB versions, so the renderer degrades to
  * a stringified fallback rather than throwing.
  */
+import { stringCoerce, stringifyJson, stringifyOpaque } from "../text"
+
 import type { Palette } from "./colors"
 
 const NS_PER_US = 1e3
@@ -72,8 +74,9 @@ function attrsText(attributes: unknown, context: unknown): string | undefined {
   if (typeof context === "string" && context.length > 0) parts.push(`ctx: ${context}`)
 
   if (attributes && typeof attributes === "object") {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [key, value] of Object.entries(attributes)) parts.push(`${key}: ${scalar(value)}`)
+    Object.entries(attributes).forEach(([key, value]) => {
+      parts.push(`${key}: ${scalar(value)}`)
+    })
   }
   return parts.length > 0 ? parts.join(", ") : undefined
 }
@@ -109,15 +112,15 @@ function stringNodes(text: string): PlanNode[] {
   const roots: PlanNode[] = []
   const stack: { indent: number; node: PlanNode }[] = []
   let trailing: string | undefined
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const rawLine of text.split("\n")) {
+
+  text.split("\n").forEach((rawLine) => {
     const line = rawLine.replace(/\s+$/u, "")
-    if (line.trim() === "") continue
+    if (line.trim() === "") return
 
     const total = /^Total rows:\s*(.+)$/iu.exec(line.trim())
     if (total) {
       trailing = `total rows ${total[1]}`
-      continue
+      return
     }
     const indent = line.length - line.replace(/^\s+/u, "").length
     const { attrs, metrics, operator } = parseOperatorLine(line.trim())
@@ -129,15 +132,16 @@ function stringNodes(text: string): PlanNode[] {
       ...(badge ? { badge } : {}),
       children: [],
     }
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    while (stack.length > 0 && (stack.at(-1) as { indent: number }).indent >= indent) stack.pop()
+
+    const keep = stack.findLastIndex((entry) => entry.indent < indent)
+    stack.length = keep + 1
 
     const parent = stack.at(-1)
     if (parent) parent.node.children.push(node)
     else roots.push(node)
 
     stack.push({ indent, node })
-  }
+  })
   if (trailing && roots[0]) {
     const first = roots[0]
     roots[0] = {
@@ -179,8 +183,8 @@ export function planToNodes(plan: unknown): PlanNode[] {
 
   if (Array.isArray(plan)) {
     const nodes: PlanNode[] = []
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const entry of plan) {
+
+    plan.forEach((entry) => {
       if (entry && typeof entry === "object" && "operation" in entry) {
         const record = entry as Record<string, unknown>
         const detail = record.detail
@@ -191,22 +195,20 @@ export function planToNodes(plan: unknown): PlanNode[] {
         })
       } else {
         const node = objectNode(entry)
-        // eslint-disable-next-line max-depth -- despacho de formatos aninhados; achatar muda a precedência
+
         if (node) nodes.push(node)
       }
-    }
+    })
     if (nodes.length > 0) return nodes
   }
-  return [{ children: [], label: safeStringify(plan) }]
+  return [{ children: [], label: stringCoerceify(plan) }]
 }
 
-function safeStringify(value: unknown): string {
+function stringCoerceify(value: unknown): string {
   try {
-    const json = JSON.stringify(value)
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- JSON.stringify pode devolver undefined em runtime
-    return json ?? String(value)
+    return stringifyJson(value) ?? stringifyOpaque(value)
   } catch {
-    return String(value)
+    return stringCoerce(value)
   }
 }
 

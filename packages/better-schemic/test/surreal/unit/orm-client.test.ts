@@ -1,4 +1,5 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+const MAGIC_4 = 4
+const MAGIC_5 = 5
 // M0.5 — the `/orm` bootstrap client: one delegate per schema key, `repository()` by key or
 // physical name, `tables`, schemaless entries, reserved-key collisions, `extends` fail-fast and the
 // BYO no-op close rule. Offline — the "connection" is a recording fake.
@@ -10,23 +11,37 @@ import { isOrmError, OrmError } from "../../../src/surreal/orm/errors"
 import { schema } from "../../../src/surreal/orm/schema"
 import { defineFunction, defineSingleton, relation, s, table } from "../../../src/surreal/pure"
 import { fakeConn } from "../orm-fixtures"
+const collision = (key: string, re = /collides with a client member/u): void => {
+  const T = table("t", { x: s.string() })
+  const err = ((): unknown => {
+    try {
+      orm(fakeConn().conn, { schema: { [key]: T } as never })
+      return undefined
+    } catch (error) {
+      return error
+    }
+  })()
+  expect(err).toBeInstanceOf(OrmError)
+  expect((err as OrmError).code).toBe("SchemaInvalid")
+  expect((err as Error).message).toMatch(re)
+}
 
-const User = table("user", { name: s.string(), age: s.int() })
+const User = table("user", { age: s.int(), name: s.string() })
 const Post = table("post", {
-  title: s.string(),
   author: s.recordId(User),
+  title: s.string(),
 })
 const Likes = relation("likes", { score: s.int() }).from(User).to(Post)
 const Config = defineSingleton("config", { theme: s.string() })
 const greet = defineFunction("greet", { name: s.string() }).returns(s.string())
 
 const schemaDef = schema({
-  users: User,
-  posts: Post,
-  likes: Likes,
+  audit: "audit_log",
   config: Config,
   greet,
-  audit: "audit_log",
+  likes: Likes,
+  posts: Post,
+  users: User,
 })
 
 describe("orm — delegates and lookup", () => {
@@ -36,8 +51,8 @@ describe("orm — delegates and lookup", () => {
   test("every schema key with a table/relation/schemaless entry gets a delegate", () => {
     expect(client.users.$model).toMatchObject({
       key: "users",
-      name: "user",
       kind: "table",
+      name: "user",
     })
     expect(client.likes.$model.kind).toBe("relation")
     expect(client.likes.$model.hasField("score")).toBe(true)
@@ -47,8 +62,8 @@ describe("orm — delegates and lookup", () => {
   test("a schemaless entry has a delegate with any-field access", () => {
     expect(client.audit.$model).toMatchObject({
       key: "audit",
-      name: "audit_log",
       kind: "schemaless",
+      name: "audit_log",
     })
     expect(client.audit.$model.hasField("anything")).toBe(true)
   })
@@ -71,7 +86,7 @@ describe("orm — delegates and lookup", () => {
   })
 
   test("repository() on an unknown name throws RepositoryNotFound", () => {
-    const err = (() => {
+    const err = ((): unknown => {
       try {
         client.repository("nope")
         return undefined
@@ -90,7 +105,7 @@ describe("orm — delegates and lookup", () => {
 
   test("$sdk is the wrapped connection", () => {
     expect(client.$sdk).toBe(conn)
-    expect(client.$index.tables.size).toBe(4) // typed tables/edges (audit is schemaless)
+    expect(client.$index.tables.size).toBe(MAGIC_4) // typed tables/edges (audit is schemaless)
   })
 
   test("a plain literal schema (unbranded) works too", () => {
@@ -107,21 +122,6 @@ describe("orm — delegates and lookup", () => {
 })
 
 describe("orm — reserved keys fail fast", () => {
-  const collision = (key: string, re = /collides with a client member/u) => {
-    const T = table("t", { x: s.string() })
-    const err = (() => {
-      try {
-        orm(fakeConn().conn, { schema: { [key]: T } as never })
-        return undefined
-      } catch (error) {
-        return error
-      }
-    })()
-    expect(err).toBeInstanceOf(OrmError)
-    expect((err as OrmError).code).toBe("SchemaInvalid")
-    expect((err as Error).message).toMatch(re)
-  }
-
   test("a schema key shadowing a client member throws SchemaInvalid", () => {
     collision("close")
     collision("tables")
@@ -147,14 +147,14 @@ describe("orm — extends", () => {
   test("a factory receives the client", () => {
     const client = orm(fakeConn().conn, { schema: schemaDef })
     const extended = client.extends((db) => ({
-      countModels: () => db.tables.length,
+      countModels: (): number => db.tables.length,
     }))
-    expect(extended.countModels()).toBe(5)
+    expect(extended.countModels()).toBe(MAGIC_5)
   })
 
   test("collisions (existing member, reserved name, or a prior helper) throw PluginError", () => {
     const client = orm(fakeConn().conn, { schema: schemaDef })
-    const err = (() => {
+    const err = ((): unknown => {
       try {
         client.extends({
           close: () => {

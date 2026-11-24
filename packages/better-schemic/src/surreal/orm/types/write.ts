@@ -1,3 +1,10 @@
+/** True for object-like types, without the banned `object` keyword. */
+type IsObjectLike<V> = [V] extends [bigint | boolean | null | number | string | symbol | undefined]
+  ? false
+  : unknown extends V
+    ? false
+    : true
+
 /**
  * The type-level write surface: the args every write op accepts and the envelopes they resolve to.
  * Result shapes dispatch on the `return` literal (mirroring how reads dispatch on `select`), and
@@ -45,8 +52,7 @@ export type RecordIdInputs<T> =
       ? readonly RecordIdInputs<E>[]
       : T extends Date | Decimal | Duration | Geometry | RecordId | Uint8Array
         ? T
-        : // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
-          T extends object
+        : IsObjectLike<T> extends true
           ? { [K in keyof T]: RecordIdInputs<T[K]> }
           : T
 

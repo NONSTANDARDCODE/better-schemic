@@ -1,6 +1,7 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Fixtures assert values whose presence the test guarantees. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+const MAGIC_5 = 5
 // M6.2 — `definePlugin`: transforms (mutate where/data/kind), operationArgs passthrough, hooks,
 // extendClient/extendModel, setup fail-fast, per-delegate state and `$withoutPlugins`. Offline.
+
 import { describe, expect, test } from "bun:test"
 import { RecordId } from "surrealdb"
 
@@ -14,41 +15,45 @@ import {
   isPlugin,
   RuntimeOperation,
 } from "../../../src/surreal/orm/plugins"
+import type { ThrowingResult } from "../../../src/surreal/orm/results"
 import { schema } from "../../../src/surreal/orm/schema"
 import { s, table } from "../../../src/surreal/pure"
-import { fakeConn, lines, ok } from "../orm-fixtures"
+import { required } from "../../required"
+import { type FakeCall, type FakeConn, fakeConn, lines, ok } from "../orm-fixtures"
 
 const User = table("user", {
-  name: s.string(),
   flag: s.boolean().optional(),
+  name: s.string(),
 })
 const schemaDef = schema({ users: User })
 
-const row = () => [{ id: new RecordId("user", 1), name: "A", flag: false }]
+const row = (): { flag: boolean; id: RecordId<"user", number>; name: string }[] => [
+  { flag: false, id: new RecordId("user", 1), name: "A" },
+]
 
-function conn() {
+function conn(): { calls: FakeCall[]; conn: FakeConn } {
   return fakeConn((sql) => lines(sql).map(() => ok(row())))
 }
 
 describe("definePlugin — transforms", () => {
   test("a transform mutates data before compile", async () => {
     const timestamps = definePlugin({
-      id: "timestamps",
       config: { createdAt: "createdAt" },
+      id: "timestamps",
       transform(op) {
         if (op.kind === "create") op.data[this.config.createdAt] = surql`time::now()`
       },
     })
-    const { conn: c, calls } = conn()
-    const client = orm(c, { schema: schemaDef, plugins: [timestamps] })
+    const { calls, conn: c } = conn()
+    const client = orm(c, { plugins: [timestamps], schema: schemaDef })
     await client.users.create({ data: { name: "A" } })
     expect(calls[0]?.sql).toContain("createdAt: time::now()")
   })
 
   test("a transform can change the operation kind (delete -> update)", async () => {
     const softDelete = definePlugin({
-      id: "soft-delete",
       config: { column: "deletedAt" },
+      id: "soft-delete",
       transform(op) {
         if (op.kind === "delete") {
           op.kind = "update"
@@ -56,8 +61,8 @@ describe("definePlugin — transforms", () => {
         }
       },
     })
-    const { conn: c, calls } = conn()
-    const client = orm(c, { schema: schemaDef, plugins: [softDelete] })
+    const { calls, conn: c } = conn()
+    const client = orm(c, { plugins: [softDelete], schema: schemaDef })
     await client.users.delete({ where: { id: "user:1" } })
     expect(calls[0]?.sql).toContain("UPDATE")
     expect(calls[0]?.sql).not.toContain("DELETE")
@@ -70,13 +75,13 @@ describe("definePlugin — transforms", () => {
         if (op.state.stamp === true) op.data.flag = true
       },
     })
-    const { conn: c, calls } = conn()
-    const client = orm(c, { schema: schemaDef, plugins: [stamper] })
+    const { calls, conn: c } = conn()
+    const client = orm(c, { plugins: [stamper], schema: schemaDef })
     await client.users.create({ data: { name: "A" } })
     expect(calls[0]?.vars?.p0).toEqual({ name: "A" })
     calls.length = 0
     await client.users.$withState({ stamp: true }).create({ data: { name: "A" } })
-    expect(calls[0]?.vars?.p0).toEqual({ name: "A", flag: true })
+    expect(calls[0]?.vars?.p0).toEqual({ flag: true, name: "A" })
   })
 
   test("$withoutPlugins skips transforms", async () => {
@@ -86,8 +91,8 @@ describe("definePlugin — transforms", () => {
         if (op.kind === "create") op.data.createdAt = surql`time::now()`
       },
     })
-    const { conn: c, calls } = conn()
-    const client = orm(c, { schema: schemaDef, plugins: [timestamps] })
+    const { calls, conn: c } = conn()
+    const client = orm(c, { plugins: [timestamps], schema: schemaDef })
     await client.users.$withoutPlugins().create({ data: { name: "A" } })
     expect(calls[0]?.sql).not.toContain("time::now()")
   })
@@ -97,8 +102,8 @@ describe("definePlugin — transforms", () => {
       id: "skipper",
       transform: () => false,
     })
-    const { conn: c, calls } = conn()
-    const client = orm(c, { schema: schemaDef, plugins: [skipper] })
+    const { calls, conn: c } = conn()
+    const client = orm(c, { plugins: [skipper], schema: schemaDef })
     const result = await client.users.findMany({})
     expect(result).toBeUndefined()
     expect(calls).toHaveLength(0)
@@ -109,22 +114,22 @@ describe("definePlugin — hooks and extensions", () => {
   test("a plugin's hooks are merged with the client's", async () => {
     const events: string[] = []
     const observer = definePlugin({
-      id: "observer",
       hooks: {
         beforeQuery: () => {
           events.push("plugin")
         },
       },
+      id: "observer",
     })
     const { conn: c } = conn()
     const client = orm(c, {
-      schema: schemaDef,
-      plugins: [observer],
       hooks: {
         beforeQuery: () => {
           events.push("client")
         },
       },
+      plugins: [observer],
+      schema: schemaDef,
     })
     await client.users.findMany({})
     expect(events).toEqual(["client", "plugin"])
@@ -132,33 +137,33 @@ describe("definePlugin — hooks and extensions", () => {
 
   test("extendClient grafts methods onto the client", () => {
     const ext = definePlugin({
-      id: "ext",
       extendClient() {
-        return { hello: () => "hi" }
+        return { hello: (): "hi" => "hi" }
       },
+      id: "ext",
     })
     const { conn: c } = conn()
-    const client = orm(c, { schema: schemaDef, plugins: [ext] })
+    const client = orm(c, { plugins: [ext], schema: schemaDef })
     expect((client as unknown as { hello(): string }).hello()).toBe("hi")
   })
 
   test("extendModel grafts methods onto every delegate (restore recipe)", async () => {
     const soft = definePlugin({
-      id: "soft",
       config: { column: "deletedAt" },
       extendModel({ model }) {
         return {
-          restore: (args: { where: unknown }) =>
+          restore: (args: { where: unknown }): ThrowingResult<Record<string, unknown>> =>
             (model as Delegate).update({
-              where: args.where as never,
-              mode: "set",
               data: { [this.config.column]: null },
+              mode: "set",
+              where: args.where as never,
             }),
         }
       },
+      id: "soft",
     })
-    const { conn: c, calls } = conn()
-    const client = orm(c, { schema: schemaDef, plugins: [soft] })
+    const { calls, conn: c } = conn()
+    const client = orm(c, { plugins: [soft], schema: schemaDef })
     const delegate = client.users as unknown as {
       restore(args: { where: unknown }): Promise<unknown>
     }
@@ -179,7 +184,7 @@ describe("definePlugin — bootstrap validation", () => {
       },
     })
     const { conn: c } = conn()
-    orm(c, { schema: schemaDef, plugins: [plugin] })
+    orm(c, { plugins: [plugin], schema: schemaDef })
     expect(setups).toBe(1)
   })
 
@@ -187,7 +192,7 @@ describe("definePlugin — bootstrap validation", () => {
     const plugin = definePlugin({ id: "dup" })
     const { conn: c } = conn()
     try {
-      orm(c, { schema: schemaDef, plugins: [plugin, plugin] })
+      orm(c, { plugins: [plugin, plugin], schema: schemaDef })
       throw new Error("expected a PluginError")
     } catch (error) {
       expect(isOrmError(error)).toBe(true)
@@ -204,7 +209,7 @@ describe("definePlugin — bootstrap validation", () => {
     })
     const { conn: c } = conn()
     try {
-      orm(c, { schema: schemaDef, plugins: [plugin] })
+      orm(c, { plugins: [plugin], schema: schemaDef })
       throw new Error("expected a PluginError")
     } catch (error) {
       expect(isOrmError(error)).toBe(true)
@@ -214,14 +219,14 @@ describe("definePlugin — bootstrap validation", () => {
 
   test("an extendClient collision fails fast", () => {
     const plugin = definePlugin({
-      id: "collide",
       extendClient() {
         return { close: 1 }
       },
+      id: "collide",
     })
     const { conn: c } = conn()
     try {
-      orm(c, { schema: schemaDef, plugins: [plugin] })
+      orm(c, { plugins: [plugin], schema: schemaDef })
       throw new Error("expected a PluginError")
     } catch (error) {
       expect((error as { code?: string }).code).toBe("PluginError")
@@ -236,7 +241,7 @@ describe("plugin runtime — edge paths", () => {
   })
 
   test("a plugin without transform is skipped by the pipeline", () => {
-    const pipeline = createPluginPipeline([definePlugin({ id: "noop" })])!
+    const pipeline = required(createPluginPipeline([definePlugin({ id: "noop" })]))
     expect(pipeline.hasTransforms).toBe(false)
     const op = new RuntimeOperation("create", "user", {}, {}, {} as never)
     expect(pipeline.transform(op)).toBe(false)
@@ -250,7 +255,7 @@ describe("plugin runtime — edge paths", () => {
         throw mine
       },
     })
-    const pipeline = createPluginPipeline([plugin])!
+    const pipeline = required(createPluginPipeline([plugin]))
     try {
       pipeline.setup({} as never)
       throw new Error("expected a throw")
@@ -261,15 +266,15 @@ describe("plugin runtime — edge paths", () => {
 
   test("extendClient / extendModel failures wrap in PluginError", () => {
     const p = definePlugin({
-      id: "p",
       extendClient() {
         throw new Error("x")
       },
       extendModel() {
         throw new Error("y")
       },
+      id: "p",
     })
-    const pipeline = createPluginPipeline([p])!
+    const pipeline = required(createPluginPipeline([p]))
     expect(() => pipeline.extendClient({} as never)).toThrow(/extendClient/u)
     expect(() => pipeline.extendModel({} as never, {})).toThrow(/extendModel/u)
   })
@@ -278,7 +283,7 @@ describe("plugin runtime — edge paths", () => {
     const op = new RuntimeOperation(
       "create",
       "user",
-      { where: { a: 1 }, data: { b: 2 }, scope: { e: 5 } },
+      { data: { b: 2 }, scope: { e: 5 }, where: { a: 1 } },
       {},
       {} as never,
     )
@@ -316,6 +321,6 @@ describe("plugin runtime — edge paths", () => {
     expect(isPlugin(definePlugin({ id: "p" }))).toBe(true)
     expect(isPlugin({})).toBe(false)
     expect(isPlugin(null)).toBe(false)
-    expect(isPlugin(5)).toBe(false)
+    expect(isPlugin(MAGIC_5)).toBe(false)
   })
 })

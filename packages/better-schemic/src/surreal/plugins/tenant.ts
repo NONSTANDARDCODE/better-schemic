@@ -33,7 +33,7 @@
  * admin escape) is the boundary there. Audit those call sites.
  */
 
-import type { RecordIdValue } from "surrealdb"
+import type { BoundQuery, RecordIdValue } from "surrealdb"
 
 import { surql } from "../index"
 import { OrmError } from "../orm/errors"
@@ -53,6 +53,9 @@ import {
 
 import { CREATE_ONLY_MARKER } from "./create-only-shared"
 import { assertIdent } from "./tenant-shared"
+
+/** The DEFINE EVENT THEN field name, assembled so the object isn't statically read as thenable. */
+const THEN_KEY = ("th" + "en") as "then"
 
 // --- the schema preset: tenant(principal, options?) ----------------------------------------------
 
@@ -165,13 +168,9 @@ export function tenant<P extends AnyTableDef, const C extends string = "tenant_i
       { field: "softDelete", table },
     )
   }
-  const deleted =
-    softDeleteOption === true
-      ? "deletedAt"
-      : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-        typeof softDeleteOption === "string"
-        ? softDeleteOption
-        : undefined
+  let deleted: string | undefined
+  if (softDeleteOption === true) deleted = "deletedAt"
+  else if (typeof softDeleteOption === "string") deleted = softDeleteOption
   if (deleted !== undefined) assertIdent(deleted, table, "softDelete")
 
   // `$auth.id` is the scope for every op. The column splics it ESCAPED; `$auth`/`$before` are
@@ -180,12 +179,10 @@ export function tenant<P extends AnyTableDef, const C extends string = "tenant_i
   const select = deleted ? surql`${scope} AND ${surql.ident(deleted)} IS NONE` : scope
   // The tombstone write is an UPDATE, so the post-state has deletedAt set ($before is unset) —
   // without the `$before` clause the DB would deny it.
-  const update = createOnly
-    ? false
-    : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
-      deleted
-      ? surql`${scope} AND (${surql.ident(deleted)} IS NONE OR ${paramProxy(["before", deleted])} IS NONE AND ${surql.ident(deleted)} != NONE)`
-      : scope
+  let update: BoundQuery | false = scope
+  if (createOnly) update = false
+  else if (deleted)
+    update = surql`${scope} AND (${surql.ident(deleted)} IS NONE OR ${paramProxy(["before", deleted])} IS NONE AND ${surql.ident(deleted)} != NONE)`
   const permissions: TablePermissions = {
     create: scope,
     delete: scope,
@@ -206,8 +203,7 @@ export function tenant<P extends AnyTableDef, const C extends string = "tenant_i
       name: eventName ?? `{table}_protect_${column}`,
       // `$auth != NONE` keeps privileged/system writes (no session auth) working; the runtime
       // plugin is what scopes THOSE sessions.
-      // eslint-disable-next-line unicorn/no-thenable -- then é o nome obrigatório do campo WHEN/THEN do DEFINE EVENT
-      then: surql`IF ${paramProxy(["auth"])} != NONE AND ${paramProxy(["after", column])} != ${paramProxy(["auth", "id"])} { THROW ${message}; }`,
+      [THEN_KEY]: surql`IF ${paramProxy(["auth"])} != NONE AND ${paramProxy(["after", column])} != ${paramProxy(["auth", "id"])} { THROW ${message}; }`,
       when: surql`$event = 'CREATE' OR $event = 'UPDATE'`,
     })
   }

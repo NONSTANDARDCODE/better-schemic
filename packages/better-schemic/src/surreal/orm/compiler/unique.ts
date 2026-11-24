@@ -103,11 +103,11 @@ function compositeTarget(
   if (!isTableMeta(meta)) return undefined
 
   const keys = new Set(entries.map(([key]) => key))
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const group of meta.uniqueGroups) {
-    const covers = group.length === entries.length && group.every((f) => keys.has(f))
-    if (!covers) continue
 
+  const group = meta.uniqueGroups.find(
+    (candidate) => candidate.length === entries.length && candidate.every((f) => keys.has(f)),
+  )
+  if (group !== undefined) {
     const byName = new Map(entries)
     return {
       entries: group.map((field) => {
