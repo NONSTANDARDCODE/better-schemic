@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ## [Unreleased]
 
+## [0.1.0-beta.7] - 2026-11-24
+
 ### Changed
 - **Quality gates in CI and `land.ts`** (repo): the gate now also runs `bun run lint` (root `bunfig.toml`, max-warnings 0) and `bun run knip` (root `knip.json`) after build/typecheck/test. CI's `gate` job mirrors `land.ts` exactly; both fail on any lint diagnostic or dead-code finding.
 - **`eslint-disable` debt reduced** (repo): from 1132 to <100 occurrences found by `grep eslint-disable`. Parser/compiler loops became `forEach`/`map`/`find`/`reduce`, object keys were reordered where they do not affect SQL, numbers became named constants, volatile public types (`AnyField`, `AnyKindEngine`, `ChainableDriverFactory`, `TablePreset`, `EmptyArgs`) regained their bivariant wildcards with a local justification, and the incorrect return types applied by the codemod were fixed. Minimal, justified residue; no rule was disabled to hide a violation.
