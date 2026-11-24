@@ -49,7 +49,7 @@ sc status           # show applied vs pending
 | `unlock`            | Release a stale migration lock.                                                                 |
 | `generate`          | Run every generator declared in the config (`--only orm\|aot`, `--watch`).                      |
 | `compile`           | AOT-compile `s.*` field schemas via zod-compiler (identity-preserving validators).               |
-| `generate:orm`      | Generate a static-getter ORM façade from the schema (`bun build --compile --aot`).               |
+| `generate:orm`      | Generate a static-getter ORM facade from the schema (`bun build --compile --aot`).               |
 
 Run `sc <command> --help` for flags.
 
@@ -101,11 +101,11 @@ export default defineConfig({
 - `generated.knipAutoWrite` merges `.better-schemic/**` + the artifact paths into an existing
   `knip.json` `ignore[]`, `tsconfig.json` `exclude[]`, `bunfig.toml` `[lint].ignorePatterns` and
   `.gitignore`. Leave it off to get the suggested patterns on stdout instead.
-- `aot.installVia: "orm"` imports the AOT bootstrap from the generated façade, covering entry,
+- `aot.installVia: "orm"` imports the AOT bootstrap from the generated facade, covering entry,
   tests and any other path that imports the ORM. `importIn` additionally inserts an idempotent
   side-effect import into the listed files.
 
-### `generate:orm` — AOT-friendly ORM façade
+### `generate:orm` — AOT-friendly ORM facade
 
 The runtime client installs one delegate getter per schema key with `Object.defineProperty` in a
 loop. Bun's AOT needs the getters **written in the source** to give them a fixed layout, so this

@@ -50,7 +50,7 @@ export type ResolveConfig = {
   readonly tsconfigPaths?: boolean | string
 }
 
-/** Settings for the static-getter ORM façade generator (`sc generate --orm`). */
+/** Settings for the static-getter ORM facade generator (`sc generate --orm`). */
 export type OrmGeneratorConfig = {
   /** Expression returning the client. Default `getOrmClient`. */
   readonly client?: string
@@ -74,7 +74,7 @@ export type AotGeneratorConfig = {
   readonly importIn?: readonly string[]
   /**
    * How the compiled validators get installed: `orm` imports the bootstrap from the generated ORM
-   * façade (default), `bootstrap` emits one documented import, `none` leaves it to the app.
+   * facade (default), `bootstrap` emits one documented import, `none` leaves it to the app.
    */
   readonly installVia?: "bootstrap" | "none" | "orm"
   /** Bootstrap module, relative to the project root. */
@@ -129,10 +129,10 @@ export type OrmConfig = {
 export type SchemicConfig = OrmConfig
 
 /** The bound ORM client type a {@link ConnectionEntry} opens (inferred from the driver factory). */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- wildcards bivariantes: `infer` estreita a inferência de clients/args no config.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- bivariant wildcards: `infer` narrows client/args inference in the config.
 export type EntryClient<E> = E extends ConnectionEntry<infer Client, any> ? Client : never
 /** The typed resolver `args` a {@link ConnectionEntry} accepts (from its `args` schema). */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- mesmo wildcard bivariante de `EntryClient`.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- same bivariant wildcard as `EntryClient`.
 export type EntryArgs<E> = E extends ConnectionEntry<any, infer Args> ? Args : never
 
 /**
@@ -182,7 +182,7 @@ export type ChainCtx<Conns extends Record<string, AnyConnectionEntry>> = Omit<
 }
 
 /** The shape a driver connection factory must have to uss it as the `.connection()` driver marker. */
-/* eslint-disable @typescript-eslint/no-explicit-any -- wildcards bivariantes no slot de args do factory (tipo público) */
+/* eslint-disable @typescript-eslint/no-explicit-any -- bivariant wildcards in the factory's args slot (public type) */
 export type ChainableDriverFactory<C extends ConnectionConfigBase, Client> = (
   input: ConnectionInput<C, any>,
 ) => ConnectionEntry<Client, any>

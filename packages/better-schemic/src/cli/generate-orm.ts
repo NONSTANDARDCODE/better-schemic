@@ -1,11 +1,11 @@
 /**
- * `sc generate:orm` — generate a STATIC-getter façade over the typed ORM client.
+ * `sc generate:orm` — generate a STATIC-getter facade over the typed ORM client.
  *
  * Why: Bun's AOT gives a fixed layout to getters written in the source. The runtime client installs
  * one delegate getter per schema key via `Object.defineProperty` in a loop — convenient, but a slow
  * path in the generated binary. This command reads the authored schema (the single source of truth)
  * and emits those getters as plain TypeScript, with an `OrmSurface` `satisfies` check so a new model
- * cannot go missing from the façade without a type error.
+ * cannot go missing from the facade without a type error.
  */
 import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import nodePath from "node:path"
@@ -83,7 +83,7 @@ const relPath = (from: string, to: string): string => {
   return spec.startsWith("../") ? spec : `./${spec}`
 }
 
-/** CLI action: load the schema artifact, discover its model keys, write the generated façade. */
+/** CLI action: load the schema artifact, discover its model keys, write the generated facade. */
 export async function generateOrm(opts: GenerateOrmOpts): Promise<string> {
   return generateOrmWith(await resolveOne(opts), opts)
 }

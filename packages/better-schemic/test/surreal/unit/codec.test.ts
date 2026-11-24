@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-deprecated -- aliases `parse`/`safeParse` são exercitados de propósito como compatibilidade legada. */
+/* eslint-disable @typescript-eslint/no-deprecated -- we exercise the `parse`/`safeParse` aliases on purpose as legacy compatibility. */
 const MAGIC_2 = 2
 const MAGIC_3 = 3
 const MAGIC_9 = 9

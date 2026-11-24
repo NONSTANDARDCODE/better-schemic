@@ -449,7 +449,7 @@ export async function runTransaction<T, S extends SchemaInput = SchemaInput>(
       current = undefined
       if (txConn) {
         await txConn.cancel().catch(() => {
-          /* cancel é best-effort */
+          /* cancel is best-effort */
         })
       }
 

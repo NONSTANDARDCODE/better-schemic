@@ -19,12 +19,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 ## [Unreleased]
 
 ### Changed
-- **Dívida de `eslint-disable` reduzida** (repo): de 1132 para <100 ocorrências encontradas por `grep eslint-disable`. Loops de parser/compilador viraram `forEach`/`map`/`find`/`reduce`, chaves de objetos foram reordenadas onde não afetam SQL, números viraram constantes nomeadas, tipos públicos voláteis (`AnyField`, `AnyKindEngine`, `ChainableDriverFactory`, `TablePreset`, `EmptyArgs`) recuperaram seus wildcards bivariantes com justificativa local, e os return types incorretos aplicados por codemod foram corrigidos. Resíduo mínimo e justificado; nenhuma regra foi desativada para esconder violação.
-- **Ruleset ampliado** (repo): 43 regras antes `off` foram ativadas como `error` — incluindo `only-throw-error`, `unbound-method`, `no-dupe-*`, `no-duplicate-imports`, `no-import-assign`, `no-unreachable`, `explicit-function-return-type`, `explicit-module-boundary-types`, `prefer-nullish-coalescing`, `restrict-template-expressions` e as regras de segurança do domínio unicorn. Permanecem `off` apenas as 12 que o próprio ruleset recomenda manter desativadas para um ORM (`max-lines-per-function`, `max-params`, `no-null`, `no-array-reduce`, etc.). Return types explícitos foram adicionados onde fazem sentido; em código interno profundamente genérico há disable local justificado (o usuário aceita esse ruído só em código interno).
+- **`eslint-disable` debt reduced** (repo): from 1132 to <100 occurrences found by `grep eslint-disable`. Parser/compiler loops became `forEach`/`map`/`find`/`reduce`, object keys were reordered where they do not affect SQL, numbers became named constants, volatile public types (`AnyField`, `AnyKindEngine`, `ChainableDriverFactory`, `TablePreset`, `EmptyArgs`) regained their bivariant wildcards with a local justification, and the incorrect return types applied by the codemod were fixed. Minimal, justified residue; no rule was disabled to hide a violation.
+- **Ruleset expanded** (repo): 43 rules previously `off` were enabled as `error` — including `only-throw-error`, `unbound-method`, `no-dupe-*`, `no-duplicate-imports`, `no-import-assign`, `no-unreachable`, `explicit-function-return-type`, `explicit-module-boundary-types`, `prefer-nullish-coalescing`, `restrict-template-expressions` and the unicorn domain-safety rules. Only the 12 the ruleset itself recommends leaving disabled for an ORM remain `off` (`max-lines-per-function`, `max-params`, `no-null`, `no-array-reduce`, etc.). Explicit return types were added where they make sense; in deeply generic internal code there is a justified local disable (the user accepts that noise only in internal code).
 
 ### Added
-- **Lint gate adotado na raiz** (repo): `bunfig.toml` mudou de `packages/better-schemic/` para a raiz; `bun lint` e `bun run lint` passam sem erros com **todas as regras do consumidor ativas como `error`** (nenhuma regra adiada). `tsconfig.json` na raiz + `@types/bun`/`@types/node` e os plugins do consumidor como devDependencies permitem o `typeCheck = true` do lint em todo o workspace. ~43 mil violações foram corrigidas: Prettier, ordenação de tipos/imports, flags `u` em regex, redação de comentários, refatoração de `any`/unsafe, `curly`, magic numbers e ordem de chaves preservada onde afeta SQL/DDL. Onde a refatoração mudaria comportamento (parsers com estado, ordem de cláusulas, APIs públicas), há `eslint-disable-next-line` local com justificativa — convenção do próprio ruleset.
-- **Declarative generators + `sc generate`** (CLI/config): `defineConfig({ resolve, generators, generated })`. `sc generate` runs every configured generator in one pass (`--only orm|aot`, `--watch`, `--config`), resolves paths against the project root, honours `resolve.alias` through the CLI's jiti (no `node_modules/@` symlink), emits `@ts-nocheck`/`eslint-disable` directives itself, and installs the AOT bootstrap via the generated ORM façade (`installVia: 'orm'`, `importIn`). The old hidden `generate [name]` alias of `gen` was removed; `sc generate:orm` and `sc compile` remain as single-generator aliases.
+- **Lint gate adopted at the root** (repo): `bunfig.toml` moved from `packages/better-schemic/` to the root; `bun lint` and `bun run lint` pass cleanly with **all consumer rules active as `error`** (no deferred rules). A root `tsconfig.json` + `@types/bun`/`@types/node` and the consumer plugins as devDependencies allow lint's `typeCheck = true` across the whole workspace. ~43k violations were fixed: Prettier, type/import sorting, `u` flags on regexes, comment wording, `any`/unsafe refactoring, `curly`, magic numbers and key order preserved where it affects SQL/DDL. Where refactoring would change behavior (stateful parsers, clause order, public APIs), there is a local `eslint-disable-next-line` with a justification — the ruleset's own convention.
+- **Declarative generators + `sc generate`** (CLI/config): `defineConfig({ resolve, generators, generated })`. `sc generate` runs every configured generator in one pass (`--only orm|aot`, `--watch`, `--config`), resolves paths against the project root, honours `resolve.alias` through the CLI's jiti (no `node_modules/@` symlink), emits `@ts-nocheck`/`eslint-disable` directives itself, and installs the AOT bootstrap via the generated ORM facade (`installVia: 'orm'`, `importIn`). The old hidden `generate [name]` alias of `gen` was removed; `sc generate:orm` and `sc compile` remain as single-generator aliases.
 - **`better-schemic/zod` + `better-schemic/zod/core`** (runtime/CLI): specifier bridges for the code zod-compiler emits. `sc compile` rewrites its hardcoded `from "zod"` / `from "zod/v4/core"` headers to these subpaths, so an app no longer needs `zod` as a direct dependency and there is exactly one Zod copy (`instanceof`-safe). Configurable with `generated.zodSpecifier`.
 - **Generated-artifact conventions** (CLI): `.better-schemic/**` and `src/db/generated/**` get stable `// @ts-nocheck — generated` + `/* eslint-disable */` headers; `generated.knip`/`knipAutoWrite` merge ignore patterns into `knip.json`, `tsconfig.json`, `bunfig.toml` and `.gitignore` idempotently.
 - **`s.jsonValue<T>()`** (runtime): `z.json()`-backed codec that really parses the JSON string into `T` on `decode` and stringifies on `encode`, with identical DDL to `s.json()`. `s.json<T>()` remains legacy: its documented runtime value is the JSON string (the type argument is a compile-time cast only), so existing apps are unaffected.
@@ -41,12 +41,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 
 ### Added
 - **zod-compiler integration — AOT validators for `s.*` fields** (runtime/CLI): `sc compile` walks authored fields, generates a synthetic module of their underlying Zod schemas, runs `zod-compiler generate`, and writes `.better-schemic/schema.aot.ts` (import it instead of the schema module). Compilation is identity-preserving — DDL, `.shape`, `instanceof`, `z.toJSONSchema()` and the ORM are unchanged; only validation gets the generated fast path. New subpaths `better-schemic/aot` (`fieldSchemaOf`, `markFieldCompiled`, `isFieldCompiled`, `compileField`) and `better-schemic/plugin` (`betterSchemic()` = `zod-compiler/bun` with defaults). `zod-compiler` is now a dependency.
-- **Bun AOT DX — builder fluente de tabela** (runtime): `table(name, shape).extend(meta).extendIf(cond, meta).use(preset).index(...).stringIds().build()`. `TableBuilder` é um alias de `TableDef` (compatível com todo call site existente) e o merge de shapes acontece dentro da lib, não por spread de type parameter no app.
-- **Presets idempotentes** (runtime): `.use()` aceita colunas idênticas já presentes na tabela (antes exigia `as unknown as AnyTableDef`); novos `ApplyPreset`, `CheckPresetIdempotent`, `MergePresetShape`, `useUnchecked`, `useAs`. Toolkit de tipos exportado no entry root: `AnyTableDef`, `AnyTableRef`, `WithSmartId`, `RejectNoDdl`, `RejectBadId`, `CheckPreset`, `PresetCols`, `PresetColumns`, `Fields`, `ZShape`.
-- **`sc generate:orm` + `OrmSurface`** (runtime/CLI): gera getters **estáticos** por chave do schema com `satisfies OrmSurface<typeof schema>` — o formato que o compilador AOT do Bun consegue deixar em layout fixo. `ClientRuntime` declara e atribui explicitamente cada membro (antes `Object.assign`).
-- **Cache de client por conexão e late binding** (runtime): `createOrmClientFactory({ cache: 'weak' })` com `peek`/`dispose`, `orm(() => conn, { schema })` (lazy, sem `await import`), `setClientResolver()`/`clientRef()`.
-- **Helpers de inferência de escrita** (runtime): `UpsertDeltaFor`, `InferWriteResult`, `RowOf` exportados de `better-schemic/orm`; `upsertDelta` com `NoInfer` + overload estável para `ReturnType` (sem `as unknown as UpsertDeltaResult`).
-- **Fronteira raw tipada** (runtime): `TypedBoundQuery<B,R>`/`surqlWith` (binds e resultado tipados, com overload em `$query`), `selectQuery(from, allowlist)` (linhas com chaves fixas a partir de uma projeção), `s.json<T>()` (decoder de shape fixo) e `s.regex(source: string, flags?)` — RegExp compilado uma vez na lib, DDL inalterado.
+- **Bun AOT DX — fluent table builder** (runtime): `table(name, shape).extend(meta).extendIf(cond, meta).use(preset).index(...).stringIds().build()`. `TableBuilder` is an alias of `TableDef` (compatible with every existing call site) and shape merging happens inside the library, not by spreading a type parameter in the app.
+- **Idempotent presets** (runtime): `.use()` accepts identical columns already present in the table (it previously required `as unknown as AnyTableDef`); new `ApplyPreset`, `CheckPresetIdempotent`, `MergePresetShape`, `useUnchecked`, `useAs`. Type toolkit exported from the root entry: `AnyTableDef`, `AnyTableRef`, `WithSmartId`, `RejectNoDdl`, `RejectBadId`, `CheckPreset`, `PresetCols`, `PresetColumns`, `Fields`, `ZShape`.
+- **`sc generate:orm` + `OrmSurface`** (runtime/CLI): generates **static** getters per schema key with `satisfies OrmSurface<typeof schema>` — the form Bun's AOT compiler can keep in a fixed layout. `ClientRuntime` declares and assigns each member explicitly (previously `Object.assign`).
+- **Per-connection client cache and late binding** (runtime): `createOrmClientFactory({ cache: 'weak' })` with `peek`/`dispose`, `orm(() => conn, { schema })` (lazy, no `await import`), `setClientResolver()`/`clientRef()`.
+- **Write inference helpers** (runtime): `UpsertDeltaFor`, `InferWriteResult`, `RowOf` exported from `better-schemic/orm`; `upsertDelta` with `NoInfer` + a stable overload for `ReturnType` (no `as unknown as UpsertDeltaResult`).
+- **Typed raw boundary** (runtime): `TypedBoundQuery<B,R>`/`surqlWith` (typed binds and result, with an overload on `$query`), `selectQuery(from, allowlist)` (rows with fixed keys from a projection), `s.json<T>()` (fixed-shape decoder) and `s.regex(source: string, flags?)` — a RegExp compiled once in the library, DDL unchanged.
 - **Typed graph traversal on the ORM** (M19): `delegate.from(anchor).graph(g => g.out(E).in(E).both(E)…)` compiles to a single `SELECT [DISTINCT] VALUE <path> FROM ONLY <anchor>` and decodes the resulting node array. Supports multi-hop chains of `.out`/`.in`/`.both` (schema-checked against each edge's declared endpoints), per-hop `where` (edge/target split via `classifyWhereByOwner`), a final `.where` (object or callback predicate via the `FieldRef` layer), `.select` (object form or callback projection, converted via `fragOf`), `.distinct()`, tagged-template `.traverse\`…\``, recursion via `.repeat(depth, fn)` (+`.collect()`/`.paths()`/`.shortest(target)`), edge steps (`.outEdges/.inEdges/.bothEdges` + `.node()`), and `.match(Member, fn)` in both `.where` and `.select`. Anchor accepts a `string` (`"table:id"`) or `RecordId`. Covered by `test/surreal/unit/orm-graph*.test.ts`.
 
 - **Server-free SQL preview** — every read result gains a synchronous `.toSQL()` (`SqlPreview` with
@@ -71,23 +71,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   a source table producing deterministic `aggregate` args, a JSON-safe glossary, and lineage validated
   against declared fields only (no SQL parsing, no fake edges). Authoring-only: no new DDL kinds.
   Covered by `test/surreal/unit/orm-semantic.test.ts`.
-- **Docs: ORM na era da IA/agentes** — mapeamento honesto entre a superfície do ORM e os requisitos
-  usualmente cobrados de um ORM "AI-native" (README do pacote, `docs/ORM-COVERAGE.md` §§12–13,
-  `ROADMAP.md`), agora com as quatro lacunas anteriores entregues. GraphQL, MCP, LLM-facing queries
-  e métricas OTel seguem explicitamente fora de escopo.
+- **Docs: ORM in the age of AI/agents** — an honest mapping between the ORM surface and the requirements
+  usually demanded of an "AI-native" ORM (package README, `docs/ORM-COVERAGE.md` §§12–13,
+  `ROADMAP.md`), now with the four earlier gaps delivered. GraphQL, MCP, LLM-facing queries
+  and OTel metrics remain explicitly out of scope.
 
 ### Removed
-- **Live queries / changefeeds — feature removida por completo.** Saem o runtime (`live.ts`, `changes.ts`,
-  compilers e types), os métodos `live`/`liveOf`/`kill`/`changes` do client e do delegate, os códigos
-  `LiveQueryUnsupported`/`ClauseNotSupportedInLive`/`LiveInTransaction`, o `.changefeed()` da DDL
-  (`TableConfig.changefeed`, emissão/introspecção/diff/pull) e os testes/exemplos/docs correspondentes.
-  Reads, writes, relações, transações, raw e plugins não são afetados.
-- **Gates de verificação pesados removidos.** Cobertura (`scripts/coverage/*`, `coverage.config.json`,
+- **Live queries / changefeeds — feature removed entirely.** Gone are the runtime (`live.ts`, `changes.ts`,
+  compilers and types), the `live`/`liveOf`/`kill`/`changes` methods of the client and delegate, the codes
+  `LiveQueryUnsupported`/`ClauseNotSupportedInLive`/`LiveInTransaction`, the DDL's `.changefeed()`
+  (`TableConfig.changefeed`, emit/introspect/diff/pull) and the corresponding tests/examples/docs.
+  Reads, writes, relations, transactions, raw and plugins are unaffected.
+- **Heavy verification gates removed.** Coverage (`scripts/coverage/*`, `coverage.config.json`,
   `test:coverage*`), MC/DC (`scripts/mcdc/*`, `mcdc.config.json`, `mcdc-manifest.json`), mutation
   (`scripts/mutation/*`, `stryker.config.json`, `mutation.config.json`), type-bench
-  (`scripts/type-bench.ts`, `type-budgets.json`, `*.bench.ts`) e os jobs correspondentes no CI. Também
-  saem parity/e2e/live e o preload de servidor SurrealDB — a suíte restante é 100% offline. Ficam
-  `bun test` (unit + PBT + fuzz), `bun check` e `bun build` no gate único.
+  (`scripts/type-bench.ts`, `type-budgets.json`, `*.bench.ts`) and the corresponding CI jobs. Also
+  removed are parity/e2e/live and the SurrealDB server preload — the remaining suite is 100% offline. What remains:
+  `bun test` (unit + PBT + fuzz), `bun check` and `bun build` in the single gate.
 
 ## [0.1.0-beta.5] - 2026-11-01
 
@@ -159,14 +159,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
 ## [0.1-beta.1] - 2026-10-22
 
 ### Changed
-- **BREAKING — um único pacote (`better-schemic`).** O monorepo tinha cinco pacotes
-  (`@better-schemic/core`, `@better-schemic/cli`, `@better-schemic/surrealdb`, o alias
-  `better-schemic` e o scaffolder `create-better-schemic`). Como o projeto é **SurrealDB-only**, a
-  fronteira entre driver/CLI/engine custava cinco manifests, cinco pins `workspace:*` e um release
-  lockstep de cinco — para carregar um driver que nunca seria trocado. Agora o runtime é **um
-  pacote só** (`better-schemic`), e as fronteiras de bundle passam a ser as entradas de `exports`:
+- **BREAKING — a single package (`better-schemic`).** The monorepo had five packages
+  (`@better-schemic/core`, `@better-schemic/cli`, `@better-schemic/surrealdb`, the alias
+  `better-schemic` and the scaffolder `create-better-schemic`). Because the project is **SurrealDB-only**, the
+  driver/CLI/engine boundary cost five manifests, five `workspace:*` pins and a five-package
+  lockstep release — to load a driver that would never be swapped. Now the runtime is **a single
+  package** (`better-schemic`), and the bundle boundaries become the `exports` entries:
 
-  | Antes | Agora |
+  | Before | Now |
   | --- | --- |
   | `@better-schemic/surrealdb` | `better-schemic` |
   | `@better-schemic/surrealdb/{connection,query,logger,orm}` | `better-schemic/{connection,query,logger,orm}` |
@@ -174,50 +174,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   | `@better-schemic/surrealdb/driver` | `better-schemic/driver` |
   | `@better-schemic/core/config` | `better-schemic/config` |
   | `@better-schemic/core/{authoring,testing}` | `better-schemic/{authoring,testing}` |
-  | `@better-schemic/core` | `better-schemic/core` (engine interno) |
+  | `@better-schemic/core` | `better-schemic/core` (internal engine) |
 
-  Guia de migração: [`docs/MIGRATION-one-package.md`](./docs/MIGRATION-one-package.md).
-- **instalação:** `bun add better-schemic` basta — **`zod` e o SDK `surrealdb` viraram dependências
-  do pacote** (não peers). `s.*` estende os builders do Zod, e uma segunda cópia de Zod no app
-  quebraria os `instanceof` internos do Zod; por isso o Zod cru sai do mesmo pacote
-  (`import { z } from "better-schemic"`), garantindo uma única cópia. `@surrealdb/node` continua
-  peer opcional (o engine embutido do `better-schemic check`).
-- **CLI:** o driver SurrealDB é **embutido** — o entry do CLI o importa uma vez e o registra. Caiu o
-  carregamento dinâmico por nome (e a resolução do entry compilado de outro pacote), que só existia
-  para suportar drivers plugáveis.
-- **release:** lockstep de **dois** pacotes (`better-schemic` + `create-better-schemic`).
+  Migration guide: [`docs/MIGRATION-one-package.md`](./docs/MIGRATION-one-package.md).
+- **installation:** `bun add better-schemic` suffices — **`zod` and the `surrealdb` SDK became dependencies
+  of the package** (not peers). `s.*` extends Zod's builders, and a second Zod copy in the app
+  would break Zod's internal `instanceof` checks; raw Zod therefore comes from the same package
+  (`import { z } from "better-schemic"`), guaranteeing a single copy. `@surrealdb/node` remains
+  an optional peer (the embedded engine of `better-schemic check`).
+- **CLI:** the SurrealDB driver is **built in** — the CLI entry imports and registers it once. Gone is the
+  dynamic loading by name (and the resolution of another package's compiled entry), which only existed
+  to support pluggable drivers.
+- **release:** **two**-package lockstep (`better-schemic` + `create-better-schemic`).
 
 ### Removed
-- **flags `--driver`:** `sc init --driver <name>` e `sc diff --driver <name>` saíram — este build é
-  SurrealDB-only, e a flag só podia ter um valor.
-- **bootstrap do `init`:** `sc init` não delega mais para `create-better-schemic` quando o driver
-  não está instalado (ele agora vem junto com o pacote). O scaffolder continua sendo o caminho
-  para criar o envelope do projeto (`npm create better-schemic`).
-- **scaffolder:** `create-better-schemic` perdeu a flag `--driver` (e o prompt de driver) e passa a
-  resolver o bin do pacote instalado pelo próprio `package.json` do pacote — nada de path
-  hardcoded. O `package.json` gerado lista **uma** dependência: `better-schemic`.
-- **cabeçalho de migração gerada:** `-- Generated by better-schemic/core.` → `-- Generated by
+- **`--driver` flags:** `sc init --driver <name>` and `sc diff --driver <name>` were removed — this build is
+  SurrealDB-only, and the flag could only have one value.
+- **`init` bootstrap:** `sc init` no longer delegates to `create-better-schemic` when the driver
+  is not installed (it now ships with the package). The scaffolder remains the way
+  to create the project scaffold (`npm create better-schemic`).
+- **scaffolder:** `create-better-schemic` lost the `--driver` flag (and the driver prompt) and now
+  resolves the installed package's bin from the package's own `package.json` — no hardcoded
+  path. The generated `package.json` lists **one** dependency: `better-schemic`.
+- **generated migration header:** `-- Generated by better-schemic/core.` → `-- Generated by
   better-schemic.`
-- **pacotes antigos:** `@better-schemic/core`, `@better-schemic/cli` e `@better-schemic/surrealdb`
-  não são mais publicados (depreciados no npm, apontando para `better-schemic`).
+- **old packages:** `@better-schemic/core`, `@better-schemic/cli` and `@better-schemic/surrealdb`
+  are no longer published (deprecated on npm, pointing to `better-schemic`).
 
 ### Added
-- **`better-schemic` reexporta o Zod** (`import { z } from "better-schemic"`) — a mesma instância
-  que o `s.*` usa.
-- **`better-schemic/config` exporta também o `surrealConnection`** — o arquivo de config do projeto
-  passa a precisar de UM import (`import { defineConfig, surrealConnection } from
-  "better-schemic/config"`), como no scaffold.
-- **teste de pureza de bundle:** o entry de autoria (`better-schemic`) segue **side-effect-free** —
-  importar `s.*` não puxa o emit/diff nem o CLI para o bundle do app (garantido por metafile).
-- **guia de migração:** [`docs/MIGRATION-one-package.md`](./docs/MIGRATION-one-package.md).
+- **`better-schemic` re-exports Zod** (`import { z } from "better-schemic"`) — the same instance
+  that `s.*` uses.
+- **`better-schemic/config` also exports `surrealConnection`** — the project's config file
+  now needs just ONE import (`import { defineConfig, surrealConnection } from
+  "better-schemic/config"`), as in the scaffold.
+- **bundle-purity test:** the authoring entry (`better-schemic`) stays **side-effect-free** —
+  importing `s.*` does not pull emit/diff or the CLI into the app bundle (guaranteed by metafile).
+- **migration guide:** [`docs/MIGRATION-one-package.md`](./docs/MIGRATION-one-package.md).
 
 ## [0.1.0-alpha.15] - 2026-10-16
 
 ### Added
-- **surrealdb (ORM):** **`aggregate({ split })` — UNWIND + GROUP.** O servidor avalia `SPLIT` antes
-  de `GROUP`, então `SELECT … SPLIT f GROUP ALL` é erro e `math::*` sobre o grupo não alcança o
-  elemento. O `aggregate` empurra o split para uma subquery interna e agrupa por fora — cada
-  entrada do `select` é re-mapeada para a coluna reservada que a subquery projetou:
+- **surrealdb (ORM):** `aggregate({ split })` — UNWIND + GROUP. The server evaluates `SPLIT` before
+  `GROUP`, so `SELECT … SPLIT f GROUP ALL` is an error and `math::*` over the group cannot reach the
+  element. `aggregate` pushes the split into an inner subquery and groups on the outside — each
+  `select` entry is re-mapped to the reserved column the subquery projected:
 
   ```ts
   const perCart = await client.carts.aggregate({
@@ -230,84 +230,84 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   //       FROM cart SPLIT lines) GROUP BY name
   ```
 
-  `where` filtra as linhas **pai** (o filtro por elemento continua sendo receita `surql` com
-  `array::flatten` — `SPLIT <expr>` é avaliado por elemento, live 3.3.4). Acaba com o
-  `findMany({ split })` + agregação em JS, que puxava o histórico inteiro para o processo.
-- **surrealdb (ORM):** marcadores de **array** em `data`, um por forma live-verificada de escrita
-  server-side: `{ append: v }` → `SET f += $p` (**append sem dedup**), `{ remove: v }` →
-  `SET f -= $p` (remove **todas** as ocorrências), `{ union: arr }` → `SET f = array::union(f, $p)`
-  (a **única** forma que deduplica) e `{ at: { index, value } }` → `SET f[n] = $p`. Alvo validado
-  contra o schema (família `array`/`set`, nunca `id`) e recusa em payload de create, como os
-  marcadores numéricos. Como cada marcador é UMA escrita do servidor, o índice UNIQUE do array
-  inteiro continua correto (é o servidor que troca a chave).
-- **surrealdb (ORM):** **alvo UNIQUE composto** — um `where` que cobre *todos* os campos de um
-  índice UNIQUE composto é um alvo válido de `findUnique`/`upsert`/`upsertDelta`. É o shape do
-  multi-tenant (`email` único *dentro* do tenant), que antes falhava com
-  `"name" is not unique. Available unique targets: id`. Um `where` **parcial** continua recusado
-  (casa várias linhas) e a mensagem agora nomeia o grupo composto e mostra como usá-lo.
+  `where` filters the **parent** rows (per-element filtering remains a `surql` recipe with
+  `array::flatten` — `SPLIT <expr>` is evaluated per element, live 3.3.4). This ends the
+  `findMany({ split })` + JS aggregation, which pulled the entire history into the process.
+- **surrealdb (ORM):** **array** markers in `data`, one per live-verified form of server-side
+  write: `{ append: v }` → `SET f += $p` (**append without dedup**), `{ remove: v }` →
+  `SET f -= $p` (remove **all** occurrences), `{ union: arr }` → `SET f = array::union(f, $p)`
+  (the **only** form that deduplicates) and `{ at: { index, value } }` → `SET f[n] = $p`. Target validated
+  against the schema (family `array`/`set`, never `id`) and rejected in create payloads, like the
+  numeric markers. Because each marker is ONE server-side write, the UNIQUE index of the whole
+  array stays correct (the server swaps the key).
+- **surrealdb (ORM):** **composite UNIQUE target** — a `where` covering *all* fields of a composite
+  UNIQUE index is a valid target for `findUnique`/`upsert`/`upsertDelta`. This is the shape of
+  multi-tenant (`email` unique *within* the tenant), which previously failed with
+  `"name" is not unique. Available unique targets: id`. A **partial** `where` remains refused
+  (it matches multiple rows) and the message now names the composite group and shows how to use it.
 - **surrealdb (ORM):** `plugins/hard-delete` (`@better-schemic/surrealdb/plugins/hard-delete`) —
-  mantém `delete`/`deleteMany` como DELETE **físico** e marca a intenção destrutiva na operação
-  (`meta.hardDelete`, com `reason` opcional), para as tabelas em que um tombstone é a forma errada
-  (estado de máquina reescrito a cada evento, chave de sessão). Aceita `tables` para escopo, e o
-  `soft-delete` ganhou o mesmo `tables` — os dois plugins compõem num schema misto.
-- **surrealdb (ORM):** `client.fn.expr` — a **forma fragmento** do catálogo de `defineFunction`:
-  `fn.expr.minhaFuncao({ arg })`/`fn.expr.call("fn::jw", […])` devolvem um `Surql` em vez de executar,
-  então a função do próprio repo entra num `where`/`select`/`orderBy` **tipado** (binds fundidos no
-  statement que a compõe) em vez de um `$query` montado à mão.
-- **surrealdb:** `search::rrf` no catálogo `fn.ts` (a metade RRF de uma busca híbrida, cuja outra
-  metade já é `where: { name: { matchesFullText } }`), com amostra live no sweep do catálogo —
-  `k` é `int` (o servidor recusa float).
+  keeps `delete`/`deleteMany` as a **physical** DELETE and marks the destructive intent on the operation
+  (`meta.hardDelete`, with optional `reason`), for tables where a tombstone is the wrong form
+  (machine state rewritten on every event, session key). Accepts `tables` for scoping, and
+  `soft-delete` gained the same `tables` — the two plugins compose in a mixed schema.
+- **surrealdb (ORM):** `client.fn.expr` — the **fragment form** of the `defineFunction` catalog:
+  `fn.expr.minhaFuncao({ arg })`/`fn.expr.call("fn::jw", […])` return a `Surql` instead of executing,
+  so the repo's own function enters a typed `where`/`select`/`orderBy` (binds fused into the
+  composing statement) instead of a hand-built `$query`.
+- **surrealdb:** `search::rrf` in the `fn.ts` catalog (the RRF half of a hybrid search, whose other
+  half is already `where: { name: { matchesFullText } }`), with a live sample in the catalog sweep —
+  `k` is `int` (the server rejects float).
 
 ### Fixed
-- **surrealdb (ORM):** `aggregate` **não recusa mais o alias que ele mesmo criou no `groupBy`**. A
-  checagem guardava o *caminho* do select em vez da *chave de saída*, então
-  `select: { customerName: "customer.name" }` + `groupBy: ["customerName"]` era recusado por um erro
-  que mandava adicionar `customerName: "customerName"` (campo inexistente) — e a checagem só era
-  pulada por acidente quando o select continha alguma expressão. O servidor aceita as duas
-  grafias da chave de grupo (o output key do alias **ou** o path projetado — live 3.3.4), e o
-  compilador agora aceita as duas.
-- **surrealdb (ORM):** `aggregate` **recusa o operando que o servidor somaria em silêncio**.
-  `math::*` é number-only e nunca falha no entrada errada: `0` para campo inexistente, para
-  `string` e para link/array; `{}` para `median(string)`; `null` para `min`/`max` de string, datetime
-  ou bool (tudo live-probed em 3.3.4). O `aggregate` valida o operando contra o schema e aponta a
-  forma que funciona (`array::min(array::group(…))`, `split`, ou `{ collect }` + redução em JS) —
-  um relatório com `{ sum: "x.y" }` errado parou de exibir R$ 0,00 sem nenhum sinal. Continua
-  permissivo onde o schema não tem opinião (entrada schemaless, tabela não-SCHEMAFULL, objeto
-  flexível, operando de elemento no `split`).
-- **surrealdb (ORM):** `split` deixa de exigir que o campo split esteja no `select`. O servidor
-  recusa `SELECT name FROM t SPLIT products` (`Missing split idiom "products" in statement
-  selection`) mesmo quando as linhas estão certas; um **alias** satisfaz o idioma, então o compiler
-  passa a injetar a coluna reservada `_split_<field>` quando o `select` não traz o campo, e o decoder
-  a descarta — `data` continua sendo exatamente a seleção e o `include` deixa de colidir com um
-  `select: { field: true }` que o chamador não precisou escrever.
-- **surrealdb (ORM):** `$raw` **não descarta statements em silêncio**. Ele resolve o primeiro
-  resultado, então um script com `LET $a = 1; SELECT …` devolvia `null` sem erro nenhum. Um script
-  com N statements agora é recusado com `ValidationError` apontando o `$query`, que devolve a tupla
-  por statement (igual ao `db.query()`). Um `;` dentro de literal de string não conta como statement.
-- **surrealdb (ORM):** o tiebreaker do `cursor` (último campo do `orderBy` precisa ser único) sai
-  do runtime para o **tipo**: `.index(name, [field], { unique: true })` registra o campo no terceiro
-  parâmetro de `TableDef`, e `CursorArgs.orderBy` só aceita ordenações cujo último campo ∈ `id ∪
-  únicos`. Índice composto não conta (os campos são únicos só em conjunto) e o guard runtime
-  (`CursorTiebreakerRequired`) continua como rede para índice declarado fora da cadeia de builders.
+- **surrealdb (ORM):** `aggregate` **no longer rejects the alias it created itself in `groupBy`**. The
+  check was holding the select's *path* instead of the *output key*, so
+  `select: { customerName: "customer.name" }` + `groupBy: ["customerName"]` was rejected by an error
+  telling you to add `customerName: "customerName"` (a non-existent field) — and the check was only
+  skipped by accident when the select contained an expression. The server accepts both
+  spellings of the group key (the alias's output key **or** the projected path — live 3.3.4), and the
+  compiler now accepts both.
+- **surrealdb (ORM):** `aggregate` **rejects the operand the server would silently sum**.
+  `math::*` is number-only and never fails on wrong input: `0` for a non-existent field, for
+  `string` and for link/array; `{}` for `median(string)`; `null` for `min`/`max` of string, datetime
+  or bool (all live-probed on 3.3.4). `aggregate` validates the operand against the schema and points to the
+  form that works (`array::min(array::group(…))`, `split`, or `{ collect }` + JS reduction) —
+  a report with a wrong `{ sum: "x.y" }` stopped displaying R$ 0,00 with no warning. It remains
+  permissive where the schema has no opinion (schemaless input, non-SCHEMAFULL table, flexible
+  object, element operand in `split`).
+- **surrealdb (ORM):** `split` no longer requires the split field to be in `select`. The server
+  rejects `SELECT name FROM t SPLIT products` (`Missing split idiom "products" in statement
+  selection`) even when the rows are correct; an **alias** satisfies the idiom, so the compiler
+  now injects the reserved column `_split_<field>` when `select` does not include the field, and the decoder
+  discards it — `data` remains exactly the selection and `include` no longer collides with a
+  `select: { field: true }` the caller did not need to write.
+- **surrealdb (ORM):** `$raw` **no longer silently discards statements**. It resolved the first
+  result, so a script with `LET $a = 1; SELECT …` returned `null` with no error. A script
+  with N statements is now rejected with a `ValidationError` pointing to `$query`, which returns the tuple
+  per statement (like `db.query()`). A `;` inside a string literal does not count as a statement.
+- **surrealdb (ORM):** the `cursor` tiebreaker (the last `orderBy` field must be unique) moves
+  from the runtime to the **type**: `.index(name, [field], { unique: true })` registers the field in the third
+  parameter of `TableDef`, and `CursorArgs.orderBy` only accepts orderings whose last field ∈ `id ∪
+  uniques`. A composite index does not count (the fields are unique only together) and the runtime guard
+  (`CursorTiebreakerRequired`) remains a safety net for indexes declared outside the builder chain.
 
 ### Changed
-- **surrealdb (ORM):** o compilador de `aggregate` foi decomposto em `aggregate.ts` (count/exists/`aggregate`),
-  `aggregate-entries.ts` (o loop de `select`, os operadores e as guardas compartilhadas),
-  `aggregate-operand.ts` (a política do operando) e `aggregate-split.ts` (o lowering UNWIND+GROUP).
-  Havia DOIS loops de dispatch de `select` — um em cada lowering — que precisavam ser editados em
-  par; agora há UM, parametrizado pelo `ColumnResolver` que diz como um caminho vira coluna. Um
-  agregador novo, ou uma mudança na tabela de operadores, não pode mais entrar só numa metade e
-  divergir da outra em silêncio.
-- **surrealdb (ORM):** os marcadores de escrita e o operador SurrealQL de cada um (`AdjustmentLowering`)
-  foram para `types/write.ts`, ao lado dos próprios marcadores, e o lowering saiu de
-  `compiler/write-shared.ts` para `compiler/adjustment.ts`.
-- **surrealdb (ORM):** `client.fn` constrói as duas superfícies (execução e fragmento) num único passo
-  sobre o catálogo, com o mapeamento de argumentos nomeados em um helper só.
-- **surrealdb (ORM):** a análise de projeção (`projectionForm`/`projectedInPlace`/…) saiu de
-  `compiler/keyset.ts` para `compiler/projection.ts`, agora compartilhada entre o keyset do cursor e
-  o idioma automático do `split` — uma só implementação, para os dois não poderem divergir.
-- **surrealdb (ORM):** `ProjectionSpec` ganhou `hidden`: as colunas reservadas que o read anexa
-  (`_split_<field>`) são decodificadas como leaf e removidas do resultado.
+- **surrealdb (ORM):** the `aggregate` compiler was decomposed into `aggregate.ts` (count/exists/`aggregate`),
+  `aggregate-entries.ts` (the `select` loop, the operators and the shared guards),
+  `aggregate-operand.ts` (the operand policy) and `aggregate-split.ts` (the UNWIND+GROUP lowering).
+  There were TWO `select` dispatch loops — one in each lowering — that had to be edited in
+  parallel; now there is ONE, parameterized by the `ColumnResolver` that says how a path becomes a column. A
+  new aggregator, or a change to the operator table, can no longer land in only one half and
+  silently diverge from the other.
+- **surrealdb (ORM):** the write markers and each one's SurrealQL operator (`AdjustmentLowering`)
+  moved to `types/write.ts`, alongside the markers themselves, and the lowering moved out of
+  `compiler/write-shared.ts` to `compiler/adjustment.ts`.
+- **surrealdb (ORM):** `client.fn` builds both surfaces (execution and fragment) in a single pass
+  over the catalog, with named-argument mapping in a single helper.
+- **surrealdb (ORM):** projection analysis (`projectionForm`/`projectedInPlace`/…) moved out of
+  `compiler/keyset.ts` to `compiler/projection.ts`, now shared between the cursor keyset and
+  the automatic `split` idiom — one implementation, so the two cannot diverge.
+- **surrealdb (ORM):** `ProjectionSpec` gained `hidden`: reserved columns the read appends
+  (`_split_<field>`) are decoded as leaves and removed from the result.
 
 ## [0.1.0-alpha.14] - 2026-10-14
 
@@ -829,10 +829,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   `_count` → numbers). New modules: `orm/compiler/include/*`, `orm/types/{include,relations}.ts`;
   hydration in `orm/decode.ts`. Live: `test/live/orm-relations.test.ts` (13 e2e).
 - **surrealdb:** relation/graph hardening (same unreleased M3):
-  - **`where` relacional em writes** — `updateMany`/`deleteMany`/`unrelateMany` compile the same
+  - **relational `where` in writes** — `updateMany`/`deleteMany`/`unrelateMany` compile the same
     relational lowering as reads (the schema index now flows into the write compilers); before, the
     type accepted it and the runtime rejected with `ValidationError`.
-  - **link projetado sem `id`** — the compiler always projects a hidden presence leaf (`<link>.id`),
+  - **projected link without `id`** — the compiler always projects a hidden presence leaf (`<link>.id`),
     so an absent link decodes to `null` (the declared contract) instead of `{ id: undefined, … }`;
     nested `select` objects/aliases now remount at the correct path (they were duplicated).
   - **fail-fast guards** — `direction: "both"` + `edge`+`target` (`?.*` is a parse error) and an
@@ -863,7 +863,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Changes
   gains `transaction` defaults.
 - **surrealdb:** the `/orm` **live surface (M4.2)** — `client.users.live(args?, handler?)`,
   `client.live(table, …)`, `client.liveOf(uuid, …)` and `client.kill(uuid)`: the statement is compiled
-  by the ORM (`LIVE SELECT [DIFF] <projeção> FROM t [WHERE …] [FETCH …]` — binds preserved, `fetch`
+  by the ORM (`LIVE SELECT [DIFF] <projection> FROM t [WHERE …] [FETCH …]` — binds preserved, `fetch`
   reuses the link-fetch lowering so fetched links decode through the target codec) and notifications
   come from the SDK's `liveOf(uuid)` stream, decoded with a discriminated `action` union
   (`CREATE`/`UPDATE`/`DELETE`/`KILLED` + the client-side `RECONNECTED`), fanned out to the handler and

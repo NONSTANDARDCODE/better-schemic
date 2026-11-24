@@ -107,7 +107,7 @@ export async function createOrm<
     return buildClient(conn, options.schema, true, options) as unknown as Client<S, Surreal, P>
   } catch (error) {
     await conn.close().catch(() => {
-      /* close é best-effort */
+      /* close is best-effort */
     })
     throw normalizeError(error, { operation: "connect" })
   }

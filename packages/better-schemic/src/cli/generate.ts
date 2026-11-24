@@ -98,7 +98,7 @@ export async function generateWith(
   const installVia = aotSettings?.installVia ?? "orm"
   const installedIn: string[] = []
 
-  // `installVia: 'orm'` makes the generated façade install the validators on import, so the app
+  // `installVia: 'orm'` makes the generated facade install the validators on import, so the app
   // needs no manual bootstrap import in its entry point or test setup.
   if (
     aot &&

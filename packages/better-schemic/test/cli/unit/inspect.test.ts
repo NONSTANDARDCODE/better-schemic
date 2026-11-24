@@ -10,7 +10,7 @@ import { addressesOfKind, addressOf, pickSource, requireKind } from "../../../sr
 const fakeRegistry = (names: string[]): KindRegistry =>
   ({ names: (): string[] => names }) as unknown as KindRegistry
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- fake engine bivariante para o erasure de kinds.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- bivariant fake engine for kind erasure.
 type FakeEngine = KindEngine<any, any>
 
 // A minimal fake engine: emit joins a `ddl` field; owner/parent read `table`/`parent` fields off the

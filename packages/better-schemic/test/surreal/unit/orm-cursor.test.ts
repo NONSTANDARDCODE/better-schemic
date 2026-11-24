@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-restricted-types, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. Fixtures assert values whose presence the test guarantees. Fixtures use object to probe schema typing. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-restricted-types, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. Fixtures assert values whose presence the test guarantees. Fixtures use object to probe schema typing. test callbacks: types inferred by the assertion helpers; annotating each one would add noise with no value. */
 // M1.6 — `cursor` (keyset pages): the ORDER BY idiom needs every ordered field in the projection,
 // so the compiler appends reserved `_keyset_<n>` aliases for the fields the user's select/omit does
 // not return, reads the cursors from them and strips them from `data`. Offline. `paginate` lives in
@@ -224,7 +224,7 @@ describe("cursor — compilation", () => {
     )
     expect(nested.keyset).toEqual([{ field: "address.city" }, { field: "id", alias: "_keyset_1" }])
     // A dotted `true` key and a same-path alias carry the path too.
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
     for (const select of [{ "address.city": true }, { "address.city": "address.city" }]) {
       const flat = compileCursor(placeMeta, { limit: 1, select, orderBy: order }, createBinds())
       expect(flat.keyset[0]).toEqual({ field: "address.city" })

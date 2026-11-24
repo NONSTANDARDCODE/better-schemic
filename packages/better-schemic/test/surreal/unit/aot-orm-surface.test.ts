@@ -1,4 +1,4 @@
-// Bun AOT — ORM-side surfaces: client cache, lazy resolver, and the generated static façade.
+// Bun AOT — ORM-side surfaces: client cache, lazy resolver, and the generated static facade.
 import { describe, expect, test } from "bun:test"
 
 import { renderOrmSurface } from "../../../src/cli/generate-orm"

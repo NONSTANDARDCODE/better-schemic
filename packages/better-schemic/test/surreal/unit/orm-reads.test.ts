@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-non-null-assertion, unicorn/consistent-function-scoping, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unused-vars, @typescript-eslint/await-thenable, @typescript-eslint/no-unnecessary-type-parameters, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized SQL and stays as authored. Literal values are intentional test data. Reads return thenables whose declared type is not Promise, so call await before asserting on calls[0]. Defensive checks, non-null assertions and fixture values document test intent; helpers stay colocated with their tests. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-non-null-assertion, unicorn/consistent-function-scoping, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unused-vars, @typescript-eslint/await-thenable, @typescript-eslint/no-unnecessary-type-parameters, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized SQL and stays as authored. Literal values are intentional test data. Reads return thenables whose declared type is not Promise, so call await before asserting on calls[0]. Defensive checks, non-null assertions and fixture values document test intent; helpers stay colocated with their tests. test callbacks: types inferred by the assertion helpers; annotating each one would add noise with no value. */
 // M1.2 — the read compiler and the delegate: golden args -> exact `{ sql, vars }`, projection
 // decode (full/omit/select/value/), lazy execution and the teaching guards. Offline.
 import { describe, expect, test } from "bun:test"
@@ -57,7 +57,7 @@ function stable({ sql, vars }: { sql: string; vars: Record<string, unknown> }) {
     return `$${alias}`
   })
   const outVars: Record<string, unknown> = {}
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
   for (const [name, value] of Object.entries(vars)) outVars[aliases.get(name) ?? name] = value
   return { sql: text, vars: outVars }
 }
@@ -1035,7 +1035,7 @@ describe("delegate — aggregate aliases and operand guards", () => {
     const client = orm(conn, { schema: { users: User } })
     // Live 3.3.4: math::min/max(string | datetime | bool) -> null, with no error — the same silent
     // lie as sum(0). The teaching error points at array::min(array::group(…)).
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
     for (const [args, answer] of [
       [{ select: { oldest: { max: "name" } } }, "null"],
       [{ select: { earliest: { min: "at" } } }, "null"],

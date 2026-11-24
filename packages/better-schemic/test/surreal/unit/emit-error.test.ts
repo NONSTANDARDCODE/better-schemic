@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-unsafe-call, unicorn/consistent-function-scoping, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally unused type-probe values. Mock fixtures pass untyped values to exercise runtime SQL emission. Helpers stay colocated with the tests that use them. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-unsafe-call, unicorn/consistent-function-scoping, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally unused type-probe values. Mock fixtures pass untyped values to exercise runtime SQL emission. Helpers stay colocated with the tests that use them. test callbacks: types inferred by the assertion helpers; annotating each one would add noise with no value. */
 import { describe, expect, test } from "bun:test"
 
 import { surql } from "../../../src/surreal"
@@ -60,7 +60,7 @@ describe("incomplete definitions", () => {
   const noTypeNs = () => defineAccess("account").onNamespace() as unknown as StandaloneDef
 
   test("an access with no scope + no TYPE names the next call to make", () => {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
     for (const go of [() => emitDefStatement(unscoped()), () => fromStandalone(unscoped())]) {
       expect(go).toThrow(/access "account" is incomplete/u)
       expect(go).toThrow(/\.onDatabase\(\) or \.onNamespace\(\)/u)
@@ -91,7 +91,7 @@ describe("incomplete definitions", () => {
 
   test("an unknown def kind is named, not mis-dispatched into a sibling emitter", () => {
     const bogus = { kind: "widget", name: "w" } as unknown as StandaloneDef
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
     for (const go of [() => emitDefStatement(bogus), () => fromStandalone(bogus)]) {
       expect(go).toThrow(/definition "w" has an unknown kind "widget"/u)
       expect(go).toThrow(/event, access, analyzer, param, function/u)

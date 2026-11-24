@@ -746,7 +746,7 @@ the same type (e.g. `tenant_id`) is not a conflict. For helpers over an unresolv
 `.useUnchecked(preset)` (skips only the collision check, keeps `Name`/`S`) instead of casting to
 `any`.
 
-For the client façade, generate STATIC getters from the schema so the AOT compiler sees them in the
+For the client facade, generate STATIC getters from the schema so the AOT compiler sees them in the
 source (the runtime `Object.defineProperty` delegate loop is a slow path):
 
 ```sh
@@ -799,7 +799,7 @@ export default defineConfig({
 sc generate          # runs both; --only orm|aot, --watch, --config available
 ```
 
-With `generators.aot.installVia: "orm"` (the default) the generated ORM façade imports the AOT
+With `generators.aot.installVia: "orm"` (the default) the generated ORM facade imports the AOT
 bootstrap, so there is no manual bootstrap import in the entry point or test setup. Aliases declared
 in `resolve.alias` must also appear in the app's tsconfig `paths` for zod-compiler's own loader;
 `sc compile` says so if it hits one it cannot resolve.

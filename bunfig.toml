@@ -26,7 +26,7 @@ plugins = [
 ]
 
 [lint.rules]
-# REGRAS DESATIVADAS (mantidas no arquivo, todas `off`)
+# DISABLED RULES (kept in the file, all `off`)
 "@typescript-eslint/explicit-function-return-type" = "error"
 "@typescript-eslint/explicit-module-boundary-types" = "error"
 "@typescript-eslint/no-extraneous-class" = "error"
@@ -81,9 +81,9 @@ sort-imports = "off"
 "unicorn/no-array-callback-reference" = "error"
 "unicorn/no-array-for-each" = "off"
 "unicorn/no-array-reduce" = "off"
-"unicorn/no-null" = "off" # null é contrato: payload da Meta, SurrealDB e JSON opcional
+"unicorn/no-null" = "off" # null is part of the contract: Meta, SurrealDB, and optional JSON payloads
 
-# REGRAS DE MAIOR IMPACTO — estrutura, arquitetura e refatorações amplas
+# HIGHEST-IMPACT RULES — structure, architecture, and broad refactors
 no-param-reassign = "error"
 "prettier/prettier" = ["error", { semi = false, tabWidth = 2, useTabs = false, printWidth = 100 }]
 "import/no-unused-modules" = "error"
@@ -114,7 +114,7 @@ max-depth = ["error", 3]
 "@typescript-eslint/naming-convention" = ["error", { selector = ["function"], format = ["camelCase", "PascalCase"] }]
 "@typescript-eslint/prefer-readonly" = "error"
 
-# TIPAGEM ESTRITA — mudanças de tipos e contratos
+# STRICT TYPING — type and contract changes
 "@typescript-eslint/no-explicit-any" = "error"
 "@typescript-eslint/no-unused-vars" = ["error", { argsIgnorePattern = "^_", varsIgnorePattern = "^_", ignoreRestSiblings = true }]
 "@typescript-eslint/no-unsafe-return" = "error"
@@ -157,7 +157,7 @@ max-depth = ["error", 3]
 "@typescript-eslint/no-inferrable-types" = "error"
 "@typescript-eslint/prefer-optional-chain" = "error"
 
-# ASYNC / PROMISES — fluxo assíncrono e tratamento de promises
+# ASYNC / PROMISES — async flow and promise handling
 "@typescript-eslint/require-await" = "error"
 "@typescript-eslint/await-thenable" = "error"
 "@typescript-eslint/no-floating-promises" = "error"
@@ -171,7 +171,7 @@ no-async-promise-executor = "error"
 "unicorn/no-useless-promise-resolve-reject" = "error"
 "unicorn/prefer-top-level-await" = "error"
 
-# CORREÇÃO E SEGURANÇA — bugs, condições inválidas e construções perigosas
+# CORRECTNESS AND SAFETY — bugs, invalid conditions, and dangerous constructs
 no-prototype-builtins = "error"
 no-template-curly-in-string = "error"
 no-self-compare = "error"
@@ -187,7 +187,7 @@ curly = ["error", "multi-or-nest"]
 "@typescript-eslint/no-require-imports" = "error"
 "@typescript-eslint/no-this-alias" = "error"
 "@typescript-eslint/no-wrapper-object-types" = "error"
-"@typescript-eslint/no-restricted-types" = ["error", { types = { object = "Prefira um tipo concreto ou Record<string, unknown> (AOT não infere layout de `object`)" } }]
+"@typescript-eslint/no-restricted-types" = ["error", { types = { object = "Prefer a concrete type or Record<string, unknown> (AOT does not infer an `object` layout)" } }]
 no-var = "error"
 prefer-const = "error"
 for-direction = "error"
@@ -242,7 +242,7 @@ no-empty-function = "error"
 no-unreachable-loop = "error"
 "@typescript-eslint/no-import-type-side-effects" = "error"
 
-# MODERNIZAÇÃO — preferência por APIs e padrões alternativos
+# MODERNIZATION — preference for alternative APIs and patterns
 "unicorn/prefer-regexp-test" = "error"
 "unicorn/prefer-code-point" = "error"
 "unicorn/prefer-number-properties" = "error"
@@ -353,7 +353,7 @@ no-unreachable-loop = "error"
 "unicorn/text-encoding-identifier-case" = "error"
 "unicorn/throw-new-error" = "error"
 
-# CONVENÇÕES E ESTILO — ajustes pontuais de consistência
+# CONVENTIONS AND STYLE — small consistency tweaks
 require-unicode-regexp = "error"
 prefer-regex-literals = "error"
 "@typescript-eslint/ban-ts-comment" = "error"

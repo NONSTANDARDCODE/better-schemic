@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-return -- `AnyKindEngine` é a erasure bivariante; `lower`/`introspect` devolvem PortableObject[] */
+/* eslint-disable @typescript-eslint/no-unsafe-return -- `AnyKindEngine` is a bivariant erasure; `lower`/`introspect` return PortableObject[] */
 // The GENERIC migration spine over a {@link KindRegistry} — core's kind-blind orchestration. It
 // classifies each portable object as add/change/remove, ORDERS them across kinds by a dependency
 // graph, and emits up/down DDL + the display {@link Diff}. It never names a kind: every kind-specific

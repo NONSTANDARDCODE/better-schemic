@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/explicit-function-return-type, @typescript-eslint/explicit-module-boundary-types -- a API de autoria `s.*` espelha os builders genéricos do Zod (safeDecode, coerce, codec, enum, record...): anotar cada método fixaria tipos inferidos que já fluem pela inferência do Zod, tornando o contrato público mais frágil e ilegível. */
+/* eslint-disable @typescript-eslint/explicit-function-return-type, @typescript-eslint/explicit-module-boundary-types -- the `s.*` authoring API mirrors Zod's generic builders (safeDecode, coerce, codec, enum, record...): annotating every method would pin inferred types that already flow through Zod's inference, making the public contract more fragile and harder to read. */
 // Type-(erased at runtime, so the authoring index stays side-effect-free): a `DEFINE ACCESS` key
 // may be an env()/secret() reference instead of an inline literal.
 
@@ -351,12 +351,12 @@ export abstract class SFieldBase<
   }
   /** Does this field accept `undefined`? (Zod reflection.) */
   isOptional(): boolean {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- API legada preservada por compatibilidade; trocar mudaria o contrato
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- Legacy API kept for compatibility; changing it would alter the contract
     return this.schema.isOptional()
   }
   /** Does this field accept `null`? (Zod reflection.) */
   isNullable(): boolean {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- API legada preservada por compatibilidade; trocar mudaria o contrato
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- Legacy API kept for compatibility; changing it would alter the contract
     return this.schema.isNullable()
   }
   /** Read back the description set via {@link describe} / {@link meta}. */
@@ -369,13 +369,13 @@ export abstract class SFieldBase<
   }
   /** Register the wrapped schema in a Zod registry for metadata interop; returns the field. */
   register(...args: Parameters<S["register"]>): this {
-    // eslint-disable-next-line @typescript-eslint/unbound-method -- Reflect.apply vincula explicitamente o `this` ao schema; o método é emprestado de propósito
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- Reflect.apply binds `this` to the schema; the method reference is intentional
     Reflect.apply(this.schema.register, this.schema, args)
     return this
   }
   /** Zod's `.spa` alias for {@link safeParseAsync} (drop-in). */
   spa(value: unknown) {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- API legada preservada por compatibilidade; trocar mudaria o contrato
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- Legacy API kept for compatibility; changing it would alter the contract
     return this.safeParseAsync(value)
   }
 
@@ -441,7 +441,7 @@ export abstract class SFieldBase<
   overwrite(fn: (x: z.output<S>) => z.output<S>): this {
     return this.rebuild(this.schema.overwrite(fn), this.native) as unknown as this
   }
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- parâmetro de tipo faz parte da API pública/AOT
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- the type parameter is part of the public API/AOT
   brand<B extends PropertyKey = PropertyKey>(value?: B): this {
     return this.rebuild(this.schema.brand(value), this.native) as unknown as this
   }
@@ -1412,7 +1412,7 @@ function stringIdCodec<T extends string, V extends RecordIdValue>(
  * LAZY table ref defers construction via `z.lazy` (inferField unwraps it), so the thunk runs
  * post-module-eval; names- entries keep the schema + its registry entry immediate.
  */
-// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- parâmetro de tipo faz parte da API pública/AOT
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- the type parameter is part of the public API/AOT
 function recordIdBaseSchema<T extends string, V extends RecordIdValue>(
   entries: readonly (LazyTableRef | T)[],
   valueType: undefined | z.ZodType<V>,
@@ -1833,7 +1833,7 @@ export class SObjectField<S extends Shape = Shape, Flags extends string = never>
   }
 
   /** Type unknown keys with a schema (field OR raw Zod) — an `unknown` catchall emits `FLEXIBLE`. */
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- parâmetro de tipo faz parte da API pública/AOT
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- the type parameter is part of the public API/AOT
   catchall<C extends AnyField | z.ZodType>(schema: C): SObjectField<S, Flags> {
     return this.wrap(this.schema.catchall(toZod(schema)), this.sourceFields)
   }
@@ -1885,7 +1885,7 @@ export class SEnumField<
  * arrow in the `s` literal) so `RecordRefName<T>`'s inference never resolves through the
  * object literal it's inferrs it for.
  */
-// eslint-disable-next-line @typescript-eslint/no-deprecated -- API legada preservada por compatibilidade; trocar mudaria o contrato
+// eslint-disable-next-line @typescript-eslint/no-deprecated -- Legacy API kept for compatibility; changing it would alter the contract
 function recordIdField<T extends (() => AnyTable) | AnyTable | string>(
   table?: readonly T[] | T,
 ): RecordIdField<RecordRefName<T>> {
@@ -1896,7 +1896,7 @@ function recordIdField<T extends (() => AnyTable) | AnyTable | string>(
   const targets = rawTargets as readonly ((() => unknown) | string | { readonly name: string })[]
   return new RecordIdField<RecordRefName<T>>(
     targets.map((t) => (typeof t === "string" || typeof t === "function" ? t : t.name)) as (
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- API legada preservada por compatibilidade; trocar mudaria o contrato
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- Legacy API kept for compatibility; changing it would alter the contract
       (() => AnyTable) | RecordRefName<T>
     )[],
   )
@@ -1934,7 +1934,7 @@ export const s = {
   codec: <A extends z.ZodType, B extends z.ZodType>(
     wire: A,
     app: B,
-    // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
+    // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- the numeric literal is part of the tool's contract/format (port, timeout, or offset)
     params: Parameters<typeof z.codec<A, B>>[2],
   ) => new SField(z.codec(wire, app, params)),
   /**
@@ -1948,7 +1948,7 @@ export const s = {
     number: () => new SField(z.coerce.number()),
     string: () => new SField(z.coerce.string()),
   },
-  // eslint-disable-next-line @typescript-eslint/no-deprecated -- API legada preservada por compatibilidade; trocar mudaria o contrato
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- Legacy API kept for compatibility; changing it would alter the contract
   cuid: (params?: Parameters<typeof z.cuid>[0]) => formatField(z.cuid(params), "cuid"),
   cuid2: (params?: Parameters<typeof z.cuid2>[0]) => formatField(z.cuid2(params), "cuid2"),
   custom: <T>(check?: (val: unknown) => boolean) => noDdl(new SField(z.custom<T>(check))),
@@ -2093,7 +2093,7 @@ export const s = {
   nanoid: (params?: Parameters<typeof z.nanoid>[0]) => formatField(z.nanoid(params), "nanoid"),
   /** A native TS enum — string or numeric (numeric reverse-mappings filter them out). */
   nativeEnum: <const T extends Record<string, number | string>>(entries: T) =>
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- API legada preservada por compatibilidade; trocar mudaria o contrato
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- Legacy API kept for compatibility; changing it would alter the contract
     new SField(z.nativeEnum(entries)),
   never: () => noDdl(new SField(z.never())),
   null: () => new SField(z.null()),
@@ -2145,7 +2145,7 @@ export const s = {
   /** Preprocess the input before validation (Zod `z.preprocess`) — app-side , no DDL constraint. */
   preprocess: <V extends AnyField | z.ZodType>(fn: (arg: unknown) => unknown, schema: V) =>
     new SField(z.preprocess(fn, toZod(schema) as SchemaOf<V>)),
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- parâmetro de tipo faz parte da API pública/AOT
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- the type parameter is part of the public API/AOT
   promise: <F extends AnyField | z.ZodType>(schema: F) =>
     noDdl(new SField(z.promise(toZod(schema)))),
   /**
@@ -2986,7 +2986,7 @@ export type PresetIndex = {
  * Configurable presets are plain functions returning one:
  * `const tenant = (field: string) => table.preset({ columns: { [field]: … }, permissions: … })`.
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- `{}` é o default neutro: `Record<string, never>` tem index signature e quebra a inferência de `TablePreset<Cols>` nos presets.
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- `{}` is the neutral default: `Record<string, never>` has an index signature and breaks `TablePreset<Cols>` inference in presets.
 export type TablePreset<Cols extends Shape = {}> = {
   /** Columns the preset adds — typed-merged into the table. A name clash with the table or another
    * preset is a COMPILE error (no silent clobber). */
@@ -3005,7 +3005,7 @@ export type TablePreset<Cols extends Shape = {}> = {
 }
 
 /** A preset's contributed columns (its `Cols`). */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- mesmo default neutro de `TablePreset`.
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- same neutral default as `TablePreset`.
 export type PresetCols<P> = P extends TablePreset<infer C> ? C : {}
 /** Public alias (the long form reads better in app type annotations). */
 export type PresetColumns<P> = PresetCols<P>
@@ -3612,7 +3612,7 @@ export class TableDef<
   }
   /** `.use()` with an explicit result shape — removes the final `as unknown as TableDef<…>` from
    * a helper that already knows the post-preset shape. */
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- parâmetro de tipo faz parte da API pública/AOT
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- the type parameter is part of the public API/AOT
   useAs<R extends Shape, _P extends TablePreset>(preset: _P): TableDef<Name, R> {
     return this.useUnchecked(preset) as unknown as TableDef<Name, R>
   }
@@ -4160,13 +4160,13 @@ table.preset = <Cols extends Shape = {}>(preset: TablePreset<Cols>): TablePreset
  * `Unique` pinns it to `never`: a reference carries no unique-field union, and pinning it keeps
  * `RecordRefName<T>`'s inference from resolving through this type's own shape.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- any necessário na fronteira de internals Zod/SDK
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- any needed at the Zod/SDK internals boundary
 export type AnyTableRef = TableDef<string, any>
 /** @deprecated internal alias — use {@link AnyTableRef} (the public name does not collide with
  * `AnyTable` from `better-schemic/core`). */
 type AnyTable = AnyTableRef
 /** A single relation endpoint: a table def, a SurrealDB `Table` instance, or a bare table name. */
-// eslint-disable-next-line @typescript-eslint/no-deprecated -- API legada preservada por compatibilidade; trocar mudaria o contrato
+// eslint-disable-next-line @typescript-eslint/no-deprecated -- Legacy API kept for compatibility; changing it would alter the contract
 type TableLike = AnyTable | string | Table
 /** A relation endpoint reference — one table, or an array (a `|`-union of `in`/`out` tables); mix freely. */
 type TableRef = readonly TableLike[] | TableLike
@@ -4327,10 +4327,10 @@ export class RelationDef<
   }
   /** The endpoint {@link TableDef}s for a direction — the def objects handed to `.from()`/`.to()`
    *  (bare-name endpoints omitt them). The graph query builder uses these to build target-node refs. */
-  // eslint-disable-next-line @typescript-eslint/no-deprecated -- API legada preservada por compatibilidade; trocar mudaria o contrato
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- Legacy API kept for compatibility; changing it would alter the contract
   endpointDefs(dir: "from" | "to"): AnyTable[] {
     const refs = dir === "to" ? this.toRefs : this.fromRefs
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- API legada preservada por compatibilidade; trocar mudaria o contrato
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- Legacy API kept for compatibility; changing it would alter the contract
     return refs.filter((r): r is AnyTable => r instanceof TableDef)
   }
   /** Restrict the source endpoint(s) (`in`) — a `TableDef`, a SurrealDB `Table`, a bare name string, or
@@ -4438,7 +4438,7 @@ export class RelationDef<
  * Define a graph relation (edge table). Endpoints are optional — the result is a usable table
  * right away; chain `.from(X).to(Y)` to restrict the `in`/`out` records.
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- default neutro `{}`: `Record<string, never>` cria index signature e quebra a inferência de endpoints.
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- neutral `{}` default: `Record<string, never>` creates an index signature and breaks endpoint inference.
 export function relation<Name extends string, S extends Shape = {}>(
   name: Name,
   fields?: S & RejectNoDdl<S>,
@@ -4482,7 +4482,7 @@ export class ViewBuilder<Name extends string, S extends Shape> {
  *   .as(surql`SELECT name, age FROM person WHERE age >= 18`);               // App = { id, name, age }
  * ```
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- default neutro `{}`: `Record<string, never>` cria index signature e quebra a inferência de endpoints.
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- neutral `{}` default: `Record<string, never>` creates an index signature and breaks endpoint inference.
 export function defineView<Name extends string, S extends Shape = {}>(
   name: Name,
   shape?: S,
@@ -5652,7 +5652,7 @@ export type Wire<T> = z.input<ZodOf<T>>
  * - `s.infer<T>` / `s.output<T>` / `s.type<T>` -> the decoded **app** type (== `App<T>`)
  *   - `s.input<T>`                                   -> the **wire/DB** type (== `Wire<T>`)
  */
-// eslint-disable-next-line @typescript-eslint/no-namespace, @typescript-eslint/no-redeclare -- `s` é a API de autoria pública (namespace de tipos intencionalmente mesclado com o valor)
+// eslint-disable-next-line @typescript-eslint/no-namespace, @typescript-eslint/no-redeclare -- `s` is the public authoring API (a type namespace intentionally merged with the value)
 export namespace s {
   export type infer<T> = z.output<ZodOf<T>>
   export type output<T> = z.output<ZodOf<T>>

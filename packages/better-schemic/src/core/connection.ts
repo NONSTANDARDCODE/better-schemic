@@ -68,7 +68,7 @@ export type ConnectionEntry<Client = unknown, Args = undefined> = {
 }
 
 /** Cross-driver erasure of the entry generics — the shape neutral maps hold. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- erasure bivariante do client/args: `unknown` quebra a atribuição de entries heterogêneos.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- bivariant erasure of client/args: `unknown` breaks assignment of heterogeneous entries.
 export type AnyConnectionEntry = ConnectionEntry<any, any>
 
 /** A connection factory's input: a static config, or a resolver yielding one config or a keyed collection. */

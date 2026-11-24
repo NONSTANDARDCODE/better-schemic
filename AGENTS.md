@@ -38,7 +38,7 @@ app code still bundles only what it imports:
 - `defineConfig` also carries `resolve.alias` (CLI jiti aliases), `generators` (declarative
   `sc generate`) and `generated` (directives / knip ignores / zod specifier). The ROOT `bunfig.toml`
   carries the consumer's lint ruleset with EVERY rule active as `error` — no deferred/disabled
-  section. Inline `eslint-disable-next-line <rule> -- justificativa` is allowed only where a
+  section. Inline `eslint-disable-next-line <rule> -- justification` is allowed only where a
   refactor would change runtime semantics (SQL key order, stateful parsers, public API types).
   Gate: `bun check` + `bun test` + `bun lint` from the repo root. See ROADMAP M20.13.
 - `better-schemic/otel` — OpenTelemetry tracing as a `QueryLogger` (`createOtelLogger`); the

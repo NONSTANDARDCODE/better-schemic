@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/require-await, unicorn/no-nested-ternary, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Mock methods match async interfaces without awaiting. The ternary encodes the fixture decision table. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/require-await, unicorn/no-nested-ternary, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Mock methods match async interfaces without awaiting. The ternary encodes the fixture decision table. test callbacks: types inferred by the assertion helpers; annotating each one would add noise with no value. */
 // `tenantRls()` runtime plugin — fail-closed client-side tenant scoping for PRIVILEGED sessions:
 // scope injection on reads/writes, `$forTenant` delegate state, divergent payload/where rejection,
 // the ON DUPLICATE / unique-target guards and the bootstrap validation. Offline (fake conn).
@@ -110,7 +110,7 @@ describe("tenantRls — fail-closed scope", () => {
       () => client.customers.delete({ where: { id: "customer:1" } }),
       () => client.orders.upsert({ where: { id: "order:1" }, data: { total: 1 } }),
     ]
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
     for (const op of ops) {
       const error = await caught(op)
       expect(isTenantViolation(error)).toBe(true)
@@ -181,11 +181,11 @@ describe("tenantRls — reads", () => {
       client.customers.paginate({ limit: 1 }),
       client.customers.cursor({ limit: 1, orderBy: [{ id: "asc" }] }),
     ]
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
     for (const read of reads) await read.explain()
 
     expect(calls.length).toBeGreaterThanOrEqual(reads.length)
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
     for (const call of calls)
       if (call.sql.startsWith("EXPLAIN")) expect(call.sql).toContain("tenant_id = ")
   })
@@ -266,7 +266,7 @@ describe("tenantRls — creates and upserts", () => {
 
   test("insert onDuplicate can update another tenant's row — rejected", async () => {
     const { client, calls } = scoped()
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
     for (const onDuplicate of ["update", { name: "X" }] as const) {
       const error = await caught(() =>
         client.customers.insert({
@@ -608,7 +608,7 @@ describe("tenantRls — extras and setup validation", () => {
 
   test("invalid config fails fast at the factory or the bootstrap", () => {
     expect(() => tenantRls({ column: "tenant id" })).toThrow(/identifier/u)
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
     for (const bad of [42, ""] as const) {
       expect(() => tenantRls({ tables: [bad as unknown as string] })).toThrow(
         /non-empty physical table name/u,
@@ -708,7 +708,7 @@ describe("tenantRls — extras and setup validation", () => {
 })
 
 describe("tenantRls — plugin combinations", () => {
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
   for (const order of [
     ["tenantRls", "softDelete"],
     ["softDelete", "tenantRls"],
@@ -789,7 +789,7 @@ describe("tenantRls — edge cases (coverage + teaching errors)", () => {
 
   test("a non-string/empty tenant payload value is a violation; a bare equal id normalizes", async () => {
     const { client, calls } = scoped()
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
     for (const value of [42, ""]) {
       const error = await caught(() =>
         client.customers.create({
@@ -812,7 +812,7 @@ describe("tenantRls — edge cases (coverage + teaching errors)", () => {
       where: { tenant_id: { equals: "user:abc" } },
     })
     expect(calls[0]?.sql).toContain("tenant_id")
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
     for (const bad of [
       { equals: "user:other" },
       { equals: "user:abc", notEquals: "x" },
@@ -921,7 +921,7 @@ describe("tenantRls — edge cases (coverage + teaching errors)", () => {
   })
 
   test("malformed meta.tenant tags fail the bootstrap", () => {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
     for (const tag of ["nope", { column: "" }]) {
       const Broken = table("broken", { title: s.string() }).use(
         table.preset({ meta: { tenant: tag } }),
@@ -936,7 +936,7 @@ describe("tenantRls — edge cases (coverage + teaching errors)", () => {
   })
 
   test("a meta tag with a non-string/empty principal or soft-delete is tolerated", async () => {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
     for (const tag of [
       { principal: 42, softDelete: false },
       { principal: "", softDelete: false },

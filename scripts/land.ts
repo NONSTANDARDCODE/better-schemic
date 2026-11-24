@@ -112,7 +112,7 @@ if (!isFF && !GATE_PHASE) {
     try {
       execFileSync("git", ["-C", rebaseWt, "rebase", "--abort"], { stdio: "ignore" })
     } catch {
-      // O abort pode falhar se não houver rebase em curso; o erro original já é suficiente.
+      // The abort may fail if no rebase is in progress; keep the original error.
     }
     die(`rebase of ${branch} onto ${main} conflicted — resolve it in ${wt}, then re-run.`)
   }
@@ -184,7 +184,7 @@ if (wt) {
 try {
   execFileSync("git", ["branch", "-D", branch], { cwd: ROOT, stdio: "ignore" })
 } catch {
-  // A branch pode não existir localmente (já removida); nada a fazer.
+  // The branch may not exist locally (already removed); nothing to do.
 }
 try {
   execFileSync("git", ["push", remote, "--delete", branch], {
@@ -192,7 +192,7 @@ try {
     stdio: "ignore",
   })
 } catch {
-  // O remote pode não ter a branch (ou ser inalcançável); o merge local já aconteceu.
+  // The remote may not have the branch (or may be unreachable); the local merge already happened.
 }
 console.log(`landed ${branch}.`)
 

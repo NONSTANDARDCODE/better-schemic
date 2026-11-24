@@ -700,11 +700,11 @@ addGenCommand(
 // `sc generate` is the declarative codegen command (the old hidden alias of `gen` removs it in
 // favour of it — `gen` remains the migration generator).
 
-// Run every generator declared in `better-schemic.config.ts` (ORM façade + AOT validators).
+// Run every generator declared in `better-schemic.config.ts` (ORM facade + AOT validators).
 configFlag(
   program
     .command("generate")
-    .description("Run all configured generators (ORM façade + zod-compiler AOT validators)")
+    .description("Run all configured generators (ORM facade + zod-compiler AOT validators)")
     .option("--only <name>", "run only one generator (orm | aot)")
     .option("--watch", "regenerate when the schema changes"),
 ).action((opts: GenerateOpts) => {
@@ -752,11 +752,11 @@ configFlag(
   })
 })
 
-// Generate a STATIC-getter façade over the typed ORM client (Bun AOT needs the getters in source).
+// Generate a STATIC-getter facade over the typed ORM client (Bun AOT needs the getters in source).
 configFlag(
   program
     .command("generate:orm")
-    .description("Generate a static-getter ORM façade from the authored schema (Bun AOT)")
+    .description("Generate a static-getter ORM facade from the authored schema (Bun AOT)")
     .option("--out <file>", "output .ts file (default db/orm.generated.ts)")
     .option("--schema <file>", "module exporting the schema artifact")
     .option("--schema-export <name>", "schema export name (default 'schema')")
@@ -770,7 +770,7 @@ configFlag(
       surfaceName: opts.name,
     })
     console.log(`  ${style.green("+")} ${out}`)
-    console.log(`\n${ok("Generated. The façade exposes one static getter per schema model.")}`)
+    console.log(`\n${ok("Generated. The facade exposes one static getter per schema model.")}`)
   })
 })
 

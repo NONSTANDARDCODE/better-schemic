@@ -15,42 +15,42 @@ The executable probe suite was removed with the live/DB-test cleanup — this ma
 
 | Prototype says                                                                                   | Reality on 3.2.0                                                                                                                                                                                                                       | ORM decision                                                                                                                                                                                    |
 | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `UPDATE t:id` **cria** o registro se não existir (por isso updates por `WHERE`)                  | `UPDATE t:id {MERGE,SET,CONTENT,REPLACE}` num id inexistente devolve `[]` e **não cria**                                                                                                                                               | `update` compila alvo direto (`UPDATE t:id …`); `upsert` é o único create-or-update. O workaround `UPDATE … WHERE id = …` é desnecessário                                                       |
-| `parallel: true` → `PARALLEL`                                                                    | **parse error** (`Unexpected token PARALLEL`)                                                                                                                                                                                          | remover `parallel` da superfície (ou erro `UnsupportedCapability`)                                                                                                                              |
-| `fuzzy: 'x'` → `~`; `anyFuzzy`/`allFuzzy` → `?~`/`*~`                                            | **parse error** para `~`, `?~`, `*~`                                                                                                                                                                                                   | não emitir; fuzzy via `string::similarity::jaro/smithwaterman`, regex via `string::matches`                                                                                                     |
-| `DEFINE INDEX … SEARCH ANALYZER a BM25 HIGHLIGHTS`                                               | 3.x é `FULLTEXT ANALYZER a BM25 HIGHLIGHTS`; `SEARCH ANALYZER` é parse error                                                                                                                                                           | emitir `FULLTEXT`; conferir `defineIndex` no DDL                                                                                                                                                |
-| `search::highlight('<b>', '</b>', field)`                                                        | aridade é `search::highlight(prefix, suffix, indexRef, field)`                                                                                                                                                                         | emitir com o `indexRef`                                                                                                                                                                         |
-| Range `FROM users:1..users:100`                                                                  | **parse error**; a forma válida é `FROM t:1..100` (fim exclusivo) e `FROM t:1..=100` (inclusivo)                                                                                                                                       | `range: { start, end, inclusive? }` → `t:<start>..<end>` / `..=<end>`                                                                                                                           |
-| `where: { 'contacts[*].type': 'email' }` compara igualdade                                       | `contacts[*].type` devolve **array**; `= 'email'` é `false`                                                                                                                                                                            | igualdade em path-array → `CONTAINS`; scalar membership → `INSIDE`                                                                                                                              |
-| `aggregate({ split, groupBy })`                                                                  | **`SPLIT` e `GROUP` são mutuamente exclusivos** num `SELECT`                                                                                                                                                                           | DIVERGE resolvido (M17): o `aggregate` faz o UNWIND numa subquery e agrupa por fora (§3.1)                                                                                                      |
-| `logins = logins + 1` no `ON DUPLICATE KEY UPDATE`                                               | campos nus, `$before`/`$after` são `NONE`; só `$input.*` funciona                                                                                                                                                                      | incremento contra o estado anterior = subquery correlacionada por id (`(SELECT VALUE f FROM ONLY t:id) + 1`) — e o branch de criação a avalia também, então upsert com expressão usa `LET`/`IF` |
-| `SET $obj` (objeto bindado) em `UPDATE`/`UPSERT`                                                 | **parse error** (`Unexpected token 'a parameter'`)                                                                                                                                                                                     | emitir `SET f = $p` por campo                                                                                                                                                                   |
-| `FOR $row IN $rows { … }` devolve o resultado de cada iteração                                   | devolve **`NONE`** (live 3.2.4)                                                                                                                                                                                                        | `updateEach`/`skipDuplicates` compilam 1 statement por item (mesmo round-trip)                                                                                                                  |
-| `INSERT` de um `id` string `"user:x"` aponta para `user:x`                                       | o id vira o **valor string** (`user:⟨user:x⟩`)                                                                                                                                                                                         | o ORM converte `id` string → `RecordId` antes de bindar                                                                                                                                         |
-| `ON DUPLICATE KEY UPDATE` aceita payload parcial                                                 | valida a linha do INSERT: payload parcial em SCHEMAFULL **falha** antes do conflito                                                                                                                                                    | documentar que `onDuplicate` recebe linhas inseríveis                                                                                                                                           |
-| `KILL "uuid"` (string)                                                                           | parse error; aceita `KILL $param` / `KILL u"…"`                                                                                                                                                                                        | `kill()` liga o uuid como parâmetro                                                                                                                                                             |
-| `.explain()` em writes                                                                           | `EXPLAIN` só existe para `SELECT` ("only supported with the new execution model")                                                                                                                                                      | `.explain()` só em reads                                                                                                                                                                        |
-| `VERSION d'…'` sempre disponível                                                                 | exige backend versionado; memory server: "does not support versioned queries"                                                                                                                                                          | emitir; erro estruturado quando o backend não suporta                                                                                                                                           |
-| `FETCH` posicionado livremente                                                                   | FETCH é a **última** cláusula (depois de WHERE/ORDER/LIMIT)                                                                                                                                                                            | lowering na ordem correta                                                                                                                                                                       |
-| `[NONE]` e `NULL` idênticos                                                                      | continuam distintos (`isNone` ≠ `isNull`)                                                                                                                                                                                              | manter ambos                                                                                                                                                                                    |
-| `include: { likes: true }` → `->likes->post AS likes` devolve registros                          | traversal cru devolve **record ids**; registros exigem subquery `(SELECT * FROM ->likes->post)`                                                                                                                                        | `include` de grafo sempre por subquery                                                                                                                                                          |
-| `include: { likes: { where: { score: 4 } } }` → `(SELECT … FROM ->likes->post WHERE score = $p)` | a linha da subquery é o **alvo** (`score` não existe lá); filtro do edge vai em `->(likes WHERE score = $p)` e o do alvo em `->post->(post WHERE …)`                                                                                   | split edge/target pelo dono da coluna                                                                                                                                                           |
-| `edge` + `target` → `(SELECT …, out.* FROM ->likes->post …)`                                     | `out.*` só existe enquanto a linha é a ARESTA: depois de `->target` a linha é o alvo e `out` é `NONE` → **`[{}]`** (silencioso, com ou sem `WHERE`/`ORDER BY`)                                                                         | `edge`+`target` para no edge (`FROM ->likes`), projeta `out.*` e filtra o alvo por `WHERE out.<campo>`                                                                                          |
-| `<-edge->target` alcança o outro endpoint                                                        | o alvo segue a **mesma direção** (`<-edge<-target`); `<-edge->target` devolve `[]`                                                                                                                                                     | lowering da direção `in` usa `<-edge<-target`                                                                                                                                                   |
-| `every` → `count(traversal[WHERE NOT …]) = 0`                                                    | `NOT` sem parênteses no filtro de traversal é **parse error**; `count(t) = count(t[WHERE …])` é NONE-safe e equivalente                                                                                                                | `every` por igualdade de contagens                                                                                                                                                              |
-| `_count` de link array usa `count(campo)`                                                        | `array::len(campo)` **erra em `NONE`**; `count(campo)` devolve `0`                                                                                                                                                                     | usar `count(campo)`                                                                                                                                                                             |
-| `FETCH` materializa o link mesmo fora do `select`                                                | `SELECT id FROM post FETCH author` **não devolve** `author`; o link precisa estar na seleção                                                                                                                                           | o compiler adiciona o link à projeção quando `include` é FETCH                                                                                                                                  |
-| `orderBy` no include ordena qualquer campo                                                       | dentro da subquery o servidor exige o **order idiom** na seleção (projeção `*` cobre)                                                                                                                                                  | validar `orderBy` ⊆ projeção do alvo (ou `select: '*'`)                                                                                                                                         |
-| `SINCE` aceita param                                                                             | parse error ("expected a version stamp or a date-time")                                                                                                                                                                                | inline do literal (`0`, número/bigint ou `d'…'`)                                                                                                                                                |
-| `BEGIN/COMMIT` em chamadas `query()` separadas segura a transação                                | cada `query()` RPC é a própria transação: o `CREATE` persiste e o `COMMIT` seguinte dá "Cannot COMMIT without starting a transaction"                                                                                                  | só `mode: 'sdk'` (`beginTransaction()` do SDK); `mode: 'sql'` falha rápido (`UnsupportedCapability`)                                                                                            |
-| `beginTransaction` aninhado é erro                                                               | o SDK/servidor **permite** (sem savepoint)                                                                                                                                                                                             | o client dobra chamada aninhada na MESMA tx; reentrada pelo client raiz → `TransactionAlreadyActive`                                                                                            |
-| Write conflict tem erro dedicado                                                                 | `kind: "Internal"`, mensagem `Transaction conflict: Write conflict, retry the transaction. This transaction can be retried`                                                                                                            | heurística de mensagem já normaliza para `WriteConflict`; retry re-executa o callback                                                                                                           |
-| `afterCommit` fora de tx                                                                         | sem escopo transacional                                                                                                                                                                                                                | `ValidationError` fail-fast (dívida registrada)                                                                                                                                                 |
-| `$withContext` com NS/DB "sem estado global" via `USE`                                           | `USE NS … DB …;` no MESMO script escopa as statements seguintes e **não muda a sessão** (a conexão continua no NS/DB anterior)                                                                                                         | prefixar `USE NS … DB …;` em toda operação do clone (1 round-trip, zero estado global); `auth` não cabe no prefixo → overload assíncrono que forka a sessão                                     |
-| `client.fn.call` via `db.run`                                                                    | `run`/`api`/`export`/`import`/`auth` usam o NS/DB da **sessão** — um clone por prefixo miraria o DB errado                                                                                                                             | `fn.call` compila `RETURN fn::x($p…)` (context-aware); `api`/`auth`/`export` falham rápido (`UnsupportedCapability`) em clone por prefixo                                                |
-| `client.import(dump)` via SDK                                                                    | o `import()` do SDK **quebra sobre WebSocket** (`JSON Parse error: Unexpected identifier "undefined"`)                                                                                                                                 | `import` reexecuta o dump por `query()` (funciona em WS e respeita o contexto)                                                                                                                  |
-| `client.ping()` via `health()`                                                                   | `health()` resolve sobre WebSocket no SDK 2.2.0 / server 3.2.0; `ping()` mantém `RETURN true` (uniforme em WS/HTTP)                                                                                                                    | `ping()` faz um round-trip `RETURN true` (uniforme em WS/HTTP)                                                                                                                                  |
-| `client.api.*` lança em erro HTTP                                                                | o SDK resolve o envelope `{ status, body, headers, request_id }` **sem rejeitar** em 4xx/5xx                                                                                                                                           | o ORM inspeciona `status >= 400` e lança `DatabaseError` com `status` + `details.body`                                                                                                          |
+| `UPDATE t:id` **creates** the record if it does not exist (hence updates by `WHERE`)                  | `UPDATE t:id {MERGE,SET,CONTENT,REPLACE}` on a non-existent id returns `[]` and **does not create**                                                                                                                                               | `update` compiles a direct target (`UPDATE t:id …`); `upsert` is the only create-or-update. The `UPDATE … WHERE id = …` workaround is unnecessary                                                       |
+| `parallel: true` → `PARALLEL`                                                                    | **parse error** (`Unexpected token PARALLEL`)                                                                                                                                                                                          | remove `parallel` from the surface (or error `UnsupportedCapability`)                                                                                                                              |
+| `fuzzy: 'x'` → `~`; `anyFuzzy`/`allFuzzy` → `?~`/`*~`                                            | **parse error** for `~`, `?~`, `*~`                                                                                                                                                                                                   | do not emit; fuzzy via `string::similarity::jaro/smithwaterman`, regex via `string::matches`                                                                                                     |
+| `DEFINE INDEX … SEARCH ANALYZER a BM25 HIGHLIGHTS`                                               | 3.x uses `FULLTEXT ANALYZER a BM25 HIGHLIGHTS`; `SEARCH ANALYZER` is a parse error                                                                                                                                                           | emit `FULLTEXT`; check `defineIndex` in the DDL                                                                                                                                                |
+| `search::highlight('<b>', '</b>', field)`                                                        | arity is `search::highlight(prefix, suffix, indexRef, field)`                                                                                                                                                                         | emit with the `indexRef`                                                                                                                                                                         |
+| Range `FROM users:1..users:100`                                                                  | **parse error**; the valid form is `FROM t:1..100` (exclusive end) and `FROM t:1..=100` (inclusive)                                                                                                                                       | `range: { start, end, inclusive? }` → `t:<start>..<end>` / `..=<end>`                                                                                                                           |
+| `where: { 'contacts[*].type': 'email' }` compara igualdade                                       | `contacts[*].type` returns **array**; `= 'email'` is `false`                                                                                                                                                                            | equality on array path → `CONTAINS`; scalar membership → `INSIDE`                                                                                                                              |
+| `aggregate({ split, groupBy })`                                                                  | **`SPLIT` and `GROUP` are mutually exclusive** in a `SELECT`                                                                                                                                                                           | DIVERGE resolved (M17): `aggregate` does the UNWIND in a subquery and groups outside (§3.1)                                                                                                      |
+| `logins = logins + 1` in `ON DUPLICATE KEY UPDATE`                                               | bare fields, `$before`/`$after` are `NONE`; only `$input.*` works                                                                                                                                                                      | increment against the previous state = subquery correlated by id (`(SELECT VALUE f FROM ONLY t:id) + 1`) — and the creation branch evaluates it too, so upsert with expression uses `LET`/`IF` |
+| `SET $obj` (bound object) in `UPDATE`/`UPSERT`                                                 | **parse error** (`Unexpected token 'a parameter'`)                                                                                                                                                                                     | emit `SET f = $p` per field                                                                                                                                                                   |
+| `FOR $row IN $rows { … }` returns the result of each iteration                                   | returns **`NONE`** (live 3.2.4)                                                                                                                                                                                                        | `updateEach`/`skipDuplicates` compile 1 statement per item (same round-trip)                                                                                                                  |
+| `INSERT` with a string `id` `"user:x"` points to `user:x`                                       | the id becomes the **string value** (`user:⟨user:x⟩`)                                                                                                                                                                                         | the ORM converts string `id` → `RecordId` before binding                                                                                                                                         |
+| `ON DUPLICATE KEY UPDATE` accepts a partial payload                                                 | validates the INSERT row: a partial payload in SCHEMAFULL **fails** before the conflict                                                                                                                                                    | document that `onDuplicate` receives insertable rows                                                                                                                                           |
+| `KILL "uuid"` (string)                                                                           | parse error; accepts `KILL $param` / `KILL u"…"`                                                                                                                                                                                        | `kill()` binds the uuid as a parameter                                                                                                                                                             |
+| `.explain()` on writes                                                                           | `EXPLAIN` only exists for `SELECT` ("only supported with the new execution model")                                                                                                                                                      | `.explain()` on reads only                                                                                                                                                                        |
+| `VERSION d'…'` always available                                                                 | requires a versioned backend; memory server: "does not support versioned queries"                                                                                                                                                          | emit; structured error when the backend does not support it                                                                                                                                           |
+| `FETCH` placed freely                                                                   | FETCH is the **last** clause (after WHERE/ORDER/LIMIT)                                                                                                                                                                            | lower in the correct order                                                                                                                                                                       |
+| `[NONE]` and `NULL` identical                                                                      | remain distinct (`isNone` ≠ `isNull`)                                                                                                                                                                                              | keep both                                                                                                                                                                                    |
+| `include: { likes: true }` → `->likes->post AS likes` returns records                          | raw traversal returns **record ids**; records require a subquery `(SELECT * FROM ->likes->post)`                                                                                                                                        | graph `include` always via subquery                                                                                                                                                          |
+| `include: { likes: { where: { score: 4 } } }` → `(SELECT … FROM ->likes->post WHERE score = $p)` | the subquery row is the **target** (`score` doesn't exist there); the edge filter goes in `->(likes WHERE score = $p)` and the target's in `->post->(post WHERE …)`                                                                                   | split edge/target by the column's owner                                                                                                                                                           |
+| `edge` + `target` → `(SELECT …, out.* FROM ->likes->post …)`                                     | `out.*` only exists while the row is the EDGE: after `->target` the row is the target and `out` is `NONE` → **`[{}]`** (silently, with or without `WHERE`/`ORDER BY`)                                                                         | `edge`+`target` stops at the edge (`FROM ->likes`), projects `out.*` and filters the target by `WHERE out.<field>`                                                                                          |
+| `<-edge->target` reaches the other endpoint                                                        | the target follows the **same direction** (`<-edge<-target`); `<-edge->target` returns `[]`                                                                                                                                                     | lowering of the `in` direction uses `<-edge<-target`                                                                                                                                                   |
+| `every` → `count(traversal[WHERE NOT …]) = 0`                                                    | `NOT` without parentheses in a traversal filter is **parse error**; `count(t) = count(t[WHERE …])` is NONE-safe and equivalent                                                                                                                | `every` by count equality                                                                                                                                                              |
+| `_count` of array link uses `count(field)`                                                        | `array::len(field)` **errors on `NONE`**; `count(field)` returns `0`                                                                                                                                                                     | use `count(field)`                                                                                                                                                                             |
+| `FETCH` materializes the link even outside the `select`                                                | `SELECT id FROM post FETCH author` **does not return** `author`; the link must be in the selection                                                                                                                                           | the compiler adds the link to the projection when `include` is FETCH                                                                                                                                  |
+| `orderBy` in include sorts any field                                                       | inside the subquery the server requires the **order idiom** in the selection (projection `*` covers it)                                                                                                                                                  | validate `orderBy` ⊆ target projection (or `select: '*'`)                                                                                                                                         |
+| `SINCE` accepts param                                                                             | parse error ("expected a version stamp or a date-time")                                                                                                                                                                                | inline the literal (`0`, number/bigint or `d'…'`)                                                                                                                                                |
+| `BEGIN/COMMIT` in separate `query()` calls holds the transaction                                | each `query()` RPC is its own transaction: the `CREATE` persists and the following `COMMIT` gives "Cannot COMMIT without starting a transaction"                                                                                                  | only `mode: 'sdk'` (SDK's `beginTransaction()`); `mode: 'sql'` fails fast (`UnsupportedCapability`)                                                                                            |
+| nested `beginTransaction` is an error                                                               | the SDK/server **allows** it (without savepoint)                                                                                                                                                                                             | the client folds the nested call into the SAME tx; re-entry from the root client → `TransactionAlreadyActive`                                                                                            |
+| Write conflict has a dedicated error                                                                 | `kind: "Internal"`, message `Transaction conflict: Write conflict, retry the transaction. This transaction can be retried`                                                                                                            | message heuristic already normalizes to `WriteConflict`; retry re-executes the callback                                                                                                           |
+| `afterCommit` outside a tx                                                                         | no transactional scope                                                                                                                                                                                                                | `ValidationError` fail-fast (recorded debt)                                                                                                                                                 |
+| `$withContext` with NS/DB "without global state" via `USE`                                           | `USE NS … DB …;` in the SAME script scopes the following statements and **does not change the session** (the connection stays in the previous NS/DB)                                                                                                         | prefix `USE NS … DB …;` on every clone operation (1 round-trip, zero global state); `auth` doesn't fit in the prefix → async overload that forks the session                                     |
+| `client.fn.call` via `db.run`                                                                    | `run`/`api`/`export`/`import`/`auth` use the **session's** NS/DB — a prefix clone would target the wrong DB                                                                                                                             | `fn.call` compiles `RETURN fn::x($p…)` (context-aware); `api`/`auth`/`export` fail fast (`UnsupportedCapability`) on a prefix clone                                                |
+| `client.import(dump)` via SDK                                                                    | the SDK's `import()` **breaks over WebSocket** (`JSON Parse error: Unexpected identifier "undefined"`)                                                                                                                                 | `import` replays the dump via `query()` (works on WS and respects context)                                                                                                                  |
+| `client.ping()` via `health()`                                                                   | `health()` resolves over WebSocket on SDK 2.2.0 / server 3.2.0; `ping()` keeps `RETURN true` (uniform on WS/HTTP)                                                                                                                    | `ping()` does a `RETURN true` round-trip (uniform on WS/HTTP)                                                                                                                                  |
+| `client.api.*` throws on an HTTP error                                                                | the SDK resolves the `{ status, body, headers, request_id }` envelope **without rejecting** on 4xx/5xx                                                                                                                                           | the ORM inspects `status >= 400` and throws `DatabaseError` with `status` + `details.body`                                                                                                          |
 
 ---
 
@@ -60,248 +60,249 @@ The executable probe suite was removed with the live/DB-test cleanup — this ma
 
 | Form                                                        | Result                                                               | Notes                                                                                                                                                                                                            |
 | ----------------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CREATE t CONTENT $p`                                       | `[ {…id gerado…} ]`                                                  | id aleatório                                                                                                                                                                                                     |
-| `CREATE ONLY t CONTENT $p`                                  | **objeto** (não array)                                               | usado por `create({ only: true })`                                                                                                                                                                               |
-| `CREATE t:id CONTENT $p`                                    | `[ {…} ]`                                                            | id explícito                                                                                                                                                                                                     |
-| `CREATE [ONLY] type::record(s"t", rand::ulid()) CONTENT $p` | id **ULID** (26 chars, ordenável por tempo)                          | target gerado no servidor — o lowering do ORM quando não há id explícito. `type::record(t, …)` com ident simples também funciona; um ident **escapado** (`⟨x-y⟩`) dobra o escape → usar `toSurqlString` (`s"…"`) |
-| `CREATE t CONTENT { …, id: rand::ulid() }`                  | id ULID                                                              | forma alternativa (campo `id` de expressão dentro do CONTENT)                                                                                                                                                    |
-| `CREATE t:id` duplicado                                     | **erro** `Database record \`t:id\` already exists` (`AlreadyExists`) | normalizar → `RecordAlreadyExists`                                                                                                                                                                               |
-| `LET $c = (CREATE ONLY t CONTENT $p); RETURN $c;`           | objeto criado                                                        | açúcar `create + relate` (`to: '$self'`)                                                                                                                                                                         |
-| `CREATE t CONTENT $p RETURN NONE`                           | `[]`                                                                 | payload mínimo                                                                                                                                                                                                   |
+| `CREATE t CONTENT $p`                                       | `[ {…generated id…} ]`                                                  | random id                                                                                                                                                                                                     |
+| `CREATE ONLY t CONTENT $p`                                  | **object** (not array)                                               | used by `create({ only: true })`                                                                                                                                                                               |
+| `CREATE t:id CONTENT $p`                                    | `[ {…} ]`                                                            | explicit id                                                                                                                                                                                                     |
+| `CREATE [ONLY] type::record(s"t", rand::ulid()) CONTENT $p` | id **ULID** (26 chars, time-sortable)                          | target generated on the server — the ORM's lowering when there's no explicit id. `type::record(t, …)` with a simple ident also works; an **escaped** ident (`⟨x-y⟩`) doubles the escape → use `toSurqlString` (`s"…"`) |
+| `CREATE t CONTENT { …, id: rand::ulid() }`                  | id ULID                                                              | alternative form (expression `id` field inside CONTENT)                                                                                                                                                    |
+| `CREATE t:id` duplicado                                     | **error** `Database record \`t:id\` already exists` (`AlreadyExists`) | normalize → `RecordAlreadyExists`                                                                                                                                                                               |
+| `LET $c = (CREATE ONLY t CONTENT $p); RETURN $c;`           | created object                                                        | `create + relate` sugar (`to: '$self'`)                                                                                                                                                                         |
+| `CREATE t CONTENT $p RETURN NONE`                           | `[]`                                                                 | minimal payload                                                                                                                                                                                                   |
 
 ### 2.2 `INSERT`
 
 | Form                                                                           | Result                                                                               | Notes                                                                                                                                                                        |
 | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `INSERT INTO t $rows` (array)                                                  | array de linhas (ids do payload preservados)                                         | 1 statement                                                                                                                                                                  |
-| `INSERT INTO t $rows` id duplicado                                             | **erro** `already exists`                                                            |                                                                                                                                                                              |
-| `INSERT IGNORE INTO t $rows`                                                   | devolve **só as linhas inseridas**                                                   | `count` = inseridos                                                                                                                                                          |
-| `INSERT … ON DUPLICATE KEY UPDATE f = $input.f`                                | linhas afetadas                                                                      | `$input` = registro do INSERT (paths aninhados ok)                                                                                                                           |
-| `INSERT … ON DUPLICATE KEY UPDATE f = (SELECT VALUE f FROM ONLY t:id) + 1`     | incremento contra o estado anterior                                                  | únicos campos acessíveis antes: a subquery — e ela é avaliada **também no branch de criação** (live 3.2.4: `NONE + int` = erro), então upserts com expressão usam `LET`/`IF` |
-| `INSERT … ON DUPLICATE … RETURN AFTER/NONE`                                    | ok                                                                                   | ver `RETURN` abaixo                                                                                                                                                          |
-| `INSERT … ON DUPLICATE … RETURN BEFORE`                                        | devolve o estado **anterior** (live 3.2.4)                                           | exposto pelo ORM                                                                                                                                                             |
-| `INSERT … ON DUPLICATE … RETURN DIFF`                                          | `[[ { op: "change", path, value: "@@ … @@" } ]]`                                     | formato **paged diff** (aninhado), ≠ do UPDATE                                                                                                                               |
-| `INSERT INTO t $p` com `id` string (`"user:x"`)                                | id vira a **string** (`user:⟨user:x⟩`), não um record id                             | o ORM converte para `RecordId` antes de bindar                                                                                                                               |
-| `INSERT … ON DUPLICATE` com payload parcial + tabela SCHEMAFULL                | **erro** de coerce no campo ausente                                                  | o INSERT precisa ser uma linha inserível (o `ON DUPLICATE` não relaxa a validação)                                                                                           |
-| `INSERT … ON DUPLICATE KEY UPDATE` com payload de OUTRO tenant (id adivinhado) | **atualiza a linha do outro tenant** (o `tenant_id` `READONLY` permanece o original) | não há `WHERE`: por isso `tenantRls` rejeita `onDuplicate` ≠ `"ignore"` em tabela tagueada                                                                                   |
-| `INSERT INTO t { …, id: rand::ulid() }` (ou array com uma expressão por linha) | cada linha ganha seu id, avaliado por elemento                                       | o ORM injeta o campo de EXPRESSÃO quando não há id explícito; spread de payload (`{ ...$d, id: … }`) é **parse error**                                                       |
-| `INSERT RELATION INTO edge {…}`                                                | linhas da aresta                                                                     | caminho nativo para `relateMany`/seed                                                                                                                                        |
+| `INSERT INTO t $rows` (array)                                                  | array of rows (payload ids preserved)                                         | 1 statement                                                                                                                                                                  |
+| `INSERT INTO t $rows` duplicate id                                             | **error** `already exists`                                                            |                                                                                                                                                                              |
+| `INSERT IGNORE INTO t $rows`                                                   | returns **only the inserted rows**                                                   | `count` = inserted                                                                                                                                                          |
+| `INSERT … ON DUPLICATE KEY UPDATE f = $input.f`                                | affected rows                                                                      | `$input` = the INSERT record (nested paths ok)                                                                                                                           |
+| `INSERT … ON DUPLICATE KEY UPDATE f = (SELECT VALUE f FROM ONLY t:id) + 1`     | increment against the previous state                                                  | only fields accessible before: the subquery — and it's evaluated **in the creation branch too** (live 3.2.4: `NONE + int` = error), so upserts with expression use `LET`/`IF` |
+| `INSERT … ON DUPLICATE … RETURN AFTER/NONE`                                    | ok                                                                                   | see `RETURN` below                                                                                                                                                          |
+| `INSERT … ON DUPLICATE … RETURN BEFORE`                                        | returns the **previous** state (live 3.2.4)                                           | exposed by the ORM                                                                                                                                                             |
+| `INSERT … ON DUPLICATE … RETURN DIFF`                                          | `[[ { op: "change", path, value: "@@ … @@" } ]]`                                     | **paged diff** format (nested), ≠ UPDATE's                                                                                                                               |
+| `INSERT INTO t $p` with an `id` string (`"user:x"`)                                | the id becomes a **string** (`user:⟨user:x⟩`), not a record id                             | the ORM converts to `RecordId` before binding                                                                                                                               |
+| `INSERT … ON DUPLICATE` with a partial payload + SCHEMAFULL table                | **error** coercing the missing field                                                  | the INSERT must be an insertable row (`ON DUPLICATE` does not relax validation)                                                                                           |
+| `INSERT … ON DUPLICATE KEY UPDATE` with another tenant's payload (guessed id) | **updates the other tenant's row** (the `READONLY` `tenant_id` stays the original) | there's no `WHERE`: that's why `tenantRls` rejects `onDuplicate` ≠ `"ignore"` on a tagged table                                                                                   |
+| `INSERT INTO t { …, id: rand::ulid() }` (or array with one expression per row) | each row gets its id, evaluated per element                                       | the ORM injects the EXPRESSION field when there's no explicit id; payload spread (`{ ...$d, id: … }`) is **parse error**                                                       |
+| `INSERT RELATION INTO edge {…}`                                                | edge rows                                                                     | native path for `relateMany`/seeding                                                                                                                                        |
 
 ### 2.3 `UPSERT`
 
 | Form                                                                                                        | Result                                                                                                                                                                        | Notes                                                                                                                 |
 | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `UPSERT t:id MERGE $p`                                                                                      | `[ {…} ]`; cria se faltar                                                                                                                                                     | `upsert` por id                                                                                                       |
-| `UPSERT t MERGE $p WHERE cond`                                                                              | linhas afetadas; **cria quando nada casa** — e só quando o PRÓPRIO payload satisfaz o `WHERE`                                                                                 | `upsert` por campo único (validar unicidade no schema)                                                                |
-| `UPSERT ONLY t:id MERGE $p WHERE tenant = $t` (registro de OUTRO tenant)                                    | `NONE` (objeto) — **não atualiza**                                                                                                                                            | o `WHERE` filtra o branch de UPDATE; é o canal `scope` do plugin `tenantRls`                                          |
-| `UPSERT ONLY t:missing MERGE $p WHERE tenant = $t` (payload COM o tenant)                                   | **cria** com o tenant do payload                                                                                                                                              | o branch de CREATE **não avalia o `WHERE`** — por isso o runtime SEMPRE injeta o tenant no payload                    |
-| `UPSERT t MERGE $p WHERE uniq = $v AND tenant = $t`                                                         | hit de outro tenant → `[]`; miss cria com o tenant do payload                                                                                                                 | `upsertMany` conflict-form                                                                                            |
-| `UPSERT ((SELECT VALUE id FROM t WHERE uniq = $v LIMIT 1)[0] ?? type::record(s"t", rand::ulid())) MERGE $p` | hit atualiza o existente; miss cria com id gerado                                                                                                                             | lowering do ORM com `idStrategy` ≠ `rand`: 1 statement, `RETURN DIFF` preservado; `UPSERT ONLY <expr>` devolve objeto |
-| `UPSERT t:id MERGE { …, id: rand::ulid() }` num registro EXISTENTE                                          | **erro** `Found '…' for the id field, but a specific record has been specified`                                                                                               | id não pode ser injetado no MERGE — por isso o upsert gerado usa o target-expression, nunca o payload                 |
-| `UPSERT t:id SET $p` (objeto inteiro)                                                                       | **parse error** (`Unexpected token 'a parameter'`) — usar `SET f = $p` por campo                                                                                              | o ORM emite per-field                                                                                                 |
-| `UPSERT ONLY t:id MERGE/SET`                                                                                | ok (objeto? → array, verificado: array)                                                                                                                                       |                                                                                                                       |
-| `UPSERT t:id CONTENT $p`                                                                                    | substitui o conteúdo                                                                                                                                                          |                                                                                                                       |
-| `UPDATE ONLY t:id MERGE $p` (miss)                                                                          | `undefined` (NONE) — **não cria**                                                                                                                                             | lowering ESTRITO padrão do `upsert` por id (`onMissing:"throw"`)                                                      |
-| `UPDATE ONLY t:id MERGE $p` (hit)                                                                           | **objeto** (não array) — `RETURN NONE` é omitido no estrito para o miss ser observável                                                                                        | `upsert` estrito; o decode descarta o objeto quando `return:"none"`                                                   |
-| `UPDATE t MERGE $p WHERE uniq = $v` (miss)                                                                  | `[]` — **não cria**                                                                                                                                                           | lowering ESTRITO padrão do `upsert` por campo único                                                                   |
-| `UPDATE t MERGE $p WHERE uniq = $v` (hit)                                                                   | array de linhas                                                                                                                                                               | `upsert` estrito por campo único                                                                                      |
-| `UPDATE ONLY t:id … WHERE tenant = $t` (registro de OUTRO tenant)                                           | `undefined` (NONE) → o runtime rejeita `ResultNotFound`                                                                                                                       | escopo do `tenantRls` no upsert estrito                                                                               |
-| `UPDATE ONLY t:id MERGE { id: t:id, … }` (alvo existente)                                                   | ok — id **igual** ao alvo é aceito; o erro `Found … specific record has been specified` é só para id **divergente** (ou gerado)                                               | alvo inferido de `data.id`: `UPDATE ONLY t:id MERGE $p` com o `id` no payload (probe `strict_same`)                   |
-| `CREATE t CONTENT $p` / `CREATE type::record(s"t", fn()) CONTENT $p` (sem `where` nem `data.id`)            | lowering do `upsert`/`upsertDelta` **sem alvo** — create puro (id por `idStrategy`); `onMissing:"throw"` explícito, branches distintos ou `mode` sem alvo → `ValidationError` | §2.2; `return:"after"` sem linha (permission/escopo) → `ResultNotFound`                                               |
+| `UPSERT t:id MERGE $p`                                                                                      | `[ {…} ]`; creates if missing                                                                                                                                                     | `upsert` by id                                                                                                       |
+| `UPSERT t MERGE $p WHERE cond`                                                                              | affected rows; **creates when nothing matches** — and only when the payload ITSELF satisfies the `WHERE`                                                                                 | `upsert` by single field (validate uniqueness in the schema)                                                                |
+| `UPSERT ONLY t:id MERGE $p WHERE tenant = $t` (another tenant's record)                                    | `NONE` (object) — **does not update**                                                                                                                                            | the `WHERE` filters the UPDATE branch; it's the `scope` channel of the `tenantRls` plugin                                          |
+| `UPSERT ONLY t:missing MERGE $p WHERE tenant = $t` (payload WITH the tenant)                                   | **creates** with the payload's tenant                                                                                                                                              | the CREATE branch **does not evaluate the `WHERE`** — that's why the runtime ALWAYS injects the tenant into the payload                    |
+| `UPSERT t MERGE $p WHERE uniq = $v AND tenant = $t`                                                         | hit from another tenant → `[]`; miss creates with the payload's tenant                                                                                                                 | `upsertMany` conflict-form                                                                                            |
+| `UPSERT ((SELECT VALUE id FROM t WHERE uniq = $v LIMIT 1)[0] ?? type::record(s"t", rand::ulid())) MERGE $p` | hit updates the existing; miss creates with a generated id                                                                                                                             | ORM lowering with `idStrategy` ≠ `rand`: 1 statement, `RETURN DIFF` preserved; `UPSERT ONLY <expr>` returns an object |
+| `UPSERT t:id MERGE { …, id: rand::ulid() }` on an EXISTING record                                          | **error** `Found '…' for the id field, but a specific record has been specified`                                                                                               | id cannot be injected in MERGE — that's why the generated upsert uses the target-expression, never the payload                 |
+| `UPSERT t:id SET $p` (whole object)                                                                       | **parse error** (`Unexpected token 'a parameter'`) — use `SET f = $p` per field                                                                                              | the ORM emits per-field                                                                                                 |
+| `UPSERT ONLY t:id MERGE/SET`                                                                                | ok (object? → array, verified: array)                                                                                                                                       |                                                                                                                       |
+| `UPSERT t:id CONTENT $p`                                                                                    | replaces content                                                                                                                                                          |                                                                                                                       |
+| `UPDATE ONLY t:id MERGE $p` (miss)                                                                          | `undefined` (NONE) — **does not create**                                                                                                                                             | default STRICT lowering of `upsert` by id (`onMissing:"throw"`)                                                      |
+| `UPDATE ONLY t:id MERGE $p` (hit)                                                                           | **object** (not array) — `RETURN NONE` is omitted in strict mode so the miss is observable                                                                                        | strict `upsert`; decode discards the object when `return:"none"`                                                   |
+| `UPDATE t MERGE $p WHERE uniq = $v` (miss)                                                                  | `[]` — **does not create**                                                                                                                                                           | default STRICT lowering of `upsert` by single field                                                                   |
+| `UPDATE t MERGE $p WHERE uniq = $v` (hit)                                                                   | array of rows                                                                                                                                                               | strict `upsert` by single field                                                                                      |
+| `UPDATE ONLY t:id … WHERE tenant = $t` (another tenant's record)                                           | `undefined` (NONE) → the runtime rejects `ResultNotFound`                                                                                                                       | `tenantRls` scoping in strict upsert                                                                               |
+| `UPDATE ONLY t:id MERGE { id: t:id, … }` (existing target)                                                   | ok — id **equal** to the target is accepted; the `Found … specific record has been specified` error is only for a **divergent** (or generated) id                                               | target inferred from `data.id`: `UPDATE ONLY t:id MERGE $p` with the `id` in the payload (probe `strict_same`)                   |
+| `CREATE t CONTENT $p` / `CREATE type::record(s"t", fn()) CONTENT $p` (without `where` or `data.id`)            | lowering of `upsert`/`upsertDelta` **without a target** — plain create (id by `idStrategy`); explicit `onMissing:"throw"`, distinct branches or target-less `mode` → `ValidationError` | §2.2; `return:"after"` with no row (permission/scope) → `ResultNotFound`                                               |
 
-#### 2.3.1 `RETURN VALUE { before: $before, after: $after }` — o envelope do `upsertDelta` (probe 3.2.0)
+#### 2.3.1 `RETURN VALUE { before: $before, after: $after }` — the `upsertDelta` envelope (probe 3.2.0)
 
-| Forma                                                                         | Resultado                                                                                                                                                                                                                                                       |
+| Form                                                                         | Result                                                                                                                                                                                                                                                       |
 | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `UPSERT ONLY t:id … RETURN VALUE { before: $before, after: $after }` (create) | objeto `{ after }` — a chave `before` **existe** com `undefined` (sobre WS; `null` sobre HTTP JSON)                                                                                                                                                             |
-| a mesma forma (update)                                                        | `{ before, after }` — os dois lados vêm do MESMO statement (snapshot atômico)                                                                                                                                                                                   |
-| formas não-`ONLY` (por tabela, subquery gerada)                               | **array** `[envelope]`; o decode achata (`payloadRows`)                                                                                                                                                                                                         |
-| `LET`+`IF/ELSE` com o envelope em CADA branch                                 | o statement `IF` devolve `[envelope]`; `$before` é `undefined` no branch de CREATE; expressões (`SET f = f + 10`) produzem valores calculados pelo servidor nos dois lados                                                                                      |
-| `… RETURN VALUE { … } TIMEOUT 5s`                                             | ok — `RETURN` **antes** de `TIMEOUT`; `TIMEOUT … RETURN` é parse error; `END TIMEOUT` idem; `TIMEOUT` por branch DENTRO do IF funciona                                                                                                                          |
-| `UPDATE ONLY t:missing … RETURN VALUE { … }`                                  | `undefined` (NONE) — o miss do modo estrito                                                                                                                                                                                                                     |
-| `UPDATE t … WHERE … RETURN VALUE { … }` sem match                             | `[]` — o miss do modo estrito por campo único                                                                                                                                                                                                                   |
-| `CREATE t CONTENT … RETURN VALUE { … }`                                       | `[{ after }]` (ou objeto com `ONLY`) — branch de criação sem `before`                                                                                                                                                                                           |
-| `INSERT … ON DUPLICATE … RETURN VALUE { … }`                                  | o envelope **expõe** `$before`/`$after` no `RETURN` (3.2.0) — **observado, não usado**: a nota de `$before`/`$after` NONE vale para o contexto de ATRIBUIÇÃO; `upsertDelta` usa `LET`/`IF` para branches distintos (robustez entre versões + suporte a `scope`) |
-| `LET $__b = (SELECT …); UPDATE …; RETURN { before: $__b, after: … }`          | `{}` — o capture-and-return com `RETURN` final NÃO devolve valor; **rejeitado** (por isso o envelope por branch)                                                                                                                                                |
+| `UPSERT ONLY t:id … RETURN VALUE { before: $before, after: $after }` (create) | object `{ after }` — the `before` key **exists** with `undefined` (over WS; `null` over HTTP JSON)                                                                                                                                                             |
+| the same form (update)                                                        | `{ before, after }` — both sides come from the SAME statement (atomic snapshot)                                                                                                                                                                                   |
+| non-`ONLY` forms (by table, generated subquery)                               | **array** `[envelope]`; decode flattens (`payloadRows`)                                                                                                                                                                                                         |
+| `LET`+`IF/ELSE` with the envelope in EACH branch                                 | the `IF` statement returns `[envelope]`; `$before` is `undefined` in the CREATE branch; expressions (`SET f = f + 10`) produce server-computed values on both sides                                                                                      |
+| `… RETURN VALUE { … } TIMEOUT 5s`                                             | ok — `RETURN` **before** `TIMEOUT`; `TIMEOUT … RETURN` is a parse error; same for `END TIMEOUT`; per-branch `TIMEOUT` INSIDE the IF works                                                                                                                          |
+| `UPDATE ONLY t:missing … RETURN VALUE { … }`                                  | `undefined` (NONE) — the strict-mode miss                                                                                                                                                                                                                     |
+| `UPDATE t … WHERE … RETURN VALUE { … }` with no match                             | `[]` — the strict-mode miss by single field                                                                                                                                                                                                                   |
+| `CREATE t CONTENT … RETURN VALUE { … }`                                       | `[{ after }]` (or object with `ONLY`) — creation branch without `before`                                                                                                                                                                                           |
+| `INSERT … ON DUPLICATE … RETURN VALUE { … }`                                  | the envelope **exposes** `$before`/`$after` in `RETURN` (3.2.0) — **observed, not used**: the NONE `$before`/`$after` note applies to the ASSIGNMENT context; `upsertDelta` uses `LET`/`IF` for distinct branches (cross-version robustness + `scope` support) |
+| `LET $__b = (SELECT …); UPDATE …; RETURN { before: $__b, after: … }`          | `{}` — capture-and-return with a final `RETURN` does NOT return a value; **rejected** (hence the per-branch envelope)                                                                                                                                                |
 
 ### 2.4 `UPDATE`
 
 | Form                                                                     | Result                                                        | Notes                                                                              |
 | ------------------------------------------------------------------------ | ------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `UPDATE t:id MERGE $p` (inexistente)                                     | `[]` — **não cria**                                           | DIVERGE (2.x criava)                                                               |
-| `UPDATE t MERGE $p WHERE cond` (sem match)                               | `[]`                                                          | seguro para `updateMany`                                                           |
-| `UPDATE ONLY t:id … WHERE tenant = $t` (outro tenant)                    | `NONE` (não `[]`) — não atualiza                              | alvo singular com `WHERE`: canal `scope` do `tenantRls`                            |
-| `UPDATE t:id SET tenant_id = <mesmo valor>`                              | ok                                                            | `READONLY` só rejeita MUDANÇA de valor                                             |
-| `UPDATE t:id SET tenant_id = <outro>`                                    | erro `Found changed value for field …, but field is readonly` | backstop do DDL                                                                    |
-| `UPDATE t CONTENT { … sem o campo READONLY }`                            | preserva o valor `READONLY`                                   |                                                                                    |
-| `UPDATE t REPLACE { … sem o campo READONLY }`                            | **erro** (`Found changed value … readonly`)                   | `REPLACE` exige o campo presente                                                   |
-| `UPDATE ONLY t:id REPLACE { …, tenant: <mesmo> } WHERE tenant = <mesmo>` | objeto atualizado                                             | o runtime injeta o tenant no payload `replace` (o valor igual passa no `READONLY`) |
+| `UPDATE t:id MERGE $p` (inexistente)                                     | `[]` — **does not create**                                           | DIVERGE (2.x created)                                                               |
+| `UPDATE t MERGE $p WHERE cond` (no match)                               | `[]`                                                          | safe for `updateMany`                                                           |
+| `UPDATE ONLY t:id … WHERE tenant = $t` (another tenant)                    | `NONE` (not `[]`) — does not update                              | singular target with `WHERE`: `tenantRls`'s `scope` channel                            |
+| `UPDATE t:id SET tenant_id = <same value>`                              | ok                                                            | `READONLY` only rejects a value CHANGE                                             |
+| `UPDATE t:id SET tenant_id = <other>`                                    | error `Found changed value for field …, but field is readonly` | DDL backstop                                                                    |
+| `UPDATE t CONTENT { … without the READONLY field }`                            | preserves the `READONLY` value                                   |                                                                                    |
+| `UPDATE t REPLACE { … without the READONLY field }`                            | **error** (`Found changed value … readonly`)                   | `REPLACE` requires the field to be present                                                   |
+| `UPDATE ONLY t:id REPLACE { …, tenant: <same> } WHERE tenant = <same>` | updated object                                             | the runtime injects the tenant into the `replace` payload (the equal value passes `READONLY`) |
 | `UPDATE ONLY t:id SET …`                                                 | **objeto**                                                    | `only: true`                                                                       |
-| `SET`                                                                    | atribuição por campo                                          |                                                                                    |
-| `MERGE`                                                                  | merge profundo                                                | default                                                                            |
-| `CONTENT`                                                                | substitui o registro; **DEFAULTs não reaplicam**              | payload precisa ser completo                                                       |
-| `REPLACE`                                                                | substitui                                                     |                                                                                    |
-| `PATCH $ops`                                                             | JSON Patch; retorna o registro                                | `{ op, path, value }`                                                              |
-| `UNSET a, b`                                                             | erro em campo obrigatório; ok em `option<…>`                  |                                                                                    |
-| `… TIMEOUT 5s`                                                           | aceito                                                        |                                                                                    |
+| `SET`                                                                    | per-field assignment                                          |                                                                                    |
+| `MERGE`                                                                  | deep merge                                                | default                                                                            |
+| `CONTENT`                                                                | replaces the record; **DEFAULTs are not reapplied**              | payload must be complete                                                       |
+| `REPLACE`                                                                | replaces                                                     |                                                                                    |
+| `PATCH $ops`                                                             | JSON Patch; returns the record                                | `{ op, path, value }`                                                              |
+| `UNSET a, b`                                                             | error on a required field; ok on `option<…>`                  |                                                                                    |
+| `… TIMEOUT 5s`                                                           | accepted                                                        |                                                                                    |
 
 `RETURN` (UPDATE):
 
 | `RETURN` | Result                                                      |
 | -------- | ----------------------------------------------------------- |
 | `NONE`   | `[]`                                                        |
-| `BEFORE` | estado anterior (array)                                     |
-| `AFTER`  | estado resultante (array)                                   |
+| `BEFORE` | previous state (array)                                     |
+| `AFTER`  | resulting state (array)                                   |
 | `DIFF`   | `[[ { op: "replace", path: "/age", value } ]]` (JSON Patch) |
 
-#### 2.4.1 `RETURN <projeção>` nas mutations (probe 3.2.0)
+#### 2.4.1 `RETURN <projection>` in mutations (probe 3.2.0)
 
-| Forma                                                                                                 | Resultado                                                                                                                  |
+| Form                                                                                                 | Result                                                                                                                  |
 | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `UPDATE … SET … RETURN name, age`                                                                     | `[{ name, age }]` — projeção por lista; paths aninhados (`address.city`) aninham como no `SELECT`                          |
-| `UPDATE ONLY … RETURN name`                                                                           | objeto (não array)                                                                                                         |
-| `RETURN <expr> AS alias`                                                                              | avaliado pelo servidor (`string::uppercase(name) AS upper`)                                                                |
-| `RETURN *` / `RETURN *, name`                                                                         | linha completa (+ entradas extras)                                                                                         |
-| `RETURN <proj> TIMEOUT 5s`                                                                            | ok — `RETURN` **antes** de `TIMEOUT`                                                                                       |
-| `RETURN * OMIT age`                                                                                   | **parse error** — `OMIT` não existe em mutations; o ORM aplica `omit` client-side                                          |
-| `CREATE`/`INSERT`/`UPSERT`/`RELATE` e os branches `THEN`/`ELSE` do `LET`+`IF` aceitam `RETURN <proj>` | um objeto por linha (ou array na forma de tabela)                                                                          |
-| `DELETE … RETURN name`                                                                                | a projeção avalia **após** a remoção → campos `NONE`; o ORM usa `RETURN BEFORE` + projeção client-side                     |
-| `RETURN $before.name AS nome`                                                                         | avalia o estado anterior no RETURN (`RETURN VALUE $before` devolve a linha inteira; `$before.name` sem alias imprime `{}`) |
+| `UPDATE … SET … RETURN name, age`                                                                     | `[{ name, age }]` — list projection; nested paths (`address.city`) nest as in `SELECT`                          |
+| `UPDATE ONLY … RETURN name`                                                                           | object (not array)                                                                                                         |
+| `RETURN <expr> AS alias`                                                                              | evaluated by the server (`string::uppercase(name) AS upper`)                                                                |
+| `RETURN *` / `RETURN *, name`                                                                         | full row (+ extra entries)                                                                                         |
+| `RETURN <proj> TIMEOUT 5s`                                                                            | ok — `RETURN` **before** `TIMEOUT`                                                                                       |
+| `RETURN * OMIT age`                                                                                   | **parse error** — `OMIT` doesn't exist in mutations; the ORM applies `omit` client-side                                          |
+| `CREATE`/`INSERT`/`UPSERT`/`RELATE` and the `THEN`/`ELSE` branches of `LET`+`IF` accept `RETURN <proj>` | one object per row (or array in table form)                                                                          |
+| `DELETE … RETURN name`                                                                                | the projection evaluates **after** removal → `NONE` fields; the ORM uses `RETURN BEFORE` + client-side projection                     |
+| `RETURN $before.name AS nome`                                                                         | evaluates the previous state in RETURN (`RETURN VALUE $before` returns the whole row; `$before.name` without alias prints `{}`) |
 
-#### 2.4.2 Atribuição composta `SET f ±= $p` (probe 3.2.0)
+#### 2.4.2 Compound assignment `SET f ±= $p` (probe 3.2.0)
 
-| Forma                                        | Resultado                                                                                                                                                      |
+| Form                                        | Result                                                                                                                                                      |
 | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `UPDATE ONLY t:id SET n -= $d RETURN BEFORE` | um read-modify-write; `RETURN BEFORE` devolve o estado anterior                                                                                                |
-| `SET meta.a += $d`                           | path aninhado ajusta em profundidade; objetos ausentes (`prefs.theme`) são criados                                                                             |
-| `SET f += $x` em campo ausente               | `NONE + n` = `n` no UPDATE (o `ON DUPLICATE` erra no branch de create — §2.2)                                                                                  |
-| `SET s += '!'` / `SET arr += ['y']`          | `+=` é atribuição composta geral (string concat, array append); o TIPO do ORM restringe `increment`/`decrement` a campos numéricos e o runtime valida a coluna |
-| `SET arr += ['a']` com `arr = ['a']`         | **`['a','a']`** — `+=` faz APPEND, **sem dedup** (probe 3.3.4): por isso `{ append }` ≠ `{ union }`                                                            |
-| `SET arr -= 'a'` com `arr = ['a','b','a']`   | `['b']` — `-=` remove **TODAS** as ocorrências (probe 3.3.4)                                                                                                   |
-| `SET arr = array::union(arr, ['b'])`         | a **única** forma que deduplica: `['a','b']` (probe 3.3.4)                                                                                                     |
-| `SET arr[0] = $v`                            | atribui um índice (índice fora do range é erro do servidor)                                                                                                    |
-| `SET f += $p` com `p` string e `f` decimal   | **erro**: `Cannot perform addition with 'decimal' and 'string'` — o operando numérico é number/bigint/`Decimal`, nunca string                                  |
-| `SET f = IF true THEN f + 1 ELSE f END`      | aplica o efeito — uma leitura-modificação-escrita server-side (probe 3.x)                                                                                     |
-| `SET f = IF false THEN f + 1 ELSE f END`     | mantém `f` — o `ELSE` default é o próprio campo (probe 3.x)                                                                                                   |
-| `SET f = IF <g> THEN f + $p ELSE THROW s"…" END` | **aborta a statement** — nenhuma linha é escrita (o `updateMany` inteiro) (probe 3.x)                                                                   |
-| `SET arr = array::union(arr ?? [], $p)` com `arr = NONE` | `$p` — o `coalesce` semeia o array ausente (probe 3.x)                                                                                             |
-| `SET arr = (arr ?? $c) + $p`                 | seed do `{ append }`: concatena sobre o array default quando o campo é `NONE` (probe 3.x)                                                                     |
-| `SET arr = IF <g> THEN array::union(arr ?? [], $p) ELSE arr END` | guarda + seed combinados, ainda UMA escrita server-side (probe 3.x)                                                                        |
+| `UPDATE ONLY t:id SET n -= $d RETURN BEFORE` | a read-modify-write; `RETURN BEFORE` returns the previous state                                                                                                |
+| `SET meta.a += $d`                           | a nested path adjusts deeply; missing objects (`prefs.theme`) are created                                                                             |
+| `SET f += $x` on a missing field               | `NONE + n` = `n` in UPDATE (`ON DUPLICATE` errors in the create branch — §2.2)                                                                                  |
+| `SET s += '!'` / `SET arr += ['y']`          | `+=` is general compound assignment (string concat, array append); the ORM TYPE restricts `increment`/`decrement` to numeric fields and the runtime validates the column |
+| `SET arr += ['a']` with `arr = ['a']`         | **`['a','a']`** — `+=` does APPEND, **no dedup** (probe 3.3.4): hence `{ append }` ≠ `{ union }`                                                            |
+| `SET arr -= 'a'` with `arr = ['a','b','a']`   | `['b']` — `-=` removes **ALL** occurrences (probe 3.3.4)                                                                                                   |
+| `SET arr = array::union(arr, ['b'])`         | the **only** form that deduplicates: `['a','b']` (probe 3.3.4)                                                                                                     |
+| `SET arr[0] = $v`                            | assigns an index (an out-of-range index is a server error)                                                                                                    |
+| `SET f += $p` with `p` a string and `f` decimal   | **error**: `Cannot perform addition with 'decimal' and 'string'` — the numeric operand is number/bigint/`Decimal`, never string                                  |
+| `SET f = IF true THEN f + 1 ELSE f END`      | applies the effect — a server-side read-modify-write (probe 3.x)                                                                                     |
+| `SET f = IF false THEN f + 1 ELSE f END`     | keeps `f` — the default `ELSE` is the field itself (probe 3.x)                                                                                                   |
+| `SET f = IF <g> THEN f + $p ELSE THROW s"…" END` | **aborts the statement** — no row is written (the entire `updateMany`) (probe 3.x)                                                                   |
+| `SET arr = array::union(arr ?? [], $p)` with `arr = NONE` | `$p` — `coalesce` seeds the missing array (probe 3.x)                                                                                             |
+| `SET arr = (arr ?? $c) + $p`                 | seed for `{ append }`: concatenates onto the default array when the field is `NONE` (probe 3.x)                                                                     |
+| `SET arr = IF <g> THEN array::union(arr ?? [], $p) ELSE arr END` | guard + seed combined, still ONE server-side write (probe 3.x)                                                                        |
 
-**Modificadores `when`/`else`/`coalesce` (M17.12).** Eles refinam um marcador sem virar operador
-(as seis linhas de `AdjustmentLowering` continuam os operadores): `when` é uma guarda avaliada no
-servidor (`IF <g> THEN … ELSE … END`), `else` é o ramo `ELSE` (`"keep"` → `ELSE f`, `"throw"` →
-`ELSE THROW s"adjustment guard failed on <campo>"`, que aborta a statement, ou um valor/fragmento →
-`ELSE <valor>`) e `coalesce` semeia um array `NONE` (`f ?? $c`) — só em `union`/`append`. `when` é
-recusado em `{ at }` (o alvo `f[n]` não tem expressão de campo para o `IF`) e `else` sem `when` é
-`ValidationError`. Cada campo continua UMA escrita server-side, então o índice UNIQUE do array
-segue correto.
+**`when`/`else`/`coalesce` modifiers (M17.12).** They refine a marker without becoming an operator
+(the six lines of `AdjustmentLowering` remain the operators): `when` is a guard evaluated on the
+server (`IF <g> THEN … ELSE … END`), `else` is the `ELSE` branch (`"keep"` → `ELSE f`, `"throw"` →
+`ELSE THROW s"adjustment guard failed on <campo>"`, which aborts the statement, or a value/fragment →
+`ELSE <value>`), and `coalesce` seeds a `NONE` array (`f ?? $c`) — only in `union`/`append`. `when` is
+rejected on `{ at }` (the `f[n]` target has no field expression for the `IF`) and `else` without
+`when` is `ValidationError`. Each field remains ONE server-side write, so the array's UNIQUE index
+stays correct.
 
-**Marcadores de array (M17).** `{ append }` / `{ remove }` / `{ union }` / `{ at: { index, value } }`
-são a superfície tipada das quatro formas acima; o alvo é validado contra o schema (família
-`array`/`set`, nunca `id`) e cada marcador é UMA escrita server-side — o que mantém correto o índice
-UNIQUE do array inteiro, já que é o servidor quem troca a chave.
+**Array markers (M17).** `{ append }` / `{ remove }` / `{ union }` / `{ at: { index, value } }`
+are the typed surface of the four forms above; the target is validated against the schema
+(`array`/`set` family, never `id`) and each marker is ONE server-side write — which keeps the whole
+array's UNIQUE index correct, since the server is what swaps the key.
 
-#### 2.4.3 `math::*` só agrega NÚMEROS (probe 3.3.4) — a validação de operando
+#### 2.4.3 `math::*` only aggregates NUMBERS (probe 3.3.4) — operand validation
 
-| Forma                                                     | Resultado                                            |
+| Form                                                     | Result                                            |
 | --------------------------------------------------------- | ---------------------------------------------------- |
-| `SELECT math::sum(campo_inexistente) … GROUP ALL`         | `0` — **sem erro**                                   |
-| `SELECT math::sum(campo_string) … GROUP ALL`              | `0` — **sem erro**                                   |
-| `SELECT math::sum(link.name)` / `math::sum(arr.quantity)` | `0` — **sem erro** (cada linha do grupo tem 1 campo) |
-| `SELECT math::median(campo_string)`                       | `{}` — objeto vazio, **sem erro**                    |
-| `SELECT math::min/max(campo_string \| datetime \| bool)`  | `null` — **sem erro**                                |
-| `SELECT array::min(array::group(campo))`                  | o extremum correto de um não-número (probe 3.3.4)    |
+| `SELECT math::sum(campo_inexistente) … GROUP ALL`         | `0` — **no error**                                   |
+| `SELECT math::sum(campo_string) … GROUP ALL`              | `0` — **no error**                                   |
+| `SELECT math::sum(link.name)` / `math::sum(arr.quantity)` | `0` — **no error** (each row of the group has 1 field) |
+| `SELECT math::median(campo_string)`                       | `{}` — empty object, **no error**                    |
+| `SELECT math::min/max(campo_string \| datetime \| bool)`  | `null` — **no error**                                |
+| `SELECT array::min(array::group(campo))`                  | the correct extremum of a non-number (probe 3.3.4)    |
 
-O `aggregate` valida o operando contra o schema e recusa cada um desses casos, apontando a
-alternativa que funciona (`array::min(array::group(…))` para extremum de não-número, `split` para
-percorrer link/array): um relatório que mostra `R$ 0,00` sem nenhum sinal é pior que um erro de
-compilação. O que o schema NÃO sabe (entrada schemaless, tabela não-SCHEMAFULL, objeto flexível,
-operando de elemento no `split`) continua permissivo — é o servidor a última palavra.
+`aggregate` validates the operand against the schema and rejects each of these cases, pointing at
+the working alternative (`array::min(array::group(…))` for a non-number extremum, `split` to walk a
+link/array): a report showing `R$ 0,00` with no warning is worse than a compile error. What the
+schema does NOT know (schemaless input, non-SCHEMAFULL table, flexible object, element operand in
+`split`) stays permissive — the server has the final word.
 
 ### 2.5 `DELETE`
 
 | Form                                           | Result                            |
 | ---------------------------------------------- | --------------------------------- |
-| `DELETE t:id RETURN BEFORE`                    | `[ registro ]`                    |
+| `DELETE t:id RETURN BEFORE`                    | `[ record ]`                    |
 | `DELETE t:id` inexistente                      | `[]`                              |
-| `DELETE t:id WHERE tenant = $t` (outro tenant) | `[]` — não remove (canal `scope`) |
+| `DELETE t:id WHERE tenant = $t` (another tenant) | `[]` — does not delete (`scope` channel) |
 | `DELETE t:id RETURN NONE`                      | `[]`                              |
-| `DELETE FROM t WHERE cond RETURN BEFORE`       | removidos                         |
-| `DELETE t` (tabela)                            | remove tudo                       |
+| `DELETE FROM t WHERE cond RETURN BEFORE`       | deleted                         |
+| `DELETE t` (table)                            | deletes everything                       |
 
-**Event guard do preset `tenant()`:** o `DEFINE EVENT … THEN IF $auth != NONE AND $after.<col> != $auth.id { THROW s"…"; }` do preset é aceito; `INFO … STRUCTURE` devolve o `WHEN` em single quotes e o `THEN` com o literal `'…'` (o `s"…"` do inline converge na canonicalização `canonicalizeLiterals`), então authored ≡ introspected (`diff --live` limpo).
+**Event guard of the `tenant()` preset:** the preset's `DEFINE EVENT … THEN IF $auth != NONE AND $after.<col> != $auth.id { THROW s"…"; }` is accepted; `INFO … STRUCTURE` returns `WHEN` in single quotes and `THEN` with the `'…'` literal (the inline `s"…"` converges during `canonicalizeLiterals` canonicalization), so authored ≡ introspected (clean `diff --live`).
 
-**Event guard do preset `createOnly({ hard: true })`:** o `DEFINE EVENT {table}_create_only … WHEN $event = 'UPDATE' THEN { THROW s"…" }` é aceito e **roda mesmo para sessões privileged/root** (`$auth = NONE`, sem permission checks), então bloqueia `$withoutPlugins()`, `$raw`/`$sdk` e migrações — `PERMISSIONS FOR update NONE` sozinha só barra record users. `INFO … STRUCTURE` devolve o `THEN` single-line com o literal `'…'`; o round-trip authored ≡ introspected é provado no `struct-parity` (corpus `sp_create_only`).
+**Event guard of the `createOnly({ hard: true })` preset:** the `DEFINE EVENT {table}_create_only … WHEN $event = 'UPDATE' THEN { THROW s"…" }` is accepted and **runs even for privileged/root sessions** (`$auth = NONE`, no permission checks), so it blocks `$withoutPlugins()`, `$raw`/`$sdk` and migrations — `PERMISSIONS FOR update NONE` alone only stops record users. `INFO … STRUCTURE` returns single-line `THEN` with the `'…'` literal; the authored ≡ introspected round-trip is proven in `struct-parity` (corpus `sp_create_only`).
 
-### 2.6 `RELATE` / arestas
+### 2.6 `RELATE` / edges
 
 | Form                                                        | Result                       |
 | ----------------------------------------------------------- | ---------------------------- |
-| `RELATE a->edge->b SET …`                                   | linha da aresta              |
-| `RELATE a->edge:named->b`                                   | id de aresta nomeado         |
-| `LET $c = (CREATE ONLY t CONTENT $p); RELATE a->edge->$c …` | create+relate num round-trip |
+| `RELATE a->edge->b SET …`                                   | edge row              |
+| `RELATE a->edge:named->b`                                   | named edge id         |
+| `LET $c = (CREATE ONLY t CONTENT $p); RELATE a->edge->$c …` | create+relate in one round-trip |
 | `DELETE edge WHERE in = $a AND out = $b`                    | `unrelate`                   |
 | `DELETE edge WHERE <filtro>`                                | `unrelateMany`               |
-| `INSERT RELATION INTO edge { in, out, … }`                  | aresta por payload           |
+| `INSERT RELATION INTO edge { in, out, … }`                  | edge via payload           |
 
-### 2.7 Lotes e transações
+### 2.7 Batches and transactions
 
 | Form                                                                                                                      | Result                                                                                                         |
 | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `FOR $row IN $rows { UPDATE t MERGE $row.fields WHERE by = $row.by; }`                                                    | **devolve `NONE`** (nada por iteração) — o ORM NÃO usa `FOR` para `updateEach`                                 |
-| `UPDATE t MERGE $f0 WHERE id = $b0; UPDATE t MERGE $f1 WHERE id = $b1;`                                                   | 1 resultado por statement, na ordem (`updateEach` per-item: casa → `[row]`, miss → `[]`)                       |
-| `INSERT IGNORE INTO t $p0; INSERT IGNORE INTO t $p1;`                                                                     | `skipDuplicates` per-item (só as linhas inseridas voltam)                                                      |
-| `LET $e = (SELECT VALUE id FROM t WHERE uniq = $v LIMIT 1); IF array::len($e) = 0 THEN CREATE … ELSE UPDATE $e[0] … END;` | upsert-por-campo-único sem id (e fallback por id quando o `update` tem expressões)                             |
-| `LET $c = (CREATE ONLY t CONTENT $p); RELATE a->edge->$c SET …; RETURN $c;`                                               | create + relate; `RETURN $c` devolve o **objeto** (não array)                                                  |
-| `BEGIN TRANSACTION; …; COMMIT TRANSACTION;`                                                                               | aplica                                                                                                         |
-| `BEGIN TRANSACTION; …; CANCEL TRANSACTION;`                                                                               | descarta; o SDK **lança** na coleta das respostas (`Cancelled`) — o executor trata o cancel como erro esperado |
+| `FOR $row IN $rows { UPDATE t MERGE $row.fields WHERE by = $row.by; }`                                                    | **returns `NONE`** (nothing per iteration) — the ORM does NOT use `FOR` for `updateEach`                                 |
+| `UPDATE t MERGE $f0 WHERE id = $b0; UPDATE t MERGE $f1 WHERE id = $b1;`                                                   | 1 result per statement, in order (`updateEach` per-item: hit → `[row]`, miss → `[]`)                       |
+| `INSERT IGNORE INTO t $p0; INSERT IGNORE INTO t $p1;`                                                                     | `skipDuplicates` per-item (only inserted rows come back)                                                      |
+| `LET $e = (SELECT VALUE id FROM t WHERE uniq = $v LIMIT 1); IF array::len($e) = 0 THEN CREATE … ELSE UPDATE $e[0] … END;` | upsert-by-single-field without id (and id fallback when the `update` has expressions)                             |
+| `LET $c = (CREATE ONLY t CONTENT $p); RELATE a->edge->$c SET …; RETURN $c;`                                               | create + relate; `RETURN $c` returns the **object** (not array)                                                  |
+| `BEGIN TRANSACTION; …; COMMIT TRANSACTION;`                                                                               | applies                                                                                                         |
+| `BEGIN TRANSACTION; …; CANCEL TRANSACTION;`                                                                               | discards; the SDK **throws** when collecting responses (`Cancelled`) — the executor treats the cancel as an expected error |
 
-**Atomicidade (verificado com o SDK via `responses()`, 3.2.0):**
+**Atomicity (verified with the SDK via `responses()`, 3.2.0):**
 
-| Cenário                                                  | Resultado                                                                                                                                                                                                                                                                              |
+| Scenario                                                  | Result                                                                                                                                                                                                                                                                              |
 | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Batch `stmts` **sem** transação, statement do meio falha | os demais **persistem** (`CREATE first`, `CREATE dup` falha, `CREATE third` persiste) — cada statement é independente                                                                                                                                                                  |
-| Batch dentro de `BEGIN/COMMIT`, statement falha          | **nada persiste**: o statement que falhou retorna o erro real; os statements ANTERIORES são remarcados retroativamente como `Query` + `NotExecuted` ("not executed due to a failed transaction"); o `COMMIT` retorna "Cannot COMMIT: the transaction was aborted due to a prior error" |
-| Todas as respostas (incluindo `BEGIN`/`COMMIT`)          | 1 resposta por statement, na ordem — o offset dos statements do usuário é estável                                                                                                                                                                                                      |
+| Batch `stmts` **without** a transaction, middle statement fails | the others **persist** (`CREATE first`, `CREATE dup` fails, `CREATE third` persists) — each statement is independent                                                                                                                                                                  |
+| Batch inside `BEGIN/COMMIT`, statement fails          | **nothing persists**: the failed statement returns the real error; EARLIER statements are retroactively marked as `Query` + `NotExecuted` ("not executed due to a failed transaction"); `COMMIT` returns "Cannot COMMIT: the transaction was aborted due to a prior error" |
+| All responses (including `BEGIN`/`COMMIT`)          | 1 response per statement, in order — the offset of user statements is stable                                                                                                                                                                                                      |
 
-Implicações: `transactional: true` (default de lotes) embrulha em `BEGIN/COMMIT` e é atômico em 1
-round-trip; o executor reporta a falha **raiz** (pula `NotExecuted`/`Cancelled`, que normalizam para
-`TransactionRollback`). `UPDATE`/`CREATE` sem transação NÃO são atômicos entre si.
+Implications: `transactional: true` (batch default) wraps in `BEGIN/COMMIT` and is atomic in 1
+round-trip; the executor reports the **root** failure (skipping `NotExecuted`/`Cancelled`, which
+normalize to `TransactionRollback`). `UPDATE`/`CREATE` without a transaction are NOT atomic with
+each other.
 
 ---
 
-## 3. SELECT — projeções, cláusulas, `ONLY`, ranges
+## 3. SELECT — projections, clauses, `ONLY`, ranges
 
 | Form                                                         | Result                                                                                                     | Notes                                                                                                 |
 | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `SELECT id, f, path.sub AS alias`                            | projeção                                                                                                   | paths desconhecidos → `null` (validar no client com `strict`)                                         |
-| `SELECT * OMIT f`                                            | remove campos                                                                                              | funciona mesmo com `f` selecionado                                                                    |
-| `SELECT * FROM ONLY t:id`                                    | **objeto**                                                                                                 | inexistente → `null`/`undefined` (falsy)                                                              |
-| `SELECT * FROM ONLY t:id WHERE cond`                         | objeto no hit; **`NONE`** (falsy) quando o `WHERE` filtra                                                  | alvo `ONLY` + filtro: o canal `scope` do `tenantRls` no `findUnique` por id                           |
-| `SELECT … FROM t WHERE uniq = $v AND scope LIMIT 1`          | array 0/1                                                                                                  | `findUnique` por campo único com escopo ANDado                                                        |
-| `SELECT * FROM ONLY t` (2+ rows)                             | **erro** (`Expected a single result output`)                                                               | `LIMIT 1` resolve (`FROM ONLY t LIMIT 1` → objeto)                                                    |
-| `SELECT VALUE f`                                             | array de valores                                                                                           | `value: true`                                                                                         |
-| `SELECT VALUE id … LIMIT 1`                                  | probe de `exists`                                                                                          |                                                                                                       |
+| `SELECT id, f, path.sub AS alias`                            | projection                                                                                                   | unknown paths → `null` (validate client-side with `strict`)                                         |
+| `SELECT * OMIT f`                                            | removes fields                                                                                              | works even with `f` selected                                                                    |
+| `SELECT * FROM ONLY t:id`                                    | **objeto**                                                                                                 | missing → `null`/`undefined` (falsy)                                                              |
+| `SELECT * FROM ONLY t:id WHERE cond`                         | object on hit; **`NONE`** (falsy) when `WHERE` filters                                                  | `ONLY` target + filter: the `scope` channel of `tenantRls` in `findUnique` by id                           |
+| `SELECT … FROM t WHERE uniq = $v AND scope LIMIT 1`          | array 0/1                                                                                                  | `findUnique` by single field with ANDed scope                                                        |
+| `SELECT * FROM ONLY t` (2+ rows)                             | **error** (`Expected a single result output`)                                                               | `LIMIT 1` resolves it (`FROM ONLY t LIMIT 1` → object)                                                    |
+| `SELECT VALUE f`                                             | array of values                                                                                           | `value: true`                                                                                         |
+| `SELECT VALUE id … LIMIT 1`                                  | `exists` probe                                                                                          |                                                                                                       |
 | `SELECT count() … GROUP ALL`                                 | `[ { count: n } ]`                                                                                         | `count`                                                                                               |
-| `SELECT count() FROM t` (sem GROUP)                          | **uma linha por registro**                                                                                 | sempre emitir `GROUP ALL`                                                                             |
-| `SELECT … GROUP BY f`                                        | linhas por grupo                                                                                           |                                                                                                       |
-| `SELECT * … GROUP BY f` / `GROUP ALL`                        | **erro** (`cannot be aggregated`)                                                                          | exigir projeção explícita                                                                             |
-| `SELECT count() FROM (SELECT f … GROUP BY f) GROUP ALL`      | conta **grupos**                                                                                           | paginação com `groupBy`                                                                               |
-| `SELECT math::sum/avg/min/max(…)`                            | agregadores                                                                                                | `math::median`/`stddev`/`variance` também; **`math::avg` não existe em 3.x → `math::mean`** (DIVERGE) |
-| `SELECT array::group(f), array::distinct(f)`                 | arrays                                                                                                     | `collect`/`distinct` do `aggregate`                                                                   |
-| `SELECT … SPLIT f`                                           | desdobra arrays (1 linha por elemento)                                                                     | `count()` por linha split = 1 → agregar exige outra forma                                             |
-| `SELECT … SPLIT f GROUP BY f` / `GROUP ALL`                  | **erro** (`mutually exclusive` / `Missing split idiom`)                                                    | DIVERGE — ver §3.1: o ORM faz o UNWIND numa subquery e agrupa por fora                                |
-| `SELECT name FROM t SPLIT f` (f fora da seleção)             | **erro** `Missing split idiom "f" in statement selection` (3.3.4)                                          | o compilador injeta `f AS _split_f` e o decoder descarta a coluna (ver §3.1)                          |
-| `SELECT name, f AS _split_f FROM t SPLIT f`                  | **ok** — o _alias_ satisfaz o idioma tanto quanto o path cru                                               | é a base do idioma automático                                                                         |
-| `SELECT *, f AS _split_f FROM t SPLIT f`                     | ok (com `*`)                                                                                               | idem                                                                                                  |
-| `SPLIT a.b` (path aninhado) com `SELECT x, a.b AS _split_ab` | ok — o idioma aceita path aninhado **sob alias**                                                           | o idioma automático cobre path aninhado                                                               |
-| `SELECT … SPLIT f WHERE <elem>`                              | o `WHERE` filtra o **PAI** (`WHERE f[*].q > 2` não remove o elemento; a expressão é avaliada por elemento) | filtro por elemento continua sendo receita `surql` com `array::flatten`                               |
+| `SELECT count() FROM t` (without GROUP)                          | **one row per record**                                                                                 | always emit `GROUP ALL`                                                                             |
+| `SELECT … GROUP BY f`                                        | rows per group                                                                                           |                                                                                                       |
+| `SELECT * … GROUP BY f` / `GROUP ALL`                        | **error** (`cannot be aggregated`)                                                                          | require explicit projection                                                                             |
+| `SELECT count() FROM (SELECT f … GROUP BY f) GROUP ALL`      | counts **groups**                                                                                           | pagination with `groupBy`                                                                               |
+| `SELECT math::sum/avg/min/max(…)`                            | aggregators                                                                                                | `math::median`/`stddev`/`variance` also; **`math::avg` does not exist in 3.x → `math::mean`** (DIVERGE) |
+| `SELECT array::group(f), array::distinct(f)`                 | arrays                                                                                                     | `aggregate`'s `collect`/`distinct`                                                                   |
+| `SELECT … SPLIT f`                                           | unfolds arrays (1 row per element)                                                                     | `count()` per split row = 1 → aggregating requires another form                                             |
+| `SELECT … SPLIT f GROUP BY f` / `GROUP ALL`                  | **error** (`mutually exclusive` / `Missing split idiom`)                                                    | DIVERGE — see §3.1: the ORM does the UNWIND in a subquery and groups outside                                |
+| `SELECT name FROM t SPLIT f` (f outside the selection)             | **error** `Missing split idiom "f" in statement selection` (3.3.4)                                          | the compiler injects `f AS _split_f` and the decoder discards the column (see §3.1)                          |
+| `SELECT name, f AS _split_f FROM t SPLIT f`                  | **ok** — the _alias_ satisfies the idiom as well as the raw path                                               | this is the basis of the automatic idiom                                                                         |
+| `SELECT *, f AS _split_f FROM t SPLIT f`                     | ok (with `*`)                                                                                               | idem                                                                                                  |
+| `SPLIT a.b` (nested path) with `SELECT x, a.b AS _split_ab` | ok — the idiom accepts a nested path **under an alias**                                                           | the automatic idiom covers nested paths                                                               |
+| `SELECT … SPLIT f WHERE <elem>`                              | the `WHERE` filters the **PARENT** (`WHERE f[*].q > 2` doesn't remove the element; the expression is evaluated per element) | per-element filtering remains a `surql` recipe with `array::flatten`                               |
 
 #### 3.1 UNWIND + GROUP: `aggregate({ split })` (M17, probe 3.3.4)
 
-`SPLIT` é avaliado **antes** de `GROUP` dentro de um `SELECT`, então `SELECT … SPLIT f GROUP ALL`
-é erro. O lowering empurra o split para uma subquery e agrupa por fora:
+`SPLIT` is evaluated **before** `GROUP` within a `SELECT`, so `SELECT … SPLIT f GROUP ALL`
+is an error. The lowering pushes the split into a subquery and groups outside:
 
 ```surql
 SELECT name, math::sum(_split_lines_quantity) AS total
@@ -310,34 +311,34 @@ FROM (SELECT lines AS _split_lines, name AS name, lines[*].quantity AS _split_li
 GROUP BY name
 ```
 
-| Fato verificado                                                                      | Consequência no lowering                                                          |
+| Verified fact                                                                      | Lowering consequence                                                          |
 | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
-| a subquery interna precisa do **campo do split como idioma** (alias serve)           | o `_split_lines` é sempre projetado                                               |
-| `SELECT *` interno **não** expõe os campos do elemento (`math::sum(quantity)` → `0`) | a projeção interna é sempre explícita, derivada do `select` do chamador           |
-| `products[*].quantity` e `products.quantity` dão o mesmo campo do elemento           | qualquer das duas grafias é aceita no `select`                                    |
-| `array::group`, `count()`, `math::*`, `ORDER BY`, `LIMIT` funcionam sobre a subquery | o agregador externo é o `aggregate` normal                                        |
-| o `WHERE` interno filtra o pai                                                       | `where` do `aggregate({ split })` é escopo de PAI (filtro por elemento = `surql`) |
-| `SELECT id, (expr) AS alias … ORDER BY alias DESC`                                   | ordena por alias/expressão                                                        |                                                                        |
-| `SELECT … ORDER BY (expr)`                                                           | **parse error**                                                                   | só identificador/alias; use `AS alias`                                 |
+| the inner subquery needs the **split field as an idiom** (an alias works)           | `_split_lines` is always projected                                               |
+| inner `SELECT *` does **not** expose the element's fields (`math::sum(quantity)` → `0`) | the inner projection is always explicit, derived from the caller's `select`           |
+| `products[*].quantity` and `products.quantity` give the same element field           | either spelling is accepted in `select`                                    |
+| `array::group`, `count()`, `math::*`, `ORDER BY`, `LIMIT` work over the subquery | the outer aggregator is the normal `aggregate`                                        |
+| the inner `WHERE` filters the parent                                                       | `where` of `aggregate({ split })` is PARENT scope (per-element filter = `surql`) |
+| `SELECT id, (expr) AS alias … ORDER BY alias DESC`                                   | sorts by alias/expression                                                        |                                                                        |
+| `SELECT … ORDER BY (expr)`                                                           | **parse error**                                                                   | identifier/alias only; use `AS alias`                                 |
 | `SELECT … ORDER BY a DESC, b ASC`                                                    | ok                                                                                |                                                                        |
-| `SELECT … LIMIT n START m` / `LIMIT $l START $s`                                     | ok (binds aceitos)                                                                | `limit`/`start`                                                        |
-| `SELECT … WITH INDEX a, b`                                                           | ok (lista)                                                                        | `WITH INDEX` **antes** do WHERE                                        |
-| `SELECT … TIMEOUT 5s`                                                                | ok                                                                                | `TIMEOUT` **depois** de `LIMIT/START`; `TIMEOUT … LIMIT` = parse error |
-| `SELECT … WITH INDEX idx` / `WITH NOINDEX`                                           | ok                                                                                | `WITH` antes de `WHERE`; depois = parse error                          |
+| `SELECT … LIMIT n START m` / `LIMIT $l START $s`                                     | ok (binds accepted)                                                                | `limit`/`start`                                                        |
+| `SELECT … WITH INDEX a, b`                                                           | ok (list)                                                                        | `WITH INDEX` **before** WHERE                                        |
+| `SELECT … TIMEOUT 5s`                                                                | ok                                                                                | `TIMEOUT` **after** `LIMIT/START`; `TIMEOUT … LIMIT` = parse error |
+| `SELECT … WITH INDEX idx` / `WITH NOINDEX`                                           | ok                                                                                | `WITH` before `WHERE`; after = parse error                          |
 | `SELECT … PARALLEL`                                                                  | **parse error**                                                                   | DIVERGE                                                                |
-| `SELECT … FROM t:2..4`                                                               | `[t:2, t:3]` (fim exclusivo)                                                      | suffix, não `t:2..t:4`                                                 |
-| `SELECT … FROM t:2..=4`                                                              | `[t:2, t:3, t:4]`                                                                 | inclusivo                                                              |
-| `SELECT … FROM t:abc..=xyz`                                                          | ok com ids string; `⟨a-b⟩` quando preciso                                         |                                                                        |
+| `SELECT … FROM t:2..4`                                                               | `[t:2, t:3]` (exclusive end)                                                      | suffix, not `t:2..t:4`                                                 |
+| `SELECT … FROM t:2..=4`                                                              | `[t:2, t:3, t:4]`                                                                 | inclusive                                                              |
+| `SELECT … FROM t:abc..=xyz`                                                          | ok with string ids; `⟨a-b⟩` when needed                                         |                                                                        |
 | `SELECT … FROM t:2..t:4`                                                             | **parse error**                                                                   | DIVERGE                                                                |
-| `SELECT * FROM ONLY t:id FETCH link`                                                 | FETCH depois de ONLY                                                              |                                                                        |
-| `EXPLAIN SELECT …`                                                                   | plano em string                                                                   | só `SELECT`; `EXPLAIN UPDATE` é erro                                   |
-| `SELECT … VERSION d'…'`                                                              | erro em backend memory ("does not support versioned queries")                     | emissão condicionada ao suporte                                        |
-| `SELECT … VERSION d'…' TIMEOUT 5s`                                                   | ok (ordem)                                                                        | `VERSION` **antes** de `TIMEOUT`                                       |
+| `SELECT * FROM ONLY t:id FETCH link`                                                 | FETCH after ONLY                                                              |                                                                        |
+| `EXPLAIN SELECT …`                                                                   | plan as string                                                                   | `SELECT` only; `EXPLAIN UPDATE` is an error                                   |
+| `SELECT … VERSION d'…'`                                                              | error on memory backend ("does not support versioned queries")                     | emit conditionally on support                                        |
+| `SELECT … VERSION d'…' TIMEOUT 5s`                                                   | ok (order)                                                                        | `VERSION` **before** `TIMEOUT`                                       |
 
-**Ordem das cláusulas (3.2.4, verificada):**
+**Clause order (3.2.4, verified):**
 
 ```surql
-SELECT [VALUE] <projeção> FROM <alvo>
+SELECT [VALUE] <projection> FROM <target>
   [WITH INDEX … | WITH NOINDEX]
   [WHERE …]
   [SPLIT …]
@@ -350,60 +351,60 @@ SELECT [VALUE] <projeção> FROM <alvo>
   [FETCH …]            -- M3
 ```
 
-`SELECT * OMIT f` funciona mesmo com `f` obrigatório e com `f` projetado
+`SELECT * OMIT f` works even with a required `f` and with `f` projected
 (`SELECT name, age OMIT age` → `{ name }`).
 
-### 3.1 Projeções por caminho (formas verificadas)
+### 3.1 Path projections (verified forms)
 
-| Forma                                  | Resultado                                                     |
+| Form                                  | Result                                                     |
 | -------------------------------------- | ------------------------------------------------------------- |
-| `SELECT address.city FROM t`           | `{ address: { city } }` (aninha pelo caminho)                 |
+| `SELECT address.city FROM t`           | `{ address: { city } }` (nests by path)                 |
 | `SELECT contacts[*].type FROM t`       | `{ contacts: { type: [ … ] } }` (array)                       |
-| `SELECT contacts.type FROM t`          | `{ contacts: { type: [ … ] } }` (array — o ancestral é array) |
-| `SELECT contacts[0].value FROM t`      | `{ contacts: { value } }` (escalar — índice fixo)             |
-| `SELECT contacts[*].type AS t FROM t`  | `{ t: [ … ] }` (alias achata)                                 |
-| `SELECT *, (expr) AS x FROM t`         | linha completa + `x` (flat)                                   |
-| `SELECT VALUE contacts[*].type FROM t` | `[ [ … ] ]` (valor direto)                                    |
+| `SELECT contacts.type FROM t`          | `{ contacts: { type: [ … ] } }` (array — the ancestor is an array) |
+| `SELECT contacts[0].value FROM t`      | `{ contacts: { value } }` (scalar — fixed index)             |
+| `SELECT contacts[*].type AS t FROM t`  | `{ t: [ … ] }` (alias flattens)                                 |
+| `SELECT *, (expr) AS x FROM t`         | full row + `x` (flat)                                   |
+| `SELECT VALUE contacts[*].type FROM t` | `[ [ … ] ]` (direct value)                                    |
 
 ### 3.2 `FETCH` (links)
 
 | Form                                                                        | Result                                                                      |
 | --------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `SELECT * FROM t ORDER BY id FETCH author`                                  | `author` materializado (objeto completo)                                    |
-| `SELECT * FROM t WHERE … LIMIT n FETCH author`                              | idem, respeitando o limite                                                  |
-| `FETCH a.b`                                                                 | aninhado (link dentro de link) materializado                                |
-| `FETCH a, b`                                                                | múltiplos (não-links são ignorados sem erro)                                |
-| `FETCH` antes de `ORDER BY`                                                 | **parse error** — FETCH é a última cláusula                                 |
-| `SELECT id, author.name AS an … FETCH author`                               | alias preservado; FETCH não sobrescreve                                     |
-| `SELECT id, author.id AS author_id, author.name AS author_name` (sem FETCH) | projeção achatada — base da remontagem de `include: { author: { select } }` |
+| `SELECT * FROM t ORDER BY id FETCH author`                                  | `author` materialized (full object)                                    |
+| `SELECT * FROM t WHERE … LIMIT n FETCH author`                              | same, respecting the limit                                                  |
+| `FETCH a.b`                                                                 | nested (link within link) materialized                                |
+| `FETCH a, b`                                                                | multiple (non-links are ignored without error)                                |
+| `FETCH` before `ORDER BY`                                                 | **parse error** — FETCH is the last clause                                 |
+| `SELECT id, author.name AS an … FETCH author`                               | alias preserved; FETCH does not overwrite                                     |
+| `SELECT id, author.id AS author_id, author.name AS author_name` (without FETCH) | flat projection — basis for remounting `include: { author: { select } }` |
 
-### 3.3 Paginação / cursor
+### 3.3 Pagination / cursor
 
 | Form                                                                                      | Result                                                                                                                                                       |
 | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `SELECT … ORDER BY id ASC LIMIT n` + `SELECT count() … GROUP ALL`                         | 2 statements no mesmo `query` (`paginate`)                                                                                                                   |
-| `WHERE (age < $c0 OR (age = $c0 AND id > $c1)) ORDER BY age DESC, id ASC LIMIT n`         | cursor por tupla                                                                                                                                             |
-| `id > $c` / `id < $c`                                                                     | cursor por record id (`before` reordena no client)                                                                                                           |
-| `SELECT id FROM t ORDER BY age`                                                           | **parse error** (`Missing order idiom`) — o servidor exige o campo ordenado na seleção; a projeção `*` cobre                                                 |
-| `SELECT name, age AS _keyset_0, id AS _keyset_1 FROM t ORDER BY age DESC, id ASC LIMIT n` | um alias da própria path satisfaz o order idiom; é assim que o cursor projeta os campos do keyset que o `select` não devolve, e o client os remove do `data` |
-| `SELECT *, age AS _keyset_0 OMIT age FROM t ORDER BY age ASC`                             | o alias explícito **sobrevive ao `OMIT`** (inclusive de um ancestral) — o compilador nunca reescreve `select`/`omit`                                         |
-| `ORDER BY <alias do select>`                                                              | resolve o **alias**, não o campo — por isso um `select` que redefine o nome do campo ordenado é erro de compilação                                           |
+| `SELECT … ORDER BY id ASC LIMIT n` + `SELECT count() … GROUP ALL`                         | 2 statements in the same `query` (`paginate`)                                                                                                                   |
+| `WHERE (age < $c0 OR (age = $c0 AND id > $c1)) ORDER BY age DESC, id ASC LIMIT n`         | tuple cursor                                                                                                                                             |
+| `id > $c` / `id < $c`                                                                     | cursor by record id (`before` reorders client-side)                                                                                                           |
+| `SELECT id FROM t ORDER BY age`                                                           | **parse error** (`Missing order idiom`) — the server requires the ordered field in the selection; projection `*` covers it                                                 |
+| `SELECT name, age AS _keyset_0, id AS _keyset_1 FROM t ORDER BY age DESC, id ASC LIMIT n` | an alias of the path itself satisfies the order idiom; that's how the cursor projects keyset fields the `select` doesn't return, and the client strips them from `data` |
+| `SELECT *, age AS _keyset_0 OMIT age FROM t ORDER BY age ASC`                             | the explicit alias **survives `OMIT`** (even of an ancestor) — the compiler never rewrites `select`/`omit`                                         |
+| `ORDER BY <select alias>`                                                              | resolves the **alias**, not the field — that's why a `select` redefining the ordered field's name is a compile error                                           |
 
-> O cursor monta `nextCursor`/`previousCursor` a partir da linha **crua** (raw), nunca do valor
-> decodificado pelo codec: um campo `datetime` volta como `DateTime` do SDK com nanossegundos (o
-> bind CBOR usa `toCompact()`), então `after`/`before` comparam o valor exato do banco. O `Date` do
-> codec trunca em milissegundos e faria o predicate `field < $c OR (field = $c AND …)` pular todas
-> as linhas criadas no mesmo ms. `data` continua decodificado e sem os aliases `_keyset_<n>`.
+> The cursor builds `nextCursor`/`previousCursor` from the **raw** row, never from the
+> codec-decoded value: a `datetime` field comes back as the SDK's `DateTime` with nanoseconds (the
+> CBOR bind uses `toCompact()`), so `after`/`before` compare the exact database value. The codec's
+> `Date` truncates to milliseconds and would make the predicate `field < $c OR (field = $c AND …)`
+> skip all rows created in the same ms. `data` stays decoded and without the `_keyset_<n>` aliases.
 
 ---
 
-## 4. WHERE — operadores verificados
+## 4. WHERE — verified operators
 
-### 4.1 Igualdade / comparação / presença
+### 4.1 Equality / comparison / presence
 
-| Operador             | Forma emitida                 | Verificado |
+| Operator             | Emitted form                 | Verified |
 | -------------------- | ----------------------------- | ---------- |
-| valor puro           | `f = $p`                      | ✓          |
+| plain value           | `f = $p`                      | ✓          |
 | `exact`              | `f == $p`                     | ✓          |
 | `isNull`/`isNotNull` | `f = NULL` / `f != NULL`      | ✓          |
 | `isNone`/`isNotNone` | `f = NONE` / `f != NONE`      | ✓          |
@@ -415,14 +416,14 @@ SELECT [VALUE] <projeção> FROM <alvo>
 
 ### 4.2 Strings
 
-| Operador                                | Forma emitida                                                   | Verificado                             |
+| Operator                                | Emitted form                                                   | Verified                             |
 | --------------------------------------- | --------------------------------------------------------------- | -------------------------------------- |
 | `contains`                              | `f CONTAINS $p`                                                 | ✓                                      |
 | `startsWith` / `endsWith`               | `string::starts_with(f, $p)` / `string::ends_with(f, $p)`       | ✓                                      |
 | `matches`                               | `string::matches(f, /regex/)`                                   | ✓                                      |
 | `eqInsensitive` / `containsInsensitive` | `string::lowercase(f) = string::lowercase($p)` / `… CONTAINS …` | ✓                                      |
-| `matchesFullText`                       | `f @@ $q` / `f @0@ $q`                                          | ✓ (precisa de índice FULLTEXT)         |
-| `fuzzy` / `anyFuzzy` / `allFuzzy`       | **não emitir** (`~`/`?~`/`*~` = parse error)                    | DIVERGE — usar `string::similarity::*` |
+| `matchesFullText`                       | `f @@ $q` / `f @0@ $q`                                          | ✓ (requires a FULLTEXT index)         |
+| `fuzzy` / `anyFuzzy` / `allFuzzy`       | **do not emit** (`~`/`?~`/`*~` = parse error)                    | DIVERGE — use `string::similarity::*` |
 
 **Field-level `regex` (DDL, not a filter):** `.$regex(source, flags?)` emits
 `ASSERT $value = /source/`, and `.regex(source, params?, flags?)` is the app-side Zod chain (no DDL).
@@ -430,111 +431,111 @@ A string `source` is compiled to a `RegExp` once at authoring time (Bun AOT cons
 passing a `RegExp` keeps the prior behavior. Explicit `flags` are appended to the DDL literal
 (`/^a$/i`) — verified by `aot-regex-json.test.ts` against the identical `RegExp` form when omitted.
 
-### 4.3 Arrays / sets — semântica exata
+### 4.3 Arrays / sets — exact semantics
 
-| Operador       | Forma                 | Semântica verificada                                                  |
+| Operator       | Form                 | Verified semantics                                                  |
 | -------------- | --------------------- | --------------------------------------------------------------------- |
-| `contains`     | `f CONTAINS $x`       | elemento presente                                                     |
-| `containsNot`  | `f CONTAINSNOT $x`    | ausente                                                               |
-| `containsAll`  | `f CONTAINSALL $set`  | todos os `$set` presentes em `f`                                      |
-| `containsAny`  | `f CONTAINSANY $set`  | algum presente                                                        |
-| `containsNone` | `f CONTAINSNONE $set` | nenhum presente                                                       |
-| `inside`       | `f INSIDE $set`       | **scalar** dentro de `$set` (array ≠ elemento → `false`)              |
+| `contains`     | `f CONTAINS $x`       | element present                                                     |
+| `containsNot`  | `f CONTAINSNOT $x`    | absent                                                               |
+| `containsAll`  | `f CONTAINSALL $set`  | all of `$set` present in `f`                                      |
+| `containsAny`  | `f CONTAINSANY $set`  | some present                                                        |
+| `containsNone` | `f CONTAINSNONE $set` | none present                                                       |
+| `inside`       | `f INSIDE $set`       | **scalar** inside `$set` (array ≠ element → `false`)              |
 | `allInside`    | `f ALLINSIDE $set`    | `f` ⊆ `$set`                                                          |
-| `anyInside`    | `f ANYINSIDE $set`    | algum elemento de `f` em `$set`                                       |
-| `noneInside`   | `f NONEINSIDE $set`   | nenhum elemento de `f` em `$set`                                      |
-| `notInside`    | `f NOTINSIDE $set`    | negação de `INSIDE`                                                   |
-| `outside`      | `f OUTSIDE $set`      | negação de `INSIDE`                                                   |
-| `intersects`   | `f INTERSECTS $set`   | `false` para arrays comuns — usar `ANYINSIDE`; usar só para geometria |
-| `anyEquals`    | `f ?= $x`             | algum elemento `= $x`                                                 |
-| `allEquals`    | `f *= $x`             | todos os elementos `= $x`; **array vazio → `true`** (vacuous truth)   |
+| `anyInside`    | `f ANYINSIDE $set`    | some element of `f` in `$set`                                       |
+| `noneInside`   | `f NONEINSIDE $set`   | no element of `f` in `$set`                                      |
+| `notInside`    | `f NOTINSIDE $set`    | negation of `INSIDE`                                                   |
+| `outside`      | `f OUTSIDE $set`      | negation of `INSIDE`                                                   |
+| `intersects`   | `f INTERSECTS $set`   | `false` for ordinary arrays — use `ANYINSIDE`; use only for geometry |
+| `anyEquals`    | `f ?= $x`             | some element `= $x`                                                 |
+| `allEquals`    | `f *= $x`             | all elements `= $x`; **empty array → `true`** (vacuous truth)   |
 | `length`       | `array::len(f) = $p`  | ✓                                                                     |
 
-### 4.4 Paths / lógicos / records / geo / vetor
+### 4.4 Paths / logical / records / geo / vector
 
-| Forma                                      | Resultado verificado                                         |
+| Form                                      | Verified result                                         |
 | ------------------------------------------ | ------------------------------------------------------------ |
-| `'address.city'`                           | projeção direta ✓                                            |
-| `'contacts[0].value'`                      | índice funciona ✓                                            |
-| `'contacts[*].type'`                       | devolve **array** — igualdade precisa de `CONTAINS`/`INSIDE` |
-| `AND`/`OR`/`NOT` aninhados                 | ✓ (parênteses explícitos)                                    |
+| `'address.city'`                           | direct projection ✓                                            |
+| `'contacts[0].value'`                      | index works ✓                                            |
+| `'contacts[*].type'`                       | returns **array** — equality requires `CONTAINS`/`INSIDE` |
+| nested `AND`/`OR`/`NOT`                 | ✓ (explicit parentheses)                                    |
 | record value `f = $recordId`               | ✓                                                            |
 | `geometry INTERSECTS $geo` / `INSIDE $geo` | ✓                                                            |
 | `geo::distance(f, $p) <= $r`               | ✓                                                            |
-| KNN `embedding <                           | k, metric                                                    | > $q` | ✓ com índice HNSW (ver §6) |
-| fragmento `surql`                          | interpola com binds ✓                                        |
-| subquery correlacionada                    | `$parent.id` dentro de `(SELECT …)` ✓                        |
+| KNN `embedding <                           | k, metric                                                    | > $q` | ✓ with HNSW index (see §6) |
+| fragmento `surql`                          | interpolates with binds ✓                                        |
+| correlated subquery                    | `$parent.id` inside `(SELECT …)` ✓                        |
 
 ---
 
-## 5. Grafo (complemento ao `graph-syntax-map.md`, reconfirmado em 3.2.0)
+## 5. Graph (complement to `graph-syntax-map.md`, reconfirmed on 3.2.0)
 
-| Forma                                                                                     | Resultado                                                       |
+| Form                                                                                     | Result                                                       |
 | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `SELECT ->edge AS e`, `<-edge AS i`, `(<->edge) AS b`                                     | arrays de arestas                                               |
-| `SELECT ->edge->target AS t`                                                              | array de targets                                                |
-| `SELECT ->edge->target.field`                                                             | valores do campo                                                |
-| `SELECT ->? AS any`, `<->?` (record-anchored)                                             | arestas de qualquer tipo                                        |
-| `SELECT <->edge<->target` (record-anchored)                                               | ambos os sentidos (não em projeção)                             |
-| `count(->edge)`, `count(->edge[WHERE …])`                                                 | contagens                                                       |
-| `->(edge WHERE …)->target`, `->edge->(target WHERE …)`                                    | filtros por edge/alvo                                           |
-| `(SELECT id, title FROM ->(likes WHERE score > 4)->post ORDER BY title LIMIT 2) AS liked` | include por pai **com o filtro no edge**                        |
-| `(SELECT id, out.* FROM ->likes) AS likes`                                                | edge + target no mesmo objeto                                   |
-| `@.{1..2}->edge->target` / `rec.{1..2}(->edge->target)`                                   | recursão devolve **record ids**; projetar dentro do body → erro |
-| `$parent.id`                                                                              | correlação com o registro externo                               |
+| `SELECT ->edge AS e`, `<-edge AS i`, `(<->edge) AS b`                                     | arrays of edges                                               |
+| `SELECT ->edge->target AS t`                                                              | array of targets                                                |
+| `SELECT ->edge->target.field`                                                             | field values                                                |
+| `SELECT ->? AS any`, `<->?` (record-anchored)                                             | edges of any type                                        |
+| `SELECT <->edge<->target` (record-anchored)                                               | both directions (not in projection)                             |
+| `count(->edge)`, `count(->edge[WHERE …])`                                                 | counts                                                       |
+| `->(edge WHERE …)->target`, `->edge->(target WHERE …)`                                    | edge/target filters                                           |
+| `(SELECT id, title FROM ->(likes WHERE score > 4)->post ORDER BY title LIMIT 2) AS liked` | include by parent **with the filter on the edge**                        |
+| `(SELECT id, out.* FROM ->likes) AS likes`                                                | edge + target in the same object                                   |
+| `@.{1..2}->edge->target` / `rec.{1..2}(->edge->target)`                                   | recursion returns **record ids**; projecting inside the body → error |
+| `$parent.id`                                                                              | correlation with the outer record                               |
 
-### 5.1 `include` — lowering verificado (M3)
+### 5.1 `include` — verified lowering (M3)
 
-Formas que o compiler emite (direção `out`; `in` espelha as setas para `<-edge<-target` e usa `in.*`):
+Forms the compiler emits (`out` direction; `in` mirrors the arrows to `<-edge<-target` and uses `in.*`):
 
-| Forma do `include`             | Statement                                                                                               |
+| `include` form             | Statement                                                                                               |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| link `true`                    | `SELECT * … FETCH author` (link entra na seleção se explícita)                                          |
-| link `{ select }`              | `author.id AS author_id, author.name AS author_name` + remontagem no client (sem FETCH)                 |
-| link `{ include }` aninhado    | `FETCH author.profile`                                                                                  |
-| aresta `true`                  | `(SELECT * FROM ->likes->post) AS likes`                                                                |
-| aresta `{ select }`            | `(SELECT id, title FROM ->likes->post) AS likes`                                                        |
-| aresta `{ where }`             | `FROM ->(likes WHERE <edge>) ->(post WHERE <target>)`; `orderBy`/`limit`/`start` na subquery            |
-| aresta `{ edge: true }`        | `(SELECT * FROM ->likes) AS likes`                                                                      |
-| aresta `{ edge, target }`      | `(SELECT <edge…>, out.* FROM ->likes)` → remonta `{ edge, target }` no client                           |
-| aresta `edge`+`target`+`where` | `(SELECT <edge…>, out.* FROM ->(likes WHERE <edge>) WHERE <out.target…>)`                               |
-| direção `in`                   | `(SELECT … FROM <-likes<-user)`; `edge`+`target` materializa `in.*` e filtra `WHERE in.<campo>`         |
-| direção `both` (target)        | `(SELECT id, title FROM <->likes<->post)` — o alvo segue a mesma direção                                |
-| direção `both` (edge)          | `(SELECT * FROM <->likes)`; `edge`+`target` em `both` é **recusado** (não há alias único de alvo)       |
-| aresta wildcard                | `(SELECT * FROM ->?)` / `<-?` / `<->?`; filtro do edge `->(? WHERE score > 4)`                          |
-| `_count` (aresta)              | `count(->likes) AS _count_likes` / `count(->likes[WHERE score > 4])` / `count(->likes->(post WHERE …))` |
+| link `true`                    | `SELECT * … FETCH author` (link enters the selection if explicit)                                          |
+| link `{ select }`              | `author.id AS author_id, author.name AS author_name` + remounting client-side (no FETCH)                 |
+| nested link `{ include }`    | `FETCH author.profile`                                                                                  |
+| edge `true`                  | `(SELECT * FROM ->likes->post) AS likes`                                                                |
+| edge `{ select }`            | `(SELECT id, title FROM ->likes->post) AS likes`                                                        |
+| edge `{ where }`             | `FROM ->(likes WHERE <edge>) ->(post WHERE <target>)`; `orderBy`/`limit`/`start` in the subquery            |
+| edge `{ edge: true }`        | `(SELECT * FROM ->likes) AS likes`                                                                      |
+| edge `{ edge, target }`      | `(SELECT <edge…>, out.* FROM ->likes)` → remounts `{ edge, target }` client-side                           |
+| edge `edge`+`target`+`where` | `(SELECT <edge…>, out.* FROM ->(likes WHERE <edge>) WHERE <out.target…>)`                               |
+| `in` direction                   | `(SELECT … FROM <-likes<-user)`; `edge`+`target` materializes `in.*` and filters `WHERE in.<field>`         |
+| `both` direction (target)        | `(SELECT id, title FROM <->likes<->post)` — the target follows the same direction                                |
+| `both` direction (edge)          | `(SELECT * FROM <->likes)`; `edge`+`target` in `both` is **rejected** (there's no single target alias)       |
+| wildcard edge                | `(SELECT * FROM ->?)` / `<-?` / `<->?`; edge filter `->(? WHERE score > 4)`                          |
+| `_count` (edge)              | `count(->likes) AS _count_likes` / `count(->likes[WHERE score > 4])` / `count(->likes->(post WHERE …))` |
 | `_count` (link array)          | `count(friends) AS _count_friends` / `count(friends[WHERE name = 'Alice'])`                             |
 
-Fatos de lowering que a tabela acima depende (todos live-probed em 3.2.x):
+Lowering facts the table above relies on (all live-probed on 3.2.x):
 
-- A subquery de alvo devolve **registros completos**; o traversal cru devolveria record ids.
-- `FETCH` **não sobrescreve** alias projetado (`author.id AS author_id` sobrevive) e não devolve
-  link fora da seleção.
-- `out.*` (**edge**+**target**) exige que a subquery pare no edge (`FROM ->(edge WHERE …)`); seguir
-  para o alvo (`->target`) faz `out` ser `NONE` e a linha virar `{}` — o filtro do alvo vai em
-  `WHERE out.<campo>`.
-- `ORDER BY` dentro da subquery exige o campo na seleção; projeção `*` cobre qualquer campo.
-- `count(<->likes)`, `count(<->?)` e `<->edge<->target` funcionam para direção `both`; já `?.*` é
-  **parse error** (por isso `edge`+`target` + `both` não tem lowering).
-- Filtro de edge wildcard: `->(? WHERE score > 4)` filtra a linha da aresta; `->?[WHERE …]` também
-  filtra o array (o compiler emite a forma com parênteses).
+- The target subquery returns **full records**; raw traversal would return record ids.
+- `FETCH` **does not overwrite** a projected alias (`author.id AS author_id` survives) and does not return
+  links outside the selection.
+- `out.*` (**edge**+**target**) requires the subquery to stop at the edge (`FROM ->(edge WHERE …)`); moving
+  to the target (`->target`) makes `out` `NONE` and the row become `{}` — the target filter goes in
+  `WHERE out.<field>`.
+- `ORDER BY` inside the subquery requires the field in the selection; projection `*` covers any field.
+- `count(<->likes)`, `count(<->?)` and `<->edge<->target` work for `both` direction; but `?.*` is
+  **parse error** (hence `edge`+`target` + `both` has no lowering).
+- Wildcard edge filter: `->(? WHERE score > 4)` filters the edge row; `->?[WHERE …]` also
+  filters the array (the compiler emits the parenthesized form).
 
-### 5.2 `where` relacional — lowering verificado (M3)
+### 5.2 Relational `where` — verified lowering (M3)
 
-| Operador                 | Forma emitida                                                                   |
+| Operator                 | Emitted form                                                                   |
 | ------------------------ | ------------------------------------------------------------------------------- |
-| link `one` `is`          | `<link>.<campo> = $p` (filtro aninhado compilado com prefixo do link)           |
-| link `one` `isNot`       | `NOT (<link>.<campo> = $p …)` — verdadeiro quando o link é `NONE`               |
-| aresta `some`            | `count(<traversal>[WHERE …]) > 0`                                               |
-| aresta `none`            | `count(<traversal>[WHERE …]) = 0`                                               |
-| aresta `every`           | `count(<traversal>) = count(<traversal>[WHERE …])` (vacuamente verdadeiro em 0) |
-| link array `some`/`none` | `count(<campo>[WHERE …]) > 0` / `= 0`                                           |
-| link array `every`       | `count(<campo>) = count(<campo>[WHERE …])`                                      |
+| link `one` `is`          | `<link>.<field> = $p` (nested filter compiled with the link prefix)           |
+| link `one` `isNot`       | `NOT (<link>.<field> = $p …)` — true when the link is `NONE`               |
+| edge `some`            | `count(<traversal>[WHERE …]) > 0`                                               |
+| edge `none`            | `count(<traversal>[WHERE …]) = 0`                                               |
+| edge `every`           | `count(<traversal>) = count(<traversal>[WHERE …])` (vacuously true at 0) |
+| link array `some`/`none` | `count(<field>[WHERE …]) > 0` / `= 0`                                           |
+| link array `every`       | `count(<field>) = count(<field>[WHERE …])`                                      |
 
-### 5.3 Traversal/recursão via `select` + `surql` (M3.5)
+### 5.3 Traversal/recursion via `select` + `surql` (M3.5)
 
-Sem superfície nova: `select` já aceita fragments, então o açúcar é uma receita documentada (o
-compiler não tenta parsear `@.{…}` — quem escreve o fragment sabe a profundidade/edge):
+No new surface: `select` already accepts fragments, so the sugar is a documented recipe (the
+compiler doesn't try to parse `@.{…}` — whoever writes the fragment knows the depth/edge):
 
 ```ts
 client.users.findMany({
@@ -547,15 +548,15 @@ client.users.findMany({
 });
 ```
 
-- `@.{n}` / `@{n,m}` / `@.{n+collect}` só existem na posição de projeção (`SELECT`); o fragment
-  `user:alice.{1..2}(->likes->post)` ancora em um record explícito.
-- O body devolve **record ids** — projetar campos dentro do body é erro de runtime
-  (`Expected a record ID during recursive graph traversal`); projete fora.
-- Em `/query` a alternativa procedural é `block()`.
+- `@.{n}` / `@{n,m}` / `@.{n+collect}` only exist in projection position (`SELECT`); the fragment
+  `user:alice.{1..2}(->likes->post)` anchors at an explicit record.
+- The body returns **record ids** — projecting fields inside the body is a runtime error
+  (`Expected a record ID during recursive graph traversal`); project outside.
+- In `/query` the procedural alternative is `block()`.
 
 ---
 
-## 6. Full-text e vetorial
+## 6. Full-text and vector
 
 ```surql
 -- full-text (3.x spelling)
@@ -566,12 +567,12 @@ SELECT id, search::score(0) AS score FROM post WHERE title @0@ 'hello' ORDER BY 
 SELECT search::highlight('<b>', '</b>', 0, title) AS hl FROM post WHERE title @@ 'hello';
 ```
 
-| Item                                                 | Verificado                                 |
+| Item                                                 | Verified                                 |
 | ---------------------------------------------------- | ------------------------------------------ |
-| `SEARCH ANALYZER` (2.x)                              | **parse error** → usar `FULLTEXT ANALYZER` |
-| `@@` (todos os índices) e `@n@` (índice `n`)         | ✓                                          |
-| `search::score(n)`                                   | número; ordena por alias ✓                 |
-| `search::highlight(prefix, suffix, indexRef, field)` | **4 argumentos**; 2–3 → erro               |
+| `SEARCH ANALYZER` (2.x)                              | **parse error** → use `FULLTEXT ANALYZER` |
+| `@@` (all indexes) and `@n@` (index `n`)         | ✓                                          |
+| `search::score(n)`                                   | number; sorts by alias ✓                 |
+| `search::highlight(prefix, suffix, indexRef, field)` | **4 arguments**; 2–3 → error               |
 
 ```surql
 DEFINE TABLE vec SCHEMALESS;
@@ -583,129 +584,129 @@ SELECT vector::similarity::cosine(embedding, $q) AS sim FROM vec;
 
 ---
 
-## 10. Contexto, raw e admin (M5)
+## 10. Context, raw and admin (M5)
 
-**Contexto por `USE` (server 3.2.0):**
+**Context via `USE` (server 3.2.0):**
 
-| Forma                                                     | Resultado                                                                                                                                    |
+| Form                                                     | Result                                                                                                                                    |
 | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `USE NS tenant_a DB app; SELECT * FROM t;` (mesmo script) | a statement seguinte roda no NS/DB do `USE`; `USE` devolve uma linha `{ namespace, database }`                                               |
-| sessão após o script                                      | **inalterada** (`db.namespace`/`db.database` continuam os anteriores) — sem vazamento de estado global                                       |
-| `USE NS tenant_a;` (sem DB)                               | **mantém** o DB corrente (a resposta traz `{ namespace, database }`); com nenhum DB selecionado, a próxima statement falha (`DatabaseEmpty`) |
-| `USE NS ⟨tenant b⟩ DB ⟨my db⟩;`                           | ✓ — identificadores escapados com `⟨…⟩` são aceitos (o ORM usa `escapeIdent`)                                                                |
-| `USE` dentro de `BEGIN … COMMIT`                          | aceito pelo servidor (o ORM não emite `USE` dentro de transação sem contexto)                                                                |
+| `USE NS tenant_a DB app; SELECT * FROM t;` (same script) | the following statement runs in the `USE`'s NS/DB; `USE` returns a row `{ namespace, database }`                                               |
+| session after the script                                      | **unchanged** (`db.namespace`/`db.database` stay the previous ones) — no global state leakage                                       |
+| `USE NS tenant_a;` (without DB)                               | **keeps** the current DB (the response carries `{ namespace, database }`); with no DB selected, the next statement fails (`DatabaseEmpty`) |
+| `USE NS ⟨tenant b⟩ DB ⟨my db⟩;`                           | ✓ — identifiers escaped with `⟨…⟩` are accepted (the ORM uses `escapeIdent`)                                                                |
+| `USE` inside `BEGIN … COMMIT`                          | accepted by the server (the ORM does not emit `USE` inside a transaction without context)                                                                |
 
-**Raw / funções / admin:**
+**Raw / functions / admin:**
 
-| Forma                                                 | Resultado                                                                                                                                           |
+| Form                                                 | Result                                                                                                                                           |
 | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `RETURN fn::x($p0, $p1)`                              | ✓ — função via query (context-aware); `db.run("fn::x", […])` é preso à sessão                                                                       |
-| `INFO FOR ROOT` / `NS` / `DB` / `TABLE t`             | objetos com `namespaces`/`databases`/`tables`/`fields`/`indexes`/`events`/`lives`/`functions`/`apis`/…                                              |
-| `DEFINE API '/x' FOR get THEN {…} FOR post THEN {…};` | multi-método em **um** `DEFINE API`; cada `THEN` devolve `{ status, body, headers? }`                                                               |
-| `db.api().get('/x')`                                  | resolve `{ status, body, headers, request_id }` (não rejeita em 4xx/5xx)                                                                            |
+| `RETURN fn::x($p0, $p1)`                              | ✓ — function via query (context-aware); `db.run("fn::x", […])` is bound to the session                                                                       |
+| `INFO FOR ROOT` / `NS` / `DB` / `TABLE t`             | objects with `namespaces`/`databases`/`tables`/`fields`/`indexes`/`events`/`lives`/`functions`/`apis`/…                                              |
+| `DEFINE API '/x' FOR get THEN {…} FOR post THEN {…};` | multi-method in **one** `DEFINE API`; each `THEN` returns `{ status, body, headers? }`                                                               |
+| `db.api().get('/x')`                                  | resolves `{ status, body, headers, request_id }` (does not reject on 4xx/5xx)                                                                            |
 | `db.version()`                                        | `{ version: "surrealdb-3.2.0" }`                                                                                                                    |
-| `db.health()`                                         | sobre WebSocket: resolve (SDK 2.2.0 / server 3.2.0)                                                                                                 |
-| `db.import(dump)` (SDK)                               | sobre WebSocket: quebra (`JSON Parse error`); `db.query(dump)` funciona                                                                             |
-| `db.run`/`export`/`import`/`api`/`auth`               | presos à SESSÃO (NS/DB da conexão), não ao contexto do clone                                                                                        |
+| `db.health()`                                         | over WebSocket: resolves (SDK 2.2.0 / server 3.2.0)                                                                                                 |
+| `db.import(dump)` (SDK)                               | over WebSocket: breaks (`JSON Parse error`); `db.query(dump)` works                                                                             |
+| `db.run`/`export`/`import`/`api`/`auth`               | bound to the SESSION (connection's NS/DB), not to the clone's context                                                                                        |
 
 ---
 
-## 8. Erros do SDK → códigos do ORM (amostras reais)
+## 8. SDK errors → ORM codes (real samples)
 
-| Erro do servidor      | Texto observado                                                                                  | Código `OrmError`                      |
+| Server error      | Observed text                                                                                  | `OrmError` code                      |
 | --------------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------- |
-| id duplicado          | ``Database record `user:u1` already exists`` (`AlreadyExists`)                                   | `RecordAlreadyExists`                  |
-| assert/tipo           | ``Couldn't coerce value for field `password` of `user:u1`: Expected `string` but found `NONE` `` | `AssertionFailed` / `ValidationError`  |
-| transação cancelada   | `The query was not executed due to a cancelled transaction` (`Cancelled`)                        | `TransactionRollback`                  |
-| `EXPLAIN` inválido    | `Invalid statement: EXPLAIN is only supported with the new execution model`                      | `ParseError` / `UnsupportedCapability` |
-| `VERSION` sem suporte | `…The underlying datastore does not support versioned queries`                                   | `UnsupportedCapability`                |
+| duplicate id          | ``Database record `user:u1` already exists`` (`AlreadyExists`)                                   | `RecordAlreadyExists`                  |
+| assert/type           | ``Couldn't coerce value for field `password` of `user:u1`: Expected `string` but found `NONE` `` | `AssertionFailed` / `ValidationError`  |
+| cancelled transaction   | `The query was not executed due to a cancelled transaction` (`Cancelled`)                        | `TransactionRollback`                  |
+| invalid `EXPLAIN`    | `Invalid statement: EXPLAIN is only supported with the new execution model`                      | `ParseError` / `UnsupportedCapability` |
+| unsupported `VERSION` | `…The underlying datastore does not support versioned queries`                                   | `UnsupportedCapability`                |
 | parse                 | `Parse error: Unexpected token …`                                                                | `ParseError`                           |
 
-Nota: em scripts multi-statement, o SDK pode **lançar** (não só responder por statement) em
-`AlreadyExists`/`Cancelled` durante a coleta — o executor usa `responses()` e normaliza os dois casos.
+Note: in multi-statement scripts, the SDK can **throw** (not just respond per statement) on
+`AlreadyExists`/`Cancelled` during collection — the executor uses `responses()` and normalizes both cases.
 
 ---
 
-## 9. Decisões de lowering que o ORM implementa
+## 9. Lowering decisions the ORM implements
 
-1. **`update` simplificado**: alvo direto (`UPDATE t:id …`), sem workaround de `WHERE`; `updateMany` sem match → `[]` (nunca cria).
-2. **`upsert` por campo único**: `UPSERT t MERGE $p WHERE uniq = $v` (cria quando nada casa — só se o payload satisfizer o `WHERE`) é o lowering quando a estratégia de id é `rand` ou o payload tem `id`; com id gerado (`ulid`/`uuid`) o lowering é `UPSERT ((SELECT VALUE id FROM t WHERE uniq = $v LIMIT 1)[0] ?? type::record(s"t", <fn>())) MERGE $p` (1 statement, `RETURN DIFF` preservado); `LET`+`IF/ELSE` fica como fallback (expressões/create+update).
-3. **Remover `parallel`** da superfície de leitura (ou marcar `UnsupportedCapability`).
-4. **Remover fuzzy `~`/`?~`/`*~`**; expor `string::similarity::*` via `fn.*`/fragments.
-5. **Full-text**: usar `FULLTEXT ANALYZER`; `search::highlight` com 4 args; `matchesFullText` aceita `index`/`indexes`.
-6. **`aggregate`**: `count` de grupos via subquery. `SPLIT` + `GROUP` é mutual-exclusivo no servidor, então `aggregate({ split })` (M17) faz o UNWIND numa subquery interna e agrupa por fora (§3.1) — `where` filtra o PAI. O **operando** de cada agregador é validado contra o schema (§2.4.3): `math::*` é number-only e o servidor responde `0`/`null`/`{}` para o resto sem erro algum.
-7. **Path-array igualdade** vira `CONTAINS` (ou `INSIDE` para scalar membership) — não `=`.
+1. **Simplified `update`**: direct target (`UPDATE t:id …`), no `WHERE` workaround; `updateMany` with no match → `[]` (never creates).
+2. **`upsert` by single field**: `UPSERT t MERGE $p WHERE uniq = $v` (creates when nothing matches — only if the payload satisfies the `WHERE`) is the lowering when the id strategy is `rand` or the payload has `id`; with generated id (`ulid`/`uuid`) the lowering is `UPSERT ((SELECT VALUE id FROM t WHERE uniq = $v LIMIT 1)[0] ?? type::record(s"t", <fn>())) MERGE $p` (1 statement, `RETURN DIFF` preserved); `LET`+`IF/ELSE` remains the fallback (expressions/create+update).
+3. **Remove `parallel`** from the read surface (or mark `UnsupportedCapability`).
+4. **Remove fuzzy `~`/`?~`/`*~`**; expose `string::similarity::*` via `fn.*`/fragments.
+5. **Full-text**: use `FULLTEXT ANALYZER`; `search::highlight` with 4 args; `matchesFullText` accepts `index`/`indexes`.
+6. **`aggregate`**: group `count` via subquery. `SPLIT` + `GROUP` are mutually exclusive on the server, so `aggregate({ split })` (M17) does the UNWIND in an inner subquery and groups outside (§3.1) — `where` filters the PARENT. Each aggregator's **operand** is validated against the schema (§2.4.3): `math::*` is number-only and the server answers `0`/`null`/`{}` for everything else without any error.
+7. **Path-array equality** becomes `CONTAINS` (or `INSIDE` for scalar membership) — not `=`.
 8. **`range`** → `t:<start>..<end>` / `t:<start>..=<end>`.
-9. **Cursor** por tupla confirmado; `before` reordena no client. O **tiebreaker** (último campo do `orderBy`) tem de ser único: no runtime é `CursorTiebreakerRequired`, e no TIPO desde M17 — `.index(name, [field], { unique: true })` registra o campo no terceiro parâmetro de `TableDef`, e `CursorArgs.orderBy` aceita só ordenações cujo último campo ∈ `id ∪ únicos` (índice composto não conta: os campos são únicos só em conjunto).
-10. **`ON DUPLICATE`**: `$input` apenas para valores do payload; incremento via subquery (avaliada também no branch de criação → upsert com expressão usa `LET`/`IF`); `RETURN BEFORE` devolve o estado anterior (3.2.4) e `RETURN DIFF` tem shape aninhado próprio.
-12. **`.explain()`** só em leitura; `VERSION` e `PARALLEL` sujeitos a capability/backend.
-13. **`FROM ONLY t:missing`** → falsy (não erro) — `findUnique` devolve `null`.
-14. **`INSERT RELATION INTO`** disponível para arestas em lote.
-15. **Catálogo `fn.ts`**: `search.highlight` está tipado com 3 args (`f3<string, string, number, string>`) mas o servidor exige 4 (`prefix, suffix, indexRef, field`) — corrigir no M5.2 (ou no próximo toque em `fn.ts`) e cobrir com o teste live (hoje `fn-catalog.test.ts` marca `search.highlight: null`).
-16. **`only` (findMany)**: `FROM ONLY <tabela>` só vale com **exatamente um** resultado (senão erro). O compiler emite `FROM ONLY`; use `limit`/`where` para garantir a unicidade (`findUnique`/`findFirst` cobrem os casos comuns).
-17. **Ordem de cláusulas**: `WITH` → `WHERE` → `SPLIT` → `GROUP` → `ORDER BY` → `LIMIT` → `START` → `VERSION` → `TIMEOUT` (o compiler emite nessa ordem; o servidor rejeita outras).
-18. **`count()`/agregadores sem `GROUP ALL`**: `count()` vira uma linha por registro; `math::*` exige array. `aggregate`/`count` sempre emitem `GROUP ALL`/`GROUP BY`.
-19. **`ORDER BY`**: só identificador/alias — expressão entre parênteses é parse error; use `SELECT (expr) AS alias … ORDER BY alias`.
-20. **Projeção por caminho**: o servidor aninha pelo caminho (`contacts[*].type` → `{ contacts: { type: [ … ] } }`); alias achata (`AS t` → `{ t: [ … ] }`). O decoder espelha essa forma.
-21. **`SELECT *` + `GROUP`**: inválido ("cannot be aggregated") — `groupBy`/`groupAll` exigem projeção explícita (o compiler falha com `ValidationError` apontando `aggregate()`).
-22. **Ranges de record**: `t:1..=2` / `t:abc..=xyz` (sufixo de id, nunca `t:1..t:2`); ids não-identificadores são escapados (`⟨a-b⟩`).
-23. **`math::avg` não existe em 3.x** (parse error; a sugestão do servidor é `math::log`) — o ORM mantém a API `{ avg: 'campo' }` e emite `math::mean(campo)`. `math::median/stddev/variance` existem.
-24. **`GROUP BY` exige a chave na projeção** (`Missing group idiom … in statement selection`): `aggregate` valida que cada `groupBy` aparece no `select` (quando a projeção é estaticamente analisável) e ensina a corrigir. A chave pode ser **o alias de saída OU o path projetado** — o servidor aceita as duas grafias (3.3.4: `SELECT tenant AS t … GROUP BY t` e `… GROUP BY tenant`), então `select: { customerName: "customer.name" }` + `groupBy: ["customerName"]` é válido e não é mais recusado.
-25. **Writes (M2)**: alvos singulares = `id`, índice UNIQUE de campo único, **ou um índice UNIQUE COMPOSTO cujos campos TODOS estão no `where`** (M17 — `[tenant_id, email]` é o alvo único do multi-tenant; um `where` parcial continua recusado porque casa várias linhas, e a mensagem nomeia o grupo); `update` nunca cria (`[]` → `null`); `delete` só `before`/`none`; `deleteMany` exige `all: true` sem `where`; `updateEach`/`skipDuplicates` = 1 statement por item (e `skipDuplicates` gera id por linha quando o item não tem `id`); `upsertMany.conflict` exige índice UNIQUE; `RETURN DIFF` é achatado no decode (`[[ops]]` → `ops`) e **somado entre os statements** do batch (`update` data+unset, `createMany`, …); `INSERT/upsert RETURN BEFORE` devolve o estado anterior — o tipo é `App | null`; `id` string vira `RecordId` no payload. `upsert` é **ESTRITO por padrão** (`onMissing:"throw"`): `UPDATE ONLY t:id` / `UPDATE t … WHERE uniq`, miss → `ResultNotFound` (nunca cria, nunca resolve `null`); `onMissing:"create"` restaura o create-or-update. Alvo: `where` (id/UNIQUE) > `data.id` inferido > **sem alvo = `CREATE` puro** (id por `idStrategy`); `onMissing:"throw"` explícito sem alvo, branches distintos sem alvo e `mode` sem alvo são `ValidationError` (guardas compartilhadas com o `upsertDelta`, `resolveUpsertTarget` + `assertTargetlessCreate`).
-26. **Records no `where`**: string `"tabela:id"` em coluna de record (inclusive `id`) é convertida para `RecordId` pelo compiler — sem isso o valor viraria string e não casaria nada (silent no-match).
-27. **`include` de link**: `FETCH` é a última cláusula, o link precisa estar na seleção (o compiler o adiciona quando necessário), alias projetado sobrevive ao FETCH, e o filtro do include é o split edge/target (`->(edge WHERE …)->(target WHERE …)`).
-28. **`include` de aresta**: registros do alvo só via subquery; direção `in` inverte as duas setas (`<-edge<-target`) e materializa `in.*`; `edge`+`target` usa `out.*`+`WHERE out.<campo>` e é remontado como `{ edge, target }` no client. Direção `both`: `<->edge<->target` funciona para o alvo e `<->edge` para as arestas, mas `edge`+`target` é recusado (não existe um alias único de alvo; `?.*` é parse error).
-29. **`include._count`**: `count(->edge)`/`count(<-edge)`/`count(->edge[WHERE …])` para arestas e `count(campo)`/`count(campo[WHERE …])` para links array (`array::len` erra em `NONE`); remontado como `_count: { <chave>: n }`.
-30. **`where` relacional**: `is`/`isNot` para link `one` (negação verdadeira em `NONE`), `some`/`none`/`every` para arestas e links array; `every` por igualdade de contagens; `NOT` em filtro de traversal exige parênteses.
-31. **`include` de grafo recusa** `value`/`groupBy`/`groupAll`/`split` e `orderBy` fora da projeção do alvo (o servidor exige o order idiom).
-32. **Link projetado sem `id`**: o compiler sempre projeta o `id` do link (leaf de presença, escondido do resultado) — sem ele um link ausente seria indistinguível de um objeto de campos nulos. Link ausente decodifica `null`; array ausente, `[]`.
-33. **Filtro de edge wildcard**: `->(? WHERE score > 4)` (forma emitida) e `->?[WHERE score > 4]` filtram; a forma chaveada `->?` sem filtro devolve as arestas.
-34. **`where` relacional em writes**: `updateMany`/`deleteMany`/`unrelateMany` compilam o MESMO lowering dos reads (o `SchemaIndex` flui para o compiler de escrita). `update`/`delete`/`patch`/`upsert` singulares continuam exigindo `id` ou índice UNIQUE.
-39. **Transações**: só `mode: 'sdk'` (`beginTransaction`/`commit`/`cancel` do SDK) — `mode: 'sql'` falha rápido com `UnsupportedCapability` (BEGIN não sobrevive entre RPCs); batch wrappers pulam o `BEGIN` implícito dentro da tx; aninhada = mesma tx; reentrada pelo client raiz → `TransactionAlreadyActive`; write conflict é retryável (`WriteConflict`); `timeout` é deadline client-side com `cancel`.
-40. **HTTP vs WebSocket**: a transação exige o engine WebSocket; sobre HTTP o erro normaliza para `UnsupportedCapability`.
-41. **Contexto (`$withContext`)**: `USE NS … DB …;` prefixado na MESMA operação escopa sem tocar a sessão; o lado faltante (NS ou DB) herda da sessão (`conn.namespace`/`database`) e a ausência de ambos é `ValidationError`; o override por chamada (`context: { database }`) vence o clone. Operações presas à sessão (`api`/`auth`/`export`) falham rápido com `UnsupportedCapability` num clone por prefixo; `$withContext({ auth })` forka uma sessão (Promise) para escopar essas operações.
-42. **Raw**: `$raw` (1 statement — um script com N statements é **recusado** com `ValidationError` apontando o `$query`, em vez de devolver o primeiro resultado e descartar o resto em silêncio; um `LET` inicial virava `null` sem erro) e `$query` (N) parametrizam `${…}` via `renderValue` (fragmento compõe, valor binda); `$query({ throwOnError: false })` devolve `StatementResult[]`; `$unsafe` exige `raw.unsafe: true` (`UnsafeDisabled`); `raw.requireComment` exige `meta.comment` em script de escrita; `raw.timeoutMs` só aplica a statement única com verbo compatível.
-43. **`fn`/`api`/`auth`/admin**: `fn.call` compila `RETURN fn::x($p…)` (nome validado, nunca spliced) + atalho tipado por `defineFunction` (args NOMEADOS → posicionais) + `fn.expr` (M17), a **forma fragmento** do mesmo catálogo (`fn::<name>($p0, …)` como `Surql`, com os binds fundidos no statement que a compõe) — é o que faz uma `fn::` do próprio repo (`fn::jw`, `search::rrf`) entrar num `where`/`select`/`orderBy` tipado em vez de `$query`; `search::rrf` entrou no catálogo `fn.ts` (a metade RRF de uma busca híbrida, cuja outra metade já é `where: { name: { matchesFullText } }`); `api.*` desembrulha `body` e lança `DatabaseError` com `status`/`details` em `>= 400`; `auth.*` é passthrough da sessão (`record()` sem record access → `NotAuthenticated`); `info` compila `INFO FOR …`, `ping` faz `RETURN true`, `import` reexecuta o dump por `query()`.
-44. **`extends`**: helpers são reaplicados em clones (`$withContext`/`forkSession`) e no client de transação; colisão de nome com a superfície do client = `PluginError` fail-fast.
-45. **Estratégia de id por tabela (`idStrategy`)**: o ORM gera o id no SERVIDOR — `create`/`createMany`/`create.relate` via target `type::record(s"t", rand::ulid()|rand::uuid())` (ou tabela simples para `rand`, o default do servidor); `insert`/`insertMany`/`skipDuplicates` via campo de expressão `id`; `upsert`/`upsertMany` por campo único via target-expression (subquery `?? type::record(…)`). Default `ulid`; `id` explícito e singleton sempre vencem; `id: s.uuid()/s.ulid()` infere a estratégia e um `.idStrategy` incompatível é `SchemaInvalid` no `schema`; um `id` uuid v4/v6 resolvido vira `"none"` (explicit-only) e um create sem id falha no compile com erro ensinado. **Sem DDL** (migrations nunca divergem) e SQL cru/`sc pull` continuam/voltam ao default do servidor.
-46. **`upsertDelta` (update estrito por padrão, com delta)**: alvo pela MESMA resolução do `upsert` (`resolveUpsertTarget`: `where` id/UNIQUE, inferido de `data.id`, ou sem alvo = `CREATE` com id por `idStrategy`); o envelope `RETURN VALUE { before: $before, after: $after }` acompanha TODA lowering (`UPSERT` id/campo único/subquery gerada, `UPDATE` estrito, `CREATE`, e por branch no `LET`/`IF` — com `TIMEOUT` por branch); `onMissing: "throw"` (o DEFAULT) compila `UPDATE ONLY t:id` ou `UPDATE t … WHERE uniq` e um resultado sem envelope vira `ResultNotFound`, com a mensagem classificada pelo PLANO (`strictMiss` — um create sem alvo filtrado por permission NÃO afirma `onMissing:"throw"`); `onMissing: "create"` restaura o create-or-update; o delta compara valores **decodificados** (`Date`/`RecordId`/`Decimal`/… via `.equals()`, nunca strings de wire), só campos alterados, na ordem das chaves do `after`; branches distintos (`create`+`update`) sempre usam `LET`/`IF`, nunca `INSERT … ON DUPLICATE` (e exigem `onMissing:"create"`).
-47. **Upsert estrito (o default dos dois)**: um alvo que não existe **ou está filtrado por permission/escopo** rejeita `ResultNotFound` — nunca cria em silêncio nem resolve `null`; a classificação vem do PLANO compilado (`strictMiss`, setado só pelas lowerings estritas `UPDATE ONLY t:id`/`UPDATE … WHERE uniq`), nunca de `args.onMissing` — a mensagem difere entre o estrito ("it never creates; pass onMissing: create") e o não-estrito ("wrote no row — check access/$withoutPlugins"), e um create SEM alvo filtrado usa a segunda mesmo com o default `"throw"`. `return:"none"` estrito compila SEM `RETURN NONE` (o miss precisa ser observável) e o decode descarta a linha; `return:"diff"` estrito é `ReturnNotSupported` (diff vazio não distingue "não casou" de "não mudou"); `create`+`update` exigem `onMissing:"create"`. `upsertMany` permanece insert-style (sem mudança).
-48. **Identificadores hostis (`⟩`/`\`)**: o `escapeIdent` do SDK emite `\⟩`, que o SurrealDB 3.2 **rejeita** ("Invalid escape sequence") e que, com `\` antes do `⟩` (`x\⟩ OR true OR ⟨y`), vira `⟨x\\⟩ OR true OR ⟨y⟩` — o identificador fecha cedo e o resto executa como SQL (injeção live-probe). O driver agora usa `escapeIdentSafe` (`src/surreal/ident.ts`): nomes com `⟩` ou `\` são **backtick-quoted** (com `\` e backtick escapados); os demais mantêm a saída canônica do SDK (`⟨…⟩`/bare).
+9. **Cursor** by tuple confirmed; `before` reorders client-side. The **tiebreaker** (last `orderBy` field) must be unique: at runtime it's `CursorTiebreakerRequired`, and in the TYPE since M17 — `.index(name, [field], { unique: true })` registers the field in `TableDef`'s third parameter, and `CursorArgs.orderBy` accepts only orderings whose last field ∈ `id ∪ uniques` (a composite index doesn't count: the fields are unique only together).
+10. **`ON DUPLICATE`**: `$input` only for payload values; increment via subquery (also evaluated in the creation branch → upsert with expression uses `LET`/`IF`); `RETURN BEFORE` returns the previous state (3.2.4) and `RETURN DIFF` has its own nested shape.
+12. **`.explain()`** on reads only; `VERSION` and `PARALLEL` subject to capability/backend.
+13. **`FROM ONLY t:missing`** → falsy (not an error) — `findUnique` returns `null`.
+14. **`INSERT RELATION INTO`** available for batched edges.
+15. **`fn.ts` catalog**: `search.highlight` is typed with 3 args (`f3<string, string, number, string>`) but the server requires 4 (`prefix, suffix, indexRef, field`) — fix in M5.2 (or on the next touch of `fn.ts`) and cover with the live test (today `fn-catalog.test.ts` marks `search.highlight: null`).
+16. **`only` (findMany)**: `FROM ONLY <table>` is valid only with **exactly one** result (otherwise an error). The compiler emits `FROM ONLY`; use `limit`/`where` to guarantee uniqueness (`findUnique`/`findFirst` cover the common cases).
+17. **Clause order**: `WITH` → `WHERE` → `SPLIT` → `GROUP` → `ORDER BY` → `LIMIT` → `START` → `VERSION` → `TIMEOUT` (the compiler emits in this order; the server rejects others).
+18. **`count()`/aggregators without `GROUP ALL`**: `count()` becomes one row per record; `math::*` requires an array. `aggregate`/`count` always emit `GROUP ALL`/`GROUP BY`.
+19. **`ORDER BY`**: identifier/alias only — a parenthesized expression is a parse error; use `SELECT (expr) AS alias … ORDER BY alias`.
+20. **Path projection**: the server nests by path (`contacts[*].type` → `{ contacts: { type: [ … ] } }`); an alias flattens (`AS t` → `{ t: [ … ] }`). The decoder mirrors this shape.
+21. **`SELECT *` + `GROUP`**: invalid ("cannot be aggregated") — `groupBy`/`groupAll` require explicit projection (the compiler fails with `ValidationError` pointing at `aggregate()`).
+22. **Record ranges**: `t:1..=2` / `t:abc..=xyz` (id suffix, never `t:1..t:2`); non-identifier ids are escaped (`⟨a-b⟩`).
+23. **`math::avg` does not exist in 3.x** (parse error; the server suggests `math::log`) — the ORM keeps the `{ avg: 'field' }` API and emits `math::mean(field)`. `math::median/stddev/variance` exist.
+24. **`GROUP BY` requires the key in the projection** (`Missing group idiom … in statement selection`): `aggregate` validates that every `groupBy` appears in the `select` (when the projection is statically analyzable) and teaches how to fix it. The key can be **the output alias OR the projected path** — the server accepts both spellings (3.3.4: `SELECT tenant AS t … GROUP BY t` and `… GROUP BY tenant`), so `select: { customerName: "customer.name" }` + `groupBy: ["customerName"]` is valid and no longer rejected.
+25. **Writes (M2)**: singular targets = `id`, a single-field UNIQUE index, **or a COMPOSITE UNIQUE index whose ALL fields are in the `where`** (M17 — `[tenant_id, email]` is the multi-tenant unique target; a partial `where` is still rejected because it matches several rows, and the message names the group); `update` never creates (`[]` → `null`); `delete` only `before`/`none`; `deleteMany` requires `all: true` without `where`; `updateEach`/`skipDuplicates` = 1 statement per item (and `skipDuplicates` generates an id per row when the item has no `id`); `upsertMany.conflict` requires a UNIQUE index; `RETURN DIFF` is flattened on decode (`[[ops]]` → `ops`) and **summed across the statements** of the batch (`update` data+unset, `createMany`, …); `INSERT/upsert RETURN BEFORE` returns the previous state — the type is `App | null`; string `id` becomes `RecordId` in the payload. `upsert` is **STRICT by default** (`onMissing:"throw"`): `UPDATE ONLY t:id` / `UPDATE t … WHERE uniq`, miss → `ResultNotFound` (never creates, never resolves `null`); `onMissing:"create"` restores create-or-update. Target: `where` (id/UNIQUE) > inferred `data.id` > **no target = plain `CREATE`** (id by `idStrategy`); explicit `onMissing:"throw"` without a target, distinct branches without a target and a target-less `mode` are `ValidationError` (guards shared with `upsertDelta`, `resolveUpsertTarget` + `assertTargetlessCreate`).
+26. **Records in `where`**: a `"table:id"` string in a record column (including `id`) is converted to `RecordId` by the compiler — otherwise the value would become a string and match nothing (silent no-match).
+27. **Link `include`**: `FETCH` is the last clause, the link must be in the selection (the compiler adds it when needed), a projected alias survives FETCH, and the include filter is the edge/target split (`->(edge WHERE …)->(target WHERE …)`).
+28. **Edge `include`**: target records only via subquery; `in` direction flips both arrows (`<-edge<-target`) and materializes `in.*`; `edge`+`target` uses `out.*`+`WHERE out.<field>` and is remounted as `{ edge, target }` client-side. `both` direction: `<->edge<->target` works for the target and `<->edge` for the edges, but `edge`+`target` is rejected (there's no single target alias; `?.*` is a parse error).
+29. **`include._count`**: `count(->edge)`/`count(<-edge)`/`count(->edge[WHERE …])` for edges and `count(field)`/`count(field[WHERE …])` for array links (`array::len` errors on `NONE`); remounted as `_count: { <key>: n }`.
+30. **Relational `where`**: `is`/`isNot` for a `one` link (true negation at `NONE`), `some`/`none`/`every` for edges and array links; `every` by count equality; `NOT` in a traversal filter requires parentheses.
+31. **Graph `include` rejects** `value`/`groupBy`/`groupAll`/`split` and `orderBy` outside the target projection (the server requires the order idiom).
+32. **Projected link without `id`**: the compiler always projects the link's `id` (a presence leaf, hidden from the result) — without it a missing link would be indistinguishable from an object of null fields. A missing link decodes to `null`; a missing array, `[]`.
+33. **Wildcard edge filter**: `->(? WHERE score > 4)` (emitted form) and `->?[WHERE score > 4]` filter; the keyed form `->?` without a filter returns the edges.
+34. **Relational `where` in writes**: `updateMany`/`deleteMany`/`unrelateMany` compile the SAME lowering as reads (`SchemaIndex` flows into the write compiler). Singular `update`/`delete`/`patch`/`upsert` still require `id` or a UNIQUE index.
+39. **Transactions**: only `mode: 'sdk'` (SDK's `beginTransaction`/`commit`/`cancel`) — `mode: 'sql'` fails fast with `UnsupportedCapability` (BEGIN doesn't survive across RPCs); batch wrappers skip the implicit `BEGIN` inside the tx; nested = same tx; re-entry from the root client → `TransactionAlreadyActive`; write conflict is retryable (`WriteConflict`); `timeout` is a client-side deadline with `cancel`.
+40. **HTTP vs WebSocket**: the transaction requires the WebSocket engine; over HTTP the error normalizes to `UnsupportedCapability`.
+41. **Context (`$withContext`)**: `USE NS … DB …;` prefixed on the SAME operation scopes without touching the session; the missing side (NS or DB) is inherited from the session (`conn.namespace`/`database`) and the absence of both is `ValidationError`; the per-call override (`context: { database }`) wins over the clone. Session-bound operations (`api`/`auth`/`export`) fail fast with `UnsupportedCapability` on a prefix clone; `$withContext({ auth })` forks a session (Promise) to scope those operations.
+42. **Raw**: `$raw` (1 statement — a script with N statements is **rejected** with `ValidationError` pointing at `$query`, instead of returning the first result and silently discarding the rest; an initial `LET` used to become `null` without error) and `$query` (N) parameterize `${…}` via `renderValue` (a fragment composes, a value binds); `$query({ throwOnError: false })` returns `StatementResult[]`; `$unsafe` requires `raw.unsafe: true` (`UnsafeDisabled`); `raw.requireComment` requires `meta.comment` in a write script; `raw.timeoutMs` applies only to a single statement with a compatible verb.
+43. **`fn`/`api`/`auth`/admin**: `fn.call` compiles `RETURN fn::x($p…)` (name validated, never spliced) + a typed shortcut per `defineFunction` (NAMED args → positional) + `fn.expr` (M17), the **fragment form** of the same catalog (`fn::<name>($p0, …)` as `Surql`, with binds merged into the composing statement) — that's what lets a repo's own `fn::` (`fn::jw`, `search::rrf`) enter a typed `where`/`select`/`orderBy` instead of `$query`; `search::rrf` joined the `fn.ts` catalog (the RRF half of a hybrid search, whose other half is already `where: { name: { matchesFullText } }`); `api.*` unwraps `body` and throws `DatabaseError` with `status`/`details` on `>= 400`; `auth.*` is a session passthrough (`record()` without record access → `NotAuthenticated`); `info` compiles `INFO FOR …`, `ping` does `RETURN true`, `import` replays the dump via `query()`.
+44. **`extends`**: helpers are re-applied on clones (`$withContext`/`forkSession`) and on the transaction client; a name collision with the client surface = fail-fast `PluginError`.
+45. **Per-table id strategy (`idStrategy`)**: the ORM generates the id on the SERVER — `create`/`createMany`/`create.relate` via target `type::record(s"t", rand::ulid()|rand::uuid())` (or a simple table for `rand`, the server default); `insert`/`insertMany`/`skipDuplicates` via an expression `id` field; `upsert`/`upsertMany` by single field via a target-expression (subquery `?? type::record(…)`). Default `ulid`; explicit `id` and singleton always win; `id: s.uuid()/s.ulid()` infers the strategy and an incompatible `.idStrategy` is `SchemaInvalid` in the `schema`; a resolved uuid v4/v6 `id` becomes `"none"` (explicit-only) and a create without an `id` fails at compile time with a teaching error. **No DDL** (migrations never differ) and raw SQL/`sc pull` keep/revert to the server default.
+46. **`upsertDelta` (strict update by default, with delta)**: target by the SAME resolution as `upsert` (`resolveUpsertTarget`: `where` id/UNIQUE, inferred from `data.id`, or no target = `CREATE` with id by `idStrategy`); the `RETURN VALUE { before: $before, after: $after }` envelope accompanies EVERY lowering (`UPSERT` id/single field/generated subquery, strict `UPDATE`, `CREATE`, and per branch in `LET`/`IF` — with per-branch `TIMEOUT`); `onMissing: "throw"` (the DEFAULT) compiles `UPDATE ONLY t:id` or `UPDATE t … WHERE uniq` and a result without the envelope becomes `ResultNotFound`, with the message classified by the PLAN (`strictMiss` — a target-less create filtered by permission does NOT assert `onMissing:"throw"`); `onMissing: "create"` restores create-or-update; the delta compares **decoded** values (`Date`/`RecordId`/`Decimal`/… via `.equals()`, never wire strings), only changed fields, in the key order of `after`; distinct branches (`create`+`update`) always use `LET`/`IF`, never `INSERT … ON DUPLICATE` (and require `onMissing:"create"`).
+47. **Strict upsert (the default of both)**: a target that doesn't exist **or is filtered by permission/scope** rejects `ResultNotFound` — it never creates silently nor resolves `null`; the classification comes from the compiled PLAN (`strictMiss`, set only by the strict lowerings `UPDATE ONLY t:id`/`UPDATE … WHERE uniq`), never from `args.onMissing` — the message differs between strict ("it never creates; pass onMissing: create") and non-strict ("wrote no row — check access/$withoutPlugins"), and a target-less filtered create uses the second even with the default `"throw"`. Strict `return:"none"` compiles WITHOUT `RETURN NONE` (the miss must be observable) and decode discards the row; strict `return:"diff"` is `ReturnNotSupported` (an empty diff can't distinguish "didn't match" from "didn't change"); `create`+`update` require `onMissing:"create"`. `upsertMany` remains insert-style (no change).
+48. **Hostile identifiers (`⟩`/`\`)**: the SDK's `escapeIdent` emits `\⟩`, which SurrealDB 3.2 **rejects** ("Invalid escape sequence") and which, with `\` before `⟩` (`x\⟩ OR true OR ⟨y`), becomes `⟨x\\⟩ OR true OR ⟨y⟩` — the identifier closes early and the rest executes as SQL (live-probed injection). The driver now uses `escapeIdentSafe` (`src/surreal/ident.ts`): names with `⟩` or `\` are **backtick-quoted** (with `\` and the backtick escaped); others keep the SDK's canonical output (`⟨…⟩`/bare).
 
 ---
 
-## 11. Logger & planos `EXPLAIN` (M9)
+## 11. Logger & `EXPLAIN` plans (M9)
 
-As formas que o logger renderiza (o **shape do plano é informativo e pode mudar
-entre versões** — o renderer degrada para `JSON.stringify` em vez de lançar):
+The forms the logger renders (the **plan shape is informational and may change
+between versions** — the renderer degrades to `JSON.stringify` instead of throwing):
 
-| Forma                                    | Resultado                                                                                                                      |
+| Form                                    | Result                                                                                                                      |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `EXPLAIN SELECT …` (prefixo)             | **string** indentada (`SelectProject [ctx: Db] [projections: *]\n    TableScan […]`) — é o que `.explain()` emite; só `SELECT` |
-| `EXPLAIN FORMAT JSON SELECT …`           | **objeto** `{ operator, context, attributes, children[], metrics? }` (sem métricas)                                            |
-| `EXPLAIN ANALYZE [FORMAT JSON] SELECT …` | igual + `metrics: { elapsed_ns, output_rows, output_batches }` e `total_rows` (reexecuta a query)                              |
-| `SELECT … EXPLAIN [FULL]` (sufixo)       | o mesmo **objeto** estruturado (`FULL` traz as métricas)                                                                       |
+| `EXPLAIN SELECT …` (prefix)             | indented **string** (`SelectProject [ctx: Db] [projections: *]\n    TableScan […]`) — that's what `.explain()` emits; `SELECT` only |
+| `EXPLAIN FORMAT JSON SELECT …`           | **object** `{ operator, context, attributes, children[], metrics? }` (no metrics)                                            |
+| `EXPLAIN ANALYZE [FORMAT JSON] SELECT …` | same + `metrics: { elapsed_ns, output_rows, output_batches }` and `total_rows` (re-executes the query)                              |
+| `SELECT … EXPLAIN [FULL]` (suffix)       | the same structured **object** (`FULL` brings the metrics)                                                                       |
 | `EXPLAIN UPDATE/…`                       | `Invalid statement: EXPLAIN is only supported with the new execution model` → `ParseError`                                     |
 
-O logger observa o **executor** (`runScript`), não os hooks: cobre reads/writes/`$raw`/`fn`/admin/
-`.explain()` **sem** violar o contrato "explain não dispara hooks". O auto-`EXPLAIN`
-(`explain: "slow" | "all" | "analyze"`) reusa as formas acima e nunca loga a si mesmo.
+The logger observes the **executor** (`runScript`), not hooks: it covers reads/writes/`$raw`/`fn`/admin/
+`.explain()` **without** violating the "explain fires no hooks" contract. Auto-`EXPLAIN`
+(`explain: "slow" | "all" | "analyze"`) reuses the forms above and never logs itself.
 
 ---
 
-## 12. String ids — codec e comparações (M15)
+## 12. String ids — codec and comparisons (M15)
 
-O modo string-id muda só o APP: o schema vira um codec cujo **wire** é `string | RecordId` e o
-**app** é uma string bare. Nada novo é emitido no DDL (`record<…>` inalterado), mas a codificação de
-valores tem fatos live-probed que a justificam:
+String-id mode changes only the APP: the schema becomes a codec whose **wire** is `string | RecordId`
+and whose **app** value is a bare string. Nothing new is emitted in the DDL (`record<…>` unchanged),
+but value encoding has live-probed facts that justify it:
 
-| Fato (server 3.2.0)                                         | Resultado                                                                 | Consequência no lowering                                                         |
+| Fact (server 3.2.0)                                         | Result                                                                 | Lowering consequence                                                         |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `CREATE t:01MABCDEFGHJKMNPQRSTVWXYZ` (ULID-like sem escape) | aceito; o id é a STRING `01M…` e o servidor o renderiza `t:⟨01M…⟩`        | o codec pode emitir `new RecordId(t, bare)` (o SDK não escapa ULIDs)             |
-| `WHERE ref = $p` com `$p` string (`"o1"`)                   | **não casa** (comparação tipo-vs-tipo)                                    | `where`/cursor SEMPRE coagem para `RecordId` antes do bind                       |
-| `WHERE ref = $p` com `$p = new RecordId(t, bare)`           | casa                                                                      | direção de encode do codec (`RecordId(table, bare)`)                             |
-| `WHERE id > $p` com `$p = RecordId(t, bare)`                | filtra corretamente (ULIDs ordenam como strings; numéricos ordenam antes) | keyset do cursor com `after` bare                                                |
-| `WHERE id > $p` com `$p` string cru                         | **não** é o keyset (não filtra / filtra errado)                           | `cursorValues` coage por coluna (`record` → `RecordId`, `datetime` → `DateTime`) |
-| `ORDER BY id`                                               | ints antes de strings; ULIDs cronológicos entre si                        | cursor id-only cronológico com o default `rand::ulid()`                          |
-| `record::id(id)`                                            | a parte do id crua (string/int/uuid)                                      | decode do codec usa `RecordId.id` + `bareIdValue` (nunca re-parse)               |
-| `u"…"` no id part                                           | uuid                                                                      | unescape aceita `u"…"` (string-id wire)                                          |
+| `CREATE t:01MABCDEFGHJKMNPQRSTVWXYZ` (ULID-like, unescaped) | accepted; the id is the STRING `01M…` and the server renders it `t:⟨01M…⟩`        | the codec can emit `new RecordId(t, bare)` (the SDK doesn't escape ULIDs)             |
+| `WHERE ref = $p` with `$p` a string (`"o1"`)                   | **does not match** (type-vs-type comparison)                                    | `where`/cursor ALWAYS coerce to `RecordId` before binding                       |
+| `WHERE ref = $p` with `$p = new RecordId(t, bare)`           | matches                                                                      | the codec's encode direction (`RecordId(table, bare)`)                             |
+| `WHERE id > $p` with `$p = RecordId(t, bare)`                | filters correctly (ULIDs sort like strings; numerics sort before) | cursor keyset with bare `after`                                                |
+| `WHERE id > $p` with `$p` a raw string                         | **not** the keyset (doesn't filter / filters wrong)                           | `cursorValues` coerces per column (`record` → `RecordId`, `datetime` → `DateTime`) |
+| `ORDER BY id`                                               | ints before strings; chronological ULIDs among themselves                        | chronological id-only cursor with the default `rand::ulid()`                          |
+| `record::id(id)`                                            | the raw id part (string/int/uuid)                                      | the codec's decode uses `RecordId.id` + `bareIdValue` (never re-parses)               |
+| `u"…"` in the id part                                           | uuid                                                                      | unescape accepts `u"…"` (string-id wire)                                          |

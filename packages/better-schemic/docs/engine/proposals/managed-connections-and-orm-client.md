@@ -1,11 +1,11 @@
 # Proposal: managed connections + the bound ORM client
 
 > [!NOTE]
-> **Histórico / superseded (M0.5).** O builder fluente descrito aqui foi **removido** em favor da
-> camada de repositórios `/orm` — ver [`ROADMAP.md`](../../../../ROADMAP.md) (milestones),
-> [`ORM-COVERAGE.md`](../../ORM-COVERAGE.md) (superfície) e
-> [`orm-syntax-map.md`](../../orm-syntax-map.md) (sintaxe verificada ao
-> vivo). Mantido apenas como registro de design.
+> **Historical / superseded (M0.5).** The fluent builder described here was **removed** in favor of
+> the `/orm` repository layer — see [`ROADMAP.md`](../../../../ROADMAP.md) (milestones),
+> [`ORM-COVERAGE.md`](../../ORM-COVERAGE.md) (surface) and
+> [`orm-syntax-map.md`](../../orm-syntax-map.md) (live-verified
+> syntax). Kept only as a design record.
 
 **Status:** design proposal for alignment (core-dev). **Date:** 2026-07-02.
 **Owner:** core-dev leads the neutral contract; each driver implements its bound client.

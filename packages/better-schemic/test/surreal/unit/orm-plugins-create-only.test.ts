@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion, unicorn/no-thenable, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Fixtures assert values whose presence the test guarantees. Bun test calls return thenable handles that are not awaited. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion, unicorn/no-thenable, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Fixtures assert values whose presence the test guarantees. Bun test calls return thenable handles that are not awaited. test callbacks: types inferred by the assertion helpers; annotating each one would add noise with no value. */
 // M14 — the `createOnlyGuard` runtime plugin: update-family operations on tagged tables throw
 // `CreateOnlyViolation` BEFORE compiling; untagged tables pass untouched; `$withoutPlugins()`
 // escapes the client guard (the hard event, when declared, blocks the DB side instead). Offline.
@@ -57,7 +57,7 @@ describe("createOnlyGuard — the update family never reaches the wire", () => {
       () => client.logs.upsertDelta({ data: { action: "b" } }),
       () => client.logs.upsertMany({ data: [{ action: "b" }] }),
     ]
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
     for (const attempt of attempts) {
       const error = await caught(attempt)
       expect(isCreateOnlyViolation(error)).toBe(true)
@@ -272,7 +272,7 @@ describe("createOnlyGuard — the `tables` fallback", () => {
   })
 
   test("a non-string entry fails at the factory (PluginError)", () => {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
     for (const bad of ["", 42, null]) {
       let error: unknown
       try {

@@ -12,7 +12,7 @@
  *     age: { gte: 18, lt: 65 },                  // number family
  *     name: { startsWith: 'A' },                 // string family
  *     tags: { containsAny: ['db', 'graph'] },    // array family
- *     'address.city': 'São Paulo',               // dotted path (any family)
+ *     'address.city': 'Sao Paulo',               // dotted path (any family)
  *     OR: [{ role: 'admin' }, { role: 'owner' }],
  *   },
  * });

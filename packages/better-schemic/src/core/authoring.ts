@@ -18,7 +18,7 @@ import * as z from "zod"
 // driver's own field type everywhere it matters.
 
 /** Any field of ANY dialect — bivariant erasure of the native bag (see the comment above). */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- erasure bivariante: a covariância de `native` rejeita fields de outros dialetos sem `any`.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- bivariant erasure: the covariance of `native` rejects fields from other dialects without `any`.
 export type AnyField = SFieldBase<z.ZodType, string, any>
 
 /** The Zod schema a field (or a raw Zod schema) carries. */
@@ -26,7 +26,7 @@ export type SchemaOf<F> =
   F extends SFieldBase<infer S, string, infer _N> ? S : F extends z.ZodType ? F : never
 
 /** The `Flags` channel a field carries (driver `$`-methods brand it; widens to `string` for `Shape`). */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- mesmo apagamento bivariante de `AnyField`.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- same bivariant erasure as `AnyField`.
 export type FlagsOf<F> = F extends SFieldBase<z.ZodType, infer Fl, any> ? Fl : never
 
 /** The schema one wrapper down — what `unwrap()` returns. */

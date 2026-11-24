@@ -1,11 +1,11 @@
 # better-schemic/core Query Builder — Design Exploration
 
 > [!NOTE]
-> **Histórico / superseded (M0.5).** O builder fluente descrito aqui foi **removido** em favor da
-> camada de repositórios `/orm` — ver [`ROADMAP.md`](../../../ROADMAP.md) (milestones),
-> [`ORM-COVERAGE.md`](../../../packages/better-schemic/docs/ORM-COVERAGE.md) (superfície) e
-> [`orm-syntax-map.md`](../../../packages/better-schemic/docs/orm-syntax-map.md) (sintaxe verificada ao
-> vivo). Mantido apenas como registro de design.
+> **Historical / superseded (M0.5).** The fluent builder described here was **removed** in favor of
+> the `/orm` repository layer — see [`ROADMAP.md`](../../../ROADMAP.md) (milestones),
+> [`ORM-COVERAGE.md`](../../../packages/better-schemic/docs/ORM-COVERAGE.md) (surface) and
+> [`orm-syntax-map.md`](../../../packages/better-schemic/docs/orm-syntax-map.md) (live-verified
+> syntax). Kept only as a design record.
 
 > Status: **research + design + feasibility proof**. Nothing here is built into the
 > package. The companion POC under [`poc/`](./poc/query-builder-poc.ts) proves the

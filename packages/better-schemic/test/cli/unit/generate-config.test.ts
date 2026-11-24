@@ -111,7 +111,7 @@ describe("sc generate — declared generators", () => {
     expect(entry.match(/better-schemic:aot-install/gu)).toHaveLength(1)
   })
 
-  test("--only aot skips the ORM façade", async () => {
+  test("--only aot skips the ORM facade", async () => {
     const result = await generate({ only: "aot" })
     expect(result.orm).toBeUndefined()
     expect(result.aot?.bootstrap).toContain("schema.aot.ts")

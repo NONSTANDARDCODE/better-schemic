@@ -19,7 +19,7 @@ import type { App, FunctionDef, RecordIdMode, RelationDef, Shape, TableDef } fro
 
 /** A typed table/edge def with its shape erased — the structural upper bound for schema entries. */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- erasure bivariante do shape: `Shape` estreita a inferência de filtros/writes e quebra os type-gates do ORM.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- bivariant erasure of the shape: `Shape` narrows filter/write inference and breaks the ORM's type gates.
 export type AnyTableDef = TableDef<string, any>
 
 /** A relation (edge) def with shape + endpoint captures erased. The endpoint ID MODES stay broad
@@ -37,7 +37,7 @@ export type AnyRelationDef = RelationDef<
 
 /** A user-defined DB function def with its arg shape/return erased. */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- erasure bivariante dos generics de args/retorno do function def.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- bivariant erasure of the function def's args/return generics.
 export type AnyFunctionDef = FunctionDef<any, any>
 
 /** One `schema` entry: a table, an edge, a function, or a schemaless table's physical name. */

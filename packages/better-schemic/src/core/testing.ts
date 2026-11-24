@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument -- Contrato duck-typed por design: sem HKTs, a suíte depende de `any` para preservar os builders de cada driver. */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument -- Duck-typed contract by design: without HKTs, the suite depends on `any` to preserve each driver's builders. */
 
 // A shared DRIVER CONFORMANCE suite — the runtime contract a `@better-schemic/<driver>` must , asserted
 // with `bun:test`. Each driver runs it against its own authoring surface:
@@ -109,14 +109,14 @@ export function describeDriverConformance(opts: DriverConformanceOptions): void 
         expect(driver.registry).toBeDefined()
         expect(typeof driver.registry.entries).toBe("function")
         expect(driver.registry.names().length).toBeGreaterThan(0)
-        // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+        // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
         for (const op of ["explode", "introspectAll", "connect", "apply", "close"] as const)
           expect(typeof driver[op]).toBe("function")
       })
     })
 
     describe("zod drop-in surface (s.* is a Zod superset)", () => {
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+      // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
       for (const { build, key } of DROP_INS) {
         test(`s.${key}() exists and returns a field`, () => {
           expect(typeof s[key]).toBe("function")
@@ -125,7 +125,7 @@ export function describeDriverConformance(opts: DriverConformanceOptions): void 
         })
       }
 
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+      // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
       for (const { invalid, key, valid } of SCALAR_CHECKS) {
         test(`s.${key}() carries a "${key}" Zod schema`, () => {
           const schema = toSchema(s[key]())
@@ -158,7 +158,7 @@ export function describeDriverConformance(opts: DriverConformanceOptions): void 
     describe("lowering (drop-in fields → kind registry)", () => {
       test("an entity of drop-in fields explodes + lowers + emits, carrying every field", () => {
         const shape: Record<string, unknown> = {}
-        // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+        // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
         for (const { build, key } of DROP_INS) shape[`f_${key}`] = build(s)
 
         const entity = defineEntity("better_schemic_conformance_probe", shape)
@@ -173,7 +173,7 @@ export function describeDriverConformance(opts: DriverConformanceOptions): void 
         // field name must appear in it (lowering + emit carried it through).
         const ddl = emitKinds(driver.registry, portable).join("\n")
         expect(ddl.length).toBeGreaterThan(0)
-        // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+        // eslint-disable-next-line functional/no-loop-statements -- loop with break/await/mutable state; converting to map/reduce would change the semantics
         for (const { key } of DROP_INS) expect(ddl).toContain(`f_${key}`)
       })
     })

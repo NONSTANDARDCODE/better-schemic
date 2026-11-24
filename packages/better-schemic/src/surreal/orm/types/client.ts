@@ -180,7 +180,7 @@ export type Client<
   }
 
 /**
- * The static façade over a client: one read member per schema model plus the fixed escape
+ * The static facade over a client: one read member per schema model plus the fixed escape
  * hatches. `sc generate:orm` emits a source file with STATIC getters satisfying this type — Bun's
  * AOT needs the getters written in the source (a runtime `Object.defineProperty` loop over schema
  * keys is  the slow path this replaces). The runtime `Client` still derives every key from
