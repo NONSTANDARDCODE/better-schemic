@@ -15,7 +15,7 @@
         "eslint-plugin-simple-import-sort": "^14.0.0",
         "eslint-plugin-unicorn": "^80.0.0",
         "eslint-plugin-write-good-comments": "^0.2.0",
-        "fast-check": "^4.10.2",
+        "fast-check": "^4.10.3",
         "knip": "^6.48.0",
       },
     },
@@ -63,7 +63,7 @@
       },
       "devDependencies": {
         "@clack/prompts": "^1.9.0",
-        "@types/bun": "^1.4.4",
+        "@types/bun": "^1.4.5",
         "better-schemic": "workspace:*",
       },
     },
