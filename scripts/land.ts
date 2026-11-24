@@ -5,7 +5,7 @@
  *
  *   1. rebase <branch> onto origin/main (in its worktree) so the merge is a clean fast-forward
  *   2. fast-forward-merge it into the local main checkout (NOT pushed yet)
- *   3. GATE: typecheck + test the whole workspace — if red, undo the merge and abort (never ship red)
+ *   3. GATE: build + typecheck + test + lint + knip the whole workspace — if red, undo the merge and abort (never ship red)
  *   4. push main, then remove the branch's worktree + delete the branch (local + remote)
  *
  * Landing ACCUMULATES — it does NOT deploy. Releases cut them explicitly on Manuel's confirmation
@@ -150,7 +150,7 @@ if (!GATE_PHASE) {
 
 // --- gate: never ship red --------------------------------------------------------------------
 if (!flag("--no-test")) {
-  console.log("gate: install + build + typecheck + test workspace...")
+  console.log("gate: install + build + typecheck + test + lint + knip workspace...")
   try {
     // INSTALL FIRST: the merged branch may add/bump deps (package.json + bun.lock), so refresh
     // node_modules before build/typecheck — else a new dependency reads as "cannot find module" and
@@ -168,6 +168,9 @@ if (!flag("--no-test")) {
     ;["packages/better-schemic", "packages/create-better-schemic"].forEach((dir) => {
       run("bun", ["run", "--cwd", dir, "test"])
     })
+    // Quality gates use the ROOT configs (bunfig.toml / knip.json) — run them once, not per package.
+    run("bun", ["run", "lint"])
+    run("bun", ["run", "knip"])
   } catch {
     console.error("gate FAILED — rolling main back, nothing pushed.")
     gitIO("reset", "--hard", main)

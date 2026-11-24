@@ -40,7 +40,7 @@ app code still bundles only what it imports:
   carries the consumer's lint ruleset with EVERY rule active as `error` — no deferred/disabled
   section. Inline `eslint-disable-next-line <rule> -- justification` is allowed only where a
   refactor would change runtime semantics (SQL key order, stateful parsers, public API types).
-  Gate: `bun check` + `bun test` + `bun lint` from the repo root. See ROADMAP M20.13.
+  Gate: `bun check` + `bun test` + `bun lint` + `bun run knip` from the repo root. CI and `land.ts` run all four. See ROADMAP M20.13.
 - `better-schemic/otel` — OpenTelemetry tracing as a `QueryLogger` (`createOtelLogger`); the
   `@opentelemetry/api` peer is optional and an unattached logger costs nothing.
 - `better-schemic/plugins/*` — the authoring plugins.

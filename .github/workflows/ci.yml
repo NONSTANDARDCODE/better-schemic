@@ -1,6 +1,6 @@
 name: CI
 
-# Mirrors the local `land.ts` gate (build -> typecheck -> test across the workspace) so external PRs
+# Mirrors the local `land.ts` gate (build -> typecheck -> test -> lint -> knip across the workspace) so external PRs
 # are verified automatically — `land.ts` only gates what core-dev lands, not contributor PRs.
 on:
   push:
@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   gate:
-    name: build · typecheck · test
+    name: build · typecheck · test · lint · knip
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -48,3 +48,10 @@ jobs:
 
       - name: Test
         run: bun run --filter '*' test
+
+      # Quality gates — root config (bunfig.toml / knip.json), so both run once from the repo root.
+      - name: Lint
+        run: bun run lint
+
+      - name: Knip (unused files, exports, types and dependencies)
+        run: bun run knip
