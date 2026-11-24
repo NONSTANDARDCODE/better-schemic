@@ -19,18 +19,13 @@ import { compileLink } from "./links"
 import { type CompileCtx, EMPTY_INCLUDE, type IncludeCompiled, type IncludeSpec } from "./specs"
 
 export type {
-  CountIncludeSpec,
   EdgeIncludeSpec,
   EdgeProjection,
-  EdgeRecordSpec,
-  EdgeRemountSpec,
-  EdgeTargetSpec,
   IncludeCompiled,
   IncludeSpec,
   LinkFetchSpec,
   LinkLeafSpec,
   LinkProjectionSpec,
-  TargetEntry,
   TargetProjection,
 } from "./specs"
 

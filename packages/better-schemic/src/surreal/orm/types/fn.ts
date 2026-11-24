@@ -11,7 +11,6 @@ import type { Surql } from "../../frag"
 import type { App, FunctionDef } from "../../pure"
 
 import type { AnyFunctionDef as FnDef, EntriesOf, FunctionKeys, SchemaInput } from "./schema"
-export type { AnyFunctionDef } from "./schema"
 
 /** The decoded args of a `defineFunction` entry, by argument name. */
 export type FnArgs<F> =

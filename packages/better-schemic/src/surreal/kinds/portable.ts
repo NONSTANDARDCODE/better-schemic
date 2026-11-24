@@ -125,10 +125,3 @@ export type PSequence = {
 /** Every portable object a SurrealDB schema lowers to. */
 export type SurrealPortable =
   PAccess | PAnalyzer | PEvent | PFunction | PIndex | PParam | PSequence | PTable
-
-/**
- * The authoring-side definables the explode produces. They ALREADY carry the normalized, canonical
- * `DefineStatement`(s) (the explode runs `schemaStruct` + `structuredSnapshot` first), so each kind's
- * `lower` is the identity — the pattern core's `kind-registry.test.ts` uses.
- */
-export type SurrealDefinable = SurrealPortable

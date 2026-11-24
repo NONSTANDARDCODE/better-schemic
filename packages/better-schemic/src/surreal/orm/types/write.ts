@@ -108,35 +108,8 @@ export type UpdateData<TD extends AnyTableDef> = UpdateWriteData<Update<TD>>
 export type ArithmeticValue<T> = Surql | Surql<[T]> | T
 
 /**
- * How each marker lowers to SurrealQL — declared HERE, beside the markers, so the two cannot drift.
- *
- * `+=` appends to an array WITHOUT dedup and increments a number; `-=` removes EVERY occurrence
- * from an array and decrements a number; `array::union` is the  form that dedups; `f[n] =` is a
- * single index. The compiler reaches its rows by indexed access
- * (`AdjustmentLowering[K]`), so a new marker with no row here is a TYPE error rather than a runtime
- * hole that  falls through to a default.
- */
-export type AdjustmentLowering = {
-  /** `SET f += $p` (array append — NO dedup) */
-  append: "+="
-  /** `SET f[n] = $p` */
-  at: "at"
-  /** `SET f -= $p` */
-  decrement: "-="
-  /** `SET f += $p` */
-  increment: "+="
-  /** `SET f -= $p` (array remove — EVERY occurrence) */
-  remove: "-="
-  /** `SET f = array::union(f, $p)` (the deduping merge) */
-  union: "union"
-}
-
-/** The marker keys `AdjustmentLowering` covers — `union` of the rows above. */
-export type AdjustmentKind = keyof AdjustmentLowering
-
-/**
  * The MODIFIERS an change marker accepts — they refine the one server-side write instead of
- * adding an operator (`AdjustmentLowering`/`AdjustmentKind` stay the six markers).
+ * adding an operator (the six markers stay the same).
  *
  * `when` turns the step into `SET f = IF <when> THEN … ELSE … END`: the guard evaluats it by the
  * server on the value it's about to change, so the whole field is still ONE read-modify-write.

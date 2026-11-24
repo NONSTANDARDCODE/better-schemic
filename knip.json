@@ -1,0 +1,73 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreExportsUsedInFile": true,
+  "ignoreDependencies": [
+    "eslint-plugin-boundaries",
+    "eslint-plugin-functional",
+    "eslint-plugin-perfectionist",
+    "eslint-plugin-simple-import-sort",
+    "eslint-plugin-unicorn",
+    "eslint-plugin-write-good-comments",
+    "@typescript/native-preview"
+  ],
+  "workspaces": {
+    "packages/better-schemic": {
+      "entry": [
+        "src/index.ts",
+        "src/driver.ts",
+        "src/connection.ts",
+        "src/query.ts",
+        "src/logger.ts",
+        "src/aot.ts",
+        "src/plugin.ts",
+        "src/zod.ts",
+        "src/zod-core.ts",
+        "src/orm/index.ts",
+        "src/plugins/*.ts",
+        "src/config.ts",
+        "src/core/index.ts",
+        "src/core/driver/sdk.ts",
+        "src/authoring.ts",
+        "src/testing.ts",
+        "src/cli/index.ts",
+        "test/**/*.test.ts",
+        "test/**/*.assert.ts",
+        "examples/**/*.ts",
+        "coverage/**/*.ts",
+        "build.config.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "test/**/*.ts",
+        "examples/**/*.ts",
+        "coverage/**/*.ts"
+      ]
+    },
+    "packages/create-better-schemic": {
+      "entry": [
+        "src/index.ts",
+        "test/**/*.test.ts",
+        "build.config.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "test/**/*.ts"
+      ]
+    },
+    ".": {
+      "entry": [
+        "scripts/land.ts",
+        "scripts/release.ts",
+        "scripts/build.ts",
+        "scripts/gen-examples-manifest.ts",
+        "scripts/gen-examples-manifest-orm.ts",
+        "scripts/manifest.ts",
+        "scripts/tsgo.ts",
+        "scripts/type-assert.ts"
+      ],
+      "project": [
+        "scripts/**/*.ts"
+      ]
+    }
+  }
+}

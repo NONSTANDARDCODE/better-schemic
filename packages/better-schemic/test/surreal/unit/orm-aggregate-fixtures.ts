@@ -1,5 +1,3 @@
-import { RecordId } from "surrealdb"
-
 import { orm } from "../../../src/surreal/orm/client"
 import type { ModelMeta, TableMeta } from "../../../src/surreal/orm/meta"
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema"
@@ -127,58 +125,6 @@ export const deepShape = {
 export const Deep = table("deep", deepShape)
 
 /** A cart whose `items` is a LIST of links — what `combine({ split })` unfolds. */
-export const splitItemShape = {
-  name: s.string(),
-  qty: s.int(),
-  tags: s.array(s.string()),
-}
-export const SplitItem = table("split_item", splitItemShape)
-
-export const splitHolderShape = {
-  name: s.string(),
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  items: s.array(s.recordId("split_item")),
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  ...KEEP_ORDER,
-  tags: s.array(s.string()),
-}
-export const SplitHolder = table("split_holder", splitHolderShape)
 
 /** The schema index for a `{ key: TableDef }` object, typed to the table meta. */
 export function tableMeta(
@@ -271,21 +217,4 @@ export async function refusal(
 ): Promise<string> {
   const probed = await probeAggregate(schema, key, args)
   return probed.error
-}
-
-/** The compiled statement, failing if the call refuss it instead. */
-export async function compiled(
-  schema: Record<string, unknown>,
-  key: string,
-  args: Record<string, unknown>,
-  rows: unknown[] = [],
-): Promise<string> {
-  const out = await probeAggregate(schema, key, args, rows)
-  if (out.error !== "") throw new Error(`expected a statement, got the error: ${out.error}`)
-  return out.sql
-}
-
-/** A decode-safe row for a table with a `record` column (the Zod decode rejects a bare string). */
-export function row(table: string, fields: Record<string, unknown>): Record<string, unknown> {
-  return { id: new RecordId(table, "1"), ...fields }
 }

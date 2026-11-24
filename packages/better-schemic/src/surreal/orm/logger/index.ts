@@ -10,19 +10,4 @@
  * ```
  */
 
-export type {
-  ExplainPolicy,
-  LogContext,
-  LogFormat,
-  LoggerLevel,
-  LoggerOption,
-  LoggerOptions,
-  LoggerPreset,
-  LogPhase,
-  LogStatement,
-  LogStatementResult,
-  QueryLogEvent,
-  QueryLogger,
-  ResolvedLoggerOptions,
-} from "../types/logger"
 export { createQueryLogger, resolveLogger } from "./logger"

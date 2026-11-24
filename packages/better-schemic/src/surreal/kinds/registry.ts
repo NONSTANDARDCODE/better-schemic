@@ -225,5 +225,3 @@ surrealKinds.define({
 export function lowerAll(tables: AnyTable[], defs: AuthoredDef[] = []): PortableObject[] {
   return lowerSchema(surrealKinds, explodeSchema(tables, defs))
 }
-
-export { KindRegistry, type Ref } from "../../core"

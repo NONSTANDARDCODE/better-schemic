@@ -854,6 +854,6 @@ export function isRecordColumn(meta: ModelMeta, field: string): boolean {
   return isTableMeta(meta) && meta.columns.get(field)?.record !== undefined
 }
 
-// The change layer lives in `./change`; re-exported here so a caller that already
-// imports the SET builder does not need a second import for the payload split.
-export { type ArithmeticStep, extractArithmetic, setBody, type StepOp } from "./adjustment"
+// The change layer lives one directory over; re-exported so a SET-builder caller
+// does not need a second import for the payload split.
+export { extractArithmetic } from "./adjustment"

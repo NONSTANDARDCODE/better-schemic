@@ -280,13 +280,3 @@ export async function loadConfig(opts?: {
   }
   return resolveConnectionConfig(config, name, resolved[0], entry.driver, root)
 }
-
-/** Per-command connection flag overrides (CLI args, applied by the driver over `params`). */
-export type ConnectionOverrides = {
-  authLevel?: string
-  database?: string
-  namespace?: string
-  password?: string
-  url?: string
-  username?: string
-}

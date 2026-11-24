@@ -31,5 +31,3 @@ export function betterSchemic(
     ...options,
   })
 }
-
-export default betterSchemic

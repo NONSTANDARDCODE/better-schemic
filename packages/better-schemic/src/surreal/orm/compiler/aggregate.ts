@@ -217,9 +217,3 @@ export function compileAggregate(
     sql: statement.join(" "),
   }
 }
-
-// Keep the operand guard reachable from this module's own namespace: it's the policy half of the
-// combine compiler, re-exported so `reads.ts` can check an operand without importing the
-// lowering internals.
-export { assertAggregateOperand } from "./aggregate-operand"
-export { pathList, renderPath } from "./shared"

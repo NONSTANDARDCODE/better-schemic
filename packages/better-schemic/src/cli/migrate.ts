@@ -103,8 +103,6 @@ function attachFiles(
   })
 }
 
-export type Direction = "down" | "up"
-
 export type GenerateResult = {
   created: boolean
   down?: number
@@ -212,23 +210,6 @@ export function commitMigration(
     tag: prepared.tag,
     up: prepared.up,
   }
-}
-
-/** Write a planned migration to disk (file + snapshot). No-op for an empty diff. */
-export function writeMigration(
-  config: ResolvedConfig,
-  plan: MigrationPlan,
-  name?: string,
-): GenerateResult {
-  const prepared = prepareMigration(config, plan, name)
-  if (!prepared) return { created: false }
-
-  return commitMigration(config, prepared)
-}
-
-/** Diff the schemas against the snapshot and, if anything changed, write a migration. */
-export async function generate(config: ResolvedConfig, name?: string): Promise<GenerateResult> {
-  return writeMigration(config, await planMigration(config), name)
 }
 
 /**

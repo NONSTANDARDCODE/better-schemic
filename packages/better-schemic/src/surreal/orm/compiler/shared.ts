@@ -26,7 +26,7 @@ import {
 // The record-id parser lives in the neutral `ident` module (shared with the authoring codec);
 // re-exported here so the compiler modules keep their single import site.
 // para os compilers; o import local abaixo serve o uso interno
-export { type RecordIdParts, splitRecordId } from "../../ident"
+export { splitRecordId } from "../../ident"
 
 import {
   type Ctx,
