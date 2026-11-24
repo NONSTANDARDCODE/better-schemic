@@ -94,8 +94,8 @@ function collect(sources: readonly Hooks[], key: keyof Hooks): readonly Handler[
   const out: Handler[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const source of sources) {
-    const handler = source[key]
-    if (typeof handler === "function") out.push(handler)
+    const handler: unknown = (source as Record<string, unknown>)[key]
+    if (typeof handler === "function") out.push(handler as Handler)
   }
   return out
 }

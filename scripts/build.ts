@@ -13,7 +13,7 @@
  * `bun run ../../scripts/build.ts` from its own root.
  */
 import { rm } from "node:fs/promises"
-import { join, relative } from "node:path"
+import nodePath from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { resolveTsgo } from "./tsgo"
@@ -46,7 +46,7 @@ const SHEBANG = "#!/usr/bin/env node\n"
 
 async function main(): Promise<void> {
   const pkgDir = process.cwd()
-  const configPath = join(pkgDir, "build.config.ts")
+  const configPath = nodePath.join(pkgDir, "build.config.ts")
   if (!(await Bun.file(configPath).exists()))
     throw new Error(`no build.config.ts in ${pkgDir} — run this from a package root.`)
 
@@ -55,19 +55,19 @@ async function main(): Promise<void> {
   }
 
   const started = performance.now()
-  const outDir = join(pkgDir, "lib")
+  const outDir = nodePath.join(pkgDir, "lib")
   // Own the clean: `lib/` generates it output , and a stale file must never survive a build.
   await rm(outDir, { force: true, recursive: true })
 
   const result = await Bun.build({
-    entrypoints: config.entry.map((entry) => join(pkgDir, entry)),
+    entrypoints: config.entry.map((entry) => nodePath.join(pkgDir, entry)),
     external: ["bun:test"],
     format: "esm",
     outdir: outDir,
     // Libraries keep deps external (tsup auto-externalized package deps/peers); bins bundle
     // everything they import so they run without node_modules.
     packages: config.bundleDependencies ? "bundle" : "external",
-    root: join(pkgDir, "src"),
+    root: nodePath.join(pkgDir, "src"),
     sourcemap: (config.sourcemap ?? true) ? "linked" : "none",
     splitting: false,
     target: "node",
@@ -87,9 +87,11 @@ async function main(): Promise<void> {
       ? new Set(
           config.shebangEntries.map((entry) =>
             // the source entry mirrors under `lib/` with a `.js` extension
-            join(
+            nodePath.join(
               outDir,
-              relative(join(pkgDir, "src"), join(pkgDir, entry)).replace(/\.ts$/u, ".js"),
+              nodePath
+                .relative(nodePath.join(pkgDir, "src"), nodePath.join(pkgDir, entry))
+                .replace(/\.ts$/u, ".js"),
             ),
           ),
         )

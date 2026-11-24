@@ -25,6 +25,7 @@
  * ```
  */
 import { definePlugin } from "../orm/plugins"
+import type { Plugin } from "../orm/types/plugins"
 
 /** The `hard-delete` plugin options. */
 export type HardDeleteOptions = {
@@ -52,7 +53,7 @@ function hardDeleteReason(reason: string | undefined): Record<string, string> {
  * so a reader of the bootstrap knows that a `delete` on these tables loses the row forever, and so
  * the `rules` plugin/hook payload carries that intent (`meta.hardDelete`).
  */
-export function hardDelete(options: HardDeleteOptions = {}) {
+export function hardDelete(options: HardDeleteOptions = {}): Plugin {
   const owned = options.tables ? new Set(options.tables) : undefined
   return definePlugin({
     config: { reason: options.reason, tables: options.tables ?? [] },

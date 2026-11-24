@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, unicorn/no-object-as-default-parameter -- Object key order mirrors expected serialized output and must stay as authored. The default row is a fixture literal. */
+/* eslint-disable perfectionist/sort-objects, unicorn/no-object-as-default-parameter, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. The default row is a fixture literal. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // M17 — the `hard-delete` plugin: `delete` stays a PHYSICAL delete, the destructive intent is
 // explicit in the bootstrap and travels on the operation (hooks + query log). Offline.
 import { describe, expect, test } from "bun:test"

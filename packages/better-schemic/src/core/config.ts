@@ -224,12 +224,16 @@ export function defineConfig(config?: Omit<OrmConfig, "connections"> | OrmConfig
 
   const withApi = (cfg: OrmConfig): unknown => ({
     ...cfg,
-    async connect(name?: string, args?: unknown) {
+    async connect(name?: string, args?: unknown): Promise<unknown> {
       // Lazy: authoring/loading a config stays light; the client machinery loads when used.
       const { connectFromConfig } = await import("./client")
       return connectFromConfig(cfg, name, args)
     },
-    connection(name: string, factory: (input: unknown) => AnyConnectionEntry, input: unknown) {
+    connection(
+      name: string,
+      factory: (input: unknown) => AnyConnectionEntry,
+      input: unknown,
+    ): unknown {
       // The factory IS the driver marker: it stamps the driver tag, config type, and client opener.
       // The chain re-types ctx/args itself, so the factory calls it through a variance cast.
       const entry = factory(input)

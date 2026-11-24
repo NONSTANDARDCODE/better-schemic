@@ -1,6 +1,6 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/require-await, @typescript-eslint/no-confusing-void-expression -- Object key order mirrors expected serialized output and must stay as authored. Mock methods match async interfaces without awaiting. The void operator discards intentionally ignored values. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/require-await, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Mock methods match async interfaces without awaiting. The void operator discards intentionally ignored values. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import path from "node:path"
 
 import { afterAll, describe, expect, test } from "bun:test"
 
@@ -39,14 +39,14 @@ describe("asyncDisposable mixin", () => {
 // Integration: resolveConnection against a real temp config (loadProject reads it from disk).
 // The temp dir sits under the repo checkout so `better-schemic/core` resolves via the workspace node_modules.
 describe("resolveConnection", () => {
-  const dir = mkdtempSync(join(import.meta.dir, "..", "..", ".orm-test-"))
+  const dir = mkdtempSync(path.join(import.meta.dir, "..", "..", ".orm-test-"))
   afterAll(() => {
     rmSync(dir, { recursive: true, force: true })
   })
 
   const writeConfig = (body: string) => {
     writeFileSync(
-      join(dir, "better-schemic.config.ts"),
+      path.join(dir, "better-schemic.config.ts"),
       `import { defineConfig } from "better-schemic/config";\n` +
         `import { connectionEntry } from "better-schemic/core";\n` +
         `const conn = (over = {}) => connectionEntry("testdriver", { schema: "./database/schema", ...over });\n` +

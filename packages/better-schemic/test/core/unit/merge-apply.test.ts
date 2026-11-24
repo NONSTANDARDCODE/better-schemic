@@ -3,13 +3,13 @@
 // (a hostile DB object name must not escape the schema dir) nor through a symlink.
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import path from "node:path"
 
 import { afterAll, describe, expect, test } from "bun:test"
 
 import { applyPull, type PullFilePlan } from "../../../src/core/cli-kit/merge"
 
-const root = mkdtempSync(join(tmpdir(), "pull-apply-"))
+const root = mkdtempSync(path.join(tmpdir(), "pull-apply-"))
 afterAll(() => {
   rmSync(root, { recursive: true, force: true })
 })
@@ -25,28 +25,28 @@ const file = (abs: string, after = "x\n"): PullFilePlan => ({
 
 describe("applyPull — containment", () => {
   test("writes inside the root", () => {
-    const abs = join(root, "tables", "user.ts")
+    const abs = path.join(root, "tables", "user.ts")
     const touched = applyPull({ root, files: [file(abs)] })
     expect(touched).toEqual([abs])
     expect(readFileSync(abs, "utf8")).toBe("x\n")
   })
 
   test("refuses a path escaping the root", () => {
-    const abs = join(root, "..", "evil.ts")
+    const abs = path.join(root, "..", "evil.ts")
     expect(() => applyPull({ root, files: [file(abs)] })).toThrow(/outside the schema root/u)
   })
 
   test("refuses a symlinked target", () => {
-    const real = join(root, "real.ts")
+    const real = path.join(root, "real.ts")
     writeFileSync(real, "real")
-    const link = join(root, "link.ts")
+    const link = path.join(root, "link.ts")
     symlinkSync(real, link)
     expect(() => applyPull({ root, files: [file(link)] })).toThrow(/symlink/u)
     expect(readFileSync(real, "utf8")).toBe("real")
   })
 
   test("a plan without a root keeps the legacy behavior (no containment check)", () => {
-    const abs = join(root, "loose.ts")
+    const abs = path.join(root, "loose.ts")
     mkdirSync(root, { recursive: true })
     expect(applyPull({ files: [file(abs)] })).toEqual([abs])
   })

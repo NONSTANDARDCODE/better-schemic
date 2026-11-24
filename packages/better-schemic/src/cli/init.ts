@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs"
-import { dirname, resolve } from "node:path"
+import nodePath from "node:path"
 
 import type { Driver } from "../core"
 
@@ -49,12 +49,12 @@ export function init(cwd: string, driver: Driver): InitResult {
   const skipped: string[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [rel, content] of Object.entries(files)) {
-    const abs = resolve(cwd, rel)
+    const abs = nodePath.resolve(cwd, rel)
     if (existsSync(abs)) {
       skipped.push(rel)
       continue
     }
-    mkdirSync(dirname(abs), { recursive: true })
+    mkdirSync(nodePath.dirname(abs), { recursive: true })
     writeFileSync(abs, content)
     created.push(rel)
   }

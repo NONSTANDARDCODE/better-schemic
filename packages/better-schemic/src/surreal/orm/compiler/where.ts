@@ -130,7 +130,7 @@ export function scopePredicate(
     ...(isTableMeta(meta) ? { meta } : {}),
   }
   const predicate = compileWhere(scope, binds, options)
-  return predicate === undefined ? "" : predicate
+  return predicate ?? ""
 }
 
 /** ` WHERE <scope>` (empty when there is no scope). */
@@ -371,7 +371,7 @@ function compileOperators(
 function compileOperator(context: FieldFilterContext, op: string, operand: unknown): string {
   const { arrayPath, binds, family, field, path } = context
   const ctx = binds.ctx()
-  const value = (v: unknown = operand) => renderValue(coerceRecord(context, v), binds, ctx)
+  const value = (v: unknown = operand): string => renderValue(coerceRecord(context, v), binds, ctx)
   switch (op) {
     case "equals":
       return equality(context, operand)

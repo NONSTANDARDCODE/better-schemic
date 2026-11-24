@@ -40,7 +40,7 @@ export type ResolvedConnectionHandle = {
  */
 export type ResolveContext = {
   connections: Record<string, ResolvedConnectionHandle>
-  env: NodeJS.ProcessEnv
+  env: Record<string, string | undefined>
 }
 
 /**
@@ -95,7 +95,7 @@ export function connectionEntry<C extends ConnectionConfigBase, Client = unknown
     driver,
     ...(extras?.client ? { client: extras.client } : {}),
     ...(extras?.label ? { label: extras.label } : {}),
-    async resolve(ctx, args) {
+    async resolve(ctx, args): Promise<ConnectionConfigBase[]> {
       const out = typeof input === "function" ? await input(ctx, args as Args) : input
       return Array.isArray(out) ? out : [out]
     },

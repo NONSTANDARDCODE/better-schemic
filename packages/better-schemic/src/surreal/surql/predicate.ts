@@ -94,14 +94,14 @@ export function isExpr(v: unknown): v is Expr {
 
 const exprProto: ExprOps & { [EXPR_BRAND]: true } = {
   and(this: Expr, ...more: Predicate[]): Expr {
-    return mkExpr({ kind: "and", parts: [this, ...more.map(toExpr)] })
+    return mkExpr({ kind: "and", parts: [this, ...more.map((predicate) => toExpr(predicate))] })
   },
   [EXPR_BRAND]: true,
   not(this: Expr): Expr {
     return mkExpr({ kind: "not", part: this })
   },
   or(this: Expr, ...more: Predicate[]): Expr {
-    return mkExpr({ kind: "or", parts: [this, ...more.map(toExpr)] })
+    return mkExpr({ kind: "or", parts: [this, ...more.map((predicate) => toExpr(predicate))] })
   },
 }
 function mkExpr(node: ExprNode): Expr {
@@ -286,7 +286,7 @@ function derivedMethod(state: RefState, spec: RefMethodSpec) {
     const present = args.filter((a) => a !== undefined)
     const rends = present.map((a) => argRenderer(a))
     const prev = state.wrap
-    const base = (inner: string, ctx: Ctx) => (prev ? prev(inner, ctx) : inner)
+    const base = (inner: string, ctx: Ctx): string => (prev ? prev(inner, ctx) : inner)
     let wrap: RefState["wrap"]
     let opPrec: number | undefined
     if (spec.fn.startsWith("op:")) {
@@ -298,13 +298,13 @@ function derivedMethod(state: RefState, spec: RefMethodSpec) {
       const lhsParen = state.opPrec !== undefined && state.opPrec < prec
       const rhsState = refState(present[0])
       const rhsParen = rhsState?.opPrec !== undefined && rhsState.opPrec <= prec
-      wrap = (inner, ctx) => {
+      wrap = (inner, ctx): string => {
         const lhs = lhsParen ? `(${base(inner, ctx)})` : base(inner, ctx)
         const rhsText = rends[0] ? rends[0](ctx) : ""
         return `${lhs} ${op} ${rhsParen ? `(${rhsText})` : rhsText}`
       }
     } else {
-      wrap = (inner, ctx) =>
+      wrap = (inner, ctx): string =>
         `${spec.fn}(${[base(inner, ctx), ...rends.map((r) => r(ctx))].join(", ")})`
     }
     const kind: RefKind = spec.returns === "element" ? (state.elem ?? "other") : spec.returns
@@ -374,11 +374,11 @@ function closureCall(
     closureDepth--
   }
   const prev = state.wrap
-  const base = (inner: string, ctx: Ctx) => (prev ? prev(inner, ctx) : inner)
+  const base = (inner: string, ctx: Ctx): string => (prev ? prev(inner, ctx) : inner)
   return {
     kind: "other",
     root: state.root,
-    wrap: (inner, ctx) => {
+    wrap: (inner, ctx): string => {
       const seed = init ? `, ${operandText(init.value, ctx)}` : ""
       const ps = names.map((n) => `$${n}`).join(", ")
       return `${fn}(${base(inner, ctx)}${seed}, |${ps}| ${closureBody(body, ctx)})`
@@ -394,13 +394,16 @@ function attachClosureMethods(impl: Record<string | symbol, unknown>, state: Ref
   const elem: RefKind = state.elem ?? "other"
   /** `all`/`any` yield a BOOLEAN, so they surface as a predicate `Expr` (usable in `.where`), not
    * a ref. For the value side, reach for `.filter(…).length()`. */
-  const pred = (fn: string) => (cb: (v: FieldRef<unknown>) => unknown) =>
-    mkExpr({
-      kind: "refexpr",
-      ref: closureCall(state, fn, ["v"], [elem], cb, undefined),
-    })
+  const pred =
+    (fn: string) =>
+    (cb: (v: FieldRef<unknown>) => unknown): Expr =>
+      mkExpr({
+        kind: "refexpr",
+        ref: closureCall(state, fn, ["v"], [elem], cb, undefined),
+      })
   const ref =
-    (fn: string, kind: RefKind, elemOut?: RefKind) => (cb: (v: FieldRef<unknown>) => unknown) =>
+    (fn: string, kind: RefKind, elemOut?: RefKind) =>
+    (cb: (v: FieldRef<unknown>) => unknown): FieldRef<unknown> =>
       mkRef({
         ...closureCall(state, fn, ["v"], [elem], cb, undefined),
         elem: elemOut,
@@ -489,7 +492,7 @@ export function mkRef(state: RefState): FieldRef<unknown> {
     for (const name of allMethodNames) {
       if (name in impl) continue
 
-      impl[name] = () => {
+      impl[name] = (): never => {
         throw new Error(
           `.${name}() needs the value's runtime kind (string/number/array/datetime), which is unknown here — call the builtin explicitly instead: surql.fn.<ns>.<fn>(...).`,
         )
@@ -504,7 +507,7 @@ export function mkRef(state: RefState): FieldRef<unknown> {
   if (state.wrap) return ref as unknown as FieldRef<unknown>
 
   return new Proxy(ref, {
-    get(t, key, recv) {
+    get(t, key, recv): unknown {
       if (typeof key !== "string" || key in t || key === "then") return Reflect.get(t, key, recv)
 
       const root =

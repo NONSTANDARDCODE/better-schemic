@@ -18,6 +18,7 @@ function gitConfig(key: string): string | undefined {
  * `$PAGER`. A user with `core.pager = delta` gets delta for free, with their own config.
  */
 export function resolvePager(): string | undefined {
+  /* eslint-disable @typescript-eslint/prefer-nullish-coalescing -- `||` ignora strings vazias de env/config, preservando a resolução git-like */
   return (
     gitConfig("pager.diff") ||
     gitConfig("core.pager") ||
@@ -25,6 +26,7 @@ export function resolvePager(): string | undefined {
     process.env.PAGER ||
     undefined
   )
+  /* eslint-enable @typescript-eslint/prefer-nullish-coalescing */
 }
 
 /** Shells that must never uss it as a pager: the diff text would become their script. */
@@ -56,7 +58,7 @@ export function parsePagerCommand(pager: string): string[] {
   let current = ""
   let quote: "'" | '"' | undefined
   let has = false
-  const push = () => {
+  const push = (): void => {
     if (has) out.push(current)
 
     current = ""

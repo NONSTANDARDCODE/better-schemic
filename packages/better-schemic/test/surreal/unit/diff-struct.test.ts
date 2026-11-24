@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-function-return-type -- callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 import { isEmptyDiff } from "better-schemic/core"
 import { describe, expect, test } from "bun:test"
 

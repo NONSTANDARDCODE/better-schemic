@@ -3,7 +3,7 @@
 // Command-line helper: every operation is synchronous and uses `node:fs` directly.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
-import { isAbsolute, join, relative, sep } from "node:path"
+import nodePath from "node:path"
 
 /** Default stable marker. Doubles as the `@ts-nocheck` directive in the default header. */
 const DEFAULT_MARKER = "// @ts-nocheck — generated"
@@ -95,8 +95,8 @@ export function applyDirectives(
 
 /** Normalize a supplied file path to a POSIX-style, project-relative glob pattern. */
 function toPattern(path: string, base: string): string {
-  const rel = isAbsolute(path) ? relative(base, path) : path
-  const posix = rel.split(sep).join("/")
+  const rel = nodePath.isAbsolute(path) ? nodePath.relative(base, path) : path
+  const posix = rel.split(nodePath.sep).join("/")
   return posix.startsWith(DOT_SLASH) ? posix.slice(DOT_SLASH.length) : posix
 }
 
@@ -130,7 +130,7 @@ function mergeJsonArray(
   key: string,
   patterns: readonly string[],
 ): string | undefined {
-  const path = join(root, name)
+  const path = nodePath.join(root, name)
   if (!existsSync(path)) return undefined
 
   const obj = readJsonObject(path)
@@ -230,7 +230,7 @@ function renderTomlArray(literal: string, items: readonly string[]): string {
 
 /** Merge into `bunfig.toml`'s `[lint].ignorePatterns` when doing so proves safe. */
 function mergeToml(root: string, name: string, patterns: readonly string[]): string | undefined {
-  const path = join(root, name)
+  const path = nodePath.join(root, name)
   if (!existsSync(path)) return undefined
 
   const text = readFileSync(path, "utf8")
@@ -268,7 +268,7 @@ function mergeToml(root: string, name: string, patterns: readonly string[]): str
 
 /** Append new ignore lines to an existing `.gitignore`, without duplicates. */
 function mergeGitignore(root: string, patterns: readonly string[]): string | undefined {
-  const path = join(root, ".gitignore")
+  const path = nodePath.join(root, ".gitignore")
   if (!existsSync(path)) return undefined
 
   const text = readFileSync(path, "utf8")

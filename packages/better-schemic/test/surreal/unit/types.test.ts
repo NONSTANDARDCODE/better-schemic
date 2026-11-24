@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, unicorn/consistent-function-scoping, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. Helpers stay colocated with the tests that use them. Type queries and callback signatures need fixture values. */
+/* eslint-disable perfectionist/sort-objects, unicorn/consistent-function-scoping, @typescript-eslint/no-unused-vars, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Helpers stay colocated with the tests that use them. Type queries and callback signatures need fixture values. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 import { describe, expect, expectTypeOf, test } from "bun:test"
 import { type DateTime, RecordId, surql } from "surrealdb"
 import { z } from "zod"

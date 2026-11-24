@@ -153,7 +153,7 @@ function targetRef(names: readonly string[]): string {
 
   if (names.length === 1) return escapeIdent(names[0])
 
-  return `(${names.map(escapeIdent).join(", ")})`
+  return `(${names.map((name) => escapeIdent(name)).join(", ")})`
 }
 
 /**
@@ -275,8 +275,8 @@ export function classifyWhereByOwner(args: {
     )
   }
 
-  const ownsEdge = (field: string) => ownsField(args.edge, field)
-  const ownsTarget = (field: string) =>
+  const ownsEdge = (field: string): boolean => ownsField(args.edge, field)
+  const ownsTarget = (field: string): boolean =>
     args.targets.length === 0
       ? !ownsEdge(field) || field === "id"
       : args.targets.some((meta) => ownsField(meta, field))
@@ -316,7 +316,7 @@ export function classifyWhereByOwner(args: {
 
     if (LOGICAL.has(key)) {
       const fields = fieldsIn(value)
-      const owners = new Set(fields.map(ownerOf))
+      const owners = new Set(fields.map((field) => ownerOf(field)))
       if (fields.length === 0) {
         throw new OrmError(
           "ValidationError",

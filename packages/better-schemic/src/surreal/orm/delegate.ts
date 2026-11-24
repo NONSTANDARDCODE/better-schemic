@@ -473,7 +473,7 @@ function wrapOperations(
 
   const state = ctx.pluginState ?? {}
 
-  const runOperation = (kind: OperationKind, args: Record<string, unknown>) => {
+  const runOperation = (kind: OperationKind, args: Record<string, unknown>): unknown => {
     const run = operations[kind]
     if (typeof run !== "function")
       throw new OrmError("PluginError", `transform: no operation "${kind}" to dispatch to.`)
@@ -505,8 +505,10 @@ function wrapOperations(
 
   const out: Record<string, unknown> = {}
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const kind of Object.keys(operations))
-    out[kind] = (args: Record<string, unknown> = {}) => dispatch(kind as OperationKind, args)
+  for (const kind of Object.keys(operations)) {
+    out[kind] = (args: Record<string, unknown> = {}): unknown =>
+      dispatch(kind as OperationKind, args)
+  }
   return out
 }
 

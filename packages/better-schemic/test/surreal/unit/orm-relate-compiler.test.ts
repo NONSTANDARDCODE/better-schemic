@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Fixtures assert values whose presence the test guarantees. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-non-null-assertion, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Fixtures assert values whose presence the test guarantees. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // The RELATE lowering in isolation: the default operations, endpoint validation, named/empty edge
 // ids and the `create.relate` sugar guards. Direct calls pin the failure codes.
 import { describe, expect, test } from "bun:test"

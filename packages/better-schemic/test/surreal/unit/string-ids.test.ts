@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // String ids — the ORM's app surface speaks BARE id strings; `RecordId` exists on the wire.
 // Pure authoring (codec/decode/encode/DDL identity/deep mapping) plus the ORM lowering (where,
 // writes, cursor, schema metadata). Live round-trips live in `test/live/string-ids.test.ts`.

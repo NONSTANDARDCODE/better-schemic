@@ -1,7 +1,7 @@
 /* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import path from "node:path"
 
 import { describe, expect, test } from "bun:test"
 
@@ -11,13 +11,13 @@ import { describe, expect, test } from "bun:test"
  * the package boundary enforced this for free — inside ONE package, the `exports` map is the
  * boundary left, so it needs a test.
  */
-const PKG = resolve(import.meta.dir, "../../..")
+const PKG = path.resolve(import.meta.dir, "../../..")
 
 /** Build a probe that imports `named` from `entry` and report the SOURCE FILES the bundle pulled in. */
 async function bundledSources(entry: string, named: string): Promise<string[]> {
-  const dir = mkdtempSync(join(tmpdir(), "sc-bundle-"))
+  const dir = mkdtempSync(path.join(tmpdir(), "sc-bundle-"))
   try {
-    const probe = join(dir, "probe.ts")
+    const probe = path.join(dir, "probe.ts")
     writeFileSync(
       probe,
       `import { ${named} } from ${JSON.stringify(entry)};\n` + `export const used = ${named};\n`,
@@ -32,7 +32,7 @@ async function bundledSources(entry: string, named: string): Promise<string[]> {
     })
     if (!result.success || !result.metafile)
       throw new Error(`bundle failed: ${result.logs.map((l) => l.message).join("; ")}`)
-    return Object.keys(result.metafile.inputs).map((p) => resolve(p))
+    return Object.keys(result.metafile.inputs).map((p) => path.resolve(p))
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -40,7 +40,7 @@ async function bundledSources(entry: string, named: string): Promise<string[]> {
 
 describe("bundle purity — the authoring entry stays side-effect-free", () => {
   test("importing `s.*` pulls NEITHER the DDL emitter NOR the diff engine NOR the CLI", async () => {
-    const sources = await bundledSources(join(PKG, "src/index.ts"), "table")
+    const sources = await bundledSources(path.join(PKG, "src/index.ts"), "table")
     const engine = sources.filter(
       (p) =>
         p.includes("/src/surreal/ddl.ts") ||
@@ -54,7 +54,7 @@ describe("bundle purity — the authoring entry stays side-effect-free", () => {
   })
 
   test("the `/driver` engine entry DOES pull the emitter (the split is real)", async () => {
-    const sources = await bundledSources(join(PKG, "src/driver.ts"), "emitTable")
+    const sources = await bundledSources(path.join(PKG, "src/driver.ts"), "emitTable")
     expect(sources.some((p) => p.endsWith("/src/surreal/ddl.ts"))).toBe(true)
   })
 })

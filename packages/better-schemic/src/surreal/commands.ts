@@ -46,7 +46,7 @@ function isAccessDef(d: unknown): d is AccessDef {
 /** Load the authored access defs from the schema (; access commands pay for it). */
 async function loadAccessDefs(ctx: Ctx): Promise<AccessDef[]> {
   const { defs } = await loadDefs(ctx.config.schemaPath)
-  return defs.filter(isAccessDef)
+  return defs.filter((d): d is AccessDef => isAccessDef(d))
 }
 
 /** Type-guard + loader for authored `defineParam` defs (realm-safe: matched by `kind`). */
@@ -55,7 +55,7 @@ function isParamDef(d: unknown): d is ParamDef {
 }
 async function loadParamDefs(ctx: Ctx): Promise<ParamDef[]> {
   const { defs } = await loadDefs(ctx.config.schemaPath)
-  return defs.filter(isParamDef)
+  return defs.filter((d): d is ParamDef => isParamDef(d))
 }
 
 /** The live params (name -> canonical value text) via `INFO FOR DB STRUCTURE`. */
@@ -160,7 +160,7 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
       ],
     },
     kind: "param",
-    async run(ctx: Ctx, a: ParsedCommandArgs) {
+    async run(ctx: Ctx, a: ParsedCommandArgs): Promise<void> {
       const only = a.positionals[0]
       const flagValue =
         typeof a.flags.value === "string"
@@ -212,7 +212,7 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
   {
     args: { flags: [], positionals: [] },
     kind: "param",
-    async run(ctx: Ctx) {
+    async run(ctx: Ctx): Promise<void> {
       const authored = await loadParamDefs(ctx)
       if (authored.length === 0) throw new Error("no defineParam definitions in the schema")
 
@@ -253,7 +253,7 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
   {
     args: { flags: [], positionals: [] },
     kind: "param",
-    async run(ctx: Ctx) {
+    async run(ctx: Ctx): Promise<void> {
       const authored = await loadParamDefs(ctx).catch(() => [] as ParamDef[])
       const secretNames = new Set(
         authored.filter((d) => d.config.mode !== "value").map((d) => d.name),
@@ -285,7 +285,7 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
       positionals: [{ help: "access definition name", name: "name", required: true }],
     },
     kind: "access",
-    async run(ctx: Ctx, a: ParsedCommandArgs) {
+    async run(ctx: Ctx, a: ParsedCommandArgs): Promise<void> {
       const name = pos(a, 0, "name")
       const accessDefs = await loadAccessDefs(ctx)
       const def = accessDefs.find((d) => d.name === name)
@@ -330,7 +330,7 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
       ],
     },
     kind: "access",
-    async run(ctx: Ctx, a: ParsedCommandArgs) {
+    async run(ctx: Ctx, a: ParsedCommandArgs): Promise<void> {
       const only = a.positionals[0]
       const accessDefs = await loadAccessDefs(ctx)
       const accesses = accessDefs.filter((d) => !only || d.name === only)
@@ -373,7 +373,7 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
       positionals: [{ help: "access definition name", name: "name", required: true }],
     },
     kind: "access",
-    async run(ctx: Ctx, a: ParsedCommandArgs) {
+    async run(ctx: Ctx, a: ParsedCommandArgs): Promise<void> {
       const name = pos(a, 0, "name")
       const user = typeof a.flags.user === "string" ? a.flags.user : await ctx.io.prompt("user: ")
       // Never require a secret inline (shell-history leak) — prompt hidden when not passed.
@@ -411,7 +411,7 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
       ],
     },
     kind: "access",
-    async run(ctx: Ctx, a: ParsedCommandArgs) {
+    async run(ctx: Ctx, a: ParsedCommandArgs): Promise<void> {
       const only = a.positionals[0]
       const accessDefs = await loadAccessDefs(ctx)
       const defs = accessDefs.filter((d) => !only || d.name === only)
@@ -474,7 +474,7 @@ export const surrealCommands: readonly DriverCommand<Surreal>[] = [
       ],
     },
     kind: "table",
-    async run(ctx: Ctx, a: ParsedCommandArgs) {
+    async run(ctx: Ctx, a: ParsedCommandArgs): Promise<void> {
       const table = pos(a, 0, "table")
       const kv = pos(a, 1, "col=value")
       const eq = kv.indexOf("=")

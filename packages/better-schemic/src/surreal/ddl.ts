@@ -360,7 +360,7 @@ function emitEvent(table: string, ev: TableEvent, opts?: DefineOptions): string 
   }
   if (ev.when !== undefined) parts.push(`WHEN ${eventClause(ev.when)}`)
 
-  const thens = (Array.isArray(ev.then) ? ev.then : [ev.then]).map(blockThen)
+  const thens = (Array.isArray(ev.then) ? ev.then : [ev.then]).map((then) => blockThen(then))
   // One `THEN` rides bare; parenthesiz them so the comma list parses unambiguously.
   parts.push(`THEN ${thens.length === 1 ? thens[0] : thens.map((t) => `(${t})`).join(", ")}`)
   if (ev.comment) parts.push(`COMMENT ${JSON.stringify(ev.comment)}`)
@@ -775,7 +775,8 @@ function emit(
   // emit them with auto-derived names (`_idx` for the spec, `_uq` for UNIQUE).
   if (surreal?.index) {
     // eslint-disable-next-line unicorn/consistent-function-scoping -- helper local mantido junto do uso para coesão e legibilidade
-    const sanitize = (p: string) => p.replaceAll(/[`]/gu, "").replaceAll(/[^a-zA-Z0-9]+/gu, "_")
+    const sanitize = (p: string): string =>
+      p.replaceAll(/[`]/gu, "").replaceAll(/[^a-zA-Z0-9]+/gu, "_")
     const base = `${table}_${sanitize(path)}`
 
     if (surreal.index.spec && surreal.index.unique) {

@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // The kind filter: filterKinds over PortableObject[], where owned objects (index/event with
 // owner -> table) follow their table's inclusion and an event honors --events.
 // A fake registry supplies the owner hooks the filter reads.

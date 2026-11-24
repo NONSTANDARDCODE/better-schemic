@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 import { type Filter, parseFilter } from "better-schemic/core"
 import type { DefineStatement } from "better-schemic/driver"
 import { describe, expect, test } from "bun:test"

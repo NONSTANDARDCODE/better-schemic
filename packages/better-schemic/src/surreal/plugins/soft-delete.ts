@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-function-return-type, @typescript-eslint/explicit-module-boundary-types -- o tipo de retorno concreto do spec do plugin (config/operationArgs/extendModel) é inferido por `definePlugin` e precisa fluir para os métodos do delegate; anotá-lo como `Plugin` apagaria `restore`/`restoreById` para o consumidor. */
 /**
  * `better-schemic/plugins/soft-delete` — turn `delete` into a soft delete.
  *

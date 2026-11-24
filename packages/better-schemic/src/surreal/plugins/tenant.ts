@@ -203,7 +203,7 @@ export function tenant<P extends AnyTableDef, const C extends string = "tenant_i
   if (options.protect !== false) {
     const message = `${column} cannot manually be set to a different value than the authenticated user`
     events.push({
-      name: eventName === undefined ? `{table}_protect_${column}` : eventName,
+      name: eventName ?? `{table}_protect_${column}`,
       // `$auth != NONE` keeps privileged/system writes (no session auth) working; the runtime
       // plugin is what scopes THOSE sessions.
       // eslint-disable-next-line unicorn/no-thenable -- then é o nome obrigatório do campo WHEN/THEN do DEFINE EVENT
@@ -216,12 +216,12 @@ export function tenant<P extends AnyTableDef, const C extends string = "tenant_i
   if (options.indexes !== false) {
     indexes.push({
       fields: [column],
-      name: tenantIndexName === undefined ? `{table}_${snake(column)}_idx` : tenantIndexName,
+      name: tenantIndexName ?? `{table}_${snake(column)}_idx`,
     })
     if (deleted) {
       indexes.push({
         fields: [column, deleted],
-        name: deletedIndexName === undefined ? `{table}_${snake(deleted)}_idx` : deletedIndexName,
+        name: deletedIndexName ?? `{table}_${snake(deleted)}_idx`,
       })
     }
   }

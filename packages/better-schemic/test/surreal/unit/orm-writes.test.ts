@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-unnecessary-condition -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally ignored values. Defensive checks document fixture intent. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally ignored values. Defensive checks document fixture intent. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // M2 — the write compiler and the delegate writes: golden SQL/vars per form, the runtime envelopes
 // (row/miss/batch/count), codec validation with expression splice, and the teaching guards. Offline.
 // Return semantics + eager guards live in `orm-writes-returns.test.ts`; fixtures shar them there.
@@ -6,8 +6,7 @@ import { describe, expect, test } from "bun:test"
 import { RecordId } from "surrealdb"
 
 import { relation, s, surql, table } from "../../../src/surreal"
-import type { Client } from "../../../src/surreal/orm/client"
-import { orm } from "../../../src/surreal/orm/client"
+import { type Client, orm } from "../../../src/surreal/orm/client"
 import type { OrmError } from "../../../src/surreal/orm/errors"
 import { schema } from "../../../src/surreal/orm/schema"
 import { caught, fakeConn, ok } from "../orm-fixtures"

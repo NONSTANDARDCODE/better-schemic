@@ -593,7 +593,9 @@ export function flattenAssignments(
 
     return
   }
-  out.push(`${path.map(renderPath).join(".")} = ${renderValue(value, binds, binds.ctx())}`)
+  out.push(
+    `${path.map((segment) => renderPath(segment)).join(".")} = ${renderValue(value, binds, binds.ctx())}`,
+  )
 }
 
 /**

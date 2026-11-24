@@ -8,8 +8,7 @@
  */
 import { RecordId } from "surrealdb"
 
-import type { Ctx } from "../../pure"
-import { fragOf } from "../../pure"
+import { type Ctx, fragOf } from "../../pure"
 import { isExpr, lowerExpr, mkRef } from "../../surql/predicate"
 import type { ModelMeta, SchemaIndex } from "../meta"
 
@@ -256,7 +255,7 @@ export function compileGraph(
     if (opts.paths) suffix += "+path"
 
     if (opts.shortest) {
-      // eslint-disable-next-line @typescript-eslint/no-base-to-string -- shortest aceita alvos opacos do DSL
+      // eslint-disable-next-line @typescript-eslint/no-base-to-string, @typescript-eslint/restrict-template-expressions -- shortest aceita alvos opacos do DSL
       suffix += `+shortest=${opts.shortest}`
     }
 
@@ -306,7 +305,7 @@ function makeNodeProxy(): unknown {
   return new Proxy(
     {},
     {
-      get(_t, key) {
+      get(_t, key): unknown {
         if (typeof key !== "string" || key === "then") return
 
         // eslint-disable-next-line @typescript-eslint/consistent-return -- o proxy retorna undefined para chaves especiais
@@ -319,7 +318,7 @@ function makeNodeProxy(): unknown {
 function convertSelect(value: unknown): unknown {
   if (value === null || value === undefined) return value
 
-  if (Array.isArray(value)) return value.map(convertSelect)
+  if (Array.isArray(value)) return value.map((item) => convertSelect(item))
 
   if (typeof value === "function") return value
 
@@ -329,7 +328,7 @@ function convertSelect(value: unknown): unknown {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
     const f = fragOf(v)
-    out[k] = f === undefined ? convertSelect(v) : f
+    out[k] = f ?? convertSelect(v)
   }
   return out
 }

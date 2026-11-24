@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, unicorn/no-thenable -- Object key order mirrors expected serialized output and must stay as authored. Bun test calls return thenable handles that are not awaited. */
+/* eslint-disable perfectionist/sort-objects, unicorn/no-thenable, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Bun test calls return thenable handles that are not awaited. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // Table PRESETS (ratified cross-driver): table.preset({ columns?, permissions?, events?,
 // indexes? }) applied via CHAINED TableDef.use(preset). Columns typed-merge (a name clash is a
 // compile error + runtime throw), permissions per-op AND-combine (narrow, never widen),

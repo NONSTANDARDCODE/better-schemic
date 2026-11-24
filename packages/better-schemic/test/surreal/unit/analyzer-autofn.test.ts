@@ -1,4 +1,4 @@
-/* eslint-disable unicorn/consistent-function-scoping -- Helpers stay colocated with the tests that use them. Defensive checks document fixture intent. */
+/* eslint-disable unicorn/consistent-function-scoping, @typescript-eslint/explicit-function-return-type -- Helpers stay colocated with the tests that use them. Defensive checks document fixture intent. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 import { describe, expect, test } from "bun:test"
 
 import { surql } from "../../../src/surreal"

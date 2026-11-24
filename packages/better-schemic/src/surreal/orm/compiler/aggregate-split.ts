@@ -56,12 +56,12 @@ function splitResolver(meta: ModelMeta, split: string, groupBy: readonly string[
     // A fragment must read the split ROW (the element plus whatever the parent projected), so it's
     // evaluated in the subquery and the outer select renames its column — the rows a
     // `findMany({ split })` would return.
-    fragment: (expr, key) => {
+    fragment: (expr: string, key: string): string => {
       const alias = `_split_expr_${key}`
       inners.push(`${expr} AS ${escapeIdent(alias)}`)
       return `${escapeIdent(alias)} AS ${escapeIdent(key)}`
     },
-    guard: (key, op, operand, operation) => {
+    guard: (key: string, op: string, operand: string, operation: string): void => {
       assertAggregateOperand(meta, key, op, operand, operation, {
         throughSplit: true,
       })

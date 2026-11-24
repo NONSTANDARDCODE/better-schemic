@@ -246,7 +246,7 @@ function iconOf(event: QueryLogEvent): string {
   if (byOperation) return byOperation
 
   const verb = event.statements[0]?.sql ? firstVerb(event.statements[0].sql) : undefined
-  return (verb && ICON_BY_VERB[verb]) || "▸"
+  return (verb && ICON_BY_VERB[verb]) ?? "▸"
 }
 
 /** The operation label (`findMany`, `EXPLAIN findMany`). */

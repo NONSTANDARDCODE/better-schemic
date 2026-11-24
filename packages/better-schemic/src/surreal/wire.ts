@@ -143,7 +143,7 @@ function literalFamily(value: unknown): FieldFamily {
 const familiesOf = (values: readonly unknown[]): FieldFamily => {
   if (values.length === 0) return "any"
 
-  const families = new Set(values.map(literalFamily))
+  const families = new Set(values.map((value) => literalFamily(value)))
   return families.size === 1 ? [...families][0] : "other"
 }
 
@@ -319,11 +319,11 @@ export function inferField(schema: z.ZodType, seen = new Set<z.ZodType>()): Fiel
     case "union": {
       const opts = (def.options ?? []) as z.ZodType[]
       // A `none`-ish member (z.undefined()/z.void()) makes the union optional: `T | none` -> `option<T>`.
-      const noneish = (o: z.ZodType) => {
+      const noneish = (o: z.ZodType): boolean => {
         const t = zodDef(o).type
         return t === "undefined" || t === "void"
       }
-      let hasNone = opts.some(noneish)
+      let hasNone = opts.some((o) => noneish(o))
       const members = opts.filter((o) => !noneish(o)).map((o) => inferField(o, seen))
       // Flatten every member's type into top-level ATOMS, hoisting `option<…>` onto the union:
       // SurrealDB canonicalizes `option<X> | Y` to `none | X | Y` (== `option<X | Y>`), and a
@@ -382,12 +382,12 @@ export function inferField(schema: z.ZodType, seen = new Set<z.ZodType>()): Fiel
       const entries = (def.entries ?? {}) as Record<string, number | string>
       // Drop TS numeric-enum reverse mappings (name->number); keep the real values.
       const values = Object.values(entries).filter((v) => typeof entries[v as string] !== "number")
-      const types = [...new Set(values.map(surqlLiteral))]
+      const types = [...new Set(values.map((value) => surqlLiteral(value)))]
       return leaf(types.join(" | ") || "any", familiesOf(values))
     }
     case "literal": {
       const values = (def.values ?? []) as unknown[]
-      const types = [...new Set(values.map(surqlLiteral))]
+      const types = [...new Set(values.map((value) => surqlLiteral(value)))]
       return leaf(types.join(" | ") || "any", familiesOf(values))
     }
     case "tuple": {

@@ -29,7 +29,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
     }, ms)
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
     t.unref?.()
-    void (async () => {
+    void (async (): Promise<void> => {
       try {
         const value = await p
         clearTimeout(t)
@@ -60,8 +60,8 @@ export type EphemeralServer = {
   username: string
 }
 
-const sleep = (ms: number) =>
-  new Promise((r) => {
+const sleep = (ms: number): Promise<void> =>
+  new Promise<void>((r) => {
     setTimeout(r, ms)
   })
 
@@ -92,7 +92,7 @@ async function waitForPort(
     }
     const accepted = await new Promise<boolean>((resolve) => {
       const socket = netConnect({ host, port })
-      const done = (v: boolean) => {
+      const done = (v: boolean): void => {
         socket.destroy()
         resolve(v)
       }
@@ -145,7 +145,7 @@ async function waitUntilReady(
       // would otherwise never settle and blow past the deadline loop — the hook then eats
       // its full timeout with zero diagnostics. A timed-out attempt retries.
       await withTimeout(
-        (async () => {
+        (async (): Promise<void> => {
           await db.connect(url, { reconnect: false })
           await db.signin({ password, username })
         })(),
@@ -225,7 +225,7 @@ export async function spawnEphemeralServer(bin = "surreal"): Promise<EphemeralSe
       setTimeout(() => child.kill("SIGKILL"), 2000).unref?.()
     })
   // Backstop: don't leak the process if the CLI exits abnormally.
-  const onExit = () => {
+  const onExit = (): void => {
     if (!stopped) child.kill("SIGKILL")
   }
   process.once("exit", onExit)
@@ -294,7 +294,7 @@ export async function connectEmbedded(
   await db.use({ database, namespace })
   return {
     db,
-    stop: async () => {
+    stop: async (): Promise<void> => {
       await db.close().catch(() => {
         /* ignore close errors */
       })

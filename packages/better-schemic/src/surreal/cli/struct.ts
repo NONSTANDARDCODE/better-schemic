@@ -49,7 +49,7 @@ export function normalizeType(kind: string): string {
   const parts = splitTopUnion(t)
   if (parts.length > 1) {
     const hasNone = parts.includes("none")
-    const rest = [...new Set(parts.filter((p) => p !== "none").map(normalizeType))]
+    const rest = [...new Set(parts.filter((p) => p !== "none").map((t) => normalizeType(t)))]
     const inner = rest.length === 1 ? rest[0] : [...rest].sort().join(" | ")
     if (hasNone) return rest.length > 0 ? `option<${inner}>` : "none"
 
@@ -115,7 +115,7 @@ function normalizePermissions(
 ): StructPermissions | undefined {
   // An omitted op (undefined) always means the kind default; otherwise default is FULL for fields
   // and NONE for tables.
-  const isDefault = (v: StructPermissions[keyof StructPermissions]) =>
+  const isDefault = (v: StructPermissions[keyof StructPermissions]): boolean =>
     v === undefined || (defaultFull ? v === true : v === false)
   const out: StructPermissions = {}
   let any = false
@@ -260,9 +260,13 @@ export function normalizeTable(t: StructTable): StructTable {
   if (t.kind.enforced) kind.enforced = true
 
   const out: StructTable = {
-    events: [...t.events].map(normalizeEvent).sort((a, b) => a.name.localeCompare(b.name)),
+    events: [...t.events]
+      .map((ev) => normalizeEvent(ev))
+      .sort((a, b) => a.name.localeCompare(b.name)),
     fields,
-    indexes: [...t.indexes].map(normalizeIndex).sort((a, b) => a.name.localeCompare(b.name)),
+    indexes: [...t.indexes]
+      .map((idx) => normalizeIndex(idx))
+      .sort((a, b) => a.name.localeCompare(b.name)),
     kind,
     name: t.name,
     schemafull: t.schemafull,
@@ -324,7 +328,7 @@ function collapseWs(s: string): string {
   let out = ""
   let quote: "'" | '"' | null = null
   let pendingSpace = false
-  const last = () => out.at(-1)
+  const last = (): string | undefined => out.at(-1)
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (let i = 0; i < s.length; i++) {
     const c = s[i]
@@ -480,8 +484,8 @@ export function normalizeDb(db: DbStructured): DbStructured {
     analyzers: db.analyzers,
     functions: db.functions.map(normalizeFunction),
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
-    params: (db.params ?? []).map(normalizeParam),
-    sequences: (db.sequences ?? []).map(normalizeSequence),
+    params: (db.params ?? []).map((pm) => normalizeParam(pm)),
+    sequences: (db.sequences ?? []).map((sq) => normalizeSequence(sq)),
     tables: db.tables.map(normalizeTable),
   }
 }

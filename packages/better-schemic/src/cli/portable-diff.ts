@@ -3,7 +3,6 @@
 // and show the DDL gap — all generic over the registry (core-v2). Each DB is its own world: you author
 // and diff with the SAME driver (kinds aren't cross-driver), so there is no cross-dialect lowering.
 
-import type { ResolvedConfig } from "../core"
 import {
   buildKindDiff,
   type DiffItem,
@@ -14,6 +13,7 @@ import {
   ok,
   plural,
   type PortableObject,
+  type ResolvedConfig,
   style,
 } from "../core"
 
@@ -63,7 +63,7 @@ export async function portableDiff(
   }
   const items = diff.items ?? []
   console.log(formatItems(items))
-  const n = (op: DiffItem["op"]) => items.filter((i) => i.op === op).length
+  const n = (op: DiffItem["op"]): number => items.filter((i) => i.op === op).length
   console.log(
     style.dim(
       `\n${plural(items.length, "change")} — ${n("add")} added, ${n("change")} changed, ${n("remove")} removed.`,

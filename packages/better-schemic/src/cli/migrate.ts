@@ -7,9 +7,8 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs"
-import { dirname, join, relative, resolve } from "node:path"
+import nodePath from "node:path"
 
-import type { ResolvedConfig } from "../core"
 import {
   type Authored,
   type AuthoredDef,
@@ -32,6 +31,7 @@ import {
   type MigrationStore,
   parseFilter,
   readSnapshot,
+  type ResolvedConfig,
   type SeedContext,
   slug,
   snapshotKinds,
@@ -55,7 +55,7 @@ function buildStored(
 ): StoredSnapshot {
   const objects = lowerSchema(driver.registry, driver.explode(tables, defs))
   const files: Record<string, string> = {}
-  const rel = (abs: string) => (opts.root ? relative(opts.root, abs) : abs)
+  const rel = (abs: string): string => (opts.root ? nodePath.relative(opts.root, abs) : abs)
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const t of tables) {
     const abs = opts.fileOf?.get(t)
@@ -152,7 +152,7 @@ function nextTag(migrationsDir: string, name: string, ext: string): string {
   const date = new Date()
   let tag = `${timestamp(date)}_${s}`
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (existsSync(join(migrationsDir, `${tag}${ext}`))) {
+  while (existsSync(nodePath.join(migrationsDir, `${tag}${ext}`))) {
     date.setUTCSeconds(date.getUTCSeconds() + 1)
     tag = `${timestamp(date)}_${s}`
   }
@@ -203,7 +203,7 @@ export function commitMigration(
   prepared: PreparedMigration,
 ): GenerateResult {
   mkdirSync(config.migrationsDir, { recursive: true })
-  writeFileSync(join(config.migrationsDir, prepared.file), prepared.content)
+  writeFileSync(nodePath.join(config.migrationsDir, prepared.file), prepared.content)
   writeSnapshot(config.metaDir, prepared.next)
   return {
     created: true,
@@ -311,7 +311,7 @@ export async function baseline(
 export function clearMigrationFiles(config: ResolvedConfig): string[] {
   const migs = listMigrations(config.migrationsDir, migExt(config))
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const m of migs) rmSync(join(config.migrationsDir, m.file), { force: true })
+  for (const m of migs) rmSync(nodePath.join(config.migrationsDir, m.file), { force: true })
 
   return migs.map((m) => m.tag)
 }
@@ -383,7 +383,7 @@ export async function migrate(
   try {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const m of pending) {
-      const content = readFileSync(join(config.migrationsDir, m.file), "utf8")
+      const content = readFileSync(nodePath.join(config.migrationsDir, m.file), "utf8")
       await mig.apply(db, table, {
         content,
         direction: "up",
@@ -407,7 +407,7 @@ export type StatusRow = {
 
 /** Recompute a migration file's checksum from its current contents (missing → ""). */
 function currentChecksum(config: ResolvedConfig, m: Migration): string {
-  const path = join(config.migrationsDir, m.file)
+  const path = nodePath.join(config.migrationsDir, m.file)
   if (!existsSync(path)) return ""
 
   return checksum(readFileSync(path, "utf8"))
@@ -464,7 +464,7 @@ export async function rollback(
   try {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const m of toRevert) {
-      const content = readFileSync(join(config.migrationsDir, m.file), "utf8")
+      const content = readFileSync(nodePath.join(config.migrationsDir, m.file), "utf8")
       await mig.apply(db, table, {
         content,
         direction: "down",
@@ -504,7 +504,7 @@ function locateSeeds(
 ):
   | { dir: { base: string; index?: string; scripts: SeedScript[] }; file?: never }
   | { dir?: never; file: string } {
-  const base = resolve(config.root, config.seed ?? "database/seed")
+  const base = nodePath.resolve(config.root, config.seed ?? "database/seed")
   if (existsSync(base) && statSync(base).isDirectory()) {
     let index: string | undefined
     const scripts: SeedScript[] = []
@@ -514,7 +514,7 @@ function locateSeeds(
       // `.sql`, …) skipp them — supporting files load them BY a seed (`import … with { type: "text" }`).
       if (f.startsWith("_") || f.endsWith(".d.ts") || !SEED_EXT.test(f)) continue
 
-      const path = join(base, f)
+      const path = nodePath.join(base, f)
       if (statSync(path).isDirectory()) continue
 
       if (seedName(f) === "index") index = path
@@ -538,13 +538,13 @@ async function runSeedFile(db: unknown, path: string): Promise<void> {
     ((db: unknown, ctx: SeedContext) => Promise<unknown>) | undefined
   if (typeof fn !== "function") {
     throw new TypeError(
-      `Seed "${relative(process.cwd(), path)}" must export a default function \`(db, ctx) => …\`.`,
+      `Seed "${nodePath.relative(process.cwd(), path)}" must export a default function \`(db, ctx) => …\`.`,
     )
   }
-  const dir = dirname(path)
+  const dir = nodePath.dirname(path)
   const ctx: SeedContext = {
     dir,
-    file: (name) => readFileSync(resolve(dir, name), "utf8"),
+    file: (name) => readFileSync(nodePath.resolve(dir, name), "utf8"),
   }
   await fn(db, ctx)
 }
@@ -573,7 +573,7 @@ export async function seed(
   }
 
   const { base, index, scripts } = dir
-  const run = async (s: SeedScript) => {
+  const run = async (s: SeedScript): Promise<void> => {
     console.log(style.dim(`  → ${s.name}`))
     await runSeedFile(db, s.path)
   }
@@ -595,7 +595,8 @@ export async function seed(
     await runSeedFile(db, index)
     return
   }
-  if (scripts.length === 0) throw new Error(`No seeds found in ${relative(process.cwd(), base)}/.`)
+  if (scripts.length === 0)
+    throw new Error(`No seeds found in ${nodePath.relative(process.cwd(), base)}/.`)
 
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const s of scripts) await run(s)

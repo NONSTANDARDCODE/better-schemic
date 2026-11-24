@@ -34,19 +34,19 @@ export function computeFieldDelta(
   for (const key of Object.keys(before)) if (!Object.hasOwn(after, key)) keys.push(key)
 
   const oldPart: Record<string, unknown> = {}
-  const newPart: Record<string, unknown> = {}
+  const afterPart: Record<string, unknown> = {}
   const changed: string[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const key of keys) {
     if (equalAppValue(before[key], after[key])) continue
 
     oldPart[key] = before[key]
-    newPart[key] = after[key]
+    afterPart[key] = after[key]
     changed.push(key)
   }
   if (changed.length === 0) return { changed, delta: null }
 
-  return { changed, delta: { new: newPart, old: oldPart } }
+  return { changed, delta: { new: afterPart, old: oldPart } }
 }
 
 /**

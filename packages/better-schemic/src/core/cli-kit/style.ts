@@ -10,22 +10,23 @@ enum Ansi {
 }
 
 /** Whether colored output enabls it (a TTY and `NO_COLOR` unset). */
-export const colorEnabled = () => process.stdout.isTTY && !process.env.NO_COLOR
-const paint = (code: number, s: string) => (colorEnabled() ? `\u001B[${code}m${s}\u001B[0m` : s)
+export const colorEnabled = (): boolean | undefined => process.stdout.isTTY && !process.env.NO_COLOR
+const paint = (code: number, s: string): string =>
+  colorEnabled() ? `\u001B[${code}m${s}\u001B[0m` : s
 
 export const style = {
-  bold: (s: string) => paint(Ansi.Bold, s),
-  cyan: (s: string) => paint(Ansi.Cyan, s),
-  dim: (s: string) => paint(Ansi.Dim, s),
-  green: (s: string) => paint(Ansi.Green, s),
-  red: (s: string) => paint(Ansi.Red, s),
-  yellow: (s: string) => paint(Ansi.Yellow, s),
+  bold: (s: string): string => paint(Ansi.Bold, s),
+  cyan: (s: string): string => paint(Ansi.Cyan, s),
+  dim: (s: string): string => paint(Ansi.Dim, s),
+  green: (s: string): string => paint(Ansi.Green, s),
+  red: (s: string): string => paint(Ansi.Red, s),
+  yellow: (s: string): string => paint(Ansi.Yellow, s),
 }
 
 /** A green ✓ success line. */
-export const ok = (s: string) => `${style.green("✓")} ${s}`
+export const ok = (s: string): string => `${style.green("✓")} ${s}`
 /** A red ✗ failure line. */
-export const fail = (s: string) => `${style.red("✗")} ${s}`
+export const fail = (s: string): string => `${style.red("✗")} ${s}`
 
 /** Pluralize `n thing` / `n `. */
-export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`
+export const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`

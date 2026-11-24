@@ -33,6 +33,7 @@ import {
   type TransactionHost,
   type TransactionState,
 } from "./transaction"
+import type { AdminOperations } from "./types/admin"
 import type { ApiOperations } from "./types/api"
 import type { AuthOperations } from "./types/auth"
 import type { Client, Extension, OrmOptions, SchemaArg } from "./types/client"
@@ -140,14 +141,26 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
     // Each member declars it ON THE CLASS and assigned HERE: Bun's AOT asks for this
     // ("declare every property in the class and assign them there") instead of `Object.assign`,
     // which mutates the shape after construction and keeps every access on a slow path.
-    const raw = createRawOperations(this.delegateContext, scope.raw)
+    // Property-signature view (not the source's method signatures): these closures never use
+    // `this`, so taking them off the object is safe and unbound-method sees plain properties.
+    const raw: {
+      $query: RawOperations["$query"]
+      $raw: RawOperations["$raw"]
+      $unsafe: RawOperations["$unsafe"]
+    } = createRawOperations(this.delegateContext, scope.raw)
     this.$raw = raw.$raw
     this.$query = raw.$query
     this.$unsafe = raw.$unsafe
     this.fn = createFnOperations(this.delegateContext)
     this.api = createApiOperations(this.delegateContext)
     this.auth = createAuthOperations(this.delegateContext)
-    const admin = createAdminOperations(this.delegateContext)
+    const admin: {
+      export: AdminOperations["export"]
+      import: AdminOperations["import"]
+      info: AdminOperations["info"]
+      ping: AdminOperations["ping"]
+      version: AdminOperations["version"]
+    } = createAdminOperations(this.delegateContext)
     this.info = admin.info
     this.version = admin.version
     this.ping = admin.ping
@@ -597,7 +610,7 @@ export function clientRef<
   const P extends readonly Plugin[] = readonly [],
 >(key: string = DEFAULT_RESOLVER): { current(): Client<S, C, P> } {
   return {
-    current: () => {
+    current: (): Client<S, C, P> => {
       const resolve = CLIENT_RESOLVERS.get(key)
       if (!resolve) {
         throw new Error(

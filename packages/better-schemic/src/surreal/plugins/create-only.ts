@@ -47,7 +47,7 @@ import { OrmError } from "../orm/errors"
 import { operationFamily } from "../orm/hooks"
 import type { SchemaIndex } from "../orm/meta"
 import { definePlugin } from "../orm/plugins"
-import type { Operation } from "../orm/types/plugins"
+import type { Operation, Plugin } from "../orm/types/plugins"
 import { type PresetEvent, table, type TablePermissions, type TablePreset } from "../pure"
 
 import {
@@ -153,7 +153,7 @@ function violationError(op: Operation, hard: boolean, what: string): OrmError {
  * {@link OrmError} `CreateOnlyViolation` BEFORE compiling (403), so a buggy update never
  * round-trips. Untagged tables pass through untouched (zero behavior change).
  */
-export function createOnlyGuard(options: CreateOnlyGuardOptions = {}) {
+export function createOnlyGuard(options: CreateOnlyGuardOptions = {}): Plugin {
   if (options.tables !== undefined && !Array.isArray(options.tables)) {
     throw new OrmError(
       "PluginError",

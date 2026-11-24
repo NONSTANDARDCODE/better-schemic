@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-meaningless-void-operator -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally unused type-probe values. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally unused type-probe values. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // ParamRef.as<T>() — the LEAF that types a `surql.$` param chain, so an out-of-band param
 // (`DEFINE PARAM $resend_api_key`) drops into typed positions: operands, Def.call args, and
 // surql.fn args. Type-cast; `as` joins path/toText/then as reserved proxy names.

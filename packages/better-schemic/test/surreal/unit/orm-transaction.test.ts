@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/require-await -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock methods match async interfaces without awaiting. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/require-await, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock methods match async interfaces without awaiting. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // M4.1 — `client.transaction`: the managed-transaction runtime over a recording fake. Covers
 // commit/cancel, rollback, nested scope, afterCommit/afterRollback, retries, deadline, the
 // `inTransaction` threading (batches skip their implicit BEGIN) and option validation.
@@ -209,7 +209,7 @@ describe("client.transaction — commit/cancel/rollback", () => {
           events.push("commit2")
         })
         tx.afterRollback((reason) => {
-          events.push(`rollback2:${reason}`)
+          events.push(`rollback2:${String(reason)}`)
         })
         throw new Error("boom")
       }),
@@ -436,7 +436,7 @@ describe("client.transaction — options validation and unsupported features", (
     const conn = fakeRoot()
     // Strip the managed transaction surface (an HTTP engine behaves like this).
     const bare = {
-      query: conn.query,
+      query: conn.query.bind(conn),
     }
     const client = orm(bare as never, { schema: schemaDef })
     const err = await caught(() => client.transaction(async () => "x"))

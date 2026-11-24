@@ -30,7 +30,7 @@ export function resolveLoggerOptions(options: LoggerOptions = {}): ResolvedLogge
     verbose: options.verbose ?? false,
     write:
       options.write ??
-      ((line: string) => {
+      ((line: string): void => {
         console.log(line)
       }),
   }

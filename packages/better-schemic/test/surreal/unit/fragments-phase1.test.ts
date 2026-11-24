@@ -1,16 +1,15 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unused-vars, @typescript-eslint/no-unnecessary-type-parameters -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. The void operator discards intentionally ignored values. Defensive checks document fixture intent. Type queries and callback signatures need fixture values. The Equal helper uses the canonical generic-equality idiom. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unused-vars, @typescript-eslint/no-unnecessary-type-parameters, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. The void operator discards intentionally ignored values. Defensive checks document fixture intent. Type queries and callback signatures need fixture values. The Equal helper uses the canonical generic-equality idiom. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // Typed-fragments PHASE 1: raw surql predicates inside combinators (with interpolatable
 // FieldRefs), chainable Expr combinators (.and/.or/.not — no standalone import), and
 // Def.call(args) — the one-object call: a typed BoundQuery<[R]> fragment that is also runnable
 // (.run). (M0.5: the fluent builder retirs it; the Expr layer exerciss it through refs.)
-import { setDefaultTimeout } from "bun:test"
+import { describe, expect, setDefaultTimeout, test } from "bun:test"
 
 // The workspace gate runs every package's suite IN PARALLEL — parallel-suite CPU contention can slow live
 // connects/DDL far past bun's 30s default, timing out beforeAll/afterAll hooks (reported as
 // "(unnamed)" tests). Live work gets a generous ceiling; isolated runs unaffect them.
 setDefaultTimeout(120_000)
 
-import { describe, expect, test } from "bun:test"
 import { BoundQuery } from "surrealdb"
 
 import { CallQuery, defineFunction, s, surql, table } from "../../../src/surreal"

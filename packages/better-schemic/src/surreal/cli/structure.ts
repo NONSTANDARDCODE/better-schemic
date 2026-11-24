@@ -278,7 +278,7 @@ function canonicalPerms(
   // Mixed: emit the ops that differ from the kind default (the generator omits default ops),
   // GROUPED by clause body so same-permission ops collapse into one clause — `FOR select, update
   // WHERE …` — matching SurrealDB's INFO form and the authoring emitter (`permissionsClause` in ddl.ts).
-  const isDefault = (v: StructPermissions[keyof StructPermissions]) =>
+  const isDefault = (v: StructPermissions[keyof StructPermissions]): boolean =>
     defaultFull ? v === true : v === false || v === undefined
   const groups = new Map<string, string[]>()
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
@@ -667,7 +667,7 @@ function isTrivialElement(f: StructField): boolean {
   )
 }
 
-const keyOf = (s: Pick<DefineStatement, "kind" | "name" | "table">) =>
+const keyOf = (s: Pick<DefineStatement, "kind" | "name" | "table">): string =>
   `${s.kind}:${s.table ?? ""}:${s.name}`
 
 /**

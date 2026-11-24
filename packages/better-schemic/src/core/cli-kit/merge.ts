@@ -6,7 +6,7 @@
 
 import { lstatSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
-import { dirname, isAbsolute, relative, resolve } from "node:path"
+import nodePath from "node:path"
 
 import type { generateCode, parseModule } from "magicast"
 
@@ -84,8 +84,8 @@ export type PullPlan = {
 
 /** Refuse a plan target outside `root` (a hostile DB object name must never escape the schema dir). */
 function assertInsideRoot(root: string, abs: string): void {
-  const rel = relative(resolve(root), resolve(abs))
-  if (rel.startsWith("..") || isAbsolute(rel))
+  const rel = nodePath.relative(nodePath.resolve(root), nodePath.resolve(abs))
+  if (rel.startsWith("..") || nodePath.isAbsolute(rel))
     throw new Error(`pull: refusing to write outside the schema root — "${abs}" escapes "${root}".`)
 }
 
@@ -116,7 +116,7 @@ export function applyPull(plan: PullPlan): string[] {
     assertNotSymlink(f.abs)
     if (f.action === "delete") rmSync(f.abs, { force: true })
     else {
-      mkdirSync(dirname(f.abs), { recursive: true })
+      mkdirSync(nodePath.dirname(f.abs), { recursive: true })
       writeFileSync(f.abs, f.after)
     }
     touched.push(f.rel)
@@ -444,13 +444,13 @@ export function unifiedDiff(before: string, after: string, label: string): strin
   if (!ops.some((o) => o.tag !== " ")) return ""
 
   const oldLen = ops.filter((o) => o.tag !== "+").length
-  const newLen = ops.filter((o) => o.tag !== "-").length
+  const addedLen = ops.filter((o) => o.tag !== "-").length
   const body = ops.map((o) => (o.tag === " " ? ` ${o.line}` : `${o.tag}${o.line}`))
   return `${[
     `diff --git a/${label} b/${label}`,
     `--- a/${label}`,
     `+++ b/${label}`,
-    `@@ -1,${oldLen} +1,${newLen} @@`,
+    `@@ -1,${oldLen} +1,${addedLen} @@`,
     ...body,
   ].join("\n")}\n`
 }

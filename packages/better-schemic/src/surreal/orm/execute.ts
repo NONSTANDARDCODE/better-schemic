@@ -293,7 +293,10 @@ export async function execute<T = unknown>(
     const failures = responses.map((r, i) => ({ i, r })).filter(({ r }) => r.status === "ERR")
     const primary = failures.find(({ r }) => r.error?.code !== "TransactionRollback") ?? failures[0]
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- failure[0] pode faltar em runtime apesar do tipo não-nullish
-    if (primary) throw primary.r.error
+    if (primary) {
+      const error = primary.r.error
+      if (error) throw error
+    }
   }
 
   return {

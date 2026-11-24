@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // M6.4 — the official `timestamps` plugin: `app` mode stamps time::now() on create/update and
 // `database` mode strips the managed columns. Offline (expressions splice into the statement text).
 import { describe, expect, test } from "bun:test"

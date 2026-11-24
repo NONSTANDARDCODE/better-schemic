@@ -3,14 +3,13 @@ import { BoundQuery, RecordId } from "surrealdb"
 import { fragOf } from "../pure"
 import { isExpr, mkRef, toExpr } from "../surql/predicate"
 
-import type { GraphStep } from "./compiler/graph"
-import { compileGraph } from "./compiler/graph"
+import { compileGraph, type GraphStep } from "./compiler/graph"
 import { createBinds, isTableMeta } from "./compiler/shared"
 import { decodeRows } from "./decode"
 import type { DelegateContext } from "./delegate"
 import { execute, type Statement } from "./execute"
 import type { ModelMeta, SchemaIndex } from "./meta"
-import { attachExplain, type ExplainKey, lazyResult } from "./results"
+import { attachExplain, type ExplainKey, type ExplainResult, lazyResult } from "./results"
 import type { AnyRelationDef } from "./types/schema"
 
 type Direction = "both" | "in" | "out"
@@ -85,12 +84,12 @@ export function createGraphEntryPoint(
   anchor: unknown,
 ): GraphEntryPoint {
   return {
-    graph(fn) {
+    graph(fn): unknown {
       const builder = createBuilder(meta, ctx, anchor)
       const terminal = fn(builder)
       return finishGraph(meta, ctx, terminal)
     },
-    traverse(strings, ...values) {
+    traverse(strings, ...values): unknown {
       const path = strings.reduce(
         (acc, s, i) => acc + s + (i < values.length ? valueText(values[i]) : ""),
         "",
@@ -142,43 +141,43 @@ function createBuilder(meta: ModelMeta, ctx: DelegateContext, anchor: unknown): 
     steps: [],
   }
 
-  const edgeStep = (direction: Direction, edge: unknown, opts?: StepOpts) => {
+  const edgeStep = (direction: Direction, edge: unknown, opts?: StepOpts): GraphBuilderApi => {
     const resolved = resolveEdgeRuntime(edge, direction)
-    const newOpts: StepOpts | undefined = opts ? { ...opts } : undefined
-    if (newOpts && typeof newOpts.where === "function") {
+    const stepOpts: StepOpts | undefined = opts ? { ...opts } : undefined
+    if (stepOpts && typeof stepOpts.where === "function") {
       const proxy = makeNodeProxy()
-      const res = (newOpts.where as (node: unknown) => unknown)(proxy)
+      const res = (stepOpts.where as (node: unknown) => unknown)(proxy)
       const fragment = fragOf(res)
-      newOpts.where = fragment === undefined ? res : fragment
+      stepOpts.where = fragment ?? res
     }
     const step: MutableStep = {
       direction,
       edge: asEdgeLike(edge),
       edgeName: resolved.edgeName,
       kind: "edge",
-      opts: newOpts,
-      rawWhere: newOpts?.where,
+      opts: stepOpts,
+      rawWhere: stepOpts?.where,
       targets: [],
     }
     state.steps.push(step)
     return api
   }
 
-  const step = (direction: Direction, edge: unknown, opts?: StepOpts) => {
+  const step = (direction: Direction, edge: unknown, opts?: StepOpts): GraphBuilderApi => {
     const resolved = resolveEdgeRuntime(edge, direction)
-    const newOpts: StepOpts | undefined = opts ? { ...opts } : undefined
-    if (newOpts && typeof newOpts.where === "function") {
+    const stepOpts: StepOpts | undefined = opts ? { ...opts } : undefined
+    if (stepOpts && typeof stepOpts.where === "function") {
       const proxy = makeNodeProxy()
-      const res = (newOpts.where as (node: unknown) => unknown)(proxy)
+      const res = (stepOpts.where as (node: unknown) => unknown)(proxy)
       const fragment = fragOf(res)
-      newOpts.where = fragment === undefined ? res : fragment
+      stepOpts.where = fragment ?? res
     }
     const next: MutableStep = {
       direction,
       edgeName: resolved.edgeName,
       kind: "node",
-      opts: newOpts,
-      rawWhere: newOpts?.where,
+      opts: stepOpts,
+      rawWhere: stepOpts?.where,
       targets: resolved.targets,
     }
     state.steps.push(next)
@@ -276,7 +275,7 @@ function createBuilder(meta: ModelMeta, ctx: DelegateContext, anchor: unknown): 
         const proxy = makeNodeProxy()
         const res = (filter as (node: unknown) => unknown)(proxy)
         const fragment = fragOf(res)
-        raw = fragment === undefined ? res : fragment
+        raw = fragment ?? res
       }
       if (last?.kind === "edge") last.edgeRawWhere = raw
       else state.finalWhere = raw
@@ -321,7 +320,7 @@ function parseTraversalPath(
   builder: GraphBuilderApi,
   meta: ModelMeta,
   ctx: DelegateContext,
-) {
+): void {
   const index = ctx.index
   // regex: (->|<-|<->) name (->|<-|<->) name  ... consume edge+target pairs
   const pattern = /(->|<-|<->)\s*(\w+)\s*(->|<-|<->)\s*(\w+)/gu
@@ -355,7 +354,10 @@ function targetsFor(
   return [...new Set([...(cfg.to ?? []), ...(cfg.from ?? [])])]
 }
 
-function resolveEdgeRuntime(edge: unknown, explicit: Direction) {
+function resolveEdgeRuntime(
+  edge: unknown,
+  explicit: Direction,
+): { edgeName: string; targets: string[] } {
   // edge is a RelationDef instance; use its name (config carries the declared endpoints).
   const edgeLike = asEdgeLike(edge)
   const edgeName = edgeLike?.name ?? (typeof edge === "string" ? edge : "")
@@ -363,7 +365,11 @@ function resolveEdgeRuntime(edge: unknown, explicit: Direction) {
   return { edgeName: targetNameOf(edgeName), targets: targetsFor(cfg, explicit) }
 }
 
-function finishGraph(meta: ModelMeta, ctx: DelegateContext, terminal: unknown) {
+function finishGraph(
+  meta: ModelMeta,
+  ctx: DelegateContext,
+  terminal: unknown,
+): Promise<unknown[]> & { explain(): Promise<ExplainResult> } {
   const state = stateOf(terminal)
   const binds = createBinds()
   const anchor = state.anchor
@@ -376,7 +382,7 @@ function finishGraph(meta: ModelMeta, ctx: DelegateContext, terminal: unknown) {
     steps: state.steps,
   }
   const compiled = compileGraph(meta, { index: ctx.index }, anchor, builderState, binds, "graph")
-  const decode = (rows: readonly unknown[]) => {
+  const decode = (rows: readonly unknown[]): unknown[] => {
     const raw = rows[0]
     let arr: readonly unknown[]
     if (Array.isArray(raw)) arr = raw
@@ -410,7 +416,7 @@ function finishGraph(meta: ModelMeta, ctx: DelegateContext, terminal: unknown) {
     ],
     where: undefined,
   }
-  const runPrepared = async () => {
+  const runPrepared = async (): Promise<unknown[]> => {
     const out = await execute(ctx.conn, {
       debug: ctx.debug,
       logger: ctx.logger,
@@ -420,7 +426,7 @@ function finishGraph(meta: ModelMeta, ctx: DelegateContext, terminal: unknown) {
     })
     return prepared.decode(out.rows)
   }
-  const explainPrepared = async () => {
+  const explainPrepared = async (): Promise<ExplainResult> => {
     const out = await execute(ctx.conn, {
       debug: ctx.debug,
       logger: ctx.logger,
@@ -452,7 +458,7 @@ function makeNodeProxy(): unknown {
   return new Proxy(
     {},
     {
-      get(_target, key) {
+      get(_target, key): unknown {
         if (typeof key !== "string" || key === "then") return
 
         if (key === "match") {
@@ -493,7 +499,7 @@ function convertSelectRuntime(value: unknown): unknown {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
     const fragment = fragOf(entry)
-    out[key] = fragment === undefined ? convertSelectRuntime(entry) : fragment
+    out[key] = fragment ?? convertSelectRuntime(entry)
   }
   return out
 }

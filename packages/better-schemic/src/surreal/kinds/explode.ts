@@ -22,16 +22,17 @@ import type { Surreal } from "surrealdb"
 import type { AnyTable, AuthoredDef, Ref } from "../../core"
 import { schemaStruct } from "../cli/lower"
 import { normalizeDb } from "../cli/struct"
-import type {
-  DbStructured,
-  StructAccess,
-  StructAnalyzer,
-  StructFunction,
-  StructParam,
-  StructSequence,
-  StructTable,
+import {
+  type DbStructured,
+  introspectStructured,
+  type StructAccess,
+  type StructAnalyzer,
+  type StructFunction,
+  type StructParam,
+  type StructSequence,
+  type StructTable,
+  structuredSnapshot,
 } from "../cli/structure"
-import { introspectStructured, structuredSnapshot } from "../cli/structure"
 import type { DefineStatement } from "../ddl"
 import type { Shape, StandaloneDef, TableDef } from "../pure"
 
@@ -77,7 +78,8 @@ function depsOf(ddls: string[], base: Ref[] = [], self?: string): Ref[] {
  */
 export function fromStructured(db: DbStructured): SurrealPortable[] {
   const stmts = Object.values(structuredSnapshot(db).statements)
-  const of = (kind: DefineStatement["kind"]) => stmts.filter((s) => s.kind === kind)
+  const of = (kind: DefineStatement["kind"]): DefineStatement[] =>
+    stmts.filter((s) => s.kind === kind)
 
   const out: SurrealPortable[] = []
 

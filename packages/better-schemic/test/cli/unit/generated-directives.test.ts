@@ -2,7 +2,7 @@
 // computation, and the opt-in ignore-file merge (knip.json + .gitignore).
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import path from "node:path"
 
 import { afterEach, describe, expect, test } from "bun:test"
 
@@ -18,7 +18,7 @@ const ESLINT = "/* eslint-disable */"
 
 const dirs: string[] = []
 const tempDir = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), "bs-generated-"))
+  const dir = mkdtempSync(path.join(tmpdir(), "bs-generated-"))
   dirs.push(dir)
   return dir
 }
@@ -51,7 +51,7 @@ describe("header", () => {
 describe("applyDirectives", () => {
   test("prepends the banner and is idempotent", () => {
     const dir = tempDir()
-    const file = join(dir, "types.ts")
+    const file = path.join(dir, "types.ts")
     writeFileSync(file, "export const x = 1;\n")
     expect(applyDirectives(file, undefined, ["// made by sc"])).toBe(true)
     const once = readOnce(file)
@@ -62,7 +62,7 @@ describe("applyDirectives", () => {
 
   test("keeps a leading shebang on the first line", () => {
     const dir = tempDir()
-    const file = join(dir, "cli.ts")
+    const file = path.join(dir, "cli.ts")
     writeFileSync(file, "#!/usr/bin/env bun\nconsole.log('hi');\n")
     expect(applyDirectives(file)).toBe(true)
     expect(readOnce(file)).toBe(`#!/usr/bin/env bun\n${MARKER}\n${ESLINT}\n\nconsole.log('hi');\n`)
@@ -70,7 +70,7 @@ describe("applyDirectives", () => {
   })
 
   test("absent files are left alone", () => {
-    const file = join(tempDir(), "missing.ts")
+    const file = path.join(tempDir(), "missing.ts")
     expect(applyDirectives(file)).toBe(false)
     expect(existsSync(file)).toBe(false)
   })
@@ -83,7 +83,7 @@ describe("ignorePatterns", () => {
     expect(
       ignorePatterns(
         [
-          join(root, "src/db/generated/types.ts"),
+          path.join(root, "src/db/generated/types.ts"),
           "./src/db/generated/types.ts",
           "src/db/generated/client.ts",
           root,
@@ -102,7 +102,7 @@ describe("ignorePatterns", () => {
 describe("writeIgnores", () => {
   test("does not write unless knipAutoWrite is true", () => {
     const root = tempDir()
-    writeFileSync(join(root, "knip.json"), JSON.stringify({ ignore: [] }))
+    writeFileSync(path.join(root, "knip.json"), JSON.stringify({ ignore: [] }))
     const result = writeIgnores(root, ["src/db/generated/types.ts"])
     expect(result.written).toEqual([])
     expect(result.suggested).toContain("src/db/generated/types.ts")
@@ -110,29 +110,39 @@ describe("writeIgnores", () => {
 
   test("idempotently merges knip.json and .gitignore", () => {
     const root = tempDir()
-    writeFileSync(join(root, "knip.json"), `${JSON.stringify({ ignore: ["existing/**"] })}\n`)
-    writeFileSync(join(root, ".gitignore"), "node_modules\n")
+    writeFileSync(path.join(root, "knip.json"), `${JSON.stringify({ ignore: ["existing/**"] })}\n`)
+    writeFileSync(path.join(root, ".gitignore"), "node_modules\n")
     const paths = ["src/db/generated/types.ts"]
 
     const first = writeIgnores(root, paths, { knipAutoWrite: true })
     expect(first.written).toEqual(["knip.json", ".gitignore"])
-    expect(readJson(join(root, "knip.json")).ignore).toEqual(["existing/**", ...first.suggested])
-    expect(readOnce(join(root, ".gitignore"))).toBe(`node_modules\n${first.suggested.join("\n")}\n`)
+    expect(readJson(path.join(root, "knip.json")).ignore).toEqual([
+      "existing/**",
+      ...first.suggested,
+    ])
+    expect(readOnce(path.join(root, ".gitignore"))).toBe(
+      `node_modules\n${first.suggested.join("\n")}\n`,
+    )
 
-    const knipBefore = readOnce(join(root, "knip.json"))
+    const knipBefore = readOnce(path.join(root, "knip.json"))
     const second = writeIgnores(root, paths, { knipAutoWrite: true })
     expect(second.written).toEqual([])
-    expect(readOnce(join(root, "knip.json"))).toBe(knipBefore)
-    expect(readJson(join(root, "knip.json")).ignore).toEqual(["existing/**", ...first.suggested])
-    expect(readOnce(join(root, ".gitignore"))).toBe(`node_modules\n${first.suggested.join("\n")}\n`)
+    expect(readOnce(path.join(root, "knip.json"))).toBe(knipBefore)
+    expect(readJson(path.join(root, "knip.json")).ignore).toEqual([
+      "existing/**",
+      ...first.suggested,
+    ])
+    expect(readOnce(path.join(root, ".gitignore"))).toBe(
+      `node_modules\n${first.suggested.join("\n")}\n`,
+    )
   })
 
   test("reports unsafe files instead of corrupting them", () => {
     const root = tempDir()
-    writeFileSync(join(root, "knip.json"), "{ not json")
+    writeFileSync(path.join(root, "knip.json"), "{ not json")
     const result = writeIgnores(root, [], { knipAutoWrite: true })
     expect(result.written.some((line) => line.startsWith("knip.json (skipped"))).toBe(true)
-    expect(readOnce(join(root, "knip.json"))).toBe("{ not json")
+    expect(readOnce(path.join(root, "knip.json"))).toBe("{ not json")
   })
 })
 

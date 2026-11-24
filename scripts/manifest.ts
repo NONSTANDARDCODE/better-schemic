@@ -8,10 +8,10 @@
 import { execSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { writeFileSync } from "node:fs"
-import { join } from "node:path"
+import nodePath from "node:path"
 
 /** The repo root (the `scripts/` dir's parent). */
-const repoRoot = join(import.meta.dir, "..")
+const repoRoot = nodePath.join(import.meta.dir, "..")
 
 /** The generated-manifest envelope: a `source` stamp + a typed entry list. */
 export type GeneratedManifest<E> = {
@@ -38,6 +38,6 @@ export function writeManifest(options: {
     entries: [...options.entries],
     source: { commit, hash },
   }
-  writeFileSync(join(repoRoot, options.file), `${JSON.stringify(manifest, null, 2)}\n`)
+  writeFileSync(nodePath.join(repoRoot, options.file), `${JSON.stringify(manifest, null, 2)}\n`)
   return { commit, hash }
 }

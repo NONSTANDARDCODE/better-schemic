@@ -71,7 +71,8 @@ export function parseSurqlType(kind: string): PortableType {
     const hasNone = parts.includes("none")
     const hasNull = parts.includes("null")
     const rest = parts.filter((p) => p !== "none" && p !== "null")
-    let inner: PortableType = rest.length === 0 ? { t: "never" } : union(rest.map(parseSurqlType))
+    let inner: PortableType =
+      rest.length === 0 ? { t: "never" } : union(rest.map((part) => parseSurqlType(part)))
     if (hasNull) inner = nullable(inner)
 
     if (hasNone) inner = option(inner)

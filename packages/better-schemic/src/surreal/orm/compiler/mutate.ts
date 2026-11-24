@@ -176,8 +176,11 @@ function compileMutation(
       `UPDATE ${target} ${encodedBody("patch", patchOps(args.patches, operation), binds)}${where}${tail}`,
     )
   }
-  if (hasUnset)
-    steps.push(`UPDATE ${target} UNSET ${unset.map(renderPath).join(", ")}${where}${tail}`)
+  if (hasUnset) {
+    steps.push(
+      `UPDATE ${target} UNSET ${unset.map((path) => renderPath(path)).join(", ")}${where}${tail}`,
+    )
+  }
 
   // `before` reads the FIRST statement (the state before anything changed); `diff` combines every
   // statement's patch (data + unset); `after` reads the last (the final state).
@@ -294,7 +297,8 @@ export function compileUpsert(
       mode === "content" || mode === "replace" ? "create" : "update",
       operation,
     )
-    const hasExpressions = isPlainObject(encoded) && Object.values(encoded).some(hasRefDeep)
+    const hasExpressions =
+      isPlainObject(encoded) && Object.values(encoded).some((value) => hasRefDeep(value))
     if (!hasExpressions) {
       if (target.kind === "id") {
         const body = encodedBody(mode, encoded, binds)
@@ -501,7 +505,8 @@ function compileUpsertBranches(
   // take the LET/IF form like expression updates.
   const needsBranches =
     steps.length > 0 ||
-    (isPlainObject(updateEncoded) && Object.values(updateEncoded).some(hasRefDeep))
+    (isPlainObject(updateEncoded) &&
+      Object.values(updateEncoded).some((value) => hasRefDeep(value)))
   if (target.kind === "id" && !needsBranches) {
     if (args.scope !== undefined) {
       throw compileError(
@@ -736,7 +741,9 @@ export function compileUpsertDelta(
       mode === "content" || mode === "replace" ? "create" : "update",
       operation,
     )
-    const hasExpressions = Object.values(encoded as Record<string, unknown>).some(hasRefDeep)
+    const hasExpressions = Object.values(encoded as Record<string, unknown>).some((value) =>
+      hasRefDeep(value),
+    )
     if (!hasExpressions) {
       if (target.kind === "id") {
         const body = encodedBody(mode, encoded, binds)

@@ -1,5 +1,5 @@
 /* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-unnecessary-condition -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Defensive checks document fixture intent. */
-import { join } from "node:path"
+import path from "node:path"
 
 import { describe, expect, it } from "bun:test"
 
@@ -7,7 +7,7 @@ import { describe, expect, it } from "bun:test"
 // conflicting option — e.g. a subcommand re-adding a flag `dbFlags` already supplies — throws THERE,
 // which breaks EVERY command, not the offending one. `--help` exercises that construction, so a
 // clean exit 0 proves the whole program assembled. (Regression guard: the seed `--all` collision.)
-const ENTRY = join(import.meta.dir, "../../../src/cli")
+const ENTRY = path.join(import.meta.dir, "../../../src/cli")
 
 function helpExitCode(args: string[]): number {
   const p = Bun.spawnSync(["bun", ENTRY, ...args, "--help"], {

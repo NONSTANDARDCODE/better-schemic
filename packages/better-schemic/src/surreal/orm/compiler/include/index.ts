@@ -11,8 +11,7 @@
 import { OrmError } from "../../errors"
 import type { ModelMeta, SchemaIndex } from "../../meta"
 import { availableKeys, findEdge } from "../relations"
-import type { Binds } from "../shared"
-import { compileError, describeValue, isPlainObject, isTableMeta } from "../shared"
+import { type Binds, compileError, describeValue, isPlainObject, isTableMeta } from "../shared"
 
 import { compileCount } from "./count"
 import { compileGraphEdge } from "./edges"
@@ -68,10 +67,10 @@ export function compileIncludes(args: {
   const keys: string[] = []
   const flat = new Set<string>()
 
-  const claim = (key: string) => {
+  const claim = (key: string): void => {
     if (!keys.includes(key)) keys.push(key)
   }
-  const claimFlat = (key: string) => {
+  const claimFlat = (key: string): void => {
     if (flat.has(key) || meta.columns.has(key)) {
       throw compileError(
         "ValidationError",

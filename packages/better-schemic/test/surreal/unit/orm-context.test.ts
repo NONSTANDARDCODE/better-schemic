@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/require-await -- Object key order mirrors expected serialized output and must stay as authored. Mock methods match async interfaces without awaiting. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/require-await, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Mock methods match async interfaces without awaiting. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // M5.3 — `$withContext` (USE prefix, per-call override, session-bound fail-fast, auth overload),
 // `extends` reapplication across clones/transactions and `forkSession` isolation. Offline — the
 // "connection" is a recording fake (with optional session getters / fork support).

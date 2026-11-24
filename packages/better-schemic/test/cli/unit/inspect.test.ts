@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-explicit-any -- Object key order mirrors expected serialized output and must stay as authored. Fixtures use any for duck-typed mocks. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-explicit-any, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Fixtures use any for duck-typed mocks. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // Pure logic of the `ls`/`info` inspection commands: source-flag resolution (declared default,
 // --snapshot/--live mutually exclusive), table-scoped addressing (parent hook, owner fallback), and
 // per-kind address listing.

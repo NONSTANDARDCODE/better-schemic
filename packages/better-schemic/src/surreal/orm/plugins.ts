@@ -115,7 +115,7 @@ export function createPluginPipeline(
   const hasTransforms = plugins.some((plugin) => typeof plugin.transform === "function")
 
   return {
-    extendClient(ctx) {
+    extendClient(ctx): Record<string, unknown> {
       const out: Record<string, unknown> = {}
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
       for (const plugin of plugins) {
@@ -129,7 +129,7 @@ export function createPluginPipeline(
       }
       return out
     },
-    extendModel(ctx, state) {
+    extendModel(ctx, state): Record<string, unknown> {
       const out: Record<string, unknown> = {}
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
       for (const plugin of plugins) {
@@ -146,7 +146,7 @@ export function createPluginPipeline(
     hasTransforms,
     hooks,
     plugins,
-    setup(index) {
+    setup(index): void {
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
       for (const plugin of plugins) {
         if (typeof plugin.setup !== "function") continue
@@ -158,7 +158,7 @@ export function createPluginPipeline(
         }
       }
     },
-    transform(operation) {
+    transform(operation): boolean {
       let skipped = false
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
       for (const plugin of plugins) {

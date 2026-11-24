@@ -132,7 +132,7 @@ export function createWriteOperations(
             decodeBatch(plan, rows, meta, {
               skipped:
                 args.skipDuplicates === true
-                  ? (decoded) => (args.data as readonly unknown[]).length - decoded
+                  ? (decoded: number): number => (args.data as readonly unknown[]).length - decoded
                   : undefined,
             }),
         ),
@@ -185,7 +185,7 @@ export function createWriteOperations(
             decodeBatch(plan, rows, meta, {
               skipped:
                 args.onDuplicate === "ignore"
-                  ? (decoded) => (args.data as readonly unknown[]).length - decoded
+                  ? (decoded: number): number => (args.data as readonly unknown[]).length - decoded
                   : undefined,
             }),
         ),

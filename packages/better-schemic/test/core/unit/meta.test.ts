@@ -3,7 +3,7 @@
 // listing, and the pure helpers (timestamp / checksum / slug).
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import path from "node:path"
 
 import { afterAll, describe, expect, test } from "bun:test"
 
@@ -17,14 +17,14 @@ import {
   writeSnapshot,
 } from "../../../src/core/cli-kit/meta"
 
-const dir = mkdtempSync(join(tmpdir(), "meta-test-"))
+const dir = mkdtempSync(path.join(tmpdir(), "meta-test-"))
 afterAll(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
 describe("readSnapshot / writeSnapshot", () => {
   test("an absent snapshot reads as EMPTY (version 3, surrealdb)", () => {
-    const empty = readSnapshot(join(dir, "none"))
+    const empty = readSnapshot(path.join(dir, "none"))
     expect(empty.version).toBe(3)
     expect(empty.driver).toBe("surrealdb")
     expect(empty.schema).toEqual({ kinds: {} })
@@ -32,7 +32,7 @@ describe("readSnapshot / writeSnapshot", () => {
   })
 
   test("round-trips a written snapshot", () => {
-    const meta = join(dir, "round")
+    const meta = path.join(dir, "round")
     writeSnapshot(meta, {
       version: 3,
       driver: "surrealdb",
@@ -45,38 +45,41 @@ describe("readSnapshot / writeSnapshot", () => {
   })
 
   test("a wrong-version snapshot reads as EMPTY", () => {
-    const meta = join(dir, "v2")
+    const meta = path.join(dir, "v2")
     mkdirSync(meta, { recursive: true })
     writeFileSync(
-      join(meta, "_snapshot.json"),
+      path.join(meta, "_snapshot.json"),
       JSON.stringify({ version: 2, driver: "surrealdb", schema: {} }),
     )
     expect(readSnapshot(meta).schema).toEqual({ kinds: {} })
   })
 
   test("a snapshot missing driver reads as EMPTY", () => {
-    const meta = join(dir, "nodriver")
+    const meta = path.join(dir, "nodriver")
     mkdirSync(meta, { recursive: true })
-    writeFileSync(join(meta, "_snapshot.json"), JSON.stringify({ version: 3, schema: {} }))
+    writeFileSync(path.join(meta, "_snapshot.json"), JSON.stringify({ version: 3, schema: {} }))
     expect(readSnapshot(meta).schema).toEqual({ kinds: {} })
   })
 
   test("a snapshot missing schema reads as EMPTY", () => {
-    const meta = join(dir, "noschema")
+    const meta = path.join(dir, "noschema")
     mkdirSync(meta, { recursive: true })
-    writeFileSync(join(meta, "_snapshot.json"), JSON.stringify({ version: 3, driver: "surrealdb" }))
+    writeFileSync(
+      path.join(meta, "_snapshot.json"),
+      JSON.stringify({ version: 3, driver: "surrealdb" }),
+    )
     expect(readSnapshot(meta).schema).toEqual({ kinds: {} })
   })
 
   test("a malformed snapshot throws a teaching error (never a raw SyntaxError)", () => {
-    const meta = join(dir, "malformed")
+    const meta = path.join(dir, "malformed")
     mkdirSync(meta, { recursive: true })
-    writeFileSync(join(meta, "_snapshot.json"), "{ not json")
+    writeFileSync(path.join(meta, "_snapshot.json"), "{ not json")
     expect(() => readSnapshot(meta)).toThrow(/not valid JSON/u)
   })
 
   test("a doctored snapshot never reaches the walkers (unsafe kinds / bad shapes read as EMPTY)", () => {
-    const meta = join(dir, "doctored")
+    const meta = path.join(dir, "doctored")
     mkdirSync(meta, { recursive: true })
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const schema of [
@@ -85,13 +88,13 @@ describe("readSnapshot / writeSnapshot", () => {
       { kinds: { table: [{ kind: 1, name: "x" }] } },
     ]) {
       writeFileSync(
-        join(meta, "_snapshot.json"),
+        path.join(meta, "_snapshot.json"),
         JSON.stringify({ version: 3, driver: "surrealdb", schema }),
       )
       expect(readSnapshot(meta).schema).toEqual({ kinds: {} })
     }
     writeFileSync(
-      join(meta, "_snapshot.json"),
+      path.join(meta, "_snapshot.json"),
       JSON.stringify({
         version: 3,
         driver: "surrealdb",
@@ -105,15 +108,15 @@ describe("readSnapshot / writeSnapshot", () => {
 
 describe("listMigrations", () => {
   test("an absent directory lists nothing", () => {
-    expect(listMigrations(join(dir, "no-migrations"))).toEqual([])
+    expect(listMigrations(path.join(dir, "no-migrations"))).toEqual([])
   })
 
   test("filters by extension, ignores the meta dir, and sorts chronologically", () => {
-    const mig = join(dir, "migrations")
-    mkdirSync(join(mig, "meta"), { recursive: true })
-    writeFileSync(join(mig, "20260102000000_second.surql"), "SELECT 1;")
-    writeFileSync(join(mig, "20260101000000_first.surql"), "SELECT 1;")
-    writeFileSync(join(mig, "notes.txt"), "ignore me")
+    const mig = path.join(dir, "migrations")
+    mkdirSync(path.join(mig, "meta"), { recursive: true })
+    writeFileSync(path.join(mig, "20260102000000_second.surql"), "SELECT 1;")
+    writeFileSync(path.join(mig, "20260101000000_first.surql"), "SELECT 1;")
+    writeFileSync(path.join(mig, "notes.txt"), "ignore me")
     expect(listMigrations(mig).map((m) => m.tag)).toEqual([
       "20260101000000_first",
       "20260102000000_second",
@@ -121,10 +124,10 @@ describe("listMigrations", () => {
   })
 
   test("a custom extension is honored", () => {
-    const mig = join(dir, "sql-migrations")
+    const mig = path.join(dir, "sql-migrations")
     mkdirSync(mig, { recursive: true })
-    writeFileSync(join(mig, "0001_init.sql"), "SELECT 1;")
-    writeFileSync(join(mig, "0002_skip.surql"), "SELECT 1;")
+    writeFileSync(path.join(mig, "0001_init.sql"), "SELECT 1;")
+    writeFileSync(path.join(mig, "0002_skip.surql"), "SELECT 1;")
     expect(listMigrations(mig, ".sql").map((m) => m.file)).toEqual(["0001_init.sql"])
   })
 })

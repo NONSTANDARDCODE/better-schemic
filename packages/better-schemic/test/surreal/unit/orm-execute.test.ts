@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, unicorn/consistent-function-scoping, @typescript-eslint/require-await, @typescript-eslint/no-confusing-void-expression -- Object key order mirrors expected serialized output and must stay as authored. Helpers stay colocated with the tests that use them. Mock methods match async interfaces without awaiting. The void operator discards intentionally ignored values. */
+/* eslint-disable perfectionist/sort-objects, unicorn/consistent-function-scoping, @typescript-eslint/require-await, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Helpers stay colocated with the tests that use them. Mock methods match async interfaces without awaiting. The void operator discards intentionally ignored values. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // M0.4 — the executor: one round-trip for N statements, per-statement status via `responses()`,
 // implicit BEGIN/COMMIT for batches, first-failure attribution (statementIndex/surql/vars) and the
 // unique-binds guardrail. All offline — the "connection" is a recording fake.
@@ -75,7 +75,7 @@ describe("execute — failure attribution", () => {
 
   test("throws the FIRST failure with its user-statement index, surql and context", async () => {
     const { conn } = fakeConn((sql) => {
-      const out = lines(sql).map(ok)
+      const out = lines(sql).map((line) => ok(line))
       out[1] = fail(dup())
       return out
     })
@@ -104,7 +104,7 @@ describe("execute — failure attribution", () => {
 
   test("debug: true attaches the failing statement's binds", async () => {
     const { conn } = fakeConn((sql) => {
-      const out = lines(sql).map(ok)
+      const out = lines(sql).map((line) => ok(line))
       out[0] = fail(dup())
       return out
     })
@@ -154,7 +154,7 @@ describe("execute — failure attribution", () => {
 
   test("throwOnError: false returns every StatementResult (ERR included)", async () => {
     const { conn } = fakeConn((sql) => {
-      const out = lines(sql).map(ok)
+      const out = lines(sql).map((line) => ok(line))
       out[1] = fail(dup())
       return out
     })

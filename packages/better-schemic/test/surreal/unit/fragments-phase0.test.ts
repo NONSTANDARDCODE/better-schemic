@@ -1,16 +1,15 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator, unicorn/no-thenable, @typescript-eslint/no-unnecessary-condition -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. Bun test calls return thenable handles that are not awaited. Defensive checks document fixture intent. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator, unicorn/no-thenable, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. Bun test calls return thenable handles that are not awaited. Defensive checks document fixture intent. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // Typed-fragments PHASE 0 (docs/proposals/typed-fragments.md): eager marker resolution in the
 // surql tag (TableDef/Table/FunctionDef/surql.$ splice as TEXT; everything else binds), the
 // surql.record/table/$/expr helpers, event THEN auto-blocking (multi-statement bodies wrap { ...; }
 // matching INFO's canonical spelling), and lazy record refs s.recordId(() => Table).
-import { setDefaultTimeout } from "bun:test"
+import { describe, expect, setDefaultTimeout, test } from "bun:test"
 
 // The workspace gate runs every package's suite IN PARALLEL — parallel-suite CPU contention can slow live
 // connects/DDL far past bun's 30s default, timing out beforeAll/afterAll hooks (reported as
 // "(unnamed)" tests). Live work gets a generous ceiling; isolated runs unaffect them.
 setDefaultTimeout(120_000)
 
-import { describe, expect, test } from "bun:test"
 import { RecordId } from "surrealdb"
 
 import { defineFunction, s, surql, table } from "../../../src/surreal"

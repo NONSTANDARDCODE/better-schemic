@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // `plugins/policy` — declarative deny/scope/require rules enforced in the transform pipeline, before
 // compilation. The DB permission remains the boundary; `$withoutPlugins()` is the explicit escape.
 import { describe, expect, test } from "bun:test"

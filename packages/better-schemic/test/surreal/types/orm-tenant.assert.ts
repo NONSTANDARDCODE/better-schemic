@@ -1,12 +1,11 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-restricted-types, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. Fixtures use object to probe schema typing. Type queries and callback signatures need fixture values. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-restricted-types, @typescript-eslint/no-unused-vars, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Fixtures use object to probe schema typing. Type queries and callback signatures need fixture values. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // TYPE assertions for the tenant plugin: the preset column is a typed `record<principal>` (create-
 // optional, absent from updates, available as `t.<column>` in index callbacks) and `$forTenant`
 // returns the FULL typed delegate (`this`), so reads/writes survive the scope clone.
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
 import { describe, it } from "node:test"
 
-import type { Surreal } from "surrealdb"
-import { RecordId } from "surrealdb"
+import { RecordId, type Surreal } from "surrealdb"
 
 import { assertType } from "../../../../../scripts/type-assert"
 import { type App, s, table } from "../../../src/surreal"

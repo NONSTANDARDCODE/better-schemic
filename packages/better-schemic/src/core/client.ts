@@ -24,7 +24,7 @@ export type OrmClientBase = {
 /** Mixin the default `[Symbol.asyncDispose]` (= `close`) onto a client class's prototype. */
 export function asyncDisposable(proto: { close(): Promise<void> }): void {
   ;(proto as { [Symbol.asyncDispose]?: () => Promise<void> })[Symbol.asyncDispose] =
-    function (this: { close(): Promise<void> }) {
+    function (this: { close(): Promise<void> }): Promise<void> {
       return this.close()
     }
 }
@@ -41,12 +41,21 @@ export type ResolveConnectionOptions = {
   name?: string
 }
 
+/** The lazy/thenable handle a resolver's `ctx.connections.<name>` proxy yields. */
+type SiblingHandle = {
+  query(sql: string, vars?: Record<string, unknown>): Promise<unknown>
+  then(onOk?: (v: unknown) => unknown, onErr?: (e: unknown) => unknown): Promise<unknown>
+}
+
 /**
  * A live resolution context for RUNTIME connects: `ctx.connections.<name>`  opens the sibling
  * via ITS entry's embedded client opener (so a resolver can query another connection to list a
  * fleet), with CYCLE detection; everything opened during resolution closs it when it settles.
  */
-function makeRuntimeContext(config: OrmConfig, root: string) {
+function makeRuntimeContext(
+  config: OrmConfig,
+  root: string,
+): { closeOpened: () => Promise<void>; context: ResolveContext; resolving: Set<string> } {
   const opened = new Map<string, Promise<unknown>>()
   const resolving = new Set<string>()
 
@@ -83,8 +92,8 @@ function makeRuntimeContext(config: OrmConfig, root: string) {
     connections: new Proxy(
       {},
       {
-        get(_t, name: string) {
-          const openOnce = () => {
+        get(_t, name: string): SiblingHandle {
+          const openOnce = (): Promise<unknown> => {
             let client = opened.get(name)
             if (!client) {
               client = open(name)
@@ -97,7 +106,7 @@ function makeRuntimeContext(config: OrmConfig, root: string) {
           // `.query` for the neutral/literal form. Do NOT stash the client past resolution — it's
           // closed when resolution settles.
           return {
-            query: async (sql: string, vars?: Record<string, unknown>) => {
+            query: async (sql: string, vars?: Record<string, unknown>): Promise<unknown> => {
               const db = (await openOnce()) as {
                 query(sql: string, vars?: unknown): Promise<unknown>
               }
@@ -113,7 +122,7 @@ function makeRuntimeContext(config: OrmConfig, root: string) {
     env: process.env,
   }
 
-  const closeOpened = async () => {
+  const closeOpened = async (): Promise<void> => {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const c of opened.values()) {
       try {

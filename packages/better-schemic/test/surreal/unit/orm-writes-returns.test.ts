@@ -6,8 +6,7 @@ import { describe, expect, test } from "bun:test"
 import { RecordId } from "surrealdb"
 
 import { surql } from "../../../src/surreal"
-import type { Client } from "../../../src/surreal/orm/client"
-import { orm } from "../../../src/surreal/orm/client"
+import { type Client, orm } from "../../../src/surreal/orm/client"
 import { fakeConn, ok } from "../orm-fixtures"
 
 import { codeOf, data, lastCall, LIKE_ROW, makeClient, ROW, schemaDef } from "./orm-writes-fixtures"

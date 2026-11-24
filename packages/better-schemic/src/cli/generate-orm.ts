@@ -8,7 +8,7 @@
  * cannot go missing from the façade without a type error.
  */
 import { existsSync, mkdirSync, writeFileSync } from "node:fs"
-import { dirname, join, relative, resolve } from "node:path"
+import nodePath from "node:path"
 
 import { configureJiti, makeJiti, type ResolvedConfig } from "../core"
 import { applyDirectives, type GeneratedOpts } from "../core/cli-kit/generated"
@@ -79,7 +79,7 @@ export type GenerateOrmOpts = {
 } & ResolveOpts
 
 const relPath = (from: string, to: string): string => {
-  const spec = relative(dirname(from), to).replaceAll("\\", "/")
+  const spec = nodePath.relative(nodePath.dirname(from), to).replaceAll("\\", "/")
   return spec.startsWith("../") ? spec : `./${spec}`
 }
 
@@ -100,8 +100,11 @@ export async function generateOrmWith(
   })
   const ormConfig = config.project?.generators?.orm
   const configured = typeof ormConfig === "object" ? ormConfig : undefined
-  const out = resolve(config.root, opts.out ?? configured?.out ?? "db/orm.generated.ts")
-  const schemaFile = resolve(config.root, opts.schema ?? configured?.schema ?? config.schemaPath)
+  const out = nodePath.resolve(config.root, opts.out ?? configured?.out ?? "db/orm.generated.ts")
+  const schemaFile = nodePath.resolve(
+    config.root,
+    opts.schema ?? configured?.schema ?? config.schemaPath,
+  )
   if (!existsSync(schemaFile))
     throw new Error(`generate:orm: schema module not found: ${schemaFile}`)
 
@@ -132,7 +135,7 @@ export async function generateOrmWith(
   })
   /** A config path may be root-relative (`./src/db/provider.ts`) or an already-relative import. */
   const importFrom = (spec: string): string => {
-    const absolute = resolve(config.root, spec)
+    const absolute = nodePath.resolve(config.root, spec)
     return existsSync(absolute) ? relPath(out, absolute).replace(/\.[cm]?[jt]s$/u, "") : spec
   }
   const source = renderOrmSurface({
@@ -143,7 +146,7 @@ export async function generateOrmWith(
     schemaImport: relPath(out, schemaFile).replace(/\.[cm]?[jt]s$/u, ""),
     surfaceName: opts.surfaceName ?? configured?.surface,
   })
-  mkdirSync(dirname(out), { recursive: true })
+  mkdirSync(nodePath.dirname(out), { recursive: true })
   writeFileSync(out, source)
   const generated = config.project?.generated
   const directives: GeneratedOpts = {
@@ -156,4 +159,5 @@ export async function generateOrmWith(
 }
 
 /** Re-export for callers that need a filesystem-free default output path. */
-export const defaultOrmOutput = (root: string): string => join(root, "db", "orm.generated.ts")
+export const defaultOrmOutput = (root: string): string =>
+  nodePath.join(root, "db", "orm.generated.ts")

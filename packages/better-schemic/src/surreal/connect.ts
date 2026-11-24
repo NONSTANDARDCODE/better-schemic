@@ -8,7 +8,7 @@ import type { ConnectionOverrides, ResolvedConfig } from "../core"
 
 import type { AuthLevel, SurrealParams } from "./config"
 
-const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e))
+const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
 /** Strip credentials from a URL before it reaches a message/log (`wss://user:pass@host`). */
 export function redactUrl(url: string): string {
@@ -71,7 +71,7 @@ async function assertReachable(url: string): Promise<void> {
   const { Socket } = await import("node:net")
   await new Promise<void>((resolve, reject) => {
     const sock = new Socket()
-    const done = (err?: Error) => {
+    const done = (err?: Error): void => {
       sock.destroy()
       err ? reject(err) : resolve()
     }
@@ -93,7 +93,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
     const timer = setTimeout(() => {
       reject(new Error(message))
     }, ms)
-    void (async () => {
+    void (async (): Promise<void> => {
       try {
         const value = await promise
         clearTimeout(timer)

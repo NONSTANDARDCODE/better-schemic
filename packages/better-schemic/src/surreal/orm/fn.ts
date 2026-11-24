@@ -33,7 +33,10 @@ function exprCall(name: string, args: readonly unknown[] = []): Surql {
 }
 
 /** The `fn::<name>` a schema entry lowers to, plus its declared argument names. */
-function shortcut(key: string, meta: { args: ReadonlyMap<string, unknown>; name: string }) {
+function shortcut(
+  key: string,
+  meta: { args: ReadonlyMap<string, unknown>; name: string },
+): { args: string[]; key: string; name: string } {
   return {
     args: [...meta.args.keys()],
     key,

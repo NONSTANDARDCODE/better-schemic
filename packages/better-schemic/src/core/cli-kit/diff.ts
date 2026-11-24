@@ -62,9 +62,9 @@ export function tokenDiff(before: string, after: string): string {
   // With color: red/green/dim. Without (pipe / CI / NO_COLOR): git `--word-diff=plain` markers
   // `[-removed-]`/`{+added+}` so removed-vs-added is unambiguous and assertable.
   const colored = colorEnabled()
-  const del = (t: string) => (colored ? style.red(t) : `[-${t}-]`)
-  const ins = (t: string) => (colored ? style.green(t) : `{+${t}+}`)
-  const eq = (t: string) => (colored ? style.dim(t) : t)
+  const del = (t: string): string => (colored ? style.red(t) : `[-${t}-]`)
+  const ins = (t: string): string => (colored ? style.green(t) : `{+${t}+}`)
+  const eq = (t: string): string => (colored ? style.dim(t) : t)
   // A full LCS matrix is O(m*n) cells; above the cap, keep the common prefix/suffix and mark the
   // middle removed + added (a valid, coarser word diff — never an OOM).
   if (m * n > TOKEN_LCS_LIMIT) {
@@ -205,7 +205,7 @@ export function formatPatch(diff: Diff): string {
     const lines: string[] = []
     let dels = 0
     let adds = 0
-    const push = (text: string, sign: "+" | "-") => {
+    const push = (text: string, sign: "+" | "-"): void => {
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
       for (const l of text.split("\n")) {
         lines.push(`${sign}${l}`)

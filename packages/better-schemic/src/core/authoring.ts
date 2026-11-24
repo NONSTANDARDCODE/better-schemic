@@ -107,16 +107,16 @@ export abstract class SFieldBase<
   encodeAsync(value: z.output<S>): Promise<z.input<S>> {
     return z.encodeAsync(this.schema, value)
   }
-  safeDecode(value: unknown) {
+  safeDecode(value: unknown): z.ZodSafeParseResult<z.output<S>> {
     return z.safeDecode(this.schema, value as never)
   }
-  safeEncode(value: z.output<S>) {
+  safeEncode(value: z.output<S>): z.ZodSafeParseResult<z.input<S>> {
     return z.safeEncode(this.schema, value)
   }
-  safeDecodeAsync(value: unknown) {
+  safeDecodeAsync(value: unknown): Promise<z.ZodSafeParseResult<z.output<S>>> {
     return z.safeDecodeAsync(this.schema, value as never)
   }
-  safeEncodeAsync(value: z.output<S>) {
+  safeEncodeAsync(value: z.output<S>): Promise<z.ZodSafeParseResult<z.input<S>>> {
     return z.safeEncodeAsync(this.schema, value)
   }
   // Deprecated Zod-style aliases — `parse` runs the DECODE direction (wire -> app).
@@ -125,7 +125,7 @@ export abstract class SFieldBase<
     return this.decode(value)
   }
   /** @deprecated Use {@link safeDecode}. */
-  safeParse(value: unknown) {
+  safeParse(value: unknown): z.ZodSafeParseResult<z.output<S>> {
     return this.safeDecode(value)
   }
   /** @deprecated Use {@link decodeAsync}. */
@@ -133,11 +133,11 @@ export abstract class SFieldBase<
     return this.decodeAsync(value)
   }
   /** @deprecated Use {@link safeDecodeAsync}. */
-  safeParseAsync(value: unknown) {
+  safeParseAsync(value: unknown): Promise<z.ZodSafeParseResult<z.output<S>>> {
     return this.safeDecodeAsync(value)
   }
   /** Zod's `.spa` alias for {@link safeParseAsync} (drop-in). */
-  spa(value: unknown) {
+  spa(value: unknown): Promise<z.ZodSafeParseResult<z.output<S>>> {
     // eslint-disable-next-line @typescript-eslint/no-deprecated -- alias Zod `spa`: contrato de drop-in, não mudar para `safeDecodeAsync`.
     return this.safeParseAsync(value)
   }
@@ -158,11 +158,12 @@ export abstract class SFieldBase<
     return this.schema.description
   }
   /** JSON Schema for this field's wire shape (delegates to `z.toJSONSchema`). */
-  toJSONSchema() {
+  toJSONSchema(): z.core.ZodStandardJSONSchemaPayload<S> {
     return z.toJSONSchema(this.schema)
   }
   /** Register the wrapped schema in a Zod registry for metadata interop; returns the field. */
   register(...args: Parameters<S["register"]>): this {
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- `Reflect.apply` já recebe o `thisArg` explícito; o spread não infere tupla em S genérico.
     Reflect.apply(this.schema.register, this.schema, args)
     return this
   }

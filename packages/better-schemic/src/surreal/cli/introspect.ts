@@ -1,11 +1,17 @@
 import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
-import { join } from "node:path"
+import nodePath from "node:path"
 
 import { escapeIdent, type Surreal } from "surrealdb"
 
-import type { Diff, ResolvedConfig } from "../../core"
-import { type Filter, listMigrations, loadDefs, parseFilter } from "../../core"
+import {
+  type Diff,
+  type Filter,
+  listMigrations,
+  loadDefs,
+  parseFilter,
+  type ResolvedConfig,
+} from "../../core"
 import type { SurrealParams } from "../config"
 import { type DefineStatement, overwriteStatement } from "../ddl"
 
@@ -59,7 +65,7 @@ const RANK: Record<DefineStatement["kind"], number> = {
   sequence: 0, // db-level; standalone
   table: 1,
 }
-const byCreate = (a: DefineStatement, b: DefineStatement) => RANK[a.kind] - RANK[b.kind]
+const byCreate = (a: DefineStatement, b: DefineStatement): number => RANK[a.kind] - RANK[b.kind]
 
 /**
  * Read the live database into a snapshot of **canonical** DDL, skipping `exclude`d tables. Uses
@@ -141,7 +147,7 @@ export async function tsStructsAgainstDb(
     .map((s) => s.ddl)
     .join("\n")
   const desired = await shadowStructured(db, config, ddl)
-  const norm = (d: DbStructured) => normalizeDb(filterStructured(d, filter))
+  const norm = (d: DbStructured): DbStructured => normalizeDb(filterStructured(d, filter))
   return { current: norm(target), desired: norm(desired) }
 }
 
@@ -163,7 +169,7 @@ async function replayMigrations(
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const m of listMigrations(config.migrationsDir)) {
       onApply?.(m.tag)
-      const sql = readFileSync(join(config.migrationsDir, m.file), "utf8")
+      const sql = readFileSync(nodePath.join(config.migrationsDir, m.file), "utf8")
       try {
         await db.query(sql, { direction: "up" })
       } catch (error) {
@@ -257,7 +263,7 @@ export async function diffAgainstDb(
   // OVERWRITE`. The INFO-canonical diff form drops that OVERWRITE, so applying it to the live DB
   // fails "already exists" and aborts the whole `push`/`sync` transaction. Re-mark those
   // fields OVERWRITE in the apply plan — the comparison form above untouchs it.
-  const untick = (s: string) => s.replaceAll("`", "")
+  const untick = (s: string): string => s.replaceAll("`", "")
   const overwriteFields = new Set<string>()
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const s of Object.values(schema.statements)) {

@@ -16,8 +16,7 @@
 
 import { OrmError } from "../orm/errors"
 import { operationFamily } from "../orm/hooks"
-import type { SchemaIndex } from "../orm/meta"
-import { resolveModel } from "../orm/meta"
+import { resolveModel, type SchemaIndex } from "../orm/meta"
 import { definePlugin } from "../orm/plugins"
 import type { OperationKind } from "../orm/types/hooks"
 import type { Operation, Plugin } from "../orm/types/plugins"

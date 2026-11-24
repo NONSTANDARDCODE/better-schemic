@@ -1,8 +1,8 @@
 import { existsSync, statSync } from "node:fs"
 import { createRequire } from "node:module"
-import { basename, dirname, resolve } from "node:path"
+import nodePath from "node:path"
 
-import type { createJiti } from "jiti"
+import type { createJiti, Jiti } from "jiti"
 
 import type { OrmConfig } from "../config"
 import type { ConnectionConfigBase, ResolveContext } from "../connection"
@@ -54,7 +54,7 @@ function loadDotEnv(dir: string): void {
 
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const name of [".env.local", ".env"]) {
-    const file = resolve(dir, name)
+    const file = nodePath.resolve(dir, name)
     if (!existsSync(file)) continue
 
     try {
@@ -100,23 +100,21 @@ export type ResolvedConfig = {
  * A jiti instance for loading the project's TS/ESM modules. Caches are off so `--watch` re-reads
  * edited schema files. (The engine's own modules are native-imported, so registries stay shared.)
  */
-export function makeJiti() {
-  if (!jitiModule) jitiModule = require_("jiti") as JitiModule
+export function makeJiti(): Jiti {
+  jitiModule ??= require_("jiti") as JitiModule
 
   const { createJiti } = jitiModule
   // ONE instance per process (its caches are off, so `--watch` still re-reads edited files).
-  if (!sharedJiti) {
-    sharedJiti = createJiti(import.meta.url, {
-      fsCache: false,
-      interopDefault: true,
-      moduleCache: false,
-      ...jitiOptions,
-    })
-  }
+  sharedJiti ??= createJiti(import.meta.url, {
+    fsCache: false,
+    interopDefault: true,
+    moduleCache: false,
+    ...jitiOptions,
+  })
   return sharedJiti
 }
 
-let sharedJiti: ReturnType<typeof createJiti> | undefined
+let sharedJiti: Jiti | undefined
 let jitiOptions: {
   alias?: Record<string, string>
   tsconfigPaths?: boolean | string
@@ -129,7 +127,7 @@ export function normalizeAliases(opts: {
 }): Record<string, string> {
   return Object.fromEntries(
     Object.entries(opts.alias ?? {}).flatMap(([key, value]) => {
-      const target = resolve(opts.root, value).replace(/\/*$/u, "")
+      const target = nodePath.resolve(opts.root, value).replace(/\/*$/u, "")
       if (key.endsWith("/*")) return [[key, `${target}/*`]]
 
       return [
@@ -165,8 +163,8 @@ export async function loadProject(opts?: {
 }): Promise<{ config: OrmConfig; root: string }> {
   const cwd = opts?.cwd ?? process.cwd()
   const candidates = opts?.config
-    ? [resolve(cwd, opts.config)]
-    : CONFIG_NAMES.map((n) => resolve(cwd, n)).filter((p) => existsSync(p))
+    ? [nodePath.resolve(cwd, opts.config)]
+    : CONFIG_NAMES.map((n) => nodePath.resolve(cwd, n)).filter((p) => existsSync(p))
   if (candidates.length === 0 || !existsSync(candidates[0])) {
     throw new Error(
       "No better-schemic.ts / better-schemic.config.ts found — run `better-schemic init` first.",
@@ -175,7 +173,7 @@ export async function loadProject(opts?: {
   const jiti = makeJiti()
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const path of candidates) {
-    const root = dirname(path)
+    const root = nodePath.dirname(path)
     loadDotEnv(root) // populate process.env before the config module's explicit reads
     const loaded = await jiti.import<
       {
@@ -200,7 +198,7 @@ export async function loadProject(opts?: {
     // still errors ).
     if (
       !opts?.config &&
-      (basename(path) === "better-schemic.ts" || basename(path) === "schemic.ts")
+      (nodePath.basename(path) === "better-schemic.ts" || nodePath.basename(path) === "schemic.ts")
     )
       continue
 
@@ -228,19 +226,19 @@ export function resolveConnectionConfig(
   root: string,
 ): ResolvedConfig {
   const { key, migrations, schema, ...params } = conn
-  const schemaPath = resolve(root, schema)
+  const schemaPath = nodePath.resolve(root, schema)
   // Default migrations dir is RELATIVE TO THE SCHEMA (the documented contract): the sibling
   // `migrations` dir next to the schema dir (or next to a single-file schema). For the standard
   // scaffold (`schema: "./database/schema"`) that is `./database/migrations`, unchanged; a nested
   // schema (`./src/database/schema`) gets `./src/database/migrations` instead of a
   // root-fixed default that split state across two locations.
   const migrationsDir = migrations
-    ? resolve(root, migrations)
-    : resolve(schemaPath, "..", "migrations")
+    ? nodePath.resolve(root, migrations)
+    : nodePath.resolve(schemaPath, "..", "migrations")
   return {
     connection: key ? `${connection}:${key}` : connection,
     driver,
-    metaDir: resolve(migrationsDir, "meta"),
+    metaDir: nodePath.resolve(migrationsDir, "meta"),
     migrationsDir,
     migrationsTable: config.migrationsTable ?? "_migrations",
     params: params,

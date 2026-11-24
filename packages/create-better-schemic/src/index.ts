@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
-import { basename, dirname, join, resolve } from "node:path"
+import nodePath from "node:path"
 
 import * as p from "@clack/prompts"
 
@@ -16,8 +16,8 @@ const JSON_INDENT = 2
 const ARGV_START = 2
 /** Tail of the install log shown when installation fails. */
 const INSTALL_ERROR_TAIL = 8
-const bold = (s: string) => `\u001B[1m${s}\u001B[0m`
-const dim = (s: string) => `\u001B[2m${s}\u001B[0m`
+const bold = (s: string): string => `\u001B[1m${s}\u001B[0m`
+const dim = (s: string): string => `\u001B[2m${s}\u001B[0m`
 
 const PMS = ["bun", "npm", "pnpm", "yarn"] as const
 type Pm = (typeof PMS)[number]
@@ -48,7 +48,7 @@ function parseArgs(argv: string[]): Options {
       // named after the flag's value.
 
       unknownOption(a)
-    else if (o.dir === undefined) o.dir = a
+    else o.dir ??= a
   }
   return o
 }
@@ -135,7 +135,7 @@ const TSCONFIG = `${JSON.stringify(
 
 /** NEW project → write a fresh package.json. EXISTING → MERGE deps + scripts (never clobber). */
 function applyPackageJson(target: string, name: string): string {
-  const path = join(target, "package.json")
+  const path = nodePath.join(target, "package.json")
   const deps = depMap()
   if (!existsSync(path)) {
     const fresh = {
@@ -176,7 +176,7 @@ function applyPackageJson(target: string, name: string): string {
 
 /** NEW project → write a fresh tsconfig. EXISTING → keep theirs, with a compatibility note. */
 function applyTsconfig(target: string): string {
-  const path = join(target, "tsconfig.json")
+  const path = nodePath.join(target, "tsconfig.json")
   if (!existsSync(path)) {
     writeFileSync(path, TSCONFIG)
     return "+ tsconfig.json"
@@ -195,7 +195,7 @@ const GITIGNORE = `node_modules/
 // --- write + run -------------------------------------------------------------------------------
 
 function writeIfAbsent(dir: string, file: string, content: string): string {
-  const path = join(dir, file)
+  const path = nodePath.join(dir, file)
   if (existsSync(path)) return dim(`· ${file} (exists, skipped)`)
 
   writeFileSync(path, content)
@@ -223,7 +223,7 @@ function run(
  * scaffolder.
  */
 function resolveCliEntry(target: string): string {
-  const require = createRequire(join(target, "package.json"))
+  const require = createRequire(nodePath.join(target, "package.json"))
   const manifestPath = require.resolve("better-schemic/package.json")
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
     bin?: Record<string, string> | string
@@ -235,7 +235,7 @@ function resolveCliEntry(target: string): string {
       "the installed `better-schemic` package exposes no `better-schemic` bin — reinstall it.",
     )
   }
-  return join(dirname(manifestPath), rel)
+  return nodePath.join(nodePath.dirname(manifestPath), rel)
 }
 
 async function main(): Promise<void> {
@@ -255,11 +255,12 @@ async function main(): Promise<void> {
       }),
     )
   }
+  // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- `||=` também cobre --dir "" (diretório vazio cai no padrão).
   dir ||= "better-schemic-app"
-  const target = resolve(process.cwd(), dir)
-  const name = basename(target)
+  const target = nodePath.resolve(process.cwd(), dir)
+  const name = nodePath.basename(target)
   mkdirSync(target, { recursive: true })
-  const isExisting = existsSync(join(target, "package.json"))
+  const isExisting = existsSync(nodePath.join(target, "package.json"))
   // Warn for a non-empty NON-project dir (random files); a package.json = a deliberate adapt.
   if (readdirSync(target).length > 0 && !isExisting && tty) {
     const ok = abortIfCancel(
@@ -278,16 +279,14 @@ async function main(): Promise<void> {
   // 2. install? + which package manager (ask, default = detected)
   const detected = detectPm()
   let install = opts.install
-  if (install === undefined) {
-    install = tty
-      ? abortIfCancel(
-          await p.confirm({
-            initialValue: true,
-            message: "Install dependencies now?",
-          }),
-        )
-      : true
-  }
+  install ??= tty
+    ? abortIfCancel(
+        await p.confirm({
+          initialValue: true,
+          message: "Install dependencies now?",
+        }),
+      )
+    : true
   let pm: Pm = (opts.pm as Pm | undefined) ?? detected
   if (!PMS.includes(pm)) {
     p.cancel(`Unknown package manager "${pm}". Known: ${PMS.join(", ")}.`)
@@ -316,7 +315,7 @@ async function main(): Promise<void> {
   ]
   const header = isExisting ? `Adding Better-schemic to ${name}` : name
   p.log.step(`${bold(header)} ${dim("(SurrealDB)")}\n${written.join("\n")}`)
-  if (opts.git && !existsSync(join(target, ".git"))) run("git", ["init", "-q"], target)
+  if (opts.git && !existsSync(nodePath.join(target, ".git"))) run("git", ["init", "-q"], target)
 
   // 4. install + compose on `better-schemic init` (which scaffolds the config + database/)
   if (install) {
@@ -340,7 +339,8 @@ async function main(): Promise<void> {
   // 5. next steps
   const cd = dir === "." ? "" : `cd ${dir}\n`
   // npm needs `npm run db -- <sub>` to forward args; bun/pnpm/yarn forward `<pm> run db <sub>` directly.
-  const dbCmd = (sub: string) => (pm === "npm" ? `npm run db -- ${sub}` : `${pm} run db ${sub}`)
+  const dbCmd = (sub: string): string =>
+    pm === "npm" ? `npm run db -- ${sub}` : `${pm} run db ${sub}`
   const steps = install
     ? `${cd}cp .env.example .env   ${dim("# set your connection")}\n${dbCmd("gen")}\n${dbCmd("migrate")}`
     : `${cd}${pm} install\n${pm} exec better-schemic init\ncp .env.example .env\n${dbCmd("gen")}`

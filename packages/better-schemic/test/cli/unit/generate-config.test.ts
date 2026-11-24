@@ -2,24 +2,24 @@
 import "../../../src/driver"
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { join, resolve } from "node:path"
+import path from "node:path"
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 
 import { generate } from "../../../src/cli/generate"
 
-const BASE = join(import.meta.dir, "..", ".tmp-generate")
-const SRC = resolve(import.meta.dir, "../../../src")
+const BASE = path.join(import.meta.dir, "..", ".tmp-generate")
+const SRC = path.resolve(import.meta.dir, "../../../src")
 let root = ""
 let previous = ""
 
-const fromRoot = (path: string): string => join(root, path)
-const read = (path: string): string => readFileSync(fromRoot(path), "utf8")
+const fromRoot = (rel: string): string => path.join(root, rel)
+const read = (rel: string): string => readFileSync(fromRoot(rel), "utf8")
 
 beforeAll(() => {
   rmSync(BASE, { force: true, recursive: true })
   mkdirSync(BASE, { recursive: true })
-  root = mkdtempSync(join(BASE, "p-"))
+  root = mkdtempSync(path.join(BASE, "p-"))
   mkdirSync(fromRoot("src/db"), { recursive: true })
   const srcSpec = SRC.replaceAll("\\", "/")
   writeFileSync(fromRoot("src/env.ts"), `export const PREFIX = "app";\n`)

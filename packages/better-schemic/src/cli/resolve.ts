@@ -114,7 +114,8 @@ export async function resolveTargets(opts: ResolveOpts): Promise<ResolvedConfig[
   const names = Object.keys(config.connections)
 
   // Siblings the lazy proxy connected during resolution — closed before we return.
-  const opened = new Map<string, { conn: unknown; driver: Driver; driverName: string }>()
+  type OpenedConnection = { conn: unknown; driver: Driver; driverName: string }
+  const opened = new Map<string, OpenedConnection>()
   const resolving = new Set<string>()
 
   const entryOf = (name: string): AnyConnectionEntry => {
@@ -147,7 +148,7 @@ export async function resolveTargets(opts: ResolveOpts): Promise<ResolvedConfig[
 
   // Connect a sibling on demand for a resolver's `ctx.connections.<name>.query(...)`. Cached; cyclic
   // access (A resolves via B resolves via A) throws instead of looping.
-  const openConnection = async (name: string) => {
+  const openConnection = async (name: string): Promise<OpenedConnection> => {
     const cached = opened.get(name)
     if (cached) return cached
 
@@ -174,14 +175,14 @@ export async function resolveTargets(opts: ResolveOpts): Promise<ResolvedConfig[
         if (typeof prop !== "string") return undefined
 
         return {
-          async query(sql, vars) {
+          async query<T = unknown>(sql: string, vars?: Record<string, unknown>): Promise<T[]> {
             const { conn, driver, driverName } = await openConnection(prop)
             if (!driver.query) {
               throw new Error(
                 `the "${driverName}" driver has no \`query\` capability (needed by a connection resolver).`,
               )
             }
-            return driver.query(conn, sql, vars)
+            return driver.query<T>(conn, sql, vars)
           },
         }
       },

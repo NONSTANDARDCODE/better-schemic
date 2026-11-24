@@ -26,8 +26,7 @@ import {
 import { formatSurql } from "../cli/format"
 import { EMPTY_SNAPSHOT, type Snapshot } from "../cli/structure"
 import { diffSnapshots } from "../cli/surreal-diff"
-import type { DefineStatement } from "../ddl"
-import { overwriteStatement, removeStatement } from "../ddl"
+import { type DefineStatement, overwriteStatement, removeStatement } from "../ddl"
 
 import { explodeSchema } from "./explode"
 import type {
@@ -42,7 +41,7 @@ import type {
 } from "./portable"
 
 /** Statement key matching the legacy engine's `keyOf` (`kind:table:name`). */
-const keyOf = (s: Pick<DefineStatement, "kind" | "name" | "table">) =>
+const keyOf = (s: Pick<DefineStatement, "kind" | "name" | "table">): string =>
   `${s.kind}:${s.table ?? ""}:${s.name}`
 
 /** A one-table {@link Snapshot} (head + its fields) for the legacy `diffSnapshots` to diff. */

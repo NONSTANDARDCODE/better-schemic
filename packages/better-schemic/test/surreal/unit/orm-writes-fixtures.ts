@@ -5,8 +5,7 @@
 
 import { RecordId } from "surrealdb"
 
-import type { Client } from "../../../src/surreal/orm/client"
-import { orm } from "../../../src/surreal/orm/client"
+import { type Client, orm } from "../../../src/surreal/orm/client"
 import type { OrmError } from "../../../src/surreal/orm/errors"
 import { schema } from "../../../src/surreal/orm/schema"
 import { relation, s, table } from "../../../src/surreal/pure"
@@ -67,13 +66,22 @@ export function makeClient(result: unknown = [ROW]): {
 }
 
 /** Capture the LAST call's script + bindings (both always present on our statements). */
-export function lastCall(calls: { sql: string; vars?: Record<string, unknown> }[]) {
+export function lastCall(calls: { sql: string; vars?: Record<string, unknown> }[]): {
+  sql: string
+  vars: Record<string, unknown>
+} {
   const call = calls.at(-1)
   return { sql: call?.sql ?? "", vars: call?.vars ?? {} }
 }
 
 /** Normalize the SDK tag's counted `bind__N` names for stable fragment goldens. */
-export function stable(sql: string, vars: Record<string, unknown> | undefined) {
+export function stable(
+  sql: string,
+  vars: Record<string, unknown> | undefined,
+): {
+  sql: string
+  vars: Record<string, unknown>
+} {
   const aliases = new Map<string, string>()
   const text = sql.replaceAll(/\$([A-Za-z_][A-Za-z0-9_]*)/gu, (_, name: string) => {
     if (!name.startsWith("bind__")) return `$${name}`

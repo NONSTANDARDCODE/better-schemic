@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { join } from "node:path"
+import nodePath from "node:path"
 
 /**
  * Lockstep release for the better-schemic packages.
@@ -37,13 +37,13 @@ if (!versionArg || versionArg.startsWith("-")) {
   process.exit(1)
 }
 
-const ROOT = join(import.meta.dir, "..")
+const ROOT = nodePath.join(import.meta.dir, "..")
 // The runtime package first; the scaffolder last — it has NO dependency on `better-schemic` (it
 // scaffolds the version string), so it's bumped in lockstep and published last: a fresh project always
 // gets a matching pair.
 const ORDER = ["better-schemic", "create-better-schemic"]
-const pkgDir = (p: string) => join(ROOT, "packages", p)
-const displayName = (p: string) => p
+const pkgDir = (p: string): string => nodePath.join(ROOT, "packages", p)
+const displayName = (p: string): string => p
 
 // `next` -> bump the trailing .N of the current version (0.1-beta.1 -> 0.1-beta.2),
 // skipping any candidate already published to npm (local manifests can lag the registry, and a
@@ -75,7 +75,7 @@ async function resolveVersion(arg: string): Promise<string> {
   if (arg !== "next") return arg
 
   const cur = (
-    JSON.parse(await Bun.file(join(pkgDir("better-schemic"), "package.json")).text()) as {
+    JSON.parse(await Bun.file(nodePath.join(pkgDir("better-schemic"), "package.json")).text()) as {
       version: string
     }
   ).version
@@ -94,18 +94,18 @@ if (versionArg === "next") console.log(`auto-bumped -> ${version}`)
 // --dry-run is a PREVIEW: mutating package.json + bun.lock would leave the tree bumped, so the
 // next `next` run would skip the version we verified (0.1.0-alpha.1 -> alpha.2). Snapshot the
 // six files it touches and restore them before exiting.
-const LOCK = join(ROOT, "bun.lock")
-const snapshot = async () => {
+const LOCK = nodePath.join(ROOT, "bun.lock")
+const snapshot = async (): Promise<Map<string, string>> => {
   const files = new Map<string, string>()
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const p of ORDER) {
-    const path = join(pkgDir(p), "package.json")
+    const path = nodePath.join(pkgDir(p), "package.json")
     files.set(path, await Bun.file(path).text())
   }
   files.set(LOCK, await Bun.file(LOCK).text())
   return files
 }
-const restore = async (files: Map<string, string> | null) => {
+const restore = async (files: Map<string, string> | null): Promise<void> => {
   if (!files) return
 
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
@@ -121,7 +121,7 @@ const abort = async (msg: string): Promise<never> => {
 // 1. set every package's version (targeted edit — don't reformat the file)
 // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
 for (const p of ORDER) {
-  const path = join(pkgDir(p), "package.json")
+  const path = nodePath.join(pkgDir(p), "package.json")
   const txt = await Bun.file(path).text()
   await Bun.write(path, txt.replace(/"version":\s*"[^"]*"/u, `"version": "${version}"`))
   console.log(`${dryRun ? "would set" : "set"} ${displayName(p)} -> ${version}`)
@@ -129,7 +129,7 @@ for (const p of ORDER) {
 
 // 2. rebuild the lockfile so `workspace:*` rewrites to the NEW version (a bare bump won't refresh it)
 console.log("rebuilding lockfile...")
-await $`rm -f ${join(ROOT, "bun.lock")}`
+await $`rm -f ${nodePath.join(ROOT, "bun.lock")}`
 await $`bun install`.cwd(ROOT).quiet()
 
 // 3. pack-verify both packages carry the new version BEFORE publishing anything (a wrong version

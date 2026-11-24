@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import nodePath from "node:path"
 
 import type { KindSnapshot } from "../kind"
 
@@ -64,7 +64,7 @@ export const EMPTY_STORED: StoredSnapshot = emptyStored()
  * pre-portable v1/v2, or absent) treats it as EMPTY — regenerate with `better-schemic gen --baseline`.
  */
 export function readSnapshot(metaDir: string): StoredSnapshot {
-  const path = join(metaDir, SNAPSHOT_FILE)
+  const path = nodePath.join(metaDir, SNAPSHOT_FILE)
   if (!existsSync(path)) return emptyStored()
 
   let raw: unknown
@@ -122,7 +122,10 @@ function isValidStoredSnapshot(v: unknown): v is StoredSnapshot {
 
 export function writeSnapshot(metaDir: string, snapshot: StoredSnapshot): void {
   mkdirSync(metaDir, { recursive: true })
-  writeFileSync(join(metaDir, SNAPSHOT_FILE), `${JSON.stringify(snapshot, null, JSON_INDENT)}\n`)
+  writeFileSync(
+    nodePath.join(metaDir, SNAPSHOT_FILE),
+    `${JSON.stringify(snapshot, null, JSON_INDENT)}\n`,
+  )
 }
 
 /**

@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unused-vars -- Type queries and callback signatures need fixture values. */
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/explicit-function-return-type -- Type queries and callback signatures need fixture values. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // Bun AOT — fluent builder type assertions. The app-side generic helper must be expressible
 // WITHOUT spreading its type parameter into a callback (that spread is the top `--explain` cause:
 // "Objects change their shape"). Type-checked by `bun check` — no runtime.

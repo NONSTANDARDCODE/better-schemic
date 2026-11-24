@@ -49,7 +49,7 @@ let subCounter = 0
  * without colliding (the SDK throws on duplicate bind names rather than renaming). */
 export function toFragment(
   lowered: { sql: string; vars: Record<string, unknown> },
-  wrap = (sql: string) => `(${sql})`,
+  wrap = (sql: string): string => `(${sql})`,
 ): BoundQuery {
   const prefix = `sub__${++subCounter}_`
   let text = lowered.sql

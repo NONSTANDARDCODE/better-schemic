@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. Fixtures assert values whose presence the test guarantees. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping, @typescript-eslint/no-non-null-assertion, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. Fixtures assert values whose presence the test guarantees. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // `upsertDelta` — the compiler (golden SQL per lowering + the eager guards) and the runtime delta
 // decode (create/update/no-op/removal/codecs/strict miss) over a recording fake connection.
 // The live contract (round-trips, plugins, concurrency) lives in test/live/orm-writes-delta.test.ts.
@@ -536,9 +536,9 @@ describe("upsertDelta — runtime decode", () => {
     expect(result.changed).toEqual(["balance", "at"])
     expect(result.delta?.old.balance).toBeInstanceOf(Decimal)
     const oldBalance = result.delta?.old.balance
-    const newBalance = result.delta?.new.balance
+    const balanceAfter = result.delta?.new.balance
     expect(oldBalance?.equals(new Decimal("10.00"))).toBe(true)
-    expect(newBalance?.equals(new Decimal("12.34"))).toBe(true)
+    expect(balanceAfter?.equals(new Decimal("12.34"))).toBe(true)
     expect(result.before?.at).toBeInstanceOf(Date)
     expect(result.record.at).toBeInstanceOf(Date)
   })

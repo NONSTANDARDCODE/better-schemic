@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, watch as fsWatch, writeFileSync } from "node:fs"
-import { dirname, join, relative } from "node:path"
+import nodePath from "node:path"
 import { createInterface } from "node:readline/promises"
 
 import { Command, Help, Option } from "commander"
@@ -131,7 +131,7 @@ async function withDb(
   }
 }
 
-const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err))
+const errMsg = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 
 /**
  * Render duplicate-table conflicts as `name — file, file` lines (files relative to `root`, a file
@@ -145,7 +145,7 @@ function formatDuplicates(dups: Map<string, string[]>, root: string): string[] {
 
     const label = [...counts]
       .map(([f, n]) => {
-        const rel = relative(root, f)
+        const rel = nodePath.relative(root, f)
         return n > 1 ? `${rel} (×${n})` : rel
       })
       .join(", ")
@@ -153,7 +153,7 @@ function formatDuplicates(dups: Map<string, string[]>, root: string): string[] {
   })
 }
 
-const duplicateHeader = (n: number) =>
+const duplicateHeader = (n: number): string =>
   `${plural(n, "table")} defined more than once (last definition silently wins):`
 
 /**
@@ -236,7 +236,7 @@ function watchLoop(
     let timer: ReturnType<typeof setTimeout> | undefined
     let running = false
     let queued = false
-    const fire = async () => {
+    const fire = async (): Promise<void> => {
       if (running) {
         queued = true
         return
@@ -260,11 +260,11 @@ function watchLoop(
     })
     console.log(
       style.dim(
-        `Watching ${relative(config.root, config.schemaPath)} for changes — ctrl-c to stop.`,
+        `Watching ${nodePath.relative(config.root, config.schemaPath)} for changes — ctrl-c to stop.`,
       ),
     )
     void fire()
-    const stop = () => {
+    const stop = (): void => {
       watcher.close()
       clearTimeout(timer)
       // eslint-disable-next-line unicorn/no-process-exit -- encerramento controlado do watcher; o exitcode é contrato do CLI.
@@ -410,7 +410,7 @@ kindFlags(
         // A driver without the rich live/snapshot diff capability routes through the portable-IR
         // diff path (introspect + structural compare); the snapshot/`--ts`/`--live` pipeline below
         // needs it. The CLI gates on the CAPABILITY, never on the driver name.
-        const diffLive = driver.diffLive
+        const diffLive = driver.diffLive?.bind(driver)
         if (!diffLive) {
           await portableDiff(config, driverName, { json: opts.json })
           return
@@ -425,7 +425,7 @@ kindFlags(
           return typeof opts.pager === "string" ? opts.pager : resolvePager()
         }
         const pager = pagerFor()
-        const emit = async (diff: Diff, pending?: number) => {
+        const emit = async (diff: Diff, pending?: number): Promise<void> => {
           if (opts.json) console.log(JSON.stringify({ down: diff.down, pending, up: diff.up }))
           else if ((opts.patch || pager) && !isEmptyDiff(diff)) {
             const patch = formatPatch(diff)
@@ -438,7 +438,7 @@ kindFlags(
         }
         // Reuse one connection across watch runs for --live; otherwise connect per run.
         const persistent = opts.watch && opts.live ? await driver.connect(config, opts) : undefined
-        const once = async () => {
+        const once = async (): Promise<void> => {
           // TypeScript view: render both sides PER FILE (matching `pull`'s layout) and diff each.
           if (opts.ts) {
             // ONE schema load feeds the file map (offline, also the desired side).
@@ -454,15 +454,19 @@ kindFlags(
             const fileFor = (kind: string, name: string): string => {
               const abs = kind === "table" ? loc.get(name) : undefined
               return abs
-                ? relative(config.root, abs)
-                : relative(
+                ? nodePath.relative(config.root, abs)
+                : nodePath.relative(
                     config.root,
-                    join(config.schemaPath, driver.registry.display(kind).folder, `${name}.ts`),
+                    nodePath.join(
+                      config.schemaPath,
+                      driver.registry.display(kind).folder,
+                      `${name}.ts`,
+                    ),
                   )
             }
             // Single-file layout → one combined module key; directory layout → one file per object.
             const single = config.schemaIsFile
-              ? relative(config.root, config.schemaPath)
+              ? nodePath.relative(config.root, config.schemaPath)
               : undefined
 
             // cur = the baseline (live DB or snapshot) rendered to source, des = the declared schema.
@@ -470,7 +474,7 @@ kindFlags(
               cur: Map<string, string>,
               des: Map<string, string>,
               matchMsg: string,
-            ) => {
+            ): Promise<void> => {
               if (opts.json) {
                 console.log(
                   JSON.stringify({
@@ -560,7 +564,11 @@ kindFlags(
           return
         }
 
-        await watchLoop(config, once, persistent ? () => driver.close(persistent) : undefined)
+        await watchLoop(
+          config,
+          once,
+          persistent ? (): Promise<void> => driver.close(persistent) : undefined,
+        )
       })
     },
   )
@@ -570,7 +578,7 @@ kindFlags(
 const genAction = (
   name: string | undefined,
   opts: CommonOpts & FilterOpts & { baseline?: boolean; force?: boolean; yes?: boolean },
-) => {
+): void => {
   run(async () => {
     const config = await resolveOne(opts)
     const filter = parseFilter(opts)
@@ -585,8 +593,9 @@ const genAction = (
         activeDriver(config).migrations?.extension ?? ".surql",
       )
       if (existing.length > 0) {
-        const migDir = relative(config.root, config.migrationsDir)
+        const migDir = nodePath.relative(config.root, config.migrationsDir)
         const proceed =
+          // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- `force: false` deve continuar para o prompt, não encerrar como false.
           opts.force ||
           (await confirmPrompt(
             `Replace ${plural(existing.length, "migration")} in ${migDir} with a single baseline?`,
@@ -636,7 +645,7 @@ const genAction = (
       console.log(style.dim(`  replaced ${plural(squashed.length, "migration")}.`))
       try {
         const driver = activeDriver(config)
-        const diffLive = driver.diffLive
+        const diffLive = driver.diffLive?.bind(driver)
         if (!diffLive)
           throw new Error(`the "${config.driver}" driver does not support live reconcile`)
         const db = await driver.connect(config, opts)
@@ -911,11 +920,11 @@ dbFlags(
     console.log(style.bold("Project"))
     printRow("root", config.root)
     printRow("connection", `${config.connection} (${config.driver})`)
-    printRow("migrations", relative(config.root, config.migrationsDir))
+    printRow("migrations", nodePath.relative(config.root, config.migrationsDir))
     console.log(style.bold("\nSchema"))
     printRow(
       "source",
-      `${relative(config.root, config.schemaPath)} (${config.schemaIsFile ? "file" : "directory"})`,
+      `${nodePath.relative(config.root, config.schemaPath)} (${config.schemaIsFile ? "file" : "directory"})`,
     )
     try {
       const { duplicates: dups, tables } = await loadDefs(config.schemaPath)
@@ -1017,16 +1026,21 @@ configFlag(
         `new: "${name}" is not a valid entity name — use letters, digits and underscores (starting with a letter).`,
       )
     }
-    const target = join(config.schemaPath, driver.registry.display(kind).folder, `${name}.ts`)
-    if (existsSync(target)) throw new Error(`${relative(config.root, target)} already exists.`)
+    const target = nodePath.join(
+      config.schemaPath,
+      driver.registry.display(kind).folder,
+      `${name}.ts`,
+    )
+    if (existsSync(target))
+      throw new Error(`${nodePath.relative(config.root, target)} already exists.`)
 
-    mkdirSync(dirname(target), { recursive: true })
+    mkdirSync(nodePath.dirname(target), { recursive: true })
     try {
       // `wx`: create-or-fail atomically (no TOCTOU between the check and the write).
       writeFileSync(target, content, { flag: "wx" })
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-        throw new Error(`${relative(config.root, target)} already exists.`, {
+      if ((error as { code?: string }).code === "EEXIST") {
+        throw new Error(`${nodePath.relative(config.root, target)} already exists.`, {
           cause: error,
         })
       }
@@ -1034,7 +1048,7 @@ configFlag(
       throw error
     }
     console.log(
-      `${ok(relative(config.root, target))}  ${style.dim("— author its fields, then `better-schemic gen`")}`,
+      `${ok(nodePath.relative(config.root, target))}  ${style.dim("— author its fields, then `better-schemic gen`")}`,
     )
   })
 })
@@ -1066,12 +1080,12 @@ kindFlags(
       const config = await resolveOne(opts)
       const driver = activeDriver(config)
       const filter = parseFilter(opts)
-      const diffLive = driver.diffLive
-      const syncPlan = driver.syncPlan
+      const diffLive = driver.diffLive?.bind(driver)
+      const syncPlan = driver.syncPlan?.bind(driver)
       if (!diffLive || !syncPlan)
         throw new Error(`the "${config.driver}" driver does not support \`push\`.`)
 
-      const once = async (db: unknown) => {
+      const once = async (db: unknown): Promise<void> => {
         const diff = await diffLive(db, config, filter)
         const stmts = syncPlan(diff, opts.prune)
         if (stmts.length === 0) {
@@ -1257,14 +1271,14 @@ function pullPollLoop(
       ),
     )
     let stopped = false
-    const stop = () => {
+    const stop = (): void => {
       stopped = true
       // eslint-disable-next-line unicorn/no-process-exit -- encerramento controlado do modo watch; o exitcode é contrato do CLI.
       void Promise.resolve(driver.close(db)).finally(() => process.exit(0))
     }
     process.once("SIGINT", stop)
     process.once("SIGTERM", stop)
-    const tick = async () => {
+    const tick = async (): Promise<void> => {
       if (stopped) return
 
       try {

@@ -22,7 +22,7 @@ import type { Diff, DiffItem } from "../cli-kit/diff"
 
 import type { Definable, KindEngine, KindRegistry, PortableObject, Ref } from "./registry"
 
-const refKey = (r: Ref) => `${r.kind}:${r.name}`
+const refKey = (r: Ref): string => `${r.kind}:${r.name}`
 
 /** A node in the dependency graph: identity + the edges/owner used to order it. */
 export type OrderNode = {
@@ -273,9 +273,10 @@ const orderNodeOf = (engine: KindEngine, portable: PortableObject): OrderNode =>
 })
 
 /** Display identity: `kind:owner:name` (owner blank for a top-level object) + the display owner. */
-const itemKey = (n: OrderNode) => `${n.kind}:${n.owner?.name ?? ""}:${n.name}`
-const itemTable = (n: OrderNode) => n.owner?.name ?? n.name
-const byKey = (schema: PortableObject[]) => new Map(schema.map((o) => [refKey(o), o]))
+const itemKey = (n: OrderNode): string => `${n.kind}:${n.owner?.name ?? ""}:${n.name}`
+const itemTable = (n: OrderNode): string => n.owner?.name ?? n.name
+const byKey = (schema: PortableObject[]): Map<string, PortableObject> =>
+  new Map(schema.map((o) => [refKey(o), o]))
 
 /**
  * Classify both sides into ordered add/change/remove sets — the shared core of plan + diff. A `change`
@@ -311,7 +312,7 @@ function orderedChanges(
     else if (p && n && canonicalOf(engine, p) !== canonicalOf(engine, n))
       changes.push({ next: n, op: "change", prev: p, ...node })
   }
-  const ord = (kind: string) => registry.ordinal(kind)
+  const ord = (kind: string): number => registry.ordinal(kind)
   return {
     nonRemoves: orderObjects(
       changes.filter((c) => c.op !== "remove"),
@@ -388,7 +389,7 @@ function planFromChanges(
  */
 function diffItems(registry: KindRegistry, nonRemoves: Change[], removes: Change[]): DiffItem[] {
   const items: DiffItem[] = []
-  const push = (c: Change) => {
+  const push = (c: Change): void => {
     const e = registry.engine(c.kind)
     if (!e) return
 

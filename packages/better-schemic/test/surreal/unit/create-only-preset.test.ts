@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, unicorn/consistent-function-scoping -- Object key order mirrors expected serialized output and must stay as authored. Helpers stay colocated with the tests that use them. */
+/* eslint-disable perfectionist/sort-objects, unicorn/consistent-function-scoping, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Helpers stay colocated with the tests that use them. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // M14 — the `createOnly()` schema PRESET: `PERMISSIONS FOR update NONE` (AND-narrowed with the
 // table's own), the `meta.createOnly` marker and the optional hard `{table}_create_only` event.
 // Offline (DDL strings).

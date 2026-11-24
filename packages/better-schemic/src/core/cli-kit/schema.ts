@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, statSync } from "node:fs"
-import { join } from "node:path"
+import nodePath from "node:path"
 
 import type { Authored, AuthoredDef } from "../index"
 
@@ -66,7 +66,7 @@ function tsFiles(dir: string): string[] {
   const out: string[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const entry of readdirSync(dir).sort()) {
-    const p = join(dir, entry)
+    const p = nodePath.join(dir, entry)
     if (statSync(p).isDirectory()) out.push(...tsFiles(p))
     else if (/\.(ts|mts|js|mjs)$/u.test(entry) && !entry.endsWith(".d.ts")) out.push(p)
   }
@@ -146,7 +146,7 @@ export async function loadDefs(schemaPath: string): Promise<{
       })
     }
   }
-  const rank = (t: AnyTable) => (t.config.relation ? 1 : 0)
+  const rank = (t: AnyTable): number => (t.config.relation ? 1 : 0)
   const sorted = [...tables.values()].sort(
     (a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name),
   )

@@ -23,23 +23,25 @@ import {
   inlineAnalyzerFunctions,
   upperFilterClause,
 } from "../ddl"
-import type {
-  AccessDef,
-  AnalyzerDef,
-  FieldPermissions,
-  FunctionDef,
-  ParamDef,
-  PermOp,
-  SequenceDef,
-  SField,
-  Shape,
-  StandaloneDef,
-  SurrealMeta,
-  TableDef,
-  TableEvent,
-  TablePermissions,
+import {
+  type AccessDef,
+  type AnalyzerDef,
+  assertCompleteDef,
+  type FieldPermissions,
+  type FunctionDef,
+  type ParamDef,
+  type PermOp,
+  requireFunctionBody,
+  type SequenceDef,
+  type SField,
+  type Shape,
+  type StandaloneDef,
+  type SurrealMeta,
+  type TableDef,
+  type TableEvent,
+  type TablePermissions,
+  unknownDefKind,
 } from "../pure"
-import { assertCompleteDef, requireFunctionBody, unknownDefKind } from "../pure"
 
 import { normalizeDb } from "./struct"
 import type {
@@ -182,7 +184,8 @@ function lowerField(
 
     if (surreal.index) {
       // eslint-disable-next-line unicorn/consistent-function-scoping -- helper local mantido junto do uso para coesão e legibilidade
-      const sanitize = (p: string) => p.replaceAll(/[`]/gu, "").replaceAll(/[^a-zA-Z0-9]+/gu, "_")
+      const sanitize = (p: string): string =>
+        p.replaceAll(/[`]/gu, "").replaceAll(/[^a-zA-Z0-9]+/gu, "_")
       const base = `${table}_${sanitize(path)}`
 
       if (surreal.index.spec && surreal.index.unique) {
@@ -223,7 +226,7 @@ function lowerField(
 /** Lower a table/relation event to a `StructEvent` (one or `THEN` exprs, bare; a
  * multi-statement entry auto-blocks `{ …; }` — matching `emitEvent` + INFO's canonical form). */
 function lowerEvent(table: string, ev: TableEvent): StructEvent {
-  const thens = (Array.isArray(ev.then) ? ev.then : [ev.then]).map(blockThen)
+  const thens = (Array.isArray(ev.then) ? ev.then : [ev.then]).map((then) => blockThen(then))
   // eslint-disable-next-line unicorn/no-thenable -- then é o nome obrigatório do campo WHEN/THEN do DEFINE EVENT
   const out: StructEvent = { name: ev.name, then: thens, what: table }
   if (ev.when !== undefined) out.when = eventClause(ev.when)
@@ -453,7 +456,7 @@ export function schemaStruct(
   tables: TableDef<string, Shape>[],
   defs: StandaloneDef[],
 ): DbStructured {
-  const structTables = tables.map(fromTableDef)
+  const structTables = tables.map((t) => fromTableDef(t))
   const byName = new Map(structTables.map((t) => [t.name, t]))
   const functions: StructFunction[] = []
   const accesses: StructAccess[] = []

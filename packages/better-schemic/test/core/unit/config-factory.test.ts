@@ -1,13 +1,16 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-explicit-any, unicorn/consistent-function-scoping, @typescript-eslint/require-await, @typescript-eslint/no-confusing-void-expression -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. Fixtures use any for duck-typed mocks. Helpers stay colocated with the tests that use them. Mock methods match async interfaces without awaiting. The void operator discards intentionally ignored values. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-explicit-any, unicorn/consistent-function-scoping, @typescript-eslint/require-await, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. Fixtures use any for duck-typed mocks. Helpers stay colocated with the tests that use them. Mock methods match async interfaces without awaiting. The void operator discards intentionally ignored values. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import path from "node:path"
 
 import { afterAll, describe, expect, test } from "bun:test"
 
 import { resolveConnection } from "../../../src/core/client"
 import { defineConfig } from "../../../src/core/config"
-import type { ConnectionInput } from "../../../src/core/connection"
-import { connectionEntry, isConnectionEntry } from "../../../src/core/connection"
+import {
+  connectionEntry,
+  type ConnectionInput,
+  isConnectionEntry,
+} from "../../../src/core/connection"
 
 // A fake driver entry whose embedded client opener reflects the resolved config back.
 // Direct connectionEntry call so the Client generic INFERS from the opener's return type.
@@ -92,7 +95,7 @@ describe("config-as-factory (defineConfig().connect)", () => {
 })
 
 describe("better-schemic.ts discovery", () => {
-  const dir = mkdtempSync(join(import.meta.dir, "..", "..", ".cfg-test-"))
+  const dir = mkdtempSync(path.join(import.meta.dir, "..", "..", ".cfg-test-"))
   afterAll(() => {
     rmSync(dir, { recursive: true, force: true })
   })
@@ -101,9 +104,9 @@ describe("better-schemic.ts discovery", () => {
   // project's node_modules so the fixture's bare `better-schemic/*` imports resolve
   // (same symlink-farm idea as the e2e harness).
   {
-    const abs = join(dir, "node_modules", "better-schemic")
-    mkdirSync(join(dir, "node_modules"), { recursive: true })
-    if (!existsSync(abs)) symlinkSync(join(import.meta.dir, "..", "..", ".."), abs)
+    const abs = path.join(dir, "node_modules", "better-schemic")
+    mkdirSync(path.join(dir, "node_modules"), { recursive: true })
+    if (!existsSync(abs)) symlinkSync(path.join(import.meta.dir, "..", "..", ".."), abs)
   }
 
   const CONFIG_BODY =
@@ -113,47 +116,47 @@ describe("better-schemic.ts discovery", () => {
     `export default orm;\n`
 
   test("a bare better-schemic.ts (named + default export) is discovered", async () => {
-    writeFileSync(join(dir, "better-schemic.ts"), CONFIG_BODY)
+    writeFileSync(path.join(dir, "better-schemic.ts"), CONFIG_BODY)
     const rc = await resolveConnection({ cwd: dir })
     expect(rc.driver).toBe("testdriver")
   })
 
   test("a NAMED-ONLY `orm` export (no default) loads — the scaffolded form", async () => {
     writeFileSync(
-      join(dir, "better-schemic.config.ts"),
+      path.join(dir, "better-schemic.config.ts"),
       CONFIG_BODY.replace("export default orm;\n", "").replace("testdriver", "nameddriver"),
     )
     const rc = await resolveConnection({ cwd: dir })
     expect(rc.driver).toBe("nameddriver")
-    rmSync(join(dir, "better-schemic.config.ts"))
+    rmSync(path.join(dir, "better-schemic.config.ts"))
   })
 
   test("better-schemic.config.ts wins over better-schemic.ts when both exist", async () => {
     writeFileSync(
-      join(dir, "better-schemic.config.ts"),
+      path.join(dir, "better-schemic.config.ts"),
       CONFIG_BODY.replace("testdriver", "configdriver"),
     )
     const rc = await resolveConnection({ cwd: dir })
     expect(rc.driver).toBe("configdriver")
-    rmSync(join(dir, "better-schemic.config.ts"))
+    rmSync(path.join(dir, "better-schemic.config.ts"))
   })
 
   test("legacy `schemic.config.ts` + named `schemic` export still load", async () => {
-    rmSync(join(dir, "better-schemic.ts"))
+    rmSync(path.join(dir, "better-schemic.ts"))
     writeFileSync(
-      join(dir, "schemic.config.ts"),
+      path.join(dir, "schemic.config.ts"),
       CONFIG_BODY.replaceAll("orm", "schemic")
         .replace("export default schemic;\n", "")
         .replace("testdriver", "legacydriver"),
     )
     const rc = await resolveConnection({ cwd: dir })
     expect(rc.driver).toBe("legacydriver")
-    rmSync(join(dir, "schemic.config.ts"))
-    writeFileSync(join(dir, "better-schemic.ts"), CONFIG_BODY)
+    rmSync(path.join(dir, "schemic.config.ts"))
+    writeFileSync(path.join(dir, "better-schemic.ts"), CONFIG_BODY)
   })
 
   test("an unrelated better-schemic.ts (no connections) errors helpfully", async () => {
-    writeFileSync(join(dir, "better-schemic.ts"), `export const helper = 42;\n`)
+    writeFileSync(path.join(dir, "better-schemic.ts"), `export const helper = 42;\n`)
     await expect(resolveConnection({ cwd: dir })).rejects.toThrow("doesn't export a config")
   })
 })

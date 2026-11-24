@@ -1,6 +1,6 @@
 /* eslint-disable perfectionist/sort-objects, @typescript-eslint/require-await, @typescript-eslint/no-confusing-void-expression -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock methods match async interfaces without awaiting. The void operator discards intentionally ignored values. */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import path from "node:path"
 
 import { type Driver, driverNames, registerDriver } from "better-schemic/core"
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
@@ -9,7 +9,7 @@ import { resolveOne, resolveTargets } from "../../../src/cli/resolve"
 
 // Fixtures live UNDER the package so a jiti-loaded config's `import "better-schemic/core"` resolves through
 // packages/cli/node_modules (a /tmp dir has no node_modules to walk up into).
-const BASE = join(import.meta.dir, "..", ".tmp-resolve")
+const BASE = path.join(import.meta.dir, "..", ".tmp-resolve")
 
 // A minimal fake driver so the engine's ensureDriver/getDriver are no-ops (no real package import).
 // connect/close/query exercis them (by the cross-connection proxy tests); the IR ops unus them.
@@ -31,10 +31,10 @@ const faux = {
 } as unknown as Driver
 
 function writeConfig(body: string): string {
-  const dir = mkdtempSync(join(BASE, "p-"))
-  mkdirSync(join(dir, "schema"), { recursive: true })
-  writeFileSync(join(dir, "better-schemic.config.ts"), body, "utf8")
-  return join(dir, "better-schemic.config.ts")
+  const dir = mkdtempSync(path.join(BASE, "p-"))
+  mkdirSync(path.join(dir, "schema"), { recursive: true })
+  writeFileSync(path.join(dir, "better-schemic.config.ts"), body, "utf8")
+  return path.join(dir, "better-schemic.config.ts")
 }
 
 beforeAll(() => {

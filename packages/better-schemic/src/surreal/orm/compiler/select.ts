@@ -235,7 +235,8 @@ export function compileRead(
   if (args.split !== undefined) parts.push(`SPLIT ${compileSplit(args.split, binds, operation)}`)
 
   if (groupAll) parts.push("GROUP ALL")
-  else if (groupBy.length > 0) parts.push(`GROUP BY ${groupBy.map(renderPath).join(", ")}`)
+  else if (groupBy.length > 0)
+    parts.push(`GROUP BY ${groupBy.map((path) => renderPath(path)).join(", ")}`)
 
   if (args.orderBy !== undefined) parts.push(compileOrderBy(args.orderBy, binds, operation))
 

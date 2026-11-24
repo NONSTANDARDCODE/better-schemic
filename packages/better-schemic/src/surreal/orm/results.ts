@@ -58,7 +58,7 @@ export function attachThrow<T>(
   promise: Promise<null | T>,
   info: (() => NotFoundInfo) | NotFoundInfo,
 ): ThrowingResult<T> {
-  const getInfo = typeof info === "function" ? info : () => info
+  const getInfo = typeof info === "function" ? info : (): NotFoundInfo => info
   return Object.assign(promise, {
     throw(factory?: (info: NotFoundInfo) => Error): Promise<T> {
       return promise.then((value) => {
@@ -91,7 +91,7 @@ export function attachThrow<T>(
  */
 export function lazyResult<T>(run: () => Promise<T>): Promise<T> {
   let started: Promise<T> | undefined
-  const get = () => (started ??= run())
+  const get = (): Promise<T> => (started ??= run())
   // A `Promise` needs then/catch/+ the tag, so the annotation IS the contract.
   const thenable: Promise<T> = {
     catch: <TResult = never>(

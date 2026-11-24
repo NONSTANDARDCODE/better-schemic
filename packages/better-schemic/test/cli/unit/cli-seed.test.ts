@@ -1,7 +1,7 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-confusing-void-expression -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally ignored values. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally ignored values. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import path from "node:path"
 
 import type { ResolvedConfig } from "better-schemic/core"
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
@@ -24,26 +24,26 @@ describe("seed (folder of named scripts)", () => {
   const cfg = () => ({ root }) as unknown as ResolvedConfig
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), "better-schemic-seed-"))
-    const dir = join(root, "database/seed")
+    root = mkdtempSync(path.join(tmpdir(), "better-schemic-seed-"))
+    const dir = path.join(root, "database/seed")
     mkdirSync(dir, { recursive: true })
-    writeFileSync(join(dir, "schema.surql"), "DEFINE TABLE user;\n")
+    writeFileSync(path.join(dir, "schema.surql"), "DEFINE TABLE user;\n")
     writeFileSync(
-      join(dir, "seeds.d.ts"),
+      path.join(dir, "seeds.d.ts"),
       'declare module "*.surql" { const s: string; export default s; }\n',
     )
     writeFileSync(
-      join(dir, "01-users.ts"),
+      path.join(dir, "01-users.ts"),
       'import schema from "./schema.surql" with { type: "text" };\n' +
         "export default async (db: any) => { db.ran('users'); db.query(schema); };\n",
     )
     writeFileSync(
-      join(dir, "02-data.ts"),
+      path.join(dir, "02-data.ts"),
       "export default async (db: any) => { db.ran('data'); };\n",
     )
-    writeFileSync(join(dir, "_helper.ts"), "export const x = 1;\n")
+    writeFileSync(path.join(dir, "_helper.ts"), "export const x = 1;\n")
     writeFileSync(
-      join(dir, "index.ts"),
+      path.join(dir, "index.ts"),
       "export default async (db: any) => { db.ran('index'); };\n",
     )
   })

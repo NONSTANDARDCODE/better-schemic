@@ -61,7 +61,7 @@ export function createBinds(prefix = "p"): Binds {
   const vars: Record<string, unknown> = {}
   let next = 0
   return {
-    add(value) {
+    add(value): string {
       // Skip names a merged fragment already claimed: `mergeRaw` writes into the SAME vars map, so
       // handing out an existing name would overwrite the fragment's bind.
       let name: string
@@ -71,7 +71,7 @@ export function createBinds(prefix = "p"): Binds {
       vars[name] = value
       return `$${name}`
     },
-    ctx(row) {
+    ctx(row): Ctx {
       return row === undefined ? { vars } : { row, vars }
     },
     vars,
@@ -668,7 +668,7 @@ export function describeValue(v: unknown): string {
 
   if (v instanceof Date) return v.toISOString()
 
-  if (v instanceof RecordId) return `"${v}"`
+  if (v instanceof RecordId) return `"${v.toString()}"`
 
   if (typeof v === "object") {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- objetos sem protótipo (Object.create(null)) não têm constructor em runtime

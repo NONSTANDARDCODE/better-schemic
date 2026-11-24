@@ -145,7 +145,7 @@ export type ColumnResolver = {
  */
 export function directColumns(meta: ModelMeta): ColumnResolver {
   return {
-    guard: (key, op, operand, operation) => {
+    guard: (key: string, op: string, operand: string, operation: string): void => {
       assertAggregateOperand(meta, key, op, operand, operation)
     },
     inners: [],
@@ -294,7 +294,9 @@ export function aggregateTail(
   options: { readonly version?: boolean } = {},
 ): string[] {
   const tail: string[] = [
-    groupBy.length > 0 ? `GROUP BY ${groupBy.map(renderPath).join(", ")}` : "GROUP ALL",
+    groupBy.length > 0
+      ? `GROUP BY ${groupBy.map((path) => renderPath(path)).join(", ")}`
+      : "GROUP ALL",
   ]
   if (args.orderBy !== undefined) tail.push(compileOrderBy(args.orderBy, binds, operation))
 

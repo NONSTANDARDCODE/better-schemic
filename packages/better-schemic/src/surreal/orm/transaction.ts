@@ -90,17 +90,17 @@ export class TransactionState {
 }
 
 /** The internal unwind `tx.rollback()` throws (converted to `TransactionRollback` by the wrapper). */
-class RollbackSignal extends Error {
+class RollbackSignalError extends Error {
   constructor(readonly reason: unknown) {
     super("transaction rollback")
-    this.name = "TransactionRollbackSignal"
+    this.name = "RollbackSignalError"
   }
 }
 
 /** Explicit rollback: mark the state (safety net if user code swallows the signal) and unwind. */
 export function rollbackTransaction(state: TransactionState, reason?: unknown): never {
   state.markRolledBack(reason)
-  throw new RollbackSignal(reason)
+  throw new RollbackSignalError(reason)
 }
 
 /**
@@ -295,7 +295,7 @@ let transactionSeq = 0
 /** Convert the attempt failure into the error the caller sees. */
 function attemptError(e: unknown, resolved: ResolvedOptions): OrmError {
   const meta = resolved.meta
-  if (e instanceof RollbackSignal) {
+  if (e instanceof RollbackSignalError) {
     return new OrmError(
       "TransactionRollback",
       `transaction: rolled back${e.reason === undefined ? "" : ` (${typeof e.reason === "string" ? e.reason : JSON.stringify(e.reason)})`}.`,
@@ -368,7 +368,7 @@ export async function runTransaction<T, S extends SchemaInput = SchemaInput>(
         { operation: "transaction" },
       )
     }
-    return await fn(host as unknown as TransactionClient<S>)
+    return fn(host as unknown as TransactionClient<S>)
   }
   if (host.$rootScope()?.active) {
     throw new OrmError(
@@ -436,7 +436,7 @@ export async function runTransaction<T, S extends SchemaInput = SchemaInput>(
         const txHost = host.buildTransactionClient(txConn, state)
         const value = await fn(txHost as unknown as TransactionClient<S>)
         // A swallowed rollback signal still aborts: the state is the source of truth.
-        if (state.rolledBack) throw new RollbackSignal(state.rollbackReason)
+        if (state.rolledBack) throw new RollbackSignalError(state.rollbackReason)
 
         await txConn.commit()
         state.active = false

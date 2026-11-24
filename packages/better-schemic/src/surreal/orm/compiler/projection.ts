@@ -441,7 +441,7 @@ export function omittedPaths(omit: unknown): readonly (readonly string[])[] {
 
   return omit
     .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
-    .map(pathSegments)
+    .map((entry) => pathSegments(entry))
 }
 
 /** The top-level output keys a valid projection can emit. */
@@ -562,7 +562,7 @@ function valueProjection(
 
 /** `*` plus an `OMIT` list, when any. */
 function starText(base: string, omit: readonly string[]): string {
-  return omit.length > 0 ? `${base} OMIT ${omit.map(renderPath).join(", ")}` : base
+  return omit.length > 0 ? `${base} OMIT ${omit.map((path) => renderPath(path)).join(", ")}` : base
 }
 
 /**

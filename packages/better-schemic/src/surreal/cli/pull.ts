@@ -1,9 +1,8 @@
 import { existsSync, readFileSync } from "node:fs"
-import { join, relative } from "node:path"
+import nodePath from "node:path"
 
 import type { Surreal } from "surrealdb"
 
-import type { ResolvedConfig } from "../../core"
 import {
   type Filter,
   loadDefs,
@@ -13,6 +12,7 @@ import {
   type PullFilePlan,
   type PullPlan,
   type RenderedUnit,
+  type ResolvedConfig,
 } from "../../core"
 import { stripNullGuard } from "../ddl"
 import { formatForAssert, readsClientValue } from "../pure"
@@ -117,7 +117,7 @@ function toParsed(f: StructField): ParsedField {
 
 // --- Cross-table reference resolution (imports / self-refs / relation endpoints) -------------
 
-const pascal = (name: string) =>
+const pascal = (name: string): string =>
   name
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access -- retorno any vem de parser/SDK dinâmico; contrato externo não tipado / método any vem de internals do Zod/SDK (fronteira sem tipos) / acesso dinâmico na fronteira Zod/SDK; o valor vem de any externo
     .replaceAll(/(^|[_-])([a-z])/gu, (_, __, c) => c.toUpperCase())
@@ -179,7 +179,7 @@ function recordTargets(kind: string): string[] {
 /** The pulled tables a table points at: `record<…>` field targets + relation endpoints. */
 function tableRefs(t: StructTable, pulled: Set<string>): Set<string> {
   const out = new Set<string>()
-  const add = (n: string) => {
+  const add = (n: string): void => {
     if (pulled.has(n)) out.add(n)
   }
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
@@ -233,7 +233,7 @@ type RenderCtx = {
 
 function makeResolver(graph: Map<string, Set<string>>, pulled: Set<string>) {
   const cache = new Map<string, Set<string>>()
-  const reach = (n: string) => {
+  const reach = (n: string): Set<string> => {
     let r = cache.get(n)
     if (!r) {
       r = reachable(graph, n)
@@ -337,7 +337,7 @@ function szType(type: string, ctx?: RenderCtx): string {
   if (rec) return renderRecord(rec[1], ctx)
 
   // Literal unions: `'a' | 'b'` -> s.enum (all strings) or a union of literals; lone -> s.literal.
-  const lits = splitTopUnion(t).map(parseLiteral)
+  const lits = splitTopUnion(t).map((lit) => parseLiteral(lit))
   if (lits.length > 0 && lits.every((l) => l !== null)) {
     const vals = lits.map((l) => l.value)
     if (vals.length === 1) return `s.literal(${JSON.stringify(vals[0])})`
@@ -855,7 +855,7 @@ function topoSort<T extends { deps: string[]; name: string }>(items: T[]): T[] {
   const out: T[] = []
   const done = new Set<string>()
   const onStack = new Set<string>()
-  const visit = (it: T) => {
+  const visit = (it: T): void => {
     if (done.has(it.name) || onStack.has(it.name)) return
 
     onStack.add(it.name)
@@ -932,11 +932,11 @@ export async function planPull(
   if (config.schemaIsFile) {
     const units = [
       ...tables.map((t) => tableUnit(t, makeCtx(t))),
-      ...functions.map(functionUnit),
-      ...accesses.map(accessUnit),
-      ...analyzers.map(analyzerUnit),
-      ...params.map(paramUnit),
-      ...sequences.map(sequenceUnit),
+      ...functions.map((fn) => functionUnit(fn)),
+      ...accesses.map((access) => accessUnit(access)),
+      ...analyzers.map((analyzer) => analyzerUnit(analyzer)),
+      ...params.map((param) => paramUnit(param)),
+      ...sequences.map((sequence) => sequenceUnit(sequence)),
     ]
     return {
       files: [
@@ -956,7 +956,7 @@ export async function planPull(
 
   const dir = config.schemaPath
   const groups = new Map<string, RenderedUnit[]>()
-  const add = (abs: string, u: RenderedUnit) => {
+  const add = (abs: string, u: RenderedUnit): void => {
     const arr = groups.get(abs)
     if (arr) arr.push(u)
     else groups.set(abs, [u])
@@ -964,27 +964,29 @@ export async function planPull(
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const t of tables) {
     add(
-      tableLoc.get(t.name) ?? join(dir, "tables", `${safeFileName(t.name)}.ts`),
+      tableLoc.get(t.name) ?? nodePath.join(dir, "tables", `${safeFileName(t.name)}.ts`),
       tableUnit(t, makeCtx(t)),
     )
   }
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const fn of functions)
-    add(join(dir, "functions", `${safeFileName(fn.name)}.ts`), functionUnit(fn))
+    add(nodePath.join(dir, "functions", `${safeFileName(fn.name)}.ts`), functionUnit(fn))
 
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const a of accesses) add(join(dir, "access", `${safeFileName(a.name)}.ts`), accessUnit(a))
+  for (const a of accesses)
+    add(nodePath.join(dir, "access", `${safeFileName(a.name)}.ts`), accessUnit(a))
 
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const an of analyzers)
-    add(join(dir, "analyzers", `${safeFileName(an.name)}.ts`), analyzerUnit(an))
+    add(nodePath.join(dir, "analyzers", `${safeFileName(an.name)}.ts`), analyzerUnit(an))
 
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const pm of params) add(join(dir, "params", `${safeFileName(pm.name)}.ts`), paramUnit(pm))
+  for (const pm of params)
+    add(nodePath.join(dir, "params", `${safeFileName(pm.name)}.ts`), paramUnit(pm))
 
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const sq of sequences)
-    add(join(dir, "sequences", `${safeFileName(sq.name)}.ts`), sequenceUnit(sq))
+    add(nodePath.join(dir, "sequences", `${safeFileName(sq.name)}.ts`), sequenceUnit(sq))
 
   const files = [...groups].map(([abs, units]) =>
     planFile(abs, units, keepLocal, config, () =>
@@ -1026,7 +1028,7 @@ export async function planPull(
       after: deletable ? "" : before,
       before,
       localOnly: { fields: [], objects: localOnly.map((e) => e.exportName) },
-      rel: relative(config.root, file),
+      rel: nodePath.relative(config.root, file),
     })
   }
   files.sort((a, b) => a.rel.localeCompare(b.rel))
@@ -1041,7 +1043,7 @@ function planFile(
   config: ResolvedConfig,
   fresh: () => string,
 ): PullFilePlan {
-  const rel = relative(config.root, abs)
+  const rel = nodePath.relative(config.root, abs)
   if (!existsSync(abs)) {
     const after = fresh()
     return {
@@ -1136,7 +1138,8 @@ function filterBuilderExpr(filter: string): string {
  * `defineAnalyzer(name)`. */
 // eslint-disable-next-line unicorn/consistent-function-scoping -- helper local mantido junto do uso para coesão e legibilidade
 function renderAnalyzerConst(a: StructAnalyzer): string {
-  const tokList = (xs: string[]) => xs.map((x) => JSON.stringify(x.toLowerCase())).join(", ")
+  const tokList = (xs: string[]): string =>
+    xs.map((x) => JSON.stringify(x.toLowerCase())).join(", ")
   let expr = `defineAnalyzer(${JSON.stringify(a.name)})`
   if (a.function) expr += `.function(${JSON.stringify(a.function)})`
 
@@ -1232,7 +1235,7 @@ function ctxFactory(tables: StructTable[]): (t: StructTable) => RenderCtx {
   const pulled = new Set(tables.map((t) => t.name))
   const graph = new Map(tables.map((t) => [t.name, tableRefs(t, pulled)]))
   const resolve = makeResolver(graph, pulled)
-  const constOf = (n: string) => safeConst(n)
+  const constOf = (n: string): string => safeConst(n)
   return (t) => ({
     allowSelf: t.kind.kind !== "RELATION", // table takes the `self` callback
     constOf,
@@ -1292,7 +1295,7 @@ export function renderPerFile(
 ): Map<string, string> {
   const makeCtx = ctxFactory(db.tables)
   const byFile = new Map<string, RenderedUnit[]>()
-  const add = (file: string, u: RenderedUnit) => {
+  const add = (file: string, u: RenderedUnit): void => {
     const arr = byFile.get(file)
     if (arr) arr.push(u)
     else byFile.set(file, [u])
@@ -1347,11 +1350,11 @@ function assembleCombined(
     }
   })
   const ordered = topoSort(rendered)
-  const fnCode = functions.map(renderFunctionConst)
-  const accessCode = accesses.map(renderAccessConst)
-  const analyzerCode = analyzers.map(renderAnalyzerConst)
-  const paramCode = params.map(renderParamConst)
-  const sequenceCode = sequences.map(renderSequenceConst)
+  const fnCode = functions.map((fn) => renderFunctionConst(fn))
+  const accessCode = accesses.map((access) => renderAccessConst(access))
+  const analyzerCode = analyzers.map((analyzer) => renderAnalyzerConst(analyzer))
+  const paramCode = params.map((param) => renderParamConst(param))
+  const sequenceCode = sequences.map((sequence) => renderSequenceConst(sequence))
   const factories = [...new Set(ordered.map((r) => r.factory))]
   if (functions.length > 0) factories.push("defineFunction")
 

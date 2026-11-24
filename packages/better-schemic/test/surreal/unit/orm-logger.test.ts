@@ -1,9 +1,8 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator, unicorn/consistent-function-scoping, @typescript-eslint/require-await -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. Helpers stay colocated with the tests that use them. Mock methods match async interfaces without awaiting. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator, unicorn/consistent-function-scoping, @typescript-eslint/require-await, @typescript-eslint/explicit-function-return-type, @typescript-eslint/no-extraneous-class -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. Helpers stay colocated with the tests that use them. Mock methods match async interfaces without awaiting. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. Classes vazias sao fixtures intencionais: exercitam constructor.name e instanceof. */
 // The query logger: option/env resolution, level/format gating, the three renderers, auto-explain
 // and the executor wiring (reads, writes, explain, raw, context, transactions, errors). Offline.
 import { describe, expect, test } from "bun:test"
-import type { QueryResponse } from "surrealdb"
-import { RecordId, Uuid } from "surrealdb"
+import { type QueryResponse, RecordId, Uuid } from "surrealdb"
 
 import { createQueryLogger, resolveLogger } from "../../../src/surreal/logger"
 import { type Client, orm } from "../../../src/surreal/orm/client"

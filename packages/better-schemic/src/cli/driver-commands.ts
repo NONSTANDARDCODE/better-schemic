@@ -55,7 +55,7 @@ const io: CommandIo = {
       // `hidden` masks typed input (e.g. a password) so it never echoes to the screen.
       if (opts?.hidden) {
         const out = process.stdout
-        const onData = () => out.write("[2K\r")
+        const onData = (): boolean => out.write("[2K\r")
         process.stdin.on("data", onData)
         try {
           const answer = await rl.question(`${question} `)

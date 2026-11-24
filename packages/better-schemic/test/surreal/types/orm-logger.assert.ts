@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Type queries and callback signatures need fixture values. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unused-vars, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Type queries and callback signatures need fixture values. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // TYPE assertions for the query logger: the `logger` client option union (flag/preset/options), the
 // `createQueryLogger`/`resolveLogger` return shapes, the resolved-option fields and the invalid
 // values the types reject. Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
@@ -6,8 +6,7 @@ import { describe, it } from "node:test"
 
 import { assertType } from "../../../../../scripts/type-assert"
 import { createQueryLogger, type resolveLogger } from "../../../src/surreal/logger"
-import type { Client } from "../../../src/surreal/orm/client"
-import { orm } from "../../../src/surreal/orm/client"
+import { type Client, orm } from "../../../src/surreal/orm/client"
 import type { Queryable } from "../../../src/surreal/orm/execute"
 import { schema } from "../../../src/surreal/orm/schema"
 import type {

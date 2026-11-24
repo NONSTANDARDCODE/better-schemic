@@ -85,6 +85,7 @@ function operationOf(event: QueryLogEvent): string {
   if (event.statements.length > 1) return verbs.size === 1 ? `BATCH ${[...verbs][0]}` : "BATCH"
 
   const first = [...verbs][0]
+  // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- `||` descarta strings vazias de operation, preservando o fallback "QUERY".
   return first || event.operation?.toUpperCase() || "QUERY"
 }
 
@@ -267,6 +268,7 @@ function validatedMaxText(value: number | undefined): number {
 export function createOtelLogger(config: OtelLoggerConfig = {}): QueryLogger {
   const enabled = config.enabled !== false
   const maxQueryTextLength = validatedMaxText(config.maxQueryTextLength)
+  // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- `||` usa o padrão quando tracerName é só espaços (trim -> "").
   const tracerName = config.tracerName?.trim() || "better-schemic"
 
   return {

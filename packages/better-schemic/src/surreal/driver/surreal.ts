@@ -60,7 +60,10 @@ const shadow: ShadowCapability<Surreal> = {
 /** Record one applied migration: a `_migrations` row keyed by tag, with file + checksum + time. */
 const RECORD_SQL =
   "CREATE type::record($tbl, $tag) CONTENT { tag: $tag, file: $file, checksum: $sum, applied_at: time::now() }"
-const recordVars = (table: string, r: MigrationRecord) => ({
+const recordVars = (
+  table: string,
+  r: MigrationRecord,
+): { file: string; sum: string; tag: string; tbl: string } => ({
   file: r.file,
   sum: r.checksum,
   tag: r.tag,
@@ -74,7 +77,7 @@ async function ensureTrackTable(conn: Surreal, table: string): Promise<void> {
   )
 }
 
-const lockTableOf = (table: string) => `${table}_lock`
+const lockTableOf = (table: string): string => `${table}_lock`
 
 const migrations: MigrationStore<Surreal> = {
   async applied(conn, table) {
@@ -234,7 +237,7 @@ export const surrealDriver: Driver<Surreal, TableDef<string, Shape>, StandaloneD
         } satisfies SurrealParams,
       }
       db = await surrealConnect(checkCfg, {})
-      cleanup = async () => {
+      cleanup = async (): Promise<void> => {
         await db.close().catch(() => {
           /* ignore close errors */
         })
@@ -258,7 +261,7 @@ export const surrealDriver: Driver<Surreal, TableDef<string, Shape>, StandaloneD
           { cause: error },
         )
       }
-      cleanup = async () => {
+      cleanup = async (): Promise<void> => {
         await db.close().catch(() => {
           /* ignore close errors */
         })

@@ -19,12 +19,12 @@
  */
 import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
-import { join } from "node:path"
+import nodePath from "node:path"
 
 const argv = process.argv.slice(2)
 const branch = argv.find((a) => !a.startsWith("-"))
-const flag = (n: string) => argv.includes(n)
-const opt = (n: string, d: string) => {
+const flag = (n: string): boolean => argv.includes(n)
+const opt = (n: string, d: string): string => {
   const i = argv.indexOf(n)
   return i >= 0 && argv[i + 1] ? argv[i + 1] : d
 }
@@ -34,7 +34,7 @@ if (!branch) {
   process.exit(1)
 }
 
-const ROOT = join(import.meta.dir, "..")
+const ROOT = nodePath.join(import.meta.dir, "..")
 const remote = opt("--remote", "origin")
 const main = `${remote}/main`
 /**
@@ -45,9 +45,11 @@ const main = `${remote}/main`
  */
 const GATE_PHASE = process.env.BS_LAND_GATE === "1"
 
-const git = (...a: string[]) => execFileSync("git", a, { cwd: ROOT, encoding: "utf8" }).trim()
-const gitIO = (...a: string[]) => execFileSync("git", a, { cwd: ROOT, stdio: "inherit" })
-const run = (cmd: string, a: string[]) => execFileSync(cmd, a, { cwd: ROOT, stdio: "inherit" })
+const git = (...a: string[]): string =>
+  execFileSync("git", a, { cwd: ROOT, encoding: "utf8" }).trim()
+const gitIO = (...a: string[]): Buffer => execFileSync("git", a, { cwd: ROOT, stdio: "inherit" })
+const run = (cmd: string, a: string[]): Buffer =>
+  execFileSync(cmd, a, { cwd: ROOT, stdio: "inherit" })
 const die = (msg: string): never => {
   console.error(`land: ${msg}`)
   process.exit(1)
@@ -90,7 +92,7 @@ function worktreeOf(b: string): null | string {
 }
 
 const wt = worktreeOf(branch)
-const isFF = (() => {
+const isFF = ((): boolean => {
   try {
     execFileSync("git", ["merge-base", "--is-ancestor", main, branch], {
       cwd: ROOT,
@@ -131,11 +133,15 @@ if (!GATE_PHASE) {
   // RE-EXEC for the gate: the copy on disk is now the MERGED script, so the gate tests the tree we
   // merged (the pre-merge copy would test packages that no longer exist).
   try {
-    execFileSync(process.execPath, [join(ROOT, "scripts/land.ts"), ...process.argv.slice(2)], {
-      cwd: ROOT,
-      env: { ...process.env, BS_LAND_GATE: "1" },
-      stdio: "inherit",
-    })
+    execFileSync(
+      process.execPath,
+      [nodePath.join(ROOT, "scripts/land.ts"), ...process.argv.slice(2)],
+      {
+        cwd: ROOT,
+        env: { ...process.env, BS_LAND_GATE: "1" },
+        stdio: "inherit",
+      },
+    )
   } catch (error) {
     // The gate phase exits non-zero when the gate fails — the child already rolled main back.
     process.exit(
@@ -204,8 +210,8 @@ if (!flag("--deploy")) {
 }
 console.log("deploying (release next)...")
 run("bun", ["scripts/release.ts", "next"])
-const newVer = (
-  JSON.parse(readFileSync(join(ROOT, "packages/better-schemic/package.json"), "utf8")) as {
+const nextVer = (
+  JSON.parse(readFileSync(nodePath.join(ROOT, "packages/better-schemic/package.json"), "utf8")) as {
     version: string
   }
 ).version
@@ -214,6 +220,6 @@ gitIO(
   ...["better-schemic", "create-better-schemic"].map((p) => `packages/${p}/package.json`),
   "bun.lock",
 )
-gitIO("commit", "-q", "-m", `chore: release ${newVer} (${branch})`)
+gitIO("commit", "-q", "-m", `chore: release ${nextVer} (${branch})`)
 gitIO("push", remote, "main")
-console.log(`deployed ${newVer}.`)
+console.log(`deployed ${nextVer}.`)

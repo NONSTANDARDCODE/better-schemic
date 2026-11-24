@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-function-return-type -- callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // s.jsonValue<T>() — a JSON column that actually parses the JSON string into T on decode.
 import { describe, expect, test } from "bun:test"
 

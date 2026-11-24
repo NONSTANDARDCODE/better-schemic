@@ -1,8 +1,8 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-unused-vars, @typescript-eslint/no-unnecessary-type-parameters -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. Type queries and callback signatures need fixture values. The Equal helper uses the canonical generic-equality idiom. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-unused-vars, @typescript-eslint/no-unnecessary-type-parameters, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. Type queries and callback signatures need fixture values. The Equal helper uses the canonical generic-equality idiom. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // The CHAINED defineConfig form (core ac74d90) with surrealConnection as the driver marker:
 // .connection(name, surrealConnection, static | (ctx, args) => config|config[]) — the resolver's
 // ctx.connections types it with the ACCUMULATED prior connections, each thenable to a full Client.
-import { setDefaultTimeout } from "bun:test"
+import { describe, expect, setDefaultTimeout, test } from "bun:test"
 
 // The workspace gate runs every package's suite IN PARALLEL — parallel-suite CPU contention can slow live
 // connects/DDL far past bun's 30s default, timing out beforeAll/afterAll hooks (reported as
@@ -10,7 +10,6 @@ import { setDefaultTimeout } from "bun:test"
 setDefaultTimeout(120_000)
 
 import { defineConfig } from "better-schemic/config"
-import { describe, expect, test } from "bun:test"
 
 import { s, table } from "../../../src/surreal"
 import { surrealConnection } from "../../../src/surreal/connection"

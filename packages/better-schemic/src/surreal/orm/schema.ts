@@ -25,14 +25,14 @@ import type {
   SchemalessMeta,
   TableMeta,
 } from "./meta"
-import type {
-  AnyFunctionDef,
-  AnyRelationDef,
-  AnyTableDef,
-  SchemaDef,
-  SchemaInput,
+import {
+  type AnyFunctionDef,
+  type AnyRelationDef,
+  type AnyTableDef,
+  SCHEMA_DEF,
+  type SchemaDef,
+  type SchemaInput,
 } from "./types/schema"
-import { SCHEMA_DEF } from "./types/schema"
 
 // --- schema branding / construction --------------------------------------------------------------
 
@@ -314,7 +314,7 @@ function build(entries: SchemaInput): SchemaIndex {
   const tableDefs: { def: AnyTableDef; key: string }[] = []
   const relationDefs: { def: AnyRelationDef; key: string }[] = []
 
-  const claim = (name: string, key: string) => {
+  const claim = (name: string, key: string): void => {
     const existing = byName.get(name)
     if (existing) {
       throw invalid(
@@ -379,7 +379,7 @@ function build(entries: SchemaInput): SchemaIndex {
 
   // Pass 2 — relation adjacency + endpoint validation.
   const adjacency = new Map<string, { incoming: EdgeRef[]; outgoing: EdgeRef[] }>()
-  const adjFor = (name: string) => {
+  const adjFor = (name: string): { incoming: EdgeRef[]; outgoing: EdgeRef[] } => {
     let a = adjacency.get(name)
     if (!a) {
       a = { incoming: [], outgoing: [] }

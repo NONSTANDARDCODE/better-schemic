@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, unicorn/consistent-function-scoping, unicorn/no-thenable -- Object key order mirrors expected serialized output and must stay as authored. Helpers stay colocated with the tests that use them. Bun test calls return thenable handles that are not awaited. */
+/* eslint-disable perfectionist/sort-objects, unicorn/consistent-function-scoping, unicorn/no-thenable, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Helpers stay colocated with the tests that use them. Bun test calls return thenable handles that are not awaited. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 // Import `s`/`table` by package name (like the CLI does) so the table types line up with the
 // `better-schemic/core`-typed signatures in cli/diff (avoids src-vs-lib duplicate-declaration errors).
 import {

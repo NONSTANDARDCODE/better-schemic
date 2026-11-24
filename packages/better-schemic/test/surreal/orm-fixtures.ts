@@ -1,4 +1,4 @@
-/* eslint-disable perfectionist/sort-objects, @typescript-eslint/require-await -- Object key order mirrors expected serialized output and must stay as authored. Mock methods match async interfaces without awaiting. */
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/require-await, @typescript-eslint/explicit-function-return-type -- Object key order mirrors expected serialized output and must stay as authored. Mock methods match async interfaces without awaiting. callbacks de teste: tipo inferido pelo saturador de assercoes; anotar cada um geraria ruido sem valor. */
 /**
  * Shared ORM unit-test fixtures: SDK-shaped `QueryResponse` builders and a recording fake
  * connection. Kept in one place so every `/orm` unit suite answers statements the same way

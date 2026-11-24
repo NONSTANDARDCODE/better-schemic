@@ -1,7 +1,6 @@
 import type { Command } from "commander"
 
-import type { KindRegistry, PortableObject } from "../kind"
-import { snapshotKinds, snapshotObjects } from "../kind"
+import { type KindRegistry, type PortableObject, snapshotKinds, snapshotObjects } from "../kind"
 
 import type { StoredSnapshot } from "./meta"
 
@@ -81,7 +80,7 @@ export const inCat = (c: Cat, name: string): boolean => c.on && (!c.names || c.n
 
 // --- kind-registry filters (the stored-snapshot path) -------------------------------------------
 
-const objKey = (o: PortableObject) => `${o.kind}:${o.name}`
+const objKey = (o: PortableObject): string => `${o.kind}:${o.name}`
 
 /** Which Filter category gates a TOP-LEVEL kind (and whose name-set its name matchs it against). */
 function category(kind: string): keyof Filter {
@@ -156,6 +155,6 @@ export function intersectKinds(
   live: PortableObject[],
   f: Filter,
 ): PortableObject[] {
-  const liveKeys = new Set(live.map(objKey))
+  const liveKeys = new Set(live.map((o) => objKey(o)))
   return disk.filter((o) => liveKeys.has(objKey(o)) && passesFilter(registry, o, f))
 }

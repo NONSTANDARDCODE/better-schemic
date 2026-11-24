@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-function-return-type, @typescript-eslint/explicit-module-boundary-types -- a API de autoria `s.*` espelha os builders genéricos do Zod (safeDecode, coerce, codec, enum, record...): anotar cada método fixaria tipos inferidos que já fluem pela inferência do Zod, tornando o contrato público mais frágil e ilegível. */
 // Type-(erased at runtime, so the authoring index stays side-effect-free): a `DEFINE ACCESS` key
 // may be an env()/secret() reference instead of an inline literal.
 
@@ -61,7 +62,7 @@ export { formatForAssert } from "./checks"
  */
 function globalSingleton<T>(key: symbol, make: () => T): T {
   const slots = globalThis as Record<symbol, T | undefined>
-  if (slots[key] === undefined) slots[key] = make()
+  slots[key] ??= make()
 
   return slots[key]
 }
@@ -366,6 +367,7 @@ export abstract class SFieldBase<
   }
   /** Register the wrapped schema in a Zod registry for metadata interop; returns the field. */
   register(...args: Parameters<S["register"]>): this {
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- Reflect.apply vincula explicitamente o `this` ao schema; o método é emprestado de propósito
     Reflect.apply(this.schema.register, this.schema, args)
     return this
   }
@@ -757,7 +759,7 @@ export class SField<
   $regex(re: RegExp | string, flags?: string): SField<S, Flags> {
     if (this.schemaType === "string") {
       const value = compileRegex(re, flags)
-      const suffix = flags === undefined ? "" : flags
+      const suffix = flags ?? ""
       return this.constrain("regex", value, `$value = /${value.source}/${suffix}`)
     }
     return this
@@ -1685,7 +1687,7 @@ export class RecordIdField<
    * values — those throw guidance toward `surql.record(Table, [e.after.id])`, the fragment
    * spelling. */
   for(idOrTable: T | V, id?: V): RecordId<T, V> {
-    if (hasRefDeep(id === undefined ? idOrTable : id)) {
+    if (hasRefDeep(id ?? idOrTable)) {
       throw new Error(
         `${this.tables[0]}.record().for(...) builds a RecordId from LOCAL VALUES — a query-time reference can't be one. For a spliced record id in a query/event, use surql.record(Table, [e.after.id]).`,
       )
@@ -1981,7 +1983,9 @@ export const s = {
     discriminator: Disc,
     options: T,
   ): SField<z.ZodDiscriminatedUnion<ZodsOf<T>, Disc>> =>
-    new SField(z.discriminatedUnion(discriminator, options.map(toZod) as never)),
+    new SField(
+      z.discriminatedUnion(discriminator, options.map((option) => toZod(option)) as never),
+    ),
   domain: () => formatField(z.string(), "domain"),
   /** Surreal `duration` (a `Duration` instance). */
   duration: () => new SField(native(z.instanceof(Duration), "duration")),
@@ -2223,7 +2227,8 @@ export const s = {
   /** A fixed-length tuple of fields/schemas. */
   tuple: <const T extends readonly [AnyField | z.ZodType, ...(AnyField | z.ZodType)[]]>(
     items: T,
-  ): SField<z.ZodTuple<ZodsOf<T>>> => new SField(z.tuple(items.map(toZod) as ZodsOf<T>)),
+  ): SField<z.ZodTuple<ZodsOf<T>>> =>
+    new SField(z.tuple(items.map((item) => toZod(item)) as ZodsOf<T>)),
 
   uint32: (params?: Parameters<typeof z.uint32>[0]) => new SField(z.uint32(params)),
 
@@ -2235,7 +2240,8 @@ export const s = {
   /** A union of fields/schemas. */
   union: <const T extends readonly [AnyField | z.ZodType, ...(AnyField | z.ZodType)[]]>(
     options: T,
-  ): SField<z.ZodUnion<ZodsOf<T>>> => new SField(z.union(options.map(toZod) as ZodsOf<T>)),
+  ): SField<z.ZodUnion<ZodsOf<T>>> =>
+    new SField(z.union(options.map((option) => toZod(option)) as ZodsOf<T>)),
 
   unknown: () => new SField(z.unknown()),
   url: (params?: Parameters<typeof z.url>[0]) => formatField(z.url(params), "url"),
@@ -2252,7 +2258,7 @@ export const s = {
   /** An EXCLUSIVE union (Zod `z.xor`) — one option may match. DDL is the union of the options
    *  (SurrealDB can't express " one" in DDL; the exclusivity enforcs it app-side). */
   xor: <const T extends readonly [AnyField | z.ZodType, ...(AnyField | z.ZodType)[]]>(options: T) =>
-    new SField(z.xor(options.map(toZod) as ZodsOf<T>)),
+    new SField(z.xor(options.map((option) => toZod(option)) as ZodsOf<T>)),
 }
 
 // --- Tables & relations ---
@@ -4716,7 +4722,8 @@ function resolveEventExpr<S extends Shape>(v: EventExpr<S>): Expr
 function resolveEventExpr<S extends Shape>(v: EventThen<S>): Expr | Expr[]
 function resolveEventExpr<S extends Shape>(v: EventThen<S>): Expr | Expr[] {
   const r = typeof v === "function" ? (v as (e: EventCtx<S>) => unknown)(eventCtx<S>()) : v
-  return (Array.isArray(r) ? r.map(toQueryValue) : toQueryValue(r)) as Expr | Expr[]
+  return (Array.isArray(r) ? r.map((value) => toQueryValue(value)) : toQueryValue(r)) as
+    Expr | Expr[]
 }
 
 /** The typed context a FIELD-clause callback receives (`$default`/`$value`/`$computed`/`$assert`). */
@@ -5712,7 +5719,7 @@ export type Wire<T> = z.input<ZodOf<T>>
  * - `s.infer<T>` / `s.output<T>` / `s.type<T>` -> the decoded **app** type (== `App<T>`)
  *   - `s.input<T>`                                   -> the **wire/DB** type (== `Wire<T>`)
  */
-// eslint-disable-next-line @typescript-eslint/no-namespace -- `s` é a API de autoria pública (namespace intencional)
+// eslint-disable-next-line @typescript-eslint/no-namespace, @typescript-eslint/no-redeclare -- `s` é a API de autoria pública (namespace de tipos intencionalmente mesclado com o valor)
 export namespace s {
   export type infer<T> = z.output<ZodOf<T>>
   export type output<T> = z.output<ZodOf<T>>

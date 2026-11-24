@@ -6,7 +6,7 @@
  * conventions; this command resolves the project ONCE and drives both generators against it.
  */
 import { existsSync, readFileSync, watch as fsWatch, writeFileSync } from "node:fs"
-import { dirname, relative, resolve } from "node:path"
+import nodePath from "node:path"
 
 import type { ResolvedConfig } from "../core"
 import { type GeneratedOpts, ignorePatterns, writeIgnores } from "../core/cli-kit/generated"
@@ -36,7 +36,7 @@ export type GenerateResult = {
 }
 
 const MODULE_SPEC = (from: string, to: string): string => {
-  const spec = relative(dirname(from), to).replaceAll("\\", "/")
+  const spec = nodePath.relative(nodePath.dirname(from), to).replaceAll("\\", "/")
   return spec.startsWith("../") ? spec : `./${spec}`
 }
 
@@ -109,7 +109,7 @@ export async function generateWith(
     installedIn.push(orm)
 
   ;(aotSettings?.importIn ?? []).forEach((entry) => {
-    const file = resolve(config.root, entry)
+    const file = nodePath.resolve(config.root, entry)
     if (aot && insertBootstrapImport(file, MODULE_SPEC(file, aot.bootstrap))) installedIn.push(file)
   })
 
@@ -140,7 +140,10 @@ export async function generate(opts: GenerateOpts): Promise<GenerateResult> {
 
   // Watch app SOURCE files — generated files live under `.better-schemic/`, so re-running on our
   // own output would loop forever. One debounced re-run covers multi-file edits.
-  const watched = resolve(config.root, dirname(relative(config.root, config.schemaPath)))
+  const watched = nodePath.resolve(
+    config.root,
+    nodePath.dirname(nodePath.relative(config.root, config.schemaPath)),
+  )
   const rerun = debounce(() => {
     void generateWith(config, opts).catch((error: unknown) => {
       console.error(error instanceof Error ? error.message : String(error))

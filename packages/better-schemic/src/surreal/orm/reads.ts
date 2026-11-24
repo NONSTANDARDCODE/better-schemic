@@ -9,19 +9,21 @@ import { RecordId, type RecordIdValue } from "surrealdb"
 import { escapeIdentSafe as escapeIdent } from "../ident"
 import { bareIdValue } from "../pure"
 
-import type {
-  AggregateArgs as AggregateRuntimeArgs,
-  CountArgs as CountRuntimeArgs,
+import {
+  type AggregateArgs as AggregateRuntimeArgs,
+  compileAggregate,
+  compileCount,
+  compileExists,
+  type CountArgs as CountRuntimeArgs,
 } from "./compiler/aggregate"
-import { compileAggregate, compileCount, compileExists } from "./compiler/aggregate"
 import type { CursorKey } from "./compiler/keyset"
-import type {
-  CursorArgs as CursorRuntimeArgs,
-  PaginateArgs as PaginateRuntimeArgs,
+import {
+  compileCursor,
+  compilePaginate,
+  type CursorArgs as CursorRuntimeArgs,
+  type PaginateArgs as PaginateRuntimeArgs,
 } from "./compiler/pagination"
-import { compileCursor, compilePaginate } from "./compiler/pagination"
-import type { CompileReadOptions, ReadArgs } from "./compiler/select"
-import { compileRead } from "./compiler/select"
+import { compileRead, type CompileReadOptions, type ReadArgs } from "./compiler/select"
 import {
   baseColumn,
   type Binds,
@@ -44,6 +46,7 @@ import {
   type ExplainKey,
   type ExplainResult,
   lazyResult,
+  type SqlPreview,
   type ThrowingResult,
 } from "./results"
 import type { OperationContext } from "./types/context"
@@ -471,7 +474,7 @@ async function explainPrepared(
  * gets `.explain()` attached (which runs EXPLAIN without starting the real statement).
  */
 function finishRead(ctx: DelegateContext, prepared: PreparedRead): unknown {
-  const preview = () =>
+  const preview = (): SqlPreview =>
     sqlPreview(
       prepared.statements.map((entry) => entry.statement),
       {

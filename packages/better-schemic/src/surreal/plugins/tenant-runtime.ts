@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-function-return-type, @typescript-eslint/explicit-module-boundary-types -- o tipo de retorno concreto do spec do plugin (extendModel/extra de estado) é inferido por `definePlugin` e precisa fluir para o delegate; anotá-lo como `Plugin` apagaria `$forTenant` e os extras para o consumidor. */
 /**
  * The `tenantRls` runtime half of `plugins/tenant` — client-side row-level tenant isolation for
  * PRIVILEGED sessions (where `$auth`/DDL permissions do not filter). Reads the `meta.tenant` marker
@@ -152,7 +153,7 @@ function resolveScope(op: Operation, options: TenantRlsOptions): TenantRef | und
 
   const configured = options.tenant
   const value = typeof configured === "function" ? configured() : configured
-  return value == null ? undefined : value
+  return value ?? undefined
 }
 
 /** Normalize a `TenantRef` to a `RecordId`, validating it against the table's principal. */

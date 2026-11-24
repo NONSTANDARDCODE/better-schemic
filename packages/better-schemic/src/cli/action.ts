@@ -10,7 +10,7 @@ import { fail, style } from "../core"
 const debugEnabled = (): boolean =>
   !!process.env.BETTER_SCHEMIC_DEBUG || !!process.env.SCHEMIC_DEBUG
 
-const errMsg = (err: unknown) => (err instanceof Error ? err.message : safeText(err))
+const errMsg = (err: unknown): string => (err instanceof Error ? err.message : safeText(err))
 
 /** Stringify an unknown thrown value without relying on Object's default `[object Object]`. */
 function safeText(v: unknown): string {
