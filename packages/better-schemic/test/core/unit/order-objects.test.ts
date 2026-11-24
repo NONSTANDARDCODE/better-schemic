@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
 // `orderObjects` — the generic Kahn sort with cluster/ordinal presentation. The heap-based
 // implementation must match the original "filter + sort every round" semantics , so this
 // suite pins it against a verbatim reference on seeded random graphs (plus the edge cases).
@@ -13,8 +14,8 @@ function reference<T extends OrderNode>(nodes: T[], ordinalOf: (kind: string) =>
   const indeg = new Map(nodes.map((n) => [refKey(n), 0]))
   const dependents = new Map<string, string[]>()
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const n of nodes)
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const n of nodes) {
+    // eslint-disable-next-line functional/no-loop-statements -- inner walk uses mutable accumulators
     for (const d of n.deps) {
       if (!byKey.has(refKey(d))) continue
       indeg.set(refKey(n), (indeg.get(refKey(n)) ?? 0) + 1)
@@ -22,6 +23,7 @@ function reference<T extends OrderNode>(nodes: T[], ordinalOf: (kind: string) =>
       list.push(refKey(n))
       dependents.set(refKey(d), list)
     }
+  }
   const out: T[] = []
   const done = new Set<string>()
   let group: string | undefined
@@ -34,7 +36,7 @@ function reference<T extends OrderNode>(nodes: T[], ordinalOf: (kind: string) =>
       const bo = b.owner && refKey(b.owner) === group ? 0 : 1
       return ao - bo || ordinalOf(a.kind) - ordinalOf(b.kind) || refKey(a).localeCompare(refKey(b))
     })
-    const next = ready[0] as T
+    const next = ready[0]
     out.push(next)
     done.add(refKey(next))
     if (!next.owner) group = refKey(next)
@@ -72,8 +74,8 @@ describe("orderObjects", () => {
   test("matches the reference on seeded random graphs (parity fuzz)", () => {
     let seed = 42
     const rnd = () => {
-      seed = (seed * 1_103_515_245 + 12_345) & 0x7f_ff_ff_ff
-      return seed / 0x7f_ff_ff_ff
+      seed = (seed * 1_103_515_245 + 12_345) & 2_147_483_647
+      return seed / 2_147_483_647
     }
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (let trial = 0; trial < 200; trial++) {
@@ -86,19 +88,19 @@ describe("orderObjects", () => {
         // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
         for (let d = 0; d < count; d++) {
           const j = Math.floor(rnd() * i)
-          const prior = nodes[j] as OrderNode
+          const prior = nodes[j]
           deps.push({ kind: prior.kind, name: prior.name })
         }
         const ownerIdx = Math.floor(rnd() * i)
         const owner =
           i > 0 && rnd() < 0.4
             ? {
-                kind: (nodes[ownerIdx] as OrderNode).kind,
-                name: (nodes[ownerIdx] as OrderNode).name,
+                kind: nodes[ownerIdx].kind,
+                name: nodes[ownerIdx].name,
               }
             : undefined
         nodes.push({
-          kind: KINDS[Math.floor(rnd() * KINDS.length)] as string,
+          kind: KINDS[Math.floor(rnd() * KINDS.length)],
           name: `o${i}`,
           deps,
           owner,

@@ -4,6 +4,7 @@
  * this validation can  live here, not in the type system.
  */
 import type { ModelMeta } from "../meta"
+
 import { compileError, isPlainObject, isTableMeta, recordIdParts, uniqueFields } from "./shared"
 
 /** The resolved target of a `findUnique` where. */
@@ -25,7 +26,7 @@ export type UniqueTarget =
 /**
  * Resolve a `findUnique` where to its unique target (or throw `UniqueTargetRequired`).
  *
- * Three shapes qualify, all of them proving at most ONE record: the `id`, a single-field UNIQUE
+ * Three shapes qualify, each proving at most ONE record: the `id`, a single-field UNIQUE
  * column, or a conjunction covering a composite UNIQUE index (`{ tenant_id, name }`).
  */
 export function uniqueTarget(
@@ -41,7 +42,7 @@ export function uniqueTarget(
       operation,
     )
   }
-  const entries = Object.entries(where).filter(([, v]) => v !== undefined) as [string, unknown][]
+  const entries = Object.entries<unknown>(where).filter(([, v]) => v !== undefined)
   if (entries.length === 0) {
     throw uniqueError(
       meta,
@@ -52,22 +53,20 @@ export function uniqueTarget(
   }
   if (entries.length === 1) {
     const [key, value] = entries[0]
-    if (key === "id") {
-      return { kind: "id", id: idText(meta, value, operation) }
-    }
+    if (key === "id") return { id: idText(meta, value, operation), kind: "id" }
+
     if (uniqueFields(meta).includes(key)) {
       return {
-        kind: "field",
         field: key,
+        kind: "field",
         value: pureValue(meta, key, value, operation),
       }
     }
     throw uniqueError(meta, `"${key}" is not unique`, where, operation)
   }
   const group = compositeTarget(meta, entries)
-  if (group) {
-    return group
-  }
+  if (group) return group
+
   // Not a composite match: teach the closest thing that would work.
   const partial = entries
     .map(([key]) => key)
@@ -101,24 +100,22 @@ function compositeTarget(
   meta: ModelMeta,
   entries: readonly (readonly [string, unknown])[],
 ): undefined | UniqueTarget {
-  if (!isTableMeta(meta)) {
-    return undefined
-  }
+  if (!isTableMeta(meta)) return undefined
+
   const keys = new Set(entries.map(([key]) => key))
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const group of meta.uniqueGroups) {
     const covers = group.length === entries.length && group.every((f) => keys.has(f))
-    if (!covers) {
-      continue
-    }
+    if (!covers) continue
+
     const byName = new Map(entries)
     return {
-      kind: "index",
-      index: group.join("_"),
       entries: group.map((field) => {
         const value = byName.get(field)
         return [field, pureValue(meta, field, value, "unique target")] as const
       }),
+      index: group.join("_"),
+      kind: "index",
     }
   }
   return undefined
@@ -126,17 +123,15 @@ function compositeTarget(
 
 /** The composite UNIQUE group a field belongs to (used for the teaching message). */
 function uniqueGroupContaining(meta: ModelMeta, field: string): readonly string[] | undefined {
-  if (!isTableMeta(meta)) {
-    return undefined
-  }
+  if (!isTableMeta(meta)) return undefined
+
   return meta.uniqueGroups.find((group) => group.includes(field))
 }
 
 /** Require `field` to be a single-field UNIQUE index (upsert/upsertMany conflict targets). */
 export function requireUniqueField(meta: ModelMeta, field: string, operation: string): void {
-  if (uniqueFields(meta).includes(field)) {
-    return
-  }
+  if (uniqueFields(meta).includes(field)) return
+
   throw uniqueError(meta, `"${field}" is not unique`, { [field]: true }, operation)
 }
 
@@ -159,20 +154,20 @@ function uniqueError(
   return compileError(
     "UniqueTargetRequired",
     `${operation} on "${meta.name}": ${reason}.${suffix}`,
-    { table: meta.name, operation, details: where },
+    { details: where, operation, table: meta.name },
   )
 }
 
 /** The `<id>` text of an id filter (`user:aeon` / a bare id), validated against the table. */
 function idText(meta: ModelMeta, value: unknown, operation: string): string {
   const unwrapped = isPlainObject(value) ? value.equals : value
-  if (unwrapped === undefined || isPlainObject(unwrapped)) {
+  if (unwrapped === undefined || isPlainObject(unwrapped))
     throw uniqueError(meta, "where.id must be a record id value", value, operation)
-  }
+
   return recordIdParts(unwrapped, operation, {
     fallbackTable: meta.name,
-    table: meta.name,
     field: "id",
+    table: meta.name,
     what: "where.id value",
   }).id
 }
@@ -181,9 +176,8 @@ function idText(meta: ModelMeta, value: unknown, operation: string): string {
 function pureValue(meta: ModelMeta, field: string, value: unknown, operation: string): unknown {
   if (isPlainObject(value)) {
     const entries = Object.entries(value).filter(([, v]) => v !== undefined)
-    if (entries.length === 1 && entries[0]?.[0] === "equals") {
-      return entries[0][1]
-    }
+    if (entries.length === 1 && entries[0]?.[0] === "equals") return entries[0][1]
+
     throw uniqueError(
       meta,
       `"${field}" must be compared for equality (operators can't prove uniqueness)`,

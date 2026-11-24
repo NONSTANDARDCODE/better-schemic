@@ -10,21 +10,15 @@ import { RecordId } from "surrealdb"
 
 import type { Ctx } from "../../pure"
 import { fragOf } from "../../pure"
-import { type Expr, isExpr, lowerExpr, mkRef } from "../../surql/predicate"
-import { decodeRows } from "../decode"
-import type { ModelMeta, SchemaIndex, TableMeta } from "../meta"
+import { isExpr, lowerExpr, mkRef } from "../../surql/predicate"
+import type { ModelMeta, SchemaIndex } from "../meta"
+
 import { compileProjection } from "./projection"
-import {
-  classifyWhereByOwner,
-  edgeMeta,
-  edgeTraversal,
-  resolveEdge,
-  targetMetas,
-} from "./relations"
-import { type Binds, compileError, createBinds } from "./shared"
+import { classifyWhereByOwner, edgeMeta, edgeTraversal, targetMetas } from "./relations"
+import { type Binds, isTableMeta } from "./shared"
 import { compileWhere } from "./where"
 
-export interface GraphStep {
+export type GraphStep = {
   readonly direction: "both" | "in" | "out"
   /** Compiled edge-side filter (undefined = none). */
   edgeFilter?: string
@@ -33,26 +27,34 @@ export interface GraphStep {
   readonly kind?: "edge" | "node"
   readonly opts?: { readonly where?: unknown }
   readonly rawWhere?: unknown
-  /** Compiled target-side filter (undefined = none). */
+  /** Target-side filter, once compiled. */
   targetFilter?: string
   /** Physical target table names this step reaches. */
   targets: readonly string[]
 }
 
-export interface GraphBuilderState {
+/** Options of a `repeat(...)` wrapper: the flags the emitter reads. */
+type RepeatOpts = {
+  readonly collect?: boolean
+  readonly paths?: boolean
+  readonly shortest?: unknown
+  readonly where?: unknown
+}
+
+export type GraphBuilderState = {
   readonly anchor: unknown
   readonly distinct?: boolean
   readonly finalWhere?: unknown // object or Expr
   readonly repeat?: {
-    readonly depth: any
-    readonly opts?: any
+    readonly depth: unknown
+    readonly opts?: RepeatOpts
     readonly steps: readonly GraphStep[]
   }
   readonly select?: unknown // object or callback result
   readonly steps: GraphStep[]
 }
 
-export interface CompiledGraph {
+export type CompiledGraph = {
   readonly binds: Binds
   readonly finalMeta: ModelMeta
   readonly spec: ReturnType<typeof compileProjection>["spec"]
@@ -60,9 +62,8 @@ export interface CompiledGraph {
 }
 
 function parseAnchor(anchor: unknown): unknown {
-  if (anchor instanceof RecordId) {
-    return anchor
-  }
+  if (anchor instanceof RecordId) return anchor
+
   if (typeof anchor === "string") {
     const idx = anchor.indexOf(":")
     if (idx > 0) {
@@ -87,10 +88,10 @@ export function compileGraph(
   builder: GraphBuilderState & { readonly _binds?: Binds },
   binds: Binds,
   operation = "graph",
-): { binds: Binds; finalMeta: ModelMeta; spec: any; sql: string } {
+): CompiledGraph {
   const index = ctx.index
 
-  const activeSteps = builder.repeat ? (builder.repeat.steps as any[]) : (builder.steps as any[])
+  const activeSteps = builder.repeat ? builder.repeat.steps : builder.steps
   // Resolve steps' filters into SQL using the shared binds.
   const steps = activeSteps.map((s) => ({ ...s }))
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
@@ -98,21 +99,18 @@ export function compileGraph(
     // edgeRawWhere (attached via .where() while the step was still an edge) → edge filter
     const eraw = step.edgeRawWhere
     if (eraw !== undefined && eraw !== null) {
-      if (isExpr(eraw)) {
-        const c: Ctx = { vars: binds.vars }
-        step.edgeFilter = mergeFilter(step.edgeFilter, lowerExpr(eraw, c))
-      } else {
-        const em = edgeMeta(index, step.edgeName)
-        const sql = compileWhere(eraw, binds, { meta: em, index, operation })
-        if (sql) {
-          step.edgeFilter = mergeFilter(step.edgeFilter, sql)
-        }
-      }
+      const sql = isExpr(eraw)
+        ? lowerExpr(eraw, { vars: binds.vars })
+        : compileWhere(eraw, binds, {
+            index,
+            meta: edgeMeta(index, step.edgeName),
+            operation,
+          })
+      if (sql) step.edgeFilter = mergeFilter(step.edgeFilter, sql)
     }
     const where = step.opts?.where ?? step.rawWhere
-    if (where === undefined || where === null) {
-      continue
-    }
+    if (where === undefined || where === null) continue
+
     if (step.kind === "edge") {
       if (isExpr(where)) {
         const c: Ctx = { vars: binds.vars }
@@ -120,10 +118,9 @@ export function compileGraph(
         continue
       }
       const em = edgeMeta(index, step.edgeName)
-      const sql = compileWhere(where, binds, { meta: em, index, operation })
-      if (sql) {
-        step.edgeFilter = mergeFilter(step.edgeFilter, sql)
-      }
+      const sql = compileWhere(where, binds, { index, meta: em, operation })
+      if (sql) step.edgeFilter = mergeFilter(step.edgeFilter, sql)
+
       continue
     }
     if (isExpr(where)) {
@@ -134,74 +131,51 @@ export function compileGraph(
     const em = edgeMeta(index, step.edgeName)
     const tms = targetMetas(index, step.targets)
     const owned = classifyWhereByOwner({
-      where,
+      context: `graph.${step.direction}`,
       edge: em,
-      targets: tms,
       idOwner: "target",
       operation,
-      context: `graph.${step.direction}`,
+      targets: tms,
+      where,
     })
     if (owned.edge) {
       const sql = compileWhere(owned.edge, binds, {
-        meta: em,
         index,
+        meta: em,
         operation,
       })
-      if (sql) {
-        step.edgeFilter = mergeFilter(step.edgeFilter, sql)
-      }
+      if (sql) step.edgeFilter = mergeFilter(step.edgeFilter, sql)
     }
     if (owned.target) {
       const sql = compileWhere(owned.target, binds, {
-        meta: tms[0],
         index,
+        meta: tms[0],
         operation,
       })
-      if (sql) {
-        step.targetFilter = mergeFilter(step.targetFilter, sql)
-      }
+      if (sql) step.targetFilter = mergeFilter(step.targetFilter, sql)
     }
     if (owned.fragment) {
       // fragment → target side
       const sql = compileWhere(owned.fragment, binds, {
-        meta: tms[0],
         index,
+        meta: tms[0],
         operation,
       })
-      if (sql) {
-        step.targetFilter = mergeFilter(step.targetFilter, sql)
-      }
+      if (sql) step.targetFilter = mergeFilter(step.targetFilter, sql)
     }
   }
 
-  // Build path.
-  const stepPath = steps
-    .map((s) =>
-      edgeTraversal({
-        edge: s.edgeName,
-        direction: s.direction,
-        edgeFilter: s.edgeFilter,
-        targets: s.kind === "edge" ? undefined : s.targets,
-        targetFilter: s.targetFilter,
-      }),
-    )
-    .join("")
-
   // Final node meta.
   let finalMeta: ModelMeta = meta
-  const lastStepSource = builder.repeat ? (builder.repeat.steps as any[]) : steps
-  if (lastStepSource.length > 0) {
-    const last = lastStepSource.at(-1)
+  const lastStepSource = builder.repeat ? builder.repeat.steps : steps
+  const last = lastStepSource.at(-1)
+  if (last !== undefined) {
     if (last.kind === "edge") {
       const em = edgeMeta(index, last.edgeName)
-      if (em) {
-        finalMeta = em
-      }
+      if (em) finalMeta = em
     } else {
       const tms = targetMetas(index, last.targets)
-      if (tms.length > 0) {
-        finalMeta = tms[0]
-      }
+      if (tms.length > 0) finalMeta = tms[0]
     }
   }
 
@@ -220,41 +194,39 @@ export function compileGraph(
         finalWhereSql = lowerExpr(res, c)
       } else {
         const sql = compileWhere(res, binds, {
-          meta: finalMeta as any,
           index,
+          meta: isTableMeta(finalMeta) ? finalMeta : undefined,
           operation,
         })
         finalWhereSql = sql ?? undefined
       }
     } else {
       const sql = compileWhere(builder.finalWhere, binds, {
-        meta: finalMeta as any,
         index,
+        meta: isTableMeta(finalMeta) ? finalMeta : undefined,
         operation,
       })
       finalWhereSql = sql ?? undefined
     }
   }
 
-  const targetSteps = builder.repeat ? (builder.repeat.steps as any[]) : steps
+  const targetSteps = builder.repeat ? builder.repeat.steps : steps
   if (finalWhereSql) {
-    if (targetSteps.length > 0) {
-      const last = targetSteps.at(-1)
-      last.targetFilter = mergeFilter(last.targetFilter, finalWhereSql)
-    } else {
+    const last = targetSteps.at(-1)
+    if (last === undefined) {
       // zero-hop: cannot filter anchor; leave as-is (documented limitation)
-    }
+    } else last.targetFilter = mergeFilter(last.targetFilter, finalWhereSql)
   }
 
   // Rebuild path after mutating last step's targetFilter.
   const finalStepPath = targetSteps
     .map((s) =>
       edgeTraversal({
-        edge: s.edgeName,
         direction: s.direction,
+        edge: s.edgeName,
         edgeFilter: s.edgeFilter,
-        targets: s.kind === "edge" ? undefined : s.targets,
         targetFilter: s.targetFilter,
+        targets: s.kind === "edge" ? undefined : s.targets,
       }),
     )
     .join("")
@@ -263,37 +235,33 @@ export function compileGraph(
   let finalPath: string
   if (builder.repeat) {
     const r = builder.repeat
-    const min = r.depth?.min ?? (typeof r.depth === "number" ? r.depth : undefined)
-    const max = r.depth?.max ?? (typeof r.depth === "number" ? r.depth : undefined)
+    const depth = r.depth
+    const rangeSpec =
+      typeof depth === "object" && depth !== null
+        ? (depth as { readonly max?: number; readonly min?: number })
+        : undefined
+    const numeric = typeof depth === "number" ? depth : undefined
+    const min = rangeSpec?.min ?? numeric
+    const max = rangeSpec?.max ?? numeric
     let range: string
-    if (min !== undefined && max !== undefined) {
-      if (min === max) {
-        range = `${min}`
-      } else {
-        range = `${min}..${max}`
-      }
-    } else if (min !== undefined) {
-      range = `${min}..`
-    } else if (max === undefined) {
-      range = ".."
-    } else {
-      range = `..${max}`
-    }
-    const opts = r.opts ?? {}
+    if (min !== undefined && max !== undefined) range = min === max ? `${min}` : `${min}..${max}`
+    else if (min !== undefined) range = `${min}..`
+    else if (max === undefined) range = ".."
+    else range = `..${max}`
+
+    const opts: RepeatOpts = r.opts ?? {}
     let suffix = ""
-    if (opts.collect) {
-      suffix += "+collect"
-    }
-    if (opts.paths) {
-      suffix += "+path"
-    }
+    if (opts.collect) suffix += "+collect"
+
+    if (opts.paths) suffix += "+path"
+
     if (opts.shortest) {
+      // eslint-disable-next-line @typescript-eslint/no-base-to-string -- shortest aceita alvos opacos do DSL
       suffix += `+shortest=${opts.shortest}`
     }
+
     finalPath = `{${range}${suffix}}(${finalStepPath})`
-  } else {
-    finalPath = finalStepPath
-  }
+  } else finalPath = finalStepPath
 
   // Select handling.
   let selectArg: unknown = builder.select
@@ -305,7 +273,7 @@ export function compileGraph(
   }
 
   const hasSelect = selectArg !== undefined && selectArg !== null
-  const { text: projText, spec } = compileProjection(
+  const { spec, text: projText } = compileProjection(
     finalMeta,
     hasSelect ? selectArg : undefined,
     undefined,
@@ -314,63 +282,49 @@ export function compileGraph(
     operation,
   )
 
-  const traversalExpr = finalPath
-    ? builder.repeat
-      ? hasSelect
-        ? `${finalPath}.{${projText}}`
-        : finalPath
-      : hasSelect
-        ? `${finalPath}.{${projText}}`
-        : `${finalPath}.*`
-    : hasSelect
-      ? projText
-      : "*"
+  let traversalExpr: string
+  if (!finalPath) traversalExpr = hasSelect ? projText : "*"
+  else if (builder.repeat) traversalExpr = hasSelect ? `${finalPath}.{${projText}}` : finalPath
+  else traversalExpr = hasSelect ? `${finalPath}.{${projText}}` : `${finalPath}.*`
 
+  // Bind the anchor AFTER the filters so $p numbering follows clause order.
   const anchorSql = binds.add(parseAnchor(anchor))
-  // anchor param already added; but we added after path filters? binds order doesn't matter for SQL text; ensure param ref.
-  // We need the param reference text. Re-add is wrong; instead use the already added? We added now, returns ref. Capture.
-  // Oops: we already called binds.add inside expression above? No, we called binds.add(parseAnchor(anchor)) as part of anchorSql assignment? Actually above anchorSql = binds.add(...) returns "$pN". Good.
 
   const distinct = builder.distinct ? "DISTINCT " : ""
   const sql = `SELECT ${distinct}VALUE ${traversalExpr} FROM ONLY ${anchorSql}`
 
-  return { sql, binds, finalMeta, spec }
+  return { binds, finalMeta, spec, sql }
 }
 
 function mergeFilter(a: string | undefined, b: string | undefined): string | undefined {
-  if (a && b) {
-    return `(${a}) AND (${b})`
-  }
+  if (a && b) return `(${a}) AND (${b})`
+
   return a ?? b
 }
 
-function makeNodeProxy(): any {
+function makeNodeProxy(): unknown {
   return new Proxy(
     {},
     {
       get(_t, key) {
-        if (typeof key !== "string" || key === "then") {
-          return undefined
-        }
-        return mkRef({ root: { col: key }, kind: "other" })
+        if (typeof key !== "string" || key === "then") return
+
+        // eslint-disable-next-line @typescript-eslint/consistent-return -- o proxy retorna undefined para chaves especiais
+        return mkRef({ kind: "other", root: { col: key } })
       },
     },
   )
 }
 
 function convertSelect(value: unknown): unknown {
-  if (value === null || value === undefined) {
-    return value
-  }
-  if (Array.isArray(value)) {
-    return value.map(convertSelect)
-  }
-  if (typeof value === "function") {
-    return value
-  }
-  if (typeof value !== "object") {
-    return value
-  }
+  if (value === null || value === undefined) return value
+
+  if (Array.isArray(value)) return value.map(convertSelect)
+
+  if (typeof value === "function") return value
+
+  if (typeof value !== "object") return value
+
   const out: Record<string, unknown> = {}
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
@@ -379,5 +333,3 @@ function convertSelect(value: unknown): unknown {
   }
   return out
 }
-
-// (makeNodeProxy uses it above)

@@ -18,7 +18,7 @@ import { pathToFileURL } from "node:url"
 
 import { resolveTsgo } from "./tsgo"
 
-export interface PackageBuild {
+export type PackageBuild = {
   /** Bundle the package's dependencies into the output (self-contained bins). Default: external. */
   bundleDependencies?: boolean
   /** Emit declarations with `tsgo -p <file>` (e.g. `tsconfig.build.json`). */
@@ -47,9 +47,9 @@ const SHEBANG = "#!/usr/bin/env node\n"
 async function main(): Promise<void> {
   const pkgDir = process.cwd()
   const configPath = join(pkgDir, "build.config.ts")
-  if (!(await Bun.file(configPath).exists())) {
+  if (!(await Bun.file(configPath).exists()))
     throw new Error(`no build.config.ts in ${pkgDir} — run this from a package root.`)
-  }
+
   const { default: config } = (await import(pathToFileURL(configPath).href)) as {
     default: PackageBuild
   }
@@ -75,9 +75,8 @@ async function main(): Promise<void> {
 
   if (!result.success) {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const log of result.logs) {
-      console.error(`[build] ${log.level}: ${log.message}`)
-    }
+    for (const log of result.logs) console.error(`[build] ${log.level}: ${log.message}`)
+
     process.exit(1)
   }
 
@@ -97,17 +96,13 @@ async function main(): Promise<void> {
       : null
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const output of result.outputs) {
-      if (output.kind !== "entry-point" || !output.path.endsWith(".js")) {
-        continue
-      }
-      if (shebangOutputs && !shebangOutputs.has(output.path)) {
-        continue
-      }
+      if (output.kind !== "entry-point" || !output.path.endsWith(".js")) continue
+
+      if (shebangOutputs && !shebangOutputs.has(output.path)) continue
+
       const source = await output.text()
       // Bun.build has no `banner` in every Bun version we support — own the shebang instead.
-      if (!source.startsWith("#!")) {
-        await Bun.write(output.path, SHEBANG + source)
-      }
+      if (!source.startsWith("#!")) await Bun.write(output.path, SHEBANG + source)
     }
   }
 
@@ -119,6 +114,7 @@ async function main(): Promise<void> {
     })
     if (proc.exitCode !== 0) {
       console.error(`[build] declarations failed: tsgo -p ${config.dts}`)
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- `exitCode` pode ser null em runtime quando o processo foi sinalizado.
       process.exit(proc.exitCode ?? 1)
     }
   }
@@ -132,6 +128,4 @@ async function main(): Promise<void> {
 }
 
 // `build.config.ts` imports `defineBuild` from this module — never run the build on a bare import.
-if (import.meta.main) {
-  await main()
-}
+if (import.meta.main) await main()

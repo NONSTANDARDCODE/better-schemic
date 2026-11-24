@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
 import { describe, expect, test } from "bun:test"
 import { RecordId } from "surrealdb"
 import { z } from "zod"

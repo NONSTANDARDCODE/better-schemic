@@ -2,6 +2,7 @@ import type { Command } from "commander"
 
 import type { KindRegistry, PortableObject } from "../kind"
 import { snapshotKinds, snapshotObjects } from "../kind"
+
 import type { StoredSnapshot } from "./meta"
 
 /**
@@ -10,13 +11,13 @@ import type { StoredSnapshot } from "./meta"
  * unless `--access` gives it — so an introspection (which redacts access signing keys) can't
  *  rotate them. Table-scoped objects (fields/indexes/events) follow their table.
  */
-interface Cat {
+type Cat = {
   /** When set, these names of the kind include them. */
   names?: Set<string>
   on: boolean
 }
 
-export interface Filter {
+export type Filter = {
   access: Cat
   events: Cat
   functions: Cat
@@ -26,7 +27,7 @@ export interface Filter {
 /** Commander's parse of one `--kind [names]` / `--no-kind` flag: `undefined`/`true`/string/`false`. */
 type FlagValue = boolean | string | undefined
 
-export interface FilterOpts {
+export type FilterOpts = {
   access?: FlagValue
   events?: FlagValue
   functions?: FlagValue
@@ -34,15 +35,12 @@ export interface FilterOpts {
 }
 
 function cat(v: FlagValue, defaultOn: boolean): Cat {
-  if (v === undefined) {
-    return { on: defaultOn }
-  }
-  if (v === false) {
-    return { on: false }
-  }
-  if (v === true) {
-    return { on: true }
-  }
+  if (v === undefined) return { on: defaultOn }
+
+  if (v === false) return { on: false }
+
+  if (v === true) return { on: true }
+
   const names = new Set(
     v
       .split(",")
@@ -87,27 +85,24 @@ const objKey = (o: PortableObject) => `${o.kind}:${o.name}`
 
 /** Which Filter category gates a TOP-LEVEL kind (and whose name-set its name matchs it against). */
 function category(kind: string): keyof Filter {
-  if (kind === "function") {
-    return "functions"
-  }
-  if (kind === "access") {
-    return "access"
-  }
+  if (kind === "function") return "functions"
+
+  if (kind === "access") return "access"
+
   return "tables" // a table (and any future top-level structural kind)
 }
 
 /**
  * Whether a portable object passes the filter. A TOP-LEVEL object (no owner) gats it by its kind's
  * category + name. An OWNED object (owner set — an index/event/constraint) FOLLOWS its owner table's
- * inclusion; an `event` is ADDITIONALLY gated by the `events` category. (Fields are substrate nested
+ * inclusion; an `event` is also gated by the `events` category. (Fields are substrate nested
  * in their table object, never standalone here.)
  */
 export function passesFilter(registry: KindRegistry, o: PortableObject, f: Filter): boolean {
   const owner = registry.engine(o.kind)?.owner?.(o)
   if (owner) {
-    if (!inCat(f.tables, owner.name)) {
-      return false
-    }
+    if (!inCat(f.tables, owner.name)) return false
+
     return o.kind === "event" ? inCat(f.events, o.name) : true
   }
   return inCat(f[category(o.kind)], o.name)
@@ -135,20 +130,16 @@ export function mergeStored(
 ): StoredSnapshot {
   const merged = new Map<string, PortableObject>()
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const o of snapshotObjects(prev.schema)) {
-    if (!passesFilter(registry, o, f)) {
-      merged.set(objKey(o), o)
-    }
-  }
+  for (const o of snapshotObjects(prev.schema))
+    if (!passesFilter(registry, o, f)) merged.set(objKey(o), o)
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const o of snapshotObjects(next.schema)) {
-    if (passesFilter(registry, o, f)) {
-      merged.set(objKey(o), o)
-    }
-  }
+  for (const o of snapshotObjects(next.schema))
+    if (passesFilter(registry, o, f)) merged.set(objKey(o), o)
+
   return {
     driver: next.driver,
-    files: { ...(prev.files ?? {}), ...(next.files ?? {}) },
+    files: { ...prev.files, ...next.files },
     schema: snapshotKinds([...merged.values()], registry),
     version: 3,
   }

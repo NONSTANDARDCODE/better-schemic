@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. Fixtures assert values whose presence the test guarantees. */
 // `upsertDelta` — the compiler (golden SQL per lowering + the eager guards) and the runtime delta
 // decode (create/update/no-op/removal/codecs/strict miss) over a recording fake connection.
 // The live contract (round-trips, plugins, concurrency) lives in test/live/orm-writes-delta.test.ts.
@@ -13,6 +14,7 @@ import type { OrmError } from "../../../src/surreal/orm/errors"
 import { schema } from "../../../src/surreal/orm/schema"
 import { s, table } from "../../../src/surreal/pure"
 import { caught, fakeConn, ok } from "../orm-fixtures"
+
 import { codeOf } from "./orm-writes-fixtures"
 
 const Ledger = table("delta_ledger", {
@@ -28,11 +30,11 @@ type C = Client<typeof schemaDef>
 
 /** A client over a fake connection whose every statement answers `respond(line)`. */
 function clientFor(respond: (line: string) => unknown): {
-  client: C
   calls: { sql: string; vars?: Record<string, unknown> }[]
+  client: C
 } {
   const { conn, calls } = fakeConn((script) => script.split("\n").map((line) => ok(respond(line))))
-  return { client: orm(conn, { schema: schemaDef }) as C, calls }
+  return { client: orm(conn, { schema: schemaDef }), calls }
 }
 
 const client = clientFor(() => null).client
@@ -533,8 +535,8 @@ describe("upsertDelta — runtime decode", () => {
     expect(result.created).toBe(false)
     expect(result.changed).toEqual(["balance", "at"])
     expect(result.delta?.old.balance).toBeInstanceOf(Decimal)
-    const oldBalance = result.delta?.old.balance as Decimal | undefined
-    const newBalance = result.delta?.new.balance as Decimal | undefined
+    const oldBalance = result.delta?.old.balance
+    const newBalance = result.delta?.new.balance
     expect(oldBalance?.equals(new Decimal("10.00"))).toBe(true)
     expect(newBalance?.equals(new Decimal("12.34"))).toBe(true)
     expect(result.before?.at).toBeInstanceOf(Date)
@@ -682,7 +684,7 @@ describe("equalAppValue / computeFieldDelta", () => {
     expect(
       equalAppValue(new Date("2020-01-01T00:00:00.000Z"), new Date("2020-01-01T00:00:00.000Z")),
     ).toBe(true)
-    expect(equalAppValue(NaN, NaN)).toBe(true)
+    expect(equalAppValue(Number.NaN, Number.NaN)).toBe(true)
     expect(equalAppValue(new Date(0), new Date(1))).toBe(false)
     expect(equalAppValue(new Date(0), {})).toBe(false)
     expect(equalAppValue(new RecordId("t", "1"), {})).toBe(false)

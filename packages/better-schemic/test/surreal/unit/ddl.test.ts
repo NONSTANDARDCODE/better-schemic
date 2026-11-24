@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. */
 import { describe, expect, test } from "bun:test"
 import { surql } from "surrealdb"
 import { z } from "zod"
@@ -21,7 +22,7 @@ const ddl = (field: AnyField, opts?: Parameters<typeof emitField>[3]) =>
   emitField("x", "t", field, opts)
 /** The bare SurrealQL type a field infers to (for leaf-type assertions). */
 const typeOf = (field: AnyField) => {
-  const m = ddl(field).match(/TYPE (.+);$/u)
+  const m = /TYPE (.+);$/u.exec(ddl(field))
   if (!m) throw new Error(`no TYPE in: ${ddl(field)}`)
   return m[1]
 }
@@ -798,7 +799,7 @@ describe("emitTable", () => {
     expect(t.fields.a.decode([{ x: "v", extra: 1 }] as never)).toEqual([
       { x: "v", extra: 1 },
     ] as never)
-    expect(t.fields.o.decode({ x: "v", extra: 1 } as never)).toEqual({
+    expect(t.fields.o.decode({ x: "v", extra: 1 })).toEqual({
       x: "v",
       extra: 1,
     } as never)

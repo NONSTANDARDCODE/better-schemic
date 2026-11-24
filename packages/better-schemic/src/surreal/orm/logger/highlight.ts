@@ -28,7 +28,7 @@ export type TokenKind =
   | "uuid"
 
 /** One scanned token with its bracket depth (for top-level clause detection). */
-export interface SurqlToken {
+export type SurqlToken = {
   readonly depth: number
   readonly kind: TokenKind
   readonly text: string
@@ -210,6 +210,9 @@ const OPERATOR_CHARS = new Set(["+", "-", "*", "/", "%", "=", "<", ">", "!", "&"
 /** A duration unit must follow the number and end at a word boundary (`5s`, `100ms`, `1h30m`). */
 const DURATION_UNIT = /^(ns|us|µs|ms|s|m|h|d|w|y)(?![A-Za-z0-9_])/u
 
+/** Two-character spans recognized by the scanner: module paths, block closers and escapes. */
+const TWO = 2
+
 const isDigit = (c: string): boolean => c >= "0" && c <= "9"
 const isSpace = (c: string): boolean => c === " " || c === "\t" || c === "\n" || c === "\r"
 
@@ -219,7 +222,7 @@ export function tokenizeSurql(text: string): SurqlToken[] {
   let depth = 0
   let i = 0
   const push = (kind: TokenKind, sliceStart: number, end: number): void => {
-    tokens.push({ text: text.slice(sliceStart, end), kind, depth })
+    tokens.push({ depth, kind, text: text.slice(sliceStart, end) })
     i = end
   }
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
@@ -230,9 +233,7 @@ export function tokenizeSurql(text: string): SurqlToken[] {
     if (isSpace(c)) {
       let j = i
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      while (j < text.length && isSpace(text[j])) {
-        j++
-      }
+      while (j < text.length && isSpace(text[j])) j++
       push("plain", i, j)
       continue
     }
@@ -240,20 +241,20 @@ export function tokenizeSurql(text: string): SurqlToken[] {
     if ((c === "-" && next === "-") || (c === "/" && next === "/")) {
       let j = i
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      while (j < text.length && text[j] !== "\n") {
-        j++
-      }
+      while (j < text.length && text[j] !== "\n") j++
       push("comment", i, j)
       continue
     }
     if (c === "/" && next === "*") {
-      const close = text.indexOf("*/", i + 2)
-      push("comment", i, close === -1 ? text.length : close + 2)
+      const close = text.indexOf("*/", i + TWO)
+      push("comment", i, close === -1 ? text.length : close + TWO)
       continue
     }
     // Prefixed literals: d'…' datetime, r'…' regex, u'…' uuid.
     if ((c === "d" || c === "r" || c === "u") && (next === "'" || next === '"')) {
-      const kind: TokenKind = c === "d" ? "datetime" : c === "r" ? "regex" : "uuid"
+      let kind: TokenKind = "uuid"
+      if (c === "d") kind = "datetime"
+      else if (c === "r") kind = "regex"
       push(kind, i, scanString(text, i + 1))
       continue
     }
@@ -264,9 +265,7 @@ export function tokenizeSurql(text: string): SurqlToken[] {
     if (c === "$") {
       let j = i + 1
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      while (j < text.length && BIND_PART.test(text[j])) {
-        j++
-      }
+      while (j < text.length && BIND_PART.test(text[j])) j++
       push("bind", i, j > i + 1 ? j : i + 1)
       continue
     }
@@ -279,30 +278,26 @@ export function tokenizeSurql(text: string): SurqlToken[] {
     if (IDENT_START.test(c)) {
       let j = i
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      while (j < text.length && IDENT_PART.test(text[j])) {
-        j++
-      }
+      while (j < text.length && IDENT_PART.test(text[j])) j++
       const word = text.slice(i, j)
-      if (text.slice(j, j + 2) === "::") {
+      if (text.slice(j, j + TWO) === "::") {
         // A module path (`fn::name`, `math::sum`, `time::now`).
         let k = j
-        // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+        // eslint-disable-next-line functional/no-loop-statements,max-depth -- scanner aninhado; achatar mudaria precedência
         while (k < text.length) {
+          // eslint-disable-next-line max-depth -- parser/compilador com despacho aninhado; achatar mudaria a precedência das cláusulas
           if (text[k] === ":" && text[k + 1] === ":") {
-            k += 2
-            // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-            while (k < text.length && IDENT_PART.test(text[k])) {
-              k++
-            }
-          } else {
-            break
-          }
+            k += TWO
+            // eslint-disable-next-line functional/no-loop-statements,max-depth -- scanner aninhado; achatar mudaria precedência
+            while (k < text.length && IDENT_PART.test(text[k])) k++
+          } else break
         }
         push("function", i, k)
         continue
       }
       if (text[j] === ":") {
         const idEnd = scanRecordId(text, j + 1)
+        // eslint-disable-next-line max-depth -- parser/compilador com despacho aninhado; achatar mudaria a precedência das cláusulas
         if (idEnd > j + 1) {
           push("record", i, idEnd)
           continue
@@ -345,12 +340,11 @@ function scanString(text: string, start: number): number {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   while (i < text.length) {
     if (text[i] === "\\") {
-      i += 2
+      i += TWO
       continue
     }
-    if (text[i] === quote) {
-      return i + 1
-    }
+    if (text[i] === quote) return i + 1
+
     i++
   }
   return i
@@ -360,15 +354,11 @@ function scanString(text: string, start: number): number {
 function scanNumber(text: string, start: number): number {
   let i = start
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (i < text.length && isDigit(text[i])) {
-    i++
-  }
+  while (i < text.length && isDigit(text[i])) i++
   if (text[i] === "." && text[i + 1] !== "." && isDigit(text[i + 1])) {
     i++
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    while (i < text.length && isDigit(text[i])) {
-      i++
-    }
+    while (i < text.length && isDigit(text[i])) i++
   }
   return i
 }
@@ -380,17 +370,15 @@ function scanRecordId(text: string, start: number): number {
     const close = text.indexOf("⟩", i + 1)
     return close === -1 ? text.length : close + 1
   }
-  if (text[i] === "`") {
-    return scanString(text, i)
-  }
+  if (text[i] === "`") return scanString(text, i)
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (i < text.length && /[A-Za-z0-9_\-@]/u.test(text[i])) {
-    i++
-  }
+  while (i < text.length && /[A-Za-z0-9_\-@]/u.test(text[i])) i++
   return i
 }
 
 /** The SGR code a token kind paints with (`undefined` = leave plain). */
+// eslint-disable-next-line @typescript-eslint/consistent-return -- switch cobre todo TokenKind; nenhum caminho cai fora dele
 function codeOf(kind: TokenKind): string | undefined {
   switch (kind) {
     case "keyword":
@@ -417,7 +405,8 @@ function codeOf(kind: TokenKind): string | undefined {
       return "\u001B[35m"
     case "punctuation":
       return "\u001B[90m"
-    default:
+    case "ident":
+    case "plain":
       return undefined
   }
 }
@@ -452,9 +441,8 @@ export function paintSurql(
     }
     current += paintToken(token, palette)
   }
-  if (current.trim() !== "") {
-    lines.push(current)
-  }
+  if (current.trim() !== "") lines.push(current)
+
   return lines.join("\n")
 }
 

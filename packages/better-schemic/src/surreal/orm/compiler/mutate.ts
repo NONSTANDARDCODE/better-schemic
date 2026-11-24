@@ -10,6 +10,7 @@ import { RecordId } from "surrealdb"
 import { escapeIdentSafe as escapeIdent } from "../../ident"
 import { hasRefDeep } from "../../pure"
 import type { ModelMeta, SchemaIndex } from "../meta"
+
 import {
   type Binds,
   coerceRecordValue,
@@ -158,7 +159,7 @@ function compileMutation(
     throw compileError(
       "ValidationError",
       `${operation}: "id" cannot be updated (it is the record identity) — use upsert to target-or-create.`,
-      { operation, table: meta.name, field: "id" },
+      { field: "id", operation, table: meta.name },
     )
   }
 
@@ -175,21 +176,22 @@ function compileMutation(
       `UPDATE ${target} ${encodedBody("patch", patchOps(args.patches, operation), binds)}${where}${tail}`,
     )
   }
-  if (hasUnset) {
+  if (hasUnset)
     steps.push(`UPDATE ${target} UNSET ${unset.map(renderPath).join(", ")}${where}${tail}`)
-  }
 
   // `before` reads the FIRST statement (the state before anything changed); `diff` combines every
   // statement's patch (data + unset); `after` reads the last (the final state).
-  const resultIndexes =
-    ret === "before" ? [0] : ret === "diff" ? steps.map((_, i) => i) : [steps.length - 1]
+  let resultIndexes: readonly number[]
+  if (ret === "before") resultIndexes = [0]
+  else if (ret === "diff") resultIndexes = steps.map((_, i) => i)
+  else resultIndexes = [steps.length - 1]
   const result = resultOf(ret, cardinality)
   return {
+    mayMiss: result === "row",
+    result,
+    resultIndexes,
     statements: steps,
     transactional: steps.length > 1,
-    resultIndexes,
-    result,
-    mayMiss: result === "row",
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
   }
 }
@@ -254,27 +256,26 @@ export function compileUpsert(
 
   if (target === undefined) {
     assertTargetlessCreate(meta, operation, {
-      explicit,
       anyBranch,
+      explicit,
       mode: args.mode,
     })
     const { clean } = extractArithmetic(meta, args.data, operation, false)
     const encoded = encodeData(meta, clean, "create", operation)
     return {
+      result: resultOf(ret, "row"),
+      resultIndexes: [0],
       statements: [
         `CREATE ${createTarget(meta, args.data, args.only === true, operation)} CONTENT ${payload(encoded, binds)}${mutationTail(ret, args.timeout, operation, sel?.mode === "server" ? sel.proj.text : undefined)}`,
       ],
       transactional: false,
-      resultIndexes: [0],
-      result: resultOf(ret, "row"),
       ...(ret === "after" ? { missError: true } : {}),
       ...selectExtras,
     }
   }
 
-  if (onMissing === "throw") {
+  if (onMissing === "throw")
     return compileStrictUpsert(meta, target, args, mode, ret, binds, operation, sel)
-  }
 
   // A create-mode `return: "after"` promises a row (`WrittenResult` = `Promise<App>`): when the
   // write produced NONE (the target filters it out by a permission/plugin scope) the decode
@@ -298,12 +299,12 @@ export function compileUpsert(
       if (target.kind === "id") {
         const body = encodedBody(mode, encoded, binds)
         return {
+          result: resultOf(ret, "row"),
+          resultIndexes: [0],
           statements: [
             `UPSERT ${only}${recordTarget(meta, target.id, operation)} ${body}${scopeWhere(args.scope, binds, meta)}${mutationTail(ret, args.timeout, operation, projText)}`,
           ],
           transactional: false,
-          resultIndexes: [0],
-          result: resultOf(ret, "row"),
           ...missError,
           ...selectExtras,
         }
@@ -320,24 +321,24 @@ export function compileUpsert(
         const where = upsertWhere(meta, target, binds, args.scope)
         const body = encodedBody(mode, encoded, binds)
         return {
+          result: resultOf(ret, "row"),
+          resultIndexes: [0],
           statements: [
             `UPSERT ${only}((SELECT VALUE id FROM ${escapeIdent(meta.name)} WHERE ${where} LIMIT 1)[0] ?? ${generated}) ${body}${mutationTail(ret, args.timeout, operation, projText)}`,
           ],
           transactional: false,
-          resultIndexes: [0],
-          result: resultOf(ret, "row"),
           ...missError,
           ...selectExtras,
         }
       }
       const body = encodedBody(mode, encoded, binds)
       return {
+        result: resultOf(ret, "row"),
+        resultIndexes: [0],
         statements: [
           `UPSERT ${only}${escapeIdent(meta.name)} ${body} WHERE ${upsertWhere(meta, target, binds, args.scope)}${mutationTail(ret, args.timeout, operation, projText)}`,
         ],
         transactional: false,
-        resultIndexes: [0],
-        result: resultOf(ret, "row"),
         ...missError,
         ...selectExtras,
       }
@@ -399,12 +400,12 @@ function compileStrictUpsert(
       ? `UPDATE ONLY ${recordTarget(meta, target.id, operation)} ${body}${scopeWhere(args.scope, binds, meta)}${tail}`
       : `UPDATE ${escapeIdent(meta.name)} ${body} WHERE ${upsertWhere(meta, target, binds, args.scope)}${tail}`
   return {
-    statements: [sql],
-    transactional: false,
-    resultIndexes: [0],
-    result: resultOf(ret, "row"),
     missError: true,
+    result: resultOf(ret, "row"),
+    resultIndexes: [0],
+    statements: [sql],
     strictMiss: true,
+    transactional: false,
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
   }
 }
@@ -412,6 +413,19 @@ function compileStrictUpsert(
 /** The LET/IF `WHERE` for a resolved unique target (`id = $record` / `uniq = $value`), ANDed with
  *  the plugin `scope` (see `Operation.scope`) when present. A unique RECORD column's value is
  *  coerced to `RecordId` (a bare app string needs the column's single target table). */
+/** The RETURN tail for one plan result mode (keeps the after/proj tail in one place). */
+/** The CREATE branch never has a BEFORE state — its `before` is NONE. */
+function createReturnTail(ret: WriteRet, afterTail: string): string {
+  if (ret === "after") return afterTail
+  return " RETURN NONE"
+}
+
+function returnTail(ret: WriteRet, afterTail: string): string {
+  if (ret === "after") return afterTail
+  if (ret === "before") return " RETURN BEFORE"
+  return " RETURN NONE"
+}
+
 function upsertWhere(
   meta: ModelMeta,
   target: ReturnType<typeof uniqueTarget>,
@@ -419,31 +433,32 @@ function upsertWhere(
   scope?: unknown,
   operation = "upsert",
 ): string {
-  const base =
-    target.kind === "id"
-      ? `id = ${binds.add(new RecordId(meta.name, target.id))}`
-      : target.kind === "index"
-        ? // A composite unique target: every field of the index, ANDed — the conjunction IS the key.
-          target.entries
-            .map(
-              ([field, value]) =>
-                `${renderPath(field)} = ${binds.add(
-                  isRecordColumn(meta, field)
-                    ? coerceRecordValue(value, recordTargets(meta, field), operation, field)
-                    : value,
-                )}`,
-            )
-            .join(" AND ")
-        : `${renderPath(target.field)} = ${binds.add(
-            isRecordColumn(meta, target.field)
-              ? coerceRecordValue(
-                  target.value,
-                  recordTargets(meta, target.field),
-                  operation,
-                  target.field,
-                )
-              : target.value,
-          )}`
+  let base: string
+  if (target.kind === "id") base = `id = ${binds.add(new RecordId(meta.name, target.id))}`
+  else if (target.kind === "index") {
+    // A composite unique target: every field of the index, ANDed — the conjunction IS the key.
+    base = target.entries
+      .map(
+        ([field, value]) =>
+          `${renderPath(field)} = ${binds.add(
+            isRecordColumn(meta, field)
+              ? coerceRecordValue(value, recordTargets(meta, field), operation, field)
+              : value,
+          )}`,
+      )
+      .join(" AND ")
+  } else {
+    base = `${renderPath(target.field)} = ${binds.add(
+      isRecordColumn(meta, target.field)
+        ? coerceRecordValue(
+            target.value,
+            recordTargets(meta, target.field),
+            operation,
+            target.field,
+          )
+        : target.value,
+    )}`
+  }
   const scoped = scopePredicate(scope, binds, meta)
   return scoped ? `${base} AND ${scoped}` : base
 }
@@ -476,7 +491,8 @@ function compileUpsertBranches(
     if (recordIdText(createId) !== recordIdText(target.id)) {
       throw compileError(
         "ValidationError",
-        `${operation}: "create.id" (${String(createId)}) must match where.id (${String(target.id)}).`,
+        // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringify de valor opaco é intencional (toJSON/toString definidos pelo chamador)
+        `${operation}: "create.id" (${String(createId)}) must match where.id (${target.id}).`,
         { operation, table: meta.name },
       )
     }
@@ -506,10 +522,10 @@ function compileUpsertBranches(
       `INSERT INTO ${escapeIdent(meta.name)} ${payload(createEncoded, binds)} ` +
       `ON DUPLICATE KEY UPDATE ${assignments}${mutationTail(ret, args.timeout, operation, sel?.mode === "server" ? sel.proj.text : undefined)}`
     return {
+      result: resultOf(ret, "row"),
+      resultIndexes: [0],
       statements: [sql],
       transactional: false,
-      resultIndexes: [0],
-      result: resultOf(ret, "row"),
       ...(ret === "after" ? { missError: true } : {}),
       ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
     }
@@ -560,8 +576,8 @@ function compileUpsertIfElse(
     mode,
     binds,
     operation,
-    ret === "after" ? afterTail : " RETURN NONE",
-    ret === "after" ? afterTail : ret === "before" ? " RETURN BEFORE" : " RETURN NONE",
+    createReturnTail(ret, afterTail),
+    returnTail(ret, afterTail),
     resultOf(ret, "row"),
   )
   const withSelect = sel ? { ...plan, select: sel.proj.spec, selectMode: sel.mode } : plan
@@ -593,10 +609,10 @@ function compileIfElse(
     `IF array::len($__existing) = 0 THEN CREATE ${createTarget(meta, create, false, operation)} CONTENT ${payload(createEncoded, binds)}${createTail} ELSE UPDATE $__existing[0] ${updateBody(meta, mode, update, binds, operation)}${updateTail} END;`,
   ]
   return {
+    result,
+    resultIndexes: [1],
     statements: steps,
     transactional: true,
-    resultIndexes: [1],
-    result,
   }
 }
 
@@ -606,7 +622,7 @@ function compileIfElse(
  * Compile `upsertDelta` — by default a STRICT update with `onMissing: "throw"` (a targeted miss
  * rejects `ResultNotFound`; a target-less call is still a plain create); `onMissing: "create"`
  * restores create-or-update. Returns the `{ before, after }` envelope from the SAME statement
- * that wrote. Every lowering is the `upsert` equivalent with the envelope tail; the LET/IF form
+ * that wrote. Every lowering mirrors `upsert`, with the envelope tail; the LET/IF form
  * carries it (plus TIMEOUT) on EACH branch — the one form the server lets carry `$before`/`$after`
  * while branching.
  */
@@ -664,19 +680,19 @@ export function compileUpsertDelta(
 
   if (target === undefined) {
     assertTargetlessCreate(meta, operation, {
-      explicit,
       anyBranch,
+      explicit,
       mode: args.mode,
     })
     const { clean } = extractArithmetic(meta, args.data, operation, false)
     const encoded = encodeData(meta, clean, "create", operation)
     return {
+      result: "delta",
+      resultIndexes: [0],
       statements: [
         `CREATE ${createTarget(meta, args.data, false, operation)} CONTENT ${payload(encoded, binds)}${tail}`,
       ],
       transactional: false,
-      resultIndexes: [0],
-      result: "delta",
       ...selectExtras,
     }
   }
@@ -688,26 +704,26 @@ export function compileUpsertDelta(
     const body = updateBody(meta, mode, args.data, binds, operation)
     if (target.kind === "id") {
       return {
+        mayMiss: true,
+        result: "delta",
+        resultIndexes: [0],
         statements: [
           `UPDATE ONLY ${recordTarget(meta, target.id, operation)} ${body}${scopeWhere(args.scope, binds, meta)}${tail}`,
         ],
-        transactional: false,
-        resultIndexes: [0],
-        result: "delta",
-        mayMiss: true,
         strictMiss: true,
+        transactional: false,
         ...selectExtras,
       }
     }
     return {
+      mayMiss: true,
+      result: "delta",
+      resultIndexes: [0],
       statements: [
         `UPDATE ${escapeIdent(meta.name)} ${body} WHERE ${upsertWhere(meta, target, binds, args.scope)}${tail}`,
       ],
-      transactional: false,
-      resultIndexes: [0],
-      result: "delta",
-      mayMiss: true,
       strictMiss: true,
+      transactional: false,
       ...selectExtras,
     }
   }
@@ -725,12 +741,12 @@ export function compileUpsertDelta(
       if (target.kind === "id") {
         const body = encodedBody(mode, encoded, binds)
         return {
+          result: "delta",
+          resultIndexes: [0],
           statements: [
             `UPSERT ${recordTarget(meta, target.id, operation)} ${body}${scopeWhere(args.scope, binds, meta)}${tail}`,
           ],
           transactional: false,
-          resultIndexes: [0],
-          result: "delta",
           ...selectExtras,
         }
       }
@@ -742,23 +758,23 @@ export function compileUpsertDelta(
         const where = upsertWhere(meta, target, binds, args.scope)
         const body = encodedBody(mode, encoded, binds)
         return {
+          result: "delta",
+          resultIndexes: [0],
           statements: [
             `UPSERT ((SELECT VALUE id FROM ${escapeIdent(meta.name)} WHERE ${where} LIMIT 1)[0] ?? ${generated}) ${body}${tail}`,
           ],
           transactional: false,
-          resultIndexes: [0],
-          result: "delta",
           ...selectExtras,
         }
       }
       const body = encodedBody(mode, encoded, binds)
       return {
+        result: "delta",
+        resultIndexes: [0],
         statements: [
           `UPSERT ${escapeIdent(meta.name)} ${body} WHERE ${upsertWhere(meta, target, binds, args.scope)}${tail}`,
         ],
         transactional: false,
-        resultIndexes: [0],
-        result: "delta",
         ...selectExtras,
       }
     }
@@ -802,11 +818,10 @@ export function compileUpsertDelta(
 
 /** Check `onMissing`; `undefined` passes through — each caller applies its own default
  *  (`upsert`/`upsertDelta` are STRICT on a targeted call; a target-less call is a plain create,
- *  which only an explicit `"throw"` forbids). */
+ *  an explicit `"throw"` forbids). */
 function readOnMissing(value: unknown, operation: string): "create" | "throw" | undefined {
-  if (value === undefined) {
-    return undefined
-  }
+  if (value === undefined) return undefined
+
   if (value !== "create" && value !== "throw") {
     throw compileError(
       "ValidationError",
@@ -837,15 +852,16 @@ function resolveUpsertTarget(
     ) {
       throw compileError(
         "ValidationError",
+        // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringify de valor opaco é intencional (toJSON/toString definidos pelo chamador)
         `${operation}: "data.id" (${String(args.data.id)}) must match where.id (${String((args.where as { id?: unknown }).id)}) — they name the same record.`,
-        { operation, table: meta.name, field: "id" },
+        { field: "id", operation, table: meta.name },
       )
     }
     return target
   }
-  if (isPlainObject(args.data) && args.data.id !== undefined) {
+  if (isPlainObject(args.data) && args.data.id !== undefined)
     return uniqueTarget(meta, { id: args.data.id }, operation)
-  }
+
   return undefined
 }
 
@@ -894,9 +910,8 @@ function assertDeltaCreateId(
   create: unknown,
   operation: string,
 ): void {
-  if (target.kind !== "id") {
-    return
-  }
+  if (target.kind !== "id") return
+
   const createId = isPlainObject(create) ? create.id : undefined
   if (createId === undefined) {
     throw compileError(
@@ -908,7 +923,8 @@ function assertDeltaCreateId(
   if (recordIdText(createId) !== recordIdText(target.id)) {
     throw compileError(
       "ValidationError",
-      `${operation}: "create.id" (${String(createId)}) must match where.id (${String(target.id)}).`,
+      // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringify de valor opaco é intencional (toJSON/toString definidos pelo chamador)
+      `${operation}: "create.id" (${String(createId)}) must match where.id (${target.id}).`,
       { operation, table: meta.name },
     )
   }
@@ -965,10 +981,10 @@ export function compileUpsertMany(
     }
     const sql = `INSERT INTO ${escapeIdent(meta.name)} ${payload(encoded, binds)} ON DUPLICATE KEY UPDATE ${assignments}${mutationTail(ret, undefined, operation, projText)}`
     return {
+      result: resultOf(ret, "many"),
+      resultIndexes: [0],
       statements: [sql],
       transactional: false,
-      resultIndexes: [0],
-      result: resultOf(ret, "many"),
       ...selectExtras,
     }
   }
@@ -1015,16 +1031,16 @@ export function compileUpsertMany(
       // Expressions must read the existing row → LET/IF (`ON DUPLICATE` evaluates them on create).
       statements.push(
         `LET $__e${i} = (SELECT VALUE id FROM ${table} WHERE ${where} LIMIT 1);`,
-        `IF array::len($__e${i}) = 0 THEN CREATE ${createTarget(meta, item, false, operation)} CONTENT ${itemBind}${ret === "after" ? afterTail : " RETURN NONE"} ELSE UPDATE $__e${i}[0] MERGE ${updatePayload}${ret === "after" ? afterTail : ret === "before" ? " RETURN BEFORE" : " RETURN NONE"} END;`,
+        `IF array::len($__e${i}) = 0 THEN CREATE ${createTarget(meta, item, false, operation)} CONTENT ${itemBind}${createReturnTail(ret, afterTail)} ELSE UPDATE $__e${i}[0] MERGE ${updatePayload}${returnTail(ret, afterTail)} END;`,
       )
     }
     resultIndexes.push(statements.length - 1)
   })
   return {
+    result: resultOf(ret, "many"),
+    resultIndexes,
     statements,
     transactional: statements.length > 1,
-    resultIndexes,
-    result: resultOf(ret, "many"),
     ...selectExtras,
   }
 }
@@ -1038,9 +1054,8 @@ function explicitUpdateMap(
   update: unknown,
   operation: string,
 ): Record<string, unknown> | undefined {
-  if (update === undefined || update === "all") {
-    return undefined
-  }
+  if (update === undefined || update === "all") return undefined
+
   if (!isPlainObject(update)) {
     throw compileError(
       "ValidationError",
@@ -1085,11 +1100,11 @@ export function compileDelete(
       ? `DELETE ${recordTarget(meta, target.id, operation)}${scopeWhere(args.scope, binds, meta, options.index)}`
       : `DELETE FROM ${escapeIdent(meta.name)}${whereSql(mergeScope(args.where, args.scope), binds, meta, options.index)}`
   return {
+    mayMiss: ret !== "none",
+    result: ret === "none" ? "none" : "row",
+    resultIndexes: [0],
     statements: [`${sql}${mutationTail(ret, args.timeout, operation)}`],
     transactional: false,
-    resultIndexes: [0],
-    result: ret === "none" ? "none" : "row",
-    mayMiss: ret !== "none",
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
   }
 }
@@ -1115,9 +1130,9 @@ export function compileDeleteMany(
     ? `DELETE FROM ${escapeIdent(meta.name)}${where}`
     : `DELETE ${escapeIdent(meta.name)}`
   return {
+    result: ret === "none" ? "none" : "many",
     statements: [`${sql}${mutationTail(ret, args.timeout, operation)}`],
     transactional: false,
-    result: ret === "none" ? "none" : "many",
   }
 }
 
@@ -1176,15 +1191,15 @@ export function compileUpdateEach(
   // write runs. The server projects when it can (AFTER without OMIT); otherwise the decode applies
   // it client-side (`selectMode`).
   return {
+    result: resultOf(ret, "many"),
     statements,
     transactional: statements.length > 1,
-    result: resultOf(ret, "many"),
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
   }
 }
 
 /** One `updateEach` item ready for lowering: the normalized `by` value + its raw payload/patches. */
-interface EachRow {
+type EachRow = {
   readonly by: unknown
   readonly fields?: unknown
   readonly patches?: readonly unknown[]
@@ -1221,30 +1236,28 @@ function buildEachRows(
       throw compileError(
         "ValidationError",
         `${operation}: item ${i} is missing the "by" field "${by}".`,
-        { operation, table: meta.name, field: by },
+        { field: by, operation, table: meta.name },
       )
     }
+    // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringify de valor opaco é intencional (toJSON/toString definidos pelo chamador)
     const key = String(byValue)
     if (seen.has(key)) {
       throw compileError(
         "ValidationError",
         `${operation}: duplicate "${by}" value ${describeValue(byValue)} — each item must target a distinct row.`,
-        { operation, table: meta.name, field: by },
+        { field: by, operation, table: meta.name },
       )
     }
     seen.add(key)
     const fields: Record<string, unknown> = {}
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [field, value] of Object.entries(item)) {
-      if (field !== by) {
-        fields[field] = value
-      }
-    }
+    for (const [field, value] of Object.entries(item)) if (field !== by) fields[field] = value
+
     if (fields.id !== undefined) {
       throw compileError(
         "ValidationError",
         `${operation}: "id" cannot be updated — use by: "id" to target the record.`,
-        { operation, table: meta.name, field: "id" },
+        { field: "id", operation, table: meta.name },
       )
     }
     const normalizedBy = isRecordColumn(meta, by)

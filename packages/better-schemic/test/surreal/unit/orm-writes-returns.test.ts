@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
 // M2 — the write RETURN semantics and the plan decode: `before` state, `diff` patch combining
 // across statements, and the eager guards (skipDuplicates, relate sugar, timeout, updateEach
 // select). The core write goldens live in `orm-writes.test.ts`; fixtures in `orm-writes-fixtures`.
@@ -8,6 +9,7 @@ import { surql } from "../../../src/surreal"
 import type { Client } from "../../../src/surreal/orm/client"
 import { orm } from "../../../src/surreal/orm/client"
 import { fakeConn, ok } from "../orm-fixtures"
+
 import { codeOf, data, lastCall, LIKE_ROW, makeClient, ROW, schemaDef } from "./orm-writes-fixtures"
 
 describe("return semantics — before/diff and the batch decode", () => {

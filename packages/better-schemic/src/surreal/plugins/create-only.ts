@@ -1,3 +1,5 @@
+// eslint-disable-next-line write-good-comments/write-good-comments -- termo do domínio da API
+// eslint-disable-next-line write-good-comments/write-good-comments -- "createOnly"/"append-only" são nomes da API, não advérbios
 /**
  * `better-schemic/plugins/create-` — append- tables: the `create()` schema
  * PRESET (this file) plus the `createGuard()` runtime plugin.
@@ -5,16 +7,16 @@
  * Both halves share ONE metadata marker (`meta.create`):
  *
  * - **Schema preset** — `create(options?)` narrows the table's permissions with
- *   `FOR update NONE` (the DB barrier for record users; it covers `UPDATE`, the update path of
- *   `UPSERT` and `INSERT … ON DUPLICATE KEY UPDATE`) and stamps `meta.create = true`. With
- *   `hard: true` it also emits a `{table}_create_` guard event
+ * `FOR update NONE` (the DB barrier for record users; it covers `UPDATE`, the update path of
+ * `UPSERT` and `INSERT … ON DUPLICATE KEY UPDATE`) and stamps `meta.create = true`. With
+ * `hard: true` it also emits a `{table}_create_` guard event
  *   (`WHEN $event = 'UPDATE' THEN { THROW … }`), which runs even for privileged (root) sessions
- *   and raw SQL.
+ * and raw SQL.
  * - **Runtime plugin** — `createGuard(options?)` rejects the update family client-side BEFORE
- *   compiling (`CreateOnlyViolation`, 403) for every tagged table: `update`/`updateMany`/
- *   `updateEach`/`patch`/`upsert`/`upsertDelta`/`upsertMany`, plus `insert`/`insertMany` with
- *   `onDuplicate: "update" | <map>` (they compile `ON DUPLICATE KEY UPDATE`). Untagged tables are
- *   untouched (zero behavior change).
+ * compiling (`CreateOnlyViolation`, 403) for every tagged table: `update`/`updateMany`/
+ * `updateEach`/`patch`/`upsert`/`upsertDelta`/`upsertMany`, plus `insert`/`insertMany` with
+ * `onDuplicate: "update" | <map>` (they compile `ON DUPLICATE KEY UPDATE`). Untagged tables are
+ * untouched (zero behavior change).
  *
  * `timestamps()` reads the same marker and never stamps `updatedAt` on a create-only table; the
  * `tenant()` preset stamps the marker when `createOnly: true`, so both halves cover it too.
@@ -23,8 +25,8 @@
  * import { createOnly, createOnlyGuard } from "./create-only";
  *
  * export const AuditLog = table("audit_log", {
- *   action: s.string(),
- *   createdAt: s.datetime().optional(),
+ * action: s.string(),
+ * createdAt: s.datetime().optional(),
  * }).use(createOnly({ hard: true }));
  *
  * const client = orm(db, { schema, plugins: [timestamps(), createOnlyGuard()] });
@@ -47,6 +49,7 @@ import type { SchemaIndex } from "../orm/meta"
 import { definePlugin } from "../orm/plugins"
 import type { Operation } from "../orm/types/plugins"
 import { type PresetEvent, table, type TablePermissions, type TablePreset } from "../pure"
+
 import {
   CREATE_ONLY_EVENT_TEMPLATE,
   CREATE_ONLY_MARKER,
@@ -58,7 +61,7 @@ import {
 // --- the schema preset: createOnly(options?) ----------------------------------------------------
 
 /** Options for the `createOnly(...)` preset. */
-export interface CreateOnlyPresetOptions {
+export type CreateOnlyPresetOptions = {
   /**
    * Also emit a HARD DB barrier: a `{table}_create_only` event that runs
    * `WHEN $event = 'UPDATE' THEN { THROW … }`. Events execute without permission checks, so this
@@ -73,11 +76,12 @@ export interface CreateOnlyPresetOptions {
 const HARD_MESSAGE = "createOnly: this table is append-only — UPDATE is not allowed"
 
 /** The hard guard event, shared by every `createOnly({ hard: true })` call. `.use()` interpolates
- *  `{table}` and re-reads it — the object itself is never mutated. */
+ * `{table}` and re-reads it — the object itself is never mutated. */
 const HARD_EVENT: PresetEvent = {
   name: CREATE_ONLY_EVENT_TEMPLATE,
-  when: surql`$event = 'UPDATE'`,
+  // eslint-disable-next-line unicorn/no-thenable -- then é o nome obrigatório do campo WHEN/THEN do DEFINE EVENT
   then: surql`{ THROW ${HARD_MESSAGE}; }`,
+  when: surql`$event = 'UPDATE'`,
 }
 
 /** The runtime plugin id (stable — duplicate/collision failures name it). */
@@ -85,7 +89,7 @@ const PLUGIN_ID = "better-schemic/create-only"
 
 /**
  * The create- (append-) PRESET: `update` locks it to NONE (per-op **AND**-combined with
- * the table's own permissions — a preset  narrows) and `meta.createOnly = true` stamps it for
+ * the table's own permissions — a preset narrows) and `meta.createOnly = true` stamps it for
  * the runtime guard + `timestamps()`. Optional `hard` adds the DB-level event guard.
  *
  * ```ts
@@ -111,7 +115,7 @@ export function createOnly(options: CreateOnlyPresetOptions = {}): TablePreset {
 // --- the runtime plugin: createOnlyGuard(options?) ----------------------------------------------
 
 /** Options for the `createGuard(...)` runtime plugin. */
-export interface CreateOnlyGuardOptions {
+export type CreateOnlyGuardOptions = {
   /**
    * Extra PHYSICAL table names to treat as create-, for schemas without the preset (e.g. a
    * pulled schema, whose `meta` markers are not recoverable). Typed tables validat them at
@@ -122,19 +126,17 @@ export interface CreateOnlyGuardOptions {
 }
 
 /** Does this `onDuplicate` compile an `ON DUPLICATE KEY UPDATE` (i.e. can update a row)? The
- *  compiler rejects an all-`undefined` map itself — never mask its teaching error. */
+ * compiler rejects an all-`undefined` map itself — never mask its teaching error. */
 function updatesOnDuplicate(onDuplicate: unknown): boolean {
-  if (onDuplicate === "update") {
-    return true
-  }
-  if (!isPlainObject(onDuplicate)) {
-    return false
-  }
+  if (onDuplicate === "update") return true
+
+  if (!isPlainObject(onDuplicate)) return false
+
   return Object.values(onDuplicate).some((value) => value !== undefined)
 }
 
 /** The teaching error for a blocked write. The escape hint is hard-aware: with the
- *  `{table}_create_only` event, `$withoutPlugins()` (and raw SQL) block them too. */
+ * `{table}_create_only` event, `$withoutPlugins()` (and raw SQL) block them too. */
 function violationError(op: Operation, hard: boolean, what: string): OrmError {
   const hint = hard
     ? 'Use create()/insert({ onDuplicate: "ignore" }) to write; the hard guard event blocks $withoutPlugins() and raw SQL too — drop/alter it for an intentional admin operation.'
@@ -142,7 +144,7 @@ function violationError(op: Operation, hard: boolean, what: string): OrmError {
   return new OrmError(
     "CreateOnlyViolation",
     `createOnlyGuard: "${op.table}" is create-only (append-only) — ${what}. ${hint}`,
-    { table: op.table, operation: op.kind },
+    { operation: op.kind, table: op.table },
   )
 }
 
@@ -169,8 +171,8 @@ export function createOnlyGuard(options: CreateOnlyGuardOptions = {}) {
     }
   }
   /** Per schema index: the tagged physical tables, built at bootstrap (setup) — the transform is a
-   *  plain `Map.get`. Keyed by the INDEX (not by plugin instance), so sharing one `createOnlyGuard`
-   *  instance across clients with different schemas stays correct. */
+   * plain `Map.get`. Keyed by the INDEX (not by plugin instance), so sharing one `createOnlyGuard`
+   * instance across clients with different schemas stays correct. */
   const taggedByIndex = new WeakMap<SchemaIndex, ReadonlyMap<string, CreateOnlyTag>>()
 
   /** Build + check the tag map for one schema index (bootstrap, or fail-closed). */
@@ -183,7 +185,7 @@ export function createOnlyGuard(options: CreateOnlyGuardOptions = {}) {
         throw new OrmError(
           "SchemaInvalid",
           `createOnlyGuard: "tables" entry "${name}" is not in the schema — add it or drop the entry.`,
-          { table: name, operation: "setup" },
+          { operation: "setup", table: name },
         )
       }
       // A schemaless entry cannot declare events — `hard` comes from typed tables.
@@ -197,10 +199,10 @@ export function createOnlyGuard(options: CreateOnlyGuardOptions = {}) {
   }
 
   return definePlugin({
+    config: { ...options, tables: extras },
+    description: "Reject update-family operations on append-only tables (client-side fail-fast).",
     id: PLUGIN_ID,
     name: "Create only",
-    description: "Reject update-family operations on append-only tables (client-side fail-fast).",
-    config: { ...options, tables: extras },
     setup({ index }) {
       // Every entry must resolve — a typo fails the bootstrap, not the first write.
       taggedByIndex.set(index, buildTags(index))
@@ -214,13 +216,12 @@ export function createOnlyGuard(options: CreateOnlyGuardOptions = {}) {
         taggedByIndex.set(op.index, tagged)
       }
       const tag = tagged.get(op.table)
-      if (tag === undefined) {
-        return
-      } // untagged table: untouched
+      if (tag === undefined) return
+      // untagged table: untouched
       // The whole update family (update/updateMany/updateEach/patch/upsert/upsertDelta/upsertMany).
-      if (operationFamily(op.kind) === "update") {
+      if (operationFamily(op.kind) === "update")
         throw violationError(op, tag.hard, `operation "${op.kind}" is an UPDATE`)
-      }
+
       // `insert … ON DUPLICATE KEY UPDATE` is an update wearing a create's clothes.
       if (
         (op.kind === "insert" || op.kind === "insertMany") &&

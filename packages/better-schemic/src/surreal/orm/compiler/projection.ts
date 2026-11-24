@@ -1,7 +1,7 @@
 /**
  * The projection compiler — `select`/`omit`/`value` lowered to BOTH the SQL projection text and the
  * {@link ProjectionSpec} the decoder walks (`../decode`), so what the statement returns and how it's
- * decoded can't drift apart. The codec resolution walks the table's Zod shape (`wire.ts` is the 
+ * decoded can't drift apart. The codec resolution walks the table's Zod shape (`wire.ts` is the
  * classifier) — it never re-parses a type string.
  */
 
@@ -9,6 +9,7 @@ import { z } from "zod"
 
 import { escapeIdentSafe as escapeIdent } from "../../ident"
 import type { ModelMeta, TableMeta } from "../meta"
+
 import type { IncludeSpec } from "./include"
 import {
   type Binds,
@@ -23,7 +24,7 @@ import {
 } from "./shared"
 
 /** One decoded leaf of a projection: where it lands, where it comes from, how to decode it. */
-export interface ProjectedField {
+export type ProjectedField = {
   /** An expression entry — the server can compute it (a client-side projection rejects it). */
   readonly computed?: true
   /** The raw value is an ARRAY of leaves (an array ancestor or a `[*]` path). */
@@ -44,7 +45,7 @@ export interface ProjectedField {
 }
 
 /** How to turn raw rows into decoded values. */
-export interface ProjectionSpec {
+export type ProjectionSpec = {
   /** Explicit projection leaves. */
   readonly fields: readonly ProjectedField[]
   /**
@@ -70,7 +71,7 @@ export interface ProjectionSpec {
 }
 
 /** Extra projection sources the read assembler merges in (`include`, cursor keyset columns). */
-export interface ProjectionExtras {
+export type ProjectionExtras = {
   /**
    * Aliases appended to the projection (`path AS alias`), decoded as leaves — the delegate strips
    * them from `data`; keyset cursor values read them from the RAW rows, not these decoded leaves.
@@ -83,7 +84,7 @@ export interface ProjectionExtras {
 }
 
 /** One alias the read appends: `path AS alias`, landing as a decoded top-level key. */
-export interface ProjectionAlias {
+export type ProjectionAlias = {
   /** The output/raw key the alias lands under. */
   readonly alias: string
   /** The field path the alias projects. */
@@ -92,7 +93,7 @@ export interface ProjectionAlias {
 
 /** The full-row decode spec (writes always return whole records). ONE canonical instance. */
 export function fullProjectionSpec(): ProjectionSpec {
-  return { star: true, fields: [], omit: [], value: false, includes: [] }
+  return { fields: [], includes: [], omit: [], star: true, value: false }
 }
 
 /** Compile `select`/`omit`/`value` into SQL text + the decode spec. */
@@ -129,15 +130,15 @@ export function compileProjection(
     const starSchema = buildStarSchema(meta, omitList, split, passthrough, operation)
     const allParts = [...extraParts, ...aliasParts]
     return {
-      text: starText(allParts.length > 0 ? `*, ${allParts.join(", ")}` : "*", omitList),
       spec: {
-        star: true,
         fields: aliasFields,
-        omit: omitList,
-        value: false,
         includes: [],
+        omit: omitList,
+        star: true,
+        value: false,
         ...(starSchema ? { starSchema } : {}),
       },
+      text: starText(allParts.length > 0 ? `*, ${allParts.join(", ")}` : "*", omitList),
     }
   }
 
@@ -163,18 +164,17 @@ export function compileProjection(
         { operation },
       )
     }
-    if (value) {
-      return valueProjection(fields, operation)
-    }
+    if (value) return valueProjection(fields, operation)
+
     return {
-      text: [...fields.map((f) => f.expr), ...extraParts, ...aliasParts].join(", "),
       spec: {
-        star: false,
         fields: [...fields, ...aliasFields],
-        omit: [],
-        value: false,
         includes: [],
+        omit: [],
+        star: false,
+        value: false,
       },
+      text: [...fields.map((f) => f.expr), ...extraParts, ...aliasParts].join(", "),
     }
   }
 
@@ -191,9 +191,8 @@ export function compileProjection(
   let star = false
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [key, entry] of Object.entries(select)) {
-    if (entry === undefined || entry === false) {
-      continue
-    }
+    if (entry === undefined || entry === false) continue
+
     if (key === "*") {
       if (entry !== true) {
         throw compileError("ValidationError", `${operation}: "*" in select only accepts true.`, {
@@ -232,15 +231,15 @@ export function compileProjection(
     ? buildStarSchema(meta, omitList, split, passthrough, operation)
     : undefined
   return {
-    text,
     spec: {
-      star,
       fields: [...fields, ...aliasFields],
-      omit: star ? omitList : [],
-      value: false,
       includes: [],
+      omit: star ? omitList : [],
+      star,
+      value: false,
       ...(starSchema ? { starSchema } : {}),
     },
+    text,
   }
 }
 
@@ -257,9 +256,9 @@ function buildStarSchema(
   passthrough: readonly string[],
   operation: string,
 ): undefined | z.ZodType {
-  if (!isTableMeta(meta) || (omit.length === 0 && !split && passthrough.length === 0)) {
+  if (!isTableMeta(meta) || (omit.length === 0 && !split && passthrough.length === 0))
     return undefined
-  }
+
   // Memoized per (table, omit/split/passthrough shape): a `*` read with include/omit otherwise
   // rebuilds the Zod object on every query. Failures (invalid split) are never cached.
   const key = `${omit.join(",")}|${split ? split.join(".") : ""}|${passthrough.join(",")}`
@@ -268,9 +267,8 @@ function buildStarSchema(
     byKey = new Map()
     STAR_CACHE.set(meta, byKey)
   }
-  if (byKey.has(key)) {
-    return byKey.get(key)
-  }
+  if (byKey.has(key)) return byKey.get(key)
+
   if (split && split.length > 1) {
     throw compileError(
       "ValidationError",
@@ -294,13 +292,11 @@ function buildStarSchema(
     shape[field] = element
   }
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const field of passthrough) {
-    shape[field] = z.unknown().optional()
-  }
+  for (const field of passthrough) shape[field] = z.unknown().optional()
+
   let schema: z.ZodType = zObject(shape)
-  if (omit.length > 0) {
-    schema = (schema as unknown as { partial(): z.ZodType }).partial()
-  }
+  if (omit.length > 0) schema = (schema as unknown as { partial(): z.ZodType }).partial()
+
   byKey.set(key, schema)
   return schema
 }
@@ -310,14 +306,12 @@ const STAR_CACHE = new WeakMap<TableMeta, Map<string, undefined | z.ZodType>>()
 
 /** The element schema of an array/set field (`undefined` when it isn't one). */
 function elementSchema(schema: undefined | z.ZodType): undefined | z.ZodType {
-  if (!schema) {
-    return undefined
-  }
+  if (!schema) return undefined
+
   const inner = unwrap(schema)
   const def = zdef(inner)
-  if (def.type !== "array" && def.type !== "set") {
-    return undefined
-  }
+  if (def.type !== "array" && def.type !== "set") return undefined
+
   return (def.element ?? def.valueType) as z.ZodType
 }
 
@@ -334,28 +328,25 @@ export type ProjectionForm =
   | { readonly fields: readonly string[]; readonly kind: "list" }
 /** Normalize a user projection for analysis; `undefined` when it's malformed. */
 export function projectionForm(select: unknown): ProjectionForm | undefined {
-  if (select === undefined || select === null) {
-    return { kind: "star", entries: {} }
-  }
+  if (select === undefined || select === null) return { entries: {}, kind: "star" }
+
   if (Array.isArray(select)) {
     const fields = select as readonly unknown[]
     if (
       fields.length === 0 ||
       fields.some((entry) => typeof entry !== "string" || entry.length === 0)
-    ) {
+    )
       return undefined
-    }
-    return { kind: "list", fields: fields as readonly string[] }
+
+    return { fields: fields as readonly string[], kind: "list" }
   }
-  if (!isPlainObject(select)) {
-    return undefined
-  }
+  if (!isPlainObject(select)) return undefined
+
   const entries = select
   const contributes = Object.values(entries).some((entry) => entry !== undefined && entry !== false)
-  if (!contributes) {
-    return undefined
-  }
-  return entries["*"] === true ? { kind: "star", entries } : { kind: "object", entries }
+  if (!contributes) return undefined
+
+  return entries["*"] === true ? { entries, kind: "star" } : { entries, kind: "object" }
 }
 
 /** Does the projection already return `field` in the decoded row? */
@@ -365,12 +356,10 @@ export function projectedInPlace(
   field: string,
 ): boolean {
   const target = pathSegments(field)
-  if (form.kind === "star") {
-    return !omitted.some((entry) => covers(entry, target))
-  }
-  if (form.kind === "list") {
-    return form.fields.some((entry) => covers(pathSegments(entry), target))
-  }
+  if (form.kind === "star") return !omitted.some((entry) => covers(entry, target))
+
+  if (form.kind === "list") return form.fields.some((entry) => covers(pathSegments(entry), target))
+
   return coveredByEntries(form.entries, target)
 }
 
@@ -381,24 +370,20 @@ export function projectedInPlace(
  */
 function coveredByEntries(entries: Record<string, unknown>, segments: readonly string[]): boolean {
   const match = longestKey(entries, segments)
-  if (!match) {
-    return false
-  }
+  if (!match) return false
+
   const entry = entries[match.key]
-  if (entry === undefined || entry === false) {
-    return false
-  }
-  if (entry === true) {
-    return true
-  }
+  if (entry === undefined || entry === false) return false
+
+  if (entry === true) return true
+
   // A string entry is an alias: it returns the field when it re-projects its own key
   // (`{ address: "address" }`, or the flat `{ "address.city": "address.city" }`).
-  if (typeof entry === "string") {
-    return entry === match.key
-  }
-  if (isPlainObject(entry)) {
+  if (typeof entry === "string") return entry === match.key
+
+  if (isPlainObject(entry))
     return match.end < segments.length && coveredByEntries(entry, segments.slice(match.end))
-  }
+
   return false
 }
 
@@ -406,13 +391,11 @@ function coveredByEntries(entries: Record<string, unknown>, segments: readonly s
 function longestKey(
   entries: Record<string, unknown>,
   segments: readonly string[],
-): { readonly end: number; readonly key: string } | undefined {
+): undefined | { readonly end: number; readonly key: string } {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (let end = segments.length; end > 0; end--) {
     const key = segments.slice(0, end).join(".")
-    if (key in entries) {
-      return { key, end }
-    }
+    if (key in entries) return { end, key }
   }
   return undefined
 }
@@ -440,27 +423,22 @@ export function redefinedPath(
   segments: readonly string[],
 ): string | undefined {
   const key = segments.join(".")
-  if (!(key in entries)) {
-    return undefined
-  }
+  if (!(key in entries)) return undefined
+
   const entry = entries[key]
-  if (entry === undefined || entry === false || entry === true) {
-    return undefined
-  }
-  if (isPlainObject(entry)) {
-    return undefined
-  }
-  if (typeof entry === "string" && samePath(pathSegments(entry), segments)) {
-    return undefined
-  }
+  if (entry === undefined || entry === false || entry === true) return undefined
+
+  if (isPlainObject(entry)) return undefined
+
+  if (typeof entry === "string" && samePath(pathSegments(entry), segments)) return undefined
+
   return key
 }
 
 /** The omit entries that can hide a `*`-projected path (malformed ones are `compileRead`'s error). */
 export function omittedPaths(omit: unknown): readonly (readonly string[])[] {
-  if (!Array.isArray(omit)) {
-    return []
-  }
+  if (!Array.isArray(omit)) return []
+
   return omit
     .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
     .map(pathSegments)
@@ -471,15 +449,13 @@ export function projectionKeys(form: ProjectionForm): ReadonlySet<string> {
   const keys = new Set<string>()
   if (form.kind === "list") {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const field of form.fields) {
-      keys.add(pathSegments(field)[0])
-    }
+    for (const field of form.fields) keys.add(pathSegments(field)[0])
+
     return keys
   }
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of Object.keys(form.entries)) {
-    keys.add(pathSegments(key)[0])
-  }
+  for (const key of Object.keys(form.entries)) keys.add(pathSegments(key)[0])
+
   return keys
 }
 
@@ -526,9 +502,8 @@ function compileEntry(
     const nested = [...prefix, key]
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const [childKey, child] of Object.entries(entry)) {
-      if (child === undefined || child === false) {
-        continue
-      }
+      if (child === undefined || child === false) continue
+
       compileEntry(meta, childKey, child, nested, parts, fields, binds, operation, split)
     }
     return
@@ -544,11 +519,11 @@ function compileEntry(
     const expr = renderValue(entry, binds, binds.ctx())
     parts.push(`${expr} AS ${escapeIdent(key)}`)
     fields.push({
+      computed: true,
+      each: false,
+      expr,
       out: [key],
       source: [key],
-      expr,
-      each: false,
-      computed: true,
     })
     return
   }
@@ -573,15 +548,15 @@ function valueProjection(
   }
   const field = fields[0]
   return {
-    text: field.expr,
     spec: {
-      star: false,
       fields: [],
+      includes: [],
       omit: [],
+      star: false,
       value: true,
       valueField: field,
-      includes: [],
     },
+    text: field.expr,
   }
 }
 
@@ -603,21 +578,18 @@ export function projectedFieldFor(
   split?: readonly string[],
 ): ProjectedField {
   const expr = renderPath(schemaPath.join("."))
-  if (!isTableMeta(meta)) {
-    return { out, source, expr, each: false }
-  }
+  if (!isTableMeta(meta)) return { each: false, expr, out, source }
+
   const found = resolveLeafCodec(meta, schemaPath)
   const stripped = pathSegments(schemaPath.join("."))
   const isSplit =
-    split !== undefined &&
-    split.length === stripped.length &&
-    split.every((segment, i) => segment === stripped[i])
+    split?.length === stripped.length && split.every((segment, i) => segment === stripped[i])
   const schema = isSplit ? (elementSchema(found.schema) ?? found.schema) : found.schema
   return {
+    each: isSplit ? false : found.each,
+    expr,
     out,
     source,
-    expr,
-    each: isSplit ? false : found.each,
     ...(schema ? { schema } : {}),
   }
 }
@@ -639,9 +611,8 @@ export function resolveLeafCodec(
     LEAF_CACHE.set(meta, byKey)
   }
   const cached = byKey.get(key)
-  if (cached) {
-    return cached
-  }
+  if (cached) return cached
+
   const resolved = leafSchema(meta, parsePath(schemaPath))
   byKey.set(key, resolved)
   return resolved
@@ -656,7 +627,7 @@ const zdef = (schema: z.ZodType): { [k: string]: unknown; type: string } =>
   schema._zod.def as unknown as { [k: string]: unknown; type: string }
 
 /** One path segment: its key, and whether it indexes an array (`[*]`/none) or a fixed slot (`[0]`). */
-interface PathSegment {
+type PathSegment = {
   /** `auto` = no brackets (an array ancestor yields an array), `some` = `[*]`, `index` = `[n]`. */
   readonly mode: "auto" | "index" | "many"
   readonly name: string
@@ -669,12 +640,10 @@ function parsePath(segments: readonly string[]): readonly PathSegment[] {
   for (const raw of segments) {
     const matches = [...raw.matchAll(/\[(\d+|\*)\]/gu)]
     const name = raw.replaceAll(/\[\d+\]|\[\*\]/gu, "")
-    const mode: PathSegment["mode"] = matches.some((m) => m[1] === "*")
-      ? "many"
-      : matches.length > 0
-        ? "index"
-        : "auto"
-    out.push({ name, mode })
+    let mode: PathSegment["mode"] = "auto"
+    if (matches.some((m) => m[1] === "*")) mode = "many"
+    else if (matches.length > 0) mode = "index"
+    out.push({ mode, name })
   }
   return out
 }
@@ -713,21 +682,19 @@ function leafSchema(
   segments: readonly PathSegment[],
 ): { each: boolean; schema?: z.ZodType } {
   const shape = (meta.def.object as { shape?: Record<string, z.ZodType> }).shape
-  if (!shape || segments.length === 0) {
-    return { each: false }
-  }
+  if (!shape || segments.length === 0) return { each: false }
+
   let current: z.ZodType = meta.def.object
   let each = false
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const segment of segments) {
     const step = descend(current, segment)
-    if (!step.next) {
-      return { each }
-    }
+    if (!step.next) return { each }
+
     current = step.next
     each = each || step.each
   }
-  return { schema: current, each }
+  return { each, schema: current }
 }
 
 /** Descend one path segment; arrays unwrap (and mark `each`) unless the segment is an explicit index. */
@@ -737,32 +704,29 @@ function descend(current: z.ZodType, segment: PathSegment): { each: boolean; nex
   if (def.type === "array" || def.type === "set") {
     const element = (def.element ?? def.valueType) as z.ZodType
     const step = descend(element, segment)
-    return { next: step.next, each: segment.mode !== "index" || step.each }
+    return { each: segment.mode !== "index" || step.each, next: step.next }
   }
   if (def.type === "object") {
     const child = (def.shape as Record<string, z.ZodType>)[segment.name]
-    if (!child) {
-      return { each: false }
-    }
-    if (segment.mode === "auto") {
-      return { next: child, each: false }
-    }
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- checagem defensiva em runtime (valores ausentes/mutados por callback); tipo TS é otimista
+    if (!child) return { each: false }
+
+    if (segment.mode === "auto") return { each: false, next: child }
+
     const childInner = unwrap(child)
     const childDef = zdef(childInner)
-    if (childDef.type !== "array" && childDef.type !== "set") {
-      return { next: child, each: false }
-    }
+    if (childDef.type !== "array" && childDef.type !== "set") return { each: false, next: child }
+
     const element = (childDef.element ?? childDef.valueType) as z.ZodType
-    return { next: element, each: segment.mode !== "index" }
+    return { each: segment.mode !== "index", next: element }
   }
   return { each: false }
 }
 
 /** Normalize `omit` to a list of field names. */
 function omitListOf(omit: unknown, operation: string): readonly string[] {
-  if (omit === undefined || omit === null) {
-    return []
-  }
+  if (omit === undefined || omit === null) return []
+
   if (!Array.isArray(omit)) {
     throw compileError(
       "ValidationError",

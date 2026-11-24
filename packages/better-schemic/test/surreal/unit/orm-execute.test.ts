@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, unicorn/consistent-function-scoping, @typescript-eslint/require-await, @typescript-eslint/no-confusing-void-expression -- Object key order mirrors expected serialized output and must stay as authored. Helpers stay colocated with the tests that use them. Mock methods match async interfaces without awaiting. The void operator discards intentionally ignored values. */
 // M0.4 — the executor: one round-trip for N statements, per-statement status via `responses()`,
 // implicit BEGIN/COMMIT for batches, first-failure attribution (statementIndex/surql/vars) and the
 // unique-binds guardrail. All offline — the "connection" is a recording fake.
@@ -85,9 +86,9 @@ describe("execute — failure attribution", () => {
       table: "t",
     }).catch((error: unknown) => error)) as Error & {
       code: string
+      operation: string
       statementIndex: number
       surql: string
-      operation: string
       table: string
       vars: unknown
     }
@@ -119,21 +120,23 @@ describe("execute — failure attribution", () => {
     // transaction" and fails COMMIT — the root cause is the statement that actually failed.
     const { conn } = fakeConn((sql) =>
       lines(sql).map((line) => {
-        if (line.startsWith("COMMIT"))
+        if (line.startsWith("COMMIT")) {
           return fail(
             new ServerError({
               kind: "Query",
               message: "Cannot COMMIT: the transaction was aborted due to a prior error",
             }),
           )
+        }
         if (line.includes("dup")) return fail(dup())
-        if (line.startsWith("CREATE"))
+        if (line.startsWith("CREATE")) {
           return fail(
             new ServerError({
               kind: "Query",
               message: "The query was not executed due to a failed transaction",
             }),
           )
+        }
         return ok(null)
       }),
     )

@@ -3,9 +3,9 @@
  *
  * Two modes:
  * - `"app"` (default): the client stamps `time::now()` (a `surql` expression) into the payload on
- *   create/update/upsert — the schema does not need `VALUE time::now()`.
+ * create/update/upsert — the schema does not need `VALUE time::now()`.
  * - `"database"`: the timestamps own them by the table's `DEFINE FIELD … VALUE time::now()`; the
- *   plugin  ensures no write CLOBBERS the managed value (it strips the columns from the payload).
+ * plugin ensures no write CLOBBERS the managed value (it strips the columns from the payload).
  *
  * A create- table (`createOnly()` / `tenant(…, { createOnly: true })`) never gets `updatedAt`:
  * the marker reads it per operation, so the skip is independent of plugin registration order.
@@ -19,15 +19,16 @@ import { surql } from "../index"
 import { isCreateOperation, isUpdateOperation } from "../orm/hooks"
 import { definePlugin } from "../orm/plugins"
 import type { Plugin } from "../orm/types/plugins"
+
 import { createOnlyTags } from "./create-only-shared"
 
 /** The `timestamps` plugin options. */
-export interface TimestampsOptions {
+export type TimestampsOptions = {
   /** The created-at column (default `"createdAt"`). */
   readonly createdAt?: string
   /**
    * `"app"` stamps `time::now()` from the client; `"database"` defers to the schema's
-   * `VALUE time::now()` and  strips the columns from writes. Default `"app"`.
+   * `VALUE time::now()` and strips the columns from writes. Default `"app"`.
    */
   readonly mode?: "app" | "database"
   /** The updated-at column (default `"updatedAt"`). */
@@ -40,36 +41,32 @@ export function timestamps(options: TimestampsOptions = {}): Plugin {
   const updatedAt = options.updatedAt ?? "updatedAt"
   const mode = options.mode ?? "app"
   return definePlugin({
+    config: { createdAt, mode, updatedAt },
+    description: "Fill createdAt/updatedAt on writes.",
     id: "better-schemic/timestamps",
     name: "Timestamps",
-    description: "Fill createdAt/updatedAt on writes.",
-    config: { createdAt, updatedAt, mode },
     transform(op) {
       const isCreate = isCreateOperation(op.kind)
       const isUpdate = isUpdateOperation(op.kind)
-      if (!isCreate && !isUpdate) {
-        return
-      }
+      if (!isCreate && !isUpdate) return
+
       // A create-(append-) table never carries `updatedAt` — not on create, not on a
       // bypassed update. The per-index lookup cachs it; untagged tables take one `Map.has`.
       const createOnly = createOnlyTags(op.index).has(op.table)
       if (mode === "app") {
         if (isCreate) {
           op.data[createdAt] = surql`time::now()`
-          if (!createOnly) {
-            op.data[updatedAt] = surql`time::now()`
-          }
-        } else if (!createOnly) {
-          op.data[updatedAt] = surql`time::now()`
-        }
+          if (!createOnly) op.data[updatedAt] = surql`time::now()`
+        } else if (!createOnly) op.data[updatedAt] = surql`time::now()`
+
         return
       }
       // mode === "database": the schema owns the values — strip them from the payload if present
       // (never materialize `data`: a transform that reads must not inject an empty object).
       const data = op.args.data
-      if (data !== undefined && !Array.isArray(data)) {
-        delete (data as Record<string, unknown>)[createdAt]
-        delete (data as Record<string, unknown>)[updatedAt]
+      if (data !== undefined && data !== null && !Array.isArray(data)) {
+        Reflect.deleteProperty(data, createdAt)
+        Reflect.deleteProperty(data, updatedAt)
       }
     },
   })

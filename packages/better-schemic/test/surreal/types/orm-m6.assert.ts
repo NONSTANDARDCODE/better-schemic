@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-restricted-types, @typescript-eslint/no-generated-empty-object-type, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. Fixtures use object to probe schema typing. Empty object literals are intentional fixtures. Type queries and callback signatures need fixture values. */
 // M6 — TYPE assertions for plugins: `operationArgs` fold into delegate args, `extendModel` lands on
 // the delegate and `extendClient` on the client.
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
@@ -22,12 +23,17 @@ import { timestamps as timestampsPlugin } from "../../../src/surreal/plugins/tim
 const User = table("user", { name: s.string() })
 const schemaDef = schema({ users: User })
 
+/** Keep the fixture's operation args widened — `const Spec` inference would otherwise narrow them
+ *  to the literal defaults and break the assertions below. */
+const deletedArg: { deleted: "only" | "with" | "without" } = { deleted: "without" }
+const modeArg: { mode: "hard" | "soft" } = { mode: "soft" }
+
 const softDelete = definePlugin({
   id: "soft-delete",
   config: { column: "deletedAt" as const },
   operationArgs: {
-    findMany: { deleted: "without" as "only" | "with" | "without" },
-    delete: { mode: "soft" as "hard" | "soft" },
+    findMany: deletedArg,
+    delete: modeArg,
   },
   extendModel() {
     return {
@@ -54,7 +60,7 @@ const restore = (client: C) =>
   (client.users as unknown as { restore(a: unknown): unknown }).restore({})
 const hello = (client: CC) => client.hello()
 
-describe("plugins — official F2 typing", () => {
+void describe("plugins — official F2 typing", () => {
   const sd = softDeletePlugin()
   const ts = timestampsPlugin()
   const co = createOnlyGuardPlugin()
@@ -62,7 +68,7 @@ describe("plugins — official F2 typing", () => {
   type TS = typeof ts
   type CO = typeof co
 
-  it("softDelete adds `deleted` to reads and restore/restoreById to the delegate", () => {
+  void it("softDelete adds `deleted` to reads and restore/restoreById to the delegate", () => {
     type CSD = Client<typeof schemaDef, Surreal, [SD]>
     assertType<{ deleted?: "only" | "with" | "without" }, PluginArgs<[SD], "findMany">>()
     assertType<true, "restore" extends keyof PluginModelExtras<[SD]> ? true : false>()
@@ -70,19 +76,19 @@ describe("plugins — official F2 typing", () => {
     assertType<true, "restoreById" extends keyof CSD["users"] ? true : false>()
   })
 
-  it("timestamps does not add per-operation args", () => {
+  void it("timestamps does not add per-operation args", () => {
     assertType<Record<never, never>, PluginArgs<[TS], "create">>()
   })
 
-  it("createOnlyGuard does not add per-operation args on any op", () => {
+  void it("createOnlyGuard does not add per-operation args on any op", () => {
     assertType<Record<never, never>, PluginArgs<[CO], "create">>()
     assertType<Record<never, never>, PluginArgs<[CO], "update">>()
     assertType<Record<never, never>, PluginArgs<[CO], "insert">>()
   })
 })
 
-describe("plugins — typing", () => {
-  it("operationArgs fold into the matching delegate method args (optional)", () => {
+void describe("plugins — typing", () => {
+  void it("operationArgs fold into the matching delegate method args (optional)", () => {
     assertType<{ deleted?: "only" | "with" | "without" }, PluginArgs<[Soft], "findMany">>()
     assertType<{ mode?: "hard" | "soft" }, PluginArgs<[Soft], "delete">>()
     assertType<Record<never, never>, PluginArgs<[Soft], "create">>()
@@ -90,13 +96,13 @@ describe("plugins — typing", () => {
     assertType<true, ReturnType<typeof deleteSoft> extends object ? true : false>()
   })
 
-  it("extendModel methods land on the delegate", () => {
+  void it("extendModel methods land on the delegate", () => {
     assertType<true, "restore" extends keyof PluginModelExtras<[Soft]> ? true : false>()
     assertType<true, "restore" extends keyof C["users"] ? true : false>()
     assertType<unknown, ReturnType<typeof restore>>()
   })
 
-  it("extendClient methods land on the client", () => {
+  void it("extendClient methods land on the client", () => {
     assertType<true, "hello" extends keyof PluginClientExtras<[WithClient]> ? true : false>()
     assertType<true, "hello" extends keyof CC ? true : false>()
     assertType<"hi", ReturnType<typeof hello>>()

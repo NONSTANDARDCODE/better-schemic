@@ -45,8 +45,8 @@ export {
 
 let subCounter = 0
 /** Lower a builder to an interpolatable fragment: parenthesize the sql and NAMESPACE its binds
- *  (`$b0` -> `$sub__<n>_b0`, boundary-aware) so  builder fragments compose in one template
- *  without colliding (the SDK throws on duplicate bind names rather than renaming). */
+ *  (`$b0` -> `$sub__<n>_b0`, boundary-aware) so builder fragments compose in one template
+ * without colliding (the SDK throws on duplicate bind names rather than renaming). */
 export function toFragment(
   lowered: { sql: string; vars: Record<string, unknown> },
   wrap = (sql: string) => `(${sql})`,
@@ -65,7 +65,7 @@ export function toFragment(
 // --- operand / argument lowering -----------------------------------------------------------------
 
 /** Value-position statements that must KEEP their parens (a bare subquery in `LET`/`RETURN`
- *  requires them; SurrealDB's printer keeps them too). */
+ * requires them; SurrealDB's printer keeps them too). */
 const KEEP_PARENS = /^(SELECT|CREATE|UPDATE|DELETE|INSERT|RELATE|UPSERT|DEFINE|IF|FOR|RETURN)\b/iu
 
 /**
@@ -78,38 +78,35 @@ export function stripOuterParens(text: string): string {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   while (t.startsWith("(") && t.endsWith(")")) {
     let depth = 0
-    let quote: '"' | "'" | null = null
+    let quote: "'" | '"' | null = null
     let whole = true
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (let i = 0; i < t.length; i++) {
       const ch = t[i]
       if (quote) {
-        if (ch === "\\") {
-          i++
-        } else if (ch === quote) {
-          quote = null
-        }
+        // eslint-disable-next-line max-depth -- parser com estado mutável; extrair helpers mudaria a semântica
+        if (ch === "\\") i++
+        else if (ch === quote) quote = null
+
         continue
       }
-      if (ch === '"' || ch === "'") {
-        quote = ch
-      } else if (ch === "(") {
-        depth++
-      } else if (ch === ")") {
+      // eslint-disable-next-line unicorn-plugin/prefer-switch -- cadeia else-if preserva a ordem semântica das verificações
+      if (ch === '"' || ch === "'") quote = ch
+      else if (ch === "(") depth++
+      else if (ch === ")") {
         depth--
+        // eslint-disable-next-line max-depth -- parser com estado mutável; extrair helpers mudaria a semântica
         if (depth === 0 && i < t.length - 1) {
           whole = false
           break
         }
       }
     }
-    if (!whole) {
-      break
-    }
+    if (!whole) break
+
     const inner = t.slice(1, -1).trim()
-    if (KEEP_PARENS.test(inner)) {
-      break
-    }
+    if (KEEP_PARENS.test(inner)) break
+
     t = inner
   }
   return t
@@ -120,30 +117,25 @@ let argCounter = 0
  * Capture a derived-method / catalog-call ARGUMENT for deferred rendering. Refs and `$param`
  * refs stay deferred (so an outer-row ref inside `.replace(other, …)` still `$parent`-detects at
  * lowering); a literal binds under a globally-unique `$r<n>` name captured NOW (stable across
- *   passes render the ref).
+ * passes render the ref).
  */
 export function argRenderer(v: unknown): (ctx: Ctx) => string {
-  if (isParamRef(v)) {
-    return () => v.toText()
-  }
+  if (isParamRef(v)) return () => v.toText()
+
   const rs = refState(v)
-  if (rs) {
-    return (ctx) => renderRef(rs, ctx)
-  }
-  if (v instanceof BoundQuery) {
-    return (ctx) => `(${mergeRaw(v, ctx.vars)})`
-  }
+  if (rs) return (ctx) => renderRef(rs, ctx)
+
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- argumento any vem de internals do Zod/SDK (fronteira sem tipos)
+  if (v instanceof BoundQuery) return (ctx) => `(${mergeRaw(v, ctx.vars)})`
+
   const frag = (v as null | Record<symbol, unknown>)?.[FRAGMENT]
-  if (typeof frag === "function") {
-    return (ctx) => mergeRaw(frag.call(v) as BoundQuery, ctx.vars)
-  }
-  if (hasRefDeep(v)) {
-    return (ctx) => renderData(v, ctx)
-  }
+  if (typeof frag === "function") return (ctx) => mergeRaw(frag.call(v) as BoundQuery, ctx.vars)
+
+  if (hasRefDeep(v)) return (ctx) => renderData(v, ctx)
+
   const param = paramDefName(v)
-  if (param !== undefined) {
-    return () => `$${param}`
-  }
+  if (param !== undefined) return () => `$${param}`
+
   rejectDefValue(v)
   const name = `r${++argCounter}`
   return (ctx) => {

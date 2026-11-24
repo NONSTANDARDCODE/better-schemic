@@ -11,20 +11,20 @@ import type * as z from "zod"
 import { assertType } from "../../../../../scripts/type-assert"
 import type { InnerOf, SchemaOf } from "../../../src/core/authoring"
 
-describe("InnerOf — the schema one wrapper down", () => {
-  it("unwraps ZodOptional", () => {
+void describe("InnerOf — the schema one wrapper down", () => {
+  void it("unwraps ZodOptional", () => {
     assertType<z.ZodString, InnerOf<z.ZodOptional<z.ZodString>>>()
   })
-  it("unwraps ZodArray to its element", () => {
+  void it("unwraps ZodArray to its element", () => {
     assertType<z.ZodNumber, InnerOf<z.ZodArray<z.ZodNumber>>>()
   })
-  it("leaves a non-wrapper schema unchanged", () => {
+  void it("leaves a non-wrapper schema unchanged", () => {
     assertType<z.ZodString, InnerOf<z.ZodString>>()
   })
 })
 
-describe("SchemaOf — the Zod schema a field carries", () => {
-  it("passes a raw Zod schema straight through", () => {
+void describe("SchemaOf — the Zod schema a field carries", () => {
+  void it("passes a raw Zod schema straight through", () => {
     assertType<z.ZodString, SchemaOf<z.ZodString>>()
   })
 })

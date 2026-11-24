@@ -14,8 +14,7 @@ export const FN_NAME = /^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$/u
  * `undefined` when the name is invalid (callers throw their own contextual error).
  */
 export function normalizeFnName(name: string): string | undefined {
-  if (typeof name !== "string" || !FN_NAME.test(name)) {
-    return undefined
-  }
+  if (typeof name !== "string" || !FN_NAME.test(name)) return undefined
+
   return name.includes("::") ? name : `fn::${name}`
 }

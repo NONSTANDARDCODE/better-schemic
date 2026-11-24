@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally unused type-probe values. Type queries and callback signatures need fixture values. */
 // String ids — TYPE assertions: the APP side is a bare `BareId<T>` string (relation helpers still
 // resolve the target table), the WIRE side accepts `string | RecordId`, and writes/where/cursor
 // accept both. Type-checked by `bun check` as part of `typecheck` — no runtime.
@@ -30,20 +31,20 @@ const Customer = table("customer", {
 const Likes = relation("likes", { score: s.int() }).from(Customer).to(Org).stringIds()
 const schemaDef = schema({ orgs: Org, customers: Customer, likes: Likes })
 
-describe("string ids — types", () => {
-  it("App is a bare branded string; Wire accepts string | RecordId", () => {
+void describe("string ids — types", () => {
+  void it("App is a bare branded string; Wire accepts string | RecordId", () => {
     assertType<BareId<"org">, App<typeof Org>["id"]>()
-    assertType<RecordId<"org", RecordIdValue> | string, Wire<typeof Org>["id"]>()
+    assertType<RecordId<"org"> | string, Wire<typeof Org>["id"]>()
     assertType<BareId<"org">, App<typeof Customer>["org"]>()
     assertType<BareId<"org">, App<typeof Customer>["meta"]["ref"]>()
   })
 
-  it("RecordIdName resolves the target table from the brand", () => {
+  void it("RecordIdName resolves the target table from the brand", () => {
     assertType<"org", RecordIdName<App<typeof Customer>["org"]>>()
     assertType<never, RecordIdName<App<typeof Customer>["name"]>>()
   })
 
-  it("link keys survive (relational filters typecheck)", () => {
+  void it("link keys survive (relational filters typecheck)", () => {
     assertType<"org", LinkKeys<typeof Customer>>()
     const w: WhereInput<typeof Customer, typeof schemaDef> = {
       org: { is: { name: "x" } },
@@ -51,7 +52,7 @@ describe("string ids — types", () => {
     void w
   })
 
-  it("where accepts bare strings, RecordId and operators", () => {
+  void it("where accepts bare strings, RecordId and operators", () => {
     const shorthand: WhereInput<typeof Customer, typeof schemaDef> = {
       org: "o1",
     }
@@ -72,7 +73,7 @@ describe("string ids — types", () => {
     void byId
   })
 
-  it("writes accept bare strings AND RecordId, nested included", () => {
+  void it("writes accept bare strings AND RecordId, nested included", () => {
     const create: CreateData<typeof Customer> = {
       name: "A",
       org: "o1",
@@ -86,7 +87,7 @@ describe("string ids — types", () => {
     void update
   })
 
-  it("cursor accepts a bare id / tuple and relation endpoints are bare", () => {
+  void it("cursor accepts a bare id / tuple and relation endpoints are bare", () => {
     const cursor: CursorArgs<typeof Customer, typeof schemaDef> = {
       after: "c1",
       orderBy: [{ id: "asc" }],
@@ -97,7 +98,7 @@ describe("string ids — types", () => {
     assertType<BareId<"org">, App<typeof Likes>["out"]>()
   })
 
-  it("record() keeps the mode and .stringIds() stays a RecordIdField", () => {
+  void it("record() keeps the mode and .stringIds() stays a RecordIdField", () => {
     assertType<RecordIdField<"org", RecordIdValue, "string">, ReturnType<typeof Org.record>>()
     const explicit = s.recordId("org").stringIds()
     assertType<RecordIdField<"org", RecordIdValue, "string">, typeof explicit>()

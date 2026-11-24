@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, unicorn/consistent-function-scoping, unicorn/no-thenable -- Object key order mirrors expected serialized output and must stay as authored. Helpers stay colocated with the tests that use them. Bun test calls return thenable handles that are not awaited. */
 // Import `s`/`table` by package name (like the CLI does) so the table types line up with the
 // `better-schemic/core`-typed signatures in cli/diff (avoids src-vs-lib duplicate-declaration errors).
 import {

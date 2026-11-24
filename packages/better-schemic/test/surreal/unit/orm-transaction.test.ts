@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/require-await -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock methods match async interfaces without awaiting. */
 // M4.1 — `client.transaction`: the managed-transaction runtime over a recording fake. Covers
 // commit/cancel, rollback, nested scope, afterCommit/afterRollback, retries, deadline, the
 // `inTransaction` threading (batches skip their implicit BEGIN) and option validation.
@@ -13,7 +14,7 @@ import { caught, lines, ok } from "../orm-fixtures"
 const User = table("user", { name: s.string() })
 const schemaDef = schema({ users: User })
 
-interface TxCall {
+type TxCall = {
   readonly sql: string
   readonly vars?: Record<string, unknown>
 }
@@ -28,7 +29,7 @@ function fakeTx() {
     query(sql: string, vars?: Record<string, unknown>) {
       calls.push({ sql, vars })
       return {
-        responses: async (): Promise<QueryResponse<unknown>[]> => lines(sql).map(() => ok([])),
+        responses: async (): Promise<QueryResponse[]> => lines(sql).map(() => ok([])),
       }
     },
     commit() {
@@ -46,7 +47,7 @@ function fakeTx() {
 /** A fake root connection whose `beginTransaction()` hands back a fresh {@link fakeTx}. */
 function fakeRoot(
   onBegin?: (count: number) => void,
-  handler?: (sql: string, vars?: Record<string, unknown>) => QueryResponse<unknown>[],
+  handler?: (sql: string, vars?: Record<string, unknown>) => QueryResponse[],
 ) {
   const rootCalls: TxCall[] = []
   const transactions: ReturnType<typeof fakeTx>[] = []
@@ -57,7 +58,7 @@ function fakeRoot(
     query(sql: string, vars?: Record<string, unknown>) {
       rootCalls.push({ sql, vars })
       return {
-        responses: async (): Promise<QueryResponse<unknown>[]> =>
+        responses: async (): Promise<QueryResponse[]> =>
           handler ? handler(sql, vars) : lines(sql).map(() => ok([])),
       }
     },
@@ -78,7 +79,7 @@ const clientOver = (
 ) =>
   orm(conn as never, {
     schema: schemaDef,
-    ...(transaction !== undefined ? { transaction } : {}),
+    ...(transaction === undefined ? {} : { transaction }),
   })
 
 const codeOf = (e: unknown): string | undefined => (isOrmError(e) ? e.code : undefined)
@@ -228,7 +229,9 @@ describe("client.transaction — commit/cancel/rollback", () => {
     expect(events).toEqual(["root-scope"])
     const err = (() => {
       try {
-        client.afterCommit(() => {})
+        client.afterCommit(() => {
+          /* empty */
+        })
         return undefined
       } catch (error) {
         return error
@@ -241,13 +244,15 @@ describe("client.transaction — commit/cancel/rollback", () => {
   test("afterCommit/afterRollback fail once the transaction settled", async () => {
     const conn = fakeRoot()
     const client = clientOver(conn)
-    let tx: { afterCommit(cb: () => void): void } | undefined
+    let tx: undefined | { afterCommit(cb: () => void): void }
     await client.transaction(async (handle) => {
-      tx = handle as unknown as { afterCommit(cb: () => void): void }
+      tx = handle
     })
     const err = (() => {
       try {
-        tx?.afterCommit(() => {})
+        tx?.afterCommit(() => {
+          /* empty */
+        })
         return undefined
       } catch (error) {
         return error
@@ -326,7 +331,9 @@ describe("client.transaction — retries and deadline", () => {
     const err = await caught(() =>
       client.transaction(
         async () => {
-          await new Promise((resolve) => setTimeout(resolve, 200))
+          await new Promise((resolve) => {
+            setTimeout(resolve, 200)
+          })
           return "late"
         },
         { timeout: 20 },
@@ -345,7 +352,9 @@ describe("client.transaction — retries and deadline", () => {
     const client = clientOver(conn)
     const started = client.transaction(
       async () => {
-        await new Promise((resolve) => setTimeout(resolve, 50))
+        await new Promise((resolve) => {
+          setTimeout(resolve, 50)
+        })
         return "late"
       },
       { timeout: 10 },
@@ -353,14 +362,16 @@ describe("client.transaction — retries and deadline", () => {
     // The managed tx creates it synchronously inside the call; a cancelled transaction can't
     // commit, so the late settle throws — exercising the `if (timedOut)` catch arm. The final
     // wait lets that background settle land inside this test (not after the process exits).
-    conn.transactions[0]!.commit = () => Promise.reject(new Error("cancelled"))
+    conn.transactions[0].commit = () => Promise.reject(new Error("cancelled"))
     const err = await caught(() => started)
     expect(codeOf(err)).toBe("DatabaseError")
     expect((err as OrmError).details).toMatchObject({
       timedOut: true,
     })
     expect(conn.transactions[0]?.cancelled).toBe(1)
-    await new Promise((resolve) => setTimeout(resolve, 150))
+    await new Promise((resolve) => {
+      setTimeout(resolve, 150)
+    })
   })
 
   test("duration strings are accepted for timeout", async () => {
@@ -416,7 +427,7 @@ describe("client.transaction — options validation and unsupported features", (
     ]
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const options of cases) {
-      const err = await caught(() => client.transaction(async () => "x", options as never))
+      const err = await caught(() => client.transaction(async () => "x", options))
       expect(codeOf(err)).toBe("ValidationError")
     }
   })

@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-explicit-any -- Object key order mirrors expected serialized output and must stay as authored. Fixtures use any for duck-typed mocks. */
 // Pure logic of the `ls`/`info` inspection commands: source-flag resolution (declared default,
 // --snapshot/--live mutually exclusive), table-scoped addressing (parent hook, owner fallback), and
 // per-kind address listing.
@@ -29,11 +30,14 @@ function fakeEngine(opts: { owner?: boolean; parent?: boolean } = {}): FakeEngin
           name: o.parent ?? "",
         })
       : undefined,
-  } as unknown as FakeEngine
+  }
 }
 
-const obj = (kind: string, name: string, extra: Record<string, unknown> = {}): PortableObject =>
-  ({ kind, name, ...extra }) as PortableObject
+const obj = (kind: string, name: string, extra: Record<string, unknown> = {}): PortableObject => ({
+  kind,
+  name,
+  ...extra,
+})
 
 describe("pickSource", () => {
   test("defaults to declared (what you wrote — offline, never stale)", () => {
@@ -78,9 +82,9 @@ describe("requireKind (verb-first `sc ls <kind>` / `sc info <kind>`)", () => {
     expect(requireKind(fakeRegistry(["table"]), engines, "table")).toBeDefined()
   })
   test("teaching error listing valid kinds for an unknown kind", () => {
-    expect(() => requireKind(fakeRegistry(["table", "index"]), engines, "bogus")).toThrow(
-      /unknown kind "bogus".*table, index/u,
-    )
+    expect(() => {
+      requireKind(fakeRegistry(["table", "index"]), engines, "bogus")
+    }).toThrow(/unknown kind "bogus".*table, index/u)
   })
 })
 

@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-unnecessary-condition -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Defensive checks document fixture intent. */
 import { join } from "node:path"
 
 import { describe, expect, it } from "bun:test"

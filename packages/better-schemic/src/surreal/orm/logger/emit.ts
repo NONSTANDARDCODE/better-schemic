@@ -12,15 +12,12 @@ import type { ResolvedContext } from "../types/context"
 import type { LogPhase, LogStatement, LogStatementResult, QueryLogger } from "../types/logger"
 
 /** The minimal connection surface the auto-EXPLAIN probe needs. */
-interface Explainable {
-  query(
-    sql: string,
-    vars?: Record<string, unknown>,
-  ): { responses(): Promise<QueryResponse<unknown>[]> }
+type Explainable = {
+  query(sql: string, vars?: Record<string, unknown>): { responses(): Promise<QueryResponse[]> }
 }
 
 /** Everything one logged round-trip needs (a superset of the executor's script options). */
-export interface RoundTripLog {
+export type RoundTripLog = {
   readonly context?: ResolvedContext
   readonly durationMs: number
   readonly error?: unknown
@@ -30,7 +27,7 @@ export interface RoundTripLog {
   readonly offset?: number
   readonly operation?: string
   readonly phase?: LogPhase
-  readonly responses: readonly QueryResponse<unknown>[]
+  readonly responses: readonly QueryResponse[]
   /** The executed script (control statements may includs it for `execute` batches). */
   readonly script: string
   /** The user statements, when the caller can supply them (accurate display). */
@@ -53,24 +50,20 @@ function stripControl(script: string): string {
 
 /** Map one raw SDK response to a logged statement outcome. */
 function responseToResult(
-  response: QueryResponse<unknown> | undefined,
+  response: QueryResponse | undefined,
   operation: string | undefined,
 ): LogStatementResult {
-  if (!response) {
-    return { status: "ERR" }
-  }
+  if (!response) return { status: "ERR" }
+
   const time =
     response.stats?.duration === undefined ? {} : { time: String(response.stats.duration) }
-  if (!response.success) {
-    return { status: "ERR", error: response.error, ...time }
-  }
+  if (!response.success) return { error: response.error, status: "ERR", ...time }
+
   const rows = Array.isArray(response.result) ? response.result.length : undefined
   // A `count` op returns `[{ count: n }]` — report the scalar, not "1 row".
   if (operation === "count" && rows === 1) {
-    const first = (response.result as unknown[])[0] as { count?: unknown } | undefined
-    if (typeof first?.count === "number") {
-      return { status: "OK", rows, count: first.count, ...time }
-    }
+    const first = (response.result as unknown[])[0] as undefined | { count?: unknown }
+    if (typeof first?.count === "number") return { count: first.count, rows, status: "OK", ...time }
   }
   // An `exists` probe returns `[id]` (or `[]`) — a row count would be misleading.
   const showRows = operation !== "exists" && rows !== undefined ? { rows } : {}
@@ -97,7 +90,7 @@ export async function emitRoundTrip(conn: Explainable, log: RoundTripLog): Promi
   const single = statements.length === 1 ? statements[0] : undefined
   if (log.phase === "explain") {
     // An EXPLAIN probe: the responses' results ARE the plans.
-    plans = userResponses.map((r) => (r?.success ? r.result : undefined))
+    plans = userResponses.map((r) => (r.success ? r.result : undefined))
   } else if (log.error === undefined && single !== undefined) {
     // Auto-explain (opt-in): the logger decides whether a plan wants it for this round-trip.
     const planSql = logger.planStatement(single.sql, log.durationMs, "run")
@@ -112,14 +105,15 @@ export async function emitRoundTrip(conn: Explainable, log: RoundTripLog): Promi
   }
 
   const statementError =
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- resposta de EXPLAIN pode não trazer erro na forma tipada
     log.error ?? userResponses.find((r) => r !== undefined && !r.success)?.error
 
   // `verbose` previews the primary result's first rows (bounded by `maxRows`).
   let preview: undefined | unknown[]
   if (logger.options.verbose) {
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break; map/reduce não pode encerrar no primeiro match
     for (const response of userResponses) {
-      if (response?.success && Array.isArray(response.result) && response.result.length > 0) {
+      if (response.success && Array.isArray(response.result) && response.result.length > 0) {
         preview = (response.result as unknown[]).slice(0, logger.options.maxRows)
         break
       }
@@ -130,19 +124,19 @@ export async function emitRoundTrip(conn: Explainable, log: RoundTripLog): Promi
     phase: log.phase ?? "run",
     ...(log.operation === undefined ? {} : { operation: log.operation }),
     ...(log.table === undefined ? {} : { table: log.table }),
-    transactional: log.transactional === true,
     inTransaction: log.inTransaction === true,
+    transactional: log.transactional === true,
     ...(log.context
       ? {
           context: {
-            namespace: log.context.namespace,
             database: log.context.database,
+            namespace: log.context.namespace,
           },
         }
       : {}),
-    statements,
-    results,
     durationMs: log.durationMs,
+    results,
+    statements,
     ...(statementError === undefined ? {} : { error: statementError }),
     ...(plans ? { plans } : {}),
     ...(preview ? { preview } : {}),

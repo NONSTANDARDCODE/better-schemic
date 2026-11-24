@@ -1,9 +1,10 @@
+/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. */
 // `plugins/policy` — declarative deny/scope/require rules enforced in the transform pipeline, before
 // compilation. The DB permission remains the boundary; `$withoutPlugins()` is the explicit escape.
 import { describe, expect, test } from "bun:test"
 
 import { orm } from "../../../src/surreal/orm/client"
-import { isOrmError, isPolicyViolation, type OrmError } from "../../../src/surreal/orm/errors"
+import { isOrmError, isPolicyViolation } from "../../../src/surreal/orm/errors"
 import { definePolicy, type PolicyRule } from "../../../src/surreal/plugins/policy"
 import { s, table } from "../../../src/surreal/pure"
 import { caught, fakeConn, ok } from "../orm-fixtures"
@@ -27,7 +28,7 @@ const clientOver = (rules: readonly PolicyRule<"posts" | "users">[]) => {
   }
 }
 
-const codeOf = (e: unknown) => (isOrmError(e) ? (e as OrmError).code : undefined)
+const codeOf = (e: unknown) => (isOrmError(e) ? e.code : undefined)
 
 describe("definePolicy()", () => {
   test("deny rejects a matching operation before any SQL is sent", async () => {

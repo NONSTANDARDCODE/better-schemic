@@ -12,7 +12,7 @@
 export type LogPhase = "explain" | "run"
 
 /** One statement in a logged round-trip. */
-export interface LogStatement {
+export type LogStatement = {
   /** The SurrealQL text (control statements excluded). */
   readonly sql: string
   /** That statement's binds. */
@@ -20,7 +20,7 @@ export interface LogStatement {
 }
 
 /** One statement's outcome in a logged round-trip. */
-export interface LogStatementResult {
+export type LogStatementResult = {
   /** The scalar a `count` statement returned (`[{ count: n }]`), when this was a `count` op. */
   readonly count?: number
   /** The raw failure (present iff `status === "ERR"`). */
@@ -33,13 +33,13 @@ export interface LogStatementResult {
 }
 
 /** The scope a logged round-trip ran under (`USE NS … DB …`), when a context was in play. */
-export interface LogContext {
+export type LogContext = {
   readonly database: string
   readonly namespace: string
 }
 
 /** Everything one logged round-trip carries. */
-export interface QueryLogEvent {
+export type QueryLogEvent = {
   /** The namespace/database scope, when a context clone/per-call context uss it. */
   readonly context?: LogContext
   /** Wall-clock duration of the round-trip, in milliseconds. */
@@ -81,7 +81,7 @@ export type LoggerPreset = LogFormat
 export type ExplainPolicy = "all" | "analyze" | "slow" | false
 
 /** The resolved logger options (every field defaulted). */
-export interface ResolvedLoggerOptions {
+export type ResolvedLoggerOptions = {
   readonly colors: boolean
   readonly counter: boolean
   readonly explain: ExplainPolicy
@@ -101,7 +101,7 @@ export interface ResolvedLoggerOptions {
 }
 
 /** Options accepted by `createQueryLogger` / the `logger` client option. */
-export interface LoggerOptions {
+export type LoggerOptions = {
   /** ANSI colors: `true`/`false`/`"auto"` (TTY + `NO_COLOR`/`FORCE_COLOR`). Default `"auto"`. */
   readonly colors?: "auto" | boolean
   /** Show the `#n` round-trip counter. Default `true`. */
@@ -154,7 +154,7 @@ export type LoggerOption = boolean | LoggerOptions | LoggerPreset | QueryLogger
  * or `createOtelLogger` (`better-schemic/otel`); the runtime  calls {@link QueryLogger.emit}
  * (and reads {@link QueryLogger.enabled}/{@link QueryLogger.planStatement}).
  */
-export interface QueryLogger {
+export type QueryLogger = {
   /** Render + write one event (respecting the level/format). */
   emit(event: QueryLogEvent): void
   /** `false` for the `"silent"` format/level — the executor then skips all event building. */

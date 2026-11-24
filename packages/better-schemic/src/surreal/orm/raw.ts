@@ -17,6 +17,7 @@
 import type { BoundQuery } from "surrealdb"
 
 import type { TypedBoundQuery } from "../surql/typed-bound"
+
 import {
   type Binds,
   compileError,
@@ -38,13 +39,13 @@ import type { RawDefaults, RawMeta, RawOptions, RawSource, RawStatements } from 
 export type RawTag = <T>(strings: TemplateStringsArray, ...values: unknown[]) => Promise<T>
 
 /** A `$query` tag bound to pre-set options. */
-export interface RawQueryTag {
+export type RawQueryTag = {
   <T extends readonly unknown[]>(strings: TemplateStringsArray, ...values: unknown[]): Promise<T>
   (strings: TemplateStringsArray, ...values: unknown[]): Promise<readonly unknown[]>
 }
 
 /** The `$raw`/`$query`/`$unsafe` methods a client exposes. */
-export interface RawOperations {
+export type RawOperations = {
   /** A `TypedBoundQuery` carries both its bind types and its result-row tuple — no `<unknown[]>`
    *  and no per-row cast at the call site. */
   $query<B extends Record<string, unknown>, R extends unknown[]>(
@@ -114,13 +115,12 @@ export function createRawOperations(
     options: RawOptions | undefined,
     throwOnError: boolean,
   ): Promise<{
-    responses: readonly StatementResult<unknown>[]
+    responses: readonly StatementResult[]
     results: readonly unknown[]
   }> => {
     const sql = terminate(applyTimeout(script, options?.timeout ?? defaults?.timeoutMs))
-    if (operation === "$raw") {
-      assertSingleStatement(sql, operation)
-    }
+    if (operation === "$raw") assertSingleStatement(sql, operation)
+
     assertComment(sql, options?.meta, defaults, operation)
     const meta = ctx.hooks ? resolveMeta(ctx, undefined, options?.meta) : undefined
     const payload: RawHookPayload = {
@@ -133,12 +133,12 @@ export function createRawOperations(
       const raw = await runScript(ctx.conn, sql, {
         vars,
         ...contextOption(ctx),
-        operation,
         debug: ctx.debug,
         logger: ctx.logger,
+        operation,
       })
       const responses = raw.map((response, index) =>
-        statementResult<unknown>(response, {
+        statementResult(response, {
           operation,
           statementIndex: index,
           surql: sql,
@@ -147,9 +147,7 @@ export function createRawOperations(
       )
       if (throwOnError) {
         const failure = responses.find((r) => r.status === "ERR")
-        if (failure?.error) {
-          throw failure.error
-        }
+        if (failure?.error) throw failure.error
       }
       const results = responses.map((r) => (r.status === "OK" ? r.result : undefined))
       return { responses, results }
@@ -163,9 +161,9 @@ export function createRawOperations(
   ) => {
     return (strings: TemplateStringsArray, ...values: unknown[]): unknown => {
       const { sql, vars } = compileSource(strings, values, operation)
-      if (operation === "$raw") {
+      if (operation === "$raw")
         return run(sql, vars, operation, options, true).then((out) => out.results[0])
-      }
+
       const throwOnError = options.throwOnError !== false
       return run(sql, vars, operation, options, throwOnError).then((out) =>
         throwOnError ? out.results : out.responses,
@@ -177,9 +175,8 @@ export function createRawOperations(
     first: RawOptions | RawSource | TemplateStringsArray,
     ...rest: unknown[]
   ): unknown => {
-    if (isOptions(first)) {
-      return runTag(first, "$raw")
-    }
+    if (isOptions(first)) return runTag(first, "$raw")
+
     const options = isTemplate(first) ? undefined : (rest.pop() as RawOptions | undefined)
     const { sql, vars } = compileSource(first, rest, "$raw")
     return run(sql, vars, "$raw", options, true).then((out) => out.results[0])
@@ -189,9 +186,8 @@ export function createRawOperations(
     first: (RawOptions & { throwOnError?: boolean }) | RawSource | TemplateStringsArray,
     ...rest: unknown[]
   ): unknown => {
-    if (isOptions(first)) {
-      return runTag(first, "$query")
-    }
+    if (isOptions(first)) return runTag(first, "$query")
+
     // The last argument of the call form is the options object; a template has none.
     const options = isTemplate(first)
       ? undefined
@@ -223,7 +219,7 @@ export function createRawOperations(
     return run(sql, params ?? {}, "$unsafe", options, true).then((out) => out.results[0])
   }
 
-  return { $raw, $query, $unsafe } as RawOperations
+  return { $query, $raw, $unsafe } as RawOperations
 }
 
 /** Lower a template tag or a `string`/`BoundQuery` source into `{ sql, vars }`. */
@@ -233,9 +229,8 @@ function compileSource(
   operation: string,
 ): { sql: string; vars: Record<string, unknown> } {
   const binds = createBinds()
-  if (isTemplate(first)) {
-    return template(first, rest, binds, operation)
-  }
+  if (isTemplate(first)) return template(first, rest, binds, operation)
+
   if (typeof first === "string") {
     if (first.trim().length === 0) {
       throw compileError("ValidationError", `${operation} needs a non-empty SurrealQL string.`, {
@@ -256,6 +251,7 @@ function compileSource(
 }
 
 const isTemplate = (v: unknown): v is TemplateStringsArray =>
+  // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
   Array.isArray(v) && "raw" in (v as object)
 
 const isBoundQuery = (v: unknown): v is BoundQuery =>
@@ -271,11 +267,12 @@ function template(
   binds: Binds,
   operation: string,
 ): { sql: string; vars: Record<string, unknown> } {
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime pode omitir vars; fallback protege chamadores
   let sql = strings[0] ?? ""
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [i, value] of values.entries()) {
+  for (const [i, value] of values.entries())
     sql += renderValue(value, binds, binds.ctx()) + (strings[i + 1] ?? "")
-  }
+
   if (sql.trim().length === 0) {
     throw compileError("ValidationError", `${operation} needs a non-empty SurrealQL string.`, {
       operation,
@@ -286,20 +283,16 @@ function template(
 
 /** Append `TIMEOUT <duration>` when the script is a single statement with a capable verb. */
 function applyTimeout(sql: string, timeout: number | string | undefined): string {
-  if (timeout === undefined) {
-    return sql
-  }
+  if (timeout === undefined) return sql
+
   const body = sql.trim().replace(/;\s*$/u, "")
-  if (body.includes(";")) {
-    return sql
-  }
+  if (body.includes(";")) return sql
+
   const verb = /^\s*([A-Za-z]+)/u.exec(body)?.[1]?.toUpperCase()
-  if (!verb || !TIMEOUT_VERBS.has(verb)) {
-    return sql
-  }
-  if (/\bTIMEOUT\b/iu.test(body)) {
-    return sql
-  }
+  if (!verb || !TIMEOUT_VERBS.has(verb)) return sql
+
+  if (/\bTIMEOUT\b/iu.test(body)) return sql
+
   return `${body} TIMEOUT ${durationLiteral(timeout, "$raw")}`
 }
 
@@ -310,16 +303,13 @@ function assertComment(
   defaults: RawDefaults | undefined,
   operation: string,
 ): void {
-  if (defaults?.requireComment !== true) {
-    return
-  }
+  if (defaults?.requireComment !== true) return
+
   const comment = meta?.comment
-  if (typeof comment === "string" && comment.trim().length > 0) {
-    return
-  }
-  if (!isWriteScript(sql)) {
-    return
-  }
+  if (typeof comment === "string" && comment.trim().length > 0) return
+
+  if (!isWriteScript(sql)) return
+
   throw compileError(
     "ValidationError",
     `${operation}: this is a write script and raw.requireComment is on — pass a reason as options.meta.comment.`,
@@ -332,9 +322,7 @@ function isWriteScript(sql: string): boolean {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const statement of scriptStatements(sql)) {
     const verb = /^([A-Za-z]+)/u.exec(statement)?.[1]?.toUpperCase()
-    if (verb && WRITE_VERBS.has(verb)) {
-      return true
-    }
+    if (verb && WRITE_VERBS.has(verb)) return true
   }
   return false
 }
@@ -350,9 +338,7 @@ function scriptStatements(sql: string): string[] {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const raw of sql.split(";")) {
     const statement = stripLeadingComments(raw).trim()
-    if (statement) {
-      out.push(statement)
-    }
+    if (statement) out.push(statement)
   }
   return out
 }
@@ -365,9 +351,8 @@ function scriptStatements(sql: string): string[] {
  */
 function assertSingleStatement(sql: string, operation: string): void {
   const count = scriptStatements(sql).length
-  if (count <= 1) {
-    return
-  }
+  if (count <= 1) return
+
   throw compileError(
     "ValidationError",
     `${operation}: this script has ${count} statements and ${operation} resolves a single result — the rest would be dropped without an error. Use $query (it returns one result per statement, like db.query), or split the script.`,

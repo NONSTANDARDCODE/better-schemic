@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 import { type Filter, parseFilter } from "better-schemic/core"
 import type { DefineStatement } from "better-schemic/driver"
 import { describe, expect, test } from "bun:test"

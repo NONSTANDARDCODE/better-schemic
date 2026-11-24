@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator, unicorn/consistent-function-scoping, @typescript-eslint/require-await -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. Helpers stay colocated with the tests that use them. Mock methods match async interfaces without awaiting. */
 // The query logger: option/env resolution, level/format gating, the three renderers, auto-explain
 // and the executor wiring (reads, writes, explain, raw, context, transactions, errors). Offline.
 import { describe, expect, test } from "bun:test"
@@ -28,19 +29,19 @@ const stat = (ms = 1) => ({
   recordsScanned: 0,
   bytesScanned: 0,
 })
-const okr = (result: unknown, ms = 1): QueryResponse<unknown> =>
+const okr = (result: unknown, ms = 1): QueryResponse =>
   ({
     success: true,
     result,
     type: "other",
     stats: stat(ms),
-  }) as unknown as QueryResponse<unknown>
-const failr = (code: string, message: string): QueryResponse<unknown> =>
+  }) as unknown as QueryResponse
+const failr = (code: string, message: string): QueryResponse =>
   ({
     success: false,
     error: { code, message },
     stats: stat(2),
-  }) as unknown as QueryResponse<unknown>
+  }) as unknown as QueryResponse
 
 function capture(options: Parameters<typeof createQueryLogger>[0]) {
   const lines: string[] = []
@@ -61,15 +62,13 @@ const event = (over: Partial<QueryLogEvent> = {}): QueryLogEvent => ({
   ...over,
 })
 
-function connOf(
-  handler: (sql: string, vars?: Record<string, unknown>) => QueryResponse<unknown>[],
-) {
+function connOf(handler: (sql: string, vars?: Record<string, unknown>) => QueryResponse[]) {
   const calls: { sql: string; vars?: Record<string, unknown> }[] = []
   const conn = {
     query(sql: string, vars?: Record<string, unknown>) {
       calls.push({ sql, vars })
       return {
-        responses: async (): Promise<QueryResponse<unknown>[]> => handler(sql, vars),
+        responses: async (): Promise<QueryResponse[]> => handler(sql, vars),
       }
     },
     close() {
@@ -144,7 +143,9 @@ describe("resolveLogger — the flag / env", () => {
   })
 
   test("every explicit option is preserved (no silent drops)", () => {
-    const sink = () => {}
+    const sink = () => {
+      /* empty */
+    }
     const o = createQueryLogger({
       level: "warn",
       format: "json",
@@ -197,7 +198,9 @@ describe("resolveLogger — the flag / env", () => {
     const built: QueryLogger = {
       enabled: true,
       options: createQueryLogger().options,
-      emit: () => {},
+      emit: () => {
+        /* empty */
+      },
       planStatement: () => undefined,
     }
     expect(resolveLogger(built, { BETTER_SCHEMIC_LOG_LEVEL: "warn" })).toBe(built)
@@ -208,10 +211,17 @@ describe("resolveLogger — the flag / env", () => {
     } as unknown as QueryLogger
     expect(resolveLogger(malformed, {})?.options.format).toBe("pretty")
     expect(resolveLogger(null as unknown as LoggerOption, {})?.options.format).toBe("pretty")
-    expect(resolveLogger({} as LoggerOption, {})?.options.format).toBe("pretty")
-    expect(resolveLogger({ emit: () => {} } as unknown as LoggerOption, {})?.options.format).toBe(
-      "pretty",
-    )
+    expect(resolveLogger({}, {})?.options.format).toBe("pretty")
+    expect(
+      resolveLogger(
+        {
+          emit: () => {
+            /* empty */
+          },
+        } as unknown as LoggerOption,
+        {},
+      )?.options.format,
+    ).toBe("pretty")
   })
 })
 
@@ -267,8 +277,8 @@ describe("level / format gating", () => {
 function expectBox(lines: string[]): void {
   expect(lines.length).toBeGreaterThanOrEqual(3)
   expect(lines[0]?.startsWith("╭")).toBe(true)
-  expect(lines[lines.length - 1]?.startsWith("╰")).toBe(true)
-  const width = visibleWidth(lines[0] as string)
+  expect(lines.at(-1)?.startsWith("╰")).toBe(true)
+  const width = visibleWidth(lines[0])
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const line of lines) expect(visibleWidth(line)).toBe(width)
 }
@@ -283,7 +293,7 @@ describe("pretty rendering", () => {
     expect(lines[1]?.endsWith("│")).toBe(true)
     expect(lines.join("\n")).toContain("WHERE age >= $p0")
     expect(lines.join("\n")).toContain("$p0 = 18")
-    expect(lines[lines.length - 1]).toContain("1 row · 12.4ms · #1 · 12:34:56.789")
+    expect(lines.at(-1)).toContain("1 row · 12.4ms · #1 · 12:34:56.789")
   })
 
   test("icons/time/counter can be turned off", () => {
@@ -295,8 +305,8 @@ describe("pretty rendering", () => {
     logger.emit(event({ durationMs: 1 }))
     expect(lines[0]).not.toContain("🔍")
     expect(lines[0]).toContain("findMany")
-    expect(lines[lines.length - 1]).toContain("1.00ms")
-    expect(lines[lines.length - 1]).not.toContain("#")
+    expect(lines.at(-1)).toContain("1.00ms")
+    expect(lines.at(-1)).not.toContain("#")
     expect(lines.join("\n")).not.toContain("12:34:56")
   })
 
@@ -489,7 +499,7 @@ describe("json rendering", () => {
         preview: [{ id: "user:1" }],
       }),
     )
-    const parsed = JSON.parse(lines[0] as string) as Record<string, unknown>
+    const parsed = JSON.parse(lines[0]) as Record<string, unknown>
     expect(parsed.level).toBe("warn") // slow
     expect(parsed.phase).toBe("run")
     expect(parsed.operation).toBe("findMany")
@@ -498,15 +508,15 @@ describe("json rendering", () => {
     expect(parsed.plans).toEqual(["plan"])
     expect(parsed.preview).toEqual([{ id: "user:1" }])
     const vars = (parsed.statements as { vars: Record<string, unknown> }[])[0]?.vars
-    expect(vars?.rid).toBe("user:1")
-    expect((vars?.circ as { self: string } | undefined)?.self).toBe("[circular]")
-    expect(vars?.date).toBe("2020-01-01T00:00:00.000Z")
+    expect(vars.rid).toBe("user:1")
+    expect((vars.circ as undefined | { self: string })?.self).toBe("[circular]")
+    expect(vars.date).toBe("2020-01-01T00:00:00.000Z")
 
     const errored = capture({ format: "json" })
     errored.logger.emit(event({ error: Object.assign(new Error("x"), { code: "E" }) }))
-    const errParsed = JSON.parse(errored.lines[0] as string) as {
+    const errParsed = JSON.parse(errored.lines[0]) as {
+      error: { code: string; message: string; name: string }
       level: string
-      error: { name: string; code: string; message: string }
     }
     expect(errParsed.level).toBe("error")
     expect(errParsed.error).toEqual({ name: "Error", code: "E", message: "x" })
@@ -687,7 +697,9 @@ describe("client wiring (executor seam)", () => {
       schema: schemaDef,
       logger: { write: sinkOf(stmt), colors: false },
     }) as unknown as C
-    await client.users.findMany({}).catch(() => {})
+    await client.users.findMany({}).catch(() => {
+      /* empty */
+    })
     expect(stmt.out()).toContain("[ParseError]")
 
     const transport = capture({ colors: false })
@@ -700,7 +712,9 @@ describe("client wiring (executor seam)", () => {
       schema: schemaDef,
       logger: { write: sinkOf(transport), colors: false },
     }) as unknown as C
-    await c2.users.findMany({}).catch(() => {})
+    await c2.users.findMany({}).catch(() => {
+      /* empty */
+    })
     expect(transport.out()).toContain("findMany")
   })
 
@@ -803,7 +817,9 @@ describe("rendering edge cases", () => {
               nil: null,
               undef: undefined,
               big: 10n,
-              fn: () => {},
+              fn: () => {
+                /* empty */
+              },
               tbOnly: { tb: "user" },
               duck: new RecordId("user", "x"),
               table: new FakeTable(),
@@ -818,17 +834,17 @@ describe("rendering edge cases", () => {
         preview: [],
       }),
     )
-    const parsed = JSON.parse(c.lines[0] as string) as {
+    const parsed = JSON.parse(c.lines[0]) as {
       statements: { vars: Record<string, unknown> }[]
     }
-    const vars = parsed.statements[0]?.vars as Record<string, unknown>
+    const vars = parsed.statements[0]?.vars
     expect(vars.nil).toBeNull()
     expect(vars.big).toBe("10")
     expect(vars.tbOnly).toEqual({ tb: "user" })
     expect(vars.duck).toBe("user:x")
     expect(vars.table).toEqual({})
     expect(vars.list).toEqual([1, { deep: true }])
-    const obj = JSON.parse(c.lines[0] as string) as Record<string, unknown>
+    const obj = JSON.parse(c.lines[0]) as Record<string, unknown>
     expect(obj.plans).toBeUndefined()
     expect(obj.preview).toBeUndefined()
   })
@@ -884,8 +900,8 @@ describe("rendering edge cases", () => {
 
     const jsonErr = capture({ format: "json" })
     jsonErr.logger.emit(event({ error: {} }))
-    const parsed = JSON.parse(jsonErr.lines[0] as string) as {
-      error: { name: string; message: string }
+    const parsed = JSON.parse(jsonErr.lines[0]) as {
+      error: { message: string; name: string }
     }
     expect(parsed.error.name).toBe("Error")
     expect(parsed.error.message).toBe("[object Object]")

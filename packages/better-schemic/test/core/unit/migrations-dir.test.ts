@@ -1,10 +1,11 @@
+/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 import { describe, expect, test } from "bun:test"
 
 import { resolveConnectionConfig } from "../../../src/core/cli-kit/config"
 import type { OrmConfig } from "../../../src/core/config"
 
 const config = { connections: {} } as OrmConfig
-const rc = (conn: { schema: string; migrations?: string }) =>
+const rc = (conn: { migrations?: string; schema: string }) =>
   resolveConnectionConfig(config, "default", conn, "testdriver", "/proj")
 
 describe("migrations dir defaults RELATIVE TO THE SCHEMA (the documented contract)", () => {

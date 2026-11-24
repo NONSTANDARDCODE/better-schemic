@@ -1,16 +1,16 @@
 /**
  * The field WALKER — one Zod schema -> `FieldInfo` pass, shared by the DDL emitter and the query
- * layer. It owns two things:
+ * layer. It owns two items:
  *
  *  - the SurrealQL **wire type** string + its nested child tree (object subfields `path.key`,
- *    array/record element fields `path.*`) — what `emitTable`/the Struct-IR lowering walk;
+ * array/record element fields `path.*`) — what `emitTable`/the Struct-IR lowering walk;
  *  - the structured **classification** (operator family, optionality, record-link targets) the
- *    `/orm` layer projects into column/link metadata.
+ * `/orm` layer projects into column/link metadata.
  *
  * Keeping BOTH here is deliberate: the query layer used to re-parse the emitted type string, which
  * made classification a second, -diverging source of truth. Now the walker that already
  * knows the shape computes the metadata once, and `inferField` exports it by `./ddl` (and the
- * `/driver` surface)  as before.
+ * `/driver` surface) as before.
  *
  * Neutral module: no emit, no CLI, no driver registration.
  */
@@ -38,17 +38,17 @@ export type FieldFamily =
   | "string"
 
 /** Record-link metadata: `targets` omitted = a bare `record` (any table). */
-export interface FieldRecord {
+export type FieldRecord = {
   readonly targets?: readonly string[]
 }
 
 /**
- * The SurrealQL type of a field plus any nested fields it expands into:
+ * The SurrealQL type a field plus any nested fields it expands into:
  * object subfields (`path.key`) and array/record element fields (`path.*`).
  * Exported (with {@link inferField}) so the Struct-IR lowering walks the SAME child tree the
  * emitter does — so the two can't disagree on type strings or dotted field paths.
  */
-export interface FieldInfo {
+export type FieldInfo = {
   children: { info: FieldInfo; suffix: string; surreal?: SurrealMeta }[]
   /** For `array<…>`/`set<…>`: the element's family. */
   element?: FieldFamily
@@ -67,16 +67,16 @@ const leaf = (
   family: FieldFamily = "other",
   extra: Partial<Pick<FieldInfo, "element" | "optional" | "record">> = {},
 ): FieldInfo => ({
-  type,
-  flexible: false,
   children: [],
   family,
+  flexible: false,
   optional: false,
+  type,
   ...extra,
 })
 
 /** Read a Zod schema's internal def with a loose type for traversal (the ONE place raw `_zod.def`
- *  access spells it, so format/version probes stay in the walker that owns Zod internals). */
+ * access spells it, so format/version probes stay in the walker that owns Zod internals). */
 export function zodDef(schema: z.ZodType): {
   [k: string]: unknown
   type: string
@@ -86,12 +86,11 @@ export function zodDef(schema: z.ZodType): {
 
 /** Format a literal value as a SurrealQL literal type (e.g. `'admin'`, `42`). */
 function surqlLiteral(value: unknown): string {
-  if (typeof value === "string") {
-    return JSON.stringify(value)
-  }
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+  if (typeof value === "string") return JSON.stringify(value)
+
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint")
     return String(value)
-  }
+
   return toSurqlString(value).replace(/^s"/u, '"')
 }
 
@@ -100,27 +99,20 @@ function nativeMeta(type: string): {
   family: FieldFamily
   record?: FieldRecord
 } {
-  if (type === "datetime") {
-    return { family: "date" }
-  }
-  if (type === "uuid") {
-    return { family: "string" }
-  }
-  if (type === "int" || type === "decimal") {
-    return { family: "number" }
-  }
-  if (type === "bytes") {
-    return { family: "bytes" }
-  }
-  if (type === "duration") {
-    return { family: "duration" }
-  }
-  if (type === "geometry" || type.startsWith("geometry<")) {
-    return { family: "geometry" }
-  }
-  if (type === "record") {
-    return { family: "record", record: {} }
-  }
+  if (type === "datetime") return { family: "date" }
+
+  if (type === "uuid") return { family: "string" }
+
+  if (type === "int" || type === "decimal") return { family: "number" }
+
+  if (type === "bytes") return { family: "bytes" }
+
+  if (type === "duration") return { family: "duration" }
+
+  if (type === "geometry" || type.startsWith("geometry<")) return { family: "geometry" }
+
+  if (type === "record") return { family: "record", record: {} }
+
   if (type.startsWith("record<")) {
     const targets = type
       .slice("record<".length, -1)
@@ -139,34 +131,28 @@ const nativeLeaf = (type: string): FieldInfo => {
 
 /** The family a literal value carries (enum/literal unions). */
 function literalFamily(value: unknown): FieldFamily {
-  if (typeof value === "string") {
-    return "string"
-  }
-  if (typeof value === "number" || typeof value === "bigint") {
-    return "number"
-  }
-  if (typeof value === "boolean") {
-    return "bool"
-  }
+  if (typeof value === "string") return "string"
+
+  if (typeof value === "number" || typeof value === "bigint") return "number"
+
+  if (typeof value === "boolean") return "bool"
+
   return "other"
 }
 
 const familiesOf = (values: readonly unknown[]): FieldFamily => {
-  if (values.length === 0) {
-    return "any"
-  }
+  if (values.length === 0) return "any"
+
   const families = new Set(values.map(literalFamily))
   return families.size === 1 ? [...families][0] : "other"
 }
 
 /** Infer a field's SurrealQL type + nested structure + classification from a Zod schema. Exported
- *  so the Struct-IR lowering (`fromTableDef`) and the emitter share one source of truth. */
+ * so the Struct-IR lowering (`fromTableDef`) and the emitter share one source of truth. */
 export function inferField(schema: z.ZodType, seen = new Set<z.ZodType>()): FieldInfo {
   // Surreal-native schemas (datetime, recordId) carry their type explicitly.
   const explicit = surrealTypeRegistry.get(schema)
-  if (explicit) {
-    return nativeLeaf(explicit)
-  }
+  if (explicit) return nativeLeaf(explicit)
 
   const def = zodDef(schema)
   switch (def.type) {
@@ -176,12 +162,10 @@ export function inferField(schema: z.ZodType, seen = new Set<z.ZodType>()): Fiel
     case "number": {
       // z.int/int32/uint32/float64 share def.type "number"; the format discriminates.
       const fmt = def.format as string | undefined
-      if (fmt?.includes("float")) {
-        return leaf("float", "number")
-      }
-      if (fmt?.includes("int")) {
-        return leaf("int", "number")
-      }
+      if (fmt?.includes("float")) return leaf("float", "number")
+
+      if (fmt?.includes("int")) return leaf("int", "number")
+
       return leaf("number", "number")
     }
     case "bigint":
@@ -218,23 +202,21 @@ export function inferField(schema: z.ZodType, seen = new Set<z.ZodType>()): Fiel
     case "prefault": {
       const inner = inferField(def.innerType as z.ZodType, seen)
       // `any` already admits NONE/NULL, so `option<any>` is invalid SurrealQL — leave it as `any`.
-      if (inner.type === "any") {
-        return inner
-      }
-      return { ...inner, type: `option<${inner.type}>`, optional: true }
+      if (inner.type === "any") return inner
+
+      return { ...inner, optional: true, type: `option<${inner.type}>` }
     }
     case "nullable": {
       const inner = inferField(def.innerType as z.ZodType, seen)
-      if (inner.type === "any") {
-        return inner
-      } // `any` already includes null
+      if (inner.type === "any") return inner
+      // `any` already includes null
       // Fold null INTO an existing option<X> so .optional().nullable() matches
       // .nullish()/.nullable().optional(): option<X> | null -> option<X | null>.
       if (inner.type.startsWith("option<") && inner.type.endsWith(">")) {
         const x = inner.type.slice("option<".length, -1)
-        return { ...inner, type: `option<${x} | null>`, optional: true }
+        return { ...inner, optional: true, type: `option<${x} | null>` }
       }
-      return { ...inner, type: `${inner.type} | null`, optional: true }
+      return { ...inner, optional: true, type: `${inner.type} | null` }
     }
     case "readonly":
     case "catch": // app-side error recovery — the stored type is the inner type
@@ -245,9 +227,8 @@ export function inferField(schema: z.ZodType, seen = new Set<z.ZodType>()): Fiel
     case "lazy": {
       // Track the lazy schema itself: its getter returns a fresh instance each call,
       // but the recursive reference reuses the same lazy node.
-      if (seen.has(schema)) {
-        return leaf("any", "any")
-      }
+      if (seen.has(schema)) return leaf("any", "any")
+
       seen.add(schema)
       const info = inferField((def.getter as () => z.ZodType)(), seen)
       seen.delete(schema)
@@ -260,16 +241,16 @@ export function inferField(schema: z.ZodType, seen = new Set<z.ZodType>()): Fiel
       const catchall = def.catchall as undefined | z.ZodType
       const flexible = !!catchall && zodDef(catchall).type === "unknown"
       const children = Object.entries(shape).map(([key, value]) => ({
-        suffix: `.${escapeIdent(key)}`,
         info: inferField(value, seen),
+        suffix: `.${escapeIdent(key)}`,
         surreal: fields?.[key]?.surreal,
       }))
       return {
-        type: "object",
-        flexible,
         children,
         family: "object",
+        flexible,
         optional: false,
+        type: "object",
       }
     }
 
@@ -279,15 +260,14 @@ export function inferField(schema: z.ZodType, seen = new Set<z.ZodType>()): Fiel
       if (left.type === "object" && right.type === "object") {
         const merged = new Map(left.children.map((c) => [c.suffix, c]))
         // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-        for (const c of right.children) {
-          merged.set(c.suffix, c)
-        } // right wins on overlap
+        for (const c of right.children) merged.set(c.suffix, c)
+        // right wins on overlap
         return {
-          type: "object",
-          flexible: left.flexible || right.flexible,
           children: [...merged.values()],
           family: "object",
+          flexible: left.flexible || right.flexible,
           optional: false,
+          type: "object",
         }
       }
       return leaf("any", "any")
@@ -303,23 +283,23 @@ export function inferField(schema: z.ZodType, seen = new Set<z.ZodType>()): Fiel
       // Element subfields live under `path.*`, but when the element structurs it.
       const children =
         childElem.children.length > 0 || childElem.type === "object"
-          ? [{ suffix: ".*", info: childElem }]
+          ? [{ info: childElem, suffix: ".*" }]
           : []
       // `set<T>` is distinct from `array<T>` in SurrealDB (dedup) and round-trips — preserve it.
       const kw = def.type === "set" ? "set" : "array"
-      // `array<T, N>` / `set<T, N>` — N is an EXACT size in SurrealQL (not a ), so it maps 
+      // `array<T, N>` / `set<T, N>` — N is an EXACT size in SurrealQL (not a ), so it maps
       // from Zod's exact-size check: `.length(N)` / `.$length(N)` (`length_equals`) on arrays,
       // `.size(N)` / `.$size(N)` (`size_equals`) on sets. A `.max()` bound is a DB ASSERT
       // (`array::len($value) <= N`), never a type size.
       const size = exactSizeOf(def, kw)
       const sizeSql = typeof size === "number" ? `, ${size}` : ""
       return {
-        type: `${kw}<${elem.type}${sizeSql}>`,
-        flexible: elem.flexible,
         children,
-        family: kw,
-        optional: false,
         element: elem.family,
+        family: kw,
+        flexible: elem.flexible,
+        optional: false,
+        type: `${kw}<${elem.type}${sizeSql}>`,
         ...(elem.record ? { record: elem.record } : {}),
       }
     }
@@ -328,11 +308,11 @@ export function inferField(schema: z.ZodType, seen = new Set<z.ZodType>()): Fiel
     case "map": {
       const value = inferField(def.valueType as z.ZodType, seen)
       return {
-        type: "object",
-        flexible: false,
-        children: [{ suffix: ".*", info: value }],
+        children: [{ info: value, suffix: ".*" }],
         family: "object",
+        flexible: false,
         optional: false,
+        type: "object",
       }
     }
 
@@ -359,21 +339,16 @@ export function inferField(schema: z.ZodType, seen = new Set<z.ZodType>()): Fiel
           hasNone = true
           body = opt[1]
         }
-        // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-        for (const atom of splitTopUnion(body)) {
-          if (atom) {
-            atoms.push(atom)
-          }
-        }
+        // eslint-disable-next-line functional/no-loop-statements, max-depth -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica / parser com estado mutável; extrair helpers mudaria a semântica
+        for (const atom of splitTopUnion(body)) if (atom) atoms.push(atom)
       }
       const types = [...new Set(atoms)]
       // A union whose type contains an object carries FLEXIBLE on the field (e.g. `object | string
       // FLEXIBLE`) when any object member makes it flexible.
       const flexible = members.some((m) => m.flexible)
       // `any` absorbs every other member (including none) — `any | string` is invalid → `any`.
-      if (types.includes("any")) {
-        return leaf("any", "any")
-      }
+      if (types.includes("any")) return leaf("any", "any")
+
       const joined = types.join(" | ") || "any"
       const type = hasNone && joined !== "any" ? `option<${joined}>` : joined
 
@@ -387,18 +362,19 @@ export function inferField(schema: z.ZodType, seen = new Set<z.ZodType>()): Fiel
       const optional = hasNone || nullish || real.some((m) => m.optional)
       const record =
         family === "record" && real.length > 0 && real.every((m) => m.record !== undefined)
-          ? real.every((m) => m.record?.targets !== undefined)
+          ? // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
+            real.every((m) => m.record?.targets !== undefined)
             ? {
                 targets: [...new Set(real.flatMap((m) => m.record?.targets ?? []))],
               }
             : {}
           : undefined
       return {
-        type,
-        flexible,
         children: [],
         family,
+        flexible,
         optional,
+        type,
         ...(record ? { record } : {}),
       }
     }
@@ -415,9 +391,8 @@ export function inferField(schema: z.ZodType, seen = new Set<z.ZodType>()): Fiel
       return leaf(types.join(" | ") || "any", familiesOf(values))
     }
     case "tuple": {
-      if (def.rest) {
-        return leaf("array", "array", { element: "other" })
-      } // variadic tuple
+      if (def.rest) return leaf("array", "array", { element: "other" })
+      // variadic tuple
       const items = (def.items ?? []) as z.ZodType[]
       return leaf(`[${items.map((i) => inferField(i, seen).type).join(", ")}]`, "other")
     }

@@ -15,6 +15,7 @@ import {
 } from "../relations"
 import { compileError, describeValue, isPlainObject } from "../shared"
 import { compileRelationFilter, compileWhere } from "../where"
+
 import {
   compileEdgeProjection,
   compileIncludeOrderBy,
@@ -32,12 +33,12 @@ export function compileGraphEdge(
   entry: unknown,
   ctx: CompileCtx,
 ): void {
-  const { operation, index } = ctx
+  const { index, operation } = ctx
   if (entry !== true && !isPlainObject(entry)) {
     throw compileError(
       "ValidationError",
       `${operation}: include."${key}" must be true or an options object, got ${describeValue(entry)}.`,
-      { operation, field: key },
+      { field: key, operation },
     )
   }
   const options: Record<string, unknown> = entry === true ? {} : entry
@@ -58,7 +59,7 @@ export function compileGraphEdge(
       throw compileError(
         "ValidationError",
         `${operation}: include."${key}" has unknown option "${option}" — edge includes accept ${[...allowed].join(", ")}.`,
-        { operation, field: key },
+        { field: key, operation },
       )
     }
   }
@@ -67,21 +68,21 @@ export function compileGraphEdge(
     throw compileError(
       "ValidationError",
       `${operation}: include."${key}" is not an edge — pass { wildcard: true } to traverse ANY edge from "${meta.name}".`,
-      { operation, field: key },
+      { field: key, operation },
     )
   }
   if (wildcard && edgeRef) {
     throw compileError(
       "ValidationError",
       `${operation}: include."${key}" is a declared edge — drop "wildcard: true" (the wildcard is for undeclared edge names).`,
-      { operation, field: key },
+      { field: key, operation },
     )
   }
   if (options.target !== undefined && options.select !== undefined) {
     throw compileError(
       "ClauseNotSupported",
       `${operation}: include."${key}": pass "select" (target shorthand) OR "target", not both.`,
-      { operation, field: key },
+      { field: key, operation },
     )
   }
 
@@ -99,7 +100,7 @@ export function compileGraphEdge(
     throw compileError(
       "ClauseNotSupported",
       `${operation}: include."${key}" cannot project the edge and the target with direction "both" — there is no single target endpoint (pass direction "out"/"in", or project only one side).`,
-      { operation, field: key },
+      { field: key, operation },
     )
   }
 
@@ -124,14 +125,13 @@ export function compileGraphEdge(
 
 /** Parse `direction`. */
 function parseDirection(raw: unknown, ctx: CompileCtx, key: string): EdgeDirection | undefined {
-  if (raw === undefined) {
-    return undefined
-  }
+  if (raw === undefined) return undefined
+
   if (raw !== "out" && raw !== "in" && raw !== "both") {
     throw compileError(
       "ValidationError",
       `${ctx.operation}: include."${key}.direction" must be "out", "in" or "both" (got ${describeValue(raw)}).`,
-      { operation: ctx.operation, field: key },
+      { field: key, operation: ctx.operation },
     )
   }
   return raw
@@ -153,7 +153,7 @@ function unwrapTargetOption(raw: unknown): unknown {
 }
 
 /** The traversal refs an edge form shares. */
-interface EdgeScope {
+type EdgeScope = {
   readonly direction: EdgeDirection
   readonly edgeMeta: TableMeta | undefined
   readonly targets: readonly TableMeta[]
@@ -180,56 +180,56 @@ function compileEdgeOnly(
     // Undeclared (wildcard) edge records — the row IS the edge; the filter applies to it.
     const predicate = compileWhere(options.where, binds, { index, operation })
     pushEdgeSubquery(ctx, key, {
-      projection: projection.text,
       from: edgeTraversal({
-        edge: "?",
         direction: scope.direction,
+        edge: "?",
         ...(predicate ? { edgeFilter: predicate } : {}),
       }),
-      orderBy: compileIncludeOrderBy(options.orderBy, projection.spec, ctx, key, "edge"),
       options,
+      orderBy: compileIncludeOrderBy(options.orderBy, projection.spec, ctx, key, "edge"),
+      projection: projection.text,
     })
     ctx.specs.push({
+      edge: projection.projection,
+      key,
       kind: "edge",
       shape: "edge",
-      key,
-      edge: projection.projection,
     })
     return
   }
   const compiled = compileRelationFilter({
-    where: options.where,
+    binds,
+    context: `include.${key}`,
     edge: scope.edgeMeta,
-    targets: [],
     idOwner: "edge",
     index,
-    binds,
     operation,
-    context: `include.${key}`,
+    targets: [],
+    where: options.where,
   })
   if (compiled.target !== undefined) {
     throw compileError(
       "ValidationError",
       `${operation}: include."${key}" projects only edge records, but the filter constrains the target — project target records ("target"/"select") or move the filter onto the edge.`,
-      { operation, field: key },
+      { field: key, operation },
     )
   }
   const predicate = compiled.edge ?? compiled.fragment
   pushEdgeSubquery(ctx, key, {
-    projection: projection.text,
     from: edgeTraversal({
-      edge: scope.edgeMeta.name,
       direction: scope.direction,
+      edge: scope.edgeMeta.name,
       ...(predicate ? { edgeFilter: predicate } : {}),
     }),
-    orderBy: compileIncludeOrderBy(options.orderBy, projection.spec, ctx, key, "edge"),
     options,
+    orderBy: compileIncludeOrderBy(options.orderBy, projection.spec, ctx, key, "edge"),
+    projection: projection.text,
   })
   ctx.specs.push({
+    edge: projection.projection,
+    key,
     kind: "edge",
     shape: "edge",
-    key,
-    edge: projection.projection,
   })
 }
 
@@ -246,17 +246,17 @@ function compileTargetOnly(
   const compiled = compileRelationFilter({
     where: options.where,
     ...(scope.edgeMeta ? { edge: scope.edgeMeta } : {}),
-    targets: scope.targets,
+    binds,
+    context: `include.${key}`,
     idOwner: "target",
     index,
-    binds,
     operation,
-    context: `include.${key}`,
+    targets: scope.targets,
   })
   const targetWhere = [compiled.target, compiled.fragment].filter(Boolean).join(" AND ")
   const from = edgeTraversal({
-    edge: edgeNameOf(scope),
     direction: scope.direction,
+    edge: edgeNameOf(scope),
     ...(compiled.edge ? { edgeFilter: compiled.edge } : {}),
     ...(scope.edgeMeta ? { targets: scope.targets.map((meta) => meta.name) } : {}),
   })
@@ -264,9 +264,10 @@ function compileTargetOnly(
     ? target.text
     : wildcardTargetText(targetSelect, scope.direction === "in" ? "in" : "out", ctx)
   pushEdgeSubquery(ctx, key, {
-    projection,
     from,
+    projection,
     ...(targetWhere ? { where: targetWhere } : {}),
+    options,
     orderBy: compileIncludeOrderBy(
       options.orderBy,
       target.projection.entries[0]?.spec,
@@ -274,12 +275,11 @@ function compileTargetOnly(
       key,
       "target",
     ),
-    options,
   })
   ctx.specs.push({
+    key,
     kind: "edge",
     shape: "target",
-    key,
     target: target.projection,
   })
 }
@@ -299,36 +299,36 @@ function compileEdgeAndTarget(
   const compiled = compileRelationFilter({
     where: options.where,
     ...(scope.edgeMeta ? { edge: scope.edgeMeta } : {}),
-    targets: scope.targets,
-    idOwner: "target",
-    prefix: alias,
-    index,
     binds,
-    operation,
     context: `include.${key}`,
+    idOwner: "target",
+    index,
+    operation,
+    prefix: alias,
+    targets: scope.targets,
   })
   const targetWhere = [compiled.target, compiled.fragment].filter(Boolean).join(" AND ")
   // The row is the EDGE — `out.*`/`in.*` materializes the target, so the traversal STOPS at the
   // edge (following to the target would make `out` undefined and return `{}`, see the map).
   const from = edgeTraversal({
-    edge: edgeNameOf(scope),
     direction: scope.direction,
+    edge: edgeNameOf(scope),
     ...(compiled.edge ? { edgeFilter: compiled.edge } : {}),
   })
   pushEdgeSubquery(ctx, key, {
-    projection: `${edgeProjection.text}, ${alias}.*`,
     from,
+    projection: `${edgeProjection.text}, ${alias}.*`,
     ...(targetWhere ? { where: targetWhere } : {}),
-    orderBy: compileIncludeOrderBy(options.orderBy, edgeProjection.spec, ctx, key, "edge"),
     options,
+    orderBy: compileIncludeOrderBy(options.orderBy, edgeProjection.spec, ctx, key, "edge"),
   })
   ctx.specs.push({
+    alias,
+    edge: edgeProjection.projection,
+    key,
     kind: "edge",
     shape: "edge-target",
-    key,
-    alias,
     target: target.projection,
-    edge: edgeProjection.projection,
   })
 }
 
@@ -345,14 +345,14 @@ function pushEdgeSubquery(
   },
 ): void {
   const sql = subquery({
-    projection: args.projection,
     from: args.from,
+    projection: args.projection,
     ...(args.where ? { where: args.where } : {}),
     ...(args.orderBy ? { orderBy: args.orderBy } : {}),
-    limit: args.options.limit,
-    start: args.options.start,
     binds: ctx.binds,
+    limit: args.options.limit,
     operation: ctx.operation,
+    start: args.options.start,
   })
   ctx.parts.push(`${sql} AS ${escapeIdent(key)}`)
 }

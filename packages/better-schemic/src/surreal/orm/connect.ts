@@ -13,6 +13,7 @@ import { Surreal } from "surrealdb"
 import type { ResolvedConfig } from "../../core"
 import { connect as surrealConnect, redactUrl } from "../connect"
 import { escapeIdentSafe as escapeIdent } from "../ident"
+
 import { buildClient, type Client, type OrmOptions, type SchemaArg } from "./client"
 import { normalizeError } from "./errors"
 import type { Plugin } from "./types/plugins"
@@ -24,7 +25,7 @@ export type OrmAuth =
   | { readonly password: string; readonly username: string }
 
 /** Options for {@link createOrm} — the managed (connect + authenticate + use) sugar. */
-export interface CreateOrmOptions<S extends SchemaInput> extends OrmOptions {
+export type CreateOrmOptions<S extends SchemaInput> = {
   readonly auth?: OrmAuth
   /** Give up (and close) if the connection handshake doesn't complete in time. */
   readonly connectTimeoutMs?: number
@@ -33,20 +34,24 @@ export interface CreateOrmOptions<S extends SchemaInput> extends OrmOptions {
   readonly schema: SchemaArg<S>
   /** The WebSocket/HTTP endpoint, e.g. `wss://localhost:8000/rpc`. */
   readonly url: string
-}
+} & OrmOptions
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), ms)
+    const timer = setTimeout(() => {
+      reject(new Error(message))
+    }, ms)
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- timers de browser não têm unref(); optional chain é portabilidade
     timer.unref?.()
-    promise.then(
+    void promise.then(
+      // eslint-disable-next-line promise/always-return -- callback apenas resolve a promise externa
       (value) => {
         clearTimeout(timer)
         resolve(value)
       },
-      (error) => {
+      (error: unknown) => {
         clearTimeout(timer)
-        reject(error)
+        reject(normalizeError(error, { operation: "connect" }))
       },
     )
   })
@@ -79,38 +84,31 @@ export async function createOrm<
           `createOrm: connect to ${redactUrl(options.url)} timed out after ${options.connectTimeoutMs}ms.`,
         ))
     if (options.auth) {
-      if ("access" in options.auth) {
-        await conn.signin({
-          access: options.auth.access,
-          variables: options.auth.variables,
-        })
-      } else {
-        await conn.signin({
-          username: options.auth.username,
-          password: options.auth.password,
-        })
-      }
+      await conn.signin(
+        "access" in options.auth
+          ? { access: options.auth.access, variables: options.auth.variables }
+          : { password: options.auth.password, username: options.auth.username },
+      )
     }
     // Best-effort: create the namespace/database when we have the rights, then select them.
     // (A database user can't define either; a namespace user can define databases; root can do both.)
-    const { namespace, database } = options
+    const { database, namespace } = options
     try {
       if (namespace) {
         await conn.query(`DEFINE NAMESPACE IF NOT EXISTS ${escapeIdent(namespace)};`)
         await conn.use({ namespace })
       }
-      if (database) {
-        await conn.query(`DEFINE DATABASE IF NOT EXISTS ${escapeIdent(database)};`)
-      }
+      if (database) await conn.query(`DEFINE DATABASE IF NOT EXISTS ${escapeIdent(database)};`)
     } catch {
       // insufficient privileges — assume the namespace/database already exist
     }
-    if (namespace || database) {
-      await conn.use({ namespace, database })
-    }
+    if (namespace || database) await conn.use({ database, namespace })
+
     return buildClient(conn, options.schema, true, options) as unknown as Client<S, Surreal, P>
   } catch (error) {
-    await conn.close().catch(() => {})
+    await conn.close().catch(() => {
+      /* close é best-effort */
+    })
     throw normalizeError(error, { operation: "connect" })
   }
 }

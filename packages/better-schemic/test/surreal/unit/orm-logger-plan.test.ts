@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
 // The EXPLAIN plan renderer: the three live-probed plan shapes (structured object, indented string,
 // legacy array), the operator badges and the nanosecond humanizer. Offline (pure).
 import { describe, expect, test } from "bun:test"
@@ -45,9 +46,9 @@ describe("planToNodes — structured object", () => {
     expect(nodes[0]?.metrics).toBe("rows 1 · batches 1 · elapsed 9.79µs · total rows 1")
     expect(nodes[0]?.badge).toBeUndefined()
     const child = nodes[0]?.children[0]
-    expect(child?.label).toBe("TableScan")
-    expect(child?.badge).toBe("⚠ full scan")
-    expect(child?.metrics).toContain("elapsed 64.07µs")
+    expect(child.label).toBe("TableScan")
+    expect(child.badge).toBe("⚠ full scan")
+    expect(child.metrics).toContain("elapsed 64.07µs")
   })
 
   test("renders with box connectors and the badge", () => {
@@ -99,9 +100,9 @@ describe("planToNodes — indented string", () => {
     expect(nodes[0]?.attrs).toBe("ctx: Db, projections: *")
     expect(nodes[0]?.metrics).toBe("total rows 1")
     const child = nodes[0]?.children[0]
-    expect(child?.label).toBe("TableScan")
-    expect(child?.attrs).toContain("table: person")
-    expect(child?.badge).toBe("⚠ full scan")
+    expect(child.label).toBe("TableScan")
+    expect(child.attrs).toContain("table: person")
+    expect(child.badge).toBe("⚠ full scan")
   })
 
   test("parses embedded metrics `{rows: 1, batches: 1, elapsed: x}`", () => {
@@ -210,6 +211,10 @@ describe("planToNodes — string-tree edge cases", () => {
     expect(
       planToNodes({ operator: "Y", attributes: "nope", context: "" })[0]?.attrs,
     ).toBeUndefined()
-    expect(planToNodes(() => {})[0]?.label).toContain("=>")
+    expect(
+      planToNodes(() => {
+        /* empty */
+      })[0]?.label,
+    ).toContain("=>")
   })
 })

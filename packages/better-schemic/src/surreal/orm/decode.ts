@@ -50,49 +50,40 @@ export function decodeRow(
   const decoded = decodeBase(row, meta, spec)
   if (isRecord(decoded) && spec.hidden !== undefined) {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const alias of spec.hidden) {
-      delete decoded[alias]
-    }
+    for (const alias of spec.hidden) Reflect.deleteProperty(decoded, alias)
   }
-  if (spec.includes.length === 0 || !index || !isRecord(decoded)) {
-    return decoded
-  }
+  if (spec.includes.length === 0 || !index || !isRecord(decoded)) return decoded
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const include of spec.includes) {
-    hydrateInclude(row, decoded, include, index)
-  }
+  for (const include of spec.includes) hydrateInclude(row, decoded, include, index)
+
   return decoded
 }
 
 /** The un-hydrated decode (`*`/omit/projection/value). */
 function decodeBase(row: unknown, meta: ModelMeta, spec: ProjectionSpec): unknown {
-  if (spec.value) {
-    return decodeLeaf(row, spec.valueField, meta.name)
-  }
-  if (!isTableMeta(meta)) {
-    return projectPassthrough(row, spec)
-  }
+  if (spec.value) return decodeLeaf(row, spec.valueField, meta.name)
+
+  if (!isTableMeta(meta)) return projectPassthrough(row, spec)
+
   if (spec.star) {
     const base = spec.starSchema
       ? decodeSchema(spec.starSchema, row, meta.name)
       : decodeFull(meta, row)
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const field of spec.omit) {
-      if (isRecord(base)) {
-        delete base[field]
-      }
-    }
+    for (const field of spec.omit) if (isRecord(base)) Reflect.deleteProperty(base, field)
+
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const field of spec.fields) {
+    for (const field of spec.fields)
       setAt(base, field.out, decodeLeaf(getAt(row, field.source), field, meta.name))
-    }
+
     return base
   }
   const out: Record<string, unknown> = {}
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const field of spec.fields) {
+  for (const field of spec.fields)
     setAt(out, field.out, decodeLeaf(getAt(row, field.source), field, meta.name))
-  }
+
   return out
 }
 
@@ -106,18 +97,18 @@ function hydrateInclude(
   index: SchemaIndex,
 ): void {
   switch (include.kind) {
-    case "link-fetch": {
+    case "link-fetch":
       decoded[include.key] = decodeLinkFetch(getAt(rawRow, [include.key]), include, index)
       return
-    }
-    case "link-projection": {
+
+    case "link-projection":
       decoded[include.key] = decodeLinkProjection(rawRow, include, index)
       return
-    }
-    case "edge": {
+
+    case "edge":
       decoded[include.key] = decodeEdge(getAt(rawRow, [include.key]), include, index)
       return
-    }
+
     case "count": {
       const bucket = isRecord(decoded._count) ? decoded._count : {}
       bucket[include.key] = getAt(rawRow, [include.source])
@@ -129,9 +120,8 @@ function hydrateInclude(
 
 /** Decode a FETCHed link (single object, array of objects, `null` on a missing link). */
 function decodeLinkFetch(value: unknown, spec: LinkFetchSpec, index: SchemaIndex): unknown {
-  if (value === null || value === undefined) {
-    return spec.list ? [] : null
-  }
+  if (value === null || value === undefined) return spec.list ? [] : null
+
   const entries = spec.list && Array.isArray(value) ? value : [value]
   const out = entries.map((entry) => decodeLinkEntry(entry, spec, index))
   return spec.list ? out : (out[0] ?? null)
@@ -140,23 +130,20 @@ function decodeLinkFetch(value: unknown, spec: LinkFetchSpec, index: SchemaIndex
 /** Decode one FETCHed link record with the TARGET codec + its nested link includes. */
 function decodeLinkEntry(raw: unknown, spec: LinkFetchSpec, index: SchemaIndex): unknown {
   const meta = targetMetaFor(spec.targets, index, raw)
-  if (!meta || !isRecord(raw)) {
-    return raw
-  }
+  if (!meta || !isRecord(raw)) return raw
+
   const nestedKeys = spec.nested.map((nested) => nested.key)
   const schema =
     nestedKeys.length === 0
       ? (meta.def.object as unknown as z.ZodType)
       : passthroughSchema(meta, nestedKeys)
   const decoded = decodeSchema(schema, raw, meta.name)
-  if (!isRecord(decoded)) {
-    return decoded
-  }
+  if (!isRecord(decoded)) return decoded
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const nested of spec.nested) {
-    if (nested.kind === "link-fetch" || nested.kind === "link-projection") {
+    if (nested.kind === "link-fetch" || nested.kind === "link-projection")
       hydrateInclude(raw, decoded, nested, index)
-    }
   }
   return decoded
 }
@@ -168,12 +155,10 @@ function decodeLinkProjection(
   index: SchemaIndex,
 ): unknown {
   const meta = targetMetaFor(spec.targets, index, findProjectedId(rawRow, spec.leaves))
-  if (spec.list) {
-    return decodeListProjection(rawRow, spec, meta)
-  }
-  if (!linkPresent(rawRow, spec.leaves)) {
-    return null
-  }
+  if (spec.list) return decodeListProjection(rawRow, spec, meta)
+
+  if (!linkPresent(rawRow, spec.leaves)) return null
+
   const out: Record<string, unknown> = {}
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const leaf of spec.leaves) {
@@ -181,6 +166,13 @@ function decodeLinkProjection(
     setAt(out, leaf.out, decodeLinkLeaf(raw, leaf, meta, spec.key))
   }
   return out
+}
+
+/** Normalize a subquery result to rows (an array, empty when absent, one element otherwise). */
+function asRows(value: unknown): readonly unknown[] {
+  if (Array.isArray(value)) return value
+  if (value === null || value === undefined) return []
+  return [value]
 }
 
 /** A projected ARRAY link: each leaf is an array; zip them into element objects. */
@@ -193,7 +185,7 @@ function decodeListProjection(
     const value = getAt(rawRow, [leaf.source])
     return {
       leaf,
-      values: Array.isArray(value) ? value : value == null ? [] : [value],
+      values: asRows(value),
     }
   })
   const length = columns.reduce((max, column) => Math.max(max, column.values.length), 0)
@@ -202,9 +194,9 @@ function decodeListProjection(
   for (let i = 0; i < length; i++) {
     const entry: Record<string, unknown> = {}
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const { leaf, values } of columns) {
+    for (const { leaf, values } of columns)
       setAt(entry, leaf.out, decodeLinkLeaf(values[i], leaf, meta, spec.key))
-    }
+
     out.push(entry)
   }
   return out
@@ -217,9 +209,8 @@ function decodeListProjection(
  */
 function linkPresent(rawRow: unknown, leaves: readonly LinkLeafSpec[]): boolean {
   const presence = leaves.find((leaf) => leaf.out.length === 0)
-  if (presence) {
-    return getAt(rawRow, [presence.source]) != null
-  }
+  if (presence) return getAt(rawRow, [presence.source]) != null
+
   return leaves.some((leaf) => getAt(rawRow, [leaf.source]) != null)
 }
 
@@ -236,15 +227,14 @@ function decodeLinkLeaf(
   meta: TableMeta | undefined,
   table: string,
 ): unknown {
-  if (!meta) {
-    return raw
-  }
+  if (!meta) return raw
+
   const found = resolveLeafCodec(meta, leaf.schemaPath)
   const field: ProjectedField = {
+    each: found.each,
+    expr: "",
     out: leaf.out,
     source: [leaf.source],
-    expr: "",
-    each: found.each,
     ...(found.schema ? { schema: found.schema } : {}),
   }
   return decodeLeaf(raw, field, table)
@@ -254,7 +244,7 @@ function decodeLinkLeaf(
 
 /** Decode one edge include's subquery result (an array of target/edge/edge-target rows). */
 function decodeEdge(value: unknown, spec: EdgeIncludeSpec, index: SchemaIndex): unknown[] {
-  const rows = Array.isArray(value) ? value : value == null ? [] : [value]
+  const rows = asRows(value)
   return rows.map((row) => decodeEdgeRow(row, spec, index))
 }
 
@@ -269,19 +259,15 @@ function decodeEdgeRow(row: unknown, spec: EdgeIncludeSpec, index: SchemaIndex):
     }
     const edgeFields: Record<string, unknown> = {}
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [key, entry] of Object.entries(row)) {
-      if (key !== spec.alias) {
-        edgeFields[key] = entry
-      }
-    }
+    for (const [key, entry] of Object.entries(row)) if (key !== spec.alias) edgeFields[key] = entry
+
     return {
       edge: decodeEdgeProjection(edgeFields, spec.edge, index),
       target: decodeTargetProjection(row[spec.alias], spec.target, index),
     }
   }
-  if (spec.shape === "edge") {
-    return decodeEdgeProjection(row, spec.edge, index)
-  }
+  if (spec.shape === "edge") return decodeEdgeProjection(row, spec.edge, index)
+
   return decodeTargetProjection(row, spec.target, index)
 }
 
@@ -291,9 +277,8 @@ function decodeEdgeProjection(
   projection: EdgeProjection,
   index: SchemaIndex,
 ): unknown {
-  if (projection.wildcard || !projection.meta) {
-    return raw
-  }
+  if (projection.wildcard || !projection.meta) return raw
+
   return decodeRow(raw, projection.meta, projection.spec, index)
 }
 
@@ -303,36 +288,31 @@ function decodeTargetProjection(
   projection: TargetProjection,
   index: SchemaIndex,
 ): unknown {
-  if (projection.wildcard) {
-    return raw
-  }
-  if (projection.entries.length === 0) {
-    return raw
-  }
+  if (projection.wildcard) return raw
+
+  if (projection.entries.length === 0) return raw
+
   if (projection.entries.length === 1) {
     const entry = projection.entries[0]
     return entry.meta ? decodeRow(raw, entry.meta, entry.spec, index) : raw
   }
   const name = recordTableOf(raw)
   const entry = name ? projection.entries.find((candidate) => candidate.name === name) : undefined
-  if (!entry) {
-    return raw
-  }
+  if (!entry) return raw
+
   return entry.meta ? decodeRow(raw, entry.meta, entry.spec, index) : raw
 }
 
 /** The physical table a raw value names (a row's `id`, a RecordId, or a `"t:id"` string). */
 function recordTableOf(raw: unknown): string | undefined {
-  if (raw instanceof RecordId) {
-    return raw.table.name
-  }
+  if (raw instanceof RecordId) return raw.table.name as string
+
   if (typeof raw === "string") {
     const colon = raw.indexOf(":")
     return colon > 0 ? raw.slice(0, colon) : undefined
   }
-  if (!isRecord(raw)) {
-    return undefined
-  }
+  if (!isRecord(raw)) return undefined
+
   return recordTableOf(raw.id)
 }
 
@@ -344,12 +324,10 @@ function targetMetaFor(
   index: SchemaIndex,
   raw: unknown,
 ): TableMeta | undefined {
-  if (targets.length === 0) {
-    return undefined
-  }
-  if (targets.length === 1) {
-    return tableMetaByName(index, targets[0])
-  }
+  if (targets.length === 0) return undefined
+
+  if (targets.length === 1) return tableMetaByName(index, targets[0])
+
   const name = recordTableOf(raw)
   return name ? tableMetaByName(index, name) : undefined
 }
@@ -370,16 +348,14 @@ function passthroughSchema(meta: TableMeta, fields: readonly string[]): z.ZodTyp
     PASSTHROUGH_CACHE.set(meta, byKey)
   }
   const cached = byKey.get(key)
-  if (cached) {
-    return cached
-  }
+  if (cached) return cached
+
   const shape = {
     ...(meta.def.object as unknown as { shape: Record<string, z.ZodType> }).shape,
   }
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const field of fields) {
-    shape[field] = z.unknown().optional()
-  }
+  for (const field of fields) shape[field] = z.unknown().optional()
+
   const schema = z.object(shape)
   byKey.set(key, schema)
   return schema
@@ -392,7 +368,7 @@ const PASSTHROUGH_CACHE = new WeakMap<TableMeta, Map<string, z.ZodType>>()
  * Compiled per-row decoders (memoized per table). A `*` read decodes EVERY field of EVERY row
  * through `z.decode(objectSchema)`, and Zod's object parse dominated the star-read profile (~2.3x a
  * projected read). The compiled decoder keeps Zod for the fields that actually transform (codecs:
- * RecordId/datetime/…) and checks fast primitives with `type of`, falling back to the FULL object
+ * RecordId/datetime/…) and checks fast primitives directly, falling back to the FULL object
  * decode on any mismatch — so error messages and output keys (shape order, stripped extras,
  * explicit-undefined handling) stay byte-identical to the pure-Zod path.
  */
@@ -401,9 +377,8 @@ const ROW_DECODER = new WeakMap<TableMeta, RowDecoder>()
 
 function rowDecoderFor(meta: TableMeta): RowDecoder {
   const existing = ROW_DECODER.get(meta)
-  if (existing) {
-    return existing
-  }
+  if (existing) return existing
+
   const schema = meta.def.object as unknown as z.ZodType
   const shape = (meta.def.object as unknown as { shape: Record<string, z.ZodType> }).shape
   const fields = Object.entries(shape).map(([key, fieldSchema]) => ({
@@ -418,19 +393,16 @@ function rowDecoderFor(meta: TableMeta): RowDecoder {
     for (const field of fields) {
       const value = row[field.key]
       if (value === undefined) {
-        if (!field.shape.optional) {
-          return viaZod(row)
-        } // missing required -> Zod's error
+        if (!field.shape.optional) return viaZod(row)
+        // missing required -> Zod's error
         // Zod keeps an EXPLICIT undefined and drops an absent key — mirror both.
-        if (Object.hasOwn(row, field.key)) {
-          out[field.key] = undefined
-        }
+        if (Object.hasOwn(row, field.key)) out[field.key] = undefined
+
         continue
       }
       if (value === null) {
-        if (!field.shape.nullable) {
-          return viaZod(row)
-        }
+        if (!field.shape.nullable) return viaZod(row)
+
         out[field.key] = null
         continue
       }
@@ -463,9 +435,8 @@ function rowDecoderFor(meta: TableMeta): RowDecoder {
 
 /** The full row through the table codec (compiled fast path when possible). */
 function decodeFull(meta: TableMeta, row: unknown): unknown {
-  if (!isRecord(row)) {
-    return row
-  }
+  if (!isRecord(row)) return row
+
   return rowDecoderFor(meta)(row)
 }
 
@@ -474,19 +445,17 @@ function decodeSchema(schema: z.ZodType, row: unknown, table: string): unknown {
   try {
     return z.decode(schema, row)
   } catch (error) {
-    throw normalizeError(error, { table, operation: "decode" })
+    throw normalizeError(error, { operation: "decode", table })
   }
 }
 
 /** Decode one projected leaf (array leaves decode element-wise). */
 function decodeLeaf(value: unknown, field: ProjectedField | undefined, table: string): unknown {
-  if (!field?.schema) {
-    return value
-  }
+  if (!field?.schema) return value
+
   if (field.each) {
-    if (!Array.isArray(value)) {
-      return decodeWith(value, field, table)
-    }
+    if (!Array.isArray(value)) return decodeWith(value, field, table)
+
     return value.map((element) => decodeWith(element, field, table))
   }
   return decodeWith(value, field, table)
@@ -499,7 +468,7 @@ function decodeLeaf(value: unknown, field: ProjectedField | undefined, table: st
  * A mismatch falls THROUGH to `z.decode`, so the error path unchangs it. Memoized per schema.
  */
 type FastKind = "boolean" | "number" | "safeint" | "string"
-interface FieldShape {
+type FieldShape = {
   /** The fast primitive kind, or `null` when the schema needs Zod (codec/container/checks). */
   readonly fast: FastKind | null
   /** Array-of-fast-primitive kind (`s.array(s.string())`), or `null`. */
@@ -511,7 +480,7 @@ interface FieldShape {
 }
 
 /** The `_zod.def` fields the classifier reads (structural — Zod's internal def is not exported). */
-interface ZodDefShape {
+type ZodDefShape = {
   check?: unknown
   checks?: unknown[]
   element?: { _zod?: { def?: ZodDefShape } }
@@ -519,26 +488,28 @@ interface ZodDefShape {
   innerType?: { _zod?: { def?: ZodDefShape } }
   type?: string
 }
+// eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
 const defOf = (schema: object): undefined | ZodDefShape =>
   (schema as unknown as { _zod?: { def?: ZodDefShape } })._zod?.def
 
+// eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
 const SHAPE_OF = new WeakMap<object, FieldShape>()
 
 /** Classify the INNER primitive of a schema (after optional/nullable unwrapping). */
 function fastKindFrom(def: undefined | ZodDefShape): FastKind | null {
-  if (!def || (Array.isArray(def.checks) && def.checks.length > 0)) {
-    return null
-  }
+  if (!def || (Array.isArray(def.checks) && def.checks.length > 0)) return null
+
   switch (def.type) {
+    case undefined:
+      return null
     case "string":
       return Object.keys(def).length === 1 ? "string" : null
     case "boolean":
       return Object.keys(def).length === 1 ? "boolean" : null
     case "number":
       // `z.number()`: keys {type, checks} — finite (Zod rejects NaN AND Infinity).
-      if (def.format === undefined) {
-        return def.check === undefined ? "number" : null
-      }
+      if (def.format === undefined) return def.check === undefined ? "number" : null
+
       return def.format === "safeint" ? "safeint" : null // `z.int()`
     default:
       return null
@@ -547,27 +518,24 @@ function fastKindFrom(def: undefined | ZodDefShape): FastKind | null {
 
 function shapeOf(schema: z.ZodType): FieldShape {
   let shape = SHAPE_OF.get(schema)
-  if (shape) {
-    return shape
-  }
+  if (shape) return shape
+
   let def = defOf(schema)
   let optional = false
   let nullable = false
   // Unwrap optional/nullable: a present value decodes as the inner type.
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   while (def && (def.type === "optional" || def.type === "nullable") && def.innerType) {
-    if (def.type === "optional") {
-      optional = true
-    } else {
-      nullable = true
-    }
+    if (def.type === "optional") optional = true
+    else nullable = true
+
     def = defOf(def.innerType)
   }
   shape = {
     fast: fastKindFrom(def),
     fastArray: fastArrayKindFrom(def),
-    optional,
     nullable,
+    optional,
   }
   SHAPE_OF.set(schema, shape)
   return shape
@@ -575,24 +543,19 @@ function shapeOf(schema: z.ZodType): FieldShape {
 
 /** `s.array(<plain fast primitive>)` — element-wise checks replace Zod's array parse. */
 function fastArrayKindFrom(def: undefined | ZodDefShape): FastKind | null {
-  if (!def) {
-    return null
-  }
-  if (def.type !== "array" || !def.element) {
-    return null
-  }
+  if (!def) return null
+
+  if (def.type !== "array" || !def.element) return null
+
   // Array-level checks (min/max/exact length) MUST stay in Zod.
-  if (Array.isArray(def.checks) && def.checks.length > 0) {
-    return null
-  }
+  if (Array.isArray(def.checks) && def.checks.length > 0) return null
+
   const element = defOf(def.element)
-  if (!element) {
-    return null
-  }
+  if (!element) return null
+
   // No optional/nullable element wrappers: an element that unwraps differently would need Zod.
-  if (element.type === "optional" || element.type === "nullable") {
-    return null
-  }
+  if (element.type === "optional" || element.type === "nullable") return null
+
   return fastKindFrom(element)
 }
 
@@ -607,18 +570,18 @@ function matchesFast(kind: FastKind, value: unknown): boolean {
       return typeof value === "number" && Number.isSafeInteger(value)
     case "boolean":
       return typeof value === "boolean"
+    default:
+      return false
   }
 }
 
 /** Element-wise decode of an array of a fast primitive; `undefined` when any element mismatches. */
 function decodeFastArray(kind: FastKind, value: readonly unknown[]): undefined | unknown[] {
-  const out = new Array<unknown>(value.length)
+  const out: unknown[] = Array.from({ length: value.length })
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = 0; i < value.length; i++) {
-    const element = value[i]
-    if (!matchesFast(kind, element)) {
-      return undefined
-    }
+  for (const [i, element] of value.entries()) {
+    if (!matchesFast(kind, element)) return undefined
+
     out[i] = element
   }
   return out
@@ -626,40 +589,34 @@ function decodeFastArray(kind: FastKind, value: readonly unknown[]): undefined |
 
 /** Decode a value with the field's codec, attributing failures to the table/field. */
 function decodeWith(value: unknown, field: ProjectedField, table: string): unknown {
-  if (value === undefined || value === null || !field.schema) {
-    return value
-  }
+  if (value === undefined || value === null || !field.schema) return value
+
   const shape = shapeOf(field.schema)
-  if (shape.fast !== null && matchesFast(shape.fast, value)) {
-    return value
-  }
+  if (shape.fast !== null && matchesFast(shape.fast, value)) return value
+
   if (shape.fastArray !== null && Array.isArray(value)) {
     const decoded = decodeFastArray(shape.fastArray, value)
-    if (decoded !== undefined) {
-      return decoded
-    }
+    if (decoded !== undefined) return decoded
   }
   try {
     return z.decode(field.schema, value)
   } catch (error) {
     throw normalizeError(error, {
-      table,
       field: field.out.join("."),
       operation: "decode",
+      table,
     })
   }
 }
 
 /** Schemaless models have no codecs — explicit projections pass values through. */
 function projectPassthrough(row: unknown, spec: ProjectionSpec): unknown {
-  if (spec.star || spec.fields.length === 0) {
-    return row
-  }
+  if (spec.star || spec.fields.length === 0) return row
+
   const out: Record<string, unknown> = {}
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const field of spec.fields) {
-    setAt(out, field.out, getAt(row, field.source))
-  }
+  for (const field of spec.fields) setAt(out, field.out, getAt(row, field.source))
+
   return out
 }
 
@@ -668,9 +625,8 @@ function getAt(value: unknown, path: readonly string[]): unknown {
   let current = value
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const key of path) {
-    if (!isRecord(current)) {
-      return undefined
-    }
+    if (!isRecord(current)) return undefined
+
     current = current[key]
   }
   return current
@@ -678,21 +634,19 @@ function getAt(value: unknown, path: readonly string[]): unknown {
 
 /** Write a nested key path (creating intermediate objects) into a decoded row. */
 function setAt(target: unknown, path: readonly string[], value: unknown): void {
-  if (!isRecord(target) || path.length === 0) {
-    return
-  }
+  if (!isRecord(target) || path.length === 0) return
+
   let current = target
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (let i = 0; i < path.length - 1; i++) {
     const key = path[i]
     const next = current[key]
-    if (!isRecord(next)) {
-      current[key] = {}
-    }
+    if (!isRecord(next)) current[key] = {}
+
     current = current[key] as Record<string, unknown>
   }
-  const leaf = path.at(-1) as string
-  current[leaf] = value
+  const leaf = path.at(-1)
+  current[leaf ?? ""] = value
 }
 
 /** A record-shaped value (a decoded row/sub-object — class instances included, arrays not). */

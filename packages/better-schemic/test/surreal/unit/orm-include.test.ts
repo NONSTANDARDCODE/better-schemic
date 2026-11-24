@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unsafe-assignment, unicorn/consistent-function-scoping, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Helpers stay colocated with the tests that use them. Fixtures assert values whose presence the test guarantees. */
 // M3 — the include compiler (golden args -> exact `{ sql, vars }`), the relational `where`
 // lowering, and the hydration decoder (links/graph/`_count`) against a recording fake connection.
 // Offline: no server.
@@ -444,22 +445,22 @@ describe("relational where — lowering", () => {
 
 describe("include — dispatch guards", () => {
   test("null include is a no-op; undefined entries are skipped", () => {
-    expect(compile({ include: null as never }).sql).toBe("SELECT * FROM user")
+    expect(compile({ include: null }).sql).toBe("SELECT * FROM user")
     expect(compile({ include: { mentor: undefined, friends: true } }).sql).toContain(
       "FETCH friends",
     )
   })
 
   test("a non-object include is rejected", () => {
-    expect(codeOf(() => compile({ include: 5 as never }))).toBe("ValidationError")
+    expect(codeOf(() => compile({ include: 5 }))).toBe("ValidationError")
   })
 
   test("select/split/orderBy shapes and the include clause guards", () => {
-    expect(compile({ select: null as never }).sql).toBe("SELECT * FROM user")
-    expect(codeOf(() => compile({ select: 5 as never }))).toBe("ValidationError")
-    expect(compile({ select: { name: undefined, age: true } as never }).sql).toContain("age")
-    expect(compile({ split: surql`x` as never }).sql).toContain("SPLIT x")
-    expect(compile({ orderBy: { age: "asc" } as never }).sql).toContain("ORDER BY")
+    expect(compile({ select: null }).sql).toBe("SELECT * FROM user")
+    expect(codeOf(() => compile({ select: 5 }))).toBe("ValidationError")
+    expect(compile({ select: { name: undefined, age: true } }).sql).toContain("age")
+    expect(compile({ split: surql`x` }).sql).toContain("SPLIT x")
+    expect(compile({ orderBy: { age: "asc" } }).sql).toContain("ORDER BY")
     // include needs the schema index.
     const m = index.tables.get("users")!
     expect(

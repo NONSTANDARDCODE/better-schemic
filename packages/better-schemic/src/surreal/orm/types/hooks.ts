@@ -41,7 +41,7 @@ export type OperationKind =
 export type RawOperation = "$query" | "$raw" | "$unsafe"
 
 /** What a `before*` delegate hook receives (all optional context, `table`/`operation` always set). */
-export interface HookPayload {
+export type HookPayload = {
   /** The write payload, when the operation has one. */
   readonly data?: unknown
   /** Per-call metadata merged over the scope's. */
@@ -58,17 +58,17 @@ export interface HookPayload {
 }
 
 /** What an `after*` delegate hook receives (the operation already ran). */
-export interface AfterHookPayload extends HookPayload {
+export type AfterHookPayload = {
   /** Rows the operation returned (`count()`'s value for `count`), when meaningful. */
   readonly count?: number
   /** Wall-clock duration of the round-trip, in milliseconds. */
   readonly durationMs: number
   /** The decoded result. */
   readonly result: unknown
-}
+} & HookPayload
 
 /** What `onError` receives for a failed delegate operation. */
-export interface ErrorHookPayload {
+export type ErrorHookPayload = {
   /** The thrown value (normalized when it came from the server). */
   readonly error: unknown
   readonly meta?: Record<string, unknown>
@@ -80,7 +80,7 @@ export interface ErrorHookPayload {
 }
 
 /** What `beforeRaw`/`afterRaw`/`onRawError` receive. */
-export interface RawHookPayload {
+export type RawHookPayload = {
   readonly meta?: Record<string, unknown>
   readonly operation: RawOperation
   readonly surql: string
@@ -88,32 +88,32 @@ export interface RawHookPayload {
 }
 
 /** What `afterRaw` receives (the raw script already ran). */
-export interface RawAfterHookPayload extends RawHookPayload {
+export type RawAfterHookPayload = {
   readonly durationMs: number
   readonly result: unknown
-}
+} & RawHookPayload
 
 /** What `onRawError` receives. */
-export interface RawErrorHookPayload extends RawHookPayload {
+export type RawErrorHookPayload = {
   readonly error: unknown
-}
+} & RawHookPayload
 
 /** What `beforeTransaction` receives. */
-export interface TransactionHookPayload {
+export type TransactionHookPayload = {
   /** A per-client monotonic id, so nested/concurrent transactions stay distinguishable. */
   readonly id: number
   readonly meta?: Record<string, unknown>
 }
 
 /** What `afterTransactionCommit`/`afterTransactionRollback`/`onTransactionError` receive. */
-export interface TransactionAfterHookPayload extends TransactionHookPayload {
+export type TransactionAfterHookPayload = {
   readonly durationMs: number
-}
+} & TransactionHookPayload
 
 /** What `afterTransactionRollback`/`onTransactionError` receive. */
-export interface TransactionRollbackHookPayload extends TransactionAfterHookPayload {
+export type TransactionRollbackHookPayload = {
   readonly error: unknown
-}
+} & TransactionAfterHookPayload
 
 /**
  * The hook surface accepted by `orm(conn, { schema, hooks })`. Every hook is optional;
@@ -130,7 +130,7 @@ export interface TransactionRollbackHookPayload extends TransactionAfterHookPayl
  * });
  * ```
  */
-export interface Hooks {
+export type Hooks = {
   afterCreate?(info: AfterHookPayload & { operation: CreateOperation }): Promise<void> | void
   afterDelete?(info: AfterHookPayload & { operation: DeleteOperation }): Promise<void> | void
   afterQuery?(info: AfterHookPayload & { operation: ReadOperation }): Promise<void> | void

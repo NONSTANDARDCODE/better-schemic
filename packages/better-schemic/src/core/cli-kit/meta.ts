@@ -4,6 +4,15 @@ import { join } from "node:path"
 
 import type { KindSnapshot } from "../kind"
 
+/** On-disk snapshot format version. */
+const SNAPSHOT_VERSION = 3
+/** Pretty-print indent for the stored JSON. */
+const JSON_INDENT = 2
+/** Width of each numeric part of a migration timestamp prefix. */
+const TIMESTAMP_PART_WIDTH = 2
+/** Length of the checksum prefix embedded in a migration filename. */
+const CHECKSUM_PREFIX_LENGTH = 16
+
 // The legacy STATEMENT snapshot types (Snapshot/SnapshotStatement/EMPTY_SNAPSHOT) now live in
 // cli/structure.ts (the SurrealDB module that produces them) — this file is the NEUTRAL stored-
 // snapshot + migration-file engine.
@@ -16,17 +25,17 @@ import type { KindSnapshot } from "../kind"
  * the format is free to change, so there is no on-disk version migration — an unrecognized snapshot
  * treats it as empty (regenerate via `better-schemic gen --baseline`).
  */
-export interface StoredSnapshot {
+export type StoredSnapshot = {
   /** The driver that authored this snapshot ("surrealdb"). */
   driver: string
   files?: Record<string, string>
   /** Portable objects grouped by kind. */
   schema: KindSnapshot
-  version: 3
+  version: typeof SNAPSHOT_VERSION
 }
 
 /** A migration file on disk. The filename is the source of truth — there's no journal. */
-export interface Migration {
+export type Migration = {
   /** Filename, e.g. `20260607153045_add_users.surql`. */
   file: string
   /** Filename without the `.surql` extension, e.g. `20260607153045_add_users`. */
@@ -56,20 +65,19 @@ export const EMPTY_STORED: StoredSnapshot = emptyStored()
  */
 export function readSnapshot(metaDir: string): StoredSnapshot {
   const path = join(metaDir, SNAPSHOT_FILE)
-  if (!existsSync(path)) {
-    return emptyStored()
-  }
+  if (!existsSync(path)) return emptyStored()
+
   let raw: unknown
   try {
     raw = JSON.parse(readFileSync(path, "utf8"))
   } catch (error) {
     throw new Error(
       `better-schemic: ${SNAPSHOT_FILE} is not valid JSON (${(error as Error).message}). Restore it or regenerate with \`better-schemic gen --baseline\`.`,
+      { cause: error },
     )
   }
-  if (isValidStoredSnapshot(raw)) {
-    return { files: {}, ...raw }
-  }
+  if (isValidStoredSnapshot(raw)) return { files: {}, ...raw }
+
   return emptyStored()
 }
 
@@ -77,54 +85,44 @@ const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"])
 
 /** Runtime validation of a stored snapshot — a doctored file must not reach the diff/plan walkers. */
 function isValidStoredSnapshot(v: unknown): v is StoredSnapshot {
-  if (typeof v !== "object" || v === null) {
-    return false
-  }
+  if (typeof v !== "object" || v === null) return false
+
   const snap = v as Partial<StoredSnapshot>
-  if (snap.version !== 3 || typeof snap.driver !== "string") {
-    return false
-  }
-  const schema = snap.schema as { kinds?: unknown } | undefined
-  if (typeof schema !== "object" || schema === null) {
-    return false
-  }
+  if (snap.version !== SNAPSHOT_VERSION || typeof snap.driver !== "string") return false
+
+  const schema = snap.schema as undefined | { kinds?: unknown }
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- `null` passa como objeto: snapshot vem de disco e pode conter null.
+  if (typeof schema !== "object" || schema === null) return false
+
   const kinds = schema.kinds
-  if (typeof kinds !== "object" || kinds === null || Array.isArray(kinds)) {
-    return false
-  }
+  if (typeof kinds !== "object" || kinds === null || Array.isArray(kinds)) return false
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [kind, items] of Object.entries(kinds)) {
-    if (UNSAFE_KEYS.has(kind) || !Array.isArray(items)) {
-      return false
-    }
+    if (UNSAFE_KEYS.has(kind) || !Array.isArray(items)) return false
+
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const item of items) {
-      if (typeof item !== "object" || item === null) {
-        return false
-      }
+      if (typeof item !== "object" || item === null) return false
+
       const obj = item as { kind?: unknown; name?: unknown }
-      if (typeof obj.kind !== "string" || typeof obj.name !== "string") {
-        return false
-      }
+      if (typeof obj.kind !== "string" || typeof obj.name !== "string") return false
     }
   }
   if (snap.files !== undefined) {
-    if (typeof snap.files !== "object" || snap.files === null || Array.isArray(snap.files)) {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- `null` passa como objeto: snapshot vem de disco e pode conter null.
+    if (typeof snap.files !== "object" || snap.files === null || Array.isArray(snap.files))
       return false
-    }
+
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const value of Object.values(snap.files)) {
-      if (typeof value !== "string") {
-        return false
-      }
-    }
+    for (const value of Object.values(snap.files)) if (typeof value !== "string") return false
   }
   return true
 }
 
 export function writeSnapshot(metaDir: string, snapshot: StoredSnapshot): void {
   mkdirSync(metaDir, { recursive: true })
-  writeFileSync(join(metaDir, SNAPSHOT_FILE), `${JSON.stringify(snapshot, null, 2)}\n`)
+  writeFileSync(join(metaDir, SNAPSHOT_FILE), `${JSON.stringify(snapshot, null, JSON_INDENT)}\n`)
 }
 
 /**
@@ -137,31 +135,31 @@ export function listMigrations(
   migrationsDir: string,
   ext: string = DEFAULT_MIGRATION_EXT,
 ): Migration[] {
-  if (!existsSync(migrationsDir)) {
-    return []
-  }
+  if (!existsSync(migrationsDir)) return []
+
   return readdirSync(migrationsDir)
     .filter((f) => f.endsWith(ext))
     .sort()
     .map((file) => ({ file, tag: file.slice(0, -ext.length) }))
 }
 
+const twoDigits = (n: number): string => String(n).padStart(TIMESTAMP_PART_WIDTH, "0")
+
 /** A sortable UTC timestamp prefix for a new migration, e.g. `20260607153045`. */
 export function timestamp(date: Date): string {
-  const p = (n: number) => String(n).padStart(2, "0")
   return (
     `${date.getUTCFullYear()}` +
-    p(date.getUTCMonth() + 1) +
-    p(date.getUTCDate()) +
-    p(date.getUTCHours()) +
-    p(date.getUTCMinutes()) +
-    p(date.getUTCSeconds())
+    twoDigits(date.getUTCMonth() + 1) +
+    twoDigits(date.getUTCDate()) +
+    twoDigits(date.getUTCHours()) +
+    twoDigits(date.getUTCMinutes()) +
+    twoDigits(date.getUTCSeconds())
   )
 }
 
 /** sha256 of a migration file's contents (drift detection / apply-time bookkeeping). */
 export function checksum(content: string): string {
-  return createHash("sha256").update(content).digest("hex").slice(0, 16)
+  return createHash("sha256").update(content).digest("hex").slice(0, CHECKSUM_PREFIX_LENGTH)
 }
 
 /** Turn a free-form migration name into a filename-safe slug. */

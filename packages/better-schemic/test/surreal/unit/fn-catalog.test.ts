@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unnecessary-condition -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Defensive checks document fixture intent. */
 // Typed-fragments PHASE 3: the `surql.fn` builtin catalog. Lowering is unit-tested; the LIVE
 // sweep runs EVERY catalog entry against a real server with sample args — a builtin name that
 // doesn't exist on the target SurrealDB fails here, so the catalog can't drift from reality.
@@ -5,12 +6,12 @@
 // RETURN doesn't have: http, fulltext search, field contexts).
 import { describe, expect, test } from "bun:test"
 
-import { DateTime, Duration, RecordId, s, surql, table } from "../../../src/surreal"
+import { Duration, RecordId, surql } from "../../../src/surreal"
 import { fn } from "../../../src/surreal/fn"
 
 // --- walk the catalog -------------------------------------------------------------------------
 
-type Leaf = { path: string; call: (...args: unknown[]) => { query: string } }
+type Leaf = { call: (...args: unknown[]) => { query: string }; path: string }
 function leaves(node: unknown, path: string[] = []): Leaf[] {
   const out: Leaf[] = []
   if (typeof node === "function") out.push({ path: path.join("."), call: node as Leaf["call"] })

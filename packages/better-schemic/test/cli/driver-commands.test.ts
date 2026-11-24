@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 import type { DriverCommand } from "better-schemic/core"
 import { describe, expect, test } from "bun:test"
 
@@ -7,7 +8,9 @@ const cmd = (over: Partial<DriverCommand>): DriverCommand => ({
   kind: "access",
   verb: "check",
   summary: "",
-  run: async () => {},
+  run: async () => {
+    /* empty */
+  },
   ...over,
 })
 

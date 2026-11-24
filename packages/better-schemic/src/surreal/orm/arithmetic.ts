@@ -20,7 +20,7 @@
  * Markers reserv them shapes: a plain object with  ONE marker key (and  the modifier
  * keys besides it) is an change — an object literal with that exact shape can't writes it as
  * a payload value directly (wrap it in a `surql` fragment when a record genuinely stores that
- * object). The MODIFIERS (`when`/`else`/`coalesce`) ride the same wrapper; this module 
+ * object). The MODIFIERS (`when`/`else`/`coalesce`) ride the same wrapper; this module
  * recognises them — the compiler validates and lowers them, because the guard/seed is server-side.
  */
 import { isLowerableValue } from "./compiler/shared"
@@ -35,7 +35,7 @@ const MODIFIER_KEYS = new Set(["when", "else", "coalesce"])
 const NUMERIC_KINDS = new Set(["increment", "decrement"])
 
 /** One parsed change marker: the operator and the operand to bind. */
-export interface Adjustment {
+export type Adjustment = {
   /** RAW `coalesce` seed — the compiler validates it (`union`/`append` accept it). */
   readonly coalesce?: unknown
   /** RAW `else` branch — the compiler validates `"keep"`/`"throw"`/a renderable value. */
@@ -45,7 +45,7 @@ export interface Adjustment {
   /** The marker key (`increment` | `decrement` | `append` | `remove` | `union` | `at`). */
   readonly kind: string
   /** `+` (increment/append/union) or `-` (decrement/remove). */
-  readonly op: "-" | "+"
+  readonly op: "+" | "-"
   /** The operand (validated by the compiler; a number/bigint/Decimal, an array value, or an expression). */
   readonly value: unknown
   /** RAW `when` guard — the compiler validates it as a `Surql` (and rejects it on `at`). */
@@ -54,39 +54,32 @@ export interface Adjustment {
 
 /** Is this value a plain object with ONE change-marker key (plus modifiers)? */
 export function adjustmentOf(value: unknown): Adjustment | undefined {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return undefined
-  }
-  const proto = Object.getPrototypeOf(value)
-  if (proto !== null && proto !== Object.prototype) {
-    return undefined
-  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined
+
+  const proto = Object.getPrototypeOf(value) as null | Record<string, unknown>
+  if (proto !== null && proto !== Object.prototype) return undefined
+
   let kind: string | undefined
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const key of Object.keys(value)) {
     if (ARITHMETIC_KINDS.has(key)) {
       // Two markers in one wrapper is NOT a marker (it stays a literal value, as before).
-      if (kind !== undefined) {
-        return undefined
-      }
+      if (kind !== undefined) return undefined
+
       kind = key
-    } else if (!MODIFIER_KEYS.has(key)) {
-      return undefined
-    }
+    } else if (!MODIFIER_KEYS.has(key)) return undefined
   }
-  if (kind === undefined) {
-    return undefined
-  }
+  if (kind === undefined) return undefined
+
   const marker = value as Record<string, unknown>
   const operand = marker[kind]
-  if (operand === undefined) {
-    return undefined
-  }
+  if (operand === undefined) return undefined
+
   const numeric = NUMERIC_KINDS.has(kind)
   return {
-    op: kind === "decrement" || kind === "remove" ? "-" : "+",
-    kind,
     family: numeric ? "number" : "array",
+    kind,
+    op: kind === "decrement" || kind === "remove" ? "-" : "+",
     value: operand,
     ...(marker.when === undefined ? {} : { when: marker.when }),
     ...(marker.else === undefined ? {} : { else: marker.else }),
@@ -108,29 +101,25 @@ export function literalOperand(value: unknown): boolean {
  * when the operand is an expression the validator can't check). Arrays of payloads mapp them.
  * Used by the `zod` plugin so app-level schemas check the literal operand, not the wrapper.
  *
- * The MODIFIERS are  ignored in the substitution: the plugin validates  the operand
+ * Substitution ignores the MODIFIERS: the plugin validates  the operand
  * (the value the app is putting into the field), while `when`/`else`/`coalesce` evaluat them by
  * the server and have no literal counterpart to check.
  */
 export function stripAdjustments(data: unknown): unknown {
-  if (Array.isArray(data)) {
-    return data.map((item) => stripAdjustments(item))
-  }
-  if (data === null || typeof data !== "object") {
-    return data
-  }
+  if (Array.isArray(data)) return data.map((item) => stripAdjustments(item))
+
+  if (data === null || typeof data !== "object") return data
+
   const adjustment = adjustmentOf(data)
-  if (adjustment) {
-    return data
-  }
+  if (adjustment) return data
+
   const out: Record<string, unknown> = {}
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
     const marker = adjustmentOf(value)
     if (marker) {
-      if (literalOperand(marker.value)) {
-        out[key] = marker.value
-      }
+      if (literalOperand(marker.value)) out[key] = marker.value
+
       continue // an expression operand can't be schema-validated
     }
     out[key] = value

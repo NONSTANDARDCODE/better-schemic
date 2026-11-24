@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, unicorn/no-object-as-default-parameter -- Object key order mirrors expected serialized output and must stay as authored. The default row is a fixture literal. */
 // M17 — the `hard-delete` plugin: `delete` stays a PHYSICAL delete, the destructive intent is
 // explicit in the bootstrap and travels on the operation (hooks + query log). Offline.
 import { describe, expect, test } from "bun:test"
@@ -58,7 +59,7 @@ describe("hard-delete — writes", () => {
       definePlugin({
         id: "spy",
         transform(op) {
-          if (op.kind === "delete" || op.kind === "deleteMany") seen.push({ ...(op.meta ?? {}) })
+          if (op.kind === "delete" || op.kind === "deleteMany") seen.push({ ...op.meta })
         },
       }),
     ])
@@ -151,7 +152,7 @@ describe("hard-delete — the reason/meta arms", () => {
         definePlugin({
           id: "spy-meta",
           transform(op) {
-            if (op.kind === "delete") seen.push({ ...(op.meta ?? {}) })
+            if (op.kind === "delete") seen.push({ ...op.meta })
           },
         }),
       ],

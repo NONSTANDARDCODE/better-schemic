@@ -9,6 +9,7 @@
  */
 import { escapeIdentSafe as escapeIdent } from "../../ident"
 import type { ModelMeta, SchemaIndex } from "../meta"
+
 import { compileIncludes } from "./include"
 import {
   compileProjection,
@@ -37,8 +38,16 @@ import {
 } from "./shared"
 import { compileWhere, mergeScope } from "./where"
 
+/** Index placeholder for include-free reads (compileIncludes ignores it when `include` is absent). */
+const EMPTY_INDEX: SchemaIndex = {
+  byName: new Map(),
+  functions: new Map(),
+  schemaless: new Map(),
+  tables: new Map(),
+}
+
 /** The compiled form of one read. */
-export interface CompiledRead {
+export type CompiledRead = {
   /** FETCH paths from `include` (emitted as the LAST clause). */
   readonly fetch: readonly string[]
   /** `FROM ` — the result is a single object (or a miss). */
@@ -48,7 +57,7 @@ export interface CompiledRead {
 }
 
 /** The runtime read args the compiler validates (types live in `../types/select`). */
-export interface ReadArgs {
+export type ReadArgs = {
   /** Return the `EXPLAIN` plan instead of executing. */
   explain?: unknown
   groupAll?: unknown
@@ -78,7 +87,7 @@ export interface ReadArgs {
 }
 
 /** Compiler overrides for the operations that wrap a read (findUnique targets a record). */
-export interface CompileReadOptions {
+export type CompileReadOptions = {
   /** Aliases the read appends to the projection (keyset cursor columns; decoded as leaves). */
   readonly aliases?: readonly ProjectionAlias[]
   /** The schema index — required to resolve `include` relations. */
@@ -125,25 +134,24 @@ export function compileRead(
     )
   }
   const compiled = compileIncludes({
-    meta,
-    include: args.include,
     binds,
-    index: options.index as SchemaIndex,
+    include: args.include,
+    index: options.index ?? EMPTY_INDEX,
+    meta,
     operation,
   })
 
   const selection = selectedTopLevelKeys(args.select)
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const key of compiled.keys) {
-    if (!selection.keys.has(key)) {
-      continue
-    }
+    if (!selection.keys.has(key)) continue
+
     const includeSpec = compiled.specs.find((entry) => entry.key === key)
     if (includeSpec?.kind !== "link-fetch") {
       throw compileError(
         "ValidationError",
         `${operation}: "${key}" is both explicitly selected and included — drop one (include."${key}" remounts it).`,
-        { operation, field: key },
+        { field: key, operation },
       )
     }
   }
@@ -151,11 +159,8 @@ export function compileRead(
   const extraParts = [...compiled.parts]
   if (!selection.star) {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const link of compiled.passthrough) {
-      if (!selection.keys.has(link)) {
-        extraParts.unshift(renderPath(link))
-      }
-    }
+    for (const link of compiled.passthrough)
+      if (!selection.keys.has(link)) extraParts.unshift(renderPath(link))
   }
 
   // SPLIT is an idiom the SERVER requires in the selection ("Missing split idiom … in statement
@@ -166,7 +171,7 @@ export function compileRead(
   // without the caller hand-projecting `products` into every `select`.
   const splitAlias = splitIdiomAlias(meta, args, splitPath, options.aliases, operation)
 
-  const { text: projectionText, spec: baseSpec } = compileProjection(
+  const { spec: baseSpec, text: projectionText } = compileProjection(
     meta,
     args.select,
     args.omit,
@@ -175,12 +180,12 @@ export function compileRead(
     operation,
     splitPath,
     {
-      parts: extraParts,
-      passthrough: compiled.passthrough,
       aliases: [
         ...(options.aliases ?? []),
         ...(splitAlias ? [{ alias: splitAlias, path: args.split as string }] : []),
       ],
+      parts: extraParts,
+      passthrough: compiled.passthrough,
     },
   )
   const spec: ProjectionSpec = {
@@ -218,49 +223,39 @@ export function compileRead(
     `FROM ${options.target ?? compileTarget(meta, args.range, only, operation)}`,
   ]
 
-  if (args.with !== undefined) {
-    parts.push(compileWithClause(args.with, operation))
-  }
+  if (args.with !== undefined) parts.push(compileWithClause(args.with, operation))
+
   const where = compileWhere(mergeScope(args.where, args.scope), binds, {
     ...(isTableMeta(meta) ? { meta } : {}),
     ...(options.index ? { index: options.index } : {}),
     operation,
   })
-  if (where) {
-    parts.push(`WHERE ${where}`)
-  }
-  if (args.split !== undefined) {
-    parts.push(`SPLIT ${compileSplit(args.split, binds, operation)}`)
-  }
-  if (groupAll) {
-    parts.push("GROUP ALL")
-  } else if (groupBy.length > 0) {
-    parts.push(`GROUP BY ${groupBy.map(renderPath).join(", ")}`)
-  }
-  if (args.orderBy !== undefined) {
-    parts.push(compileOrderBy(args.orderBy, binds, operation))
-  }
-  if (args.limit !== undefined) {
+  if (where) parts.push(`WHERE ${where}`)
+
+  if (args.split !== undefined) parts.push(`SPLIT ${compileSplit(args.split, binds, operation)}`)
+
+  if (groupAll) parts.push("GROUP ALL")
+  else if (groupBy.length > 0) parts.push(`GROUP BY ${groupBy.map(renderPath).join(", ")}`)
+
+  if (args.orderBy !== undefined) parts.push(compileOrderBy(args.orderBy, binds, operation))
+
+  if (args.limit !== undefined)
     parts.push(`LIMIT ${binds.add(nonNegativeInt(args.limit, "limit", operation))}`)
-  }
-  if (args.start !== undefined) {
+
+  if (args.start !== undefined)
     parts.push(`START ${binds.add(nonNegativeInt(args.start, "start", operation))}`)
-  }
-  if (args.version !== undefined) {
-    parts.push(`VERSION ${datetimeLiteral(args.version, operation)}`)
-  }
-  if (args.timeout !== undefined) {
-    parts.push(`TIMEOUT ${durationLiteral(args.timeout, operation)}`)
-  }
-  if (compiled.fetch.length > 0) {
-    parts.push(`FETCH ${compiled.fetch.map(renderPath).join(", ")}`)
-  }
+
+  if (args.version !== undefined) parts.push(`VERSION ${datetimeLiteral(args.version, operation)}`)
+
+  if (args.timeout !== undefined) parts.push(`TIMEOUT ${durationLiteral(args.timeout, operation)}`)
+
+  if (compiled.fetch.length > 0) parts.push(`FETCH ${compiled.fetch.map(renderPath).join(", ")}`)
 
   return {
-    sql: parts.join(" "),
-    projection: spec,
-    only,
     fetch: compiled.fetch,
+    only,
+    projection: spec,
+    sql: parts.join(" "),
   }
 }
 
@@ -269,36 +264,31 @@ function selectedTopLevelKeys(select: unknown): {
   readonly keys: ReadonlySet<string>
   readonly star: boolean
 } {
-  if (select === undefined || select === null) {
-    return { star: true, keys: new Set() }
-  }
+  if (select === undefined || select === null) return { keys: new Set(), star: true }
+
   if (Array.isArray(select)) {
     const keys = new Set<string>()
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const key of select) {
-      if (typeof key === "string") {
-        keys.add(pathSegments(key)[0])
-      }
-    }
-    return { star: false, keys }
+    for (const key of select) if (typeof key === "string") keys.add(pathSegments(key)[0])
+
+    return { keys, star: false }
   }
   if (isPlainObject(select)) {
     const keys = new Set<string>()
     let star = false
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const key of Object.keys(select)) {
-      if (select[key] === undefined || select[key] === false) {
-        continue
-      }
+      if (select[key] === undefined || select[key] === false) continue
+
       if (key === "*") {
         star = true
         continue
       }
       keys.add(pathSegments(key)[0])
     }
-    return { star, keys }
+    return { keys, star }
   }
-  return { star: false, keys: new Set() }
+  return { keys: new Set(), star: false }
 }
 
 // --- target / clauses ----------------------------------------------------------------------------
@@ -306,9 +296,8 @@ function selectedTopLevelKeys(select: unknown): {
 /** `FROM <table>` / `FROM <table>` / `FROM <table>:<start>..<end>`. */
 function compileTarget(meta: ModelMeta, range: unknown, only: boolean, operation: string): string {
   const table = escapeIdent(meta.name)
-  if (range === undefined) {
-    return only ? `ONLY ${table}` : table
-  }
+  if (range === undefined) return only ? `ONLY ${table}` : table
+
   if (only) {
     throw compileError(
       "ClauseNotSupported",
@@ -321,13 +310,11 @@ function compileTarget(meta: ModelMeta, range: unknown, only: boolean, operation
 
 /** `SPLIT field` / `SPLIT <fragment>`. */
 function compileSplit(split: unknown, binds: Binds, operation: string): string {
-  if (typeof split === "string") {
-    return renderPath(split)
-  }
+  if (typeof split === "string") return renderPath(split)
+
   const bare = renderBareFragment(split, binds)
-  if (bare !== undefined) {
-    return bare
-  }
+  if (bare !== undefined) return bare
+
   throw compileError(
     "ValidationError",
     `${operation}: split must be a field path or a fragment, got ${describeValue(split)}.`,
@@ -348,9 +335,8 @@ export function compileOrderBy(orderBy: unknown, binds: Binds, operation: string
   const parts: string[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const entry of entries) {
-    if (entry === undefined) {
-      continue
-    }
+    if (entry === undefined) continue
+
     const bare = renderBareFragment(entry, binds)
     if (bare !== undefined) {
       parts.push(bare)
@@ -365,11 +351,11 @@ export function compileOrderBy(orderBy: unknown, binds: Binds, operation: string
     }
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const [key, direction] of Object.entries(entry)) {
-      if (direction === undefined) {
-        continue
-      }
+      if (direction === undefined) continue
+
       if (typeof direction === "string") {
         const upper = direction.toUpperCase()
+        // eslint-disable-next-line max-depth -- parser/compilador com despacho aninhado; achatar mudaria a precedência das cláusulas
         if (upper !== "ASC" && upper !== "DESC") {
           throw compileError(
             "ValidationError",
@@ -428,29 +414,24 @@ function splitIdiomAlias(
   args: ReadArgs,
   splitPath: readonly string[] | undefined,
   aliases: readonly ProjectionAlias[] | undefined,
-  operation: string,
+  _operation: string,
 ): string | undefined {
-  if (splitPath === undefined) {
-    return undefined
-  }
+  if (splitPath === undefined) return undefined
+
   const split = args.split as string
   // A `*` (with nothing omitted over the split path) or an explicit entry already returns it.
   const form = projectionForm(args.select)
-  if (form && projectedInPlace(form, omittedPaths(args.omit), split)) {
-    return undefined
-  }
+  if (form && projectedInPlace(form, omittedPaths(args.omit), split)) return undefined
+
   const alias = `${SPLIT_ALIAS_PREFIX}${splitPath[0]}`
   // Reserved name already spoken for — by a caller-supplied column (the cursor keyset aliases) or by
   // a REAL field that happens to nams it like the reservation. Injecting a second copy would either
   // duplicate a column or shadow a field the caller owns.
-  if ((aliases ?? []).some((entry) => entry.alias === alias)) {
-    return undefined
-  }
+  if ((aliases ?? []).some((entry) => entry.alias === alias)) return undefined
+
   if (isTableMeta(meta)) {
     const shape = (meta.def.object as { shape?: Record<string, unknown> }).shape
-    if (alias in (shape ?? {})) {
-      return undefined
-    }
+    if (alias in (shape ?? {})) return undefined
   }
   return alias
 }

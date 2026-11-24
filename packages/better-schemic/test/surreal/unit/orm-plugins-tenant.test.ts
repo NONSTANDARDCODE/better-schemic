@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/require-await, unicorn/no-nested-ternary -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Mock methods match async interfaces without awaiting. The ternary encodes the fixture decision table. */
 // `tenantRls()` runtime plugin — fail-closed client-side tenant scoping for PRIVILEGED sessions:
 // scope injection on reads/writes, `$forTenant` delegate state, divergent payload/where rejection,
 // the ON DUPLICATE / unique-target guards and the bootstrap validation. Offline (fake conn).
@@ -119,10 +120,10 @@ describe("tenantRls — fail-closed scope", () => {
   test("$forTenant overrides the configured resolver; the original delegate keeps the config", async () => {
     const { client, calls } = scoped()
     await client.customers.$forTenant("user:xyz").findMany({})
-    expect(String(scopeBind(calls[0]!))).toBe("user:xyz")
+    expect(String(scopeBind(calls[0]))).toBe("user:xyz")
     calls.length = 0
     await client.customers.findMany({})
-    expect(String(scopeBind(calls[0]!))).toBe("user:abc")
+    expect(String(scopeBind(calls[0]))).toBe("user:abc")
   })
 
   test("the configured resolver is evaluated per operation", async () => {
@@ -131,14 +132,14 @@ describe("tenantRls — fail-closed scope", () => {
     await client.customers.findMany({})
     current = "user:two"
     await client.customers.findMany({})
-    expect(String(scopeBind(calls[0]!))).toBe("user:one")
-    expect(String(scopeBind(calls[1]!))).toBe("user:two")
+    expect(String(scopeBind(calls[0]))).toBe("user:one")
+    expect(String(scopeBind(calls[1]))).toBe("user:two")
   })
 
   test("a bare tenant id joins the preset's principal", async () => {
     const { client, calls } = scoped()
     await client.customers.$forTenant("abc").findMany({})
-    expect(String(scopeBind(calls[0]!))).toBe("user:abc")
+    expect(String(scopeBind(calls[0]))).toBe("user:abc")
   })
 
   test("a scope from another principal is rejected", async () => {
@@ -181,9 +182,8 @@ describe("tenantRls — reads", () => {
       client.customers.cursor({ limit: 1, orderBy: [{ id: "asc" }] }),
     ]
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const read of reads) {
-      await read.explain()
-    }
+    for (const read of reads) await read.explain()
+
     expect(calls.length).toBeGreaterThanOrEqual(reads.length)
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const call of calls)
@@ -230,7 +230,7 @@ describe("tenantRls — creates and upserts", () => {
   test("create injects the scoped RecordId into the payload", async () => {
     const { client, calls } = scoped()
     await client.customers.create({ data: { name: "A" } })
-    const payload = payloadBind(calls[0]!)!
+    const payload = payloadBind(calls[0])
     expect(payload).toMatchObject({ name: "A" })
     expect(payload.tenant_id).toBeInstanceOf(RecordId)
     expect(String(payload.tenant_id)).toBe("user:abc")
@@ -241,14 +241,14 @@ describe("tenantRls — creates and upserts", () => {
     await client.customers.createMany({
       data: [{ name: "A" }, { name: "B" }],
     })
-    const payload = payloadBinds(calls[0]!)
+    const payload = payloadBinds(calls[0])
     expect(String(payload[0]?.tenant_id)).toBe("user:abc")
     expect(String(payload[1]?.tenant_id)).toBe("user:abc")
     calls.length = 0
     await client.customers.insertMany({
       data: [{ name: "C" }, { name: "D" }],
     })
-    const inserted = scopeBinds(calls[0]!)
+    const inserted = scopeBinds(calls[0])
     expect(inserted.map(String)).toEqual(["user:abc", "user:abc"])
   })
 
@@ -286,7 +286,7 @@ describe("tenantRls — creates and upserts", () => {
       data: { id: "customer:1", name: "A" },
       onDuplicate: "ignore",
     })
-    const payload = payloadBind(calls[0]!)!
+    const payload = payloadBind(calls[0])
     expect(String(payload.tenant_id)).toBe("user:abc")
   })
 
@@ -299,7 +299,7 @@ describe("tenantRls — creates and upserts", () => {
     })
     expect(calls[0]?.sql).toContain("UPSERT")
     expect(calls[0]?.sql).toContain("WHERE tenant_id = ")
-    const payload = payloadBind(calls[0]!)!
+    const payload = payloadBind(calls[0])
     expect(String(payload.tenant_id)).toBe("user:abc")
   })
 
@@ -326,7 +326,7 @@ describe("tenantRls — creates and upserts", () => {
     expect(result.changed).toEqual(["name"])
     expect(calls[0]?.sql).toContain("UPSERT")
     expect(calls[0]?.sql).toContain("WHERE tenant_id = ")
-    expect(String(payloadBind(calls[0]!)?.tenant_id)).toBe("user:abc")
+    expect(String(payloadBind(calls[0]).tenant_id)).toBe("user:abc")
   })
 
   test("upsertDelta target-less create injects the tenant", async () => {
@@ -339,14 +339,14 @@ describe("tenantRls — creates and upserts", () => {
     })
     const result = await client.customers.upsertDelta({ data: { name: "A" } })
     expect(result.created).toBe(true)
-    expect(String(payloadBind(calls[0]!)?.tenant_id)).toBe("user:abc")
+    expect(String(payloadBind(calls[0]).tenant_id)).toBe("user:abc")
   })
 
   test("upsert target-less create injects the tenant", async () => {
     const { client, calls } = scoped()
     const row = await client.customers.upsert({ data: { name: "A" } })
     expect(calls[0]?.sql).toContain("CREATE")
-    expect(String(payloadBind(calls[0]!)?.tenant_id)).toBe("user:abc")
+    expect(String(payloadBind(calls[0]).tenant_id)).toBe("user:abc")
     expect(row).toMatchObject({ name: "A" })
   })
 
@@ -376,7 +376,7 @@ describe("tenantRls — creates and upserts", () => {
       data: [{ name: "A" }, { name: "B" }],
       conflict: "name",
     })
-    const payload = payloadBinds(calls[0]!)
+    const payload = payloadBinds(calls[0])
     expect(String(payload[0]?.tenant_id)).toBe("user:abc")
     expect(String(payload[1]?.tenant_id)).toBe("user:abc")
     expect(calls[0]?.sql).toContain("tenant_id = ")
@@ -403,7 +403,7 @@ describe("tenantRls — creates and upserts", () => {
     })
     expect(calls[0]?.sql).toContain("LET")
     expect(calls[0]?.sql).toContain("tenant_id = ")
-    const createBind = binds(calls[0]!).find(
+    const createBind = binds(calls[0]).find(
       (v) =>
         typeof v === "object" &&
         v !== null &&
@@ -505,8 +505,8 @@ describe("tenantRls — updates and deletes", () => {
     })
     expect(calls[0]?.sql).toContain("REPLACE")
     expect(calls[0]?.sql).toContain("WHERE tenant_id = ")
-    const payload = payloadBind(calls[0]!)
-    expect(String(payload?.tenant_id)).toBe("user:abc")
+    const payload = payloadBind(calls[0])
+    expect(String(payload.tenant_id)).toBe("user:abc")
   })
 
   test("a divergent tenant in a replace payload throws TenantViolation", async () => {
@@ -609,10 +609,11 @@ describe("tenantRls — extras and setup validation", () => {
   test("invalid config fails fast at the factory or the bootstrap", () => {
     expect(() => tenantRls({ column: "tenant id" })).toThrow(/identifier/u)
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const bad of [42, ""] as const)
+    for (const bad of [42, ""] as const) {
       expect(() => tenantRls({ tables: [bad as unknown as string] })).toThrow(
         /non-empty physical table name/u,
       )
+    }
     expect(() =>
       orm({} as never, {
         schema: schemaDef,
@@ -636,7 +637,7 @@ describe("tenantRls — extras and setup validation", () => {
   test("$forTenant accepts a RecordId", async () => {
     const { client, calls } = scoped()
     await client.customers.$forTenant(new RecordId("user", "xyz")).findMany({})
-    expect(String(scopeBind(calls[0]!))).toBe("user:xyz")
+    expect(String(scopeBind(calls[0]))).toBe("user:xyz")
   })
 
   test("a meta.tenant column that isn't a field fails the bootstrap", () => {
@@ -731,7 +732,7 @@ describe("tenantRls — plugin combinations", () => {
   test("timestamps + tenantRls fill both columns on create", async () => {
     const { client, calls } = clientOver([tenantRls({ tenant: "user:abc" }), timestamps()])
     await client.customers.create({ data: { name: "A" } })
-    expect(String(scopeBind(calls[0]!))).toBe("user:abc")
+    expect(String(scopeBind(calls[0]))).toBe("user:abc")
     expect(calls[0]?.sql).toContain("time::now()")
   })
 
@@ -746,7 +747,13 @@ describe("tenantRls — plugin combinations", () => {
 describe("tenantRls — edge cases (coverage + teaching errors)", () => {
   test("a non-record scope value fails with TenantViolation (describe fallbacks)", async () => {
     const { client } = scoped()
-    const fn = await caught(() => client.customers.$forTenant((() => {}) as never).findMany({}))
+    const fn = await caught(() =>
+      client.customers
+        .$forTenant((() => {
+          /* empty */
+        }) as never)
+        .findMany({}),
+    )
     expect(isTenantViolation(fn)).toBe(true)
     const throwing = await caught(() =>
       client.customers
@@ -794,7 +801,7 @@ describe("tenantRls — edge cases (coverage + teaching errors)", () => {
     await client.customers.create({
       data: { name: "A", tenant_id: "abc" as never },
     })
-    const payload = payloadBind(calls[0]!)!
+    const payload = payloadBind(calls[0])
     expect(payload.tenant_id).toBeInstanceOf(RecordId)
     expect(String(payload.tenant_id)).toBe("user:abc")
   })
@@ -857,7 +864,7 @@ describe("tenantRls — edge cases (coverage + teaching errors)", () => {
     expect(() => tenantRls({ column: 42 as never })).toThrow(/identifier/u)
     const { client, calls } = clientOver([tenantRls({ tenant: new RecordId("user", "abc") })])
     await client.customers.findMany({})
-    expect(String(scopeBind(calls[0]!))).toBe("user:abc")
+    expect(String(scopeBind(calls[0]))).toBe("user:abc")
   })
 
   test("schemaless extras and tagged extras both resolve", async () => {
@@ -965,7 +972,7 @@ describe("tenantRls — edge cases (coverage + teaching errors)", () => {
       tenantRls({ tenant: new RecordId("user", "a"), tables: ["plain"] }),
     ])
     await client.plains.findMany({})
-    expect(String(scopeBind(calls[0]!))).toBe("user:a")
+    expect(String(scopeBind(calls[0]))).toBe("user:a")
   })
 
   test("a bare payload id on an extras-only table is a violation", async () => {

@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-non-null-assertion, unicorn/consistent-function-scoping, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unused-vars, @typescript-eslint/await-thenable, @typescript-eslint/require-await -- Object key order mirrors expected serialized SQL and stays as authored. Literal values are intentional test data. Reads return thenables whose declared type is not Promise, so call await before asserting on calls[0]. Defensive checks, non-null assertions and fixture values document test intent; helpers stay colocated with their tests. */
 // The DECISION TABLES behind the compiler guards — the split-idiom reservation, the composite-UNIQUE
 // target resolution, the combine operand policy, and the UNWIND+GROUP lowering.
 //
@@ -19,10 +20,11 @@ import { createBinds } from "../../../src/surreal/orm/compiler/shared"
 import { requireUniqueField, uniqueTarget } from "../../../src/surreal/orm/compiler/unique"
 import type { OrmError } from "../../../src/surreal/orm/errors"
 import type { TableMeta } from "../../../src/surreal/orm/meta"
-import { buildSchemaIndex, schema } from "../../../src/surreal/orm/schema"
+import { buildSchemaIndex } from "../../../src/surreal/orm/schema"
 import { s, table } from "../../../src/surreal/pure"
 import { fakeConn, ok } from "../orm-fixtures"
-import { compiled, Deep, refusal } from "./orm-aggregate-fixtures"
+
+import { Deep, refusal } from "./orm-aggregate-fixtures"
 
 describe("split idiom — the reserved alias decision table", () => {
   const Item = table("idiom_item", {
@@ -30,14 +32,14 @@ describe("split idiom — the reserved alias decision table", () => {
     tags: s.array(s.string()),
   })
   const typed = buildSchemaIndex({ items: Item })
-  const tableMeta = typed.tables.get("items") as TableMeta
+  const tableMeta = typed.tables.get("items")!
   const schemaless = buildSchemaIndex({ things: "thing" }).schemaless.get(
     "things",
   ) as unknown as TableMeta
 
   const aliasOf = (args: Record<string, unknown>, meta: TableMeta = tableMeta) => {
     const binds = createBinds()
-    const read = compileRead(meta, args as never, binds)
+    const read = compileRead(meta, args, binds)
     return { sql: read.sql, hidden: read.projection.hidden ?? [] }
   }
 
@@ -72,7 +74,7 @@ describe("split idiom — the reserved alias decision table", () => {
     const binds = createBinds()
     const read = compileRead(
       tableMeta,
-      { select: { label: true }, split: "tags" } as never,
+      { select: { label: true }, split: "tags" },
       binds,
       "findMany",
       // A caller-supplied alias set (the keyset columns) that already claims the name.
@@ -96,7 +98,7 @@ describe("composite UNIQUE — the where-shape decision table", () => {
       .index("multi_org_handle", ["org", "handle"], { unique: true })
 
   const resolve = (where: unknown) => {
-    const meta = buildSchemaIndex({ t: multi() }).tables.get("t") as TableMeta
+    const meta = buildSchemaIndex({ t: multi() }).tables.get("t")!
     return uniqueTarget(meta, where, "test")
   }
 
@@ -131,11 +133,11 @@ describe("composite UNIQUE — the where-shape decision table", () => {
     })
       .index("hint_ab", ["a", "b"], { unique: true })
       .index("hint_ac", ["a", "c"], { unique: true })
-    const meta = buildSchemaIndex({ t: two }).tables.get("t") as TableMeta
+    const meta = buildSchemaIndex({ t: two }).tables.get("t")!
     // both fields are in a group -> the message says so
     let text = ""
     try {
-      uniqueTarget(meta, { a: "1", b: "2" } as never, "test")
+      uniqueTarget(meta, { a: "1", b: "2" }, "test")
     } catch (error) {
       text = (error as OrmError).message ?? ""
     }
@@ -145,9 +147,9 @@ describe("composite UNIQUE — the where-shape decision table", () => {
       b: s.string(),
       c: s.string(),
     }).index("hint_ac", ["a", "c"], { unique: true })
-    const meta3 = buildSchemaIndex({ t: three }).tables.get("t") as TableMeta
+    const meta3 = buildSchemaIndex({ t: three }).tables.get("t")!
     try {
-      uniqueTarget(meta3, { a: "1", b: "2" } as never, "test")
+      uniqueTarget(meta3, { a: "1", b: "2" }, "test")
     } catch (error) {
       text = (error as OrmError).message ?? ""
     }
@@ -160,11 +162,17 @@ describe("composite UNIQUE — the where-shape decision table", () => {
     const def = table("conflict", { email: s.string(), org: s.string() })
       .index("conflict_email", ["email"], { unique: true })
       .index("conflict_org_email", ["org", "email"], { unique: true })
-    const meta = buildSchemaIndex({ t: def }).tables.get("t") as TableMeta
-    expect(() => requireUniqueField(meta, "email", "upsertMany")).not.toThrow()
+    const meta = buildSchemaIndex({ t: def }).tables.get("t")!
+    expect(() => {
+      requireUniqueField(meta, "email", "upsertMany")
+    }).not.toThrow()
     // A composite group is not a conflict target: the ON DUPLICATE key needs ONE column.
-    expect(() => requireUniqueField(meta, "org", "upsertMany")).toThrow(/not unique/u)
-    expect(() => requireUniqueField(meta, "nope", "upsertMany")).toThrow(/not unique/u)
+    expect(() => {
+      requireUniqueField(meta, "org", "upsertMany")
+    }).toThrow(/not unique/u)
+    expect(() => {
+      requireUniqueField(meta, "nope", "upsertMany")
+    }).toThrow(/not unique/u)
   })
 
   test("a MIXED where names the composite only when every field belongs to one", () => {
@@ -179,10 +187,10 @@ describe("composite UNIQUE — the where-shape decision table", () => {
     })
       .index("mixed_ab", ["a", "b"], { unique: true })
       .index("mixed_cd", ["c", "d"], { unique: true })
-    const meta = buildSchemaIndex({ t: mixed }).tables.get("t") as TableMeta
+    const meta = buildSchemaIndex({ t: mixed }).tables.get("t")!
     let text = ""
     try {
-      uniqueTarget(meta, { a: "1", c: "2", e: "3" } as never, "test")
+      uniqueTarget(meta, { a: "1", c: "2", e: "3" }, "test")
     } catch (error) {
       text = (error as OrmError).message ?? ""
     }
@@ -192,7 +200,7 @@ describe("composite UNIQUE — the where-shape decision table", () => {
     // ALL fields in groups, but no single group covers them -> the hint fires.
     let all = ""
     try {
-      uniqueTarget(meta, { a: "1", c: "2" } as never, "test")
+      uniqueTarget(meta, { a: "1", c: "2" }, "test")
     } catch (error) {
       all = (error as OrmError).message ?? ""
     }
@@ -394,7 +402,7 @@ describe("aggregate operand guard — the permissive/decided table", () => {
     const client = orm(conn, { schema: { bare: Bare } })
     let text = ""
     try {
-      await client.bare.aggregate({
+      client.bare.aggregate({
         split: "one",
         select: { t: { sum: "one.x" } },
       } as never)
@@ -429,7 +437,7 @@ describe("aggregate operand guard — the permissive/decided table", () => {
     const client = orm(conn, { schema: { shops: Shop } })
     let text = ""
     try {
-      await client.shops.aggregate({
+      client.shops.aggregate({
         split: "lines",
         select: { t: { sum: "lines[*].label" } },
       } as never)
@@ -457,7 +465,7 @@ describe("aggregate over split — the entry-shape decision table", () => {
     const { conn, calls } = fakeConn(() => [ok([])])
     const client = orm(conn, { schema })
     await client.holders.aggregate({ split: "items", ...args } as never)
-    return calls[0]?.sql as string
+    return calls[0]?.sql
   }
 
   test("a `true` group key keeps its name; a non-group path gets a reserved column", async () => {
@@ -496,7 +504,7 @@ describe("aggregate over split — the entry-shape decision table", () => {
       split: "items",
       select: { name: true, _count: true },
       groupBy: ["name"],
-    } as never)) as unknown as { name: string; _count: number }[]
+    } as never)) as unknown as { _count: number; name: string }[]
     expect(calls[0]?.sql).toBe(
       "SELECT name, count() AS _count FROM (SELECT items AS _split_items, name AS name FROM split_holder SPLIT items) GROUP BY name;",
     )
@@ -566,7 +574,7 @@ describe("aggregate over split — the guard/clause tails", () => {
     const { conn, calls } = fakeConn(() => [ok([])])
     const client = orm(conn, { schema })
     await client.holders.aggregate({ split: "items", ...args } as never)
-    return calls[0]?.sql as string
+    return calls[0]?.sql
   }
   const reject = async (args: Record<string, unknown>) => {
     const { conn } = fakeConn()
@@ -610,9 +618,9 @@ describe("aggregate over split — the guard/clause tails", () => {
   })
 
   test("a non-object / empty select on the split lowering is refused before the walk", async () => {
-    expect(await reject({ select: undefined as never })).toMatch(/non-empty/u)
+    expect(await reject({ select: undefined })).toMatch(/non-empty/u)
     expect(await reject({ select: [] as never })).toMatch(/non-empty/u)
-    expect(await reject({ select: "name" as never })).toMatch(/non-empty/u)
+    expect(await reject({ select: "name" })).toMatch(/non-empty/u)
     expect(await reject({ select: { x: { sum: 1 as never } } })).toMatch(/field path/u)
     // the operand's right arm: a STRING that is present but empty
     expect(await reject({ select: { x: { sum: "" } } })).toMatch(/field path/u)
@@ -743,7 +751,7 @@ describe("aggregate select — the resolver default and the inner projection", (
     lines: s.array(s.recordId("entries_shop")),
   })
   const shopSchema = { shops: Shop }
-  const shopMeta = buildSchemaIndex(shopSchema).tables.get("shops") as TableMeta
+  const shopMeta = buildSchemaIndex(shopSchema).tables.get("shops")!
 
   test("the plain resolver makes the path the column, with nothing projected in front", () => {
     const { parts, inners } = compileAggregateSelect(
@@ -813,11 +821,11 @@ describe("aggregate select — the entry-shape refusals and the fragment fallbac
   test("a plain resolver with no fragment hook falls back to the entry's own alias", () => {
     // `directColumns` declares no `fragment`, so the `??` arm is the one that runs.
     const { parts } = compileAggregateSelect(
-      buildSchemaIndex({ deeps: Deep }).tables.get("deeps") as TableMeta,
+      buildSchemaIndex({ deeps: Deep }).tables.get("deeps")!,
       { upper: surql`count() + 1` },
       createBinds(),
       "aggregate",
-      directColumns(buildSchemaIndex({ deeps: Deep }).tables.get("deeps") as TableMeta),
+      directColumns(buildSchemaIndex({ deeps: Deep }).tables.get("deeps")!),
     )
     expect(parts).toEqual(["(count() + 1) AS upper"])
   })
@@ -888,7 +896,7 @@ describe("assertGroupKeysProjected — the three ways out", () => {
 
 describe("aggregate select — the decode leaf each aggregator gets", () => {
   const Numeric = table("leaf_num", { score: s.int(), label: s.string() })
-  const meta = buildSchemaIndex({ nums: Numeric }).tables.get("nums") as TableMeta
+  const meta = buildSchemaIndex({ nums: Numeric }).tables.get("nums")!
   const leaves = (select: Record<string, unknown>) =>
     compileAggregateSelect(meta, select, createBinds(), "aggregate", directColumns(meta)).fields
 
@@ -896,8 +904,8 @@ describe("aggregate select — the decode leaf each aggregator gets", () => {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const op of ["min", "max"]) {
       const [leaf] = leaves({ v: { [op]: "score" } })
-      expect(leaf?.expr).not.toBe("")
-      expect(leaf?.each).toBe(false)
+      expect(leaf.expr).not.toBe("")
+      expect(leaf.each).toBe(false)
     }
   })
 
@@ -905,8 +913,8 @@ describe("aggregate select — the decode leaf each aggregator gets", () => {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const op of ["collect", "distinct"]) {
       const [leaf] = leaves({ v: { [op]: "score" } })
-      expect(leaf?.expr).not.toBe("")
-      expect(leaf?.each).toBe(true)
+      expect(leaf.expr).not.toBe("")
+      expect(leaf.each).toBe(true)
     }
   })
 
@@ -916,9 +924,9 @@ describe("aggregate select — the decode leaf each aggregator gets", () => {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const op of ["sum", "avg", "median", "stddev", "variance"]) {
       const [leaf] = leaves({ v: { [op]: "score" } })
-      expect(leaf?.expr).toBe("")
-      expect(leaf?.each).toBe(false)
-      expect(leaf?.out).toEqual(["v"])
+      expect(leaf.expr).toBe("")
+      expect(leaf.each).toBe(false)
+      expect(leaf.out).toEqual(["v"])
     }
   })
 })

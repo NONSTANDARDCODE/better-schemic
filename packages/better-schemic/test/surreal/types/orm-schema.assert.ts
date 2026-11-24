@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally unused type-probe values. Type queries and callback signatures need fixture values. */
 // M0.2 — TYPE assertions for the schema artifact (`schema` -> `SchemaIndex` derivations).
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
 //
@@ -40,8 +41,8 @@ const schemaDef = schema({
 })
 type S = typeof schemaDef
 
-describe("idStrategy — authoring types", () => {
-  it("the strategy union is enforced and chainable", () => {
+void describe("idStrategy — authoring types", () => {
+  void it("the strategy union is enforced and chainable", () => {
     const withUuid = table("t", { name: s.string() }).idStrategy("uuid")
     const withRand = table("t", { name: s.string() }).idStrategy("rand")
     const withUlid = table("t", { name: s.string() }).idStrategy("ulid")
@@ -53,42 +54,42 @@ describe("idStrategy — authoring types", () => {
     const bad: IdStrategy = "nanoid"
     void bad
   })
-  it("IdStrategy is exported from the authoring index", () => {
+  void it("IdStrategy is exported from the authoring index", () => {
     assertType<"rand" | "ulid" | "uuid", IdStrategy>()
   })
 })
 
-describe("SchemaDef — key extraction", () => {
-  it("TableKeys is tables AND relation keys", () => {
+void describe("SchemaDef — key extraction", () => {
+  void it("TableKeys is tables AND relation keys", () => {
     assertType<"likes" | "posts" | "users", TableKeys<S>>()
   })
-  it("RelationKeys is exactly the edge keys", () => {
+  void it("RelationKeys is exactly the edge keys", () => {
     assertType<"likes", RelationKeys<S>>()
   })
-  it("SchemalessKeys is exactly the string entries", () => {
+  void it("SchemalessKeys is exactly the string entries", () => {
     assertType<"audit", SchemalessKeys<S>>()
   })
-  it("FunctionKeys is exactly the function entries", () => {
+  void it("FunctionKeys is exactly the function entries", () => {
     assertType<"greet", FunctionKeys<S>>()
   })
 })
 
-describe("SchemaDef — def lookup", () => {
-  it("TableAt preserves the authored def type", () => {
+void describe("SchemaDef — def lookup", () => {
+  void it("TableAt preserves the authored def type", () => {
     assertType<typeof User, TableAt<S, "users">>()
     assertType<typeof Likes, TableAt<S, "likes">>()
   })
-  it("AppAt resolves the DECODED row (codecs included)", () => {
+  void it("AppAt resolves the DECODED row (codecs included)", () => {
     assertType<App<typeof User>, AppAt<S, "users">>()
     assertType<App<typeof Post>, AppAt<S, "posts">>()
   })
-  it("RelationAt / FunctionAt narrow to their defs", () => {
+  void it("RelationAt / FunctionAt narrow to their defs", () => {
     assertType<typeof Likes, RelationAt<S, "likes">>()
     assertType<true, [RelationAt<S, "users">] extends [never] ? true : false>()
     assertType<typeof greet, FunctionAt<S, "greet">>()
     assertType<true, [FunctionAt<S, "users">] extends [never] ? true : false>()
   })
-  it("SchemaOf recovers the authored entries object", () => {
+  void it("SchemaOf recovers the authored entries object", () => {
     assertType<typeof schemaDef.entries, SchemaOf<S>>()
   })
 })

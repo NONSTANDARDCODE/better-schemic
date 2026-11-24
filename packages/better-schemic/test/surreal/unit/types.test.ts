@@ -1,5 +1,6 @@
+/* eslint-disable perfectionist/sort-objects, unicorn/consistent-function-scoping, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. Helpers stay colocated with the tests that use them. Type queries and callback signatures need fixture values. */
 import { describe, expect, expectTypeOf, test } from "bun:test"
-import { type DateTime, RecordId, type RecordIdValue, surql } from "surrealdb"
+import { type DateTime, RecordId, surql } from "surrealdb"
 import { z } from "zod"
 
 import {
@@ -27,17 +28,17 @@ const User = table("user", {
 describe("Create<>", () => {
   test("requires non-defaulted fields; id and DB-filled fields are optional", () => {
     expectTypeOf<Create<typeof User>>().toEqualTypeOf<{
-      name: string
+      bio?: string | undefined
+      createdAt?: Date
       email: string
       id?: RecordId<"user", string>
-      bio?: string | undefined
+      name: string
       status?: string
-      createdAt?: Date
     }>()
   })
 
   test("a payload with only required fields satisfies the type", () => {
-    expectTypeOf<{ name: string; email: string }>().toExtend<Create<typeof User>>()
+    expectTypeOf<{ email: string; name: string }>().toExtend<Create<typeof User>>()
   })
 
   test("missing a required field is a type error", () => {
@@ -51,9 +52,9 @@ describe("Create<>", () => {
 describe("Update<>", () => {
   test("every field optional; id and readonly fields excluded", () => {
     expectTypeOf<Update<typeof User>>().toEqualTypeOf<{
-      name?: string
-      email?: string
       bio?: string | undefined
+      email?: string
+      name?: string
       status?: string
     }>()
   })
@@ -76,8 +77,8 @@ describe("App<> / Wire<>", () => {
   test("relations expose typed in/out endpoints", () => {
     const Post = table("post", { id: z.string() })
     const Liked = relation("liked").from(User).to(Post)
-    expectTypeOf<App<typeof Liked>["in"]>().toEqualTypeOf<RecordId<"user", RecordIdValue>>()
-    expectTypeOf<App<typeof Liked>["out"]>().toEqualTypeOf<RecordId<"post", RecordIdValue>>()
+    expectTypeOf<App<typeof Liked>["in"]>().toEqualTypeOf<RecordId<"user">>()
+    expectTypeOf<App<typeof Liked>["out"]>().toEqualTypeOf<RecordId<"post">>()
   })
 
   test("callback shape: `self` self-ref is typed (no `any` collapse)", () => {
@@ -88,9 +89,7 @@ describe("App<> / Wire<>", () => {
       label: s.string(),
       parent: self.optional(),
     }))
-    expectTypeOf<App<typeof Node>["parent"]>().toEqualTypeOf<
-      RecordId<"node", RecordIdValue> | undefined
-    >()
+    expectTypeOf<App<typeof Node>["parent"]>().toEqualTypeOf<RecordId<"node"> | undefined>()
     // the rest of the table keeps its precise types (not `any`)
     expectTypeOf<App<typeof Node>["label"]>().toEqualTypeOf<string>()
   })
@@ -173,9 +172,7 @@ describe("encode / safeEncode return types (#6, #7)", () => {
     if (res.success) {
       expectTypeOf(res.data).toEqualTypeOf<Partial<Wire<typeof User>>>()
       expectTypeOf(res.data.createdAt).toEqualTypeOf<DateTime | undefined>()
-    } else {
-      expectTypeOf(res.error).toEqualTypeOf<z.ZodError<Partial<Wire<typeof User>>>>()
-    }
+    } else expectTypeOf(res.error).toEqualTypeOf<z.ZodError<Partial<Wire<typeof User>>>>()
   })
 
   test("safeEncodePartial mirrors safeEncode's result type", () => {
@@ -218,12 +215,12 @@ describe("$internal fields", () => {
 
   test("App excludes the internal key; the system view includes it", () => {
     expectTypeOf<App<typeof Account>>().toEqualTypeOf<{
-      id: RecordId<"account", string>
       email: string
+      id: RecordId<"account", string>
     }>()
     expectTypeOf<App<typeof Account.system>>().toEqualTypeOf<{
-      id: RecordId<"account", string>
       email: string
+      id: RecordId<"account", string>
       passhash: string
     }>()
   })
@@ -253,8 +250,8 @@ describe("nested create-optionality", () => {
 
   test("a nested $default field is create-optional; its siblings stay required", () => {
     expectTypeOf<Create<typeof T>["settings"]>().toEqualTypeOf<{
-      tz: string
       theme?: string
+      tz: string
     }>()
     expectTypeOf<{ tz: string }>().toExtend<Create<typeof T>["settings"]>()
   })
@@ -266,7 +263,7 @@ describe("nested create-optionality", () => {
 
   test("Update<> is deep-partial: every nested field is optional (MERGE deep-merges)", () => {
     expectTypeOf<Update<typeof T>["settings"]>().toEqualTypeOf<
-      { theme?: string; tz?: string } | undefined
+      undefined | { theme?: string; tz?: string }
     >()
     // a single nested key is a valid patch (deep-partial)
     expectTypeOf<{ settings: { theme: string } }>().toExtend<Update<typeof T>>()
@@ -285,7 +282,7 @@ describe("nested create-optionality", () => {
   test("a $default object is optional, and its value still allows omitting nested defaults", () => {
     expectTypeOf<Create<typeof T2>>().toEqualTypeOf<{
       id?: RecordId<"nested2", string>
-      settings?: { tz: string; theme?: string }
+      settings?: { theme?: string; tz: string }
     }>()
     // omit settings entirely, or provide it partially
     expectTypeOf<Record<string, never>>().toExtend<Create<typeof T2>>()
@@ -299,7 +296,7 @@ describe("nested create-optionality", () => {
   })
 
   test("array<object> recurses: a nested default is optional per element", () => {
-    expectTypeOf<Create<typeof T3>["tags"]>().toEqualTypeOf<{ name: string; color?: string }[]>()
+    expectTypeOf<Create<typeof T3>["tags"]>().toEqualTypeOf<{ color?: string; name: string }[]>()
     expectTypeOf<App<typeof T3>["tags"][number]["color"]>().toEqualTypeOf<string>()
   })
 })
@@ -313,8 +310,8 @@ describe("$value create-optionality", () => {
 
   test("$value is create-optional by default; { optional: false } requires input", () => {
     expectTypeOf<Create<typeof T>>().toEqualTypeOf<{
-      slug: string
       id?: RecordId<"t", string>
+      slug: string
       updatedAt?: Date
     }>()
     expectTypeOf<{ slug: string }>().toExtend<Create<typeof T>>()
@@ -351,13 +348,13 @@ describe("$value computes", () => {
 
   test("computes makes the listed nested keys optional PER ITEM", () => {
     expectTypeOf<Create<typeof Order>["products"]>().toEqualTypeOf<
+      | undefined
       | {
+          costPriceAtOrder?: number
           product: string
           quantity: number
           sellingPriceAtOrder?: number
-          costPriceAtOrder?: number
         }[]
-      | undefined
     >()
     expectTypeOf<{
       products: { product: string; quantity: number }[]
@@ -396,7 +393,7 @@ describe("$value computes", () => {
         }),
     })
     expectTypeOf<Create<typeof Meta>["totals"]>().toEqualTypeOf<
-      { subTotal: number; total?: number } | undefined
+      undefined | { subTotal: number; total?: number }
     >()
     expect(Meta.create.safeParse({ totals: { subTotal: 1 } }).success).toBe(true)
   })

@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
 // String ids — the ORM's app surface speaks BARE id strings; `RecordId` exists on the wire.
 // Pure authoring (codec/decode/encode/DDL identity/deep mapping) plus the ORM lowering (where,
 // writes, cursor, schema metadata). Live round-trips live in `test/live/string-ids.test.ts`.
@@ -6,7 +7,6 @@ import { RecordId, type RecordIdValue, Uuid } from "surrealdb"
 import { z } from "zod"
 
 import {
-  type App,
   type RecordIdField,
   type RecordIdMode,
   relation,
@@ -59,15 +59,15 @@ const schemaDef = schema({
 })
 
 function makeClient(result: unknown = []): {
-  client: Client<typeof schemaDef>
   calls: { sql: string; vars?: Record<string, unknown> }[]
+  client: Client<typeof schemaDef>
 } {
   const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok(result)))
   return { client: orm(conn, { schema: schemaDef }), calls }
 }
 
 const lastCall = (calls: { sql: string; vars?: Record<string, unknown> }[]) => {
-  const call = calls[calls.length - 1]
+  const call = calls.at(-1)
   return { sql: call?.sql ?? "", vars: call?.vars ?? {} }
 }
 
@@ -106,7 +106,7 @@ describe("string ids — pure authoring", () => {
       products: [{ product: new RecordId("sorg", "o3") }],
       tags: [new RecordId("sorg", "o4")],
     }
-    const decoded = Customer.decode(row) as App<typeof Customer>
+    const decoded = Customer.decode(row)
     expect(decoded.id).toBe("01ABC")
     expect(decoded.org).toBe("o1")
     expect(decoded.meta.ref).toBe("o2")
@@ -167,12 +167,12 @@ describe("string ids — pure authoring", () => {
     const decoded = IntRef.decode({
       id: new RecordId("s_int_ref", 1),
       ref: new RecordId("sorg", 7),
-    }) as App<typeof IntRef>
+    })
     expect(decoded.ref).toBe("7")
     const encoded = IntRef.encode({ ref: "7" }) as Wire<typeof IntRef>
     expect(encoded.ref).toBeInstanceOf(RecordId)
     expect((encoded.ref as RecordId).id).toBe(7)
-    expect(await caught(() => IntRef.encode({ ref: "not-a-number" } as never))).not.toBeNull()
+    expect(await caught(() => IntRef.encode({ ref: "not-a-number" }))).not.toBeNull()
     expect(await caught(() => IntRef.decode({ id: "i:1", ref: "sorg:nope" }))).not.toBeNull()
   })
 
@@ -183,7 +183,7 @@ describe("string ids — pure authoring", () => {
     const strRow = StrRef.decode({
       id: new RecordId("s_str_ref", "x"),
       ref: new RecordId("sorg", "o1"),
-    }) as App<typeof StrRef>
+    })
     expect(strRow.ref).toBe("o1")
     const strWire = StrRef.encode({ ref: "o1" }) as Wire<typeof StrRef>
     expect(String(strWire.ref)).toBe("sorg:o1")
@@ -194,7 +194,7 @@ describe("string ids — pure authoring", () => {
     const bigRow = BigRef.decode({
       id: new RecordId("s_big_ref", "x"),
       ref: new RecordId("sorg", 42n),
-    }) as App<typeof BigRef>
+    })
     expect(bigRow.ref).toBe("42")
     const bigWire = BigRef.encode({ ref: "42" }) as Wire<typeof BigRef>
     expect((bigWire.ref as RecordId).id).toBe(42n)
@@ -202,7 +202,7 @@ describe("string ids — pure authoring", () => {
     const bigViaWire = BigRef.decode({
       id: new RecordId("s_big_ref", "x"),
       ref: "sorg:42",
-    }) as App<typeof BigRef>
+    })
     expect(bigViaWire.ref).toBe("42")
   })
 
@@ -213,9 +213,9 @@ describe("string ids — pure authoring", () => {
     const row = U.decode({
       id: new RecordId("s_union", "1"),
       v: new RecordId("sorg", "x"),
-    }) as App<typeof U>
+    })
     expect(row.v).toBe("x")
-    const wire = U.encode({ v: "x" } as never) as Wire<typeof U>
+    const wire = U.encode({ v: "x" }) as Wire<typeof U>
     expect(String(wire.v as RecordId)).toBe("sorg:x")
   })
 
@@ -226,11 +226,11 @@ describe("string ids — pure authoring", () => {
     const row = S.decode({
       id: new RecordId("s_set", "1"),
       refs: new Set([new RecordId("sorg", "a")]),
-    }) as App<typeof S>
+    })
     expect([...row.refs]).toEqual(["a"])
     const wire = S.encode({
       refs: new Set(["a"]),
-    } as never) as Wire<typeof S>
+    }) as Wire<typeof S>
     expect(String([...wire.refs][0] as RecordId)).toBe("sorg:a")
   })
 
@@ -246,7 +246,7 @@ describe("string ids — pure authoring", () => {
       ref: s.recordId("sorg").stringIds().default("d"),
       other: s.recordId("sorg").stringIds().catch("c"),
     })
-    const row = T.decode({ id: new RecordId("s_def_post", "1") }) as App<typeof T>
+    const row = T.decode({ id: new RecordId("s_def_post", "1") })
     expect(row.ref).toBe("d")
     expect(row.other).toBe("c")
   })
@@ -259,7 +259,7 @@ describe("string ids — pure authoring", () => {
     const row = UuidRef.decode({
       id: new RecordId("s_uuid_ref", "x"),
       ref: new RecordId("sorg", uuid),
-    }) as App<typeof UuidRef>
+    })
     expect(row.ref).toBe("0190f5b2-7c1e-7c3a-8f4b-2b6a1c9d8e7f")
 
     // A composite (array) id can't be a bare string — decode throws the teaching error.
@@ -287,7 +287,7 @@ describe("string ids — pure authoring", () => {
       refs: new Set(["r"]),
       choice: "x",
       ref: "o1",
-    }) as App<typeof T>
+    })
     expect(row.ref).toBe("o1")
     expect(emitTable(T)).toContain("DEFINE FIELD ref ON TABLE s_noop TYPE record<sorg>;")
   })
@@ -314,7 +314,7 @@ describe("string ids — pure authoring", () => {
       b: null,
       c: [new RecordId("sorg", "c")],
       d: { e: new RecordId("sorg", "e") },
-    }) as App<typeof T>
+    })
     expect(decoded.a).toBe("a")
     expect(decoded.b).toBeNull()
     expect(decoded.c).toEqual(["c"])
@@ -363,7 +363,7 @@ describe("string ids — pure authoring", () => {
       in: new RecordId("s_customer_plain", "c1"),
       out: new RecordId("sorg", "o1"),
       score: 1,
-    }) as App<typeof Likes>
+    })
     expect(edge.in).toBe("c1")
     expect(edge.out).toBeInstanceOf(RecordId)
 
@@ -373,7 +373,7 @@ describe("string ids — pure authoring", () => {
       in: new RecordId("s_customer_plain", "a"),
       out: new RecordId("s_customer_plain", "b"),
       score: 1,
-    }) as App<typeof Both>
+    })
     expect(both.id).toBe("l1")
     expect(both.in).toBe("a")
     expect(both.out).toBe("b")
@@ -394,7 +394,7 @@ describe("string ids — pure authoring", () => {
       id: new RecordId("s_tenant", "t1"),
       name: "A",
       tenant_id: new RecordId("s_customer_plain", "c1"),
-    }) as App<typeof TenantTable>
+    })
     expect(decoded.tenant_id).toBe("c1")
   })
 
@@ -456,8 +456,8 @@ describe("string ids — where / writes / cursor", () => {
       'CREATE type::record(s"s_customer_plain", rand::ulid()) CONTENT $p0;',
     )
     const p0 = lastCall(calls).vars.p0 as {
-      org: RecordId
       meta: { ref: RecordId }
+      org: RecordId
       products: { product: RecordId }[]
       tags: RecordId[]
     }
@@ -496,7 +496,9 @@ describe("string ids — where / writes / cursor", () => {
     const call = lastCall(calls)
     expect(call.sql).toBe("UPDATE s_unique_org MERGE $p0 WHERE ref = $p1;")
     expect(String(call.vars.p1)).toBe("sorg:o1")
-    await pending.catch(() => {})
+    await pending.catch(() => {
+      /* empty */
+    })
   })
 
   test("updateEach by a record link accepts a bare id", async () => {

@@ -17,13 +17,14 @@
 import type { Surql } from "../../frag"
 import type { App, TableDef } from "../../pure"
 import type { ExplainResult, SqlPreview, ThrowingResult } from "../results"
+
 import type { CallContext } from "./context"
 import type { IncludeArg, WithIncludes } from "./include"
 import type { AnyTableDef, ElementOf, SchemaInput } from "./schema"
 import type { WhereInput } from "./where"
 
 /** Any fragment usable as a projection expression. */
-export type SelectExpr = Surql<unknown[]>
+export type SelectExpr = Surql
 
 /** The result type a projection fragment carries (`unknown` for an untyped tag output). */
 export type FragmentResult<F> =
@@ -32,7 +33,7 @@ export type FragmentResult<F> =
 type NonNullish<T> = T extends null | undefined ? never : T
 
 /** Flatten intersections for readable hovers. */
-export type Simplify<T> = { [K in keyof T]: T[K] } & unknown
+export type Simplify<T> = { [K in keyof T]: T[K] }
 
 /** Resolve a dotted/bracketed path against a decoded type (`address.city`, `contacts[*].type`). */
 export type PathValue<T, P extends string> = P extends `${infer H}[*].${infer R}`
@@ -91,11 +92,8 @@ export type SelectEntry<T = unknown> = SelectExpr | ShapeSelect<T> | string | tr
  */
 export type SelectObject<TD extends AnyTableDef> = {
   [K in keyof App<TD>]?: SelectEntry<App<TD>[K]>
-} & Record<
-  `${string}.${string}` | `${string}[${string}]${string}`,
-  SelectEntry<unknown> | undefined
-> &
-  Record<string, SelectEntry<unknown>> & {
+} & Record<`${string}.${string}` | `${string}[${string}]${string}`, SelectEntry | undefined> &
+  Record<string, SelectEntry> & {
     "*"?: true
   }
 
@@ -105,31 +103,31 @@ export type SelectArg<TD extends AnyTableDef> =
 
 /** `orderBy` entries: `{ field: 'asc' | 'desc' }`, an alias, or a fragment. */
 export type OrderByArg<TD extends AnyTableDef> = readonly (
+  | SelectExpr
   | ({
       [K in keyof App<TD>]?: "asc" | "desc" | SelectExpr
     } & Record<string, "asc" | "desc" | SelectExpr>)
-  | SelectExpr
 )[]
 
 /** `with: { index }` / `with: { noIndex: true }`. */
-export interface WithArg {
+export type WithArg = {
   index?: readonly string[] | string
   noIndex?: boolean
 }
 
 /** `range: { start, end, inclusive? }` — record-id bounds (`users:1..=100`). */
-export interface RangeArg {
-  end: { toString(): string } | string
+export type RangeArg = {
+  end: string | { toString(): string }
   /** Include the end bound (`..=` instead of `..`). Default `false`. */
   inclusive?: boolean
-  start: { toString(): string } | string
+  start: string | { toString(): string }
 }
 
 /** A `groupBy` key: a known field (autocompleted) or any dotted/bracketed path. */
 export type GroupByKey<TD extends AnyTableDef> = (keyof App<TD> & string) | (string & {})
 
 /** Every read clause (what `findMany`/`findFirst`/`findOne` accept). */
-export interface ReadArgs<TD extends AnyTableDef, S = SchemaInput> {
+export type ReadArgs<TD extends AnyTableDef, S = SchemaInput> = {
   /** Per-call namespace/database override (`context: { database: "analytics" }`). */
   context?: CallContext
   /** Return the `EXPLAIN` plan instead of executing. */
@@ -163,7 +161,7 @@ export type FindManyArgs<TD extends AnyTableDef, S = SchemaInput> = ReadArgs<TD,
 export type FindOneArgs<TD extends AnyTableDef, S = SchemaInput> = ReadArgs<TD, S>
 
 /** The clauses `count`/`exists` accept (no projection/order — they don't apply). */
-export interface CountArgs<TD extends AnyTableDef, S = SchemaInput> {
+export type CountArgs<TD extends AnyTableDef, S = SchemaInput> = {
   /** Per-call namespace/database override. */
   context?: CallContext
   /** Return the `EXPLAIN` plan instead of executing. */
@@ -200,12 +198,12 @@ type Previewable<Base> = Base & { toSQL(): SqlPreview }
  * index. Which fields are unique is runtime schema metadata (`TableDef.config.indexes`), so the
  * type can  require the `where`; the runtime rejects other fields with `UniqueTargetRequired`.
  */
-export interface FindUniqueArgs<TD extends AnyTableDef, S = SchemaInput> extends Omit<
+export type FindUniqueArgs<TD extends AnyTableDef, S = SchemaInput> = {
+  where: WhereInput<TD, S>
+} & Omit<
   ReadArgs<TD, S>,
   "groupAll" | "groupBy" | "limit" | "only" | "orderBy" | "range" | "split" | "start"
-> {
-  where: WhereInput<TD, S>
-}
+>
 
 /** The shape of a nested select over a value type. */
 type ShapeResult<T, Sel> = Simplify<
@@ -240,7 +238,8 @@ type IsSubSelect<V> = V extends true
     ? false
     : V extends SelectExpr
       ? false
-      : V extends object
+      : // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
+        V extends object
         ? true
         : false
 
@@ -308,6 +307,7 @@ export type ResultOf<TD extends AnyTableDef, A, S = SchemaInput> = ApplySplit<
           : App<TD>,
     S,
     A extends { include: infer I } ? I : undefined,
+    // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal de profundidade faz parte do contrato recursivo do tipo (API pública)
     3
   >
 >
@@ -328,7 +328,7 @@ export type FindOneResult<TD extends AnyTableDef, A, S = SchemaInput> = Throwing
 >
 
 /** The envelope of an offset page (`paginate`). */
-export interface PaginationInfo {
+export type PaginationInfo = {
   readonly hasNext: boolean
   readonly hasPrevious: boolean
   readonly page: number
@@ -340,16 +340,16 @@ export interface PaginationInfo {
 }
 
 /** What `paginate` resolves to. */
-export interface PaginationResult<T> {
+export type PaginationResult<T> = {
   readonly data: T[]
   readonly pagination: PaginationInfo
 }
 
 /** A cursor value: a record id (single-id ordering) or a tuple object. */
-export type CursorInput = { toString(): string } | Record<string, unknown> | string
+export type CursorInput = Record<string, unknown> | string | { toString(): string }
 
 /** The envelope of a keyset page (`cursor`). */
-export interface CursorInfo {
+export type CursorInfo = {
   readonly hasNext: boolean
   readonly hasPrevious: boolean
   /** Feed back as `after`; `null` when there is no next page. */
@@ -360,21 +360,18 @@ export interface CursorInfo {
 }
 
 /** What `cursor` resolves to. */
-export interface CursorResult<T> {
+export type CursorResult<T> = {
   readonly data: T[]
   readonly pagination: CursorInfo
 }
 
 /** `paginate` args: a read with a required `limit` (the page size). */
-export interface PaginateArgs<TD extends AnyTableDef, S = SchemaInput> extends Omit<
-  ReadArgs<TD, S>,
-  "limit"
-> {
+export type PaginateArgs<TD extends AnyTableDef, S = SchemaInput> = {
   /** `false` skips the count statement and probes `LIMIT n+1`. Default `true`. */
   count?: boolean
   limit: number
   start?: number
-}
+} & Omit<ReadArgs<TD, S>, "limit">
 
 /**
  * `cursor` args: a read with a required `limit` and the keyset cursors.
@@ -388,10 +385,7 @@ export interface PaginateArgs<TD extends AnyTableDef, S = SchemaInput> extends O
  * in the same millisecond). `after`/`before` also accept the app forms: a bare/`table:id` string or
  * a `Date`/ISO string, coerced to the column's wire type before the bind.
  */
-export interface CursorArgs<TD extends AnyTableDef, S = SchemaInput> extends Omit<
-  ReadArgs<TD, S>,
-  "groupAll" | "groupBy" | "limit" | "only" | "orderBy" | "split" | "start" | "value"
-> {
+export type CursorArgs<TD extends AnyTableDef, S = SchemaInput> = {
   /** Rows after this cursor. */
   after?: CursorInput
   /** Rows before this cursor. */
@@ -408,7 +402,10 @@ export interface CursorArgs<TD extends AnyTableDef, S = SchemaInput> extends Omi
    * fields are unique  together, which a single tiebreaker field cannot express.
    */
   orderBy?: CursorOrderBy<TD, S>
-}
+} & Omit<
+  ReadArgs<TD, S>,
+  "groupAll" | "groupBy" | "limit" | "only" | "orderBy" | "split" | "start" | "value"
+>
 
 /** One `orderBy` entry of a cursor: a field plus its direction. */
 export type CursorOrderEntry<F extends string = string> = Partial<Record<F, "asc" | "desc">>
@@ -479,7 +476,7 @@ type SplitElementValue<A, F extends string> = F extends `${infer Head}[*].${infe
   : PathValue<A, F>
 
 /** One aggregator object (`{ sum: 'age' }`, `{ collect: 'email' }`). */
-export interface Aggregator<TD extends AnyTableDef> {
+export type Aggregator<TD extends AnyTableDef> = {
   avg?: AggField<TD>
   collect?: AggField<TD>
   distinct?: AggField<TD>
@@ -499,7 +496,7 @@ export type AggregateEntry<TD extends AnyTableDef> =
 export type AggregateSelect<TD extends AnyTableDef> = Record<string, AggregateEntry<TD> | undefined>
 
 /** The clauses `combine` accepts (`having` does not exist in SurrealQL — runtime rejects it). */
-export interface AggregateArgs<TD extends AnyTableDef, S = SchemaInput> {
+export type AggregateArgs<TD extends AnyTableDef, S = SchemaInput> = {
   /** Per-call namespace/database override. */
   context?: CallContext
   /** Return the `EXPLAIN` plan instead of executing. */

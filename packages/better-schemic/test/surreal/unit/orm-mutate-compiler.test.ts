@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures assert values whose presence the test guarantees. */
 // The mutation compiler in isolation: the update/patch/upsert/delete/updateEach guards and the
 // branchy lowering (return indexes, LET/IF, ON DUPLICATE). Direct calls pin each failure code.
 import { describe, expect, test } from "bun:test"
@@ -16,6 +17,7 @@ import {
 } from "../../../src/surreal/orm/compiler/mutate"
 import { createBinds } from "../../../src/surreal/orm/compiler/shared"
 import { fakeConn, ok } from "../orm-fixtures"
+
 import { schemaDef } from "./orm-writes-fixtures"
 
 const code = (fn: () => unknown): string | undefined => {

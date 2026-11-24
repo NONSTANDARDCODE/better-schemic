@@ -10,12 +10,10 @@ import { escapeIdent, type Surreal } from "surrealdb"
 
 import type {
   ApplyOptions,
-  ConnectionOverrides as CfgOverrides,
   ConnectionOverrides,
   Driver,
   MigrationRecord,
   MigrationStore,
-  RenderedUnit,
   ResolvedConfig,
   ShadowCapability,
 } from "../../core"
@@ -63,10 +61,10 @@ const shadow: ShadowCapability<Surreal> = {
 const RECORD_SQL =
   "CREATE type::record($tbl, $tag) CONTENT { tag: $tag, file: $file, checksum: $sum, applied_at: time::now() }"
 const recordVars = (table: string, r: MigrationRecord) => ({
-  tbl: table,
-  tag: r.tag,
   file: r.file,
   sum: r.checksum,
+  tag: r.tag,
+  tbl: table,
 })
 
 /** `DEFINE TABLE … SCHEMALESS` for an internal tracking table (migrations or its lock). */
@@ -79,19 +77,14 @@ async function ensureTrackTable(conn: Surreal, table: string): Promise<void> {
 const lockTableOf = (table: string) => `${table}_lock`
 
 const migrations: MigrationStore<Surreal> = {
-  // SurrealDB migrations are SurrealQL scripts.
-  extension: ".surql",
-  render: (tag, diff) => renderMigration(tag, diff),
-  ensure: ensureTrackTable,
-
   async applied(conn, table) {
     const [rows] = await conn.query<[{ checksum: string; tag: string }[]]>(
       "SELECT tag, checksum FROM type::table($tbl)",
       { tbl: table },
     )
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
     return new Map((rows ?? []).map((r) => [r.tag, r.checksum]))
   },
-
   // SurrealDB is natively transactional — run the migration program + its bookkeeping write in one
   // BEGIN/COMMIT so the record writes it iff the DDL applied. `$direction` drives the up/down branch.
   async apply(conn, table, { content, direction, record }) {
@@ -100,22 +93,21 @@ const migrations: MigrationStore<Surreal> = {
         ? { sql: RECORD_SQL, vars: recordVars(table, record) }
         : {
             sql: "DELETE type::record($tbl, $tag)",
-            vars: { tbl: table, tag: record.tag },
+            vars: { tag: record.tag, tbl: table },
           }
     await conn.query(`BEGIN;\n${content}\n${bookkeep.sql};\nCOMMIT;`, {
       direction,
       ...bookkeep.vars,
     })
   },
-
-  async record(conn, table, record) {
-    await ensureTrackTable(conn, table)
-    await conn.query(RECORD_SQL, recordVars(table, record))
-  },
-
   async clear(conn, table) {
     await conn.query("DELETE type::table($tbl)", { tbl: table })
   },
+
+  ensure: ensureTrackTable,
+
+  // SurrealDB migrations are SurrealQL scripts.
+  extension: ".surql",
 
   async lock(conn, table) {
     const tbl = lockTableOf(table)
@@ -128,6 +120,13 @@ const migrations: MigrationStore<Surreal> = {
       )
     }
   },
+
+  async record(conn, table, record) {
+    await ensureTrackTable(conn, table)
+    await conn.query(RECORD_SQL, recordVars(table, record))
+  },
+
+  render: (tag, diff) => renderMigration(tag, diff),
 
   async unlock(conn, table) {
     await conn.query("DELETE type::record($tbl, 'lock')", {
@@ -149,63 +148,18 @@ function renderFiles(
 }
 
 export const surrealDriver: Driver<Surreal, TableDef<string, Shape>, StandaloneDef> = {
-  name: "surrealdb",
-  registry: surrealKinds,
-
-  // --- kind registry (the schema engine) -----------------------------------------------------
-  // Authoring -> kinded definables (the driver-side explode: one inline-authored table fans out into
-  // [table, ...index, ...event], db-level functions/accesses alongside). Core lowers via
-  // `lowerSchema(registry, explode(...))`, then diffs/emits/orders GENERICALLY — it never names a kind.
-  explode: (tables, defs) => explodeSchema(tables, defs),
-  // Live DB -> all portable objects: ONE `INFO … STRUCTURE` read fanned per kind, canonicalized
-  // IDENTICALLY to lowering (a clean apply round-trips to a zero diff) and complete (every kind).
-  introspectAll: (conn, exclude) => introspectAllKinds(conn, exclude),
-
-  // --- execution -----------------------------------------------------------------------------
-
-  connect(config: ResolvedConfig, over?: ConnectionOverrides): Promise<Surreal> {
-    // The driver's portable `ConnectionOverrides` is a structural superset of the SDK's; the 
-    // soft field is `authLevel` (a string here vs. the SDK's `AuthLevel` union) — pass it through.
-    return surrealConnect(config, over ?? {})
-  },
-
   async apply(conn: Surreal, statements: string[], opts?: ApplyOptions): Promise<void> {
-    if (statements.length === 0) {
-      return
-    }
+    if (statements.length === 0) return
+
     if (opts?.transactional === false) {
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const s of statements) {
-        await conn.query(s)
-      }
+      for (const s of statements) await conn.query(s)
+
       return
     }
     // SurrealDB is natively transactional — one BEGIN/COMMIT around the batch (matches applyStatements).
     await applyStatements(conn, statements)
   },
-
-  async close(conn: Surreal): Promise<void> {
-    await conn.close()
-  },
-
-  /**
-   * Raw READ query -> rows, for connection resolvers (`ctx.connections.<name>.query(...)`) and seed.
-   * SurrealQL returns one result per statement; we hand back the LAST statement's rows (the payload of
-   * a `… ; SELECT …` resolver), wrapping a scalar/`RETURN` result and treating none as an empty set.
-   */
-  async query<T = unknown>(
-    conn: Surreal,
-    sql: string,
-    vars?: Record<string, unknown>,
-  ): Promise<T[]> {
-    const results = (await conn.query(sql, vars)) as unknown[]
-    if (results.length === 0) {
-      return []
-    }
-    const last = results.at(-1)
-    return (Array.isArray(last) ? last : last == null ? [] : [last]) as T[]
-  },
-
   // (B) DB-functions-as-code — invoke a defined function by name with already-encoded args and return
   // its RAW result. SurrealQL function calls are POSITIONAL, so the args (in param order) bind them to
   // generic `$a0, $a1, …` vars and passed positionally: `RETURN fn::name($a0, $a1)`. The caller
@@ -225,60 +179,11 @@ export const surrealDriver: Driver<Surreal, TableDef<string, Shape>, StandaloneD
         )
       }
       const fn = `fn::${bare}`
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- asserção necessária para a inferência da API pública
       const out = (await conn.query(`RETURN ${fn}(${placeholders})`, vars)) as unknown[]
       return out[0]
     },
   },
-
-  shadow,
-  migrations,
-
-  // Driver-contributed CLI commands — `sc access rotate/check`, `sc table find`.
-  commands: surrealCommands,
-
-  // --- command capabilities (thin adapters over the existing surreal cli functions) ----------
-
-  diffLive: async (conn, config, filter) => fmtDiff(await diffAgainstDb(conn, config, filter)),
-  syncPlan: (diff, prune) => syncPlan(diff, prune),
-
-  // Offline `diff --ts` / `pull`: reconstruct the structured form from the portable objects (no DDL
-  // re-parse — the normalized struct rides on them), filter, render to per-file `s.*` source.
-  renderSchema(objects, filter, fileFor, single) {
-    return renderFiles(
-      filterStructured(toStructured(objects as SurrealPortable[]), filter),
-      fileFor,
-      single,
-    )
-  },
-
-  // Live `diff --ts`: both sides normalized through SurrealDB, then rendered per file.
-  async diffTsLive(conn, config, filter, fileFor, single) {
-    const { current, desired } = await tsStructsAgainstDb(conn, config, filter)
-    return {
-      current: renderFiles(current, fileFor, single),
-      desired: renderFiles(desired, fileFor, single),
-    }
-  },
-
-  planPull: (conn, config, opts) => planPull(conn, config, opts),
-
-  async serverInfo(conn) {
-    let v = "unknown"
-    try {
-      v = (await conn.version()).version
-    } catch {
-      // server version unavailable
-    }
-    return `SurrealDB ${v}`
-  },
-
-  // The files `better-schemic init` scaffolds for a fresh SurrealDB project (connections-config + sample
-  // s.* schema + seed + .env.example); the CLI writes them and adds the neutral migration snapshot.
-  initScaffold,
-
-  // `better-schemic new <kind> <name>`: the starter `s.*`/`define*` module for one entity (table/relation/
-  // view/function/access/event/analyzer); throws for inline-(index/field) or unknown kinds.
-  scaffoldEntity,
 
   // `check`: replay every migration into a throwaway engine and diff the result against the schema.
   // Owns ephemeral-engine selection — an embedded @surrealdb/node instance, an ephemeral server from
@@ -305,10 +210,10 @@ export const surrealDriver: Driver<Surreal, TableDef<string, Shape>, StandaloneD
       checkCfg = {
         ...config,
         params: {
-          url: embedded.url,
-          namespace: "check",
-          database: "check",
           authLevel: "root",
+          database: "check",
+          namespace: "check",
+          url: embedded.url,
         } satisfies SurrealParams,
       }
       cleanup = embedded.stop
@@ -320,17 +225,19 @@ export const surrealDriver: Driver<Surreal, TableDef<string, Shape>, StandaloneD
       checkCfg = {
         ...config,
         params: {
-          url: server.url,
-          namespace: "check",
-          database: "check",
-          username: server.username,
-          password: server.password,
           authLevel: "root",
+          database: "check",
+          namespace: "check",
+          password: server.password,
+          url: server.url,
+          username: server.username,
         } satisfies SurrealParams,
       }
       db = await surrealConnect(checkCfg, {})
       cleanup = async () => {
-        await db.close().catch(() => {})
+        await db.close().catch(() => {
+          /* ignore close errors */
+        })
         await server.stop()
       }
       log(
@@ -338,20 +245,23 @@ export const surrealDriver: Driver<Surreal, TableDef<string, Shape>, StandaloneD
       )
     } else {
       // Scratch connection for the `remote` engine: check.db merged over the connection's own params.
-      const remote: SurrealParams = { ...params, ...(check?.db ?? {}) }
+      const remote: SurrealParams = { ...params, ...check?.db }
       checkCfg = {
         ...config,
-        params: remote as unknown as Record<string, unknown>,
+        params: remote,
       }
       try {
         db = await surrealConnect(checkCfg, over)
       } catch (error) {
         throw new Error(
           `${error instanceof Error ? error.message : String(error)}\n  (run \`better-schemic check --schema\` to skip the replay, install the \`surreal\` CLI for an in-memory engine, or set \`check.db\` to point the replay at a scratch server)`,
+          { cause: error },
         )
       }
       cleanup = async () => {
-        await db.close().catch(() => {})
+        await db.close().catch(() => {
+          /* ignore close errors */
+        })
       }
       log(
         `  replaying on ${redactUrl(remote.url)} (${remote.namespace}) — isolated scratch databases; your data is untouched`,
@@ -359,9 +269,106 @@ export const surrealDriver: Driver<Surreal, TableDef<string, Shape>, StandaloneD
     }
 
     try {
-      return await verifyMigrations(db, checkCfg, filter, (tag) => log(`  ${tag}`))
+      return await verifyMigrations(db, checkCfg, filter, (tag) => {
+        log(`  ${tag}`)
+      })
     } finally {
       await cleanup()
     }
   },
+  async close(conn: Surreal): Promise<void> {
+    await conn.close()
+  },
+
+  // --- execution -----------------------------------------------------------------------------
+
+  // Driver-contributed CLI commands — `sc access rotate/check`, `sc table find`.
+  commands: surrealCommands,
+
+  connect(config: ResolvedConfig, over?: ConnectionOverrides): Promise<Surreal> {
+    // The driver's portable `ConnectionOverrides` is a structural superset of the SDK's; the
+    // soft field is `authLevel` (a string here vs. the SDK's `AuthLevel` union) — pass it through.
+    return surrealConnect(config, over ?? {})
+  },
+
+  diffLive: async (conn, config, filter) => fmtDiff(await diffAgainstDb(conn, config, filter)),
+
+  // Live `diff --ts`: both sides normalized through SurrealDB, then rendered per file.
+  async diffTsLive(conn, config, filter, fileFor, single) {
+    const { current, desired } = await tsStructsAgainstDb(conn, config, filter)
+    return {
+      current: renderFiles(current, fileFor, single),
+      desired: renderFiles(desired, fileFor, single),
+    }
+  },
+
+  // --- kind registry (the schema engine) -----------------------------------------------------
+  // Authoring -> kinded definables (the driver-side explode: one inline-authored table fans out into
+  // [table, ...index, ...event], db-level functions/accesses alongside). Core lowers via
+  // `lowerSchema(registry, explode(...))`, then diffs/emits/orders GENERICALLY — it never names a kind.
+  explode: (tables, defs) => explodeSchema(tables, defs),
+
+  // The files `better-schemic init` scaffolds for a fresh SurrealDB project (connections-config + sample
+  // s.* schema + seed + .env.example); the CLI writes them and adds the neutral migration snapshot.
+  initScaffold,
+  // Live DB -> all portable objects: ONE `INFO … STRUCTURE` read fanned per kind, canonicalized
+  // IDENTICALLY to lowering (a clean apply round-trips to a zero diff) and complete (every kind).
+  introspectAll: (conn, exclude) => introspectAllKinds(conn, exclude),
+
+  migrations,
+
+  // --- command capabilities (thin adapters over the existing surreal cli functions) ----------
+
+  name: "surrealdb",
+  planPull: (conn, config, opts) => planPull(conn, config, opts),
+
+  /**
+   * Raw READ query -> rows, for connection resolvers (`ctx.connections.<name>.query(...)`) and seed.
+   * SurrealQL returns one result per statement; we hand back the LAST statement's rows (the payload of
+   * a `… ; SELECT …` resolver), wrapping a scalar/`RETURN` result and treating none as an empty set.
+   */
+  async query<T = unknown>(
+    conn: Surreal,
+    sql: string,
+    vars?: Record<string, unknown>,
+  ): Promise<T[]> {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- asserção necessária para a inferência da API pública
+    const results = (await conn.query(sql, vars)) as unknown[]
+    if (results.length === 0) return []
+
+    const last = results.at(-1)
+    // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
+    return (Array.isArray(last) ? last : last == null ? [] : [last]) as T[]
+  },
+
+  registry: surrealKinds,
+
+  // Offline `diff --ts` / `pull`: reconstruct the structured form from the portable objects (no DDL
+  // re-parse — the normalized struct rides on them), filter, render to per-file `s.*` source.
+  renderSchema(objects, filter, fileFor, single) {
+    return renderFiles(
+      filterStructured(toStructured(objects as SurrealPortable[]), filter),
+      fileFor,
+      single,
+    )
+  },
+
+  // `better-schemic new <kind> <name>`: the starter `s.*`/`define*` module for one entity (table/relation/
+  // view/function/access/event/analyzer); throws for inline-(index/field) or unknown kinds.
+  scaffoldEntity,
+
+  async serverInfo(conn) {
+    let v = "unknown"
+    try {
+      const version = await conn.version()
+      v = version.version
+    } catch {
+      // server version unavailable
+    }
+    return `SurrealDB ${v}`
+  },
+
+  shadow,
+
+  syncPlan: (diff, prune) => syncPlan(diff, prune),
 }

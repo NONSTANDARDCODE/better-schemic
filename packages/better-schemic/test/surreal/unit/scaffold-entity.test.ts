@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-implied-eval -- Object key order mirrors expected serialized output and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. The test compiles a fixture expression with Function. */
 /**
  * `better-schemic new <kind> <name>` -> surrealDriver.scaffoldEntity(kind, name). Each template must be a
  * VALID authoring module: we eval the generated `define*` expression and assert it emits real DDL for
@@ -35,7 +36,7 @@ const transpiler = new Bun.Transpiler({ loader: "ts" })
 
 /** Eval the module's exported `define*(...)` expression and emit it to SurrealQL. */
 function emitScaffold(src: string): string {
-  const m = src.match(/export const \w+\s*=\s*([\s\S]*?);/u)
+  const m = /export const \w+\s*=\s*([\s\S]*?);/u.exec(src)
   if (!m) throw new Error("no `export const … = …;` in scaffold")
   const js = transpiler.transformSync(`const __f = () => (\n${m[1]}\n);`)
   const fn = new Function(...Object.keys(API), `${js}\nreturn __f();`)

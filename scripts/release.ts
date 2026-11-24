@@ -12,7 +12,7 @@ import { join } from "node:path"
  *
  * TWO published packages:
  *  - `better-schemic` — the runtime (authoring surface + engine + CLI);
- *  - `create-better-schemic` — the scaffolder. It has NO dependency on `better-schemic` (it 
+ *  - `create-better-schemic` — the scaffolder. It has NO dependency on `better-schemic` (it
  *    scaffolds the version string), so it's published last and bumped in lockstep — a fresh project
  *    always gets a matching pair.
  *
@@ -20,7 +20,7 @@ import { join } from "node:path"
  *  - `next` skips versions already on npm — the local manifests can lag the registry (a release cut
  *    from another checkout), and npm refuses to republish a version.
  *  - `bun publish` rewrites `workspace:*` deps using bun.lock, and a bare version bump does NOT
- *    refresh that recorded version. So we REBUILD the lockfile (rm + install).
+ *    refresh that recorded version. We REBUILD the lockfile (rm + install).
  *  - A prerelease (`0.1.0-alpha.16`) cannot publishs it implicitly to `latest` anymore — bun aborts
  *    with "prerelease needs a tag". This repo intentionally keeps prereleases on `latest` (a bare
  *    `npm i better-schemic` must get the newest alpha), so we pass `--tag latest` EXPLICITLY.
@@ -38,7 +38,7 @@ if (!versionArg || versionArg.startsWith("-")) {
 }
 
 const ROOT = join(import.meta.dir, "..")
-// The runtime package first; the scaffolder last — it has NO dependency on `better-schemic` (it 
+// The runtime package first; the scaffolder last — it has NO dependency on `better-schemic` (it
 // scaffolds the version string), so it's bumped in lockstep and published last: a fresh project always
 // gets a matching pair.
 const ORDER = ["better-schemic", "create-better-schemic"]
@@ -49,7 +49,7 @@ const displayName = (p: string) => p
 // skipping any candidate already published to npm (local manifests can lag the registry, and a
 // republish is impossible).
 function bump(v: string): string {
-  const m = v.match(/^(.*[-.])(\d+)$/u)
+  const m = /^(.*[-.])(\d+)$/u.exec(v)
   if (!m) {
     console.error(
       `cannot auto-bump "${v}" — no trailing .N to increment; pass an explicit version.`,
@@ -72,11 +72,13 @@ async function publishedVersions(name: string): Promise<Set<string>> {
 }
 
 async function resolveVersion(arg: string): Promise<string> {
-  if (arg !== "next") {
-    return arg
-  }
-  const cur = JSON.parse(await Bun.file(join(pkgDir("better-schemic"), "package.json")).text())
-    .version as string
+  if (arg !== "next") return arg
+
+  const cur = (
+    JSON.parse(await Bun.file(join(pkgDir("better-schemic"), "package.json")).text()) as {
+      version: string
+    }
+  ).version
   const published = await publishedVersions("better-schemic")
   let next = bump(cur)
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
@@ -87,9 +89,7 @@ async function resolveVersion(arg: string): Promise<string> {
   return next
 }
 const version = await resolveVersion(versionArg)
-if (versionArg === "next") {
-  console.log(`auto-bumped -> ${version}`)
-}
+if (versionArg === "next") console.log(`auto-bumped -> ${version}`)
 
 // --dry-run is a PREVIEW: mutating package.json + bun.lock would leave the tree bumped, so the
 // next `next` run would skip the version we verified (0.1.0-alpha.1 -> alpha.2). Snapshot the
@@ -106,13 +106,10 @@ const snapshot = async () => {
   return files
 }
 const restore = async (files: Map<string, string> | null) => {
-  if (!files) {
-    return
-  }
+  if (!files) return
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [path, text] of files) {
-    await Bun.write(path, text)
-  }
+  for (const [path, text] of files) await Bun.write(path, text)
 }
 const before = dryRun ? await snapshot() : null
 const abort = async (msg: string): Promise<never> => {
@@ -144,11 +141,11 @@ for (const p of ORDER) {
   await $`bun pm pack`.cwd(pkgDir(p)).quiet()
   const manifest = JSON.parse(
     await $`tar -xzf ${tgz} -O package/package.json`.cwd(pkgDir(p)).text(),
-  )
+  ) as { version: string }
   await $`rm -f ${tgz}`.cwd(pkgDir(p))
-  if (manifest.version !== version) {
+  if (manifest.version !== version)
     await abort(`ABORT: ${p} packs version ${manifest.version}, expected ${version}.`)
-  }
+
   console.log(`verified ${p}@${manifest.version}`)
 }
 

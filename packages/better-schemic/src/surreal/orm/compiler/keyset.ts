@@ -13,6 +13,7 @@
  * different values.
  */
 import type { ModelMeta } from "../meta"
+
 import {
   omittedPaths,
   projectedInPlace,
@@ -24,7 +25,7 @@ import {
 import { compileError, isTableMeta, pathSegments } from "./shared"
 
 /** Where one `orderBy` field rides in the result row. */
-export interface CursorKey {
+export type CursorKey = {
   /**
    * The reserved alias carrying the value; absent = the projection returns it in place. The
    * cursor reads the value from the RAW row under this key (never the decoded app value).
@@ -35,13 +36,13 @@ export interface CursorKey {
 }
 
 /** A keyset column the projection must append: `path AS alias`. */
-export interface KeysetAlias {
+export type KeysetAlias = {
   readonly alias: string
   readonly path: string
 }
 
 /** What a cursor read must project to build its keyset. */
-export interface KeysetProjection {
+export type KeysetProjection = {
   /** The aliases to append (empty when every ordered field rides in place). */
   readonly aliases: readonly KeysetAlias[]
   /** One entry per `orderBy` field, in order. */
@@ -49,7 +50,7 @@ export interface KeysetProjection {
 }
 
 /** An `orderBy` field the keyset needs (direction/validation is the pagination compiler's job). */
-export interface KeysetField {
+export type KeysetField = {
   readonly field: string
 }
 
@@ -68,9 +69,8 @@ export function keysetProjection(
 ): KeysetProjection {
   const form = projectionForm(select)
   // A malformed projection is `compileRead`'s teaching error — the keyset must not paper over it.
-  if (!form) {
-    return { keys: order.map(({ field }) => ({ field })), aliases: [] }
-  }
+  if (!form) return { aliases: [], keys: order.map(({ field }) => ({ field })) }
+
   const omitted = omittedPaths(omit)
   const keys: CursorKey[] = []
   const aliases: KeysetAlias[] = []
@@ -86,7 +86,7 @@ export function keysetProjection(
       throw compileError(
         "ValidationError",
         `${operation}: orderBy field "${field}" is redefined by the select entry "${redefined}" — ORDER BY would sort by that alias while the keyset predicate compares the stored field. Rename the entry (or select "${field}: true").`,
-        { operation, field },
+        { field, operation },
       )
     }
     if (projectedInPlace(form, omitted, field)) {
@@ -96,9 +96,9 @@ export function keysetProjection(
     const alias = `${ALIAS_PREFIX}${index}`
     assertAliasFree(meta, form, alias, operation)
     aliases.push({ alias, path: field })
-    keys.push({ field, alias })
+    keys.push({ alias, field })
   }
-  return { keys, aliases }
+  return { aliases, keys }
 }
 
 /** The projection must not already use the reserved alias (a user field named `_keyset_<n>`). */
@@ -114,12 +114,11 @@ function assertAliasFree(
     form.kind === "star" && isTableMeta(meta)
       ? (meta.def.object as { shape?: Record<string, unknown> }).shape
       : undefined
-  if (!used.has(alias) && !(shape && alias in shape)) {
-    return
-  }
+  if (!used.has(alias) && !(shape && alias in shape)) return
+
   throw compileError(
     "ValidationError",
     `${operation}: "${alias}" is reserved for the keyset cursor columns — rename that field or drop it from the projection.`,
-    { operation, field: alias },
+    { field: alias, operation },
   )
 }

@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // Formatting must never phantom-diff: authors write MULTI-LINE surql bodies, INFO prints blocks
 // single-line — and INFO itself prints nested multi-statement blocks with NEWLINES. Both sides
 // normalize through collapseWs (quote-aware), so real changes diff.

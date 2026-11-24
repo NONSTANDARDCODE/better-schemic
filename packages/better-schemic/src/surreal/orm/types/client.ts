@@ -8,6 +8,7 @@ import type { ClientRuntime } from "../client"
 import type { ModelDelegate } from "../delegate"
 import type { Queryable } from "../execute"
 import type { RawOperations } from "../raw"
+
 import type { DbInfo, NsInfo, RootInfo, TableInfo } from "./admin"
 import type { ApiOperations } from "./api"
 import type { AuthOperations } from "./auth"
@@ -21,7 +22,7 @@ import type { AnyTableDef, EntriesOf, ModelKeys, SchemaDef, SchemaInput } from "
 import type { TransactionClient, TransactionDefaults, TransactionOptions } from "./transaction"
 
 /** Options accepted by `orm(...)` — grows per milestone (plugins/hooks/raw/...). */
-export interface OrmOptions {
+export type OrmOptions = {
   /**
    * Cache clients per connection in the factory returned by {@link createOrmClientFactory}.
    * Default `"none"` (each call builds a fresh client). `"weak"` keeps a WeakMap keyed by the
@@ -61,11 +62,12 @@ export interface OrmOptions {
 export type SchemaArg<S extends SchemaInput> = S | SchemaDef<S>
 
 /** A project helper attached with `extends` (an object, or a factory receiving the client). */
+// eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
 export type Extension = ((client: ClientRuntime) => object) | object
 
 /**
  * The public client type: lifecycle members + one {@link ModelDelegate} per schema key
- * (`client.users`, `client.likes`, …). A schemaless entry maps to a loosely-typed delegate over
+ * (`client.users`, `client.likes`, …). A schemaless entry maps to a delegate over
  * `Record<string, unknown>` rows. `C` is the wrapped connection type (`Surreal` for a root client,
  * `SurrealSession` for a forked one).
  *
@@ -142,6 +144,7 @@ export type Client<
      * Attach project helpers to the client (object or factory receiving the client). A name
      * colliding with an existing member fails fast.
      */
+    // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
     extends<T extends object>(extension: ((client: Client<S, C, P>) => T) | T): Client<S, C, P> & T
     /** Database functions: dynamic `fn.call(name, args)` + one typed shortcut per schema function. */
     readonly fn: FnSurface<S>

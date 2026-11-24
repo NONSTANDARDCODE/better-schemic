@@ -1,15 +1,13 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Fixtures use any for duck-typed mocks. Type queries and callback signatures need fixture values. */
 import { describe, expect, test } from "bun:test"
 
 import { orm } from "../../../src/surreal/orm/client"
-import { buildSchemaIndex } from "../../../src/surreal/orm/schema"
-import { s,table } from "../../../src/surreal/pure"
+import { relation, s, table } from "../../../src/surreal/pure"
 import { fakeConn, ok } from "../orm-fixtures"
 
 const Person = table("person", { name: s.string() })
 const Product = table("product", { name: s.string(), price: s.number() })
-const Bought = (require("../../../src/surreal/pure").relation as any)("bought", {})
-  .from(Person)
-  .to(Product)
+const Bought = relation("bought", {}).from(Person).to(Product)
 const schema = { persons: Person, products: Product, bought: Bought }
 
 describe("graph traverse", () => {

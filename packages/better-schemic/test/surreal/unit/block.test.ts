@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping, unicorn/no-thenable, @typescript-eslint/no-unnecessary-condition -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. Bun test calls return thenable handles that are not awaited. Defensive checks document fixture intent. */
 // Typed-fragments PHASE 3 (2/3): block() — the typed statement-block builder. LET vars type
 // through the chain (s.n is a real ref of the value's kind), IF/FOR/RETURN/THROW give statement
 // parity, and the block is a fragment: it interpolates into surql templates and every authoring
@@ -196,9 +197,9 @@ describe("object bindings — refactor safety extras", () => {
   })
 
   test(".for with more than one binding key throws", () => {
-    expect(() =>
-      block().for({ a: [1], b: [2] } as Record<string, number[]>, surql`RETURN 1`),
-    ).toThrow(/exactly ONE loop binding/u)
+    expect(() => block().for({ a: [1], b: [2] }, surql`RETURN 1`)).toThrow(
+      /exactly ONE loop binding/u,
+    )
   })
 
   test("callback .let sees earlier vars: (s) => ({ next: s.n.plus(1) })", () => {

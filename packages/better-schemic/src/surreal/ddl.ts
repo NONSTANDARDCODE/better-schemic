@@ -1,6 +1,7 @@
 import { BoundQuery, escapeIdent, toSurqlString } from "surrealdb"
 
 import { isSecretRef, type SecretRef } from "../core"
+
 import {
   type AccessDef,
   type AnalyzerDef,
@@ -13,7 +14,6 @@ import {
   type PermOp,
   requireFunctionBody,
   type SequenceDef,
-  type SField,
   type Shape,
   type StandaloneDef,
   type SurrealMeta,
@@ -27,10 +27,10 @@ import { type FieldInfo, inferField } from "./wire"
 export { type FieldInfo, inferField } from "./wire"
 
 /** Inline a BoundQuery's bindings into a literal SurrealQL string for DDL use. Exported so the
- *  Struct-IR lowering (`fromTableDef`) renders DEFAULT/VALUE/COMPUTED/permission exprs identically. */
+ * Struct-IR lowering (`fromTableDef`) renders DEFAULT/VALUE/COMPUTED/permission exprs identically. */
 export function inline(query: BoundQuery): string {
   let out = query.query
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  // eslint-disable-next-line functional/no-loop-statements, @typescript-eslint/no-unnecessary-condition -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [name, value] of Object.entries(query.bindings ?? {})) {
     // Boundary-aware: `$b1` must not rewrite the prefix of `$b10`.
     out = out.replace(bindPattern(name), () => toSurqlString(value))
@@ -46,16 +46,13 @@ export function inline(query: BoundQuery): string {
  * expr) while the DDL emitter prepends the `ASSERT ` keyword via {@link admitNullAssert}.
  */
 export function assertExpr(asserts: SurrealMeta["asserts"]): string {
-  if (!asserts?.length) {
-    return ""
-  }
+  if (!asserts?.length) return ""
+
   const frags: string[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const a of asserts) {
     const frag = a instanceof BoundQuery ? inline(a) : a
-    if (frag && !frags.includes(frag)) {
-      frags.push(frag)
-    }
+    if (frag && !frags.includes(frag)) frags.push(frag)
   }
   return frags.join(" AND ")
 }
@@ -83,37 +80,35 @@ export function stripNullGuard(expr: string): string {
   const guard = /^\$value\s*=\s*NULL\s+OR\s+/u
   let out = expr.trim()
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while (guard.test(out)) {
-    out = out.replace(guard, "")
-  }
+  while (guard.test(out)) out = out.replace(guard, "")
+
   return out.trim()
 }
 
 /**
- * Guard an ASSERT expr so NULL passes: SurrealDB runs asserts on NULL (it skips  NONE), and
+ * Guard an ASSERT expr so NULL passes: SurrealDB runs asserts on NULL (it skips NONE), and
  * length/format functions ERROR on NULL — so an unguarded assert would reject a NULL that the
- * declared `T | null`/`option<T | null>` type allows. The assert  constrains the NON-null
+ * declared `T | null`/`option<T | null>` type allows. The assert constrains the NON-null
  * value : `$value = NULL OR (…)`. Applied identically by the emitter and the Struct-IR lowering
  * (`fromTableDef`) so the two sides converge.
  *
  * Idempotent: an already-guarded expr (a hand-written `$assert`, or one `pull` wrote back out of the
- * DB) normalizes to  ONE guard. SurrealDB itself folds repeated `NULL OR` guards, so without
+ * DB) normalizes to ONE guard. SurrealDB itself folds repeated `NULL OR` guards, so without
  * this a pull→emit cycle would stack a guard per pass and phantom-diff forever.
  */
 export function admitNullAssert(type: string, expr: string): string {
   // No parentheses: the guard is a disjunction and `AND` binds tighter than `OR`, so
   // `$value = NULL OR <expr>` is "NULL passes OR the assert passes" for any expr. (SurrealDB
   // also prints it back unparenthesized, so this keeps `fromTableDef` == `fromInfo`.)
-  if (!admitsNullType(type)) {
-    return expr
-  }
+  if (!admitsNullType(type)) return expr
+
   return `${NULL_GUARD}${stripNullGuard(expr)}`
 }
 
 /**
  * Whether a DEFAULT/COMPUTED guarantees a populated column, so SurrealDB stores the BARE type:
  * both the emitter (`emit`) and the Struct-IR normalizer (`normalizeField`) must strip `option<>`.
- * A VALUE does NOT guarantee presence — it runs AFTER DEFAULT and may evaluate to NONE — and it
+ * A VALUE does NOT guarantee presence — it runs AFTER DEFAULT and may resolve to NONE — and it
  * re-validates the type last, so a field with BOTH `$default` and `$value` keeps `option<T>`.
  */
 export function forcesBareType(clauses: {
@@ -127,14 +122,15 @@ export function forcesBareType(clauses: {
 }
 
 /** DDL generation options. `exists: "overwrite"` -> OVERWRITE; "ignore" -> IF NOT EXISTS. */
-export interface DefineOptions {
+export type DefineOptions = {
   exists?: "ignore" | "overwrite"
 }
 
 function existsPrefix(opts?: DefineOptions): string {
   return opts?.exists === "overwrite"
     ? "OVERWRITE "
-    : opts?.exists === "ignore"
+    : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
+      opts?.exists === "ignore"
       ? "IF NOT EXISTS "
       : ""
 }
@@ -148,27 +144,23 @@ function existsPrefix(opts?: DefineOptions): string {
  *   - `false` -> `PERMISSIONS NONE`
  *   - a `BoundQuery` -> every op shares it: `PERMISSIONS FOR <all ops> WHERE <expr>`
  *   - an object  -> 1. resolve each present op to a concrete rule (`boolean | BoundQuery`);
- *     a `` `same as X` `` reuses X's resolved rule (errors if X is absent or on a cycle).
+ * a `` `same as X` `` reuses X's resolved rule (errors if X is absent or on a cycle).
  *     2. merge ops whose resolved rule is identical (booleans by `===`, BoundQuery by its
- *     `inline()`-ed string) into one `FOR a, b … <rule>` clause, in canonical op order.
+ * `inline()`-ed string) into one `FOR a, b … <rule>` clause, in canonical op order.
  *
  * Omitted ops emit nothing — and the SurrealDB defaults for an omitted op are intentionally
  * ASYMMETRIC: a TABLE defaults it to NONE (deny), a FIELD defaults it to FULL (the table is
- * the gate). So to lock a field op you must set it `false` explicitly.
+ * the gate). To lock a field op you must set it `false` explicitly.
  */
 export function renderPermissions(
   spec: FieldPermissions | TablePermissions,
   ops: readonly PermOp[],
 ): string {
-  if (spec === true) {
-    return "PERMISSIONS FULL"
-  }
-  if (spec === false) {
-    return "PERMISSIONS NONE"
-  }
-  if (spec instanceof BoundQuery) {
-    return `PERMISSIONS FOR ${ops.join(", ")} WHERE ${inline(spec)}`
-  }
+  if (spec === true) return "PERMISSIONS FULL"
+
+  if (spec === false) return "PERMISSIONS NONE"
+
+  if (spec instanceof BoundQuery) return `PERMISSIONS FOR ${ops.join(", ")} WHERE ${inline(spec)}`
 
   const rules = spec as Partial<Record<PermOp, boolean | BoundQuery | string>>
   const present = ops.filter((op) => rules[op] !== undefined)
@@ -177,18 +169,17 @@ export function renderPermissions(
   // Resolve an op's rule, following `same as X` references; `chain` detects cycles.
   const resolve = (op: PermOp, chain: PermOp[]): boolean | BoundQuery => {
     const cached = resolved.get(op)
-    if (cached !== undefined) {
-      return cached
-    }
+    if (cached !== undefined) return cached
+
     const rule = rules[op]
     if (rule === undefined) {
       throw new Error(
         `PERMISSIONS: "same as ${op}" references op "${op}", which is not in the spec`,
       )
     }
-    if (chain.includes(op)) {
+    if (chain.includes(op))
       throw new Error(`PERMISSIONS: "same as" reference cycle: ${[...chain, op].join(" -> ")}`)
-    }
+
     const value =
       typeof rule === "string"
         ? resolve(rule.slice("same as ".length).trim() as PermOp, [...chain, op])
@@ -202,13 +193,11 @@ export function renderPermissions(
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const op of present) {
     const rule = resolve(op, [])
+    // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
     const body = rule === true ? "FULL" : rule === false ? "NONE" : `WHERE ${inline(rule)}`
     const group = groups.get(body)
-    if (group) {
-      group.push(op)
-    } else {
-      groups.set(body, [op])
-    }
+    if (group) group.push(op)
+    else groups.set(body, [op])
   }
   const clauses = [...groups].map(([body, group]) => `FOR ${group.join(", ")} ${body}`)
   return clauses.length > 0 ? `PERMISSIONS ${clauses.join(" ")}` : ""
@@ -221,15 +210,15 @@ export function renderPermissions(
  * owning table for fields. Used by the CLI's migration diff to add/change/remove objects
  * individually. `emitTable`/`emitField` are the string-joined views of these.
  */
-export interface DefineStatement {
+export type DefineStatement = {
   /**
    * Apply-time secret bindings — `$param` name -> a write- {@link SecretRef} (e.g. `env("X")`). The
-   * DDL carries  the `$param` placeholder; the value resolves it at apply via a `SecretProvider` and
+   * DDL carries the `$param` placeholder; the value resolves it at apply via a `SecretProvider` and
    * passed as a bound parameter (never stored). Set on `access` statements with an `env()`/`secret()` key.
    */
   bindings?: Record<string, SecretRef>
   /**
-   * Rendered clause fragments keyed by clause name (`TYPE`, `DEFAULT`, `ASSERT`, …) —  on
+   * Rendered clause fragments keyed by clause name (`TYPE`, `DEFAULT`, `ASSERT`, …) — on
    * `field`/`table` statements. Each value is the exact fragment used in the DDL, which is also
    * the `ALTER … <set>` form, so the migration engine can compute a clause-level delta without
    * parsing SurrealQL. Absent on older snapshots (those changes fall back to `OVERWRITE`).
@@ -256,13 +245,13 @@ export function fieldType(field: AnyField): string {
 }
 
 /** Inline a single event clause (`when`/one `then`): a `BoundQuery` inlins it, a string passes
- *  through. Exported so the Struct-IR lowering renders event/permission exprs identically. */
+ * through. Exported so the Struct-IR lowering renders event/permission exprs identically. */
 export function eventClause(e: Expr): string {
   return e instanceof BoundQuery ? inline(e) : e
 }
 
 /** A `{ … }` block body — wraps a bare statement list in braces; a `surql\`{ … }\`` passes through.
- *  Exported so the Struct-IR lowering renders function/access blocks to match INFO's `{ … }` form. */
+ * Exported so the Struct-IR lowering renders function/access blocks to match INFO's `{ … }` form. */
 export function braceBody(e: Expr): string {
   const s = eventClause(e).trim()
   return s.startsWith("{") ? s : `{ ${s} }`
@@ -280,7 +269,7 @@ export function blockThen(e: Expr): string {
   // One pass: collapse whitespace runs OUTSIDE strings to a single space; record top-level `;`.
   let out = ""
   let depth = 0
-  let quote: '"' | "'" | null = null
+  let quote: "'" | '"' | null = null
   let pendingSpace = false
   const topSemis: number[] = [] // indices into `out`
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
@@ -291,9 +280,8 @@ export function blockThen(e: Expr): string {
       if (c === "\\" && i + 1 < raw.length) {
         out += raw[i + 1]
         i++
-      } else if (c === quote) {
-        quote = null
-      }
+      } else if (c === quote) quote = null
+
       continue
     }
     if (/\s/u.test(c)) {
@@ -304,21 +292,16 @@ export function blockThen(e: Expr): string {
       out += " "
       pendingSpace = false
     }
-    if (c === '"' || c === "'") {
-      quote = c
-    } else if (c === "(" || c === "[" || c === "{") {
-      depth++
-    } else if (c === ")" || c === "]" || c === "}") {
-      depth--
-    } else if (c === ";" && depth === 0) {
-      topSemis.push(out.length)
-    }
+    if (c === '"' || c === "'") quote = c
+    else if (c === "(" || c === "[" || c === "{") depth++
+    else if (c === ")" || c === "]" || c === "}") depth--
+    else if (c === ";" && depth === 0) topSemis.push(out.length)
+
     out += c
   }
   out = out.trim()
-  if (out.startsWith("{") && out.endsWith("}")) {
-    return out
-  } // author-braced — already canonical
+  if (out.startsWith("{") && out.endsWith("}")) return out
+  // author-braced — already canonical
   // Strip trailing `;` (a lone one doesn't make a statement LIST).
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   while (out.endsWith(";")) {
@@ -329,43 +312,40 @@ export function blockThen(e: Expr): string {
 }
 
 /** SurrealDB's materialized `DEFINE SEQUENCE` defaults — omitted from the DDL so an authored minimal
- *  sequence matches the introspected (BATCH 1000 START 0) form. Shared by the emitter and the
- *  canonical builder so the two can't drift. */
+ * sequence matches the introspected (BATCH 1000 START 0) form. Shared by the emitter and the
+ * canonical builder so the two can't drift. */
 export const SEQ_DEFAULT_BATCH = 1000
 export const SEQ_DEFAULT_START = 0
 
 /** `DEFINE SEQUENCE <name> [BATCH <n>] [START <n>] [TIMEOUT <dur>]` (defaults omitted). */
 function emitSequence(seq: SequenceDef, opts?: DefineOptions): string {
   let s = `DEFINE SEQUENCE ${existsPrefix(opts)}${escapeIdent(seq.name)}`
-  if (seq.config.batch !== undefined && seq.config.batch !== SEQ_DEFAULT_BATCH) {
+  if (seq.config.batch !== undefined && seq.config.batch !== SEQ_DEFAULT_BATCH)
     s += ` BATCH ${seq.config.batch}`
-  }
-  if (seq.config.start !== undefined && seq.config.start !== SEQ_DEFAULT_START) {
+
+  if (seq.config.start !== undefined && seq.config.start !== SEQ_DEFAULT_START)
     s += ` START ${seq.config.start}`
-  }
-  if (seq.config.timeout !== undefined) {
-    s += ` TIMEOUT ${seq.config.timeout}`
-  }
+
+  if (seq.config.timeout !== undefined) s += ` TIMEOUT ${seq.config.timeout}`
+
   return `${s};`
 }
 
 /** `DEFINE EVENT <name> ON TABLE <table> [WHEN <when>] THEN <then>`. `then`s run in order. */
 /** SurrealDB's materialized ASYNC defaults (v3.1.x/3.2): a bare `ASYNC` stores `RETRY 1` + `MAXDEPTH 3`.
- *  Stripped from canonical output so an authored `ASYNC` and an introspected `ASYNC RETRY 1 MAXDEPTH 3`
- *  produce the same string (no diff churn). */
+ * Stripped from canonical output so an authored `ASYNC` and an introspected `ASYNC RETRY 1 MAXDEPTH 3`
+ * produce the same string (no diff churn). */
 export const ASYNC_DEFAULT_RETRY = 1
 export const ASYNC_DEFAULT_MAXDEPTH = 3
 
 /** The `ASYNC [RETRY @r] [MAXDEPTH @m]` clause, omitting the materialized defaults. Shared by the
- *  emitter (authored side) and `canonicalEvent` (introspected side) so the two can't drift. */
+ * emitter (authored side) and `canonicalEvent` (introspected side) so the two can't drift. */
 export function renderAsync(retry?: number, maxDepth?: number): string {
   let s = "ASYNC"
-  if (retry !== undefined && retry !== ASYNC_DEFAULT_RETRY) {
-    s += ` RETRY ${retry}`
-  }
-  if (maxDepth !== undefined && maxDepth !== ASYNC_DEFAULT_MAXDEPTH) {
-    s += ` MAXDEPTH ${maxDepth}`
-  }
+  if (retry !== undefined && retry !== ASYNC_DEFAULT_RETRY) s += ` RETRY ${retry}`
+
+  if (maxDepth !== undefined && maxDepth !== ASYNC_DEFAULT_MAXDEPTH) s += ` MAXDEPTH ${maxDepth}`
+
   return s
 }
 
@@ -378,15 +358,13 @@ function emitEvent(table: string, ev: TableEvent, opts?: DefineOptions): string 
     const a = ev.async === true ? {} : ev.async
     parts.push(renderAsync(a.retry, a.maxDepth))
   }
-  if (ev.when !== undefined) {
-    parts.push(`WHEN ${eventClause(ev.when)}`)
-  }
+  if (ev.when !== undefined) parts.push(`WHEN ${eventClause(ev.when)}`)
+
   const thens = (Array.isArray(ev.then) ? ev.then : [ev.then]).map(blockThen)
   // One `THEN` rides bare; parenthesiz them so the comma list parses unambiguously.
   parts.push(`THEN ${thens.length === 1 ? thens[0] : thens.map((t) => `(${t})`).join(", ")}`)
-  if (ev.comment) {
-    parts.push(`COMMENT ${JSON.stringify(ev.comment)}`)
-  }
+  if (ev.comment) parts.push(`COMMENT ${JSON.stringify(ev.comment)}`)
+
   return `${parts.join(" ")};`
 }
 
@@ -397,56 +375,52 @@ function emitFunction(fn: FunctionDef, opts?: DefineOptions): string {
     .map(([n, f]) => `$${n}: ${fieldType(f)}`)
     .join(", ")
   const parts = [`DEFINE FUNCTION ${existsPrefix(opts)}fn::${escapeIdent(fn.name)}(${args})`]
-  if (fn.config.returns) {
-    parts.push(`-> ${fieldType(fn.config.returns)}`)
-  }
+  if (fn.config.returns) parts.push(`-> ${fieldType(fn.config.returns)}`)
+
   parts.push(braceBody(body))
   const p = fn.config.permissions
   if (p !== undefined) {
     parts.push(
       p === true
         ? "PERMISSIONS FULL"
-        : p === false
+        : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
+          p === false
           ? "PERMISSIONS NONE"
           : `PERMISSIONS ${eventClause(p)}`,
     )
   }
-  if (fn.config.comment) {
-    parts.push(`COMMENT ${JSON.stringify(fn.config.comment)}`)
-  }
+  if (fn.config.comment) parts.push(`COMMENT ${JSON.stringify(fn.config.comment)}`)
+
   return `${parts.join(" ")};`
 }
 
 /** `DEFINE ACCESS <name> ON <DATABASE|NAMESPACE> TYPE <RECORD|JWT|BEARER> … [DURATION …]`. */
 /** Deterministic, SurrealQL-param-safe placeholder for a secret reference: `<kind>_<sanitized name>`.
- *  Identical refs collapse to one `$param`; distinct refs never collide; stable across re-emits. */
+ * Identical refs collapse to one `$param`; distinct refs never collide; stable across re-emits. */
 export function secretParam(ref: SecretRef): string {
   return `${ref.kind}_${ref.name.replaceAll(/[^A-Za-z0-9_]/gu, "_")}`
 }
 
 /** Render a `DEFINE ACCESS … KEY` value. A `SecretRef` becomes a bound `$param` placeholder (the value
- *  resolves it at apply, never emitted into the DDL); an inline literal quots it + linted — unless
- *  `isPublic` (an asymmetric verify KEY is the PUBLIC key: inline is fine, no secret to leak). */
+ * resolves it at apply, never emitted into the DDL); an inline literal quots it + linted — unless
+ * `isPublic` (an asymmetric verify KEY is the PUBLIC key: inline is fine, no secret to leak). */
 function renderAccessKey(
   access: string,
   key: SecretRef | string | undefined,
   isPublic = false,
 ): string {
-  if (key && isSecretRef(key)) {
-    return `$${secretParam(key)}`
-  }
-  if (typeof key === "string" && key.length > 0 && !isPublic) {
-    warnInlineKey(access)
-  }
+  if (key && isSecretRef(key)) return `$${secretParam(key)}`
+
+  if (typeof key === "string" && key.length > 0 && !isPublic) warnInlineKey(access)
+
   return JSON.stringify(key ?? "")
 }
 
 const warnedInlineKeys = new Set<string>()
 /** Lint (once per access): an inline literal KEY lands a secret in source + migration files. */
 function warnInlineKey(access: string): void {
-  if (warnedInlineKeys.has(access)) {
-    return
-  }
+  if (warnedInlineKeys.has(access)) return
+
   warnedInlineKeys.add(access)
   console.warn(
     `better-schemic: access "${access}" has an inline literal KEY — prefer env()/secret() so the secret stays out of source + migration files.`,
@@ -455,7 +429,7 @@ function warnInlineKey(access: string): void {
 
 /** A JWT verify/issue config as stored on either `TYPE JWT` (the `jwt` kind) or RECORD's `WITH JWT`
  *  (`config.withJwt`) — a flat, read-friendly view over both. */
-interface JwtClauseFields {
+type JwtClauseFields = {
   alg?: string
   issuer?: { key: SecretRef | string }
   key?: SecretRef | string
@@ -463,31 +437,27 @@ interface JwtClauseFields {
 }
 
 /** Render a JWT verify/issue clause body — `ALGORITHM <alg> KEY <key> [WITH ISSUER KEY <ik>]` or
- *  `URL <url>` — shared by `TYPE JWT` and RECORD's `WITH JWT`. Keys go through {@link renderAccessKey}
+ * `URL <url>` — shared by `TYPE JWT` and RECORD's `WITH JWT`. Keys go through {@link renderAccessKey}
  *  (secret → bound `$param`; inline literal → quoted + linted). `alg` defaults to `HS512`. With an
- *  ASYMMETRIC alg the verify KEY is the PUBLIC key — inline is fine, no lint (the private ISSUER KEY
- *  still lints); a symmetric (HS*) KEY is the shared secret and lints. */
+ * ASYMMETRIC alg the verify KEY is the PUBLIC key — inline is fine, no lint (the private ISSUER KEY
+ * still lints); a symmetric (HS*) KEY is the shared secret and lints. */
 function renderJwtClause(access: string, cfg: JwtClauseFields): string {
-  if (cfg.url) {
-    return `URL ${JSON.stringify(cfg.url)}`
-  }
+  if (cfg.url) return `URL ${JSON.stringify(cfg.url)}`
+
   const alg = cfg.alg ?? "HS512"
   const isAsymmetric = !alg.startsWith("HS")
   let out = `ALGORITHM ${alg} KEY ${renderAccessKey(access, cfg.key, isAsymmetric)}`
-  if (cfg.issuer) {
-    out += ` WITH ISSUER KEY ${renderAccessKey(access, cfg.issuer.key)}`
-  }
+  if (cfg.issuer) out += ` WITH ISSUER KEY ${renderAccessKey(access, cfg.issuer.key)}`
+
   return out
 }
 
 /** The `$param -> SecretRef` write-bindings an access contributes (value resolved at apply, never
- *  stored): the JWT verify key + issuer key on `TYPE JWT`, and the same on RECORD's `WITH JWT`. */
+ * stored): the JWT verify key + issuer key on `TYPE JWT`, and the same on RECORD's `WITH JWT`. */
 export function accessBindings(def: AccessDef): Record<string, SecretRef> | undefined {
   const out: Record<string, SecretRef> = {}
   const add = (key: SecretRef | string | undefined): void => {
-    if (key && isSecretRef(key)) {
-      out[secretParam(key)] = key
-    }
+    if (key && isSecretRef(key)) out[secretParam(key)] = key
   }
   const k = def.config.kind
   if (k.type === "jwt") {
@@ -518,79 +488,67 @@ function emitAccess(a: AccessDef, opts?: DefineOptions): string {
     )
   }
   let typeClause: string
-  if (k.type === "bearer") {
+  if (k.type === "bearer")
     typeClause = `TYPE BEARER FOR ${k.subject === "user" ? "USER" : "RECORD"}`
-  } else if (k.type === "jwt") {
-    typeClause = `TYPE JWT ${renderJwtClause(a.name, k)}`
-  } else {
-    typeClause = "TYPE RECORD"
-  }
+  else if (k.type === "jwt") typeClause = `TYPE JWT ${renderJwtClause(a.name, k)}`
+  else typeClause = "TYPE RECORD"
+
   const parts = [`DEFINE ACCESS ${existsPrefix(opts)}${escapeIdent(a.name)} ON ${on} ${typeClause}`]
   // RECORD clauses, in grammar order: SIGNUP, SIGNIN, WITH JWT (custom session-token key; omit for the
   // auto-generated one), WITH REFRESH — then AUTHENTICATE (a general post-type clause).
   if (k.type === "record") {
-    if (a.config.signup) {
-      parts.push(`SIGNUP ${braceBody(a.config.signup)}`)
-    }
-    if (a.config.signin) {
-      parts.push(`SIGNIN ${braceBody(a.config.signin)}`)
-    }
-    if (a.config.withJwt) {
-      parts.push(`WITH JWT ${renderJwtClause(a.name, a.config.withJwt)}`)
-    }
-    if (a.config.refresh) {
-      parts.push("WITH REFRESH")
-    }
-    if (a.config.authenticate) {
-      parts.push(`AUTHENTICATE ${braceBody(a.config.authenticate)}`)
-    }
+    if (a.config.signup) parts.push(`SIGNUP ${braceBody(a.config.signup)}`)
+
+    if (a.config.signin) parts.push(`SIGNIN ${braceBody(a.config.signin)}`)
+
+    if (a.config.withJwt) parts.push(`WITH JWT ${renderJwtClause(a.name, a.config.withJwt)}`)
+
+    if (a.config.refresh) parts.push("WITH REFRESH")
+
+    if (a.config.authenticate) parts.push(`AUTHENTICATE ${braceBody(a.config.authenticate)}`)
   }
   const d = a.config.duration
   if (d?.grant || d?.token || d?.session) {
     const fors: string[] = []
-    if (d.grant) {
-      fors.push(`FOR GRANT ${d.grant}`)
-    }
-    if (d.token) {
-      fors.push(`FOR TOKEN ${d.token}`)
-    }
-    if (d.session) {
-      fors.push(`FOR SESSION ${d.session}`)
-    }
+    if (d.grant) fors.push(`FOR GRANT ${d.grant}`)
+
+    if (d.token) fors.push(`FOR TOKEN ${d.token}`)
+
+    if (d.session) fors.push(`FOR SESSION ${d.session}`)
+
     parts.push(`DURATION ${fors.join(", ")}`)
   }
-  if (a.config.comment) {
-    parts.push(`COMMENT ${JSON.stringify(a.config.comment)}`)
-  }
+  if (a.config.comment) parts.push(`COMMENT ${JSON.stringify(a.config.comment)}`)
+
   return `${parts.join(" ")};`
 }
 
 /** Uppercase a filter clause to match `INFO … STRUCTURE`, but preserve double-quoted arguments — the
- *  filter name + bare args (snowball language, ngram sizes) are case-insensitive, while `mapper("…")`
- *  carries a case-sensitive file path that must NOT be mangled. Shared by emit + the Struct lowering. */
+ * filter name + bare args (snowball language, ngram sizes) are case-insensitive, while `mapper("…")`
+ * carries a case-sensitive file path that must NOT change. Shared by emit + the Struct lowering. */
 export function upperFilterClause(filter: string): string {
-  return filter.replaceAll(/"[^"]*"|[^"]+/gu, (seg) => (seg.startsWith('"') ? seg : seg.toUpperCase()))
+  return filter.replaceAll(/"[^"]*"|[^"]+/gu, (seg) =>
+    seg.startsWith('"') ? seg : seg.toUpperCase(),
+  )
 }
 
 /** `DEFINE ANALYZER <name> [FUNCTION …] [TOKENIZERS …] [FILTERS …] [COMMENT …]`. Tokenizers/filters
- *  uppercas them to match `INFO … STRUCTURE`, so an authored analyzer compares equal to the
- *  introspected one. */
+ * uppercas them to match `INFO … STRUCTURE`, so an authored analyzer compares equal to the
+ * introspected one. */
 function emitAnalyzer(a: AnalyzerDef, opts?: DefineOptions): string {
   let s = `DEFINE ANALYZER ${existsPrefix(opts)}${escapeIdent(a.name)}`
   // Clauses in grammar order: FUNCTION, TOKENIZERS, FILTERS, COMMENT (the `fn::` prefix is optional
   // in the config — normalize so it's emitted once).
-  if (a.config.function) {
-    s += ` FUNCTION fn::${a.config.function.replace(/^fn::/u, "")}`
-  }
-  if (a.config.tokenizers?.length) {
+  if (a.config.function) s += ` FUNCTION fn::${a.config.function.replace(/^fn::/u, "")}`
+
+  if (a.config.tokenizers?.length)
     s += ` TOKENIZERS ${a.config.tokenizers.map((t) => t.toUpperCase()).join(", ")}`
-  }
-  if (a.config.filters?.length) {
+
+  if (a.config.filters?.length)
     s += ` FILTERS ${a.config.filters.map(upperFilterClause).join(", ")}`
-  }
-  if (a.config.comment) {
-    s += ` COMMENT ${JSON.stringify(a.config.comment)}`
-  }
+
+  if (a.config.comment) s += ` COMMENT ${JSON.stringify(a.config.comment)}`
+
   return `${s};`
 }
 
@@ -601,48 +559,47 @@ export function emitDefStatement(def: StandaloneDef, opts?: DefineOptions): Defi
   assertCompleteDef(def)
   if (def.kind === "event") {
     return {
+      ddl: emitEvent(def.table, def, opts),
       kind: "event",
       name: def.name,
       table: def.table,
-      ddl: emitEvent(def.table, def, opts),
     }
   }
   if (def.kind === "access") {
     return {
+      bindings: accessBindings(def),
+      ddl: emitAccess(def, opts),
       kind: "access",
       name: def.name,
-      ddl: emitAccess(def, opts),
-      bindings: accessBindings(def),
     }
   }
-  if (def.kind === "analyzer") {
-    return { kind: "analyzer", name: def.name, ddl: emitAnalyzer(def, opts) }
-  }
+  if (def.kind === "analyzer")
+    return { ddl: emitAnalyzer(def, opts), kind: "analyzer", name: def.name }
+
   if (def.kind === "param") {
     // Managed (inline literal) params inline the value; secret/declared params emit a `$__value`
     // PLACEHOLDER + a binding, resolved at `sc param push` — the value never reaches DDL text.
     const cfg = def.config
     const value = cfg.mode === "value" ? toSurqlString(cfg.value) : "$__value"
     let ddl = `DEFINE PARAM ${existsPrefix(opts)}$${def.name} VALUE ${value}`
-    if (cfg.permissions === false) {
-      ddl += " PERMISSIONS NONE"
-    }
-    if (cfg.comment) {
-      ddl += ` COMMENT ${JSON.stringify(cfg.comment)}`
-    }
+    if (cfg.permissions === false) ddl += " PERMISSIONS NONE"
+
+    if (cfg.comment) ddl += ` COMMENT ${JSON.stringify(cfg.comment)}`
+
     return {
+      ddl: `${ddl};`,
       kind: "param",
       name: def.name,
-      ddl: `${ddl};`,
       ...(cfg.mode === "secret" && cfg.secret ? { bindings: { __value: cfg.secret } } : {}),
     }
   }
-  if (def.kind === "function") {
-    return { kind: "function", name: def.name, ddl: emitFunction(def, opts) }
-  }
-  if (def.kind === "sequence") {
-    return { kind: "sequence", name: def.name, ddl: emitSequence(def, opts) }
-  }
+  if (def.kind === "function")
+    return { ddl: emitFunction(def, opts), kind: "function", name: def.name }
+
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
+  if (def.kind === "sequence")
+    return { ddl: emitSequence(def, opts), kind: "sequence", name: def.name }
+
   // EXHAUSTIVE: never fall through to a sibling's emitter — a def of an unknown kind used to land in
   // `emitFunction` and die on `fn.config.body`.
   throw unknownDefKind(def)
@@ -652,23 +609,19 @@ export function emitDefStatement(def: StandaloneDef, opts?: DefineOptions): Defi
  * The standalone `FunctionDef`s auto-created by `analyzer.function(input => surql\`…\`)` — auto-named
  * `<analyzer>_fn`, they must emitts it as their own `DEFINE FUNCTION` (the analyzer's `FUNCTION fn::…`
  * clause references them). Deduped against any explicitly-defined function of the same name; a name
- * COLLISION with a differently-bodied function throws, so an auto-name  clobbering an exported
+ * COLLISION with a differently-bodied function throws, so an auto-name clobbering an exported
  * `fn::<analyzer>_fn` caughts it at gen rather than corrupting the schema.
  */
 export function inlineAnalyzerFunctions(defs: StandaloneDef[]): FunctionDef[] {
   const byName = new Map<string, string>() // fn name -> its DDL (explicit fns + already-taken auto fns)
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const d of defs) {
-    if (d.kind === "function") {
-      byName.set(d.name, emitFunction(d))
-    }
-  }
+  for (const d of defs) if (d.kind === "function") byName.set(d.name, emitFunction(d))
+
   const out: FunctionDef[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const d of defs) {
-    if (d.kind !== "analyzer" || !d.config.functionDef) {
-      continue
-    }
+    if (d.kind !== "analyzer" || !d.config.functionDef) continue
+
     const fn = d.config.functionDef
     const ddl = emitFunction(fn)
     const prior = byName.get(fn.name)
@@ -690,12 +643,10 @@ export function inlineAnalyzerFunctions(defs: StandaloneDef[]): FunctionDef[] {
 /** Emit `DEFINE FIELD path ...` for a node, then recurse into its children. */
 /** A trivial array element is the plain auto-created form — no FLEXIBLE and no `$`-clauses. */
 function isTrivialElement(info: FieldInfo, surreal?: SurrealMeta): boolean {
-  if (info.flexible) {
-    return false
-  }
-  if (!surreal) {
-    return true
-  }
+  if (info.flexible) return false
+
+  if (!surreal) return true
+
   return (
     !surreal.permissions &&
     !surreal.readonly &&
@@ -727,12 +678,11 @@ function validateField(
   schemafull: boolean,
 ): void {
   const at = `field "${path}"`
-  if (info.flexible && !schemafull) {
+  if (info.flexible && !schemafull)
     throw new Error(`${at}: FLEXIBLE is only valid on a SCHEMAFULL table.`)
-  }
-  if (!surreal) {
-    return
-  }
+
+  if (!surreal) return
+
   const nested = path.includes(".")
   if (surreal.computed) {
     const conflicts = [
@@ -747,14 +697,11 @@ function validateField(
         `${at}: $computed can't be combined with ${conflicts.join("/")} — a computed field is virtual (never stored).`,
       )
     }
-    if (nested) {
-      throw new Error(`${at}: $computed is only valid on a top-level field.`)
-    }
+    if (nested) throw new Error(`${at}: $computed is only valid on a top-level field.`)
   }
   if (surreal.reference) {
-    if (nested) {
-      throw new Error(`${at}: $reference is only valid on a top-level field.`)
-    }
+    if (nested) throw new Error(`${at}: $reference is only valid on a top-level field.`)
+
     if (!isRecordRefType(info.type)) {
       throw new Error(
         `${at}: $reference needs a record-link type (record / option<record> / array<record> / set<record>), got "${info.type}".`,
@@ -778,17 +725,16 @@ function emit(
   // A DEFAULT/COMPUTED guarantees a populated column, so SurrealDB stores the BARE type and the
   // emitter strips the leading option<> ({@link forcesBareType} — the normalizer applies the same
   // rule). A VALUE does NOT guarantee presence and re-validates the type last, so it keeps option<>.
-  if (forcesBareType(surreal ?? {}) && type.startsWith("option<")) {
+  if (forcesBareType(surreal ?? {}) && type.startsWith("option<"))
     type = type.slice("option<".length, -1)
-  }
+
   // An array element is auto-created by SurrealDB, so a (kept) element DEFINE must OVERWRITE it.
   const prefix = forceOverwrite ? "OVERWRITE " : existsPrefix(opts)
   // Clause fragments keyed by clause name (insertion order == DDL order). Each fragment is also
   // the `ALTER FIELD … <set>` form, so the migration engine diffs clauses without parsing.
   const clauses: Record<string, string> = { TYPE: `TYPE ${type}` }
-  if (info.flexible) {
-    clauses.FLEXIBLE = "FLEXIBLE"
-  }
+  if (info.flexible) clauses.FLEXIBLE = "FLEXIBLE"
+
   if (surreal?.reference) {
     let ref = "REFERENCE"
     const onDelete = surreal.reference === true ? undefined : surreal.reference.onDelete
@@ -800,42 +746,35 @@ function emit(
     }
     clauses.REFERENCE = ref
   }
-  if (surreal?.default) {
+  if (surreal?.default)
     clauses.DEFAULT = `DEFAULT ${surreal.defaultAlways ? "ALWAYS " : ""}${inline(surreal.default)}`
-  }
-  if (surreal?.value) {
-    clauses.VALUE = `VALUE ${inline(surreal.value)}`
-  }
-  if (surreal?.computed) {
-    clauses.COMPUTED = `COMPUTED ${inline(surreal.computed)}`
-  }
+
+  if (surreal?.value) clauses.VALUE = `VALUE ${inline(surreal.value)}`
+
+  if (surreal?.computed) clauses.COMPUTED = `COMPUTED ${inline(surreal.computed)}`
+
   const assertBody = assertExpr(surreal?.asserts)
-  if (assertBody) {
-    clauses.ASSERT = `ASSERT ${admitNullAssert(type, assertBody)}`
-  }
-  if (surreal?.readonly) {
-    clauses.READONLY = "READONLY"
-  }
-  if (surreal?.comment) {
-    clauses.COMMENT = `COMMENT ${JSON.stringify(surreal.comment)}`
-  }
+  if (assertBody) clauses.ASSERT = `ASSERT ${admitNullAssert(type, assertBody)}`
+
+  if (surreal?.readonly) clauses.READONLY = "READONLY"
+
+  if (surreal?.comment) clauses.COMMENT = `COMMENT ${JSON.stringify(surreal.comment)}`
+
   // Internal fields still exist on the table (so SCHEMAFULL writes succeed) but grant
   // no record-user access — internal wins over any `$permissions` on the same field.
-  if (surreal?.internal) {
-    clauses.PERMISSIONS = "PERMISSIONS NONE"
-  } else if (surreal?.permissions !== undefined) {
+  if (surreal?.internal) clauses.PERMISSIONS = "PERMISSIONS NONE"
+  else if (surreal?.permissions !== undefined) {
     const clause = renderPermissions(surreal.permissions, ["select", "create", "update"])
-    if (clause) {
-      clauses.PERMISSIONS = clause
-    }
+    if (clause) clauses.PERMISSIONS = clause
   }
   const ddl = `DEFINE FIELD ${prefix}${path} ON TABLE ${escapeIdent(table)} ${Object.values(clauses).join(" ")};`
-  out.push({ kind: "field", name: path, table, ddl, clauses })
+  out.push({ clauses, ddl, kind: "field", name: path, table })
 
   // A single-field index via `.$index()`/`.$unique()` (plain/UNIQUE) or `.$fulltext()`/`.$hnsw()`/
   // `.$diskann()` (a FULLTEXT/HNSW/DISKANN `spec`). When BOTH `spec` and UNIQUE sets them, two indexes
   // emit them with auto-derived names (`_idx` for the spec, `_uq` for UNIQUE).
   if (surreal?.index) {
+    // eslint-disable-next-line unicorn/consistent-function-scoping -- helper local mantido junto do uso para coesão e legibilidade
     const sanitize = (p: string) => p.replaceAll(/[`]/gu, "").replaceAll(/[^a-zA-Z0-9]+/gu, "_")
     const base = `${table}_${sanitize(path)}`
 
@@ -845,17 +784,17 @@ function emit(
       // from `.$unique()` (`_uq` fallback).
       const specName = surreal.index.name ?? `${base}_idx`
       out.push({
+        ddl: `DEFINE INDEX ${existsPrefix(opts)}${escapeIdent(specName)} ON TABLE ${escapeIdent(table)} FIELDS ${path} ${surreal.index.spec};`,
         kind: "index",
         name: specName,
         table,
-        ddl: `DEFINE INDEX ${existsPrefix(opts)}${escapeIdent(specName)} ON TABLE ${escapeIdent(table)} FIELDS ${path} ${surreal.index.spec};`,
       })
       const uniqName = surreal.index.uniqueName ?? `${base}_uq`
       out.push({
+        ddl: `DEFINE INDEX ${existsPrefix(opts)}${escapeIdent(uniqName)} ON TABLE ${escapeIdent(table)} FIELDS ${path} UNIQUE;`,
         kind: "index",
         name: uniqName,
         table,
-        ddl: `DEFINE INDEX ${existsPrefix(opts)}${escapeIdent(uniqName)} ON TABLE ${escapeIdent(table)} FIELDS ${path} UNIQUE;`,
       })
     } else {
       // A lone index: a UNIQUE- index takes `.$unique()`'s name; a spec/plain index takes its own.
@@ -865,29 +804,30 @@ function emit(
           : surreal.index.name) ?? `${base}_idx`
       const tail = surreal.index.spec
         ? ` ${surreal.index.spec}`
-        : surreal.index.unique
+        : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
+          surreal.index.unique
           ? " UNIQUE"
           : ""
       out.push({
+        ddl: `DEFINE INDEX ${existsPrefix(opts)}${escapeIdent(idxName)} ON TABLE ${escapeIdent(table)} FIELDS ${path}${tail};`,
         kind: "index",
         name: idxName,
         table,
-        ddl: `DEFINE INDEX ${existsPrefix(opts)}${escapeIdent(idxName)} ON TABLE ${escapeIdent(table)} FIELDS ${path}${tail};`,
       })
     }
   }
 
   // SurrealDB auto-creates an array's `.*` element from the `array<…>` type. A TRIVIAL element is
-  // that exact form, so we skip its DEFINE (a plain one errors "already exists") and emit  its
+  // that exact form, so we skip its DEFINE (a plain one errors "already exists") and emit its
   // sub-fields. A CUSTOMIZED element (FLEXIBLE / permissions / …) emits it with OVERWRITE. Other
-  // parents (an `object` map's `.*` value) emit them normally.
+  // parents (an `object` map's `.*` value) emit them .
   const isArray = /^(?:array|set)\b/u.test(info.type)
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const child of info.children) {
     const childPath = `${path}${child.suffix}`
     if (isArray && child.suffix === ".*") {
       if (isTrivialElement(child.info, child.surreal)) {
-        // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+        // eslint-disable-next-line functional/no-loop-statements, max-depth -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica / parser com estado mutável; extrair helpers mudaria a semântica
         for (const sub of child.info.children) {
           emit(
             `${childPath}${sub.suffix}`,
@@ -900,17 +840,13 @@ function emit(
             schemafull,
           )
         }
-      } else {
-        emit(childPath, table, child.info, child.surreal, opts, out, true, schemafull)
-      }
-    } else {
-      emit(childPath, table, child.info, child.surreal, opts, out, false, schemafull)
-    }
+      } else emit(childPath, table, child.info, child.surreal, opts, out, true, schemafull)
+    } else emit(childPath, table, child.info, child.surreal, opts, out, false, schemafull)
   }
 }
 
 /** Structured `DEFINE FIELD` statements for a field (and its nested subfields). `schemafull` is the
- *  table's mode (used to check FLEXIBLE); defaults to `true` for the standalone field path. */
+ * table's mode (used to check FLEXIBLE); defaults to `true` for the standalone field path. */
 export function emitFieldStatements(
   name: string,
   table: string,
@@ -923,9 +859,9 @@ export function emitFieldStatements(
   try {
     info = inferField(field.schema)
   } catch (error) {
-    // inferField  sees the schema; pin the failure to the field + table for the user.
+    // inferField sees the schema; pin the failure to the field + table for the user.
     const msg = error instanceof Error ? error.message : String(error)
-    throw new Error(`${msg} (field "${name}" on table "${table}")`)
+    throw new Error(`${msg} (field "${name}" on table "${table}")`, { cause: error })
   }
   emit(escapeIdent(name), table, info, field.surreal, opts, out, false, schemafull)
   return out
@@ -955,102 +891,87 @@ export function emitStatements(
   if (rel) {
     // Endpoints are optional: omit FROM/TO when unrestricted (`TYPE RELATION`).
     type = "RELATION"
-    if (rel.from.length > 0) {
-      type += ` FROM ${rel.from.map(escapeIdent).join(" | ")}`
-    }
-    if (rel.to.length > 0) {
-      type += ` TO ${rel.to.map(escapeIdent).join(" | ")}`
-    }
-    if (rel.enforced) {
-      type += " ENFORCED"
-    }
-  } else {
-    type = t.config.type === "any" ? "ANY" : "NORMAL"
-  }
+    if (rel.from.length > 0) type += ` FROM ${rel.from.map(escapeIdent).join(" | ")}`
+
+    if (rel.to.length > 0) type += ` TO ${rel.to.map(escapeIdent).join(" | ")}`
+
+    if (rel.enforced) type += " ENFORCED"
+  } else type = t.config.type === "any" ? "ANY" : "NORMAL"
 
   // Build clauses keyed by name (insertion order == DDL order) so the migration engine can diff
   // table-level changes into the `ALTER TABLE … <set>` form without parsing SurrealQL — the
-  // stored fragment IS the ALTER set form,  as for fields.
+  // stored fragment IS the ALTER set form, as for fields.
   const clauses: Record<string, string> = { TYPE: `TYPE ${type}` }
-  if (t.config.drop) {
-    clauses.DROP = "DROP"
-  }
+  if (t.config.drop) clauses.DROP = "DROP"
+
   clauses.SCHEMA = t.config.schemafull ? "SCHEMAFULL" : "SCHEMALESS"
   // A pre-computed VIEW: `AS <SELECT …>` (the query inlins it like any other expression).
-  if (t.config.view !== undefined) {
-    clauses.AS = `AS ${eventClause(t.config.view)}`
-  }
-  if (t.config.comment) {
-    clauses.COMMENT = `COMMENT ${JSON.stringify(t.config.comment)}`
-  }
+  if (t.config.view !== undefined) clauses.AS = `AS ${eventClause(t.config.view)}`
+
+  if (t.config.comment) clauses.COMMENT = `COMMENT ${JSON.stringify(t.config.comment)}`
+
   // Fold permissions into the single DEFINE TABLE head (no separate OVERWRITE … PERMISSIONS).
   if (t.config.permissions !== undefined) {
     const clause = renderPermissions(t.config.permissions, ["select", "create", "update", "delete"])
-    if (clause) {
-      clauses.PERMISSIONS = clause
-    }
+    if (clause) clauses.PERMISSIONS = clause
   }
 
   const out: DefineStatement[] = [
     {
+      clauses,
+      ddl: `DEFINE TABLE ${existsPrefix(opts)}${escapeIdent(t.name)} ${Object.values(clauses).join(" ")};`,
       kind: "table",
       name: t.name,
-      ddl: `DEFINE TABLE ${existsPrefix(opts)}${escapeIdent(t.name)} ${Object.values(clauses).join(" ")};`,
-      clauses,
     },
   ]
   // SINGLETON: the id is NOT implicit — its literal type is the whole point (the DB enforces
   // the one fixed record id): `DEFINE FIELD id ON config TYPE 'default'`.
   if (t.config.singleton !== undefined) {
     out.push({
+      clauses: { TYPE: `TYPE '${t.config.singleton}'` },
+      ddl: `DEFINE FIELD ${existsPrefix(opts)}id ON TABLE ${escapeIdent(t.name)} TYPE '${t.config.singleton}';`,
       kind: "field",
       name: "id",
       table: t.name,
-      ddl: `DEFINE FIELD ${existsPrefix(opts)}id ON TABLE ${escapeIdent(t.name)} TYPE '${t.config.singleton}';`,
-      clauses: { TYPE: `TYPE '${t.config.singleton}'` },
     })
   }
   // A view's rows comput them from its query — it has no DEFINE FIELD statements.
   if (!t.config.view) {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const [name, field] of Object.entries(t.fields)) {
-      if (implicit.has(name)) {
-        continue
-      }
-      out.push(...emitFieldStatements(name, t.name, field, opts, !!t.config.schemafull))
+      if (implicit.has(name)) continue
+
+      out.push(...emitFieldStatements(name, t.name, field, opts, t.config.schemafull))
     }
   }
   // Composite indexes declared via `.index(name, fields, …)`. A `count` index has no FIELDS.
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const idx of t.config.indexes ?? []) {
     let spec: string
-    if (idx.count) {
-      spec = "COUNT"
-    } else {
+    if (idx.count) spec = "COUNT"
+    else {
       spec = `FIELDS ${idx.fields.map(escapeIdent).join(", ")}`
-      if (idx.unique) {
-        spec += " UNIQUE"
-      }
-      if (idx.spec) {
-        spec += ` ${idx.spec}`
-      } // HNSW/DISKANN/FULLTEXT
+      if (idx.unique) spec += " UNIQUE"
+
+      if (idx.spec) spec += ` ${idx.spec}`
+      // HNSW/DISKANN/FULLTEXT
     }
     const comment = idx.comment ? ` COMMENT ${JSON.stringify(idx.comment)}` : ""
     out.push({
+      ddl: `DEFINE INDEX ${existsPrefix(opts)}${escapeIdent(idx.name)} ON TABLE ${escapeIdent(t.name)} ${spec}${comment};`,
       kind: "index",
       name: idx.name,
       table: t.name,
-      ddl: `DEFINE INDEX ${existsPrefix(opts)}${escapeIdent(idx.name)} ON TABLE ${escapeIdent(t.name)} ${spec}${comment};`,
     })
   }
   // Row-change events declared via `.event(name, { when?, then })`.
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const ev of t.config.events ?? []) {
     out.push({
+      ddl: emitEvent(t.name, ev, opts),
       kind: "event",
       name: ev.name,
       table: t.name,
-      ddl: emitEvent(t.name, ev, opts),
     })
   }
   return out
@@ -1065,30 +986,24 @@ export function emitTable(t: TableDef<string, Shape>, opts?: DefineOptions): str
 
 /** The `REMOVE ...` statement that drops the object a `DefineStatement` defines. */
 export function removeStatement(s: Pick<DefineStatement, "kind" | "name" | "table">): string {
-  if (s.kind === "table") {
-    return `REMOVE TABLE IF EXISTS ${escapeIdent(s.name)};`
-  }
-  if (s.kind === "index") {
+  if (s.kind === "table") return `REMOVE TABLE IF EXISTS ${escapeIdent(s.name)};`
+
+  if (s.kind === "index")
     return `REMOVE INDEX IF EXISTS ${escapeIdent(s.name)} ON TABLE ${escapeIdent(s.table ?? "")};`
-  }
-  if (s.kind === "event") {
+
+  if (s.kind === "event")
     return `REMOVE EVENT IF EXISTS ${escapeIdent(s.name)} ON TABLE ${escapeIdent(s.table ?? "")};`
-  }
-  if (s.kind === "function") {
-    return `REMOVE FUNCTION IF EXISTS fn::${escapeIdent(s.name)};`
-  }
-  if (s.kind === "access") {
-    return `REMOVE ACCESS IF EXISTS ${escapeIdent(s.name)} ON DATABASE;`
-  }
-  if (s.kind === "analyzer") {
-    return `REMOVE ANALYZER IF EXISTS ${escapeIdent(s.name)};`
-  }
-  if (s.kind === "param") {
-    return `REMOVE PARAM IF EXISTS $${s.name};`
-  }
-  if (s.kind === "sequence") {
-    return `REMOVE SEQUENCE IF EXISTS ${escapeIdent(s.name)};`
-  }
+
+  if (s.kind === "function") return `REMOVE FUNCTION IF EXISTS fn::${escapeIdent(s.name)};`
+
+  if (s.kind === "access") return `REMOVE ACCESS IF EXISTS ${escapeIdent(s.name)} ON DATABASE;`
+
+  if (s.kind === "analyzer") return `REMOVE ANALYZER IF EXISTS ${escapeIdent(s.name)};`
+
+  if (s.kind === "param") return `REMOVE PARAM IF EXISTS $${s.name};`
+
+  if (s.kind === "sequence") return `REMOVE SEQUENCE IF EXISTS ${escapeIdent(s.name)};`
+
   return `REMOVE FIELD IF EXISTS ${s.name} ON TABLE ${escapeIdent(s.table ?? "")};`
 }
 
@@ -1114,7 +1029,7 @@ const FIELD_CLAUSE_ORDER = [
   "PERMISSIONS",
 ] as const
 /** Clauses `ALTER FIELD` can `DROP` (remove). `PERMISSIONS` has no DROP (reset to FULL);
- *  `COMPUTED` has no ALTER form at all (forces an OVERWRITE fallback). */
+ * `COMPUTED` has no ALTER form at all (forces an OVERWRITE fallback). */
 const FIELD_DROPPABLE = new Set([
   "FLEXIBLE",
   "READONLY",
@@ -1137,43 +1052,37 @@ export function alterField(
   prev: Record<string, string> | undefined,
   next: Record<string, string> | undefined,
 ): null | string {
-  if (!prev || !next) {
-    return null
-  }
+  if (!prev || !next) return null
+
   const sets: string[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const k of FIELD_CLAUSE_ORDER) {
     const before = prev[k]
     const after = next[k]
-    if (before === after) {
-      continue
-    }
-    if (k === "COMPUTED") {
-      return null
-    } // no `ALTER FIELD … COMPUTED` form
-    if (after !== undefined) {
+    if (before === after) continue
+
+    if (k === "COMPUTED") return null
+    // no `ALTER FIELD … COMPUTED` form
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
+    if (after !== undefined)
       sets.push(after) // added or changed -> re-set (the fragment IS the ALTER set form)
-    } else if (k === "PERMISSIONS") {
+    else if (k === "PERMISSIONS")
       sets.push("PERMISSIONS FULL") // no `DROP PERMISSIONS`; reset to the field default
-    } else if (k === "TYPE") {
-      return null // a field always has a TYPE; "removing" it is meaningless -> OVERWRITE
-    } else if (FIELD_DROPPABLE.has(k)) {
-      sets.push(`DROP ${k}`)
-    } else {
-      return null
-    }
+    else if (k === "TYPE")
+      return null // a field always has a TYPE; "removing" is meaningless -> OVERWRITE
+    else if (FIELD_DROPPABLE.has(k)) sets.push(`DROP ${k}`)
+    else return null
   }
-  if (sets.length === 0) {
-    return null
-  }
+  if (sets.length === 0) return null
+
   return `ALTER FIELD ${path} ON TABLE ${escapeIdent(table)} ${sets.join(" ")};`
 }
 
 /** Canonical clause order for a deterministic `ALTER TABLE` body (matches the DDL order). */
 const TABLE_CLAUSE_ORDER = ["TYPE", "DROP", "SCHEMA", "AS", "COMMENT", "PERMISSIONS"] as const
 /** Clauses `ALTER TABLE` can express. `TYPE`/`DROP` have no ALTER form (force an OVERWRITE
- *  fallback); `SCHEMA` is always SCHEMAFULL|SCHEMALESS (re-set, never dropped); `COMMENT`
- *  has a `DROP` form; `PERMISSIONS` resets to the table default (NONE). */
+ * fallback); `SCHEMA` is always SCHEMAFULL|SCHEMALESS (re-set, never dropped); `COMMENT`
+ * has a `DROP` form; `PERMISSIONS` resets to the table default (NONE). */
 const TABLE_ALTERABLE = new Set(["SCHEMA", "COMMENT", "PERMISSIONS"])
 const TABLE_DROPPABLE = new Set(["COMMENT"])
 
@@ -1187,32 +1096,26 @@ export function alterTable(
   prev: Record<string, string> | undefined,
   next: Record<string, string> | undefined,
 ): null | string {
-  if (!prev || !next) {
-    return null
-  }
+  if (!prev || !next) return null
+
   const sets: string[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const k of TABLE_CLAUSE_ORDER) {
     const before = prev[k]
     const after = next[k]
-    if (before === after) {
-      continue
-    }
-    if (!TABLE_ALTERABLE.has(k)) {
-      return null
-    } // TYPE / DROP changed -> OVERWRITE
-    if (after !== undefined) {
+    if (before === after) continue
+
+    if (!TABLE_ALTERABLE.has(k)) return null
+    // TYPE / DROP changed -> OVERWRITE
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
+    if (after !== undefined)
       sets.push(after) // added or changed -> re-set
-    } else if (k === "PERMISSIONS") {
+    else if (k === "PERMISSIONS")
       sets.push("PERMISSIONS NONE") // no `DROP PERMISSIONS`; reset to the table default
-    } else if (TABLE_DROPPABLE.has(k)) {
-      sets.push(`DROP ${k}`)
-    } else {
-      return null // SCHEMA is never absent; anything else unexpected -> OVERWRITE
-    }
+    else if (TABLE_DROPPABLE.has(k)) sets.push(`DROP ${k}`)
+    else return null // SCHEMA is never absent; anything else unexpected -> OVERWRITE
   }
-  if (sets.length === 0) {
-    return null
-  }
+  if (sets.length === 0) return null
+
   return `ALTER TABLE ${escapeIdent(name)} ${sets.join(" ")};`
 }

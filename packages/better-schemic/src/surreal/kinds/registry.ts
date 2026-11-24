@@ -22,13 +22,13 @@ import {
   KindRegistry,
   lowerSchema,
   type PortableObject,
-  type Ref,
 } from "../../core"
 import { formatSurql } from "../cli/format"
 import { EMPTY_SNAPSHOT, type Snapshot } from "../cli/structure"
 import { diffSnapshots } from "../cli/surreal-diff"
 import type { DefineStatement } from "../ddl"
 import { overwriteStatement, removeStatement } from "../ddl"
+
 import { explodeSchema } from "./explode"
 import type {
   PAccess,
@@ -49,23 +49,14 @@ const keyOf = (s: Pick<DefineStatement, "kind" | "name" | "table">) =>
 function snapOf(head: DefineStatement, fields: DefineStatement[]): Snapshot {
   const statements: Snapshot["statements"] = {}
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const s of [head, ...fields]) {
-    statements[keyOf(s)] = s
-  }
-  return { version: 1, statements }
+  for (const s of [head, ...fields]) statements[keyOf(s)] = s
+
+  return { statements, version: 1 }
 }
 
 // --- table: structured, field-level diff inside `overwrite` -------------------------------------
 
 const tableEngine: KindEngine<PTable, PTable> = {
-  lower: (t) => t,
-  emit: (t) => [t.head.ddl, ...t.fields.map((f) => f.ddl)],
-  // REMOVE TABLE covers its fields (no orphan REMOVE FIELDs) — matches the legacy drop.
-  remove: (t) => [removeStatement(t.head)],
-  // The field + table-head delta IS the legacy engine: build both sides as one-table snapshots and
-  // take the up. The spine calls `overwrite(next, prev)` for the down, so this stays symmetric.
-  overwrite: (prev, next) =>
-    diffSnapshots(snapOf(prev.head, prev.fields), snapOf(next.head, next.fields)).up,
   deps: (t) => t.deps,
   // PER-FIELD display (Manuel's call): the table's diff items are its head + per-field statements
   // (each carrying its `table` so the display groups under it) — `diffSnapshots().items`.
@@ -75,46 +66,54 @@ const tableEngine: KindEngine<PTable, PTable> = {
       prev ? snapOf(prev.head, prev.fields) : EMPTY_SNAPSHOT,
       next ? snapOf(next.head, next.fields) : EMPTY_SNAPSHOT,
     ).items ?? [],
+  emit: (t) => [t.head.ddl, ...t.fields.map((f) => f.ddl)],
+  lower: (t) => t,
+  // The field + table-head delta IS the legacy engine: build both sides as one-table snapshots and
+  // take the up. The spine calls `overwrite(next, prev)` for the down, so this stays symmetric.
+  overwrite: (prev, next) =>
+    diffSnapshots(snapOf(prev.head, prev.fields), snapOf(next.head, next.fields)).up,
+  // REMOVE TABLE covers its fields (no orphan REMOVE FIELDs) — matches the legacy drop.
+  remove: (t) => [removeStatement(t.head)],
 }
 
 // --- index: own kind, owned by its table, recreated on change -----------------------------------
 
 const indexEngine: KindEngine<PIndex, PIndex> = {
-  lower: (i) => i,
-  emit: (i) => [i.stmt.ddl],
-  remove: (i) => [removeStatement(i.stmt)],
   // No `overwrite` -> the spine recreates (remove + emit): `REMOVE INDEX … ; DEFINE INDEX …`,
   // the legacy `changeUp` for an index (ALTER INDEX can't change fields/kind).
   // -> its table (owner) + a FULLTEXT index's analyzer (so the analyzer emits first).
   deps: (i) => i.deps,
+  emit: (i) => [i.stmt.ddl],
+  lower: (i) => i,
   owner: (i) => ({ kind: "table", name: i.table }),
+  remove: (i) => [removeStatement(i.stmt)],
 }
 
 // --- event: own kind, owned by its table, OVERWRITE on change -----------------------------------
 
 const eventEngine: KindEngine<PEvent, PEvent> = {
-  lower: (e) => e,
-  emit: (e) => [formatSurql(e.stmt.ddl)],
-  remove: (e) => [removeStatement(e.stmt)],
-  // DEFINE EVENT OVERWRITE in place — matches the legacy `changeUp`/`changeDown` for an event.
-  overwrite: (_prev, next) => [formatSurql(overwriteStatement(next.stmt.ddl))],
   // -> its table (owner) + any `fn::` the WHEN/THEN call (so the function emits first).
   deps: (e) => e.deps,
+  emit: (e) => [formatSurql(e.stmt.ddl)],
+  lower: (e) => e,
+  // DEFINE EVENT OVERWRITE in place — matches the legacy `changeUp`/`changeDown` for an event.
+  overwrite: (_prev, next) => [formatSurql(overwriteStatement(next.stmt.ddl))],
   owner: (e) => ({ kind: "table", name: e.table }),
+  remove: (e) => [removeStatement(e.stmt)],
 }
 
 // --- function / access: db-level OPAQUE kinds, OVERWRITE on change -------------------------------
 
 const functionEngine: KindEngine<PFunction, PFunction> = {
-  lower: (f) => f,
+  // Other `fn::` its body calls (db-level, no owner cluster).
+  deps: (f) => f.deps,
   // Emit/overwrite outputs are PRETTY-PRINTED (display + migrations); comparisons run on the
   // portable objects' canonical text upstream, and the legacy diff formats identically (parity).
   emit: (f) => [formatSurql(f.stmt.ddl)],
-  remove: (f) => [removeStatement(f.stmt)],
+  lower: (f) => f,
   // DEFINE FUNCTION OVERWRITE in place — matches the legacy `changeUp`/`changeDown` for a function.
   overwrite: (_prev, next) => [formatSurql(overwriteStatement(next.stmt.ddl))],
-  // Other `fn::` its body calls (db-level, no owner cluster).
-  deps: (f) => f.deps,
+  remove: (f) => [removeStatement(f.stmt)],
 }
 
 /**
@@ -130,57 +129,56 @@ const functionEngine: KindEngine<PFunction, PFunction> = {
  */
 function isManagedAccess(a: PAccess): boolean {
   const k = a.native.kind
-  if (k.kind === "JWT") {
-    return !!k.jwt?.verify?.url
-  }
+  if (k.kind === "JWT") return !!k.jwt?.verify?.url
+
   return true
 }
 
 const accessEngine: KindEngine<PAccess, PAccess> = {
-  lower: (a) => a,
-  emit: (a) => [formatSurql(a.stmt.ddl)],
-  remove: (a) => [removeStatement(a.stmt)],
-  // DEFINE ACCESS OVERWRITE in place — matches the legacy `changeUp`/`changeDown` for an access.
-  overwrite: (_prev, next) => [formatSurql(overwriteStatement(next.stmt.ddl))],
   // Any `fn::` the SIGNUP/SIGNIN/AUTHENTICATE call (db-level, no owner cluster).
   deps: (a) => a.deps,
+  emit: (a) => [formatSurql(a.stmt.ddl)],
   // Managed PER OBJECT: key-free access enters snapshots/migrations; key-bearing TYPE JWT excluds it
   // from snapshot/diff/gen (never phantom-diffs a redacted key) and managed out-of-band via the
   // `sc access push/diff/rotate/check` driver commands instead.
   excludeFromMigrations: (p) => !isManagedAccess(p as PAccess),
+  lower: (a) => a,
+  // DEFINE ACCESS OVERWRITE in place — matches the legacy `changeUp`/`changeDown` for an access.
+  overwrite: (_prev, next) => [formatSurql(overwriteStatement(next.stmt.ddl))],
+  remove: (a) => [removeStatement(a.stmt)],
 }
 
 // --- param: db-level OPAQUE kind (functions/events may reference $param) -------------------------
 
 const paramEngine: KindEngine<PParam, PParam> = {
-  lower: (p) => p,
+  deps: (p) => p.deps,
   emit: (p) => [formatSurql(p.stmt.ddl)],
-  remove: (p) => [removeStatement(p.stmt)],
+  lower: (p) => p,
   // DEFINE PARAM OVERWRITE in place.
   overwrite: (_prev, next) => [formatSurql(overwriteStatement(next.stmt.ddl))],
-  deps: (p) => p.deps,
+  remove: (p) => [removeStatement(p.stmt)],
 }
 
 // --- analyzer: db-level OPAQUE kind (a FULLTEXT index depends on it) -----------------------------
 
 const analyzerEngine: KindEngine<PAnalyzer, PAnalyzer> = {
-  lower: (a) => a,
+  deps: (a) => a.deps,
   emit: (a) => [formatSurql(a.stmt.ddl)],
-  remove: (a) => [removeStatement(a.stmt)],
+  lower: (a) => a,
   // DEFINE ANALYZER OVERWRITE in place.
   overwrite: (_prev, next) => [formatSurql(overwriteStatement(next.stmt.ddl))],
-  deps: (a) => a.deps,
+  remove: (a) => [removeStatement(a.stmt)],
 }
 
 // --- sequence: db-level OPAQUE kind (read via `sequence::nextval`) -------------------------------
 
 const sequenceEngine: KindEngine<PSequence, PSequence> = {
-  lower: (s) => s,
+  deps: (s) => s.deps,
   emit: (s) => [formatSurql(s.stmt.ddl)],
-  remove: (s) => [removeStatement(s.stmt)],
+  lower: (s) => s,
   // DEFINE SEQUENCE OVERWRITE in place (changing BATCH/START/TIMEOUT re-declares it).
   overwrite: (_prev, next) => [formatSurql(overwriteStatement(next.stmt.ddl))],
-  deps: (s) => s.deps,
+  remove: (s) => [removeStatement(s.stmt)],
 }
 
 /**
@@ -194,35 +192,35 @@ export const surrealKinds = new KindRegistry()
 // `build` is the kind's authoring entry. At the wholesale flip these route the `s.*` authoring through
 // the registry; for the facade-test phase the explode produces portable objects directly, so the builds
 // are the identity (the registry needs the engine behavior registered here).
-surrealKinds.define({ name: "table", build: (t: PTable) => t, ...tableEngine })
-surrealKinds.define({ name: "index", build: (i: PIndex) => i, ...indexEngine })
-surrealKinds.define({ name: "event", build: (e: PEvent) => e, ...eventEngine })
+surrealKinds.define({ build: (t: PTable) => t, name: "table", ...tableEngine })
+surrealKinds.define({ build: (i: PIndex) => i, name: "index", ...indexEngine })
+surrealKinds.define({ build: (e: PEvent) => e, name: "event", ...eventEngine })
 surrealKinds.define({
-  name: "function",
   build: (f: PFunction) => f,
+  name: "function",
   ...functionEngine,
 })
 surrealKinds.define({
-  name: "access",
   build: (a: PAccess) => a,
   // The generic pluralizer would make "access" -> "Accesses"/"accesses"; SurrealQL's noun is
   // invariant ("Access") and the dir is `access/`, so pin both.
-  display: { plural: "Access", folder: "access" },
+  display: { folder: "access", plural: "Access" },
+  name: "access",
   ...accessEngine,
 })
 surrealKinds.define({
-  name: "analyzer",
   build: (a: PAnalyzer) => a,
+  name: "analyzer",
   ...analyzerEngine,
 })
 surrealKinds.define({
-  name: "param",
   build: (p: PParam) => p,
+  name: "param",
   ...paramEngine,
 })
 surrealKinds.define({
-  name: "sequence",
   build: (s: PSequence) => s,
+  name: "sequence",
   ...sequenceEngine,
 })
 
@@ -231,4 +229,4 @@ export function lowerAll(tables: AnyTable[], defs: AuthoredDef[] = []): Portable
   return lowerSchema(surrealKinds, explodeSchema(tables, defs))
 }
 
-export type { Ref }
+export { KindRegistry, type Ref } from "../../core"

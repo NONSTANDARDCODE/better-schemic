@@ -5,6 +5,7 @@
 import { escapeIdent, Surreal } from "surrealdb"
 
 import type { ConnectionOverrides, ResolvedConfig } from "../core"
+
 import type { AuthLevel, SurrealParams } from "./config"
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -30,36 +31,39 @@ const envMs = (name: string, fallback: number): number => {
   return Number.isFinite(n) && n > 0 ? n : fallback
 }
 
+// eslint-disable-next-line write-good-comments/write-good-comments -- termo do domínio da API
 /**
- * Ceiling on the SDK's websocket connect. Generous ON PURPOSE: a busy machine can take 
- * seconds to complete the handshake against a perfectly healthy server, and a tight ceiling turns
+ * Ceiling on the SDK's websocket connect. Generous ON PURPOSE: a busy machine can take
+ * seconds to complete the handshake against a healthy server, and a tight ceiling turns
  * that into a spurious "is the server running?" — under a loaded parallel test gate `sc migrate`
  * aborted at the old 5s while the server was up and answering.
  *
  * A DOWN server is not what this bounds; {@link assertReachable} catches that in ~a second. (The
- * SDK does not reject promptly on a refused port even with `reconnect: false` — measured: a closed
+ * SDK does not reject quickly on a refused port even with `reconnect: false` — measured: a closed
  * port burned the whole ceiling — so this alone cannot distinguish "down" from "slow".)
  */
+// eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
 const CONNECT_TIMEOUT_MS = envMs("BETTER_SCHEMIC_CONNECT_TIMEOUT_MS", 30_000)
 
 /** How long the pre-flight TCP probe waits before declaring the host unreachable. */
+// eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
 const PROBE_TIMEOUT_MS = envMs("BETTER_SCHEMIC_PROBE_TIMEOUT_MS", 2000)
 
 /**
  * Pre-flight: can we even open a TCP socket to the endpoint? This is what makes a DOWN server fail
  * fast (~instantly on a refused port) while leaving the slow-but-alive case a generous
  * {@link CONNECT_TIMEOUT_MS} to finish its handshake. Non-TCP endpoints (`mem://`, `indxdb://`, a
- * URL we can't parse) are not probed — they  skip to the SDK connect.
+ * URL we can't parse) are not probed — they skip to the SDK connect.
  */
 async function assertReachable(url: string): Promise<void> {
   let host: string
   let port: number
   try {
     const u = new URL(url)
-    if (!/^(wss?|https?):$/u.test(u.protocol)) {
-      return
-    } // not a TCP endpoint — nothing to probe
+    if (!/^(wss?|https?):$/u.test(u.protocol)) return
+    // not a TCP endpoint — nothing to probe
     host = u.hostname
+    // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
     port = Number(u.port) || (/^(wss|https):$/u.test(u.protocol) ? 443 : 80)
   } catch {
     return // unparseable — let the SDK produce the error
@@ -71,28 +75,34 @@ async function assertReachable(url: string): Promise<void> {
       sock.destroy()
       err ? reject(err) : resolve()
     }
-    sock.setTimeout(PROBE_TIMEOUT_MS, () =>
-      done(new Error(`no response from ${host}:${port} within ${PROBE_TIMEOUT_MS}ms`)),
-    )
-    sock.once("error", (e) => done(e))
-    sock.connect(port, host, () => done())
+    sock.setTimeout(PROBE_TIMEOUT_MS, () => {
+      done(new Error(`no response from ${host}:${port} within ${PROBE_TIMEOUT_MS}ms`))
+    })
+    sock.once("error", (e) => {
+      done(e)
+    })
+    sock.connect(port, host, () => {
+      done()
+    })
   })
 }
 
 /** Reject if `promise` doesn't settle within `ms` — guards against a hung connect. */
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), ms)
-    promise.then(
-      (v) => {
+    const timer = setTimeout(() => {
+      reject(new Error(message))
+    }, ms)
+    void (async () => {
+      try {
+        const value = await promise
         clearTimeout(timer)
-        resolve(v)
-      },
-      (error) => {
+        resolve(value)
+      } catch (error: unknown) {
         clearTimeout(timer)
-        reject(error)
-      },
-    )
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
+    })()
   })
 }
 
@@ -128,30 +138,33 @@ export async function connect(
     } catch (error) {
       throw new Error(
         `Can't reach SurrealDB at ${redactUrl(url)} — is the server running? (${errMsg(error)})`,
+        { cause: error },
       )
     }
     if (username && password) {
       // Scope the signin to the requested level (mirrors `surreal sql --auth-level`).
       const auth =
         level === "root"
-          ? { username, password }
-          : level === "namespace"
-            ? { namespace, username, password }
-            : { namespace, database, username, password }
+          ? { password, username }
+          : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
+            level === "namespace"
+            ? { namespace, password, username }
+            : { database, namespace, password, username }
       try {
         await db.signin(auth)
       } catch (error) {
         throw new Error(
           `Authentication failed (auth level "${level}") — check SURREAL_USER / SURREAL_PASS. (${errMsg(error)})`,
+          { cause: error },
         )
       }
     }
     // Best-effort: create the namespace/database when we have the rights. A `database`
     // user can't define either; a `namespace` user can define databases; `root` can do both.
     try {
-      if (level === "root") {
+      if (level === "root")
         await db.query(`DEFINE NAMESPACE IF NOT EXISTS ${escapeIdent(namespace)};`)
-      }
+
       if (level !== "database") {
         await db.use({ namespace })
         await db.query(`DEFINE DATABASE IF NOT EXISTS ${escapeIdent(database)};`)
@@ -160,16 +173,19 @@ export async function connect(
       // insufficient privileges — assume the namespace/database already exist
     }
     try {
-      await db.use({ namespace, database })
+      await db.use({ database, namespace })
     } catch (error) {
       throw new Error(
         `Couldn't select ${namespace}/${database} — does it exist and do you have access? (${errMsg(error)})`,
+        { cause: error },
       )
     }
     return db
   } catch (error) {
     // Fire-and-forget: closing a half-open socket can be slow; don't block the error path.
-    void db.close().catch(() => {})
+    void db.close().catch(() => {
+      /* ignore close errors */
+    })
     throw error
   }
 }

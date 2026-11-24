@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
 // Property-based tests for the core CLI kind-filter — the pure parser that turns `--tables [names]` /
 // `--no-tables` flags into a `Filter`. The invariants: the parse is deterministic, defaults match the
 // documented policy (access opt-in), a comma/space list splits into its non-empty tokens, and
@@ -5,7 +6,7 @@
 import { describe, expect, test } from "bun:test"
 import fc from "fast-check"
 
-import { type Filter, inCat, parseFilter } from "../../../src/core/cli-kit/filter"
+import { inCat, parseFilter } from "../../../src/core/cli-kit/filter"
 
 const RUNS = Number(process.env.PBT_RUNS ?? 100)
 const SEED = process.env.PBT_SEED ? Number(process.env.PBT_SEED) : undefined
@@ -73,7 +74,7 @@ describe("parseFilter — pure flag parser", () => {
         flagValue,
         fc.constantFrom("tables", "functions", "events", "access" as const),
         (value, cat) => {
-          const parsed = parseFilter({ [cat]: value }) as Filter
+          const parsed = parseFilter({ [cat]: value })
           const defaultOn = cat !== "access"
           if (value === false) expect(parsed[cat].on).toBe(false)
           else if (value === undefined) expect(parsed[cat].on).toBe(defaultOn)

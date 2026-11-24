@@ -8,6 +8,7 @@
  * works over WS).
  */
 import { escapeIdentSafe as escapeIdent } from "../ident"
+
 import { compileError } from "./compiler/shared"
 import { assertSessionBound, contextOption } from "./context"
 import type { DelegateContext } from "./delegate"
@@ -22,9 +23,9 @@ export function createAdminOperations(ctx: DelegateContext): AdminOperations {
     const operation = "info"
     const clause = level === "table" ? `TABLE ${tableClause(table)}` : level.toUpperCase()
     const out = await execute(ctx.conn, {
-      statements: [{ sql: `INFO FOR ${clause}` }],
-      operation,
       debug: ctx.debug,
+      operation,
+      statements: [{ sql: `INFO FOR ${clause}` }],
       ...(ctx.inTransaction === true ? { inTransaction: true } : {}),
       logger: ctx.logger,
       ...contextOption(ctx),
@@ -52,9 +53,9 @@ export function createAdminOperations(ctx: DelegateContext): AdminOperations {
 
   const ping = async (): Promise<boolean> => {
     await execute(ctx.conn, {
-      statements: [{ sql: "RETURN true" }],
-      operation: "ping",
       debug: ctx.debug,
+      operation: "ping",
+      statements: [{ sql: "RETURN true" }],
       ...(ctx.inTransaction === true ? { inTransaction: true } : {}),
       logger: ctx.logger,
       ...contextOption(ctx),
@@ -99,9 +100,9 @@ export function createAdminOperations(ctx: DelegateContext): AdminOperations {
     }
     const responses = await runScript(ctx.conn, terminate(dump), {
       ...contextOption(ctx),
-      operation: "import",
       debug: ctx.debug,
       logger: ctx.logger,
+      operation: "import",
     })
     // A dump may hold some statements; surface the FIRST failure instead of "importing" .
     const failure = responses
@@ -112,17 +113,15 @@ export function createAdminOperations(ctx: DelegateContext): AdminOperations {
         }),
       )
       .find((result) => result.status === "ERR")
-    if (failure?.error) {
-      throw failure.error
-    }
+    if (failure?.error) throw failure.error
   }
 
   return {
-    info,
-    version,
-    ping,
     export: exportDatabase,
     import: importDatabase,
+    info,
+    ping,
+    version,
   } as unknown as AdminOperations
 }
 

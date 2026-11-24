@@ -1,15 +1,11 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
 // M0.3 — result wrappers: `attachThrow` (thenable + `.throw()`), `BatchResult` and the
 // `QueryResponse` -> `StatementResult` mapping used by the executor's raw multi-statement path.
 import { describe, expect, test } from "bun:test"
 import { ServerError } from "surrealdb"
 
 import { isNotFound, OrmError } from "../../../src/surreal/orm/errors"
-import {
-  attachThrow,
-  type BatchResult,
-  statementResult,
-  type ThrowingResult,
-} from "../../../src/surreal/orm/results"
+import { attachThrow, statementResult, type ThrowingResult } from "../../../src/surreal/orm/results"
 
 const info = { table: "user", operation: "findUnique" }
 
@@ -75,7 +71,9 @@ describe("attachThrow", () => {
       calls++
       return info
     })
-    await miss.throw().catch(() => {})
+    await miss.throw().catch(() => {
+      /* empty */
+    })
     expect(calls).toBe(1)
   })
 

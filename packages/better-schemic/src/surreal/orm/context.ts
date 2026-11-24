@@ -11,12 +11,13 @@
  * clone rejects them with a teaching {@link assertSessionBound} instead of hitting the wrong DB.
  */
 import { escapeIdentSafe as escapeIdent } from "../ident"
+
 import { compileError } from "./compiler/shared"
 import type { DelegateContext } from "./delegate"
 import type { CallContext, OperationContext, ResolvedContext } from "./types/context"
 
 /** The session getters a `SurrealSession` exposes (absent on a plain queryable). */
-interface SessionScope {
+type SessionScope = {
   readonly database?: unknown
   readonly namespace?: unknown
 }
@@ -31,16 +32,15 @@ export function resolveContext(
   const database = call?.database ?? scope?.database
   // A meta-context carries no namespace/database override — it threads hook metadata without
   // prefixing `USE` (or requiring the session to have a scope selected).
-  if (namespace === undefined && database === undefined) {
-    return undefined
-  }
+  if (namespace === undefined && database === undefined) return undefined
+
   const session = ctx.conn as SessionScope
   const resolvedNamespace = pick("namespace", namespace, session.namespace)
   const resolvedDatabase = pick("database", database, session.database)
   const meta = mergeMeta(scope?.meta, call?.meta)
   return {
-    namespace: resolvedNamespace,
     database: resolvedDatabase,
+    namespace: resolvedNamespace,
     ...(meta ? { meta } : {}),
   }
 }
@@ -49,9 +49,8 @@ export function resolveContext(
 function pick(side: "database" | "namespace", ...candidates: readonly unknown[]): string {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const candidate of candidates) {
-    if (candidate === undefined) {
-      continue
-    }
+    if (candidate === undefined) continue
+
     if (typeof candidate !== "string" || candidate.length === 0) {
       throw compileError(
         "ValidationError",
@@ -104,9 +103,8 @@ function mergeMeta(
   scope: Record<string, unknown> | undefined,
   call: Record<string, unknown> | undefined,
 ): Record<string, unknown> | undefined {
-  if (!scope && !call) {
-    return undefined
-  }
+  if (!scope && !call) return undefined
+
   return { ...scope, ...call }
 }
 
@@ -125,9 +123,8 @@ export function resolveMeta(
 /** Reject a session-bound operation on a prefix-scoped clone (it would target the wrong DB). */
 export function assertSessionBound(context: OperationContext | undefined, operation: string): void {
   // A meta-context carries no namespace/database override, so it does not scope the session.
-  if (context?.namespace === undefined && context?.database === undefined) {
-    return
-  }
+  if (context?.namespace === undefined && context?.database === undefined) return
+
   throw compileError(
     "UnsupportedCapability",
     `${operation} is bound to the connection SESSION, not to a namespace/database context — a $withContext clone cannot scope it (it would target the session's current database). Use \`await client.$withContext({ namespace, database, auth: token })\` or \`await client.forkSession()\` and select the namespace/database on that session.`,

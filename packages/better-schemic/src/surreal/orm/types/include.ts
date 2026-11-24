@@ -17,6 +17,7 @@
  * ```
  */
 import type { App } from "../../pure"
+
 import type {
   AdjacentEdgeAliases,
   EdgeDefAt,
@@ -60,7 +61,7 @@ type TargetOrderBy<T> = [T] extends [never]
 // --- include arg ---------------------------------------------------------------------------------
 
 /** `include: { author: … }` options for a LINK field. */
-export interface LinkIncludeOptions<Targets, S, D extends number> {
+export type LinkIncludeOptions<Targets, S, D extends number> = {
   "*"?: true
   include?: IncludeArg<
     [Targets] extends [never] ? AnyTableDef : Targets extends AnyTableDef ? Targets : AnyTableDef,
@@ -74,17 +75,17 @@ export interface LinkIncludeOptions<Targets, S, D extends number> {
 export type LinkIncludeArg<Targets, S, D extends number> = LinkIncludeOptions<Targets, S, D> | true
 
 /** `include: { likes: … }` options for a GRAPH edge. */
-export interface EdgeIncludeOptions<E, Targets, S, D extends number> {
+export type EdgeIncludeOptions<E, Targets, S, D extends number> = {
   direction?: EdgeDirection
   /** Edge records (`true` = whole edge). */
-  edge?: { select?: SelectArg<E extends AnyTableDef ? E : AnyTableDef> } | true
+  edge?: true | { select?: SelectArg<E extends AnyTableDef ? E : AnyTableDef> }
   limit?: number
   orderBy?: OrderByArg<E extends AnyTableDef ? E : AnyTableDef> | TargetOrderBy<Targets>
   /** Target projection shorthand. */
   select?: TargetSelectArg<Targets>
   start?: number
   /** Explicit target projection (`true` = whole target); exclusive with `select`. */
-  target?: { select?: TargetSelectArg<Targets> } | true
+  target?: true | { select?: TargetSelectArg<Targets> }
   where?: EdgeOperand<E, Targets, S, Step<D>>
   /** Traverse ANY edge of the table (the key is then the output alias). */
   wildcard?: true
@@ -95,7 +96,7 @@ export type EdgeIncludeArg<E, Targets, S, D extends number> =
   EdgeIncludeOptions<E, Targets, S, D> | true
 
 /** `_count: { select: { <some-link|edge>: true | { where, direction } } }`. */
-export interface CountIncludeOptions<TD extends AnyTableDef, S> {
+export type CountIncludeOptions<TD extends AnyTableDef, S> = {
   select: {
     [K in (AdjacentEdgeAliases<S, TD> | ManyLinkKeys<TD>) & string]?: CountFilter<TD, S, K> | true
   }
@@ -112,10 +113,12 @@ type CountFilter<TD extends AnyTableDef, S, K extends string> =
       }
     : {
         direction?: EdgeDirection
+        // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal de profundidade faz parte do contrato recursivo do tipo (API pública)
         where?: EdgeOperand<EdgeDefAt<S, K>, EdgeTargetDefs<S, EdgeDefAt<S, K>, DefName<TD>>, S, 3>
       }
 
 /** The `include` argument: one optional entry per link, adjacent edge and `_count`. */
+// eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal de profundidade faz parte do contrato recursivo do tipo (API pública)
 export type IncludeArg<TD extends AnyTableDef, S = SchemaInput, D extends number = 3> = Simplify<
   {
     [K in LinkKeys<TD>]?: LinkIncludeArg<LinkTargetDefs<TD, S, K>, S, D>

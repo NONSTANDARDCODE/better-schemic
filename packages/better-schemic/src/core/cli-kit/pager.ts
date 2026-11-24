@@ -15,7 +15,7 @@ function gitConfig(key: string): string | undefined {
 
 /**
  * The diff pager, resolved the way git does: `pager.diff` → `core.pager` → `$GIT_PAGER` →
- * `$PAGER`. So a user with `core.pager = delta` gets delta for free, with their own config.
+ * `$PAGER`. A user with `core.pager = delta` gets delta for free, with their own config.
  */
 export function resolvePager(): string | undefined {
   return (
@@ -54,12 +54,11 @@ const SHELLS = new Set([
 export function parsePagerCommand(pager: string): string[] {
   const out: string[] = []
   let current = ""
-  let quote: '"' | "'" | undefined
+  let quote: "'" | '"' | undefined
   let has = false
   const push = () => {
-    if (has) {
-      out.push(current)
-    }
+    if (has) out.push(current)
+
     current = ""
     has = false
   }
@@ -67,9 +66,8 @@ export function parsePagerCommand(pager: string): string[] {
   for (let i = 0; i < pager.length; i++) {
     const ch = pager[i]
     if (quote) {
-      if (ch === quote) {
-        quote = undefined
-      } else if (ch === "\\" && quote === '"' && i + 1 < pager.length) {
+      if (ch === quote) quote = undefined
+      else if (ch === "\\" && quote === '"' && i + 1 < pager.length) {
         current += pager[++i]
         has = true
       } else {
@@ -102,9 +100,8 @@ export function parsePagerCommand(pager: string): string[] {
 /** Pipe `text` through `pager` (a program + args, NEVER a shell); resolve when it exits. */
 export function pipeThroughPager(pager: string, text: string): Promise<void> {
   const argv = parsePagerCommand(pager)
-  if (argv.length === 0) {
-    return Promise.resolve()
-  }
+  if (argv.length === 0) return Promise.resolve()
+
   const exe = argv[0].split(/[\\/]/u).pop()?.toLowerCase() ?? ""
   if (SHELLS.has(exe)) {
     return Promise.reject(
@@ -119,9 +116,11 @@ export function pipeThroughPager(pager: string, text: string): Promise<void> {
       stdio: ["pipe", "inherit", "inherit"],
     })
     child.once("error", reject)
-    child.once("close", () => resolve())
+    child.once("close", () => {
+      resolve()
+    })
     // The pager may quit before reading all input (e.g. `less` on a short diff) — ignore EPIPE.
-    child.stdin.on("error", () => {})
+    child.stdin.on("error", () => void 0)
     child.stdin.end(text)
   })
 }

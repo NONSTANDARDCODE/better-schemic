@@ -46,4 +46,5 @@ export type AssertCall<Expected, Actual> =
           },
         ]
 
+// eslint-disable-next-line @typescript-eslint/no-empty-function -- helper exclusivo de checagem de tipos: o corpo vazio é intencional.
 export function assertType<Expected, Actual>(..._check: AssertCall<Expected, Actual>): void {}

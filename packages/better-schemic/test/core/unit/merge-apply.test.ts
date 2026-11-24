@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // applyPull safety: the plan carries its schema root and applyPull never writes/deletes outside it
 // (a hostile DB object name must not escape the schema dir) nor through a symlink.
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
@@ -9,7 +10,9 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { applyPull, type PullFilePlan } from "../../../src/core/cli-kit/merge"
 
 const root = mkdtempSync(join(tmpdir(), "pull-apply-"))
-afterAll(() => rmSync(root, { recursive: true, force: true }))
+afterAll(() => {
+  rmSync(root, { recursive: true, force: true })
+})
 
 const file = (abs: string, after = "x\n"): PullFilePlan => ({
   rel: abs,

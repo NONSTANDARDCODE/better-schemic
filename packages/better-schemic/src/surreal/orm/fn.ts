@@ -10,6 +10,7 @@
 
 import { normalizeFnName } from "../fn-name"
 import { Surql } from "../frag"
+
 import {
   compileError,
   createBinds,
@@ -21,6 +22,24 @@ import { resolveContext } from "./context"
 import type { DelegateContext } from "./delegate"
 import { execute } from "./execute"
 import type { FnSurface } from "./types/fn"
+
+/** The EXPRESSION form: the same catalog lowered to a fragment instead of an executed call. */
+function exprCall(name: string, args: readonly unknown[] = []): Surql {
+  const local = createBinds()
+  const sql = `${normalizeName(name)}(${args
+    .map((arg) => renderValue(arg, local, local.ctx()))
+    .join(", ")})`
+  return new Surql<unknown[]>(sql, local.vars)
+}
+
+/** The `fn::<name>` a schema entry lowers to, plus its declared argument names. */
+function shortcut(key: string, meta: { args: ReadonlyMap<string, unknown>; name: string }) {
+  return {
+    args: [...meta.args.keys()],
+    key,
+    name: `fn::${meta.name}`,
+  }
+}
 
 /** Build `client.fn` over one client context (dynamic `call` + the schema shortcuts). */
 export function createFnOperations(ctx: DelegateContext): FnSurface {
@@ -38,9 +57,9 @@ export function createFnOperations(ctx: DelegateContext): FnSurface {
     const sql = `RETURN ${fn}(${callArgs.join(", ")})`
     const context = resolveContext(ctx)
     const out = await execute(ctx.conn, {
-      statements: [{ sql, vars: binds.vars }],
-      operation: "fn.call",
       debug: ctx.debug,
+      operation: "fn.call",
+      statements: [{ sql, vars: binds.vars }],
       ...(ctx.inTransaction === true ? { inTransaction: true } : {}),
       logger: ctx.logger,
       ...(context ? { context } : {}),
@@ -48,29 +67,11 @@ export function createFnOperations(ctx: DelegateContext): FnSurface {
     return out.rows[0]
   }
 
-  // The EXPRESSION form: the same catalog, lowered to a fragment instead of executed — so a repo's
-  // own `fn::…` (or anything `fn.call` can name) composes INSIDE a typed read, with no round-trip
-  // and no hand-written `$query`: `where: { name: { equals: client.fn.expr.normalize({ name: "…" }) } }`.
-  // Each fragment owns its binds; `renderValue` merges them into whatever statement composes it.
-  const exprCall = (name: string, args: readonly unknown[] = []): Surql => {
-    const local = createBinds()
-    const sql = `${normalizeName(name)}(${args
-      .map((arg) => renderValue(arg, local, local.ctx()))
-      .join(", ")})`
-    return new Surql<unknown[]>(sql, local.vars)
-  }
-
   // ONE walk over the catalog builds BOTH surfaces. They differ in what a call resolves to — a
   // round-trip or a fragment — so the named-arg mapping, the object guard and the error text live
   // here once (`shortcut`), and adding a function cannot land on one surface but not the other.
   const surface: Record<string, unknown> = { call }
   const expr: Record<string, unknown> = { call: exprCall }
-  /** The `fn::<name>` a schema entry lowers to, plus its declared argument names. */
-  const shortcut = (key: string, meta: { args: ReadonlyMap<string, unknown>; name: string }) => ({
-    name: `fn::${meta.name}`,
-    args: [...meta.args.keys()],
-    key,
-  })
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [key, meta] of ctx.index.functions) {
     // `call`/`expr` are the surface's own entry points; a schema entry with either key would be
@@ -94,7 +95,7 @@ export function createFnOperations(ctx: DelegateContext): FnSurface {
 }
 
 /** One schema entry, as the typed shortcut needs it. */
-interface Shortcut {
+type Shortcut = {
   readonly args: readonly string[]
   readonly key: string
   readonly name: string
@@ -106,9 +107,8 @@ interface Shortcut {
  * error, so the call and expression forms point at the one the caller actually used.
  */
 function positionalArgs(entry: Shortcut, args: unknown, label: string): unknown[] {
-  if (entry.args.length === 0) {
-    return []
-  }
+  if (entry.args.length === 0) return []
+
   if (!isPlainObject(args)) {
     throw compileError(
       "ValidationError",
@@ -125,7 +125,7 @@ function normalizeName(name: string): string {
   if (normalized === undefined) {
     throw compileError(
       "ValidationError",
-      `fn.call: "${String(name)}" is not a valid function name — use fn::<name> or <name> (letters, digits, _ and :: segments).`,
+      `fn.call: "${name}" is not a valid function name — use fn::<name> or <name> (letters, digits, _ and :: segments).`,
       { operation: "fn.call" },
     )
   }

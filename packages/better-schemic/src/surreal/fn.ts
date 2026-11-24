@@ -2,14 +2,14 @@
  * The SurrealDB builtin-function CATALOG — one source for both typed surfaces:
  *
  *  - `surql.fn.<ns>.<name>(...)` — the context-free call tree (`surql.fn.string.len(x)`,
- *    `surql.fn.crypto.bcrypt.compare(a, b)`), every call a typed fragment (`Frag<R>` — the
- *    `[T]` rule: an expression of type `R` IS a one-statement query `[R]`).
+ * `surql.fn.crypto.bcrypt.compare(a, b)`), every call a typed fragment (`Frag<R>` — the
+ * `[T]` rule: an expression of type `R` IS a one-statement query `[R]`).
  *  - `refMethods` — the per-kind stdlib families the query layer grafts onto field refs
  *    (`u.name.length()` -> `string::len(name)`, chainable because the result is a ref again).
  *
  * Arguments accept literals (BOUND as `$r<n>` params), field refs (spliced, `$parent`-aware),
  * `$param` refs (spliced as text), and fragments/builders (spliced with bindings merged).
- * Side-effect-free; imports  the render primitives — safe from the authoring index.
+ * Side-effect-free; imports the render primitives — safe from the authoring index.
  */
 
 import type { BoundQuery } from "surrealdb"
@@ -20,14 +20,14 @@ import type { FieldRefBase } from "./surql/ref"
 import { argRenderer, type Ctx, type RefKind } from "./surql/render"
 
 /** A typed expression fragment — the `[T]` rule (`Frag<T>` = a one-statement query of `T`).
- *  Catalog results are `Surql`, so every call carries `.as<T2>()` — retype where the true shape
- *  is caller-known: `surql.fn.http.post(...).as<{ id?: string }>()`. */
+ * Catalog results are `Surql`, so every call carries `.as<T2>()` — retype where the true shape
+ * is caller-known: `surql.fn.http.post(...).as<{ id?: string }>()`. */
 export type Frag<T> = Surql<[T]>
 
 /** What a builtin-call argument accepts: a literal `T` (bound as a param), a typed field ref
  *  (spliced), a `$param` ref (spliced as text), or a fragment/builder (spliced, binds merged). */
 export type FnArg<T> =
-  { toQuery(): BoundQuery } | BoundQuery | FieldRefBase<T> | ParamDef<T> | ParamRef<T> | T
+  BoundQuery | FieldRefBase<T> | ParamDef<T> | ParamRef<T> | T | { toQuery(): BoundQuery }
 
 // --- the call lowering ----------------------------------------------------------------------------
 
@@ -78,7 +78,7 @@ const fv =
 
 type Json = unknown
 /** HTTP headers: a plain object whose VALUES may be fragments/refs (each splices), or a whole
- *  fragment/ref for the object itself. */
+ * fragment/ref for the object itself. */
 type HeadersArg = FnArg<Record<string, FnArg<string>>>
 
 // --- the catalog -----------------------------------------------------------------------------------
@@ -129,10 +129,6 @@ export const fn = {
   count: f0o<unknown, number>("count"),
   /** `crypto::*` — hashes + password KDFs. */
   crypto: {
-    md5: f1<string, string>("crypto::md5"),
-    sha1: f1<string, string>("crypto::sha1"),
-    sha256: f1<string, string>("crypto::sha256"),
-    sha512: f1<string, string>("crypto::sha512"),
     argon2: {
       compare: f2<string, string, boolean>("crypto::argon2::compare"),
       generate: f1<string, string>("crypto::argon2::generate"),
@@ -141,6 +137,7 @@ export const fn = {
       compare: f2<string, string, boolean>("crypto::bcrypt::compare"),
       generate: f1<string, string>("crypto::bcrypt::generate"),
     },
+    md5: f1<string, string>("crypto::md5"),
     pbkdf2: {
       compare: f2<string, string, boolean>("crypto::pbkdf2::compare"),
       generate: f1<string, string>("crypto::pbkdf2::generate"),
@@ -149,18 +146,13 @@ export const fn = {
       compare: f2<string, string, boolean>("crypto::scrypt::compare"),
       generate: f1<string, string>("crypto::scrypt::generate"),
     },
+    sha1: f1<string, string>("crypto::sha1"),
+    sha256: f1<string, string>("crypto::sha256"),
+    sha512: f1<string, string>("crypto::sha512"),
   },
   /** `duration::*` — duration decomposition + construction. */
   duration: {
     days: f1<unknown, number>("duration::days"),
-    hours: f1<unknown, number>("duration::hours"),
-    micros: f1<unknown, number>("duration::micros"),
-    millis: f1<unknown, number>("duration::millis"),
-    mins: f1<unknown, number>("duration::mins"),
-    nanos: f1<unknown, number>("duration::nanos"),
-    secs: f1<unknown, number>("duration::secs"),
-    weeks: f1<unknown, number>("duration::weeks"),
-    years: f1<unknown, number>("duration::years"),
     from_days: f1<number, unknown>("duration::from_days"),
     from_hours: f1<number, unknown>("duration::from_hours"),
     from_micros: f1<number, unknown>("duration::from_micros"),
@@ -169,12 +161,20 @@ export const fn = {
     from_nanos: f1<number, unknown>("duration::from_nanos"),
     from_secs: f1<number, unknown>("duration::from_secs"),
     from_weeks: f1<number, unknown>("duration::from_weeks"),
+    hours: f1<unknown, number>("duration::hours"),
+    micros: f1<unknown, number>("duration::micros"),
+    millis: f1<unknown, number>("duration::millis"),
+    mins: f1<unknown, number>("duration::mins"),
+    nanos: f1<unknown, number>("duration::nanos"),
+    secs: f1<unknown, number>("duration::secs"),
+    weeks: f1<unknown, number>("duration::weeks"),
+    years: f1<unknown, number>("duration::years"),
   },
   /** `encoding::base64::*` — encode takes BYTES (`Uint8Array` binds as bytes). */
   encoding: {
     base64: {
-      encode: f1<Uint8Array, string>("encoding::base64::encode"),
       decode: f1<string, Uint8Array>("encoding::base64::decode"),
+      encode: f1<Uint8Array, string>("encoding::base64::encode"),
     },
   },
   /** `geo::*` — geometry math. */
@@ -185,21 +185,21 @@ export const fn = {
     distance: f2<unknown, unknown, number>("geo::distance"),
   },
   /** `http::*` — server-side HTTP (events/functions; needs the server's http capability).
-   *  The generic is the RESPONSE shape (caller-known): `surql.fn.http.post<{ id?: string }>(…)`
+   * The generic is the RESPONSE shape (caller-known): `surql.fn.http.post<{ id?: string }>(…)`
    *  — shorthand for `.as<{ id?: string }>()`. Header values take fragments/refs. */
   http: {
-    head: <R = Json>(url: FnArg<string>, headers?: HeadersArg): Frag<R> =>
-      call("http::head", [url, headers]),
-    get: <R = Json>(url: FnArg<string>, headers?: HeadersArg): Frag<R> =>
-      call("http::get", [url, headers]),
-    put: <R = Json>(url: FnArg<string>, body?: FnArg<Json>, headers?: HeadersArg): Frag<R> =>
-      call("http::put", [url, body, headers]),
-    post: <R = Json>(url: FnArg<string>, body?: FnArg<Json>, headers?: HeadersArg): Frag<R> =>
-      call("http::post", [url, body, headers]),
-    patch: <R = Json>(url: FnArg<string>, body?: FnArg<Json>, headers?: HeadersArg): Frag<R> =>
-      call("http::patch", [url, body, headers]),
     delete: <R = Json>(url: FnArg<string>, headers?: HeadersArg): Frag<R> =>
       call("http::delete", [url, headers]),
+    get: <R = Json>(url: FnArg<string>, headers?: HeadersArg): Frag<R> =>
+      call("http::get", [url, headers]),
+    head: <R = Json>(url: FnArg<string>, headers?: HeadersArg): Frag<R> =>
+      call("http::head", [url, headers]),
+    patch: <R = Json>(url: FnArg<string>, body?: FnArg<Json>, headers?: HeadersArg): Frag<R> =>
+      call("http::patch", [url, body, headers]),
+    post: <R = Json>(url: FnArg<string>, body?: FnArg<Json>, headers?: HeadersArg): Frag<R> =>
+      call("http::post", [url, body, headers]),
+    put: <R = Json>(url: FnArg<string>, body?: FnArg<Json>, headers?: HeadersArg): Frag<R> =>
+      call("http::put", [url, body, headers]),
   },
   /** `math::*` — numeric + statistical. */
   math: {
@@ -211,8 +211,8 @@ export const fn = {
     interquartile: f1<number[], number>("math::interquartile"),
     ln: f1<number, number>("math::ln"),
     log: f2<number, number, number>("math::log"),
-    log10: f1<number, number>("math::log10"),
     log2: f1<number, number>("math::log2"),
+    log10: f1<number, number>("math::log10"),
     max: f1<number[], number>("math::max"),
     mean: f1<number[], number>("math::mean"),
     median: f1<number[], number>("math::median"),
@@ -231,10 +231,15 @@ export const fn = {
   },
   /** `object::*`. */
   object: {
+    // eslint-disable-next-line @typescript-eslint/no-restricted-types -- object é o tipo exato das builtins object::* do SurrealDB
     entries: f1<object, [string, unknown][]>("object::entries"),
+    // eslint-disable-next-line @typescript-eslint/no-restricted-types -- object é o tipo exato das builtins object::* do SurrealDB
     from_entries: f1<[string, unknown][], object>("object::from_entries"),
+    // eslint-disable-next-line @typescript-eslint/no-restricted-types -- object é o tipo exato das builtins object::* do SurrealDB
     keys: f1<object, string[]>("object::keys"),
+    // eslint-disable-next-line @typescript-eslint/no-restricted-types -- object é o tipo exato das builtins object::* do SurrealDB
     len: f1<object, number>("object::len"),
+    // eslint-disable-next-line @typescript-eslint/no-restricted-types -- object é o tipo exato das builtins object::* do SurrealDB
     values: f1<object, unknown[]>("object::values"),
   },
   /** `parse::*` — email/url part extraction. */
@@ -276,7 +281,6 @@ export const fn = {
   },
   /** `search::*` — fulltext/hybrid scoring (valid in a fulltext `SELECT`). */
   search: {
-    score: f1<number, number>("search::score"),
     highlight: f3<string, string, number, string>("search::highlight"),
     offsets: f1<number, unknown>("search::offsets"),
     /**
@@ -287,6 +291,7 @@ export const fn = {
      * hand-assembled in a `$query`.
      */
     rrf: f2o<unknown, number, number, number>("search::rrf"),
+    score: f1<number, number>("search::score"),
   },
   /** `session::*` — the current session's context. */
   session: {
@@ -298,28 +303,15 @@ export const fn = {
     token: f0<unknown>("session::token"),
   },
   /** `sleep(duration)`. */
+  // eslint-disable-next-line @typescript-eslint/no-invalid-void-type -- void é o tipo de retorno real de sleep()
   sleep: f1<unknown, void>("sleep"),
   /** `string::*` — text operations + validators. */
   string: {
     concat: fv<string, string>("string::concat"),
     contains: f2<string, string, boolean>("string::contains"),
     ends_with: f2<string, string, boolean>("string::ends_with"),
-    join: fv<string, string>("string::join"),
-    len: f1<string, number>("string::len"),
-    lowercase: f1<string, string>("string::lowercase"),
-    matches: f2<string, string, boolean>("string::matches"),
-    repeat: f2<string, number, string>("string::repeat"),
-    replace: f3<string, string, string, string>("string::replace"),
-    reverse: f1<string, string>("string::reverse"),
-    slice: f2o<string, number, number, string>("string::slice"),
-    slug: f1<string, string>("string::slug"),
-    split: f2<string, string, string[]>("string::split"),
-    starts_with: f2<string, string, boolean>("string::starts_with"),
-    trim: f1<string, string>("string::trim"),
-    uppercase: f1<string, string>("string::uppercase"),
-    words: f1<string, string[]>("string::words"),
-    is_alphanum: f1<string, boolean>("string::is_alphanum"),
     is_alpha: f1<string, boolean>("string::is_alpha"),
+    is_alphanum: f1<string, boolean>("string::is_alphanum"),
     is_ascii: f1<string, boolean>("string::is_ascii"),
     is_datetime: f2<string, string, boolean>("string::is_datetime"),
     is_domain: f1<string, boolean>("string::is_domain"),
@@ -334,12 +326,31 @@ export const fn = {
     is_semver: f1<string, boolean>("string::is_semver"),
     is_url: f1<string, boolean>("string::is_url"),
     is_uuid: f1<string, boolean>("string::is_uuid"),
+    join: fv<string, string>("string::join"),
+    len: f1<string, number>("string::len"),
+    lowercase: f1<string, string>("string::lowercase"),
+    matches: f2<string, string, boolean>("string::matches"),
+    repeat: f2<string, number, string>("string::repeat"),
+    replace: f3<string, string, string, string>("string::replace"),
+    reverse: f1<string, string>("string::reverse"),
+    slice: f2o<string, number, number, string>("string::slice"),
+    slug: f1<string, string>("string::slug"),
+    split: f2<string, string, string[]>("string::split"),
+    starts_with: f2<string, string, boolean>("string::starts_with"),
+    trim: f1<string, string>("string::trim"),
+    uppercase: f1<string, string>("string::uppercase"),
+    words: f1<string, string[]>("string::words"),
   },
   /** `time::*` — datetime decomposition + construction. */
   time: {
     day: f0o<Date, number>("time::day"),
     floor: f2<Date, unknown, Date>("time::floor"),
     format: f2<Date, string, string>("time::format"),
+    from_micros: f1<number, Date>("time::from_micros"),
+    from_millis: f1<number, Date>("time::from_millis"),
+    from_nanos: f1<number, Date>("time::from_nanos"),
+    from_secs: f1<number, Date>("time::from_secs"),
+    from_unix: f1<number, Date>("time::from_unix"),
     group: f2<Date, string, Date>("time::group"),
     hour: f0o<Date, number>("time::hour"),
     max: f1<Date[], Date>("time::max"),
@@ -356,11 +367,6 @@ export const fn = {
     week: f0o<Date, number>("time::week"),
     yday: f0o<Date, number>("time::yday"),
     year: f0o<Date, number>("time::year"),
-    from_micros: f1<number, Date>("time::from_micros"),
-    from_millis: f1<number, Date>("time::from_millis"),
-    from_nanos: f1<number, Date>("time::from_nanos"),
-    from_secs: f1<number, Date>("time::from_secs"),
-    from_unix: f1<number, Date>("time::from_unix"),
   },
   /** `type::*` — casts/constructors. */
   type: {
@@ -372,12 +378,6 @@ export const fn = {
     fields: f1<string[], unknown[]>("type::fields"),
     float: f1<unknown, number>("type::float"),
     int: f1<unknown, number>("type::int"),
-    number: f1<unknown, number>("type::number"),
-    point: f1<unknown, unknown>("type::point"),
-    record: f1o<string, string, unknown>("type::record"),
-    string: f1<unknown, string>("type::string"),
-    table: f1<unknown, unknown>("type::table"),
-    uuid: f1<unknown, unknown>("type::uuid"),
     is_array: f1<unknown, boolean>("type::is_array"),
     is_bool: f1<unknown, boolean>("type::is_bool"),
     is_datetime: f1<unknown, boolean>("type::is_datetime"),
@@ -392,38 +392,44 @@ export const fn = {
     is_record: f1o<unknown, string, boolean>("type::is_record"),
     is_string: f1<unknown, boolean>("type::is_string"),
     is_uuid: f1<unknown, boolean>("type::is_uuid"),
+    number: f1<unknown, number>("type::number"),
+    point: f1<unknown, unknown>("type::point"),
+    record: f1o<string, string, unknown>("type::record"),
+    string: f1<unknown, string>("type::string"),
+    table: f1<unknown, unknown>("type::table"),
+    uuid: f1<unknown, unknown>("type::uuid"),
   },
   /** `vector::*` — vector math (embeddings). */
   vector: {
     add: f2<number[], number[], number[]>("vector::add"),
     angle: f2<number[], number[], number>("vector::angle"),
     cross: f2<number[], number[], number[]>("vector::cross"),
-    divide: f2<number[], number[], number[]>("vector::divide"),
-    dot: f2<number[], number[], number>("vector::dot"),
-    magnitude: f1<number[], number>("vector::magnitude"),
-    multiply: f2<number[], number[], number[]>("vector::multiply"),
-    normalize: f1<number[], number[]>("vector::normalize"),
-    subtract: f2<number[], number[], number[]>("vector::subtract"),
     distance: {
       chebyshev: f2<number[], number[], number>("vector::distance::chebyshev"),
       euclidean: f2<number[], number[], number>("vector::distance::euclidean"),
       hamming: f2<number[], number[], number>("vector::distance::hamming"),
       manhattan: f2<number[], number[], number>("vector::distance::manhattan"),
     },
+    divide: f2<number[], number[], number[]>("vector::divide"),
+    dot: f2<number[], number[], number>("vector::dot"),
+    magnitude: f1<number[], number>("vector::magnitude"),
+    multiply: f2<number[], number[], number[]>("vector::multiply"),
+    normalize: f1<number[], number[]>("vector::normalize"),
     similarity: {
       cosine: f2<number[], number[], number>("vector::similarity::cosine"),
       jaccard: f2<number[], number[], number>("vector::similarity::jaccard"),
       pearson: f2<number[], number[], number>("vector::similarity::pearson"),
     },
+    subtract: f2<number[], number[], number[]>("vector::subtract"),
   },
 } as const
 
 // --- the ref stdlib (per-kind method families the query layer grafts onto field refs) ------------
 
 /** One derived-ref method: the builtin it lowers to (or an operator, spelled `op:<sym>`) and the
- *  KIND of ref it returns (so chaining picks the right next family). `"element"` = the source
- *  array's element kind; `elem` seeds the element kind of an `array` result. */
-export interface RefMethodSpec {
+ * KIND of ref it returns (so chaining picks the right next family). `"element"` = the source
+ * array's element kind; `elem` seeds the element kind of an `array` result. */
+export type RefMethodSpec = {
   readonly elem?: RefKind
   readonly fn: string
   readonly returns: "element" | RefKind
@@ -431,55 +437,55 @@ export interface RefMethodSpec {
 
 /** The per-kind stdlib families (runtime source; the typed facades live in the query layer). */
 export const refMethods: Record<Exclude<RefKind, "other">, Record<string, RefMethodSpec>> = {
-  string: {
-    length: { fn: "string::len", returns: "number" },
-    lowercase: { fn: "string::lowercase", returns: "string" },
-    uppercase: { fn: "string::uppercase", returns: "string" },
-    trim: { fn: "string::trim", returns: "string" },
-    slug: { fn: "string::slug", returns: "string" },
-    reverse: { fn: "string::reverse", returns: "string" },
-    repeat: { fn: "string::repeat", returns: "string" },
-    replace: { fn: "string::replace", returns: "string" },
-    slice: { fn: "string::slice", returns: "string" },
-    split: { fn: "string::split", returns: "array", elem: "string" },
-    words: { fn: "string::words", returns: "array", elem: "string" },
+  array: {
+    at: { fn: "array::at", returns: "element" },
+    distinct: { fn: "array::distinct", returns: "array" },
+    first: { fn: "array::first", returns: "element" },
+    flatten: { fn: "array::flatten", returns: "array" },
+    join: { fn: "array::join", returns: "string" },
+    last: { fn: "array::last", returns: "element" },
+    length: { fn: "array::len", returns: "number" },
+    reverse: { fn: "array::reverse", returns: "array" },
+    slice: { fn: "array::slice", returns: "array" },
+    sort: { fn: "array::sort", returns: "array" },
+  },
+  date: {
+    day: { fn: "time::day", returns: "number" },
+    format: { fn: "time::format", returns: "string" },
+    hour: { fn: "time::hour", returns: "number" },
+    minute: { fn: "time::minute", returns: "number" },
+    month: { fn: "time::month", returns: "number" },
+    second: { fn: "time::second", returns: "number" },
+    unix: { fn: "time::unix", returns: "number" },
+    wday: { fn: "time::wday", returns: "number" },
+    week: { fn: "time::week", returns: "number" },
+    yday: { fn: "time::yday", returns: "number" },
+    year: { fn: "time::year", returns: "number" },
   },
   number: {
     abs: { fn: "math::abs", returns: "number" },
     ceil: { fn: "math::ceil", returns: "number" },
+    div: { fn: "op:/", returns: "number" },
+    fixed: { fn: "math::fixed", returns: "number" },
     floor: { fn: "math::floor", returns: "number" },
+    minus: { fn: "op:-", returns: "number" },
+    plus: { fn: "op:+", returns: "number" },
+    pow: { fn: "math::pow", returns: "number" },
     round: { fn: "math::round", returns: "number" },
     sqrt: { fn: "math::sqrt", returns: "number" },
-    pow: { fn: "math::pow", returns: "number" },
-    fixed: { fn: "math::fixed", returns: "number" },
-    plus: { fn: "op:+", returns: "number" },
-    minus: { fn: "op:-", returns: "number" },
     times: { fn: "op:*", returns: "number" },
-    div: { fn: "op:/", returns: "number" },
   },
-  array: {
-    length: { fn: "array::len", returns: "number" },
-    at: { fn: "array::at", returns: "element" },
-    first: { fn: "array::first", returns: "element" },
-    last: { fn: "array::last", returns: "element" },
-    distinct: { fn: "array::distinct", returns: "array" },
-    sort: { fn: "array::sort", returns: "array" },
-    reverse: { fn: "array::reverse", returns: "array" },
-    slice: { fn: "array::slice", returns: "array" },
-    flatten: { fn: "array::flatten", returns: "array" },
-    join: { fn: "array::join", returns: "string" },
-  },
-  date: {
-    year: { fn: "time::year", returns: "number" },
-    month: { fn: "time::month", returns: "number" },
-    day: { fn: "time::day", returns: "number" },
-    hour: { fn: "time::hour", returns: "number" },
-    minute: { fn: "time::minute", returns: "number" },
-    second: { fn: "time::second", returns: "number" },
-    wday: { fn: "time::wday", returns: "number" },
-    week: { fn: "time::week", returns: "number" },
-    yday: { fn: "time::yday", returns: "number" },
-    unix: { fn: "time::unix", returns: "number" },
-    format: { fn: "time::format", returns: "string" },
+  string: {
+    length: { fn: "string::len", returns: "number" },
+    lowercase: { fn: "string::lowercase", returns: "string" },
+    repeat: { fn: "string::repeat", returns: "string" },
+    replace: { fn: "string::replace", returns: "string" },
+    reverse: { fn: "string::reverse", returns: "string" },
+    slice: { fn: "string::slice", returns: "string" },
+    slug: { fn: "string::slug", returns: "string" },
+    split: { elem: "string", fn: "string::split", returns: "array" },
+    trim: { fn: "string::trim", returns: "string" },
+    uppercase: { fn: "string::uppercase", returns: "string" },
+    words: { elem: "string", fn: "string::words", returns: "array" },
   },
 }

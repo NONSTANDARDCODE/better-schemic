@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-unnecessary-condition -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally ignored values. Defensive checks document fixture intent. */
 // M2 — the write compiler and the delegate writes: golden SQL/vars per form, the runtime envelopes
 // (row/miss/batch/count), codec validation with expression splice, and the teaching guards. Offline.
 // Return semantics + eager guards live in `orm-writes-returns.test.ts`; fixtures shar them there.
@@ -10,6 +11,7 @@ import { orm } from "../../../src/surreal/orm/client"
 import type { OrmError } from "../../../src/surreal/orm/errors"
 import { schema } from "../../../src/surreal/orm/schema"
 import { caught, fakeConn, ok } from "../orm-fixtures"
+
 import {
   codeOf,
   data,
@@ -884,9 +886,9 @@ describe("relate / unrelate — guards and expressions", () => {
 })
 
 describe("create.relate sugar — guards", () => {
-  const rel = (entry: unknown) => codeOf(() => client_create(entry))
+  const rel = (entry: unknown) => codeOf(() => clientCreate(entry))
   const { client } = makeClient()
-  function client_create(entry: unknown): unknown {
+  function clientCreate(entry: unknown): unknown {
     return (client.users as unknown as { create: (a: unknown) => unknown }).create({
       data,
       relate: [entry],

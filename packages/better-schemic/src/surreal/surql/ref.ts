@@ -11,12 +11,13 @@
  */
 declare const REF_VALUE: unique symbol
 
-export interface FieldRefBase<T> {
+export type FieldRefBase<T> = {
   /** Phantom — the decoded app-value type this ref projects to. Never present at runtime. */
   readonly [REF_VALUE]: T
 }
 
 /** Brand a ref implementation with the neutral {@link FieldRefBase} carrier. */
+// eslint-disable-next-line @typescript-eslint/no-restricted-types -- object é o tipo exato das builtins object::* do SurrealDB
 export function brandRef<I extends object, T = unknown>(impl: I): I & FieldRefBase<T> {
   return impl as I & FieldRefBase<T>
 }

@@ -35,7 +35,7 @@ import {
 import { resolveLoggerOptions } from "../surreal/orm/logger/options"
 import type { QueryLogEvent, QueryLogger } from "../surreal/orm/types/logger"
 
-export interface OtelLoggerConfig {
+export type OtelLoggerConfig = {
   /** Static attributes added to every span. Computed attributes win on a key clash. */
   readonly attributes?: Attributes
   /**
@@ -74,21 +74,18 @@ function firstVerb(sql: string | undefined): string | undefined {
  * `EXPLAIN` probe is its own operation.
  */
 function operationOf(event: QueryLogEvent): string {
-  if (event.phase === "explain") {
-    return "EXPLAIN"
-  }
+  if (event.phase === "explain") return "EXPLAIN"
+
   const verbs = new Set<string>()
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const statement of event.statements) {
     const verb = firstVerb(statement.sql)
-    if (verb !== undefined) {
-      verbs.add(verb)
-    }
+    if (verb !== undefined) verbs.add(verb)
   }
-  if (event.statements.length > 1) {
-    return verbs.size === 1 ? `BATCH ${[...verbs][0]}` : "BATCH"
-  }
-  return [...verbs][0] ?? event.operation?.toUpperCase() ?? "QUERY"
+  if (event.statements.length > 1) return verbs.size === 1 ? `BATCH ${[...verbs][0]}` : "BATCH"
+
+  const first = [...verbs][0]
+  return first || event.operation?.toUpperCase() || "QUERY"
 }
 
 /** The span name: `{operation} {table}` (semconv's `{db.operation.name} {target}`). */
@@ -104,9 +101,8 @@ function queryTextOf(event: QueryLogEvent, maxLength: number): string {
 
 /** The first failure of a round-trip: a transport error, or the first failed statement. */
 function failureOf(event: QueryLogEvent): unknown {
-  if (event.error !== undefined) {
-    return event.error
-  }
+  if (event.error !== undefined) return event.error
+
   return event.results.find((result) => result.status === "ERR")?.error
 }
 
@@ -115,35 +111,31 @@ function failureOf(event: QueryLogEvent): unknown {
  * error carries one. This is the natural, low-cardinality `error.type`.
  */
 function kindOf(error: unknown): string | undefined {
-  if (error === null || typeof error !== "object") {
-    return undefined
-  }
+  if (error === null || typeof error !== "object") return undefined
+
   const kind = (error as { kind?: unknown }).kind
   return typeof kind === "string" && kind.length > 0 ? kind : undefined
 }
 
 /** The `cause` an error wraps (a normalized `OrmError` carries the raw SDK error there). */
 function causeOf(error: unknown): unknown {
-  if (error === null || typeof error !== "object") {
-    return undefined
-  }
+  if (error === null || typeof error !== "object") return undefined
+
   return (error as { cause?: unknown }).cause
 }
 
 /** A non-empty STRING code on one error object (`ERR_LOCKED`, `ParseError`, ...). */
 function symbolicCodeOf(error: unknown): string | undefined {
-  if (error === null || typeof error !== "object") {
-    return undefined
-  }
+  if (error === null || typeof error !== "object") return undefined
+
   const code = (error as { code?: unknown }).code
   return typeof code === "string" && code.length > 0 ? code : undefined
 }
 
 /** A NON-ZERO numeric code on one error object (JSON-RPC codes like `-32000`); `0` means "none". */
 function numericCodeOf(error: unknown): number | undefined {
-  if (error === null || typeof error !== "object") {
-    return undefined
-  }
+  if (error === null || typeof error !== "object") return undefined
+
   const code = (error as { code?: unknown }).code
   return typeof code === "number" && code !== 0 ? code : undefined
 }
@@ -155,25 +147,19 @@ function numericCodeOf(error: unknown): number | undefined {
  */
 function errorTypeOf(error: unknown): string {
   const kind = kindOf(error)
-  if (kind !== undefined) {
-    return kind
-  }
+  if (kind !== undefined) return kind
+
   const symbolic = symbolicCodeOf(error)
-  if (symbolic !== undefined) {
-    return symbolic
-  }
+  if (symbolic !== undefined) return symbolic
+
   const numeric = numericCodeOf(error)
-  if (numeric !== undefined) {
-    return String(numeric)
-  }
-  if (error instanceof Error) {
-    return error.name
-  }
+  if (numeric !== undefined) return String(numeric)
+
+  if (error instanceof Error) return error.name
+
   if (error !== null && typeof error === "object") {
     const name = (error as { name?: unknown }).name
-    if (typeof name === "string") {
-      return name
-    }
+    if (typeof name === "string") return name
   }
   return "Error"
 }
@@ -185,37 +171,30 @@ function errorTypeOf(error: unknown): string {
  */
 function statusCodeOf(error: unknown): string | undefined {
   const numeric = numericCodeOf(error) ?? numericCodeOf(causeOf(error))
-  if (numeric !== undefined) {
-    return String(numeric)
-  }
-  if (causeOf(error) === undefined) {
-    return symbolicCodeOf(error)
-  }
+  if (numeric !== undefined) return String(numeric)
+
+  if (causeOf(error) === undefined) return symbolicCodeOf(error)
+
   return undefined
 }
 
 /** A readable error message (status description + exception recording). */
 function messageOf(error: unknown): string {
-  if (typeof error === "string") {
-    return error
-  }
+  if (typeof error === "string") return error
+
   if (error !== null && typeof error === "object") {
     const message = (error as { message?: unknown }).message
-    if (typeof message === "string") {
-      return message
-    }
+    if (typeof message === "string") return message
   }
   return String(error)
 }
 
 /** Normalize the SDK's error shapes into an OTel `Exception` (string or structured). */
 function exceptionOf(error: unknown): Exception {
-  if (typeof error === "string") {
-    return error
-  }
-  if (error instanceof Error) {
-    return error
-  }
+  if (typeof error === "string") return error
+
+  if (error instanceof Error) return error
+
   if (error !== null && typeof error === "object") {
     const record = error as {
       message?: unknown
@@ -242,43 +221,36 @@ function attributesOf(
 ): Attributes {
   const attributes: Attributes = {
     ...config.attributes,
-    "db.system.name": DB_SYSTEM,
     "db.operation.name": operation,
+    "db.system.name": DB_SYSTEM,
   }
-  if (event.table !== undefined) {
-    attributes["db.collection.name"] = event.table
-  }
+  if (event.table !== undefined) attributes["db.collection.name"] = event.table
+
   if (event.context !== undefined)
-  // SurrealDB nests a database inside a namespace; semconv joins components with `|`.
-  {
+    // SurrealDB nests a database inside a namespace; semconv joins components with `|`.
+
     attributes["db.namespace"] = `${event.context.namespace}|${event.context.database}`
-  }
-  if (event.statements.length > 1) {
-    attributes["db.operation.batch.size"] = event.statements.length
-  }
+
+  if (event.statements.length > 1) attributes["db.operation.batch.size"] = event.statements.length
+
   if (config.captureQueryText !== false) {
     const text = queryTextOf(event, maxQueryTextLength)
-    if (text.length > 0) {
-      attributes["db.query.text"] = text
-    }
+    if (text.length > 0) attributes["db.query.text"] = text
   }
-  if (event.transactional) {
-    attributes["surrealdb.transactional"] = true
-  }
-  if (event.inTransaction) {
-    attributes["surrealdb.in_transaction"] = true
-  }
+  if (event.transactional) attributes["surrealdb.transactional"] = true
+
+  if (event.inTransaction) attributes["surrealdb.in_transaction"] = true
+
   return attributes
 }
 
 /** Fail fast on a config that would produce useless spans. */
 function validatedMaxText(value: number | undefined): number {
-  if (value === undefined) {
-    return DEFAULT_MAX_QUERY_TEXT
-  }
-  if (!Number.isInteger(value) || value <= 0) {
+  if (value === undefined) return DEFAULT_MAX_QUERY_TEXT
+
+  if (!Number.isInteger(value) || value <= 0)
     throw new TypeError("createOtelLogger: maxQueryTextLength must be a positive integer")
-  }
+
   return value
 }
 
@@ -298,21 +270,16 @@ export function createOtelLogger(config: OtelLoggerConfig = {}): QueryLogger {
   const tracerName = config.tracerName?.trim() || "better-schemic"
 
   return {
-    enabled,
-    // Rendering defaults are irrelevant here, but the executor reads `options.verbose` to decide
-    // whether to build a result preview — an observer never wants one.
-    options: resolveLoggerOptions({ colors: false, verbose: false }),
     emit(event: QueryLogEvent): void {
-      if (!enabled) {
-        return
-      }
+      if (!enabled) return
+
       let span: Span | undefined
       try {
         const operation = operationOf(event)
         const attributes = attributesOf(event, config, operation, maxQueryTextLength)
         span = trace.getTracer(tracerName).startSpan(spanNameOf(event, operation), {
-          kind: SpanKind.CLIENT,
           attributes,
+          kind: SpanKind.CLIENT,
           startTime: event.time - Math.max(0, event.durationMs),
         })
 
@@ -321,9 +288,8 @@ export function createOtelLogger(config: OtelLoggerConfig = {}): QueryLogger {
           const message = messageOf(failure).slice(0, MAX_STATUS_MESSAGE)
           const statusCode = statusCodeOf(failure)
           span.setAttribute("error.type", errorTypeOf(failure))
-          if (statusCode !== undefined) {
-            span.setAttribute("db.response.status_code", statusCode)
-          }
+          if (statusCode !== undefined) span.setAttribute("db.response.status_code", statusCode)
+
           span.recordException(exceptionOf(failure), event.time)
           span.setStatus({ code: SpanStatusCode.ERROR, message })
         }
@@ -341,7 +307,12 @@ export function createOtelLogger(config: OtelLoggerConfig = {}): QueryLogger {
         }
       }
     },
+    enabled,
+    // Rendering defaults are irrelevant here, but the executor reads `options.verbose` to decide
+    // whether to build a result preview — an observer never wants one.
+    options: resolveLoggerOptions({ colors: false, verbose: false }),
     // OTEL never auto-explains: an explicit `.explain()` still produces a span (phase "explain").
+    // eslint-disable-next-line unicorn/no-useless-undefined -- contrato do logger: undefined significa "sem plano"
     planStatement: () => undefined,
   }
 }

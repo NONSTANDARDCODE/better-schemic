@@ -13,7 +13,7 @@ import { isPlainObject } from "./compiler/shared"
 import type { FieldDelta } from "./types/write"
 
 /** A computed field delta plus the changed key list (stable order). */
-export interface ComputedDelta {
+export type ComputedDelta = {
   /** The changed field names — the same keys as `delta.old`/`delta.new`, in order. */
   readonly changed: string[]
   /** `null` when nothing changed (a diff against the same values is noise). */
@@ -31,27 +31,22 @@ export function computeFieldDelta(
 ): ComputedDelta {
   const keys = Object.keys(after)
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of Object.keys(before)) {
-    if (!Object.hasOwn(after, key)) {
-      keys.push(key)
-    }
-  }
+  for (const key of Object.keys(before)) if (!Object.hasOwn(after, key)) keys.push(key)
+
   const oldPart: Record<string, unknown> = {}
   const newPart: Record<string, unknown> = {}
   const changed: string[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const key of keys) {
-    if (equalAppValue(before[key], after[key])) {
-      continue
-    }
+    if (equalAppValue(before[key], after[key])) continue
+
     oldPart[key] = before[key]
     newPart[key] = after[key]
     changed.push(key)
   }
-  if (changed.length === 0) {
-    return { delta: null, changed }
-  }
-  return { delta: { old: oldPart, new: newPart }, changed }
+  if (changed.length === 0) return { changed, delta: null }
+
+  return { changed, delta: { new: newPart, old: oldPart } }
 }
 
 /**
@@ -60,26 +55,22 @@ export function computeFieldDelta(
  * `Uint8Array` bytes, arrays element-wise and plain objects recursively. Anything else is unequal.
  */
 export function equalAppValue(a: unknown, b: unknown): boolean {
-  if (Object.is(a, b)) {
-    return true
-  }
-  if (a instanceof Date || b instanceof Date) {
+  if (Object.is(a, b)) return true
+
+  if (a instanceof Date || b instanceof Date)
     return a instanceof Date && b instanceof Date && a.getTime() === b.getTime()
-  }
-  if (hasEquals(a) && hasEquals(b)) {
-    return a.equals(b) === true
-  }
-  if (a instanceof Uint8Array && b instanceof Uint8Array) {
-    return bytesEqual(a, b)
-  }
-  if (Array.isArray(a) && Array.isArray(b)) {
+
+  if (hasEquals(a) && hasEquals(b)) return a.equals(b)
+
+  if (a instanceof Uint8Array && b instanceof Uint8Array) return bytesEqual(a, b)
+
+  if (Array.isArray(a) && Array.isArray(b))
     return a.length === b.length && a.every((value, i) => equalAppValue(value, b[i]))
-  }
+
   if (isPlainObject(a) && isPlainObject(b)) {
     const keys = Object.keys(a)
-    if (keys.length !== Object.keys(b).length) {
-      return false
-    }
+    if (keys.length !== Object.keys(b).length) return false
+
     return keys.every((key) => Object.hasOwn(b, key) && equalAppValue(a[key], b[key]))
   }
   return false
@@ -96,14 +87,10 @@ function hasEquals(value: unknown): value is { equals(other: unknown): boolean }
 
 /** Byte-wise `Uint8Array` equality (the `bytes` codec decodes to it). */
 function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) {
-    return false
-  }
+  if (a.length !== b.length) return false
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) {
-      return false
-    }
-  }
+  for (const [i, element] of a.entries()) if (element !== b[i]) return false
+
   return true
 }

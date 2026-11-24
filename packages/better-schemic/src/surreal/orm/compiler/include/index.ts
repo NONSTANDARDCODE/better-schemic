@@ -13,6 +13,7 @@ import type { ModelMeta, SchemaIndex } from "../../meta"
 import { availableKeys, findEdge } from "../relations"
 import type { Binds } from "../shared"
 import { compileError, describeValue, isPlainObject, isTableMeta } from "../shared"
+
 import { compileCount } from "./count"
 import { compileGraphEdge } from "./edges"
 import { compileLink } from "./links"
@@ -42,10 +43,9 @@ export function compileIncludes(args: {
   readonly meta: ModelMeta
   readonly operation: string
 }): IncludeCompiled {
-  const { meta, include, binds, index, operation } = args
-  if (include === undefined || include === null) {
-    return EMPTY_INCLUDE
-  }
+  const { binds, include, index, meta, operation } = args
+  if (include === undefined || include === null) return EMPTY_INCLUDE
+
   if (!isPlainObject(include)) {
     throw compileError(
       "ValidationError",
@@ -69,36 +69,33 @@ export function compileIncludes(args: {
   const flat = new Set<string>()
 
   const claim = (key: string) => {
-    if (!keys.includes(key)) {
-      keys.push(key)
-    }
+    if (!keys.includes(key)) keys.push(key)
   }
   const claimFlat = (key: string) => {
     if (flat.has(key) || meta.columns.has(key)) {
       throw compileError(
         "ValidationError",
         `${operation}: include alias "${key}" collides with a field of "${meta.name}" — alias/rename the projected link fields.`,
-        { table: meta.name, field: key, operation },
+        { field: key, operation, table: meta.name },
       )
     }
     flat.add(key)
   }
   const ctx: CompileCtx = {
     binds,
+    claimFlat,
+    fetch,
     index,
     operation,
     parts,
-    specs,
-    fetch,
     passthrough,
-    claimFlat,
+    specs,
   }
 
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [key, entry] of Object.entries(include)) {
-    if (entry === undefined || entry === false) {
-      continue
-    }
+    if (entry === undefined || entry === false) continue
+
     claim(key)
     if (key === "_count") {
       compileCount(meta, entry, ctx)
@@ -110,7 +107,7 @@ export function compileIncludes(args: {
       throw compileError(
         "ValidationError",
         `${operation}: include."id" is the record identity — nothing to fetch; select it instead.`,
-        { operation, field: key },
+        { field: key, operation },
       )
     }
     if (link) {
@@ -122,14 +119,14 @@ export function compileIncludes(args: {
       compileGraphEdge(meta, key, edge, entry, ctx)
       continue
     }
-    const { links, edges } = availableKeys(meta)
+    const { edges, links } = availableKeys(meta)
     const known = [...links.filter((field) => field !== "id"), ...edges]
     throw new OrmError(
       "UnknownField",
       `${operation}: include."${key}" is not a link or edge of "${meta.name}". Known relations: ${known.length > 0 ? known.join(", ") : "(none)"} (plus "_count").`,
-      { table: meta.name, field: key, operation, details: { known } },
+      { details: { known }, field: key, operation, table: meta.name },
     )
   }
 
-  return { parts, fetch, passthrough, specs, keys }
+  return { fetch, keys, parts, passthrough, specs }
 }

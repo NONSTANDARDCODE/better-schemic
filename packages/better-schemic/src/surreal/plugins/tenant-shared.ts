@@ -14,9 +14,7 @@ export function isIdent(name: unknown): name is string {
 
 /** Check a column/event-name identifier — keeps names canonical and REFACTOR-visible. */
 export function assertIdent(name: unknown, table: string, what: string): asserts name is string {
-  if (!isIdent(name)) {
-    throw identError(name, table, what)
-  }
+  if (!isIdent(name)) throw identError(name, table, what)
 }
 
 /** The teaching error for a bad identifier. */
@@ -24,6 +22,6 @@ export function identError(name: unknown, table: string, what: string): OrmError
   return new OrmError(
     "SchemaInvalid",
     `plugins/tenant: ${what} ${JSON.stringify(name)} of "${table}" must be a plain identifier (letters/digits/underscore, not starting with a digit).`,
-    { table, field: typeof name === "string" ? name : undefined },
+    { field: typeof name === "string" ? name : undefined, table },
   )
 }

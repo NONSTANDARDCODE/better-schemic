@@ -45,11 +45,12 @@ import {
 // The SurrealDB driver builts it IN: importing its engine entry registers it with the engine registry,
 // `getDriver("surrealdb")` always resolves. No package to install, nothing to load at runtime.
 import { DRIVER_NAME } from "../surreal/driver"
+
 import { runAction } from "./action"
-import { compileAot } from "./compile"
+import { compileAot, type CompileOpts } from "./compile"
 import { registerDriverCommands } from "./driver-commands"
-import { generate, type GenerateOnly } from "./generate"
-import { generateOrm } from "./generate-orm"
+import { generate, type GenerateOpts } from "./generate"
+import { generateOrm, type GenerateOrmOpts } from "./generate-orm"
 import { init } from "./init"
 import {
   baseline,
@@ -74,8 +75,34 @@ import {
   resolveTargets,
 } from "./resolve"
 
+/** `process.argv` starts with the runtime and the script path. */
+const ARGV_START = 2
+/** Debounce window for schema-file watch events, in milliseconds. */
+const WATCH_DEBOUNCE_MS = 150
+/** Conversion between the CLI's millisecond timers and the seconds shown to users. */
+const MS_PER_SECOND = 1000
+/** Fallback poll interval, in seconds, when the user supplies no `--interval`. */
+const DEFAULT_POLL_SECONDS = 2
+/** Shortest poll interval the CLI accepts, in milliseconds. */
+const MIN_POLL_MS = 500
+/** Width of the label column in `sc config show`. */
+const CONFIG_LABEL_WIDTH = 11
+
+/** Print one aligned `key: value` row of a diagnostic listing. */
+const printRow = (k: string, v: string): void => {
+  console.log(style.dim(`  ${k.padEnd(CONFIG_LABEL_WIDTH)} ${v}`))
+}
+
+/** Stringify an opaque config value without Object's default `[object Object]`. */
+const textOf = (v: unknown): string => {
+  if (typeof v === "string") return v
+  if (typeof v === "number" || typeof v === "boolean" || typeof v === "bigint") return String(v)
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- `JSON.stringify` devolve undefined em runtime para funções/símbolos.
+  return JSON.stringify(v) ?? ""
+}
+
 /** The driver a resolved connection uses (its package loads it by the resolution engine). */
-const activeDriver = (config: ResolvedConfig): Driver<unknown> => getDriver(config.driver)
+const activeDriver = (config: ResolvedConfig): Driver => getDriver(config.driver)
 
 type CommonOpts = ResolveOpts
 
@@ -92,9 +119,8 @@ async function withDb(
   const targets = await resolveTargets(opts)
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const config of targets) {
-    if (targets.length > 1) {
-      console.log(style.bold(`\n[${config.connection}]`))
-    }
+    if (targets.length > 1) console.log(style.bold(`\n[${config.connection}]`))
+
     const driver = getDriver(config.driver)
     const db = await driver.connect(config, opts)
     try {
@@ -115,9 +141,8 @@ function formatDuplicates(dups: Map<string, string[]>, root: string): string[] {
   return [...dups].map(([name, files]) => {
     const counts = new Map<string, number>()
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const f of files) {
-      counts.set(f, (counts.get(f) ?? 0) + 1)
-    }
+    for (const f of files) counts.set(f, (counts.get(f) ?? 0) + 1)
+
     const label = [...counts]
       .map(([f, n]) => {
         const rel = relative(root, f)
@@ -142,13 +167,12 @@ function run(action: () => Promise<void>): void {
 
 /** Prompt for a migration title; returns undefined when non-interactive (uses the default). */
 async function promptTitle(): Promise<string | undefined> {
-  if (!process.stdin.isTTY) {
-    return undefined
-  }
+  if (!process.stdin.isTTY) return undefined
+
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   try {
-    const answer = (await rl.question("Migration title: ")).trim()
-    return answer || undefined
+    const answer = await rl.question("Migration title: ")
+    return answer.trim() || undefined
   } finally {
     rl.close()
   }
@@ -156,12 +180,12 @@ async function promptTitle(): Promise<string | undefined> {
 
 /** A yes/no prompt; defaults to NO when non-interactive, so scripts must opt in via a flag. */
 async function confirmPrompt(question: string): Promise<boolean> {
-  if (!process.stdin.isTTY) {
-    return false
-  }
+  if (!process.stdin.isTTY) return false
+
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   try {
-    const a = (await rl.question(`${question} [y/N] `)).trim().toLowerCase()
+    const answer = await rl.question(`${question} [y/N] `)
+    const a = answer.trim().toLowerCase()
     return a === "y" || a === "yes"
   } finally {
     rl.close()
@@ -182,9 +206,8 @@ function diffSummary(
       `${plural(diff.up.length, "change")} ${opts.live ? "vs the live database" : "vs the snapshot"}${kinds ? ` — ${kinds}` : ""}.`,
     )
   }
-  if (pending !== undefined) {
-    summary.push(`${plural(pending, "migration")} pending.`)
-  }
+  if (pending !== undefined) summary.push(`${plural(pending, "migration")} pending.`)
+
   return summary.length > 0 ? `\n${style.dim(summary.join("\n"))}` : ""
 }
 
@@ -197,14 +220,12 @@ function reportDiff(
 ): void {
   console.log(formatDiff(diff, { down: opts.down, full: opts.full, inline: opts.inline }))
   const summary = diffSummary(registry, diff, opts, pending)
-  if (summary) {
-    console.log(summary)
-  }
+  if (summary) console.log(summary)
 }
 
 /**
  * Watch the schema directory and re-run `task` on each change (debounced, non-overlapping).
- * Runs once immediately, then blocks until SIGINT/SIGTERM, when `cleanup` runs. Never resolves.
+ * Runs once at startup, then blocks until SIGINT/SIGTERM, when `cleanup` runs. Never resolves.
  */
 function watchLoop(
   config: ResolvedConfig,
@@ -235,7 +256,7 @@ function watchLoop(
     }
     const watcher = fsWatch(config.schemaPath, { recursive: !config.schemaIsFile }, () => {
       clearTimeout(timer)
-      timer = setTimeout(() => void fire(), 150)
+      timer = setTimeout(() => void fire(), WATCH_DEBOUNCE_MS)
     })
     console.log(
       style.dim(
@@ -246,7 +267,8 @@ function watchLoop(
     const stop = () => {
       watcher.close()
       clearTimeout(timer)
-      Promise.resolve(cleanup?.()).finally(() => process.exit(0))
+      // eslint-disable-next-line unicorn/no-process-exit -- encerramento controlado do watcher; o exitcode é contrato do CLI.
+      void Promise.resolve(cleanup?.()).finally(() => process.exit(0))
     }
     process.once("SIGINT", stop)
     process.once("SIGTERM", stop)
@@ -301,20 +323,19 @@ Examples:
 // and prefix its positive (or a lone `--no-flag`) with `[no-]`. Set before any subcommand adds it
 // they inherit it. `_collapsible` (positives that have a `--no-` counterpart) computs it in
 // `visibleOptions` and read in `optionTerm` within the same render pass.
-interface CollapsibleHelp {
+type CollapsibleHelp = {
   _collapsible?: Set<string>
 }
 program.configureHelp({
   optionTerm(option) {
     const term = Help.prototype.optionTerm.call(this, option)
     // A lone `--no-x` (no positive counterpart, e.g. `--no-prune`) -> `--[no-]x`.
-    if (option.negate) {
-      return term.replace("--no-", "--[no-]")
-    }
+    if (option.negate) return term.replace("--no-", "--[no-]")
+
     // A positive `--x` that has a `--no-x` counterpart -> `--[no-]x [...]`.
-    if ((this as CollapsibleHelp)._collapsible?.has(option.attributeName())) {
+    if ((this as CollapsibleHelp)._collapsible?.has(option.attributeName()))
       return term.replace(`--${option.name()}`, `--[no-]${option.name()}`)
-    }
+
     return term
   },
   visibleOptions(cmd) {
@@ -335,21 +356,20 @@ program
   .command("init")
   .description("Scaffold database/ (schemas + migrations) and a config file")
   .action(() => {
-    run(async () => {
+    run(() => {
       const { created, skipped } = init(process.cwd(), getDriver(DRIVER_NAME))
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const f of created) {
-        console.log(`  ${style.green("+")} ${f}`)
-      }
+      for (const f of created) console.log(`  ${style.green("+")} ${f}`)
+
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const f of skipped) {
-        console.log(style.dim(`  · ${f} (exists, skipped)`))
-      }
+      for (const f of skipped) console.log(style.dim(`  · ${f} (exists, skipped)`))
+
       console.log(
         created.length > 0
           ? `\n${ok("Initialized. Edit database/schema, then run `better-schemic gen`.")}`
           : "\nNothing to do — already initialized.",
       )
+      return Promise.resolve()
     })
   })
 
@@ -400,29 +420,21 @@ kindFlags(
         // `--pager <cmd>` uses that command; bare `--pager` resolves the user's git diff viewer
         // (`pager.diff`/`core.pager`/$GIT_PAGER/$PAGER). `--patch` forces the unified-diff format
         // (to the pager, or to stdout when piped). Paging is incompatible with `--watch`.
-        const pager =
-          opts.watch || opts.pager === undefined || opts.pager === false
-            ? undefined
-            : typeof opts.pager === "string"
-              ? opts.pager
-              : resolvePager()
+        const pagerFor = (): string | undefined => {
+          if (opts.watch || opts.pager === undefined || opts.pager === false) return undefined
+          return typeof opts.pager === "string" ? opts.pager : resolvePager()
+        }
+        const pager = pagerFor()
         const emit = async (diff: Diff, pending?: number) => {
-          if (opts.json) {
-            console.log(JSON.stringify({ down: diff.down, pending, up: diff.up }))
-          } else if ((opts.patch || pager) && !isEmptyDiff(diff)) {
+          if (opts.json) console.log(JSON.stringify({ down: diff.down, pending, up: diff.up }))
+          else if ((opts.patch || pager) && !isEmptyDiff(diff)) {
             const patch = formatPatch(diff)
-            if (pager) {
-              await pipeThroughPager(pager, patch)
-            } else {
-              process.stdout.write(patch)
-            }
+            if (pager) await pipeThroughPager(pager, patch)
+            else process.stdout.write(patch)
+
             const summary = diffSummary(driver.registry, diff, opts, pending)
-            if (summary) {
-              console.log(summary)
-            }
-          } else {
-            reportDiff(driver.registry, diff, opts, pending)
-          }
+            if (summary) console.log(summary)
+          } else reportDiff(driver.registry, diff, opts, pending)
         }
         // Reuse one connection across watch runs for --live; otherwise connect per run.
         const persistent = opts.watch && opts.live ? await driver.connect(config, opts) : undefined
@@ -435,9 +447,7 @@ kindFlags(
             // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
             for (const t of loaded.tables) {
               const file = loaded.fileOf.get(t)
-              if (file) {
-                loc.set(t.name, file)
-              }
+              if (file) loc.set(t.name, file)
             }
             // Map each object to its source file (where it lives in the schema, else its kind folder
             // — the driver names the folder per kind via the registry's display metadata).
@@ -472,18 +482,14 @@ kindFlags(
               }
               const files = [...new Set([...cur.keys(), ...des.keys()])].sort()
               const changed = files.filter((f) => (cur.get(f) ?? "") !== (des.get(f) ?? ""))
-              if (changed.length === 0) {
-                console.log(ok(matchMsg))
-              } else if (pager || opts.patch) {
+              if (changed.length === 0) console.log(ok(matchMsg))
+              else if (pager || opts.patch) {
                 // A git-style unified patch, one section per changed file.
                 const patch = changed
                   .map((f) => unifiedDiff(cur.get(f) ?? "", des.get(f) ?? "", f))
                   .join("")
-                if (pager) {
-                  await pipeThroughPager(pager, patch)
-                } else {
-                  process.stdout.write(patch)
-                }
+                if (pager) await pipeThroughPager(pager, patch)
+                else process.stdout.write(patch)
               } else {
                 // Colored, one git-style section per changed file (path header + line diff).
                 console.log(
@@ -495,9 +501,9 @@ kindFlags(
             }
 
             if (opts.live) {
-              if (!driver.diffTsLive) {
+              if (!driver.diffTsLive)
                 throw new Error(`the "${driverName}" driver does not support \`diff --ts --live\`.`)
-              }
+
               const db = persistent ?? (await driver.connect(config, opts))
               try {
                 const { current, desired } = await driver.diffTsLive(
@@ -509,14 +515,13 @@ kindFlags(
                 )
                 await showTsDiff(current, desired, "Schema matches the live database.")
               } finally {
-                if (!persistent) {
-                  await driver.close(db)
-                }
+                // eslint-disable-next-line max-depth -- bloco de limpeza garante o close; extrair mudaria o fluxo de erro.
+                if (!persistent) await driver.close(db)
               }
             } else {
-              if (!driver.renderSchema) {
+              if (!driver.renderSchema)
                 throw new Error(`the "${driverName}" driver does not support \`diff --ts\`.`)
-              }
+
               // Offline: render the snapshot's recorded schema and the declared schema to source,
               // then diff per file.
               const prev = readSnapshot(config.metaDir)
@@ -539,20 +544,22 @@ kindFlags(
             const db = persistent ?? (await driver.connect(config, opts))
             try {
               const diff = await diffLive(db, config, filter)
-              const pending = (await status(db, config)).filter((r) => !r.applied).length
+              const rows = await status(db, config)
+              const pending = rows.filter((r) => !r.applied).length
               await emit(diff, pending)
             } finally {
-              if (!persistent) {
-                await driver.close(db)
-              }
+              if (!persistent) await driver.close(db)
             }
           } else {
-            await emit((await planMigration(config, filter)).diff)
+            const plan = await planMigration(config, filter)
+            await emit(plan.diff)
           }
         }
         if (!opts.watch) {
-          return once()
+          await once()
+          return
         }
+
         await watchLoop(config, once, persistent ? () => driver.close(persistent) : undefined)
       })
     },
@@ -610,7 +617,9 @@ const genAction = (
       .map((line) => `  ${line}`)
       .join("\n")
     console.log(`\n${style.dim(body)}\n`)
-    const title = name ?? (opts.baseline ? "baseline" : opts.yes ? undefined : await promptTitle())
+    let title = name
+    if (title === undefined && opts.baseline) title = "baseline"
+    else if (title === undefined && !opts.yes) title = await promptTitle()
     const prepared = prepareMigration(config, plan, title)
     if (!prepared) {
       console.log(ok("No schema changes — nothing to generate."))
@@ -628,11 +637,8 @@ const genAction = (
       try {
         const driver = activeDriver(config)
         const diffLive = driver.diffLive
-        if (!diffLive) {
-          throw new Error(
-            `the "${config.driver ?? "surrealdb"}" driver does not support live reconcile`,
-          )
-        }
+        if (!diffLive)
+          throw new Error(`the "${config.driver}" driver does not support live reconcile`)
         const db = await driver.connect(config, opts)
         try {
           const drift = !isEmptyDiff(await diffLive(db, config, filter))
@@ -682,28 +688,26 @@ configFlag(
     .description("Run all configured generators (ORM façade + zod-compiler AOT validators)")
     .option("--only <name>", "run only one generator (orm | aot)")
     .option("--watch", "regenerate when the schema changes"),
-).action((opts) => {
+).action((opts: GenerateOpts) => {
   run(async () => {
-    const only = opts.only as GenerateOnly | undefined
-    if (only && only !== "orm" && only !== "aot") {
+    const only = opts.only
+    if (only && only !== "orm" && only !== "aot")
       throw new Error(`sc generate: unknown generator "${only}" (expected orm or aot).`)
-    }
+
     const result = await generate({ ...opts, only })
-    if (result.orm) {
-      console.log(`  ${style.green("+")} ${result.orm}`)
-    }
+    if (result.orm) console.log(`  ${style.green("+")} ${result.orm}`)
+
     if (result.aot) {
       console.log(
         `  ${style.green("+")} ${result.aot.schemaCount} field schemas → ${result.aot.compiled}`,
       )
       console.log(`  ${style.green("+")} ${result.aot.bootstrap}`)
     }
-    result.installedIn.forEach((file) =>
-      console.log(`  ${style.green("+")} installed AOT bootstrap in ${file}`),
-    )
-    if (opts.watch) {
-      return
-    }
+    result.installedIn.forEach((file) => {
+      console.log(`  ${style.green("+")} installed AOT bootstrap in ${file}`)
+    })
+    if (opts.watch) return
+
     console.log(
       `\n${ok(`Generated ${result.artifacts.length} artifact(s) from better-schemic.config.ts.`)}`,
     )
@@ -718,7 +722,7 @@ configFlag(
     .option("--out <file>", "bootstrap module (default .better-schemic/schema.aot.ts)")
     .option("--dir <dir>", "generated sources directory (default .better-schemic/aot)")
     .option("--sources-only", "write the synthetic source without running zod-compiler"),
-).action((opts) => {
+).action((opts: CompileOpts) => {
   run(async () => {
     const result = await compileAot(opts)
     console.log(`  ${style.green("+")} ${result.schemaCount} field schemas → ${result.compiled}`)
@@ -740,7 +744,7 @@ configFlag(
     .option("--provider-from <module>", "module exporting the client resolver")
     .option("--client <expr>", "client resolver expression (default getOrmClient)")
     .option("--name <name>", "generated const name (default 'orm')"),
-).action((opts) => {
+).action((opts: GenerateOrmOpts & { name?: string }) => {
   run(async () => {
     const out = await generateOrm({
       ...opts,
@@ -777,9 +781,7 @@ configFlag(
           `  ${plural(existing.length, "migration")} still on disk — run \`better-schemic gen --baseline --force\` to replace them with one fresh baseline. (A plain \`better-schemic gen\` would add a baseline alongside them.)`,
         ),
       )
-    } else {
-      console.log(style.dim("  The next `better-schemic gen` will baseline the full schema."))
-    }
+    } else console.log(style.dim("  The next `better-schemic gen` will baseline the full schema."))
   })
 })
 
@@ -799,9 +801,8 @@ dbFlags(
         return
       }
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const e of applied) {
-        console.log(`  ${style.green("↑")} ${e.tag}`)
-      }
+      for (const e of applied) console.log(`  ${style.green("↑")} ${e.tag}`)
+
       console.log(`\n${ok(`Applied ${plural(applied.length, "migration")}.`)}`)
     }),
   )
@@ -831,22 +832,17 @@ dbFlags(program.command("status").description("Show applied vs pending migration
             console.log(
               `  ${style.yellow("⚠ drift")}    ${r.tag} ${style.dim("(file changed after apply)")}`,
             )
-          } else if (r.applied) {
-            console.log(`  ${style.green("✓ applied")}  ${r.tag}`)
-          } else {
-            console.log(style.dim(`  · pending  ${r.tag}`))
-          }
+          } else if (r.applied) console.log(`  ${style.green("✓ applied")}  ${r.tag}`)
+          else console.log(style.dim(`  · pending  ${r.tag}`))
         }
         const pending = rows.filter((r) => !r.applied).length
         const drifted = rows.filter((r) => r.drift).length
         const missing = rows.filter((r) => r.missing).length
         const parts = [plural(rows.length, "migration"), `${pending} pending`]
-        if (drifted) {
-          parts.push(`${drifted} drifted`)
-        }
-        if (missing) {
-          parts.push(`${missing} missing`)
-        }
+        if (drifted) parts.push(`${drifted} drifted`)
+
+        if (missing) parts.push(`${missing} missing`)
+
         console.log(`\n${style.dim(`${parts.join(", ")}.`)}`)
         if (missing) {
           console.log(
@@ -881,21 +877,19 @@ dbFlags(
       lowerSchema(driver.registry, driver.explode(tables, defs)),
     )
     console.log(ok(`Schemas valid${kinds ? ` — ${kinds}` : " (no objects)"}.`))
-    if (opts.schema) {
-      return
-    }
+    if (opts.schema) return
 
     // 2. Deep check: replay every migration into a throwaway engine and confirm the result matches
     //    the schema. The driver owns the replay (engine selection + apply); it NEVER touches the
     //    real database. A driver without the capability can `check --schema`.
     if (!driver.checkReplay) {
       throw new Error(
-        `the "${config.driver ?? "surrealdb"}" driver does not support migration replay — run \`better-schemic check --schema\` to validate the schema only.`,
+        `the "${config.driver}" driver does not support migration replay — run \`better-schemic check --schema\` to validate the schema only.`,
       )
     }
-    const diff = await driver.checkReplay(config, opts, parseFilter({}), (m) =>
-      console.log(style.dim(m)),
-    )
+    const diff = await driver.checkReplay(config, opts, parseFilter({}), (m) => {
+      console.log(style.dim(m))
+    })
     if (isEmptyDiff(diff)) {
       console.log(ok("Migrations reproduce the schema."))
       return
@@ -914,19 +908,18 @@ dbFlags(
 ).action((opts: CommonOpts) => {
   run(async () => {
     const config = await resolveOne(opts)
-    const row = (k: string, v: string) => console.log(style.dim(`  ${k.padEnd(11)} ${v}`))
     console.log(style.bold("Project"))
-    row("root", config.root)
-    row("connection", `${config.connection} (${config.driver})`)
-    row("migrations", relative(config.root, config.migrationsDir))
+    printRow("root", config.root)
+    printRow("connection", `${config.connection} (${config.driver})`)
+    printRow("migrations", relative(config.root, config.migrationsDir))
     console.log(style.bold("\nSchema"))
-    row(
+    printRow(
       "source",
       `${relative(config.root, config.schemaPath)} (${config.schemaIsFile ? "file" : "directory"})`,
     )
     try {
       const { duplicates: dups, tables } = await loadDefs(config.schemaPath)
-      row(
+      printRow(
         "tables",
         tables.length > 0
           ? `${plural(tables.length, "table")} — ${tables.map((t) => t.name).join(", ")}`
@@ -935,9 +928,9 @@ dbFlags(
       if (dups.size > 0) {
         console.log(`  ${fail(duplicateHeader(dups.size))}`)
         // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-        for (const line of formatDuplicates(dups, config.root)) {
+        for (const line of formatDuplicates(dups, config.root))
           console.log(style.dim(`    ${line}`))
-        }
+
         process.exitCode = 1
       }
     } catch (error) {
@@ -948,28 +941,24 @@ dbFlags(
     console.log(style.bold("\nConnection"))
     const secret = /pass|secret|token|key/iu
     const redactValue = (k: string, v: unknown): string => {
-      if (secret.test(k)) {
-        return "***"
-      }
-      return String(v ?? "").replace(/\/\/[^/@\s]+@/u, "//***@")
+      if (secret.test(k)) return "***"
+
+      return textOf(v).replace(/\/\/[^/@\s]+@/u, "//***@")
     }
     const params = Object.entries(config.params)
     if (params.length > 0) {
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const [k, v] of params) {
-        row(k, redactValue(k, v))
-      }
-    } else {
-      row("params", "(none)")
-    }
+      for (const [k, v] of params) printRow(k, redactValue(k, v))
+    } else printRow("params", "(none)")
+
     console.log(style.bold("\nVersions"))
-    row("../core", program.version() ?? "?")
-    row("node", process.version)
+    printRow("../core", program.version() ?? "?")
+    printRow("node", process.version)
     console.log(style.bold("\nStatus"))
     try {
       const driver = activeDriver(config)
       const db = await driver.connect(config, opts)
-      const info = driver.serverInfo ? await driver.serverInfo(db) : (config.driver ?? "surrealdb")
+      const info = driver.serverInfo ? await driver.serverInfo(db) : config.driver
       console.log(`  ${ok(`connected — ${info}`)}`)
       await driver.close(db)
     } catch (error) {
@@ -998,9 +987,8 @@ dbFlags(
         return
       }
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const e of reverted) {
-        console.log(`  ${style.yellow("↓")} ${e.tag}`)
-      }
+      for (const e of reverted) console.log(`  ${style.yellow("↓")} ${e.tag}`)
+
       console.log(`\n${ok(`Rolled back ${plural(reverted.length, "migration")}.`)}`)
     }),
   )
@@ -1014,9 +1002,9 @@ configFlag(
   run(async () => {
     const config = await resolveOne(opts)
     const driver = activeDriver(config)
-    if (!driver.scaffoldEntity) {
+    if (!driver.scaffoldEntity)
       throw new Error(`the "${config.driver}" driver can't scaffold entities.`)
-    }
+
     if (config.schemaIsFile) {
       throw new Error(
         "`better-schemic new` needs a schema directory — your schema is a single file.",
@@ -1030,17 +1018,19 @@ configFlag(
       )
     }
     const target = join(config.schemaPath, driver.registry.display(kind).folder, `${name}.ts`)
-    if (existsSync(target)) {
-      throw new Error(`${relative(config.root, target)} already exists.`)
-    }
+    if (existsSync(target)) throw new Error(`${relative(config.root, target)} already exists.`)
+
     mkdirSync(dirname(target), { recursive: true })
     try {
       // `wx`: create-or-fail atomically (no TOCTOU between the check and the write).
       writeFileSync(target, content, { flag: "wx" })
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-        throw new Error(`${relative(config.root, target)} already exists.`)
+        throw new Error(`${relative(config.root, target)} already exists.`, {
+          cause: error,
+        })
       }
+
       throw error
     }
     console.log(
@@ -1078,9 +1068,9 @@ kindFlags(
       const filter = parseFilter(opts)
       const diffLive = driver.diffLive
       const syncPlan = driver.syncPlan
-      if (!diffLive || !syncPlan) {
-        throw new Error(`the "${config.driver ?? "surrealdb"}" driver does not support \`push\`.`)
-      }
+      if (!diffLive || !syncPlan)
+        throw new Error(`the "${config.driver}" driver does not support \`push\`.`)
+
       const once = async (db: unknown) => {
         const diff = await diffLive(db, config, filter)
         const stmts = syncPlan(diff, opts.prune)
@@ -1142,9 +1132,8 @@ dbFlags(
 function printPullPlan(plan: PullPlan): void {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const f of plan.files) {
-    if (f.action === "unchanged") {
-      continue
-    }
+    if (f.action === "unchanged") continue
+
     console.log(`\n${actionLabel(f.action)} ${style.bold(f.rel)}`)
     if (f.action === "delete") {
       console.log(
@@ -1167,13 +1156,12 @@ function printLocalOnly(files: PullFilePlan[]): void {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const f of files) {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const fld of f.localOnly.fields) {
+    for (const fld of f.localOnly.fields)
       console.log(style.dim(`    ${f.rel}: ${fld.exportName} → ${fld.fields.join(", ")}`))
-    }
+
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const obj of f.localOnly.objects) {
+    for (const obj of f.localOnly.objects)
       console.log(style.dim(`    ${f.rel}: ${obj} (whole definition)`))
-    }
   }
   console.log(style.dim("  keep with --merge, or drop with --discard."))
 }
@@ -1191,9 +1179,8 @@ async function pullPass(
   watch: boolean,
 ): Promise<boolean> {
   const driver = activeDriver(config)
-  if (!driver.planPull) {
-    throw new Error(`the "${config.driver ?? "surrealdb"}" driver does not support \`pull\`.`)
-  }
+  if (!driver.planPull) throw new Error(`the "${config.driver}" driver does not support \`pull\`.`)
+
   const plan = await driver.planPull(db, config, {
     filter: parseFilter(opts),
     keepLocal: opts.merge,
@@ -1202,10 +1189,8 @@ async function pullPass(
   // Local- content is  "at risk" when we're not keeping it (--merge keeps it).
   const atRisk = opts.merge
     ? []
-    : plan.files.filter((f) => f.localOnly.fields.length || f.localOnly.objects.length)
-  if (changed.length === 0 && atRisk.length === 0) {
-    return false
-  }
+    : plan.files.filter((f) => f.localOnly.fields.length > 0 || f.localOnly.objects.length > 0)
+  if (changed.length === 0 && atRisk.length === 0) return false
 
   printPullPlan(plan)
   if (!opts.write) {
@@ -1214,9 +1199,8 @@ async function pullPass(
         `\n${style.dim(`${plural(changed.length, "file")} would change — run \`better-schemic pull --write\` to apply.`)}`,
       )
     }
-    if (atRisk.length > 0) {
-      printLocalOnly(atRisk)
-    }
+    if (atRisk.length > 0) printLocalOnly(atRisk)
+
     return true
   }
   // Don't  destroy local- schema (the git "commit or stash" guard).
@@ -1224,9 +1208,8 @@ async function pullPass(
     printLocalOnly(atRisk)
     const msg =
       "pull would overwrite local-only schema — re-run with --merge to keep it or --discard to mirror the database."
-    if (!watch) {
-      throw new Error(msg)
-    }
+    if (!watch) throw new Error(msg)
+
     console.error(fail(msg)) // watch: warn but keep polling
     return true
   }
@@ -1235,16 +1218,16 @@ async function pullPass(
   // DB and `better-schemic diff` doesn't report the freshly-pulled objects as pending.
   const base = await baseline(db, config)
   const removed = plan.files.filter((f) => f.action === "delete").length
-  // Local- entities mixed with other code: surfaced but not safely deletable.
+  // Local- entities mixed with other code: surfaced but not removable without review.
   const kept = opts.merge
     ? []
-    : plan.files.filter((f) => f.action === "unchanged" && f.localOnly.objects.length)
+    : plan.files.filter((f) => f.action === "unchanged" && f.localOnly.objects.length > 0)
   console.log(
     `\n${ok(`Pulled ${plural(written.length, "file")} from the database${removed ? ` (${removed} removed)` : ""}.`)}`,
   )
-  if (base.created) {
+  if (base.created)
     console.log(style.dim(`  baseline ${base.tag} recorded (snapshot synced, marked applied).`))
-  }
+
   if (kept.length > 0) {
     console.log(
       style.dim(
@@ -1270,31 +1253,29 @@ function pullPollLoop(
     const driver = activeDriver(config)
     console.log(
       style.dim(
-        `Polling ${config.connection ?? "the database"} every ${intervalMs / 1000}s — ctrl-c to stop.`,
+        `Polling ${config.connection} every ${intervalMs / MS_PER_SECOND}s — ctrl-c to stop.`,
       ),
     )
     let stopped = false
     const stop = () => {
       stopped = true
-      Promise.resolve(driver.close(db)).finally(() => process.exit(0))
+      // eslint-disable-next-line unicorn/no-process-exit -- encerramento controlado do modo watch; o exitcode é contrato do CLI.
+      void Promise.resolve(driver.close(db)).finally(() => process.exit(0))
     }
     process.once("SIGINT", stop)
     process.once("SIGTERM", stop)
     const tick = async () => {
-      if (stopped) {
-        return
-      }
+      if (stopped) return
+
       try {
         const printed = await pullPass(db, config, opts, true)
-        if (!printed) {
+        if (!printed)
           process.stdout.write(style.dim(`\r· ${new Date().toLocaleTimeString()}  in sync   `))
-        }
       } catch (error) {
         console.error(`\n${fail(errMsg(error))}`)
       }
-      if (!stopped) {
-        setTimeout(() => void tick(), intervalMs)
-      }
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- `stopped` muda no handler de sinal DURANTE o await; o TS não modela essa mutação assíncrona.
+      if (!stopped) setTimeout(() => void tick(), intervalMs)
     }
     void tick()
   })
@@ -1328,18 +1309,20 @@ kindFlags(
       if (opts.watch) {
         const config = await resolveOne(opts)
         const driver = activeDriver(config)
-        if (!driver.planPull) {
-          throw new Error(`the "${config.driver ?? "surrealdb"}" driver does not support \`pull\`.`)
-        }
-        const intervalMs = Math.max(500, (Number(opts.interval) || 2) * 1000)
+        if (!driver.planPull)
+          throw new Error(`the "${config.driver}" driver does not support \`pull\`.`)
+
+        const intervalMs = Math.max(
+          MIN_POLL_MS,
+          (Number(opts.interval) || DEFAULT_POLL_SECONDS) * MS_PER_SECOND,
+        )
         const db = await driver.connect(config, opts)
         await pullPollLoop(config, db, intervalMs, opts)
         return
       }
       await withDb(opts, async (db, config) => {
-        if (!(await pullPass(db, config, opts, false))) {
+        if (!(await pullPass(db, config, opts, false)))
           console.log(ok("Schema files already match the database."))
-        }
       })
     })
   },
@@ -1349,11 +1332,12 @@ kindFlags(
 // register asynchronously. This MUST run before help output too — so bare `sc` / `sc --help` list the
 // driver's commands, not  `sc <kind> --help`. A registration failure never blocks built-ins.
 async function bootstrap(): Promise<void> {
-  await registerDriverCommands(program).catch(() => {})
-  if (process.argv.length <= 2) {
+  await registerDriverCommands(program).catch(() => void 0)
+  if (process.argv.length <= ARGV_START) {
     program.outputHelp()
+    // eslint-disable-next-line unicorn/no-process-exit -- `sc` sem argumentos só mostra a ajuda e encerra com sucesso.
     process.exit(0)
   }
   await program.parseAsync()
 }
-bootstrap()
+await bootstrap()

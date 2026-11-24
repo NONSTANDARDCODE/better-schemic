@@ -16,22 +16,21 @@ import type { AnyConnectionEntry, ResolveContext } from "./connection"
  * closes the connection it opened; a BYO client (wrapping the user's own pool) MUST make `close` a
  * NO-OP — we never close a connection the user owns. The driver enforces this at construction.
  */
-export interface OrmClientBase extends AsyncDisposable {
+export type OrmClientBase = {
   /** Close the underlying connection (managed ; a BYO client is a no-op — see the dispose rule). */
   close(): Promise<void>
-}
+} & AsyncDisposable
 
 /** Mixin the default `[Symbol.asyncDispose]` (= `close`) onto a client class's prototype. */
-export function asyncDisposable<T extends { close(): Promise<void> }>(proto: T): void {
-  ;(proto as { [Symbol.asyncDispose]?: () => Promise<void> })[Symbol.asyncDispose] = function (
-    this: T,
-  ) {
-    return this.close()
-  }
+export function asyncDisposable(proto: { close(): Promise<void> }): void {
+  ;(proto as { [Symbol.asyncDispose]?: () => Promise<void> })[Symbol.asyncDispose] =
+    function (this: { close(): Promise<void> }) {
+      return this.close()
+    }
 }
 
 /** Options for {@link resolveConnection}: which connection, and where the config lives. */
-export interface ResolveConnectionOptions {
+export type ResolveConnectionOptions = {
   /** The resolver's typed args (its declared 2nd param) for a PARAMETERIZED connection. */
   args?: unknown
   /** Path to `better-schemic.config.ts` (else auto-discovered from `cwd`). */
@@ -44,7 +43,7 @@ export interface ResolveConnectionOptions {
 
 /**
  * A live resolution context for RUNTIME connects: `ctx.connections.<name>`  opens the sibling
- * via ITS entry's embedded client opener (so a resolver can query another connection to enumerate a
+ * via ITS entry's embedded client opener (so a resolver can query another connection to list a
  * fleet), with CYCLE detection; everything opened during resolution closs it when it settles.
  */
 function makeRuntimeContext(config: OrmConfig, root: string) {
@@ -58,9 +57,8 @@ function makeRuntimeContext(config: OrmConfig, root: string) {
       )
     }
     const entry = Object.hasOwn(config.connections, name) ? config.connections[name] : undefined
-    if (!entry) {
-      throw new Error(`ctx.connections.${name}: no such connection`)
-    }
+    if (!entry) throw new Error(`ctx.connections.${name}: no such connection`)
+
     if (!entry.client) {
       throw new Error(
         `ctx.connections.${name}: the "${entry.driver}" connection factory predates runtime cross-connection access — update @better-schemic/${entry.driver}`,
@@ -105,6 +103,7 @@ function makeRuntimeContext(config: OrmConfig, root: string) {
               }
               return db.query(sql, vars)
             },
+            // eslint-disable-next-line unicorn/no-thenable -- thenable é contrato: `await ctx.connections.<name>` abre o client lazy.
             then: (onOk?: (v: unknown) => unknown, onErr?: (e: unknown) => unknown) =>
               openOnce().then(onOk, onErr),
           }
@@ -175,9 +174,8 @@ export async function resolveFromConfig(
   rt.resolving.add(name) // the target itself is mid-resolution — a self-reference is a cycle
   try {
     const bases = await entry.resolve(rt.context, opts.args)
-    if (bases.length === 0) {
-      throw new Error(`connection "${name}" resolved to no config`)
-    }
+    if (bases.length === 0) throw new Error(`connection "${name}" resolved to no config`)
+
     const resolved = bases.map((b) => resolveConnectionConfig(config, name, b, entry.driver, root))
     const labels = resolved.map((rc, i) => bases[i].key ?? entry.label?.(rc) ?? `${name}[${i}]`)
     return { entry, labels, name, resolved }

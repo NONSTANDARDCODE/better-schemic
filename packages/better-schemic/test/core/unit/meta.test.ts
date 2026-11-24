@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
 // The neutral stored-snapshot + migration-file engine: the empty/mismatch fallbacks, the migration
 // listing, and the pure helpers (timestamp / checksum / slug).
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
@@ -17,7 +18,9 @@ import {
 } from "../../../src/core/cli-kit/meta"
 
 const dir = mkdtempSync(join(tmpdir(), "meta-test-"))
-afterAll(() => rmSync(dir, { recursive: true, force: true }))
+afterAll(() => {
+  rmSync(dir, { recursive: true, force: true })
+})
 
 describe("readSnapshot / writeSnapshot", () => {
   test("an absent snapshot reads as EMPTY (version 3, surrealdb)", () => {

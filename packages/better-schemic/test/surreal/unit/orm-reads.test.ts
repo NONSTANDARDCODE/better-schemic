@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-non-null-assertion, unicorn/consistent-function-scoping, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unused-vars, @typescript-eslint/await-thenable, @typescript-eslint/no-unnecessary-type-parameters -- Object key order mirrors expected serialized SQL and stays as authored. Literal values are intentional test data. Reads return thenables whose declared type is not Promise, so call await before asserting on calls[0]. Defensive checks, non-null assertions and fixture values document test intent; helpers stay colocated with their tests. */
 // M1.2 — the read compiler and the delegate: golden args -> exact `{ sql, vars }`, projection
 // decode (full/omit/select/value/), lazy execution and the teaching guards. Offline.
 import { describe, expect, test } from "bun:test"
@@ -16,7 +17,7 @@ import {
   type ReadArgs,
 } from "../../../src/surreal/orm/compiler/select"
 import { createBinds } from "../../../src/surreal/orm/compiler/shared"
-import { requireUniqueField, uniqueTarget } from "../../../src/surreal/orm/compiler/unique"
+import { uniqueTarget } from "../../../src/surreal/orm/compiler/unique"
 import type { OrmError } from "../../../src/surreal/orm/errors"
 import type { TableMeta } from "../../../src/surreal/orm/meta"
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema"
@@ -34,7 +35,7 @@ const User = table("user", {
 })
 
 const index = buildSchemaIndex({ users: User })
-const meta = index.tables.get("users") as TableMeta
+const meta = index.tables.get("users")!
 
 /** Compile a read and capture its statement text + binds. */
 function compile(args: ReadArgs, table: TableMeta = meta) {
@@ -46,7 +47,7 @@ function compile(args: ReadArgs, table: TableMeta = meta) {
 /** Normalize the SDK tag's counted `bind__N` names for stable fragment goldens. */
 function stable({ sql, vars }: { sql: string; vars: Record<string, unknown> }) {
   const aliases = new Map<string, string>()
-  const text = sql.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/gu, (_, name) => {
+  const text = sql.replaceAll(/\$([A-Za-z_][A-Za-z0-9_]*)/gu, (_, name) => {
     if (!name.startsWith("bind__")) return `$${name}`
     let alias = aliases.get(name)
     if (!alias) {
@@ -483,9 +484,9 @@ describe("delegate — findMany", () => {
     const { conn: c3 } = fakeConn(() => [ok([fullUser("u2", { name: "Bob" })])])
     const c = orm(c3, { schema: { users: User } })
     const [row] = (await c.users.findMany()) as { at: Date; id: RecordId }[]
-    expect(row?.at).toBeInstanceOf(Date)
-    expect(row?.at.toISOString()).toBe("2025-01-02T03:04:05.000Z")
-    expect(String(row?.id)).toBe("user:u2")
+    expect(row.at).toBeInstanceOf(Date)
+    expect(row.at.toISOString()).toBe("2025-01-02T03:04:05.000Z")
+    expect(String(row.id)).toBe("user:u2")
   })
 
   test("omit decodes the remaining fields (missing required field is fine)", async () => {
@@ -500,7 +501,7 @@ describe("delegate — findMany", () => {
         active: true,
       }),
     ])
-    const keys = Object.keys(rows[0] as object)
+    const keys = Object.keys(rows[0])
     expect(keys).toContain("tags")
     expect(keys).not.toContain("age")
     expect(keys).not.toContain("at")
@@ -587,8 +588,8 @@ describe("delegate — findFirst/findOne", () => {
     expect(calls).toHaveLength(0) // still lazy before .throw()
     const err = (await pending.throw().catch((error: unknown) => error)) as Error & {
       code: string
-      table: string
       operation: string
+      table: string
     }
     expect(err.code).toBe("ResultNotFound")
     expect(err.table).toBe("user")
@@ -845,7 +846,7 @@ describe("delegate — aggregate", () => {
     const client = orm(conn, { schema: { users: User } })
     const rows = (await client.users.aggregate({
       select: { names: { collect: "name" }, ats: { collect: "at" } },
-    })) as { names: string[]; ats: Date[] }[]
+    })) as { ats: Date[]; names: string[] }[]
     expect(rows[0]?.names).toEqual(["Alice", "Bob"])
     expect(rows[0]?.ats[0]).toBeInstanceOf(Date)
   })
@@ -908,7 +909,7 @@ describe("delegate — aggregate", () => {
     const client = orm(conn, { schema: { users: User } })
     const err = (() => {
       try {
-        client.users.aggregate({
+        void client.users.aggregate({
           select: { _count: true },
           groupBy: ["active"],
         })
@@ -1001,7 +1002,7 @@ describe("delegate — aggregate aliases and operand guards", () => {
     const client = orm(conn, { schema: { users: User } })
     const err = (() => {
       try {
-        client.users.aggregate({ select: { total: { sum: "name" } } })
+        void client.users.aggregate({ select: { total: { sum: "name" } } })
         return undefined
       } catch (error) {
         return error as OrmError
@@ -1064,7 +1065,7 @@ describe("delegate — aggregate aliases and operand guards", () => {
     const client = orm(conn, { schema: { users: User } })
     const err = (() => {
       try {
-        client.users.aggregate({ select: { t: { sum: "nope.x" } } })
+        void client.users.aggregate({ select: { t: { sum: "nope.x" } } })
         return undefined
       } catch (error) {
         return error as OrmError
@@ -1104,7 +1105,7 @@ describe("delegate — aggregate over split (UNWIND + GROUP)", () => {
     const { conn, calls } = fakeConn(() => [ok(rows)])
     const client = orm(conn, { schema: cartSchema })
     const out = (await client.carts.aggregate(args)) as R
-    return { sql: calls[0]?.sql as string, rows: out }
+    return { sql: calls[0]?.sql, rows: out }
   }
 
   test("group all over a split lowers to UNWIND-then-GROUP", async () => {
@@ -1322,7 +1323,7 @@ describe("composite UNIQUE targets", () => {
       data: { email: "a@x" },
       onMissing: "create",
     })
-    const sql = calls[0]?.sql as string
+    const sql = calls[0]?.sql
     expect(sql).toContain("org = $p")
     expect(sql).toContain("handle = $p")
     expect(sql).toMatch(/WHERE[^;]*org[^;]*handle/u)

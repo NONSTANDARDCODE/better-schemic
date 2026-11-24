@@ -6,7 +6,7 @@
  * - requires a scope for every tenant-tagged table (`TenantRequired`, fail-closed, BEFORE compiling);
  * - injects the scope into create/upsert payloads (a forged/divergent value is `TenantViolation`);
  * - AND-combines it into EVERY read/write through the compiler `scope` channel — including
- *   `findUnique`'s id/unique targets and singular writes, without joining `uniqueTarget`;
+ * `findUnique`'s id/unique targets and singular writes, without joining `uniqueTarget`;
  * - exposes `$forTenant("user:abc")` (per-delegate state, `$withState`).
  *
  * Boundaries (documented, deliberate): edges (`relate`/`unrelate`), raw SQL (`$raw`/`$query`/
@@ -22,6 +22,7 @@ import type { SchemaIndex, TableMeta } from "../orm/meta"
 import { definePlugin } from "../orm/plugins"
 import type { Operation, PluginState } from "../orm/types/plugins"
 import type { AnyTableDef } from "../orm/types/schema"
+
 import { assertIdent, isIdent } from "./tenant-shared"
 
 /**
@@ -31,7 +32,7 @@ import { assertIdent, isIdent } from "./tenant-shared"
 export type TenantRef = RecordId | string
 
 /** Options for the `tenantRls(...)` runtime plugin. */
-export interface TenantRlsOptions {
+export type TenantRlsOptions = {
   /** The column used for `tables` entries without a `meta.tenant` tag (default `"tenant_id"`). */
   readonly column?: string
   /**
@@ -51,14 +52,15 @@ export interface TenantRlsOptions {
  * The methods `tenantRls` grafts onto every delegate. `$forTenant` returns `this`, so the full
  * typed delegate (reads, writes, other plugins' methods) survives the scope clone.
  */
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- `this` type exige interface (polymorphic this no delegate)
 export interface TenantModelExtras {
   /** A clone of this delegate scoped to `tenant` (via `$withState`) — chainable; the original
-   *  delegate keeps its state. The scope resolves as `$state.<plugin id>` > `tenantRls({ tenant })`. */
+   * delegate keeps its state. The scope resolves as `$state.<plugin id>` > `tenantRls({ tenant })`. */
   $forTenant(tenant: TenantRef): this
 }
 
 /** The parsed runtime tag of one tenant-scoped table. */
-interface TenantTag {
+type TenantTag = {
   readonly column: string
   readonly createOnly: boolean
   readonly principal?: string
@@ -66,12 +68,12 @@ interface TenantTag {
 }
 
 /** The plugin id, also used as the `$state` namespace of `$forTenant` (collision-proof: the flat
- *  state bag shars it by every plugin and is reachable through the public `$withState`). */
+ * state bag shars it by every plugin and is reachable through the public `$withState`). */
 const PLUGIN_ID = "better-schemic/tenant"
 const STATE_KEY = PLUGIN_ID
 
 /** Read the preset's marker off a table def (or `undefined` for untagged tables). */
-function tenantMetaOf(meta: { def: AnyTableDef } | TableMeta): unknown {
+function tenantMetaOf(meta: TableMeta | { def: AnyTableDef }): unknown {
   return meta.def.config.meta?.tenant
 }
 
@@ -83,24 +85,19 @@ function parseTag(raw: unknown, table: string): TenantTag {
       `plugins/tenant: table "${table}" has a malformed meta.tenant tag — expected { column: string, principal?: string, softDelete?: string | false, createOnly?: boolean }.`,
       { table },
     )
-  if (!isPlainObject(raw)) {
-    throw malformed()
-  }
-  if (typeof raw.column !== "string" || raw.column.length === 0) {
-    throw malformed()
-  }
+  if (!isPlainObject(raw)) throw malformed()
+
+  if (typeof raw.column !== "string" || raw.column.length === 0) throw malformed()
+
   assertIdent(raw.column, table, "meta.tenant.column")
   let softDelete: string | undefined
-  if (typeof raw.softDelete === "string" && raw.softDelete.length > 0) {
-    softDelete = raw.softDelete
-  }
-  if (softDelete !== undefined) {
-    assertIdent(softDelete, table, "meta.tenant.softDelete")
-  }
+  if (typeof raw.softDelete === "string" && raw.softDelete.length > 0) softDelete = raw.softDelete
+
+  if (softDelete !== undefined) assertIdent(softDelete, table, "meta.tenant.softDelete")
+
   let principal: string | undefined
-  if (typeof raw.principal === "string" && raw.principal.length > 0) {
-    principal = raw.principal
-  }
+  if (typeof raw.principal === "string" && raw.principal.length > 0) principal = raw.principal
+
   return {
     column: raw.column,
     ...(principal === undefined ? {} : { principal }),
@@ -110,21 +107,21 @@ function parseTag(raw: unknown, table: string): TenantTag {
 }
 
 /** Bootstrap validation: the tag's column is a record link to the principal (and the soft-delete
- *  column exists — a SCHEMAFULL index on a missing field fails at apply). */
+ * column exists — a SCHEMAFULL index on a missing field fails at apply). */
 function validateTag(tag: TenantTag, meta: TableMeta): void {
   const column = meta.columns.get(tag.column)
   if (column === undefined) {
     throw new OrmError(
       "SchemaInvalid",
       `plugins/tenant: "${meta.name}" is tenant-scoped, but column "${tag.column}" is not a field — add it (the tenant() preset does), or fix meta.tenant.`,
-      { table: meta.name, field: tag.column },
+      { field: tag.column, table: meta.name },
     )
   }
   if (column.record === undefined) {
     throw new OrmError(
       "SchemaInvalid",
       `plugins/tenant: "${meta.name}.${tag.column}" must be a record link to be tenant-scoped — got type "${column.type}".`,
-      { table: meta.name, field: tag.column },
+      { field: tag.column, table: meta.name },
     )
   }
   if (
@@ -135,25 +132,24 @@ function validateTag(tag: TenantTag, meta: TableMeta): void {
     throw new OrmError(
       "SchemaInvalid",
       `plugins/tenant: "${meta.name}.${tag.column}" links ${column.record.targets.map((t) => `record<${t}>`).join(" | ")}, but meta.tenant names principal "${tag.principal}" — align them.`,
-      { table: meta.name, field: tag.column },
+      { field: tag.column, table: meta.name },
     )
   }
   if (tag.softDelete !== undefined && !meta.columns.has(tag.softDelete)) {
     throw new OrmError(
       "SchemaInvalid",
       `plugins/tenant: "${meta.name}" is soft-delete scoped, but the tombstone column "${tag.softDelete}" is not a field — declare it before the schemafull table (SCHEMAFULL rejects an index on a missing field).`,
-      { table: meta.name, field: tag.softDelete },
+      { field: tag.softDelete, table: meta.name },
     )
   }
 }
 
 /** Resolve the operation's scope: `$state.<plugin id>` > `tenantRls({ tenant })` (a static or a
- *  per-operation resolver). `undefined` = no scope (the transform fails closed). */
+ * per-operation resolver). `undefined` = no scope (the transform fails closed). */
 function resolveScope(op: Operation, options: TenantRlsOptions): TenantRef | undefined {
   const state = op.state[STATE_KEY]
-  if (state != null) {
-    return state as TenantRef
-  }
+  if (state != null) return state as TenantRef
+
   const configured = options.tenant
   const value = typeof configured === "function" ? configured() : configured
   return value == null ? undefined : value
@@ -202,16 +198,14 @@ function toRecordId(value: unknown, tag: TenantTag, op: Operation): RecordId {
 
 /** Is `value` the same tenant as `scope` (string/RecordId/short form normalized)? */
 function sameTenant(value: unknown, scope: RecordId, tag: TenantTag): boolean {
-  if (value instanceof RecordId) {
-    return String(value) === String(scope)
-  }
-  if (typeof value !== "string" || value.length === 0) {
-    return false
-  }
+  if (value instanceof RecordId) return String(value) === String(scope)
+
+  if (typeof value !== "string" || value.length === 0) return false
+
   const colon = value.indexOf(":")
-  if (colon > 0) {
+  if (colon > 0)
     return String(new RecordId(value.slice(0, colon), value.slice(colon + 1))) === String(scope)
-  }
+
   return tag.principal === undefined
     ? false
     : String(new RecordId(tag.principal, value)) === String(scope)
@@ -222,7 +216,7 @@ function requiredError(op: Operation, tag: TenantTag): OrmError {
   return new OrmError(
     "TenantRequired",
     `tenantRls: "${op.table}" is tenant-scoped by "${tag.column}", but operation "${op.kind}" has no tenant scope — call $forTenant("user:abc") on the delegate or set tenantRls({ tenant: () => … }). For an intentional cross-tenant/admin operation, call $withoutPlugins() explicitly.`,
-    { table: op.table, operation: op.kind, field: tag.column },
+    { field: tag.column, operation: op.kind, table: op.table },
   )
 }
 
@@ -236,25 +230,23 @@ function violationError(
   return new OrmError(
     "TenantViolation",
     `tenantRls: operation "${op.kind}" on "${op.table}" — ${detail} (column "${tag.column}"). ${hint}`,
-    { table: op.table, operation: op.kind, field: tag.column },
+    { field: tag.column, operation: op.kind, table: op.table },
   )
 }
 
 /**
- * check a caller `where` that already constrains the tenant column: it must pin  the
+ * check a caller `where` that already constrains the tenant column: it must pin the
  * scope (a forged/divergent value is `TenantViolation`). Returns `true` when the filter itself
  * pins the scope — the compiler then adds nothing (the predicate IS the scope); reads/writes with
  * no such key get the scope ANDed by their compiler.
  */
 function wherePinsScope(op: Operation, tag: TenantTag, scope: RecordId): boolean {
   const where = op.args.where
-  if (!isPlainObject(where)) {
-    return false
-  } // absent/fragment: the compiler ANDs the scope itself
+  if (!isPlainObject(where)) return false
+  // absent/fragment: the compiler ANDs the scope itself
   const existing = where[tag.column]
-  if (existing === undefined) {
-    return false
-  }
+  if (existing === undefined) return false
+
   if (!isScopeValue(existing, scope, tag)) {
     throw violationError(
       op,
@@ -278,29 +270,27 @@ function isScopeValue(value: unknown, scope: RecordId, tag: TenantTag): boolean 
 }
 
 /** Set the plugin scope on an operation: a caller `where` that already pins the scope is a valid,
- *  sufficient predicate (validated by `wherePinsScope`); anything else gets the scope channelled
- *  to the compiler, which ANDs it into every statement. */
+ * enough predicate (validated by `wherePinsScope`); anything else gets the scope channelled
+ * to the compiler, which ANDs it into every statement. */
 function scopeOperation(op: Operation, tag: TenantTag, scope: RecordId): void {
-  if (!wherePinsScope(op, tag, scope)) {
-    op.scope[tag.column] = { equals: scope }
-  }
+  if (!wherePinsScope(op, tag, scope)) op.scope[tag.column] = { equals: scope }
 }
 
 /** Inject `column = scope` into a create payload (object or `Some` array), rejecting a divergent
- *  value. A string id normalizs it to the `RecordId` the codec requires. `data` defaults to
- *  `op.args.data`; `upsert`'s distinct `create` branch passes `op.args.create` too. */
+ * value. A string id normalizs it to the `RecordId` the codec requires. `data` defaults to
+ * `op.args.data`; `upsert`'s distinct `create` branch passes `op.args.create` too. */
 function injectCreateData(
   op: Operation,
   tag: TenantTag,
   scope: RecordId,
   data: unknown = op.args.data,
 ): void {
+  // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
   const items = Array.isArray(data) ? data : data === undefined ? [] : [data]
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const item of items) {
-    if (!isPlainObject(item)) {
-      continue
-    } // the compiler rejects a non-object payload itself
+    if (!isPlainObject(item)) continue
+    // the compiler rejects a non-object payload itself
     const current = item[tag.column]
     if (current !== undefined && !sameTenant(current, scope, tag)) {
       throw violationError(
@@ -314,23 +304,22 @@ function injectCreateData(
 }
 
 /** Check an update payload's tenant value (an equal value normalizs it to the scoped
- *  `RecordId`; READONLY allows the same-value no-op write, and `REPLACE` needs it present). */
+ * `RecordId`; READONLY allows the same-value no-op write, and `REPLACE` needs it present). */
 function assertUpdateData(
   op: Operation,
   tag: TenantTag,
   scope: RecordId,
   data: unknown = op.args.data,
 ): void {
+  // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
   const items = Array.isArray(data) ? data : data === undefined ? [] : [data]
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const item of items) {
-    if (!isPlainObject(item)) {
-      continue
-    }
+    if (!isPlainObject(item)) continue
+
     const current = item[tag.column]
-    if (current === undefined) {
-      continue
-    }
+    if (current === undefined) continue
+
     if (!sameTenant(current, scope, tag)) {
       throw violationError(
         op,
@@ -345,14 +334,12 @@ function assertUpdateData(
 /** Reject a JSON Patch that targets the tenant column (top-level paths). */
 function assertPatches(op: Operation, tag: TenantTag): void {
   const patches = op.args.patches
-  if (!Array.isArray(patches)) {
-    return
-  }
+  if (!Array.isArray(patches)) return
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const entry of patches) {
-    if (!isPlainObject(entry) || typeof entry.path !== "string") {
-      continue
-    }
+    if (!isPlainObject(entry) || typeof entry.path !== "string") continue
+
     const path = entry.path
     if (path === `/${tag.column}` || path.startsWith(`/${tag.column}/`)) {
       throw violationError(
@@ -366,12 +353,11 @@ function assertPatches(op: Operation, tag: TenantTag): void {
 }
 
 /** `INSERT … ON DUPLICATE KEY UPDATE` has no WHERE: a guessed id could update another tenant's
- *  record, so it's refused on a tenant-scoped table (fail-closed). */
+ * record, so it's refused on a tenant-scoped table (fail-closed). */
 function assertDuplicateSafe(op: Operation, tag: TenantTag): void {
   const onDuplicate = op.args.onDuplicate
-  if (onDuplicate === undefined || onDuplicate === "ignore") {
-    return
-  }
+  if (onDuplicate === undefined || onDuplicate === "ignore") return
+
   throw violationError(
     op,
     tag,
@@ -395,9 +381,8 @@ function columnError(value: unknown): OrmError {
  */
 export function tenantRls(options: TenantRlsOptions = {}) {
   const fallbackColumn = options.column ?? "tenant_id"
-  if (!isIdent(fallbackColumn)) {
-    throw columnError(options.column)
-  }
+  if (!isIdent(fallbackColumn)) throw columnError(options.column)
+
   const extras: readonly string[] = options.tables ?? []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const name of extras) {
@@ -409,8 +394,8 @@ export function tenantRls(options: TenantRlsOptions = {}) {
     }
   }
   /** Per schema index: physical table -> tag, built at bootstrap (setup) — the transform is a
-   *  plain map lookup. Keyed by the INDEX (not by plugin instance), so sharing one `tenantRls`
-   *  instance across clients with different schemas stays correct. */
+   * plain map lookup. Keyed by the INDEX (not by plugin instance), so sharing one `tenantRls`
+   * instance across clients with different schemas stays correct. */
   const tagsByIndex = new WeakMap<SchemaIndex, Map<string, TenantTag>>()
 
   /** Build + check the tag map for one schema index (bootstrap, or fail-closed). */
@@ -419,9 +404,8 @@ export function tenantRls(options: TenantRlsOptions = {}) {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const meta of index.tables.values()) {
       const raw = tenantMetaOf(meta)
-      if (raw === undefined) {
-        continue
-      }
+      if (raw === undefined) continue
+
       const tag = parseTag(raw, meta.name)
       validateTag(tag, meta)
       tags.set(meta.name, tag)
@@ -433,7 +417,7 @@ export function tenantRls(options: TenantRlsOptions = {}) {
         throw new OrmError(
           "SchemaInvalid",
           `tenantRls: "tables" entry "${name}" is not in the schema — add it or drop the entry.`,
-          { table: name, operation: "setup" },
+          { operation: "setup", table: name },
         )
       }
       if ("schemaless" in model) {
@@ -450,10 +434,18 @@ export function tenantRls(options: TenantRlsOptions = {}) {
   }
 
   return definePlugin({
+    config: { ...options, column: fallbackColumn, tables: extras },
+    description: "Row-level tenant isolation for privileged sessions (client-side scope).",
+    extendModel({ model }): TenantModelExtras {
+      const self = model as {
+        $withState(state: PluginState): TenantModelExtras
+      }
+      return {
+        $forTenant: (tenant: TenantRef) => self.$withState({ [STATE_KEY]: tenant }),
+      }
+    },
     id: PLUGIN_ID,
     name: "Tenant RLS",
-    description: "Row-level tenant isolation for privileged sessions (client-side scope).",
-    config: { ...options, column: fallbackColumn, tables: extras },
     setup({ index }) {
       const configured = options.tenant
       if (
@@ -479,24 +471,20 @@ export function tenantRls(options: TenantRlsOptions = {}) {
         tagsByIndex.set(op.index, tags)
       }
       const tag = tags.get(op.table)
-      if (tag === undefined) {
-        return
-      } // untagged table: untouched
+      if (tag === undefined) return
+      // untagged table: untouched
       // Edges are out of scope: RELATE/DELETE-edge go through the DB permission, not a column.
-      if (operationFamily(op.kind) === "relate") {
-        return
-      }
+      if (operationFamily(op.kind) === "relate") return
+
       const scope = resolveScope(op, options)
-      if (scope === undefined) {
-        throw requiredError(op, tag)
-      }
+      if (scope === undefined) throw requiredError(op, tag)
+
       const tenant = toRecordId(scope, tag, op)
       const family = operationFamily(op.kind)
 
       if (family === "create") {
-        if (op.kind === "insert" || op.kind === "insertMany") {
-          assertDuplicateSafe(op, tag)
-        }
+        if (op.kind === "insert" || op.kind === "insertMany") assertDuplicateSafe(op, tag)
+
         injectCreateData(op, tag, tenant)
         return
       }
@@ -515,11 +503,8 @@ export function tenantRls(options: TenantRlsOptions = {}) {
           // `mode: "replace"` drops fields absent from the payload, and a READONLY field must be
           // present with the same value — inject the scope (validated) instead of requiring the
           // caller to echo it. MERGE/SET/CONTENT preserve an omitted READONLY column.
-          if (op.args.mode === "replace") {
-            injectCreateData(op, tag, tenant)
-          } else {
-            assertUpdateData(op, tag, tenant)
-          }
+          if (op.args.mode === "replace") injectCreateData(op, tag, tenant)
+          else assertUpdateData(op, tag, tenant)
         }
         scopeOperation(op, tag, tenant)
         return
@@ -527,14 +512,6 @@ export function tenantRls(options: TenantRlsOptions = {}) {
       // delete + query families: the compiler ANDs the scope into every statement; a caller
       // `where` that already pins it validates it instead.
       scopeOperation(op, tag, tenant)
-    },
-    extendModel({ model }): TenantModelExtras {
-      const self = model as {
-        $withState(state: PluginState): TenantModelExtras
-      }
-      return {
-        $forTenant: (tenant: TenantRef) => self.$withState({ [STATE_KEY]: tenant }),
-      }
     },
   })
 }

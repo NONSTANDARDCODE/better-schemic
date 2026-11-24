@@ -3,7 +3,7 @@
  * `updateMany`/`patch`/`upsert`/`upsertMany`/`delete`/`deleteMany`/`updateEach` plus the edge
  * operations `relate`/`relateMany`/`unrelate`/`unrelateMany`.
  *
- * Every op compiles EAGERLY (a bad arg throws at the call site) and runs immediately (writes have
+ * Every op compiles at call time (a bad arg throws at the call site) and runs at once (writes have
  * no `.explain()` — `EXPLAIN` is SELECT-, `orm-syntax-map.md` §9). `./delegate` owns the public
  * surface; this module owns the runtime, mirroring `./reads`.
  *
@@ -59,7 +59,7 @@ import { OrmError } from "./errors"
 import { execute, sqlPreview, type Statement } from "./execute"
 import { runWithHooks } from "./hooks"
 import type { ModelMeta } from "./meta"
-import { attachThrow, type BatchResult, type NotFoundInfo, type ThrowingResult } from "./results"
+import { attachThrow, type BatchResult, type NotFoundInfo } from "./results"
 import type { OperationContext } from "./types/context"
 import type { OperationKind } from "./types/hooks"
 
@@ -74,9 +74,8 @@ const FULL: ProjectionSpec = fullProjectionSpec()
  */
 function writeSpec(plan: WritePlan): ProjectionSpec {
   const spec = plan.select
-  if (!spec || plan.selectMode !== "client") {
-    return spec ?? FULL
-  }
+  if (!spec || plan.selectMode !== "client") return spec ?? FULL
+
   return {
     ...spec,
     fields: spec.fields.map((field) => (field.from ? { ...field, source: field.from } : field)),
@@ -84,12 +83,12 @@ function writeSpec(plan: WritePlan): ProjectionSpec {
 }
 
 /** One prepared write: statements + how to interpret the executor's rows. */
-interface PreparedWrite {
+type PreparedWrite = {
   /** Per-call scope override, resolved against the client's context at run time. */
   readonly context?: OperationContext
   /** The write payload, for `beforeCreate`/`beforeUpdate` hooks. */
   readonly data?: unknown
-  readonly decode: (rows: readonly (undefined | unknown)[]) => unknown
+  readonly decode: (rows: readonly unknown[]) => unknown
   /** The plan returns the `{ before, after }` envelope (`upsertDelta` decodes it itself). */
   readonly delta: boolean
   /** Per-call hook metadata (merged over the scope's at run time). */
@@ -138,6 +137,31 @@ export function createWriteOperations(
             }),
         ),
       ),
+    delete: (args: DeleteRuntimeArgs = {}) =>
+      finish(
+        ctx,
+        prepare(
+          meta,
+          "delete",
+          args,
+          (binds) => compileDelete(meta, args, binds, "delete", { index: ctx.index }),
+          (plan, rows) => decodeResult(plan, rows, meta),
+        ),
+      ),
+    deleteMany: (args: DeleteManyRuntimeArgs = {}) =>
+      finish(
+        ctx,
+        prepare(
+          meta,
+          "deleteMany",
+          args,
+          (binds) =>
+            compileDeleteMany(meta, args, binds, "deleteMany", {
+              index: ctx.index,
+            }),
+          (plan, rows) => decodeBatch(plan, rows, meta, { countOnly: true }),
+        ),
+      ),
     insert: (args: InsertRuntimeArgs = {}) =>
       finish(
         ctx,
@@ -166,31 +190,6 @@ export function createWriteOperations(
             }),
         ),
       ),
-    update: (args: UpdateRuntimeArgs = {}) =>
-      finish(
-        ctx,
-        prepare(
-          meta,
-          "update",
-          args,
-          (binds) => compileUpdate(meta, args, binds, "update", { index: ctx.index }),
-          (plan, rows) => decodeResult(plan, rows, meta),
-        ),
-      ),
-    updateMany: (args: UpdateManyRuntimeArgs = {}) =>
-      finish(
-        ctx,
-        prepare(
-          meta,
-          "updateMany",
-          args,
-          (binds) =>
-            compileUpdateMany(meta, args, binds, "updateMany", {
-              index: ctx.index,
-            }),
-          (plan, rows) => decodeBatch(plan, rows, meta),
-        ),
-      ),
     patch: (args: UpdateRuntimeArgs = {}) =>
       finish(
         ctx,
@@ -200,76 +199,6 @@ export function createWriteOperations(
           args,
           (binds) => compilePatch(meta, args, binds, "patch", { index: ctx.index }),
           (plan, rows) => decodeResult(plan, rows, meta),
-        ),
-      ),
-    upsert: (args: UpsertRuntimeArgs = {}) =>
-      finish(
-        ctx,
-        prepare(
-          meta,
-          "upsert",
-          args,
-          (binds) => compileUpsert(meta, args, binds, "upsert"),
-          (plan, rows) => decodeUpsertResult(plan, rows, meta, args),
-        ),
-      ),
-    upsertDelta: (args: UpsertDeltaRuntimeArgs = {}) =>
-      finish(
-        ctx,
-        prepare(
-          meta,
-          "upsertDelta",
-          args,
-          (binds) => compileUpsertDelta(meta, args, binds, "upsertDelta"),
-          (plan, rows) => decodeDeltaResult(plan, rows, meta, args),
-          args.data === undefined ? args.update : args.data,
-        ),
-      ),
-    upsertMany: (args: UpsertManyRuntimeArgs = {}) =>
-      finish(
-        ctx,
-        prepare(
-          meta,
-          "upsertMany",
-          args,
-          (binds) => compileUpsertMany(meta, args, binds, "upsertMany"),
-          (plan, rows) => decodeBatch(plan, rows, meta),
-        ),
-      ),
-    delete: (args: DeleteRuntimeArgs = {}) =>
-      finish(
-        ctx,
-        prepare(
-          meta,
-          "delete",
-          args,
-          (binds) => compileDelete(meta, args, binds, "delete", { index: ctx.index }),
-          (plan, rows) => decodeResult(plan, rows, meta),
-        ),
-      ),
-    deleteMany: (args: DeleteManyRuntimeArgs = {}) =>
-      finish(
-        ctx,
-        prepare(
-          meta,
-          "deleteMany",
-          args,
-          (binds) =>
-            compileDeleteMany(meta, args, binds, "deleteMany", {
-              index: ctx.index,
-            }),
-          (plan, rows) => decodeBatch(plan, rows, meta, { countOnly: true }),
-        ),
-      ),
-    updateEach: (args: UpdateEachRuntimeArgs = {}) =>
-      finish(
-        ctx,
-        prepare(
-          meta,
-          "updateEach",
-          args,
-          (binds) => compileUpdateEach(meta, args, binds, "updateEach"),
-          (plan, rows) => decodeUpdateEach(args, plan, rows, meta),
         ),
       ),
     relate: (args: RelateRuntimeArgs = {}) =>
@@ -319,6 +248,76 @@ export function createWriteOperations(
           (plan, rows) => decodeBatch(plan, rows, meta, { countOnly: true }),
         ),
       ),
+    update: (args: UpdateRuntimeArgs = {}) =>
+      finish(
+        ctx,
+        prepare(
+          meta,
+          "update",
+          args,
+          (binds) => compileUpdate(meta, args, binds, "update", { index: ctx.index }),
+          (plan, rows) => decodeResult(plan, rows, meta),
+        ),
+      ),
+    updateEach: (args: UpdateEachRuntimeArgs = {}) =>
+      finish(
+        ctx,
+        prepare(
+          meta,
+          "updateEach",
+          args,
+          (binds) => compileUpdateEach(meta, args, binds, "updateEach"),
+          (plan, rows) => decodeUpdateEach(args, plan, rows, meta),
+        ),
+      ),
+    updateMany: (args: UpdateManyRuntimeArgs = {}) =>
+      finish(
+        ctx,
+        prepare(
+          meta,
+          "updateMany",
+          args,
+          (binds) =>
+            compileUpdateMany(meta, args, binds, "updateMany", {
+              index: ctx.index,
+            }),
+          (plan, rows) => decodeBatch(plan, rows, meta),
+        ),
+      ),
+    upsert: (args: UpsertRuntimeArgs = {}) =>
+      finish(
+        ctx,
+        prepare(
+          meta,
+          "upsert",
+          args,
+          (binds) => compileUpsert(meta, args, binds, "upsert"),
+          (plan, rows) => decodeUpsertResult(plan, rows, meta, args),
+        ),
+      ),
+    upsertDelta: (args: UpsertDeltaRuntimeArgs = {}) =>
+      finish(
+        ctx,
+        prepare(
+          meta,
+          "upsertDelta",
+          args,
+          (binds) => compileUpsertDelta(meta, args, binds, "upsertDelta"),
+          (plan, rows) => decodeDeltaResult(plan, rows, meta, args),
+          args.data === undefined ? args.update : args.data,
+        ),
+      ),
+    upsertMany: (args: UpsertManyRuntimeArgs = {}) =>
+      finish(
+        ctx,
+        prepare(
+          meta,
+          "upsertMany",
+          args,
+          (binds) => compileUpsertMany(meta, args, binds, "upsertMany"),
+          (plan, rows) => decodeBatch(plan, rows, meta),
+        ),
+      ),
   }
 }
 
@@ -328,9 +327,10 @@ export function createWriteOperations(
 function prepare(
   meta: ModelMeta,
   operation: string,
+  // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
   args: object,
   compile: (binds: Binds) => WritePlan,
-  decode: (plan: WritePlan, rows: readonly (undefined | unknown)[]) => unknown,
+  decode: (plan: WritePlan, rows: readonly unknown[]) => unknown,
   /** The hook payload when it isn't `args.data` (upsertDelta's distinct branches). */
   payload?: unknown,
 ): PreparedWrite {
@@ -347,9 +347,9 @@ function prepare(
     transactional: plan.transactional,
     ...(where === undefined ? {} : { where }),
     ...(data === undefined ? {} : { data }),
-    mayMiss: plan.mayMiss === true,
-    delta: plan.result === "delta",
     decode: (rows) => decode(plan, rows),
+    delta: plan.result === "delta",
+    mayMiss: plan.mayMiss === true,
     ...(context ? { context } : {}),
     ...(hookMeta === undefined ? {} : { hookMeta }),
   }
@@ -363,8 +363,9 @@ async function runPrepared(ctx: DelegateContext, prepared: PreparedWrite): Promi
   return runWithHooks(
     hooks,
     {
-      table: prepared.meta.name,
       operation: prepared.operation as OperationKind,
+      table: prepared.meta.name,
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- tabela sem nome em runtime cairia em undefined; fallback defensivo
       ...(first ? { surql: first.sql, vars: first.vars ?? {} } : {}),
       ...(prepared.data === undefined ? {} : { data: prepared.data }),
       ...(prepared.where === undefined ? {} : { where: prepared.where }),
@@ -372,13 +373,13 @@ async function runPrepared(ctx: DelegateContext, prepared: PreparedWrite): Promi
     },
     async () => {
       const out = await execute(ctx.conn, {
-        statements: prepared.statements,
-        transactional: prepared.transactional,
-        inTransaction: ctx.inTransaction === true,
-        operation: prepared.operation,
-        table: prepared.meta.name,
         debug: ctx.debug,
+        inTransaction: ctx.inTransaction === true,
         logger: ctx.logger,
+        operation: prepared.operation,
+        statements: prepared.statements,
+        table: prepared.meta.name,
+        transactional: prepared.transactional,
         ...contextOption(ctx, prepared.context),
       })
       return prepared.decode(out.rows)
@@ -391,92 +392,74 @@ function finish(ctx: DelegateContext, prepared: PreparedWrite): unknown {
   // Compile-delegate (`$sql`): no connection, no hooks, no rows — a true dry run.
   if (ctx.compileOnly) {
     return sqlPreview(prepared.statements, {
+      inTransaction: ctx.inTransaction === true,
       operation: prepared.operation,
       table: prepared.meta.name,
       transactional: prepared.transactional,
-      inTransaction: ctx.inTransaction === true,
       ...contextOption(ctx, prepared.context),
     })
   }
   const promise = runPrepared(ctx, prepared)
   // `upsertDelta` handles its own misses (ResultNotFound from the decode, strict or filtered): the
   // strict branch must REJECT rather than expose a `.throw()` the typed surface doesn't carry.
-  if (!prepared.mayMiss || prepared.delta) {
-    return promise
-  }
-  return attachThrow(promise, (): NotFoundInfo => {
+  if (!prepared.mayMiss || prepared.delta) return promise
+
+  return attachThrow<unknown>(promise, (): NotFoundInfo => {
     const statement = prepared.statements.at(-1)
     return {
-      table: prepared.meta.name,
       operation: prepared.operation,
-      where: prepared.where,
       surql: statement?.sql,
+      table: prepared.meta.name,
       vars: ctx.debug ? statement?.vars : undefined,
+      where: prepared.where,
     }
-  }) as ThrowingResult<unknown>
+  })
 }
 
 // --- decoding — ONE interpretation of the plan ---------------------------------------------------
 
 /** The statement indexes the payload lives in (every statement by default). */
-function payloadIndexes(
-  plan: WritePlan,
-  rows: readonly (undefined | unknown)[],
-): readonly number[] {
+function payloadIndexes(plan: WritePlan, rows: readonly unknown[]): readonly number[] {
   return plan.resultIndexes ?? rows.map((_, i) => i)
 }
 
 /** The payload rows, one level flattened (a statement's array, or its single object). */
-function payloadRows(plan: WritePlan, rows: readonly (undefined | unknown)[]): unknown[] {
+function payloadRows(plan: WritePlan, rows: readonly unknown[]): unknown[] {
   const out: unknown[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const index of payloadIndexes(plan, rows)) {
     const raw = rows[index]
-    if (raw === undefined || raw === null) {
-      continue
-    }
-    if (Array.isArray(raw)) {
-      out.push(...raw)
-    } else {
-      out.push(raw)
-    }
+    if (raw === undefined || raw === null) continue
+
+    if (Array.isArray(raw)) out.push(...(raw as readonly unknown[]))
+    else out.push(raw)
   }
   return out
 }
 
 /** The flat JSON Patch of every result statement (`[[ops]]` → `ops`, statements combined). */
-function payloadDiff(plan: WritePlan, rows: readonly (undefined | unknown)[]): unknown[] {
+function payloadDiff(plan: WritePlan, rows: readonly unknown[]): unknown[] {
   const out: unknown[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const index of payloadIndexes(plan, rows)) {
     const raw = rows[index]
-    if (!Array.isArray(raw)) {
-      continue
-    }
+    if (!Array.isArray(raw)) continue
+
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const entry of raw) {
-      if (Array.isArray(entry)) {
-        out.push(...entry)
-      } else {
-        out.push(entry)
-      }
+      if (Array.isArray(entry)) out.push(...(entry as readonly unknown[]))
+      else out.push(entry)
     }
   }
   return out
 }
 
 /** The generic row/some/none/diff interpretation of a singular plan. */
-function decodeResult(
-  plan: WritePlan,
-  rows: readonly (undefined | unknown)[],
-  meta: ModelMeta,
-): unknown {
-  if (plan.result === "none") {
-    return null
-  }
-  if (plan.result === "diff") {
-    return payloadDiff(plan, rows)
-  }
+function decodeResult(plan: WritePlan, rows: readonly unknown[], meta: ModelMeta): unknown {
+  if (plan.result === "none") return null
+
+  if (plan.result === "diff") return payloadDiff(plan, rows)
+
   const data = decodeRows(payloadRows(plan, rows), meta, writeSpec(plan))
   return plan.result === "row" ? (data[0] ?? null) : data
 }
@@ -489,13 +472,13 @@ function decodeResult(
  */
 function decodeUpsertResult(
   plan: WritePlan,
-  rows: readonly (undefined | unknown)[],
+  rows: readonly unknown[],
   meta: ModelMeta,
   args: UpsertRuntimeArgs,
 ): unknown {
-  if (plan.missError === true && payloadRows(plan, rows).length === 0) {
+  if (plan.missError === true && payloadRows(plan, rows).length === 0)
     throw upsertMiss(plan, meta, args)
-  }
+
   return decodeResult(plan, rows, meta)
 }
 
@@ -511,10 +494,10 @@ function upsertMiss(plan: WritePlan, meta: ModelMeta, args: UpsertRuntimeArgs): 
       ? `${meta.name}: no record matched upsert (onMissing: "throw") — it never creates; pass onMissing: "create" to upsert instead.`
       : `${meta.name}: upsert wrote no row — a permission or plugin scope filtered it (the target, or the create); check access, or use $withoutPlugins() for an explicit admin path.`,
     {
-      table: meta.name,
-      operation: "upsert",
       details: args.where,
+      operation: "upsert",
       surql: statement,
+      table: meta.name,
     },
   )
 }
@@ -527,32 +510,30 @@ function upsertMiss(plan: WritePlan, meta: ModelMeta, args: UpsertRuntimeArgs): 
  */
 function decodeDeltaResult(
   plan: WritePlan,
-  rows: readonly (undefined | unknown)[],
+  rows: readonly unknown[],
   meta: ModelMeta,
   args: UpsertDeltaRuntimeArgs,
 ): unknown {
   const envelope = payloadRows(plan, rows)[0]
-  if (!isRecord(envelope)) {
-    throw deltaMiss(plan, meta, args)
-  }
-  if (!isRecord(envelope.after)) {
-    throw deltaMiss(plan, meta, args)
-  }
+  if (!isRecord(envelope)) throw deltaMiss(plan, meta, args)
+
+  if (!isRecord(envelope.after)) throw deltaMiss(plan, meta, args)
+
   const spec = writeSpec(plan)
   const after = decodeRows([envelope.after], meta, spec)[0] as Record<string, unknown>
   const rawBefore = envelope.before
   if (rawBefore === undefined || rawBefore === null) {
     return {
-      record: after,
-      created: true,
       before: null,
-      delta: null,
       changed: [],
+      created: true,
+      delta: null,
+      record: after,
     }
   }
   const before = decodeRows([rawBefore], meta, spec)[0] as Record<string, unknown>
-  const { delta, changed } = computeFieldDelta(before, after)
-  return { record: after, created: false, before, delta, changed }
+  const { changed, delta } = computeFieldDelta(before, after)
+  return { before, changed, created: false, delta, record: after }
 }
 
 /** The `ResultNotFound` for an `upsertDelta` that produced no envelope. Like `upsertMiss`, the
@@ -567,10 +548,10 @@ function deltaMiss(plan: WritePlan, meta: ModelMeta, args: UpsertDeltaRuntimeArg
       ? `${meta.name}: no record matched upsertDelta (onMissing: "throw") — it never creates; use onMissing: "create" to upsert instead.`
       : `${meta.name}: upsertDelta wrote no row — a permission or plugin scope can filter the write out (tenantRls, a table permission); check access, or use $withoutPlugins() for an explicit admin path.`,
     {
-      table: meta.name,
-      operation: "upsertDelta",
       details: args.where,
+      operation: "upsertDelta",
       surql: statement,
+      table: meta.name,
     },
   )
 }
@@ -578,7 +559,7 @@ function deltaMiss(plan: WritePlan, meta: ModelMeta, args: UpsertDeltaRuntimeArg
 /** A batch plan: `data` rows, the affected `count`, and how some items skipp them. */
 function decodeBatch(
   plan: WritePlan,
-  rows: readonly (undefined | unknown)[],
+  rows: readonly unknown[],
   meta: ModelMeta,
   extras: {
     /** Return the affected count (`deleteMany`/`unrelate` handle rows, not data). */
@@ -587,16 +568,13 @@ function decodeBatch(
     readonly skipped?: (decoded: number) => number | undefined
   } = {},
 ): unknown {
-  if (plan.result === "diff") {
-    return payloadDiff(plan, rows)
-  }
-  if (plan.result === "none") {
-    return batch(plan, undefined)
-  }
+  if (plan.result === "diff") return payloadDiff(plan, rows)
+
+  if (plan.result === "none") return batch(plan, undefined)
+
   const data = decodeRows(payloadRows(plan, rows), meta, writeSpec(plan))
-  if (extras.countOnly === true) {
-    return batch(plan, undefined, undefined, data.length)
-  }
+  if (extras.countOnly === true) return batch(plan, undefined, undefined, data.length)
+
   return batch(plan, data, extras.skipped?.(data.length))
 }
 
@@ -606,7 +584,7 @@ function batch(
   data: undefined | unknown[],
   skipped?: number,
   count?: number,
-): BatchResult<unknown> {
+): BatchResult {
   const affected = count ?? data?.length
   return {
     ...(affected === undefined ? {} : { count: affected }),
@@ -620,12 +598,11 @@ function batch(
 function decodeUpdateEach(
   args: UpdateEachRuntimeArgs,
   plan: WritePlan,
-  rows: readonly (undefined | unknown)[],
+  rows: readonly unknown[],
   meta: ModelMeta,
 ): unknown {
-  if (plan.result === "none") {
-    return batch(plan, undefined)
-  }
+  if (plan.result === "none") return batch(plan, undefined)
+
   const spec = writeSpec(plan)
   const items = payloadIndexes(plan, rows).map((index) => {
     const raw = rows[index]
@@ -636,7 +613,7 @@ function decodeUpdateEach(
     throw new OrmError(
       "ResultNotFound",
       `updateEach: ${empty} item(s) matched no record (onEmpty: "throw") — fix the "by" values or use onEmpty: "return" to collect them in "skipped".`,
-      { table: meta.name, operation: "updateEach", details: { empty } },
+      { details: { empty }, operation: "updateEach", table: meta.name },
     )
   }
   return batch(plan, items.flat(), empty)

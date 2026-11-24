@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unnecessary-condition -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Defensive checks document fixture intent. */
 // M0.3 — error normalization: real SDK `ServerError`s (kind + structured details + message
 // heuristics) and arbitrary thrown values all land on the stable `OrmError` catalog, so
 // `code`/predicates never depend on a message string at a call site.
@@ -156,10 +157,11 @@ describe("normalizeError — message heuristics on plain errors", () => {
     ["something entirely different", "DatabaseError"],
   ]
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [message, expected] of cases)
+  for (const [message, expected] of cases) {
     test(`"${message.slice(0, 40)}…" -> ${expected}`, () => {
       expect(code(new Error(message))).toBe(expected)
     })
+  }
 })
 
 describe("normalizeError — zod, context, idempotency", () => {

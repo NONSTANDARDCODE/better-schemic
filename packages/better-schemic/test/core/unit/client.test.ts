@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/require-await, @typescript-eslint/no-confusing-void-expression -- Object key order mirrors expected serialized output and must stay as authored. Mock methods match async interfaces without awaiting. The void operator discards intentionally ignored values. */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
@@ -39,9 +40,11 @@ describe("asyncDisposable mixin", () => {
 // The temp dir sits under the repo checkout so `better-schemic/core` resolves via the workspace node_modules.
 describe("resolveConnection", () => {
   const dir = mkdtempSync(join(import.meta.dir, "..", "..", ".orm-test-"))
-  afterAll(() => rmSync(dir, { recursive: true, force: true }))
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
 
-  const writeConfig = (body: string) =>
+  const writeConfig = (body: string) => {
     writeFileSync(
       join(dir, "better-schemic.config.ts"),
       `import { defineConfig } from "better-schemic/config";\n` +
@@ -49,6 +52,7 @@ describe("resolveConnection", () => {
         `const conn = (over = {}) => connectionEntry("testdriver", { schema: "./database/schema", ...over });\n` +
         body,
     )
+  }
 
   test("resolves the sole connection (no name)", async () => {
     writeConfig(`export default defineConfig({ connections: { default: conn() } });`)
@@ -62,8 +66,10 @@ describe("resolveConnection", () => {
     writeConfig(
       `export default defineConfig({ defaultConnection: "primary", connections: { primary: conn(), reporting: conn() } });`,
     )
-    expect((await resolveConnection({ cwd: dir })).connection).toBe("primary")
-    expect((await resolveConnection({ cwd: dir, name: "reporting" })).connection).toBe("reporting")
+    const primary = await resolveConnection({ cwd: dir })
+    expect(primary.connection).toBe("primary")
+    const reporting = await resolveConnection({ cwd: dir, name: "reporting" })
+    expect(reporting.connection).toBe("reporting")
   })
 
   test("throws for an unknown connection name", async () => {

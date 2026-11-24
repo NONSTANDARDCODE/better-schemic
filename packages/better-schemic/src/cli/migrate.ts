@@ -59,18 +59,14 @@ function buildStored(
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const t of tables) {
     const abs = opts.fileOf?.get(t)
-    if (abs) {
-      files[t.name] = rel(abs)
-    }
+    if (abs) files[t.name] = rel(abs)
   }
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const d of defs) {
     const abs = opts.fileOf?.get(d)
     // An event is file-linked under its owner table; other defs under their own name.
     const key = d.kind === "event" ? d.table : d.name
-    if (abs && key) {
-      files[key] = rel(abs)
-    }
+    if (abs && key) files[key] = rel(abs)
   }
   return {
     driver: driver.name,
@@ -81,23 +77,23 @@ function buildStored(
 }
 
 /** The driver's apply-time migration bookkeeping (the dialect SQL behind `migrate`/`rollback`/…). */
-function migStore(config: ResolvedConfig): MigrationStore<unknown> {
-  const driver = getDriver(config.driver ?? "surrealdb")
-  if (!driver.migrations) {
+function migStore(config: ResolvedConfig): MigrationStore {
+  const driver = getDriver(config.driver)
+  if (!driver.migrations)
     throw new Error(`The "${driver.name}" driver does not support running migrations.`)
-  }
+
   return driver.migrations
 }
 
 /** The driver's migration-file extension (e.g. `.surql` / `.sql`); falls back to `.surql`. */
 const migExt = (config: ResolvedConfig): string =>
-  getDriver(config.driver ?? "surrealdb").migrations?.extension ?? ".surql"
+  getDriver(config.driver).migrations?.extension ?? ".surql"
 
 /** Decorate diff items with their source file (from the snapshot `files` maps; driver leaves it unset). */
 function attachFiles(
   diff: Diff,
-  prevFiles: Record<string, string>,
-  nextFiles: Record<string, string>,
+  prevFiles: Record<string, string | undefined>,
+  nextFiles: Record<string, string | undefined>,
 ): void {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const it of diff.items ?? []) {
@@ -108,7 +104,7 @@ function attachFiles(
 
 export type Direction = "down" | "up"
 
-export interface GenerateResult {
+export type GenerateResult = {
   created: boolean
   down?: number
   file?: string
@@ -116,7 +112,7 @@ export interface GenerateResult {
   up?: number
 }
 
-export interface MigrationPlan {
+export type MigrationPlan = {
   diff: Diff
   next: StoredSnapshot
 }
@@ -132,7 +128,7 @@ export async function planMigration(
   opts: { baseline?: boolean } = {},
 ): Promise<MigrationPlan> {
   const { defs, fileOf, tables } = await loadDefs(config.schemaPath)
-  const driver = getDriver(config.driver ?? "surrealdb")
+  const driver = getDriver(config.driver)
   const reg = driver.registry
   const next = buildStored(driver, tables, defs, { fileOf, root: config.root })
   const prev = opts.baseline ? EMPTY_STORED : readSnapshot(config.metaDir)
@@ -163,7 +159,7 @@ function nextTag(migrationsDir: string, name: string, ext: string): string {
   return tag
 }
 
-export interface PreparedMigration {
+export type PreparedMigration = {
   /** The rendered `.surql` program (what will writes it to disk). */
   content: string
   down: number
@@ -180,9 +176,8 @@ export function prepareMigration(
   name?: string,
 ): null | PreparedMigration {
   const { diff, next } = plan
-  if (isEmptyDiff(diff)) {
-    return null
-  }
+  if (isEmptyDiff(diff)) return null
+
   mkdirSync(config.migrationsDir, { recursive: true })
   const ext = migExt(config)
   const tag = nextTag(config.migrationsDir, name ?? "migration", ext)
@@ -226,9 +221,8 @@ export function writeMigration(
   name?: string,
 ): GenerateResult {
   const prepared = prepareMigration(config, plan, name)
-  if (!prepared) {
-    return { created: false }
-  }
+  if (!prepared) return { created: false }
+
   return commitMigration(config, prepared)
 }
 
@@ -266,7 +260,7 @@ export async function baseline(
   config: ResolvedConfig,
   filter: Filter = parseFilter({}),
 ): Promise<GenerateResult> {
-  const driver = getDriver(config.driver ?? "surrealdb")
+  const driver = getDriver(config.driver)
   const reg = driver.registry
   // What actually exists in the live DB (canonical portable objects), used to scope the
   // baseline: hand-written schema not yet in the DB stays pending for the next `better-schemic gen` rather
@@ -317,9 +311,8 @@ export async function baseline(
 export function clearMigrationFiles(config: ResolvedConfig): string[] {
   const migs = listMigrations(config.migrationsDir, migExt(config))
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const m of migs) {
-    rmSync(join(config.migrationsDir, m.file), { force: true })
-  }
+  for (const m of migs) rmSync(join(config.migrationsDir, m.file), { force: true })
+
   return migs.map((m) => m.tag)
 }
 
@@ -338,9 +331,8 @@ export async function reconcileBaseline(
 ): Promise<"applied" | "pending"> {
   const mig = migStore(config)
   await mig.ensure(db, config.migrationsTable)
-  if (drift) {
-    return "pending"
-  }
+  if (drift) return "pending"
+
   // DB == schema: the squashed objects already exist, so wipe the stale tags and mark the baseline
   // applied rather than re-running its DDL.
   await mig.clear(db, config.migrationsTable)
@@ -348,16 +340,15 @@ export async function reconcileBaseline(
   return "applied"
 }
 
-export interface MigrateResult {
+export type MigrateResult = {
   applied: Migration[]
 }
 
 /** The position of `tag` in the ordered migration list, or throw if it isn't known. */
 function indexOfTag(migrations: Migration[], tag: string): number {
   const i = migrations.findIndex((m) => m.tag === tag)
-  if (i < 0) {
-    throw new Error(`Unknown migration: ${tag}`)
-  }
+  if (i < 0) throw new Error(`Unknown migration: ${tag}`)
+
   return i
 }
 
@@ -386,9 +377,7 @@ export async function migrate(
     const pos = new Map(migrations.map((m, i) => [m.tag, i]))
     pending = pending.filter((m) => (pos.get(m.tag) ?? 0) <= targetIdx)
   }
-  if (opts.count !== undefined) {
-    pending = pending.slice(0, Math.max(0, opts.count))
-  }
+  if (opts.count !== undefined) pending = pending.slice(0, Math.max(0, opts.count))
 
   await mig.lock(db, table)
   try {
@@ -407,7 +396,7 @@ export async function migrate(
   return { applied: pending }
 }
 
-export interface StatusRow {
+export type StatusRow = {
   applied: boolean
   /** True if an applied migration's file edits it after applied. */
   drift?: boolean
@@ -419,9 +408,8 @@ export interface StatusRow {
 /** Recompute a migration file's checksum from its current contents (missing → ""). */
 function currentChecksum(config: ResolvedConfig, m: Migration): string {
   const path = join(config.migrationsDir, m.file)
-  if (!existsSync(path)) {
-    return ""
-  }
+  if (!existsSync(path)) return ""
+
   return checksum(readFileSync(path, "utf8"))
 }
 
@@ -443,11 +431,9 @@ export async function status(db: unknown, config: ResolvedConfig): Promise<Statu
   })
   // Orphans: recorded applied in the DB but the file no longer exists on disk.
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const tag of applied.keys()) {
-    if (!fileTags.has(tag)) {
-      rows.push({ applied: true, missing: true, tag })
-    }
-  }
+  for (const tag of applied.keys())
+    if (!fileTags.has(tag)) rows.push({ applied: true, missing: true, tag })
+
   return rows.sort((a, b) => a.tag.localeCompare(b.tag))
 }
 
@@ -472,9 +458,7 @@ export async function rollback(
     const targetIdx = indexOfTag(migrations, opts.to)
     const pos = new Map(migrations.map((m, i) => [m.tag, i]))
     toRevert = appliedMigrations.filter((m) => (pos.get(m.tag) ?? 0) > targetIdx).reverse()
-  } else {
-    toRevert = appliedMigrations.slice(-(opts.count ?? 1)).reverse()
-  }
+  } else toRevert = appliedMigrations.slice(-(opts.count ?? 1)).reverse()
 
   await mig.lock(db, table)
   try {
@@ -495,7 +479,7 @@ export async function rollback(
 
 /** Run the project's seed script (`config.seed` or `database/seed.ts`) with a connected client. */
 /** One runnable seed in a seed folder: its addressable `name` and its file `path`. */
-interface SeedScript {
+type SeedScript = {
   name: string
   path: string
 }
@@ -515,10 +499,11 @@ function seedName(file: string): string {
  * named seeds; a `database/seed.ts` (or a `config.seed` file) is the single legacy seed. Returns the
  * directory's ordered scripts + whether it has an `index.ts` orchestrator, or the single file.
  */
-function locateSeeds(config: ResolvedConfig): {
-  dir?: { base: string; index?: string; scripts: SeedScript[] }
-  file?: string
-} {
+function locateSeeds(
+  config: ResolvedConfig,
+):
+  | { dir: { base: string; index?: string; scripts: SeedScript[] }; file?: never }
+  | { dir?: never; file: string } {
   const base = resolve(config.root, config.seed ?? "database/seed")
   if (existsSync(base) && statSync(base).isDirectory()) {
     let index: string | undefined
@@ -527,18 +512,13 @@ function locateSeeds(config: ResolvedConfig): {
     for (const f of readdirSync(base).sort()) {
       // top-level script files are seeds; `.d.ts`, `_`-prefixed, and supporting files (`.surql`,
       // `.sql`, …) skipp them — supporting files load them BY a seed (`import … with { type: "text" }`).
-      if (f.startsWith("_") || f.endsWith(".d.ts") || !SEED_EXT.test(f)) {
-        continue
-      }
+      if (f.startsWith("_") || f.endsWith(".d.ts") || !SEED_EXT.test(f)) continue
+
       const path = join(base, f)
-      if (statSync(path).isDirectory()) {
-        continue
-      }
-      if (seedName(f) === "index") {
-        index = path
-      } else {
-        scripts.push({ name: seedName(f), path })
-      }
+      if (statSync(path).isDirectory()) continue
+
+      if (seedName(f) === "index") index = path
+      else scripts.push({ name: seedName(f), path })
     }
     return { dir: { base, index, scripts } }
   }
@@ -548,19 +528,16 @@ function locateSeeds(config: ResolvedConfig): {
 
 /** Load a seed module and run its default (or named `seed`) export against the live connection. */
 async function runSeedFile(db: unknown, path: string): Promise<void> {
-  if (!existsSync(path)) {
-    throw new Error(`Seed file not found: ${path}`)
-  }
-  const mod = (await makeJiti().import(path)) as Record<string, unknown> & {
-    default?: unknown
-  }
+  if (!existsSync(path)) throw new Error(`Seed file not found: ${path}`)
+
+  const mod = await makeJiti().import<Record<string, unknown> & { default?: unknown }>(path)
   // The seed callback is the user's own code against the live driver connection — they annotate it
   // with their SDK's client type (e.g. `Surreal`); the orchestration hands it the opaque `db` plus a
   // `ctx` scoped to the seed's directory (so a seed can `ctx.file("data.surql")` without an import).
   const fn = (typeof mod.default === "function" ? mod.default : mod.seed) as
     ((db: unknown, ctx: SeedContext) => Promise<unknown>) | undefined
   if (typeof fn !== "function") {
-    throw new Error(
+    throw new TypeError(
       `Seed "${relative(process.cwd(), path)}" must export a default function \`(db, ctx) => …\`.`,
     )
   }
@@ -591,7 +568,7 @@ export async function seed(
         `--name needs a seed folder (database/seed/); found a single seed file instead.`,
       )
     }
-    await runSeedFile(db, file as string)
+    await runSeedFile(db, file)
     return
   }
 
@@ -618,11 +595,8 @@ export async function seed(
     await runSeedFile(db, index)
     return
   }
-  if (scripts.length === 0) {
-    throw new Error(`No seeds found in ${relative(process.cwd(), base)}/.`)
-  }
+  if (scripts.length === 0) throw new Error(`No seeds found in ${relative(process.cwd(), base)}/.`)
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const s of scripts) {
-    await run(s)
-  }
+  for (const s of scripts) await run(s)
 }

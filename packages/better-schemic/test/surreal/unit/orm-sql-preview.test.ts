@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // Server-free SQL preview: `.toSQL()` on lazy reads and the compile-`delegate.$sql.<op>`.
 // The preview derivs it from the SAME compiled statements the executor runs, so these goldens
 // compare it against the script a real call captures — no hardcoded SQL, no connection for preview.

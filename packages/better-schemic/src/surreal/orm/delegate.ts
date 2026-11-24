@@ -13,9 +13,10 @@
  */
 
 import type { App } from "../pure"
+
 import { OrmError } from "./errors"
 import type { Queryable } from "./execute"
-import { createGraphEntryPoint } from "./graph"
+import { createGraphEntryPoint, type GraphEntryPoint } from "./graph"
 import type { HookDispatcher } from "./hooks"
 import type { ModelMeta, ResolvedIdStrategy, SchemaIndex } from "./meta"
 import { type PluginPipeline, RuntimeOperation } from "./plugins"
@@ -74,7 +75,7 @@ import { createWriteOperations } from "./writes"
 export type ModelKind = "relation" | "schemaless" | "table"
 
 /** Runtime identity/introspection of a delegate's model. */
-export interface ModelInfo {
+export type ModelInfo = {
   /** Alias of {@link ModelInfo.name} — the name the database knows the model by. */
   readonly dbName: string
   /** Is `field` part of the model? (Always true for schemaless models.) */
@@ -97,7 +98,7 @@ export interface ModelInfo {
 }
 
 /** The runtime services every delegate operation needs. Built once per client. */
-export interface DelegateContext {
+export type DelegateContext = {
   /**
    * Compile- delegate (`$sql`): operations return a {@link SqlPreview} instead of touching
    * the connection. Plugin transforms still run, so the preview reflects tenant/soft-delete scope.
@@ -176,6 +177,7 @@ export type SqlPreviewDelegate<D> = {
 type WithPluginArgs<Base, P extends PluginList, K extends string> = Base & PluginArgs<P, K>
 
 /** A typed model delegate (`S` is the authored schema — relation typing needs it). */
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- interface needed: `$withoutPlugins()`/`$withState()` return the polymorphic `this` type, unavailable in a type alias.
 export interface Delegate<
   TD extends AnyTableDef = AnyTableDef,
   S = SchemaInput,
@@ -282,7 +284,7 @@ export interface Delegate<
   /**
    * Anchor a graph traversal to a record: `delegate.from("table:id").graph(g => g.out(Edge)…)` .
    */
-  from(anchor: unknown): any
+  from(anchor: unknown): GraphEntryPoint
   /** Insert one row keeping its id (`INSERT [IGNORE] … [ON DUPLICATE KEY UPDATE]`). */
   insert<const A extends WithPluginArgs<InsertArgs<TD>, P, "insert">>(
     args: A,
@@ -371,11 +373,11 @@ export interface Delegate<
 }
 
 /** The extra surface a RELATION delegate (`relation`) exposes. */
-export interface RelationDelegate<
+export type RelationDelegate<
   TD extends AnyTableDef = AnyTableDef,
   S = SchemaInput,
   P extends PluginList = readonly [],
-> extends Delegate<TD, S, P> {
+> = {
   /** Create an edge — `RELATE from->edge[:id]->to [SET …]`. */
   relate<const A extends WithPluginArgs<RelateArgs<TD>, P, "relate">>(
     args: A,
@@ -385,14 +387,12 @@ export interface RelationDelegate<
     args: A,
   ): BatchWriteResult<TD, A>
   /** Delete the edges between two endpoints. */
-  unrelate<const A extends WithPluginArgs<UnrelateArgs<TD>, P, "unrelate">>(
-    args: A,
-  ): Promise<BatchResult<never>>
+  unrelate(args: WithPluginArgs<UnrelateArgs<TD>, P, "unrelate">): Promise<BatchResult<never>>
   /** Delete edges by filter (without `where`, `all: true` requires it). */
-  unrelateMany<const A extends WithPluginArgs<UnrelateManyArgs<TD, S>, P, "unrelateMany">>(
-    args: A,
+  unrelateMany(
+    args: WithPluginArgs<UnrelateManyArgs<TD, S>, P, "unrelateMany">,
   ): Promise<BatchResult<never>>
-}
+} & Delegate<TD, S, P>
 
 /** The delegate a schema key maps to: a relation carries the RELATE surface, a table does not. */
 export type ModelDelegate<
@@ -411,8 +411,8 @@ export function createDelegate<TD extends AnyTableDef = AnyTableDef>(
   const build = (state: PluginState, enabled: boolean): Delegate<TD> => {
     const localCtx: DelegateContext = {
       ...ctx,
-      pluginState: state,
       pluginsEnabled: enabled,
+      pluginState: state,
     }
     const operations = {
       ...createReadOperations(meta, localCtx),
@@ -434,10 +434,10 @@ export function createDelegate<TD extends AnyTableDef = AnyTableDef>(
       $model: modelInfo(meta),
       ...wrapOperations(operations, meta, localCtx),
       $sql: wrapOperations(compileOperations, meta, compileCtx),
-      from: (anchor: unknown) => createGraphEntryPoint(meta, localCtx, anchor),
       $state: state,
-      $withState: (patch: PluginState) => build({ ...state, ...patch }, enabled),
       $withoutPlugins: () => build(state, false),
+      $withState: (patch: PluginState) => build({ ...state, ...patch }, enabled),
+      from: (anchor: unknown) => createGraphEntryPoint(meta, localCtx, anchor),
     }
     const pipeline = localCtx.pipeline
     if (pipeline && enabled) {
@@ -469,16 +469,15 @@ function wrapOperations(
   ctx: DelegateContext,
 ): Record<string, unknown> {
   const pipeline = ctx.pipeline
-  if (!pipeline?.hasTransforms || ctx.pluginsEnabled === false) {
-    return operations
-  }
+  if (!pipeline?.hasTransforms || ctx.pluginsEnabled === false) return operations
+
   const state = ctx.pluginState ?? {}
 
   const runOperation = (kind: OperationKind, args: Record<string, unknown>) => {
     const run = operations[kind]
-    if (typeof run !== "function") {
+    if (typeof run !== "function")
       throw new OrmError("PluginError", `transform: no operation "${kind}" to dispatch to.`)
-    }
+
     return (run as (args: Record<string, unknown>) => unknown)(args)
   }
 
@@ -487,9 +486,8 @@ function wrapOperations(
     args: Record<string, unknown>,
     transformed = false,
   ): unknown => {
-    if (transformed) {
-      return runOperation(kind, args)
-    }
+    if (transformed) return runOperation(kind, args)
+
     const op = new RuntimeOperation(
       kind,
       meta.name,
@@ -498,48 +496,44 @@ function wrapOperations(
       ctx.index,
       args.meta as Record<string, unknown> | undefined,
     )
-    if (pipeline.transform(op)) {
-      return Promise.resolve(undefined)
-    }
-    if (op.kind !== kind) {
-      return dispatch(op.kind, op.args, true)
-    }
+    if (pipeline.transform(op)) return Promise.resolve(undefined)
+
+    if (op.kind !== kind) return dispatch(op.kind, op.args, true)
+
     return runOperation(op.kind, op.args)
   }
 
   const out: Record<string, unknown> = {}
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [kind, run] of Object.entries(operations)) {
-    void run
+  for (const kind of Object.keys(operations))
     out[kind] = (args: Record<string, unknown> = {}) => dispatch(kind as OperationKind, args)
-  }
   return out
 }
 
 function modelInfo(meta: ModelMeta): ModelInfo {
   if ("schemaless" in meta) {
     return {
-      key: meta.key,
-      name: meta.name,
       dbName: meta.name,
-      kind: "schemaless",
+      hasField: () => true,
       // Schemaless entries can't declare `.idStrategy(...)` — they ride the uniform `ulid` default.
       idStrategy: "ulid",
-      relations: { outgoing: [], incoming: [] },
-      hasField: () => true,
+      key: meta.key,
+      kind: "schemaless",
+      name: meta.name,
+      relations: { incoming: [], outgoing: [] },
     }
   }
   return {
-    key: meta.key,
-    name: meta.name,
     dbName: meta.name,
+    key: meta.key,
     kind: meta.kind,
+    name: meta.name,
     ...(meta.singletonId === undefined ? {} : { singletonId: meta.singletonId }),
+    hasField: (field) => meta.columns.has(field),
     idStrategy: meta.idStrategy,
     relations: {
-      outgoing: meta.outgoing.map((edge) => edge.name),
       incoming: meta.incoming.map((edge) => edge.name),
+      outgoing: meta.outgoing.map((edge) => edge.name),
     },
-    hasField: (field) => meta.columns.has(field),
   }
 }

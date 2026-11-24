@@ -9,7 +9,8 @@
 // Side-effect: register `surrealDriver` with the core registry on import. Kept in the BARREL (not
 // `driver/surreal.ts`) so importing the driver runtime for `connect` never registers the driver —
 // the ORM's `clientFromConfig` imports the runtime, not this CLI/engine entry.
-import { type Driver, registerDriver } from "../core"
+import { registerDriver } from "../core"
+
 import { surrealDriver } from "./driver/surreal"
 
 registerDriver(surrealDriver)

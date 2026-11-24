@@ -12,6 +12,7 @@
  */
 import { escapeIdentSafe as escapeIdent } from "../../ident"
 import type { ModelMeta } from "../meta"
+
 import type { AggregateArgs } from "./aggregate"
 import { assertAggregateOperand } from "./aggregate-operand"
 import { type ProjectedField, projectedFieldFor } from "./projection"
@@ -36,12 +37,12 @@ import {
  * `math::avg` (live-verified — it's a parse error), while the API keeps the SQL-familiar name.
  */
 export const MATH_OPS: Readonly<Record<string, string>> = {
-  sum: "sum",
   avg: "mean",
-  min: "min",
   max: "max",
   median: "median",
+  min: "min",
   stddev: "stddev",
+  sum: "sum",
   variance: "variance",
 } as const
 
@@ -58,6 +59,7 @@ function scalarOp(op: string): boolean {
 
 /** True when `op` is an aggregator this compiler knows (so the guard and the call agree). */
 function isAggregator(op: string): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- chave arbitrária do usuário pode não existir no mapa; checagem é load-bearing
   return MATH_OPS[op] !== undefined || VALUE_OPS[op] !== undefined
 }
 
@@ -74,13 +76,12 @@ function isAggregator(op: string): boolean {
  *   `int` codec of `age` rejects the server's own answer — so the leaf is  blank.
  */
 function aggregatedLeaf(op: string, leaf: ProjectedField): ProjectedField {
-  if (VALUE_OPS[op] !== undefined) {
-    return { ...leaf, each: true }
-  }
-  if (scalarOp(op)) {
-    return leaf
-  }
-  return { out: leaf.out, source: leaf.source, expr: "", each: false }
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- checagem defensiva em runtime (valores ausentes/mutados por callback); tipo TS é otimista
+  if (VALUE_OPS[op] !== undefined) return { ...leaf, each: true }
+
+  if (scalarOp(op)) return leaf
+
+  return { each: false, expr: "", out: leaf.out, source: leaf.source }
 }
 
 /**
@@ -89,13 +90,13 @@ function aggregatedLeaf(op: string, leaf: ProjectedField): ProjectedField {
  */
 function aggregateCall(op: string, column: string, operation: string): string {
   const math = MATH_OPS[op]
-  if (math !== undefined) {
-    return `math::${math}(${column})`
-  }
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- chave arbitrária do usuário pode não existir no mapa; checagem é load-bearing
+  if (math !== undefined) return `math::${math}(${column})`
+
   const value = VALUE_OPS[op]
-  if (value !== undefined) {
-    return `${value}(${column})`
-  }
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- checagem defensiva em runtime (valores ausentes/mutados por callback); tipo TS é otimista
+  if (value !== undefined) return `${value}(${column})`
+
   throw compileError(
     "ValidationError",
     `${operation}: unknown aggregator "${op}" — use ${[...Object.keys(MATH_OPS), ...Object.keys(VALUE_OPS)].join("/")}, or a surql fragment.`,
@@ -108,7 +109,7 @@ function aggregateCall(op: string, column: string, operation: string): string {
  * subquery must project for that column to exist, and how much the schema can prove about the
  * operand.
  */
-export interface ColumnResolver {
+export type ColumnResolver = {
   /**
    * A server-side expression entry. The plain lowering evaluates it once per group; the split
    * lowering evaluates it once per split ROW (inside the subquery), which is the  way a fragment
@@ -144,16 +145,17 @@ export interface ColumnResolver {
  */
 export function directColumns(meta: ModelMeta): ColumnResolver {
   return {
+    guard: (key, op, operand, operation) => {
+      assertAggregateOperand(meta, key, op, operand, operation)
+    },
     inners: [],
     of: (path) => renderPath(path),
     prefix: () => [],
-    guard: (key, op, operand, operation) =>
-      assertAggregateOperand(meta, key, op, operand, operation),
   }
 }
 
 /** The compiled `select`: the projected SQL, the decode leaves, and the group-key spellings. */
-export interface CompiledSelect {
+export type CompiledSelect = {
   /** One decode leaf per entry, in entry order. */
   fields: ProjectedField[]
   /** Whether any entry is a server-side expression (then the group-key check is the server's). */
@@ -195,9 +197,8 @@ export function compileAggregateSelect(
   /** Project `path` under the output name `out`, recording the inner SQL the split needs. */
   const column = (path: string, out: string): string => {
     const inner = columns.inner?.(path, out)
-    if (inner !== undefined) {
-      inners.push(inner)
-    }
+    if (inner !== undefined) inners.push(inner)
+
     const expr = columns.of(path, out)
     // One rule for both lowerings: an output name identical to its expression is not re-aliased.
     return expr === escapeIdent(out) ? expr : `${expr} AS ${escapeIdent(out)}`
@@ -205,18 +206,17 @@ export function compileAggregateSelect(
 
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [key, entry] of Object.entries(select)) {
-    if (entry === undefined || entry === false) {
-      continue
-    }
+    if (entry === undefined || entry === false) continue
+
     if (entry === true) {
       // `_count` is the count() shorthand; any other `true` projects the field itself.
       if (key === "_count") {
         parts.push("count() AS _count")
         fields.push({
+          each: false,
+          expr: "count()",
           out: [key],
           source: [key],
-          expr: "count()",
-          each: false,
         })
         projectedKeys.add(key)
         continue
@@ -252,16 +252,14 @@ export function compileAggregateSelect(
           { operation },
         )
       }
-      if (isAggregator(op)) {
-        columns.guard?.(key, op, operand, operation)
-      }
+      if (isAggregator(op)) columns.guard?.(key, op, operand, operation)
+
       const leaf = projectedFieldFor(meta, [key], [key], [...prefix, ...pathSegments(operand)])
       parts.push(`${aggregateCall(op, columns.of(operand, key), operation)} AS ${escapeIdent(key)}`)
       projectedKeys.add(key)
       const inner = columns.inner?.(operand, key)
-      if (inner !== undefined) {
-        inners.push(inner)
-      }
+      if (inner !== undefined) inners.push(inner)
+
       fields.push(aggregatedLeaf(op, leaf))
       continue
     }
@@ -270,7 +268,7 @@ export function compileAggregateSelect(
       const expr = renderValue(entry, binds, binds.ctx())
       parts.push(columns.fragment?.(expr, key) ?? `${expr} AS ${escapeIdent(key)}`)
       projectedKeys.add(key)
-      fields.push({ out: [key], source: [key], expr, each: false })
+      fields.push({ each: false, expr, out: [key], source: [key] })
       continue
     }
     throw compileError(
@@ -280,7 +278,7 @@ export function compileAggregateSelect(
     )
   }
 
-  return { parts, fields, projectedKeys, hasExpression, inners }
+  return { fields, hasExpression, inners, parts, projectedKeys }
 }
 
 /**
@@ -298,21 +296,19 @@ export function aggregateTail(
   const tail: string[] = [
     groupBy.length > 0 ? `GROUP BY ${groupBy.map(renderPath).join(", ")}` : "GROUP ALL",
   ]
-  if (args.orderBy !== undefined) {
-    tail.push(compileOrderBy(args.orderBy, binds, operation))
-  }
-  if (args.limit !== undefined) {
+  if (args.orderBy !== undefined) tail.push(compileOrderBy(args.orderBy, binds, operation))
+
+  if (args.limit !== undefined)
     tail.push(`LIMIT ${binds.add(nonNegativeInt(args.limit, "limit", operation))}`)
-  }
-  if (args.start !== undefined) {
+
+  if (args.start !== undefined)
     tail.push(`START ${binds.add(nonNegativeInt(args.start, "start", operation))}`)
-  }
-  if (options.version === true && args.version !== undefined) {
+
+  if (options.version === true && args.version !== undefined)
     tail.push(`VERSION ${datetimeLiteral(args.version, operation)}`)
-  }
-  if (args.timeout !== undefined) {
-    tail.push(`TIMEOUT ${durationLiteral(args.timeout, operation)}`)
-  }
+
+  if (args.timeout !== undefined) tail.push(`TIMEOUT ${durationLiteral(args.timeout, operation)}`)
+
   return tail
 }
 
@@ -341,7 +337,7 @@ export function assertAggregateShape(args: AggregateArgs, operation: string): st
 }
 
 /**
- * Every `groupBy` key must be in the projection (SurrealDB: "Missing group idiom"). Guarded 
+ * Every `groupBy` key must be in the projection (SurrealDB: "Missing group idiom"). Guarded
  * when the projection is statically analyzable — an expression entry makes the check the server's.
  */
 export function assertGroupKeysProjected(
@@ -350,9 +346,8 @@ export function assertGroupKeysProjected(
   hasExpression: boolean,
   operation: string,
 ): void {
-  if (groupBy.length === 0 || hasExpression) {
-    return
-  }
+  if (groupBy.length === 0 || hasExpression) return
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const key of groupBy) {
     if (!projectedKeys.has(key)) {

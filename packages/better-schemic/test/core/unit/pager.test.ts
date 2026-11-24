@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-dynamic-delete -- Helpers stay colocated with the tests that use them. Defensive checks document fixture intent. Assertions await void-returning matchers. Environment cleanup deletes dynamic keys. */
 // The diff pager resolution (git-style precedence) and the shell-free pipe-through helper.
 import { afterEach, describe, expect, test } from "bun:test"
 

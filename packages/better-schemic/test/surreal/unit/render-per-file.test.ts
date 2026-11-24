@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, unicorn/consistent-function-scoping -- Object key order mirrors expected serialized output and must stay as authored. Helpers stay colocated with the tests that use them. */
 import { describe, expect, test } from "bun:test"
 
 import { renderPerFile } from "../../../src/surreal/cli/pull"
@@ -147,8 +148,12 @@ describe("formatForAssert", () => {
 })
 
 describe("pull reverses native codecs / string formats", () => {
-  const sf = (name: string, kind: string, extra: Partial<StructField> = {}) =>
-    ({ name, kind, table: "t", ...extra }) as StructField
+  const sf = (name: string, kind: string, extra: Partial<StructField> = {}) => ({
+    name,
+    kind,
+    table: "t",
+    ...extra,
+  })
   const render = (fields: StructField[]): string => {
     const db: DbStructured = {
       tables: [

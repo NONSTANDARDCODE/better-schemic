@@ -1,8 +1,9 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
 // Multi-line DDL rendering: since drivers pretty-print display statements, every LINE of a
 // statement must carry its diff indicator (a bare continuation line reads as context), unified-patch
 // hunk counts must count LINES, and the inline token view collapses onto one line. Runs with color
 // disabled (NO_COLOR) so the markers are assertable.
-import { beforeAll, describe, expect, test } from "bun:test"
+import { describe, expect, test } from "bun:test"
 
 process.env.NO_COLOR = "1"
 

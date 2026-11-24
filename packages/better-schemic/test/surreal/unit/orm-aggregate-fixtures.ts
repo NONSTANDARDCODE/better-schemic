@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, unicorn/prefer-export-from -- Object key order mirrors expected serialized output and must stay as authored. Imports build local fixture values before re-exporting. */
 /**
  * The shared harness for the combine compiler's decision tables.
  *
@@ -9,7 +10,6 @@
 import { RecordId } from "surrealdb"
 
 import { orm } from "../../../src/surreal/orm/client"
-import type { OrmError } from "../../../src/surreal/orm/errors"
 import type { ModelMeta, TableMeta } from "../../../src/surreal/orm/meta"
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema"
 import { s, table } from "../../../src/surreal/pure"
@@ -50,7 +50,7 @@ export function tableMeta(
 ): TableMeta {
   const meta = buildSchemaIndex(schema).tables.get(key)
   if (meta === undefined) throw new Error(`no table "${key}" in the test schema`)
-  return meta as TableMeta
+  return meta
 }
 
 /**
@@ -64,7 +64,7 @@ export async function probeAggregate(
   key: string,
   args: Record<string, unknown>,
   rows: unknown[] = [],
-): Promise<{ sql: string; error: string; meta: ModelMeta }> {
+): Promise<{ error: string; meta: ModelMeta; sql: string }> {
   const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok(rows)))
   const client = orm(conn, { schema: schema as never }) as unknown as Record<
     string,
@@ -72,12 +72,12 @@ export async function probeAggregate(
   >
   let error = ""
   try {
-    await client[key]?.aggregate(args)
-  } catch (e) {
-    error = e instanceof Error ? e.message : String(e)
+    await client[key].aggregate(args)
+  } catch (error_) {
+    error = error_ instanceof Error ? error_.message : String(error_)
   }
   return {
-    sql: (calls[0]?.sql as string) ?? "",
+    sql: calls[0]?.sql ?? "",
     error,
     meta: tableMeta(schema as never, key),
   }
@@ -93,7 +93,8 @@ export async function refusal(
   key: string,
   args: Record<string, unknown>,
 ): Promise<string> {
-  return (await probeAggregate(schema, key, args)).error
+  const probed = await probeAggregate(schema, key, args)
+  return probed.error
 }
 
 /** The compiled statement, failing if the call refuss it instead. */

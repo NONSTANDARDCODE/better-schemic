@@ -10,10 +10,11 @@
  * See packages/better-schemic/docs/engine/EXAMPLE-COOKBOOK-CONVENTION.md.
  */
 import { allOrmGroups, capture } from "../packages/better-schemic/examples/orm"
+
 import { writeManifest } from "./manifest"
 
 /** One flat catalog entry — the shape consumers render from. */
-interface ManifestEntry {
+type ManifestEntry = {
   /** The verbatim delegate-call snippet (the TypeScript authoring). */
   code: string
   driver: string
@@ -53,9 +54,8 @@ for (const group of allOrmGroups) {
       title: ex.title,
       vars: ex.vars,
     }
-    if (ex.note) {
-      entry.note = ex.note
-    }
+    if (ex.note) entry.note = ex.note
+
     entries.push(entry)
   }
 }

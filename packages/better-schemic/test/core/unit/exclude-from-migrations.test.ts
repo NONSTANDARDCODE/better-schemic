@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/require-await -- Object key order mirrors expected serialized output and must stay as authored. Mock methods match async interfaces without awaiting. */
 import { describe, expect, test } from "bun:test"
 
 import {
@@ -9,11 +10,11 @@ import {
 } from "../../../src/core/kind"
 
 // A registry with one MANAGED kind (table) and one migration-UNMANAGED kind (access, secret-bearing).
-interface PTable {
+type PTable = {
   kind: "table"
   name: string
 }
-interface PAccess {
+type PAccess = {
   kind: "access"
   name: string
 }
@@ -115,7 +116,7 @@ describe("excludeFromMigrations predicate (per-object)", () => {
 
   test("snapshotKinds drops only the excluded objects", () => {
     const snap = snapshotKinds([pub, secret], predicateRegistry)
-    expect(snap.kinds.access?.map((o) => o.name)).toEqual(["public_a"])
+    expect(snap.kinds.access.map((o) => o.name)).toEqual(["public_a"])
   })
 
   test("emitKinds skips only the excluded objects", () => {

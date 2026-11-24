@@ -26,7 +26,7 @@ import type { LogPhase, QueryLogger } from "./types/logger"
 export type Queryable = Pick<Surreal, "query">
 
 /** One statement of a batch. `vars` are that statement's binds (names must be unique in the batch). */
-export interface Statement {
+export type Statement = {
   /** The SurrealQL text (a trailing `;` adds it when missing). */
   readonly sql: string
   /** Binds used by this statement. */
@@ -34,7 +34,7 @@ export interface Statement {
 }
 
 /** Options for {@link execute}. */
-export interface ExecuteOptions {
+export type ExecuteOptions = {
   /**
    * Scope this batch with `USE NS … DB …;` (context clones / per-call `context`). The prefix is a
    * control statement: it runs in the SAME round-trip and is never exposed as a result.
@@ -61,7 +61,7 @@ export interface ExecuteOptions {
 }
 
 /** The outcome of one {@link execute} call. */
-export interface ExecuteResult<T = unknown> {
+export type ExecuteResult<T = unknown> = {
   /** One result per USER statement, in order (control statements are not exposed). */
   readonly responses: readonly StatementResult<T>[]
   /** Convenience view: the successful results by statement index (`undefined` where one failed). */
@@ -85,7 +85,7 @@ export function statementParts(
   transactional = false,
   inTransaction = false,
 ): { readonly parts: readonly string[]; readonly wrapping: boolean } {
-  const wrapping = transactional === true && inTransaction !== true
+  const wrapping = transactional && !inTransaction
   const body = statements.map((statement) => terminate(statement.sql))
   return {
     parts: wrapping ? ["BEGIN TRANSACTION;", ...body, "COMMIT TRANSACTION;"] : body,
@@ -117,18 +117,18 @@ export function sqlPreview(
   return {
     driver: "surrealdb",
     operation: options.operation,
-    table: options.table,
+    script: prefix ? `${prefix}\n${body}` : body,
     statements: statements.map((statement) => ({
       sql: statement.sql,
       vars: statement.vars ?? {},
     })),
+    table: options.table,
     transactional: wrapping,
-    script: prefix ? `${prefix}\n${body}` : body,
   }
 }
 
 /** Options for {@link runScript}. */
-export interface RunScriptOptions {
+export type RunScriptOptions = {
   /** Scope the script with `USE NS … DB …;` (a control statement, never a result). */
   readonly context?: ResolvedContext
   /** Include the script's `vars` in the error (client `debug: true`). */
@@ -164,42 +164,42 @@ export async function runScript(
   conn: Queryable,
   script: string,
   options: RunScriptOptions = {},
-): Promise<readonly QueryResponse<unknown>[]> {
+): Promise<readonly QueryResponse[]> {
   const prefix = contextPrefix(options.context)
   const full = prefix ? `${prefix}\n${script}` : script
   const logger = options.logger?.enabled ? options.logger : undefined
   const started = logger ? performance.now() : 0
-  let raw: QueryResponse<unknown>[]
+  let raw: QueryResponse[]
   try {
-    raw = (await conn.query(full, options.vars).responses()) as QueryResponse<unknown>[]
-  } catch (e) {
+    raw = await conn.query(full, options.vars).responses()
+  } catch (error) {
     // A transport/connection rejection (not a per-statement failure) — normalize with context.
-    const error = normalizeError(e, {
+    const normalized = normalizeError(error, {
       operation: options.operation,
-      table: options.table,
       surql: full,
+      table: options.table,
       vars: options.debug ? options.vars : undefined,
     })
     if (logger) {
       await emitRoundTrip(conn, {
         ...options,
-        logger,
-        script,
-        responses: [],
         durationMs: performance.now() - started,
-        error,
+        error: normalized,
+        logger,
+        responses: [],
+        script,
       })
     }
-    throw error
+    throw normalized
   }
   const sliced = prefix ? raw.slice(1) : raw
   if (logger) {
     await emitRoundTrip(conn, {
       ...options,
-      logger,
-      script,
-      responses: sliced,
       durationMs: performance.now() - started,
+      logger,
+      responses: sliced,
+      script,
     })
   }
   return sliced
@@ -240,9 +240,7 @@ export async function execute<T = unknown>(
   options: ExecuteOptions,
 ): Promise<ExecuteResult<T>> {
   const { statements } = options
-  if (statements.length === 0) {
-    return { responses: [], rows: [], transactional: false }
-  }
+  if (statements.length === 0) return { responses: [], rows: [], transactional: false }
 
   const { parts, wrapping } = statementParts(
     statements,
@@ -262,10 +260,10 @@ export async function execute<T = unknown>(
     debug: options.debug === true,
     ...(options.logger ? { logger: options.logger } : {}),
     ...(options.phase ? { phase: options.phase } : {}),
-    statements,
-    offset,
-    transactional: wrapping,
     inTransaction: options.inTransaction === true,
+    offset,
+    statements,
+    transactional: wrapping,
   })
 
   // The server answers every statement (control statements included); a mismatch is a protocol
@@ -274,16 +272,16 @@ export async function execute<T = unknown>(
     throw new OrmError(
       "DatabaseError",
       `expected ${parts.length} statement responses, got ${raw.length}.`,
-      { operation: options.operation, table: options.table, surql: script },
+      { operation: options.operation, surql: script, table: options.table },
     )
   }
 
   const responses = statements.map((statement, i) =>
     statementResult<T>(raw[offset + i] as QueryResponse<T>, {
       operation: options.operation,
-      table: options.table,
       statementIndex: i,
       surql: statement.sql,
+      table: options.table,
       vars: options.debug ? statement.vars : undefined,
     }),
   )
@@ -292,11 +290,10 @@ export async function execute<T = unknown>(
     // In an aborted transaction the server marks the OTHER statements as "not executed due to a
     // failed transaction" — including ones that ran BEFORE the failure. Those normalize to
     // `TransactionRollback`; the genuine cause (e.g. an AlreadyExists) is the failure to report.
-    const failures = responses.map((r, i) => ({ r, i })).filter(({ r }) => r.status === "ERR")
+    const failures = responses.map((r, i) => ({ i, r })).filter(({ r }) => r.status === "ERR")
     const primary = failures.find(({ r }) => r.error?.code !== "TransactionRollback") ?? failures[0]
-    if (primary) {
-      throw primary.r.error
-    }
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- failure[0] pode faltar em runtime apesar do tipo não-nullish
+    if (primary) throw primary.r.error
   }
 
   return {

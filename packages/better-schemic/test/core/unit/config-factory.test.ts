@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-explicit-any, unicorn/consistent-function-scoping, @typescript-eslint/require-await, @typescript-eslint/no-confusing-void-expression -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. Fixtures use any for duck-typed mocks. Helpers stay colocated with the tests that use them. Mock methods match async interfaces without awaiting. The void operator discards intentionally ignored values. */
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
@@ -5,6 +6,7 @@ import { afterAll, describe, expect, test } from "bun:test"
 
 import { resolveConnection } from "../../../src/core/client"
 import { defineConfig } from "../../../src/core/config"
+import type { ConnectionInput } from "../../../src/core/connection"
 import { connectionEntry, isConnectionEntry } from "../../../src/core/connection"
 
 // A fake driver entry whose embedded client opener reflects the resolved config back.
@@ -30,8 +32,10 @@ describe("config-as-factory (defineConfig().connect)", () => {
       defaultConnection: "main",
       connections: { main: fake(), reporting: fake() },
     })
-    expect((await orm.connect("reporting")).connection).toBe("reporting")
-    expect((await orm.connect()).connection).toBe("main")
+    const reporting = await orm.connect("reporting")
+    expect(reporting.connection).toBe("reporting")
+    const main = await orm.connect()
+    expect(main.connection).toBe("main")
     // @ts-expect-error — "nope" is not a configured connection name
     await expect(orm.connect("nope")).rejects.toThrow("not defined")
   })
@@ -44,7 +48,7 @@ describe("config-as-factory (defineConfig().connect)", () => {
   })
 
   test("resolver args are the TYPED 2nd param; connect(name, args) selects one config", async () => {
-    let seen: { tenant: string } | undefined
+    let seen: undefined | { tenant: string }
     const entry = connectionEntry(
       "fakedriver",
       (_ctx, args: { tenant: string }) => {
@@ -69,7 +73,9 @@ describe("config-as-factory (defineConfig().connect)", () => {
       { client: async (cfg) => ({ connection: cfg.connection }) },
     )
     const orm = defineConfig({ connections: { fleet: entry } })
-    await expect(orm.connect("fleet")).rejects.toThrow(/resolved to 2 configs \(a, b\).*Pass args/su)
+    await expect(orm.connect("fleet")).rejects.toThrow(
+      /resolved to 2 configs \(a, b\).*Pass args/su,
+    )
   })
 
   test("labels: config key > entry label hook > positional", async () => {
@@ -87,7 +93,9 @@ describe("config-as-factory (defineConfig().connect)", () => {
 
 describe("better-schemic.ts discovery", () => {
   const dir = mkdtempSync(join(import.meta.dir, "..", "..", ".cfg-test-"))
-  afterAll(() => rmSync(dir, { recursive: true, force: true }))
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
 
   // A real project has its deps installed — link this workspace package into the temp
   // project's node_modules so the fixture's bare `better-schemic/*` imports resolve
@@ -160,12 +168,7 @@ describe("isConnectionEntry", () => {
 })
 
 describe("chained config (defineConfig().connection(...))", () => {
-  const fakeFactory = (
-    input: import("../../../src/core/connection").ConnectionInput<
-      { schema: string; key?: string },
-      any
-    >,
-  ) =>
+  const fakeFactory = (input: ConnectionInput<{ key?: string; schema: string }, any>) =>
     connectionEntry("fakedriver", input, {
       client: async (cfg) => ({
         connection: cfg.connection,
@@ -185,7 +188,8 @@ describe("chained config (defineConfig().connection(...))", () => {
     const db = await orm.connect("tenants", { org: "acme" })
     expect(db.connection).toBe("tenants:acme")
     expect(sawSibling).toEqual(["row"])
-    expect((await orm.connect("main")).connection).toBe("main")
+    const mainConn = await orm.connect("main")
+    expect(mainConn.connection).toBe("main")
     // @ts-expect-error — "nope" is not a chained connection name
     await expect(orm.connect("nope")).rejects.toThrow("not defined")
   })

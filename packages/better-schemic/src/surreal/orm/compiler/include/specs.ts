@@ -10,7 +10,7 @@ import type { Binds } from "../shared"
 export type IncludeSpec = CountIncludeSpec | EdgeIncludeSpec | LinkFetchSpec | LinkProjectionSpec
 
 /** `include: { author: true }` / `{ author: { include: … } }` — FETCH materializes the link. */
-export interface LinkFetchSpec {
+export type LinkFetchSpec = {
   readonly key: string
   readonly kind: "link-fetch"
   readonly list: boolean
@@ -20,7 +20,7 @@ export interface LinkFetchSpec {
 }
 
 /** `include: { author: { select: … } }` — flat columns remounted into the link object. */
-export interface LinkProjectionSpec {
+export type LinkProjectionSpec = {
   readonly key: string
   readonly kind: "link-projection"
   readonly leaves: readonly LinkLeafSpec[]
@@ -29,7 +29,7 @@ export interface LinkProjectionSpec {
 }
 
 /** One flat link leaf: `author.id AS author_id` -> `author: { id }`. */
-export interface LinkLeafSpec {
+export type LinkLeafSpec = {
   /** Path inside the remounted object (`["address", "city"]`; empty = presence-leaf). */
   readonly out: readonly string[]
   /** Path in the TARGET shape (brackets preserved) for codec resolution. */
@@ -39,7 +39,7 @@ export interface LinkLeafSpec {
 }
 
 /** The decoded projection of one target table. */
-export interface TargetEntry {
+export type TargetEntry = {
   readonly meta?: TableMeta
   /** Physical target name (`""` for the wildcard passthrough entry). */
   readonly name: string
@@ -47,21 +47,21 @@ export interface TargetEntry {
 }
 
 /** How to decode the target records of an edge include. */
-export interface TargetProjection {
+export type TargetProjection = {
   readonly entries: readonly TargetEntry[]
   /** No declared targets (`->?`) — rows pass through undecoded. */
   readonly wildcard: boolean
 }
 
 /** The edge projection of an `edge:` entry. */
-export interface EdgeProjection {
+export type EdgeProjection = {
   readonly meta?: TableMeta
   readonly spec: ProjectionSpec
   readonly wildcard: boolean
 }
 
 /** Edge records alone: `(SELECT <edgeProj> FROM ->edge)`. */
-export interface EdgeRecordSpec {
+export type EdgeRecordSpec = {
   readonly edge: EdgeProjection
   readonly key: string
   readonly kind: "edge"
@@ -69,7 +69,7 @@ export interface EdgeRecordSpec {
 }
 
 /** Target records alone: `(SELECT <targetProj> FROM ->edge->target)`. */
-export interface EdgeTargetSpec {
+export type EdgeTargetSpec = {
   readonly key: string
   readonly kind: "edge"
   readonly shape: "target"
@@ -77,7 +77,7 @@ export interface EdgeTargetSpec {
 }
 
 /** `{ edge, target }` remount — the row IS the edge, the target lives under `out`/`in`. */
-export interface EdgeRemountSpec {
+export type EdgeRemountSpec = {
   /** The materialized target key inside the row. */
   readonly alias: "in" | "out"
   readonly edge: EdgeProjection
@@ -91,7 +91,7 @@ export interface EdgeRemountSpec {
 export type EdgeIncludeSpec = EdgeRecordSpec | EdgeRemountSpec | EdgeTargetSpec
 
 /** One `_count` key — `count(->likes) AS _count_likes`. */
-export interface CountIncludeSpec {
+export type CountIncludeSpec = {
   readonly key: string
   readonly kind: "count"
   /** The flat raw key holding the number. */
@@ -99,7 +99,7 @@ export interface CountIncludeSpec {
 }
 
 /** The compiled `include` of one read. */
-export interface IncludeCompiled {
+export type IncludeCompiled = {
   /** FETCH paths (`FETCH author.profile, editor`) — the clause emits it last. */
   readonly fetch: readonly string[]
   /** Top-level keys the include occupies (for conflict checks). */
@@ -113,7 +113,7 @@ export interface IncludeCompiled {
 }
 
 /** The include compiler's shared mutable state (projection + hydration accumulators). */
-export interface CompileCtx {
+export type CompileCtx = {
   readonly binds: Binds
   /** Claim a projected flat alias (rejects column collisions + duplicates). */
   readonly claimFlat: (key: string) => void
@@ -130,9 +130,9 @@ export interface CompileCtx {
 }
 
 export const EMPTY_INCLUDE: IncludeCompiled = {
-  parts: [],
   fetch: [],
+  keys: [],
+  parts: [],
   passthrough: [],
   specs: [],
-  keys: [],
 }

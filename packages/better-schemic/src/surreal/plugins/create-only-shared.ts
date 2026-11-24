@@ -16,7 +16,7 @@ export const CREATE_ONLY_MARKER = "createOnly"
 export const CREATE_ONLY_EVENT_TEMPLATE = "{table}_create_only"
 
 /** One create-table's resolved tag. */
-export interface CreateOnlyTag {
+export type CreateOnlyTag = {
   /** The table declares the hard `{table}_create_only` UPDATE guard event
    *  (`createOnly({ hard: true })`) — the escape hatch is DROP/ALTER, never `$withoutPlugins()`. */
   readonly hard: boolean
@@ -48,16 +48,13 @@ const cache = new WeakMap<SchemaIndex, ReadonlyMap<string, CreateOnlyTag>>()
 /** The create-tables of `index` (physical name -> tag), cached per index. */
 export function createOnlyTags(index: SchemaIndex): ReadonlyMap<string, CreateOnlyTag> {
   const cached = cache.get(index)
-  if (cached !== undefined) {
-    return cached
-  }
+  if (cached !== undefined) return cached
+
   const tags = new Map<string, CreateOnlyTag>()
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const meta of index.tables.values()) {
-    if (isCreateOnlyDef(meta.def)) {
-      tags.set(meta.name, { hard: hasHardGuard(meta.def, meta.name) })
-    }
-  }
+  for (const meta of index.tables.values())
+    if (isCreateOnlyDef(meta.def)) tags.set(meta.name, { hard: hasHardGuard(meta.def, meta.name) })
+
   cache.set(index, tags)
   return tags
 }

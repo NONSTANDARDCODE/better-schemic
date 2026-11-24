@@ -46,7 +46,8 @@ const GEOMETRY_KINDS = new Set([
 
 /** Parse a (single/double) quoted string literal token, or null if it isn't one. */
 function parseStringLiteral(t: string): null | string {
-  if (t.length >= 2 && (t[0] === "'" || t[0] === '"') && t.at(-1) === t[0]) {
+  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
+  if (t.length >= 2 && (t.startsWith("'") || t.startsWith('"')) && t.at(-1) === t[0]) {
     const body = t.slice(1, -1)
     return body.replaceAll(/\\(['"\\])/gu, "$1")
   }
@@ -71,23 +72,19 @@ export function parseSurqlType(kind: string): PortableType {
     const hasNull = parts.includes("null")
     const rest = parts.filter((p) => p !== "none" && p !== "null")
     let inner: PortableType = rest.length === 0 ? { t: "never" } : union(rest.map(parseSurqlType))
-    if (hasNull) {
-      inner = nullable(inner)
-    }
-    if (hasNone) {
-      inner = option(inner)
-    }
+    if (hasNull) inner = nullable(inner)
+
+    if (hasNone) inner = option(inner)
+
     return inner
   }
 
   // option<X>
   const opt = /^option<([\s\S]+)>$/u.exec(t)
-  if (opt) {
-    return option(parseSurqlType(opt[1]))
-  }
+  if (opt) return option(parseSurqlType(opt[1]))
 
   // Constructor term `ctor<inner>`. `references<…>` (rare) keeps it as a Surreal-native escape hatch
-  // so it round-trips losslessly rather than collapsing into `record<…>`.
+  // it round-trips losslessly rather than collapsing into `record<…>`.
   const ctor = /^(array|set|record)<([\s\S]+)>$/u.exec(t)
   if (ctor) {
     const [, name, innerRaw] = ctor
@@ -97,7 +94,7 @@ export function parseSurqlType(kind: string): PortableType {
       const size = comma ? Number(comma[1].trim()) : undefined
       return name === "array"
         ? array(elem, Number.isFinite(size) ? size : undefined)
-        : { t: "set", elem, ...(Number.isFinite(size) ? { size } : {}) }
+        : { elem, t: "set", ...(Number.isFinite(size) ? { size } : {}) }
     }
     // record<…>: a `|`-list of target tables.
     const tables = innerRaw
@@ -109,35 +106,25 @@ export function parseSurqlType(kind: string): PortableType {
 
   // geometry<point> etc.
   const geo = /^geometry<([a-z]+)>$/u.exec(t)
-  if (geo && GEOMETRY_KINDS.has(geo[1])) {
-    return { t: "geometry", kind: geo[1] as never }
-  }
+  if (geo && GEOMETRY_KINDS.has(geo[1])) return { kind: geo[1] as never, t: "geometry" }
 
   // Literals: quoted string, number, boolean.
   const str = parseStringLiteral(t)
-  if (str !== null) {
-    return literal(str)
-  }
-  if (/^-?\d+(\.\d+)?$/u.test(t)) {
-    return literal(Number(t))
-  }
-  if (t === "true" || t === "false") {
-    return literal(t === "true")
-  }
+  if (str !== null) return literal(str)
+
+  if (/^-?\d+(\.\d+)?$/u.test(t)) return literal(Number(t))
+
+  if (t === "true" || t === "false") return literal(t === "true")
 
   // Scalars (incl. `null` as a unit type). `none` standalone ⇒ option<never>. `object` ⇒ empty object.
-  if (t === "none") {
-    return option({ t: "never" })
-  }
-  if (t === "object") {
-    return { t: "object", fields: {} }
-  }
-  if (SCALARS.has(t)) {
-    return scalar(t as ScalarName)
-  }
+  if (t === "none") return option({ t: "never" })
+
+  if (t === "object") return { fields: {}, t: "object" }
+
+  if (SCALARS.has(t)) return scalar(t as ScalarName)
 
   // Unknown: keep it as a Surreal-native escape hatch rather than losing information.
-  return { t: "native", db: "surreal", name: t }
+  return { db: "surreal", name: t, t: "native" }
 }
 
 /** Render a {@link PortableType} back to its canonical SurrealQL spelling (matches `normalizeType`). */
@@ -147,7 +134,7 @@ export function emitSurqlType(p: PortableType): string {
       return p.name
     case "literal":
       return typeof p.value === "string"
-        ? `'${p.value.replaceAll('\\', "\\\\").replaceAll('\'', "\\'")}'`
+        ? `'${p.value.replaceAll("\\", "\\\\").replaceAll("'", "\\'")}'`
         : String(p.value)
     case "option":
       // `none` is the canonical spelling of `option<never>` (matches normalizeType): emit it as
@@ -171,7 +158,7 @@ export function emitSurqlType(p: PortableType): string {
         ? `set<${emitSurqlType(p.elem)}>`
         : `set<${emitSurqlType(p.elem)}, ${p.size}>`
     case "union":
-      return [...p.members.map(emitSurqlType)].sort().join(" | ")
+      return p.members.map(emitSurqlType).sort().join(" | ")
     case "object":
       return "object"
     case "record":

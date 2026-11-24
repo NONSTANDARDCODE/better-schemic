@@ -10,6 +10,7 @@ import { dirname, relative, resolve } from "node:path"
 
 import type { ResolvedConfig } from "../core"
 import { type GeneratedOpts, ignorePatterns, writeIgnores } from "../core/cli-kit/generated"
+
 import { compileAotWith, type CompileResult } from "./compile"
 import { generateOrmWith } from "./generate-orm"
 import { resolveOne, type ResolveOpts } from "./resolve"
@@ -23,7 +24,7 @@ export type GenerateOpts = {
   readonly watch?: boolean
 } & ResolveOpts
 
-export interface GenerateResult {
+export type GenerateResult = {
   readonly aot?: CompileResult
   /** Every artifact written in this run (for knip/tsconfig ignore merging). */
   readonly artifacts: readonly string[]
@@ -45,26 +46,24 @@ const INSTALL_MARKER = "// better-schemic:aot-install"
 const debounce = (run: () => void, delay = 150): (() => void) => {
   let timer: ReturnType<typeof setTimeout> | undefined
   return () => {
-    if (timer) {
-      clearTimeout(timer)
-    }
+    if (timer) clearTimeout(timer)
+
     timer = setTimeout(run, delay)
   }
 }
 
 /** Idempotently insert a side-effect bootstrap import into an app source file. */
 export function insertBootstrapImport(file: string, specifier: string): boolean {
-  if (!existsSync(file)) {
-    return false
-  }
+  if (!existsSync(file)) return false
+
   const source = readFileSync(file, "utf8")
   if (
     source.includes(INSTALL_MARKER) ||
     source.includes(`import "${specifier}"`) ||
     source.includes(`import '${specifier}'`)
-  ) {
+  )
     return false
-  }
+
   const lines = source.split("\n")
   const at = lines[0]?.startsWith("#!") ? 1 : 0
   lines.splice(at, 0, INSTALL_MARKER, `import "${specifier}";`)
@@ -79,9 +78,8 @@ export async function generateWith(
 ): Promise<GenerateResult> {
   const configured = config.project?.generators ?? {}
   const enabled = (kind: "aot" | "orm"): boolean => {
-    if (opts.only && opts.only !== "all" && opts.only !== kind) {
-      return false
-    }
+    if (opts.only && opts.only !== "all" && opts.only !== kind) return false
+
     return configured[kind] !== false
   }
   const orm = enabled("orm") ? await generateOrmWith(config, opts) : undefined
@@ -107,14 +105,12 @@ export async function generateWith(
     orm &&
     installVia === "orm" &&
     insertBootstrapImport(orm, MODULE_SPEC(orm, aot.bootstrap))
-  ) {
+  )
     installedIn.push(orm)
-  }
+
   ;(aotSettings?.importIn ?? []).forEach((entry) => {
     const file = resolve(config.root, entry)
-    if (aot && insertBootstrapImport(file, MODULE_SPEC(file, aot.bootstrap))) {
-      installedIn.push(file)
-    }
+    if (aot && insertBootstrapImport(file, MODULE_SPEC(file, aot.bootstrap))) installedIn.push(file)
   })
 
   const artifacts = [
@@ -140,9 +136,7 @@ export async function generateWith(
 export async function generate(opts: GenerateOpts): Promise<GenerateResult> {
   const config = await resolveOne(opts)
   const result = await generateWith(config, opts)
-  if (!opts.watch) {
-    return result
-  }
+  if (!opts.watch) return result
 
   // Watch app SOURCE files — generated files live under `.better-schemic/`, so re-running on our
   // own output would loop forever. One debounced re-run covers multi-file edits.
@@ -154,12 +148,10 @@ export async function generate(opts: GenerateOpts): Promise<GenerateResult> {
   })
   const onChange = (_event: string, filename: null | string = ""): void => {
     const name = filename ?? ""
-    if (!/\.(?:ts|mts|cts|js|mjs|cjs)$/u.test(name)) {
-      return
-    }
-    if (name.includes(".better-schemic") || name.includes("generated")) {
-      return
-    }
+    if (!/\.(?:ts|mts|cts|js|mjs|cjs)$/u.test(name)) return
+
+    if (name.includes(".better-schemic") || name.includes("generated")) return
+
     rerun()
   }
   fsWatch(watched, { recursive: true }, onChange)

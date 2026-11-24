@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-restricted-types -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. Fixtures assert values whose presence the test guarantees. Fixtures use object to probe schema typing. */
 // M1.6 — `cursor` (keyset pages): the ORDER BY idiom needs every ordered field in the projection,
 // so the compiler appends reserved `_keyset_<n>` aliases for the fields the user's select/omit does
 // not return, reads the cursors from them and strips them from `data`. Offline. `paginate` lives in
@@ -10,7 +11,6 @@ import { orm } from "../../../src/surreal/orm/client"
 import { compileCursor } from "../../../src/surreal/orm/compiler/pagination"
 import { createBinds } from "../../../src/surreal/orm/compiler/shared"
 import type { OrmError } from "../../../src/surreal/orm/errors"
-import type { TableMeta } from "../../../src/surreal/orm/meta"
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema"
 import { s, table } from "../../../src/surreal/pure"
 import { fakeConn, lines, ok } from "../orm-fixtures"
@@ -21,13 +21,13 @@ const User = table("user", {
   active: s.boolean(),
   tags: s.array(s.string()),
 })
-const meta = buildSchemaIndex({ users: User }).tables.get("users") as TableMeta
+const meta = buildSchemaIndex({ users: User }).tables.get("users")!
 
 const Place = table("place", {
   name: s.string(),
   address: s.object({ city: s.string(), zip: s.string() }),
 })
-const placeMeta = buildSchemaIndex({ places: Place }).tables.get("places") as TableMeta
+const placeMeta = buildSchemaIndex({ places: Place }).tables.get("places")!
 
 const Home = table("home", {
   name: s.string(),
@@ -475,9 +475,7 @@ describe("cursor — compilation", () => {
       _keyset_0: s.string(),
       name: s.string(),
     })
-    const reservedMeta = buildSchemaIndex({ reserved: Reserved }).tables.get(
-      "reserved",
-    ) as TableMeta
+    const reservedMeta = buildSchemaIndex({ reserved: Reserved }).tables.get("reserved")!
     // `*` returns the declared row, so a real field with the reserved name collides too.
     expect(
       codeOf(() => compileCursor(reservedMeta, { limit: 1, omit: ["id"] }, createBinds())),
@@ -856,7 +854,7 @@ describe("cursor — guard paths", () => {
     const U = table("u2", { email: s.string() }).index("u2_email", ["email"], {
       unique: true,
     })
-    const m = buildSchemaIndex({ us: U }).tables.get("us") as TableMeta
+    const m = buildSchemaIndex({ us: U }).tables.get("us")!
     const plan = compileCursor(m, { limit: 1, orderBy: [{ email: "asc" }] }, createBinds())
     expect(plan.sql).toContain("email")
   })
@@ -884,7 +882,7 @@ describe("cursor — guard paths", () => {
     const U = table("u3", { email: s.string() }).index("u3_email", ["email"], {
       unique: true,
     })
-    const m = buildSchemaIndex({ us: U }).tables.get("us") as TableMeta
+    const m = buildSchemaIndex({ us: U }).tables.get("us")!
     expect(
       compileCursor(
         m,
@@ -996,7 +994,7 @@ describe("cursor — app-form coercion (bare strings / Date / record lists)", ()
     stops: s.array(s.recordId(Ref)),
     seats: s.int(),
   })
-  const tripMeta = buildSchemaIndex({ trips: Trip, refs: Ref }).tables.get("trips") as TableMeta
+  const tripMeta = buildSchemaIndex({ trips: Trip, refs: Ref }).tables.get("trips")!
 
   const compile = (args: Record<string, unknown>) => {
     const binds = createBinds()

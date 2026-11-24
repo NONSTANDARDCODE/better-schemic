@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, unicorn/consistent-function-scoping -- Object key order mirrors expected serialized output and must stay as authored. Helpers stay colocated with the tests that use them. */
 // M0.2 — `schema` + `SchemaIndex`: the runtime metadata pass over an authored schema
 // (columns/families, record links, graph adjacency, singletons, functions, schemaless entries) plus
 // the fail-fast validation that turns a bad schema module into an import-time `SchemaInvalid`.

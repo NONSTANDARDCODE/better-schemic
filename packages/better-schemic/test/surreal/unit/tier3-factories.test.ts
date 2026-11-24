@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. */
 // Tier-3 Zod-parity factories: the long-tail `s.*` so a `z.` -> `s.` find-replace is a literal drop-in.
 import { describe, expect, test } from "bun:test"
 import { z } from "zod"
@@ -145,7 +146,7 @@ describe("Full drop-in tail: stringFormat/templateLiteral/keyof/partialRecord/lo
       pr: s.partialRecord(z.string(), s.number()),
       lr: s.looseRecord(z.string(), s.number()),
       xo: s.xor([s.string(), s.number()]),
-      pp: s.preprocess((x) => String(x), s.string()),
+      pp: s.preprocess(String, s.string()),
     })
     expect(line(T, "sf")).toBe("DEFINE FIELD sf ON TABLE t TYPE string;")
     expect(line(T, "tl")).toBe("DEFINE FIELD tl ON TABLE t TYPE string;") // template_literal -> string

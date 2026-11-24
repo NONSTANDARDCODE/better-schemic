@@ -14,7 +14,7 @@
 import type { PortableType } from "./portable"
 
 /** CRUD permissions — each a boolean (FULL/NONE) or a dialect WHERE-expression string (carried verbatim). */
-export interface PortablePermissions {
+export type PortablePermissions = {
   create?: boolean | string
   delete?: boolean | string
   select?: boolean | string
@@ -22,7 +22,7 @@ export interface PortablePermissions {
 }
 
 /** A field in the portable substrate: a structured {@link PortableType} + its dialect clauses (verbatim). */
-export interface PortableField {
+export type PortableField = {
   assert?: string
   /**
    * A field-level CHECK constraint (dialect boolean expression, carried verbatim). DISTINCT from

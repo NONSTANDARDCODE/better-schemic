@@ -5,11 +5,11 @@
  * privileged/agent paths where those checks don't apply, and for fail-fast DX. Three effects:
  *
  * - `deny` — reject a matching operation before it compiles (`PolicyDenied`, 403). With `fields`,
- *    writes that touch one of those fields deni them.
+ * writes that touch one of those fields deni them.
  * - `scope` — inject a filter through `Operation.scope`, ANDed into every compiler (reads AND
- *   writes), so row-level authorization cannot forgotts it at a call site.
+ * writes), so row-level authorization cannot forgotts it at a call site.
  * - `require` — fail closed (`PolicyRequired`, 403) when a required `meta` key (e.g. an actor) is
- *   missing. Callers pass it via `meta: { ... }` on the operation or `$withContext({ meta })`.
+ * missing. Callers pass it via `meta: { ... }` on the operation or `$withContext({ meta })`.
  *
  * `$withoutPlugins()` is the explicit admin escape; DB permissions are the real boundary.
  */
@@ -43,7 +43,7 @@ const FILTER_KEYS = new Set([
 ])
 
 /** One authorization rule. */
-export interface PolicyRule<Table extends string = string> {
+export type PolicyRule<Table extends string = string> = {
   readonly effect: "deny" | "require" | "scope"
   /** When set, a `deny` rule fires if a WRITE payload touches one of these fields. */
   readonly fields?: readonly string[]
@@ -59,19 +59,19 @@ export interface PolicyRule<Table extends string = string> {
   readonly tables: "*" | readonly Table[]
 }
 
-export interface PolicyOptions<Table extends string = string> {
+export type PolicyOptions<Table extends string = string> = {
   readonly name?: string
   readonly rules: readonly PolicyRule<Table>[]
 }
 
-interface CompiledRule extends PolicyRule {
+type CompiledRule = {
   /** Physical table names resolved at bootstrap (empty = all tables). */
   readonly targets: ReadonlySet<string> | undefined
-}
+} & PolicyRule
 
 /**
  * Build the rule table once per (SchemaIndex, options) pair. Keying on the index alone would be
- * wrong:  clients with DIFFERENT policies can share the same cached index.
+ * wrong: clients with DIFFERENT policies can share the same cached index.
  */
 const cache = new WeakMap<SchemaIndex, WeakMap<PolicyOptions, readonly CompiledRule[]>>()
 
@@ -82,16 +82,15 @@ function compile(index: SchemaIndex, options: PolicyOptions): readonly CompiledR
     cache.set(index, perIndex)
   }
   const cached = perIndex.get(options)
-  if (cached) {
-    return cached
-  }
+  if (cached) return cached
+
   const compiled = options.rules.map((rule) => {
-    if (rule.effect === "scope" && !rule.filter) {
+    if (rule.effect === "scope" && !rule.filter)
       throw new OrmError("PluginError", "policy: a `scope` rule needs a `filter`.")
-    }
-    if (rule.effect === "require" && !rule.require) {
+
+    if (rule.effect === "require" && !rule.require)
       throw new OrmError("PluginError", "policy: a `require` rule needs a `require` meta key.")
-    }
+
     const targets =
       rule.tables === "*"
         ? undefined
@@ -116,16 +115,16 @@ function compile(index: SchemaIndex, options: PolicyOptions): readonly CompiledR
         : [...index.tables.values()]
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
       for (const model of models) {
-        if (!("columns" in model)) {
-          continue
-        } // schemaless entries have no declared columns
+        if (!("columns" in model)) continue
+        // schemaless entries have no declared columns
         // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
         for (const field of referenced) {
+          // eslint-disable-next-line max-depth -- validação de coluna com estado mutável; extrair helper mudaria a semântica
           if (!model.columns.has(field)) {
             throw new OrmError(
               "PluginError",
               `policy: field "${field}" is not a column of "${model.name}" — check the rule's field names.`,
-              { table: model.name, field },
+              { field, table: model.name },
             )
           }
         }
@@ -139,9 +138,8 @@ function compile(index: SchemaIndex, options: PolicyOptions): readonly CompiledR
 }
 
 const operationMatches = (rule: CompiledRule, op: Operation): boolean => {
-  if (!rule.operations) {
-    return true
-  }
+  if (!rule.operations) return true
+
   const family = operationFamily(op.kind)
   return rule.operations.some(
     (candidate) => candidate === "*" || candidate === op.kind || candidate === family,
@@ -149,9 +147,8 @@ const operationMatches = (rule: CompiledRule, op: Operation): boolean => {
 }
 
 const touchesFields = (rule: CompiledRule, op: Operation): boolean => {
-  if (!rule.fields) {
-    return true
-  }
+  if (!rule.fields) return true
+
   const data = op.data
   return rule.fields.some((field) => field in data)
 }
@@ -164,9 +161,9 @@ function asFilter(value: unknown): unknown {
     !Array.isArray(value) &&
     Object.keys(value).length === 1 &&
     FILTER_KEYS.has(Object.keys(value)[0])
-  ) {
+  )
     return value
-  }
+
   return { equals: value }
 }
 
@@ -178,40 +175,38 @@ export function definePolicy<const S extends SchemaInput>(
   schema: S,
   options: PolicyOptions<Extract<keyof S, string>>,
 ): Plugin
-export function definePolicy(options: PolicyOptions<string>): Plugin
+export function definePolicy(options: PolicyOptions): Plugin
 export function definePolicy(
   schemaOrOptions: PolicyOptions | SchemaInput,
   maybeOptions?: PolicyOptions,
 ): Plugin {
   const options: PolicyOptions = maybeOptions ?? (schemaOrOptions as PolicyOptions)
-  if (!Array.isArray(options?.rules)) {
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
+  if (!Array.isArray(options?.rules))
     throw new OrmError("PluginError", "policy: `rules` must be an array.")
-  }
 
   return definePlugin({
+    config: options,
     id: "better-schemic/policy",
     name: "Policy",
-    config: options,
     setup({ index }) {
       compile(index, options)
     },
     transform(op) {
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
       for (const rule of compile(op.index, options)) {
-        if (rule.targets && !rule.targets.has(op.table)) {
-          continue
-        }
-        if (!operationMatches(rule, op)) {
-          continue
-        }
+        if (rule.targets && !rule.targets.has(op.table)) continue
+
+        if (!operationMatches(rule, op)) continue
 
         if (rule.effect === "require") {
-          const key = rule.require as string
+          const key = rule.require
+          if (key === undefined) continue
           if (op.meta?.[key] === undefined || op.meta[key] === null) {
             throw new OrmError(
               "PolicyRequired",
               rule.message ?? `policy: "${key}" is required in meta for ${op.kind} on ${op.table}.`,
-              { table: op.table, operation: op.kind, field: key },
+              { field: key, operation: op.kind, table: op.table },
             )
           }
           continue
@@ -219,23 +214,22 @@ export function definePolicy(
 
         if (rule.effect === "scope") {
           // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-          for (const [field, value] of Object.entries(rule.filter ?? {})) {
+          for (const [field, value] of Object.entries(rule.filter ?? {}))
             op.scope[field] = asFilter(value)
-          }
+
           continue
         }
 
         // deny — field-scoped rules apply to write payloads.
-        if (!touchesFields(rule, op)) {
-          continue
-        }
+        if (!touchesFields(rule, op)) continue
+
         const field = rule.fields?.[0]
         throw new OrmError(
           "PolicyDenied",
           rule.message ??
             `policy: ${op.kind} on ${op.table}${field ? ` (field "${field}")` : ""} is denied. ` +
               `Use $withoutPlugins() only in trusted admin code; the DB permission is the boundary.`,
-          { table: op.table, operation: op.kind, field },
+          { field, operation: op.kind, table: op.table },
         )
       }
     },

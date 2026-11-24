@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator, unicorn/no-thenable, @typescript-eslint/no-unnecessary-condition -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. Bun test calls return thenable handles that are not awaited. Defensive checks document fixture intent. */
 // Typed-fragments PHASE 0 (docs/proposals/typed-fragments.md): eager marker resolution in the
 // surql tag (TableDef/Table/FunctionDef/surql.$ splice as TEXT; everything else binds), the
 // surql.record/table/$/expr helpers, event THEN auto-blocking (multi-statement bodies wrap { ...; }

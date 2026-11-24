@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Fixtures assert values whose presence the test guarantees. */
 // The combine compiler in isolation: `count`/`exists` clause tails, and every `combine`
 // select-entry shape (true / path / string / math / collect / expression / bad) plus its guards.
 import { describe, expect, test } from "bun:test"
@@ -12,6 +13,7 @@ import {
 import { createBinds } from "../../../src/surreal/orm/compiler/shared"
 import { schema } from "../../../src/surreal/orm/schema"
 import { fakeConn, ok } from "../orm-fixtures"
+
 import { schemaDef } from "./orm-writes-fixtures"
 
 const code = (fn: () => unknown): string | undefined => {

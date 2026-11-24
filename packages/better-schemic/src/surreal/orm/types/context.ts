@@ -12,7 +12,7 @@
 import type { Token, Tokens } from "surrealdb"
 
 /** A per-scope (or per-call) namespace/database + the hook metadata of the current scope. */
-export interface OperationContext {
+export type OperationContext = {
   /** Target database (`USE DB`). Falls back to the clone's, then the session's. */
   database?: string
   /**
@@ -25,7 +25,7 @@ export interface OperationContext {
 }
 
 /** A context with BOTH sides known — what the executor needs to emit `USE NS … DB …;`. */
-export interface ResolvedContext {
+export type ResolvedContext = {
   readonly database: string
   /** The merged scope metadata (M6 hooks consume it). */
   readonly meta?: Record<string, unknown>
@@ -36,10 +36,10 @@ export interface ResolvedContext {
 export type ContextAuth = Token | Tokens
 
 /** The `$withContext` argument: a partial context plus an optional token for a scoped session. */
-export interface ContextScope extends OperationContext {
+export type ContextScope = {
   /** Authenticate a FORKED session with this token (`$withContext` then returns a Promise). */
   auth?: ContextAuth
-}
+} & OperationContext
 
 /** The call-level context override every read/write accepts (`context: { database }`). */
 export type CallContext = OperationContext

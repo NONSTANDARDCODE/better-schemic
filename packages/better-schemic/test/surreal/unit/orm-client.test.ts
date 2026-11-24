@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. */
 // M0.5 — the `/orm` bootstrap client: one delegate per schema key, `repository()` by key or
 // physical name, `tables`, schemaless entries, reserved-key collisions, `extends` fail-fast and the
 // BYO no-op close rule. Offline — the "connection" is a recording fake.
@@ -155,7 +156,11 @@ describe("orm — extends", () => {
     const client = orm(fakeConn().conn, { schema: schemaDef })
     const err = (() => {
       try {
-        client.extends({ close: () => {} })
+        client.extends({
+          close: () => {
+            /* empty */
+          },
+        })
         return undefined
       } catch (error) {
         return error

@@ -10,6 +10,7 @@
 import type { SurrealTransaction } from "surrealdb"
 
 import type { Client } from "../client"
+
 import type { PluginList } from "./plugins"
 import type { SchemaInput } from "./schema"
 
@@ -17,7 +18,7 @@ import type { SchemaInput } from "./schema"
 export type RetryReason = "connectionError" | "serializationFailure" | "writeConflict"
 
 /** Retry policy for `transaction` — the callback re-runs from scratch on a retryable failure. */
-export interface RetryOptions {
+export type RetryOptions = {
   /** Total attempts (1 = no retry). Default `1` — retry is opt-in. */
   readonly attempts?: number
   /** Base delay: ms, or a function of the failed attempt (1-based) and its error. */
@@ -32,7 +33,7 @@ export interface RetryOptions {
 export type UnsupportedPolicy = "ignore" | "throw" | "warn"
 
 /** Options for one `transaction(...)` call (merged over the client defaults). */
-export interface TransactionOptions {
+export type TransactionOptions = {
   /** SurrealDB has no isolation levels — any value here reports it per {@link onUnsupported}. */
   readonly isolation?: "snapshot"
   /** Metadata attached to transaction-level errors (`timeout`); hooks consume it in M6. */
@@ -43,7 +44,7 @@ export interface TransactionOptions {
   readonly onUnsupported?: UnsupportedPolicy
   readonly retries?: RetryOptions
   /**
-   * Overall budget for the whole call, retries included — milliseconds or a duration string like
+   * Budget for the whole call, retries included — milliseconds or a duration string like
    * `"30s"`. SurrealDB has no transaction timeout clause, so this is a client-side deadline: on
    * expiry the transaction cancells it and the call fails with `DatabaseError`
    * (`details.timedOut`). A callback that keeps running after the deadline will fail its next

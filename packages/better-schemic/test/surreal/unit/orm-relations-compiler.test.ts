@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. Fixtures assert values whose presence the test guarantees. */
 // The relation resolver + where-owner classifier in isolation: direction resolution (auto/explicit
 // and its fail-fast guards), the edge/target split, logical-group handling and the teaching errors.
 import { describe, expect, test } from "bun:test"
@@ -16,6 +17,7 @@ import {
 import { schema } from "../../../src/surreal/orm/schema"
 import { relation, s, table } from "../../../src/surreal/pure"
 import { fakeConn, ok } from "../orm-fixtures"
+
 import { schemaDef } from "./orm-writes-fixtures"
 
 const code = (fn: () => unknown): string | undefined => {

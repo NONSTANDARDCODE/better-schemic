@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument -- Contrato duck-typed por design: sem HKTs, a suíte depende de `any` para preservar os builders de cada driver. */
+
 // A shared DRIVER CONFORMANCE suite — the runtime contract a `@better-schemic/<driver>` must , asserted
 // with `bun:test`. Each driver runs it against its own authoring surface:
 //
@@ -28,7 +30,7 @@ import { emitKinds, lowerSchema } from "./kind"
  */
 type Authoring = Record<string, any>
 
-export interface DriverConformanceOptions {
+export type DriverConformanceOptions = {
   /**
    * Authors the driver's primary fielded definable — a table, collection, node-type, … — from a name
    * and a field shape. Used to lower a probe object through the pipeline. Drivers pass their own
@@ -36,7 +38,7 @@ export interface DriverConformanceOptions {
    */
   defineEntity: (name: string, shape: Record<string, any>) => any
   /** The driver under test (already registered by importing its package). */
-  driver: Driver<unknown>
+  driver: Driver
   /** The driver's registry name (e.g. `"surrealdb"`). */
   name: string
   /** The driver's authoring namespace — the `s` each package exports. */
@@ -69,13 +71,11 @@ const SCALAR_CHECKS: { invalid: unknown; key: string; valid: unknown }[] = [
 
 /** Duck-typed: a field exposes a Zod `.schema`; a raw Zod type IS the schema. Throws if neither. */
 function toSchema(v: unknown): z.ZodType {
-  const field = v as { schema?: unknown } | null
-  if (field && isZod(field.schema)) {
-    return field.schema as z.ZodType
-  }
-  if (isZod(v)) {
-    return v as z.ZodType
-  }
+  const field = v as null | { schema?: unknown }
+  if (field && isZod(field.schema)) return field.schema as z.ZodType
+
+  if (isZod(v)) return v as z.ZodType
+
   throw new Error("expected a field (with a `.schema` Zod type) or a Zod type")
 }
 
@@ -85,7 +85,7 @@ function isZod(v: unknown): boolean {
 
 /** Is `v` a driver field (has a `.schema` that is a Zod type)? */
 function isField(v: unknown): boolean {
-  return isZod((v as { schema?: unknown } | null)?.schema)
+  return isZod((v as null | { schema?: unknown })?.schema)
 }
 
 /**
@@ -110,9 +110,8 @@ export function describeDriverConformance(opts: DriverConformanceOptions): void 
         expect(typeof driver.registry.entries).toBe("function")
         expect(driver.registry.names().length).toBeGreaterThan(0)
         // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-        for (const op of ["explode", "introspectAll", "connect", "apply", "close"] as const) {
+        for (const op of ["explode", "introspectAll", "connect", "apply", "close"] as const)
           expect(typeof driver[op]).toBe("function")
-        }
       })
     })
 
@@ -160,9 +159,8 @@ export function describeDriverConformance(opts: DriverConformanceOptions): void 
       test("an entity of drop-in fields explodes + lowers + emits, carrying every field", () => {
         const shape: Record<string, unknown> = {}
         // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-        for (const { build, key } of DROP_INS) {
-          shape[`f_${key}`] = build(s)
-        }
+        for (const { build, key } of DROP_INS) shape[`f_${key}`] = build(s)
+
         const entity = defineEntity("better_schemic_conformance_probe", shape)
 
         // explode (authoring -> kinded definables) -> lowerSchema -> portable objects.
@@ -176,9 +174,7 @@ export function describeDriverConformance(opts: DriverConformanceOptions): void 
         const ddl = emitKinds(driver.registry, portable).join("\n")
         expect(ddl.length).toBeGreaterThan(0)
         // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-        for (const { key } of DROP_INS) {
-          expect(ddl).toContain(`f_${key}`)
-        }
+        for (const { key } of DROP_INS) expect(ddl).toContain(`f_${key}`)
       })
     })
   })

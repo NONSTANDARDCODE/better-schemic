@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -7,7 +8,7 @@ import { describe, expect, test } from "bun:test"
 /**
  * The authoring entry must stay BUNDLE-CLEAN: importing `s.*` may not drag the DDL emitter, the
  * diff/migration engine or the CLI into an app bundle. When the driver was a separate package,
- * the package boundary enforced this for free — inside ONE package, the `exports` map is the 
+ * the package boundary enforced this for free — inside ONE package, the `exports` map is the
  * boundary left, so it needs a test.
  */
 const PKG = resolve(import.meta.dir, "../../..")

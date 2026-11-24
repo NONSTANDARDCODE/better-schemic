@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-deprecated -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures exercise deprecated aliases. */
 import { describe, expect, test } from "bun:test"
 import * as z from "zod"
 
@@ -97,12 +98,16 @@ describe("SFieldBase — codec + Zod passthrough chain", () => {
     ).toBe(false)
     expect(
       field(z.string())
-        .superRefine(() => {})
+        .superRefine(() => {
+          /* empty */
+        })
         .schema.safeParse("a").success,
     ).toBe(true)
     expect(
       field(z.string())
-        .check(() => {})
+        .check(() => {
+          /* empty */
+        })
         .schema.safeParse("a").success,
     ).toBe(true)
     expect(

@@ -11,7 +11,7 @@
 // explicit `apply --rotate-keys` (it can't be auto-detected).
 
 /** An author-time reference to a secret, resolved to its value at apply time — never the value itself. */
-export interface SecretRef {
+export type SecretRef = {
   /** `env` → resolved from `process.env`; `secret` → resolved from the configured {@link SecretProvider}. */
   readonly kind: "env" | "secret"
   /** The environment-variable / secret name to resolve at apply. */
@@ -30,9 +30,8 @@ export function secret(name: string): SecretRef {
 
 /** Runtime guard: is `v` a {@link SecretRef} (vs a raw `string` literal key)? */
 export function isSecretRef(v: unknown): v is SecretRef {
-  if (typeof v !== "object" || v === null) {
-    return false
-  }
+  if (typeof v !== "object" || v === null) return false
+
   const r = v as Partial<SecretRef>
   return (
     (r.kind === "env" || r.kind === "secret") && typeof r.name === "string" && r.name.length > 0
@@ -45,7 +44,7 @@ export function isSecretRef(v: unknown): v is SecretRef {
  * passing a custom provider to the apply layer. The resolved value hands it to the DB as a BOUND
  * PARAMETER — never string-spliced into the DDL.
  */
-export interface SecretProvider {
+export type SecretProvider = {
   resolve(ref: SecretRef): Promise<string> | string
 }
 
@@ -54,15 +53,16 @@ export const envSecretProvider: SecretProvider = {
   resolve(ref: SecretRef): string {
     // `Object.hasOwn` (not `in`/direct index): inherited members like `constructor`/`toString`
     // would otherwise resolve to non-string functions despite the `string` return type.
+    const value = process.env[ref.name]
     if (
       ref.name.length === 0 ||
       !Object.hasOwn(process.env, ref.name) ||
-      typeof process.env[ref.name] !== "string"
+      typeof value !== "string"
     ) {
       throw new Error(
         `better-schemic: secret ${ref.kind}(${JSON.stringify(ref.name)}) is not set in the environment`,
       )
     }
-    return process.env[ref.name] as string
+    return value
   },
 }

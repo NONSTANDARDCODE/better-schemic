@@ -1,16 +1,15 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Type queries and callback signatures need fixture values. */
 // defineParam — DEFINE PARAM with the access-style split (Manuel's spec): an INLINE literal value
 // is fully managed (emit/diff/migrations/pull); env()/secret() and DECLARED (type-/bare)
 // params are OUT-OF-BAND (`sc param push/check`) — SurrealDB stores param values READABLY, so a
 // secret value must never reach a snapshot or migration. `.$` is the typed `$name` reference.
 import { describe, expect, test } from "bun:test"
 
-import { defineFunction, defineParam, env, s, surql, table } from "../../../src/surreal"
+import { defineParam, env, s, surql } from "../../../src/surreal"
 import { schemaStruct } from "../../../src/surreal/cli/lower"
 import { normalizeParam } from "../../../src/surreal/cli/struct"
 import { emitDefStatement } from "../../../src/surreal/ddl"
-import { block } from "../../../src/surreal/query"
-import { lowerExpr, mkRef } from "../../../src/surreal/surql/predicate"
-import type { Ctx } from "../../../src/surreal/surql/render"
+import { mkRef } from "../../../src/surreal/surql/predicate"
 
 describe("authoring modes", () => {
   test("inline literal -> managed; SecretRef -> secret; s schema / bare -> declared", () => {
@@ -36,6 +35,7 @@ describe("authoring modes", () => {
       "$app_cfg.retries",
     )
     // typed: usable where a string operand expects it
+    // eslint-disable-next-line unicorn/prefer-spread -- SurrealQL fn.concat builder, not Array.concat
     const q = surql.fn.string.concat("Bearer ", Key.$)
     expect(q.query).toMatch(/^string::concat\(\$r\d+, \$resend_api_key\)$/u)
   })

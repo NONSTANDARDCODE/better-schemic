@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-restricted-types, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures use object to probe schema typing. Type queries and callback signatures need fixture values. */
 // M5 — TYPE assertions for the raw escape hatches, context scoping, database functions, APIs, auth
 // and admin: the call shapes (tagged template vs string/BoundQuery), the typed function shortcuts
 // and the `$withContext` overloads (sync scope vs Promise session).
@@ -55,27 +56,27 @@ const findUniqueCtx = (client: C) =>
     context: { namespace: "a" },
   })
 
-describe("raw — typing", () => {
-  it("the template/string/BoundQuery forms all resolve the first result", () => {
+void describe("raw — typing", () => {
+  void it("the template/string/BoundQuery forms all resolve the first result", () => {
     assertType<Promise<string[]>, ReturnType<typeof rawTemplate>>()
     assertType<Promise<string[]>, ReturnType<typeof rawString>>()
     assertType<Promise<[string[], number]>, ReturnType<typeof queryTemplate>>()
   })
 
-  it("throwOnError:false widens to the StatementResult envelopes", () => {
+  void it("throwOnError:false widens to the StatementResult envelopes", () => {
     assertType<Promise<RawStatements>, ReturnType<typeof queryFail>>()
   })
 
-  it("the curried options-tag returns a bound tag", () => {
+  void it("the curried options-tag returns a bound tag", () => {
     assertType<Promise<string[]>, ReturnType<typeof rawCurried>>()
     assertType<Promise<RawStatements>, ReturnType<typeof queryCurried>>()
   })
 
-  it("$unsafe resolves the generic and accepts params/options", () => {
+  void it("$unsafe resolves the generic and accepts params/options", () => {
     assertType<Promise<number>, ReturnType<typeof unsafeCall>>()
   })
 
-  it("RawOptions accepts timeout + meta and OperationContext the three keys", () => {
+  void it("RawOptions accepts timeout + meta and OperationContext the three keys", () => {
     assertType<true, "timeout" extends keyof RawOptions ? true : false>()
     assertType<true, "meta" extends keyof RawOptions ? true : false>()
     assertType<true, "namespace" extends keyof OperationContext ? true : false>()
@@ -85,13 +86,13 @@ describe("raw — typing", () => {
   })
 })
 
-describe("context — typing", () => {
-  it("$withContext is sync without auth and a Promise with it", () => {
+void describe("context — typing", () => {
+  void it("$withContext is sync without auth and a Promise with it", () => {
     assertType<Client<typeof schemaDef>, ReturnType<typeof ctxSync>>()
     assertType<Promise<Client<typeof schemaDef>>, ReturnType<typeof ctxAsync>>()
   })
 
-  it("every read accepts a per-call context override", () => {
+  void it("every read accepts a per-call context override", () => {
     assertType<true, "context" extends keyof FindManyArgs<U> ? true : false>()
     assertType<true, "context" extends keyof FindUniqueArgs<U> ? true : false>()
     // The call compiles (the lazy thenable shape exerciss it by the read suites).
@@ -100,8 +101,8 @@ describe("context — typing", () => {
   })
 })
 
-describe("fn/api/auth/admin — typing", () => {
-  it("fn.call and the typed shortcuts carry the declared types", () => {
+void describe("fn/api/auth/admin — typing", () => {
+  void it("fn.call and the typed shortcuts carry the declared types", () => {
     assertType<Promise<number>, ReturnType<typeof fnCall>>()
     assertType<Promise<number>, ReturnType<typeof fnTyped>>()
     assertType<Promise<string>, ReturnType<typeof fnPing>>()
@@ -110,7 +111,7 @@ describe("fn/api/auth/admin — typing", () => {
     assertType<FnSurface<typeof schemaDef>, C["fn"]>()
   })
 
-  it("api/auth/admin surfaces keep their shapes", () => {
+  void it("api/auth/admin surfaces keep their shapes", () => {
     assertType<Promise<{ id: string }>, ReturnType<typeof apiGet>>()
     assertType<Promise<{ ok: boolean }>, ReturnType<typeof apiPost>>()
     assertType<Promise<Tokens>, ReturnType<typeof authSignin>>()

@@ -7,13 +7,13 @@
  * - **Schema preset** — `tenant(userTable, options?)` stamps the tenant column
  *   (`record<user> DEFAULT $auth.id ASSERT $value != NONE READONLY`), per-op permissions
  *   (`tenant_id = $auth.id`, with the soft-delete tombstone clause), the
- *   `{table}_protect_tenant_id` guard event and the tenant indexes. It composes through
- *   `table(…).use(tenant(userTable))` like any preset (AND-narrowing permissions, typed column).
+ * `{table}_protect_tenant_id` guard event and the tenant indexes. It composes through
+ * `table(…).use(tenant(userTable))` like any preset (AND-narrowing permissions, typed column).
  * - **Runtime plugin** — `tenantRls(options?)` enforces the same scope client-side, for PRIVILEGED
- *   sessions where `$auth`/permissions do not filter. It requires a scope for every tenant-tagged
- *   table (fail-closed), injects it into writes, AND-combines it into every read/update/delete
+ * sessions where `$auth`/permissions do not filter. It requires a scope for every tenant-tagged
+ * table (fail-closed), injects it into writes, AND-combines it into every read/update/delete
  *   (including `findUnique`'s id/unique targets, through the compiler `scope` channel), and exposes
- *   `$forTenant("user:abc")`.
+ * `$forTenant("user:abc")`.
  *
  * ```ts
  * import { tenant, tenantRls } from "./tenant";
@@ -22,8 +22,8 @@
  *   .use(tenant(User, { softDelete: true }));
  *
  * const client = orm(db, {
- *   schema: schema({ customers: Customer }),
- *   plugins: [tenantRls({ tenant: () => ctx.tenantId })],
+ * schema: schema({ customers: Customer }),
+ * plugins: [tenantRls({ tenant: () => ctx.tenantId })],
  * });
  * await client.customers.$forTenant("user:abc").findMany({});
  * ```
@@ -50,17 +50,18 @@ import {
   type TablePermissions,
   type TablePreset,
 } from "../pure"
+
 import { CREATE_ONLY_MARKER } from "./create-only-shared"
 import { assertIdent } from "./tenant-shared"
 
 // --- the schema preset: tenant(principal, options?) ----------------------------------------------
 
 /** The per-table marker the preset stamps into `TableConfig.meta.tenant` (opaque to the engine). */
-export interface TenantTableMeta {
+export type TenantTableMeta = {
   /** The tenant column (a `record<principal>` carrying the principal's id value type). */
   readonly column: string
   /** `true` when `update` locks it to `NONE` (append-table) — also stamps the top-level
-   *  `meta.createOnly` marker read by `createOnlyGuard()` + `timestamps()`. */
+   * `meta.createOnly` marker read by `createOnlyGuard()` + `timestamps()`. */
   readonly createOnly: boolean
   /** The principal table name (`User.name`) the column links to. */
   readonly principal: string
@@ -69,7 +70,7 @@ export interface TenantTableMeta {
 }
 
 /** Overridable derived names — a `{table}` placeholder interpolates to the table name. */
-export interface TenantPresetNames {
+export type TenantPresetNames = {
   /** The soft-delete index name (default `"{table}_{snake(deleted)}_idx"`). */
   readonly deletedIndex?: string
   /** The guard event name (default `"{table}_protect_{column}"`). */
@@ -79,7 +80,7 @@ export interface TenantPresetNames {
 }
 
 /** Options for the `tenant(...)` preset. */
-export interface TenantPresetOptions<C extends string = string> {
+export type TenantPresetOptions<C extends string = string> = {
   /**
    * The tenant column name (default `"tenant_id"`). A `const` generic: the literal flows into the
    * preset's column type, so `t.<column>` is a real, rename-safe ref in `.index("x", (t) => …)`.
@@ -95,7 +96,7 @@ export interface TenantPresetOptions<C extends string = string> {
   readonly protect?: boolean
   /**
    * Soft delete: `true` = `"deletedAt"`, or the tombstone column name. The tombstone column is
-   * APP-DECLARED (the preset  permissions/indexes it — SCHEMAFULL rejects an index on a missing
+   * APP-DECLARED (the preset permissions/indexes it — SCHEMAFULL rejects an index on a missing
    * field). Mutually exclusive with `createOnly`. When on, `select` hides tombstones and `update`
    * gets the `$before` tombstone clause.
    */
@@ -120,7 +121,7 @@ type PrincipalMode<P> =
     : "record"
 
 /** The tenant column as it lands on the table: `record<principal, V>` (same id mode as the
- *  principal), create-optional (`$default`) and non-updatable (`$readonly`). */
+ * principal), create-optional (`$default`) and non-updatable (`$readonly`). */
 export type TenantField<P extends AnyTableDef> = SField<
   RecordIdSchemaOf<PrincipalName<P>, PrincipalValue<P>, PrincipalMode<P>>,
   "create" | "readonly"
@@ -139,11 +140,11 @@ function snake(name: string): string {
  * with `table(…).use(tenant(User, options?))`. Zero-diff against the hand-written recipe
  * (same field/permissions/event/index names) and typed end-to-end.
  *
- * Permissions (AND-combined with the table's own — a preset  narrows):
+ * Permissions (AND-combined with the table's own — a preset narrows):
  * - `select`: `T = $auth.id` (+ `AND deletedAt IS NONE` with soft delete)
  * - `create` / `delete`: `T = $auth.id`
  * - `update`: `NONE` with `createOnly`; the `$before`-aware tombstone clause with soft delete;
- *   else `T = $auth.id`
+ * else `T = $auth.id`
  *
  * The guard event rejects a CREATE/UPDATE that sets the tenant column to a value other than
  * `$auth.id` (the READONLY field is the DB-level backstop on updates).
@@ -161,18 +162,17 @@ export function tenant<P extends AnyTableDef, const C extends string = "tenant_i
     throw new OrmError(
       "SchemaInvalid",
       `plugins/tenant: tenant("${table}") — "createOnly" and "softDelete" are mutually exclusive: an append-only table never updates, so the tombstone clause is unreachable.`,
-      { table, field: "softDelete" },
+      { field: "softDelete", table },
     )
   }
   const deleted =
     softDeleteOption === true
       ? "deletedAt"
-      : typeof softDeleteOption === "string"
+      : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
+        typeof softDeleteOption === "string"
         ? softDeleteOption
         : undefined
-  if (deleted !== undefined) {
-    assertIdent(deleted, table, "softDelete")
-  }
+  if (deleted !== undefined) assertIdent(deleted, table, "softDelete")
 
   // `$auth.id` is the scope for every op. The column splics it ESCAPED; `$auth`/`$before` are
   // param refs (no bindings — DDL inlines expressions).
@@ -182,14 +182,15 @@ export function tenant<P extends AnyTableDef, const C extends string = "tenant_i
   // without the `$before` clause the DB would deny it.
   const update = createOnly
     ? false
-    : deleted
+    : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
+      deleted
       ? surql`${scope} AND (${surql.ident(deleted)} IS NONE OR ${paramProxy(["before", deleted])} IS NONE AND ${surql.ident(deleted)} != NONE)`
       : scope
   const permissions: TablePermissions = {
-    select,
     create: scope,
-    update,
     delete: scope,
+    select,
+    update,
   }
 
   // Resolve the overridable names up front: a plain `undefined` check (not `??`) keeps each
@@ -203,23 +204,24 @@ export function tenant<P extends AnyTableDef, const C extends string = "tenant_i
     const message = `${column} cannot manually be set to a different value than the authenticated user`
     events.push({
       name: eventName === undefined ? `{table}_protect_${column}` : eventName,
-      when: surql`$event = 'CREATE' OR $event = 'UPDATE'`,
       // `$auth != NONE` keeps privileged/system writes (no session auth) working; the runtime
       // plugin is what scopes THOSE sessions.
+      // eslint-disable-next-line unicorn/no-thenable -- then é o nome obrigatório do campo WHEN/THEN do DEFINE EVENT
       then: surql`IF ${paramProxy(["auth"])} != NONE AND ${paramProxy(["after", column])} != ${paramProxy(["auth", "id"])} { THROW ${message}; }`,
+      when: surql`$event = 'CREATE' OR $event = 'UPDATE'`,
     })
   }
 
   const indexes: PresetIndex[] = []
   if (options.indexes !== false) {
     indexes.push({
-      name: tenantIndexName === undefined ? `{table}_${snake(column)}_idx` : tenantIndexName,
       fields: [column],
+      name: tenantIndexName === undefined ? `{table}_${snake(column)}_idx` : tenantIndexName,
     })
     if (deleted) {
       indexes.push({
-        name: deletedIndexName === undefined ? `{table}_${snake(deleted)}_idx` : deletedIndexName,
         fields: [column, deleted],
+        name: deletedIndexName === undefined ? `{table}_${snake(deleted)}_idx` : deletedIndexName,
       })
     }
   }
@@ -233,20 +235,20 @@ export function tenant<P extends AnyTableDef, const C extends string = "tenant_i
 
   return tableFn.preset({
     columns,
-    permissions,
     events,
     indexes,
     meta: {
       tenant: {
         column,
+        createOnly,
         principal: principal.name,
         softDelete: deleted ?? false,
-        createOnly,
       } satisfies TenantTableMeta,
       // The canonical create-marker: `createOnlyGuard()` enforces it client-side and
       // `timestamps()` skips `updatedAt` on this table.
       ...(createOnly ? { [CREATE_ONLY_MARKER]: true } : {}),
     },
+    permissions,
   })
 }
 

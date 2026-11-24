@@ -15,7 +15,7 @@ import { definePlugin } from "../orm/plugins"
 import type { Plugin } from "../orm/types/plugins"
 
 /** The guardrails the `rules` plugin can enforce. */
-export interface RulesOptions {
+export type RulesOptions = {
   /** Reject `updateMany`/`deleteMany` with no `where` (unless `all: true`). */
   readonly destructiveWriteWithoutWhere?: boolean
   /** Reject a `limit` above this number (`findMany`/`paginate`). */
@@ -43,25 +43,20 @@ const fail = (message: string, operation: string, table?: string): never => {
 function knownFields(index: SchemaIndex, table: string): Set<string> {
   const meta = index.byName.get(table)
   const out = new Set<string>(["id"])
-  if (!meta || "schemaless" in meta) {
-    return out
-  }
+  if (!meta || "schemaless" in meta) return out
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of meta.columns.keys()) {
-    out.add(key)
-  }
+  for (const key of meta.columns.keys()) out.add(key)
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of meta.links.keys()) {
-    out.add(key)
-  }
+  for (const key of meta.links.keys()) out.add(key)
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const edge of meta.outgoing) {
-    out.add(edge.name)
-  }
+  for (const edge of meta.outgoing) out.add(edge.name)
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const edge of meta.incoming) {
-    out.add(edge.name)
-  }
+  for (const edge of meta.incoming) out.add(edge.name)
+
   return out
 }
 
@@ -73,19 +68,17 @@ function assertFields(
   table: string,
   what: string,
 ): void {
-  if (typeof value !== "object" || value === null) {
-    return
-  }
+  if (typeof value !== "object" || value === null) return
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const key of Object.keys(value)) {
-    if (LOGICAL.has(key) || key === "*" || key.includes(".") || key.includes("[")) {
-      continue
-    }
+    if (LOGICAL.has(key) || key === "*" || key.includes(".") || key.includes("[")) continue
+
     if (!known.has(key)) {
       throw new OrmError(
         "UnknownField",
         `${operation}: "${key}" is not a field of "${table}" (${what}). Known: ${[...known].join(", ")}.`,
-        { operation, table, field: key },
+        { field: key, operation, table },
       )
     }
   }
@@ -96,10 +89,8 @@ function assertFields(
  */
 export function rules(options: RulesOptions = {}): Plugin {
   return definePlugin({
-    id: "better-schemic/rules",
-    name: "Rules",
-    description: "Guardrails for raw/writes/limits/fields.",
     config: options,
+    description: "Guardrails for raw/writes/limits/fields.",
     hooks: {
       beforeRaw: ({ operation, surql }) => {
         if (options.noRawUnsafe && operation === "$unsafe") {
@@ -111,6 +102,8 @@ export function rules(options: RulesOptions = {}): Plugin {
         }
       },
     },
+    id: "better-schemic/rules",
+    name: "Rules",
     transform(op) {
       const kind = op.kind
       const args = op.args
@@ -137,12 +130,12 @@ export function rules(options: RulesOptions = {}): Plugin {
         options.maxLimit !== undefined &&
         typeof args.limit === "number" &&
         args.limit > options.maxLimit
-      ) {
+      )
         fail(`rules: limit ${args.limit} exceeds maxLimit ${options.maxLimit}.`, kind, op.table)
-      }
-      if (options.requireOrderByForCursor && kind === "cursor" && args.orderBy === undefined) {
+
+      if (options.requireOrderByForCursor && kind === "cursor" && args.orderBy === undefined)
         fail('rules: cursor requires an explicit "orderBy".', kind, op.table)
-      }
+
       if (options.strict) {
         const known = knownFields(op.index, op.table)
         assertFields(op.args.data, known, kind, op.table, "data")
@@ -156,8 +149,8 @@ export function rules(options: RulesOptions = {}): Plugin {
 /** The conservative preset: `$unsafe` off, no unfiltered destructive writes. */
 export function safe(options: RulesOptions = {}): Plugin {
   return rules({
-    noRawUnsafe: true,
     destructiveWriteWithoutWhere: true,
+    noRawUnsafe: true,
     ...options,
   })
 }
@@ -165,10 +158,11 @@ export function safe(options: RulesOptions = {}): Plugin {
 /** The balanced preset: `safe` + a required/max limit. */
 export function recommended(options: RulesOptions & { maxLimit?: number } = {}): Plugin {
   return rules({
-    noRawUnsafe: true,
     destructiveWriteWithoutWhere: true,
-    requireLimit: true,
+    // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
     maxLimit: options.maxLimit ?? 1000,
+    noRawUnsafe: true,
+    requireLimit: true,
     ...options,
   })
 }
@@ -176,12 +170,13 @@ export function recommended(options: RulesOptions & { maxLimit?: number } = {}):
 /** The strict preset: `recommended` + strict field checking + cursor orderBy. */
 export function strict(options: RulesOptions = {}): Plugin {
   return rules({
-    noRawUnsafe: true,
     destructiveWriteWithoutWhere: true,
+    // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
+    maxLimit: options.maxLimit ?? 1000,
+    noRawUnsafe: true,
     requireLimit: true,
     requireOrderByForCursor: true,
     strict: true,
-    maxLimit: options.maxLimit ?? 1000,
     ...options,
   })
 }

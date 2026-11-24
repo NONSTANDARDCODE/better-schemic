@@ -9,7 +9,8 @@
  * Plugin markers authored under `TableConfig.meta` (tenant, create-, …) include them as opaque
  * tags — they are part of the contract an agent must respect, even though the DB never sees them.
  */
-import type { AnyField, SurrealMeta, TableConfig } from "../pure"
+import type { AnyField } from "../pure"
+
 import type {
   ColumnMeta,
   FieldFamily,
@@ -21,7 +22,7 @@ import { buildSchemaIndex } from "./schema"
 import type { AnyTableDef, SchemaDef, SchemaInput } from "./types/schema"
 
 /** One field of a table/edge, in plain data. */
-export interface FieldDescriptor {
+export type FieldDescriptor = {
   /** ASSERT expressions, rendered as SurrealQL text. */
   readonly asserts: readonly string[]
   readonly comment?: string
@@ -45,7 +46,7 @@ export interface FieldDescriptor {
 }
 
 /** One table, edge or schemaless entry. */
-export interface TableDescriptor {
+export type TableDescriptor = {
   readonly columns: readonly FieldDescriptor[]
   readonly comment?: string
   readonly edges: readonly {
@@ -82,7 +83,7 @@ export interface TableDescriptor {
 }
 
 /** One authored database function. */
-export interface FunctionDescriptor {
+export type FunctionDescriptor = {
   readonly args: readonly {
     family: FieldFamily
     name: string
@@ -97,7 +98,7 @@ export interface FunctionDescriptor {
 }
 
 /** The complete machine-readable schema description. */
-export interface SchemaDescriptor {
+export type SchemaDescriptor = {
   readonly functions: readonly FunctionDescriptor[]
   readonly schemaless: readonly { key: string; name: string }[]
   readonly tables: readonly TableDescriptor[]
@@ -111,48 +112,40 @@ function plain(value: unknown): unknown {
     typeof value === "string" ||
     typeof value === "boolean" ||
     typeof value === "number"
-  ) {
+  )
     return value
-  }
-  if (value === undefined || typeof value === "function") {
-    return undefined
-  }
-  if (typeof value === "bigint") {
-    return String(value)
-  }
-  if (value instanceof Date) {
-    return value.toISOString()
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => plain(item) ?? null)
-  }
+
+  if (value === undefined || typeof value === "function") return undefined
+
+  if (typeof value === "bigint") return String(value)
+
+  if (value instanceof Date) return value.toISOString()
+
+  if (Array.isArray(value)) return value.map((item) => plain(item) ?? null)
+
   if (typeof value === "object") {
     // BoundQuery and other expression carriers expose `.query` as their SurrealQL text.
     const text = (value as { query?: unknown }).query
-    if (typeof text === "string") {
-      return text
-    }
+    if (typeof text === "string") return text
+
     const out: Record<string, unknown> = {}
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const [key, item] of Object.entries(value)) {
       const normalized = plain(item)
-      if (normalized !== undefined) {
-        out[key] = normalized
-      }
+      if (normalized !== undefined) out[key] = normalized
     }
     return out
   }
+  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringify de valor opaco é intencional (toJSON/toString definidos pelo chamador)
   return String(value)
 }
 
 /** Render an expression (string or BoundQuery) as SurrealQL text. */
 function expr(value: unknown): string | undefined {
-  if (value === undefined) {
-    return undefined
-  }
-  if (typeof value === "string") {
-    return value
-  }
+  if (value === undefined) return undefined
+
+  if (typeof value === "string") return value
+
   const text = (value as { query?: unknown }).query
   return typeof text === "string" ? text : undefined
 }
@@ -160,10 +153,10 @@ function expr(value: unknown): string | undefined {
 function describeColumn(name: string, column: ColumnMeta, field?: AnyField): FieldDescriptor {
   const meta = field?.surreal
   return {
-    name,
-    type: column.type,
     family: column.family,
+    name,
     optional: column.optional,
+    type: column.type,
     ...(column.element ? { element: column.element } : {}),
     ...(column.record ? { record: column.record } : {}),
     asserts: (meta?.asserts ?? [])
@@ -185,11 +178,11 @@ function describeColumn(name: string, column: ColumnMeta, field?: AnyField): Fie
 function describeTable(key: string, def: AnyTableDef, index: SchemaIndex): TableDescriptor {
   const meta = index.tables.get(key)
   const config = def.config
-  const fields = def.fields ?? {}
+  const fields = def.fields
   return {
     key,
-    name: def.name,
     kind: def.kind,
+    name: def.name,
     schemafull: config.schemafull,
     ...(config.type ? { type: config.type } : {}),
     ...(meta?.idStrategy ? { idStrategy: meta.idStrategy } : {}),
@@ -198,46 +191,47 @@ function describeTable(key: string, def: AnyTableDef, index: SchemaIndex): Table
       describeColumn(
         name,
         meta?.columns.get(name) ?? {
-          name,
-          type: "unknown",
           family: "any",
+          name,
           optional: false,
+          type: "unknown",
         },
         field,
       ),
     ),
+    edges: [
+      ...(meta?.outgoing ?? []).map((edge) => ({
+        direction: "out" as const,
+        key: edge.key,
+        name: edge.name,
+      })),
+      ...(meta?.incoming ?? []).map((edge) => ({
+        direction: "in" as const,
+        key: edge.key,
+        name: edge.name,
+      })),
+    ],
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- checagem defensiva em runtime (valores ausentes/mutados por callback); tipo TS é otimista
     links: [...(meta?.links?.values() ?? [])].map((link) => ({
       field: link.field,
       ...(link.targets ? { targets: link.targets } : {}),
       cardinality: link.cardinality,
       optional: link.optional,
     })),
-    edges: [
-      ...(meta?.outgoing ?? []).map((edge) => ({
-        key: edge.key,
-        name: edge.name,
-        direction: "out" as const,
-      })),
-      ...(meta?.incoming ?? []).map((edge) => ({
-        key: edge.key,
-        name: edge.name,
-        direction: "in" as const,
-      })),
-    ],
     ...(meta?.endpoints
       ? {
           endpoints: {
+            enforced: meta.endpoints.enforced,
             from: meta.endpoints.from,
             to: meta.endpoints.to,
-            enforced: meta.endpoints.enforced,
           },
         }
       : {}),
+    events: plain(config.events ?? []),
+    indexes: plain(config.indexes ?? []),
+    permissions: plain(config.permissions ?? {}),
     uniqueFields: meta?.uniqueFields ?? [],
     uniqueGroups: meta?.uniqueGroups ?? [],
-    indexes: plain(config.indexes ?? []),
-    events: plain(config.events ?? []),
-    permissions: plain(config.permissions ?? {}),
     ...(config.comment ? { comment: config.comment } : {}),
     ...(config.meta ? { meta: plain(config.meta) } : {}),
   }
@@ -252,32 +246,29 @@ export function describeSchema(input: SchemaDef | SchemaInput): SchemaDescriptor
   const tables: TableDescriptor[] = []
   const schemaless: { key: string; name: string }[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [key, meta] of index.tables) {
-    tables.push(describeTable(key, meta.def, index))
-  }
+  for (const [key, meta] of index.tables) tables.push(describeTable(key, meta.def, index))
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [key, meta] of index.schemaless) {
-    schemaless.push({ key, name: meta.name })
-  }
+  for (const [key, meta] of index.schemaless) schemaless.push({ key, name: meta.name })
 
   const functions: FunctionDescriptor[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [key, fn] of index.functions) {
     const config = (fn.def as unknown as { config?: Record<string, unknown> }).config ?? {}
     functions.push({
+      args: [...fn.args.values()].map((arg) => ({
+        family: arg.family,
+        name: arg.name,
+        optional: arg.optional,
+        type: arg.type,
+      })),
       key,
       name: fn.name,
-      args: [...fn.args.values()].map((arg) => ({
-        name: arg.name,
-        type: arg.type,
-        family: arg.family,
-        optional: arg.optional,
-      })),
-      ...(fn.returns ? { returns: { type: fn.returns.type, family: fn.returns.family } } : {}),
+      ...(fn.returns ? { returns: { family: fn.returns.family, type: fn.returns.type } } : {}),
       permissions: plain(config.permissions ?? {}),
       ...(typeof config.comment === "string" ? { comment: config.comment } : {}),
     })
   }
 
-  return { version: 1, tables, schemaless, functions }
+  return { functions, schemaless, tables, version: 1 }
 }

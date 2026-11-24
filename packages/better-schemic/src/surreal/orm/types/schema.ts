@@ -18,12 +18,14 @@
 import type { App, FunctionDef, RecordIdMode, RelationDef, TableDef } from "../../pure"
 
 /** A typed table/edge def with its shape erased — the structural upper bound for schema entries. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- tipo de FRONTEIRA: a forma da tabela é apagada de propósito; unknown quebraria a inferência pública
 export type AnyTableDef = TableDef<string, any>
 
 /** A relation (edge) def with shape + endpoint captures erased. The endpoint ID MODES stay broad
  *  (`RecordIdMode`), so a string-id relation is still an `AnyRelationDef`. */
 export type AnyRelationDef = RelationDef<
   string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- tipo de FRONTEIRA com forma apagada; unknown quebraria a inferência pública
   any,
   string,
   string,
@@ -34,6 +36,7 @@ export type AnyRelationDef = RelationDef<
 >
 
 /** A user-defined DB function def with its arg shape/return erased. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- tipo de FRONTEIRA: args/retorno apagados; a inferência vem do defineFunction concreto
 export type AnyFunctionDef = FunctionDef<any, any>
 
 /** One `schema` entry: a table, an edge, a function, or a schemaless table's physical name. */
@@ -48,10 +51,10 @@ export const SCHEMA_DEF: unique symbol = Symbol.for("better-schemic.schema")
 /**
  * A branded schema artifact (the return of `schema`) — carries its entries for inference.
  * `S` unconstrains it on purpose: an inferred const-generic entries object has no string index
- * signature, so `S extends SchemaInput` would make `SchemaDef<type of entries>` unusable (the
+ * signature, so `S extends SchemaInput` would make `SchemaDef<entries>` unusable (the
  * constraint enforcs it at {@link SchemaInput} consumers instead, e.g. `schema`).
  */
-export interface SchemaDef<S = SchemaInput> {
+export type SchemaDef<S = SchemaInput> = {
   readonly entries: S
   readonly [SCHEMA_DEF]: true
 }
@@ -60,8 +63,8 @@ export interface SchemaDef<S = SchemaInput> {
 export type SchemaOf<D extends SchemaDef> = D["entries"]
 
 /**
- * The entries of EITHER a branded schema artifact (`type of schemaDef`) or a plain input object — every
- * key/lookup helper below writes it over this, so `Client<type of schemaDef>` and `Client<literal>`
+ * The entries of EITHER a branded schema artifact (`schemaDef` type) or a plain input object — every
+ * key/lookup helper below writes it over this, so `Client<Schema>` and `Client<literal>`
  * both work.
  */
 export type EntriesOf<S> = S extends SchemaDef<infer E> ? E : S

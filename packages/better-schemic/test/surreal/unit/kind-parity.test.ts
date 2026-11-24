@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any, unicorn/consistent-function-scoping, unicorn/no-thenable -- Object key order mirrors expected serialized output and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Fixtures use any for duck-typed mocks. Helpers stay colocated with the tests that use them. Bun test calls return thenable handles that are not awaited. */
 // Kind-registry parity (docs/kind-registry-contract.md §3): the generic kind-registry path must reproduce
 // the driver's INTERNAL clause-level engine (`diffSnapshots` over `buildSnapshot`) for the
 // `table`/`index`/`event`/`function` kinds (access unmanags it — excludeFromMigrations — and asserted
@@ -50,8 +51,9 @@ const registry = (prevT: AnyArr, nextT: AnyArr, prevD: AnyArr = [], nextD: AnyAr
 }
 
 /** Assert the registry path == the fixed-slot path for a (prev -> next) schema change. */
-const parity = (prevT: AnyArr, nextT: AnyArr, prevD: AnyArr = [], nextD: AnyArr = []) =>
+const parity = (prevT: AnyArr, nextT: AnyArr, prevD: AnyArr = [], nextD: AnyArr = []) => {
   expect(registry(prevT, nextT, prevD, nextD)).toEqual(legacy(prevT, nextT, prevD, nextD))
+}
 
 const User = () => table("user", { id: s.string(), name: s.string() })
 
@@ -228,9 +230,9 @@ describe("cross-kind dependency ordering (emitKinds)", () => {
     const post = table("post", { id: s.string() })
     const wrote = relation("wrote", {}).from(user).to(post)
     const up = headers(emitKinds(surrealKinds, lowerAll([wrote, user, post])))
-    const rel = up.findIndex((l) => /DEFINE TABLE wrote/u.test(l))
-    expect(up.findIndex((l) => /DEFINE TABLE user/u.test(l))).toBeLessThan(rel)
-    expect(up.findIndex((l) => /DEFINE TABLE post/u.test(l))).toBeLessThan(rel)
+    const rel = up.findIndex((l) => l.includes("DEFINE TABLE wrote"))
+    expect(up.findIndex((l) => l.includes("DEFINE TABLE user"))).toBeLessThan(rel)
+    expect(up.findIndex((l) => l.includes("DEFINE TABLE post"))).toBeLessThan(rel)
   })
 })
 
@@ -351,7 +353,7 @@ describe("fn:: dependency ordering (function emits before its caller)", () => {
     defineFunction("fmt", { v: s.string() })
       .returns(s.string())
       .body(surql`RETURN $v`)
-  const fnIdx = (up: string[]) => up.findIndex((l) => /^DEFINE FUNCTION fn::fmt/u.test(l))
+  const fnIdx = (up: string[]) => up.findIndex((l) => l.startsWith("DEFINE FUNCTION fn::fmt"))
 
   test("before a table whose field COMPUTED calls it", () => {
     const t = table("doc", {
@@ -360,7 +362,7 @@ describe("fn:: dependency ordering (function emits before its caller)", () => {
     })
     const up = emitKinds(surrealKinds, lowerAll([t], [fmt()]))
     expect(fnIdx(up)).toBeGreaterThanOrEqual(0)
-    expect(fnIdx(up)).toBeLessThan(up.findIndex((l) => /^DEFINE TABLE doc/u.test(l)))
+    expect(fnIdx(up)).toBeLessThan(up.findIndex((l) => l.startsWith("DEFINE TABLE doc")))
   })
 
   test("before an event whose THEN calls it", () => {
@@ -369,7 +371,7 @@ describe("fn:: dependency ordering (function emits before its caller)", () => {
     })
     const up = emitKinds(surrealKinds, lowerAll([t], [fmt()]))
     expect(fnIdx(up)).toBeGreaterThanOrEqual(0)
-    expect(fnIdx(up)).toBeLessThan(up.findIndex((l) => /^DEFINE EVENT ev/u.test(l)))
+    expect(fnIdx(up)).toBeLessThan(up.findIndex((l) => l.startsWith("DEFINE EVENT ev")))
   })
 
   test("before an access whose SIGNIN calls it", () => {
@@ -379,7 +381,7 @@ describe("fn:: dependency ordering (function emits before its caller)", () => {
       .signin(surql`SELECT * FROM user WHERE fn::fmt(email)`)
     const up = emitKinds(surrealKinds, lowerAll([], [fmt(), access]))
     expect(fnIdx(up)).toBeGreaterThanOrEqual(0)
-    expect(fnIdx(up)).toBeLessThan(up.findIndex((l) => /DEFINE ACCESS/u.test(l)))
+    expect(fnIdx(up)).toBeLessThan(up.findIndex((l) => l.includes("DEFINE ACCESS")))
   })
 })
 
@@ -394,8 +396,8 @@ describe("analyzer dependency ordering (analyzer emits before its FULLTEXT index
       fulltext: { analyzer: "eng" },
     })
     const up = emitKinds(surrealKinds, lowerAll([t], [eng()]))
-    const ai = up.findIndex((l) => /^DEFINE ANALYZER eng/u.test(l))
-    const ii = up.findIndex((l) => /^DEFINE INDEX ft/u.test(l))
+    const ai = up.findIndex((l) => l.startsWith("DEFINE ANALYZER eng"))
+    const ii = up.findIndex((l) => l.startsWith("DEFINE INDEX ft"))
     expect(ai).toBeGreaterThanOrEqual(0)
     expect(ii).toBeGreaterThanOrEqual(0)
     expect(ai).toBeLessThan(ii)
@@ -407,8 +409,8 @@ describe("analyzer dependency ordering (analyzer emits before its FULLTEXT index
       body: s.string().$fulltext("eng"),
     })
     const up = emitKinds(surrealKinds, lowerAll([t], [eng()]))
-    expect(up.findIndex((l) => /^DEFINE ANALYZER eng/u.test(l))).toBeLessThan(
-      up.findIndex((l) => /^DEFINE INDEX doc2_body_idx/u.test(l)),
+    expect(up.findIndex((l) => l.startsWith("DEFINE ANALYZER eng"))).toBeLessThan(
+      up.findIndex((l) => l.startsWith("DEFINE INDEX doc2_body_idx")),
     )
   })
 })
@@ -432,8 +434,7 @@ describe("flipped surrealDriver shape", () => {
     expect(objs.map((o) => o.kind).sort()).toEqual(["index", "table"])
     expect(typeof surrealDriver.introspectAll).toBe("function")
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const m of ["lower", "emit", "diff", "introspect", "normalize", "equal"]) {
+    for (const m of ["lower", "emit", "diff", "introspect", "normalize", "equal"])
       expect((surrealDriver as unknown as Record<string, unknown>)[m]).toBeUndefined()
-    }
   })
 })

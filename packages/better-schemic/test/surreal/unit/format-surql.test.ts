@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, unicorn/no-thenable -- Object key order mirrors expected serialized output and must stay as authored. Bun test calls return thenable handles that are not awaited. */
 // formatSurql — pretty-prints generated SurrealQL (INFO returns bodies single-line): statements
 // per line, nested blocks indented, wide object literals one entry per line. Whitespace-:
 // normalize canonicalizes formatting, so formatted output NEVER phantom-diffs.

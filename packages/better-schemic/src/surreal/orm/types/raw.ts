@@ -8,7 +8,7 @@ import type { BoundQuery } from "surrealdb"
 import type { StatementResult } from "../results"
 
 /** Audit metadata for a raw call (`requireComment` enforces `comment` on write scripts). */
-export interface RawMeta {
+export type RawMeta = {
   /** Hook/plugin metadata (consumed in M6). */
   [key: string]: unknown
   /** Human-readable reason for the raw statement (required by `raw.requireComment`). */
@@ -18,7 +18,7 @@ export interface RawMeta {
 }
 
 /** Per-call raw options. */
-export interface RawOptions {
+export type RawOptions = {
   meta?: RawMeta
   /** Server-side `TIMEOUT` for a single capable statement (number = ms, string = duration). */
   timeout?: number | string
@@ -28,7 +28,7 @@ export interface RawOptions {
 export type RawSource = BoundQuery | string
 
 /** Client-level raw defaults (`orm(conn, { schema, raw: { … } })`). */
-export interface RawDefaults {
+export type RawDefaults = {
   /** Require `meta.comment` on raw WRITE scripts (read-scripts are exempt). */
   requireComment?: boolean
   /** Default server-side `TIMEOUT` (ms) for a single statement whose verb accepts it. */
@@ -38,4 +38,4 @@ export interface RawDefaults {
 }
 
 /** The result of `$query` with `throwOnError: false` — one entry per user statement. */
-export type RawStatements = readonly StatementResult<unknown>[]
+export type RawStatements = readonly StatementResult[]

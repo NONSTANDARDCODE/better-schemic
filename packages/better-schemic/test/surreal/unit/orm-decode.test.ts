@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-restricted-types -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures assert values whose presence the test guarantees. Fixtures use object to probe schema typing. */
 // Decoder unit tests — `decodeRow`/`decodeRows` against the `ProjectionSpec` the compiler emits.
 // The delegate tests exercise compile+execute+decode together; this suite pins the decode contract
 // itself: codecs, star/omit, explicit paths (nested/implicit-array/index), value, split and failures.
@@ -10,7 +11,7 @@ import { compileRead, type ReadArgs } from "../../../src/surreal/orm/compiler/se
 import { createBinds } from "../../../src/surreal/orm/compiler/shared"
 import { decodeRow, decodeRows } from "../../../src/surreal/orm/decode"
 import type { OrmError } from "../../../src/surreal/orm/errors"
-import type { ModelMeta, TableMeta } from "../../../src/surreal/orm/meta"
+import type { ModelMeta } from "../../../src/surreal/orm/meta"
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema"
 import { s, table } from "../../../src/surreal/pure"
 
@@ -23,7 +24,7 @@ const User = table("user", {
   contacts: s.array(s.object({ type: s.string(), value: s.string() })),
 })
 const index = buildSchemaIndex({ users: User })
-const meta = index.tables.get("users") as TableMeta
+const meta = index.tables.get("users")!
 
 /** Compile the read and decode `rows` through its projection. */
 function decode(args: ReadArgs, rows: unknown[], table: ModelMeta = meta) {
@@ -55,7 +56,7 @@ const Plain = table("plain", {
   tags: s.array(s.string()),
   strictTags: s.array(s.string()).min(1).optional(),
 })
-const plainMeta = buildSchemaIndex({ plain: Plain }).tables.get("plain") as TableMeta
+const plainMeta = buildSchemaIndex({ plain: Plain }).tables.get("plain")!
 const plainRow = (over: Record<string, unknown> = {}) => ({
   id: new RecordId("plain", "p1"),
   name: "n",
@@ -78,7 +79,7 @@ describe("decode — compiled fast path (full rows)", () => {
       tags: ["a", "b"],
     })
     // A fresh array (Zod never aliases the input array).
-    expect(row?.tags).not.toBe(plainRow().tags)
+    expect(row.tags).not.toBe(plainRow().tags)
   })
 
   test("an absent optional is dropped; an explicit undefined is kept", () => {
@@ -89,7 +90,7 @@ describe("decode — compiled fast path (full rows)", () => {
       unknown
     >[]
     expect(Object.hasOwn(explicit as object, "note")).toBe(true)
-    expect(explicit?.note).toBeUndefined()
+    expect(explicit.note).toBeUndefined()
   })
 
   test("a mismatch falls back to Zod — same ValidationError with the field path", () => {
@@ -166,8 +167,8 @@ describe("decode — compiled fast path (full rows)", () => {
     ]
     let seed = 7
     const rnd = () => {
-      seed = (seed * 1_103_515_245 + 12_345) & 0x7f_ff_ff_ff
-      return seed / 0x7f_ff_ff_ff
+      seed = (seed * 1_103_515_245 + 12_345) & 2_147_483_647
+      return seed / 2_147_483_647
     }
     const keys = ["name", "count", "ratio", "ok", "note", "tags", "strictTags", "extra"]
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
@@ -207,30 +208,30 @@ describe("decode — compiled fast path (full rows)", () => {
 describe("decode — full rows", () => {
   test("decodes through the table codec (datetime -> Date, id -> RecordId)", () => {
     const [row] = decode({}, [fullRow()]) as {
-      id: RecordId
       at: Date
+      id: RecordId
       name: string
     }[]
-    expect(row?.id).toBeInstanceOf(RecordId)
-    expect(row?.at).toBeInstanceOf(Date)
-    expect(row?.at.toISOString()).toBe("2025-01-02T03:04:05.000Z")
+    expect(row.id).toBeInstanceOf(RecordId)
+    expect(row.at).toBeInstanceOf(Date)
+    expect(row.at.toISOString()).toBe("2025-01-02T03:04:05.000Z")
   })
 
   test("omit strips the keys even when the raw row carries them", () => {
     const [row] = decode({ omit: ["age", "at"] }, [fullRow()]) as Record<string, unknown>[]
     expect(Object.keys(row as object)).not.toContain("age")
     expect(Object.keys(row as object)).not.toContain("at")
-    expect(row?.name).toBe("Alice")
-    expect(row?.tags).toEqual(["db"])
+    expect(row.name).toBe("Alice")
+    expect(row.tags).toEqual(["db"])
   })
 
   test("star + explicit expression overlays the decoded row", () => {
     const [row] = decode({ select: { "*": true, bump: surql`age + ${1}` } }, [
       fullRow({ bump: 31 }),
     ]) as Record<string, unknown>[]
-    expect(row?.name).toBe("Alice")
-    expect(row?.at).toBeInstanceOf(Date)
-    expect(row?.bump).toBe(31)
+    expect(row.name).toBe("Alice")
+    expect(row.at).toBeInstanceOf(Date)
+    expect(row.bump).toBe(31)
   })
 })
 
@@ -297,7 +298,7 @@ describe("decode — value and split", () => {
 
   test("split unfolds the field to its ELEMENT codec", () => {
     const [row] = decode({ split: "tags" }, [fullRow({ tags: "db" })]) as Record<string, unknown>[]
-    expect(row?.tags).toBe("db")
+    expect(row.tags).toBe("db")
   })
 
   test("a nested split needs an explicit select", () => {

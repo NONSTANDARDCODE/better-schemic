@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-unused-vars, @typescript-eslint/no-unnecessary-type-parameters -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. Type queries and callback signatures need fixture values. The Equal helper uses the canonical generic-equality idiom. */
 // The CHAINED defineConfig form (core ac74d90) with surrealConnection as the driver marker:
 // .connection(name, surrealConnection, static | (ctx, args) => config|config[]) — the resolver's
 // ctx.connections types it with the ACCUMULATED prior connections, each thenable to a full Client.
@@ -32,7 +33,7 @@ const orm = defineConfig()
     database: "app",
   })
   .connection("tenant", surrealConnection, async (ctx, args: { org?: string }) => {
-    if (args?.org) return { ...base, namespace: `chain_t_${args.org}`, database: "app" }
+    if (args.org) return { ...base, namespace: `chain_t_${args.org}`, database: "app" }
     // The typed path: the prior connection handle exposes `query()` (and is thenable to its
     // full ORM client).
     const orgs = await ctx.connections.main.query<{ slug: string }>("SELECT slug FROM chain_org")
@@ -87,7 +88,7 @@ describe("chained defineConfig with surrealConnection as the driver marker", () 
 
   test("a chained parameterized resolver receives its typed args", async () => {
     const ctx = { env: process.env, connections: {} }
-    const bases = await orm.connections.tenant.resolve(ctx as never, {
+    const bases = await orm.connections.tenant.resolve(ctx, {
       org: "acme",
     })
     expect(bases).toHaveLength(1)

@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures assert values whose presence the test guarantees. */
 // Parser/lexer FUZZING — adversarial inputs through every hand-written string scanner, asserting the
 // two properties that matter at a boundary: **never throw** (or a documented error) and **never
 // hang** (no catastrophic backtracking), plus the claimed idempotence/round-trips. Unlike the PBT
@@ -128,7 +129,7 @@ describe("fuzz: check formats", () => {
           expect(typeof format).toBe("string")
           const assert = formatAssert(format)
           expect(assert).toBeDefined()
-          expect(formatForAssert(assert as string)).toBe(format)
+          expect(formatForAssert(assert!)).toBe(format)
         }
       }),
     )
@@ -175,16 +176,14 @@ describe("fuzz: surql render", () => {
         // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
         for (const n of ns) {
           const entry = Object.entries(frag.bindings).find(([k]) =>
-            new RegExp(`^sub__\\d+_${n}$`).test(k),
+            new RegExp(`^sub__\\d+_${n}$`, "u").test(k),
           )
           expect(entry?.[1]).toBe(`V_${n}`)
         }
 
         // Every `$` token namespacs it (no BARE reference survived) and the rewrite is
         // boundary-safe (`$a` must not partially rewrite a longer `$ab`).
-        const tokens = [...frag.query.matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)/gu)].map(
-          (m) => m[1] as string,
-        )
+        const tokens = [...frag.query.matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)/gu)].map((m) => m[1])
         // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
         for (const token of tokens) expect(token.startsWith("sub__")).toBe(true)
       }),

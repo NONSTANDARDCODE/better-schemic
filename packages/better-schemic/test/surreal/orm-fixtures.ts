@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/require-await -- Object key order mirrors expected serialized output and must stay as authored. Mock methods match async interfaces without awaiting. */
 /**
  * Shared ORM unit-test fixtures: SDK-shaped `QueryResponse` builders and a recording fake
  * connection. Kept in one place so every `/orm` unit suite answers statements the same way
@@ -8,21 +9,21 @@ import type { QueryResponse, ServerError } from "surrealdb"
 import type { Queryable } from "../../src/surreal/orm/execute"
 
 /** A successful response (`type` requires it by the SDK union). */
-export const ok = (result: unknown): QueryResponse<unknown> => ({
+export const ok = (result: unknown): QueryResponse => ({
   success: true,
   result,
   type: "other",
 })
 
 /** A failed response carrying a real SDK error. */
-export const fail = (error: ServerError): QueryResponse<unknown> => ({
+export const fail = (error: ServerError): QueryResponse => ({
   success: false,
   error,
 })
 
 /**
  * Await a thunk and return whatever it threw (`null` when it resolved) — for asserting teaching
- * errors, including the compile errors that throw EAGERLY (wrap the call in `() => …`).
+ * errors, including the compile errors that throw at compile time (wrap the call in `() => …`).
  */
 export const caught = async (fn: () => unknown): Promise<unknown> => {
   try {
@@ -37,10 +38,9 @@ export const caught = async (fn: () => unknown): Promise<unknown> => {
 export const lines = (sql: string): string[] => sql.split("\n")
 
 /** Answer every line with `ok(line)` — control statements included. */
-export const echoLines = (sql: string): QueryResponse<unknown>[] =>
-  lines(sql).map((line) => ok(line))
+export const echoLines = (sql: string): QueryResponse[] => lines(sql).map((line) => ok(line))
 
-export interface FakeCall {
+export type FakeCall = {
   readonly sql: string
   readonly vars?: Record<string, unknown>
 }
@@ -53,9 +53,9 @@ export type FakeConn = Queryable & { closeCalls: number; closed: boolean }
  * BYO/managed rules.
  */
 export function fakeConn(
-  handler: (sql: string, vars?: Record<string, unknown>) => QueryResponse<unknown>[] = (sql) =>
+  handler: (sql: string, vars?: Record<string, unknown>) => QueryResponse[] = (sql) =>
     lines(sql).map(() => ok(null)),
-): { conn: FakeConn; calls: FakeCall[] } {
+): { calls: FakeCall[]; conn: FakeConn } {
   const calls: FakeCall[] = []
   const conn = {
     closeCalls: 0,

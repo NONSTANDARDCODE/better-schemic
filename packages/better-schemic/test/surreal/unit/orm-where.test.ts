@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-unnecessary-condition -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Fixtures assert values whose presence the test guarantees. Defensive checks document fixture intent. */
 // M1.1 — the `where` compiler: args -> exact `{ sql, vars }` goldens, family-aware operators,
 // path/identifier escaping and injection-proof values. Offline (no server).
 import { describe, expect, test } from "bun:test"
@@ -29,7 +30,7 @@ const User = table("user", {
 })
 
 const index = buildSchemaIndex({ users: User })
-const meta = index.tables.get("users") as TableMeta
+const meta = index.tables.get("users")!
 
 /** Compile a `where` and capture its statement text + binds. */
 function compile(where: unknown, table: TableMeta | undefined = meta) {
@@ -41,7 +42,7 @@ function compile(where: unknown, table: TableMeta | undefined = meta) {
 /** Normalize the SDK tag's globally-counted `bind__N` names so fragment goldens are stable. */
 function stable({ sql, vars }: { sql: string | undefined; vars: Record<string, unknown> }) {
   const aliases = new Map<string, string>()
-  const text = (sql ?? "").replace(/\$([A-Za-z_][A-Za-z0-9_]*)/gu, (_, name) => {
+  const text = (sql ?? "").replaceAll(/\$([A-Za-z_][A-Za-z0-9_]*)/gu, (_, name) => {
     if (!name.startsWith("bind__")) return `$${name}`
     let alias = aliases.get(name)
     if (!alias) {

@@ -11,8 +11,8 @@ import type {
   ThrowingResult,
 } from "../../../src/surreal/orm/results"
 
-describe("ThrowingResult<T>", () => {
-  it("is a Promise<T | null> augmented with `.throw()` yielding T", () => {
+void describe("ThrowingResult<T>", () => {
+  void it("is a Promise<T | null> augmented with `.throw()` yielding T", () => {
     assertType<
       Promise<null | number> & {
         throw(factory?: (info: NotFoundInfo) => Error): Promise<number>
@@ -22,8 +22,8 @@ describe("ThrowingResult<T>", () => {
   })
 })
 
-describe("BatchResult<T>", () => {
-  it("carries count/data/skipped/statements (count optional with return:'none')", () => {
+void describe("BatchResult<T>", () => {
+  void it("carries count/data/skipped/statements (count optional with return:'none')", () => {
     assertType<
       {
         readonly count?: number
@@ -36,14 +36,14 @@ describe("BatchResult<T>", () => {
   })
 })
 
-describe("StatementResult<T>", () => {
-  it("carries result/status/time/error", () => {
+void describe("StatementResult<T>", () => {
+  void it("carries result/status/time/error", () => {
     assertType<
       {
+        readonly error?: OrmError
         readonly result: number[]
         readonly status: "ERR" | "OK"
         readonly time?: string
-        readonly error?: OrmError
       },
       StatementResult<number[]>
     >()

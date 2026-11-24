@@ -52,41 +52,41 @@ export type OrmErrorCode =
 
 /** HTTP-like default status per code — a server/SDK status wins when present. */
 const DEFAULT_STATUS: Record<OrmErrorCode, number> = {
-  ResultNotFound: 404,
-  DatabaseError: 500,
-  ParseError: 400,
   AssertionFailed: 400,
-  RecordAlreadyExists: 409,
-  RecordNotFound: 404,
-  WriteConflict: 409,
-  SerializationFailure: 409,
-  PermissionDenied: 403,
-  NotAuthenticated: 401,
-  ValidationError: 400,
-  UnsafeDisabled: 403,
-  UnsupportedCapability: 501,
-  UnknownField: 400,
-  SchemaInvalid: 500,
-  TenantRequired: 403,
-  TenantViolation: 403,
+  ClauseNotSupported: 400,
   CreateOnlyViolation: 403,
-  PolicyDenied: 403,
-  PolicyRequired: 403,
-  TransactionAlreadyActive: 409,
-  TransactionRollback: 409,
   CursorDirectionConflict: 400,
   CursorTiebreakerRequired: 400,
-  UniqueTargetRequired: 400,
-  ReturnNotSupported: 400,
+  DatabaseError: 500,
   HavingUnsupported: 400,
-  ClauseNotSupported: 400,
-  RepositoryNotFound: 404,
+  NotAuthenticated: 401,
+  ParseError: 400,
+  PermissionDenied: 403,
   PluginError: 500,
+  PolicyDenied: 403,
+  PolicyRequired: 403,
+  RecordAlreadyExists: 409,
+  RecordNotFound: 404,
+  RepositoryNotFound: 404,
+  ResultNotFound: 404,
+  ReturnNotSupported: 400,
+  SchemaInvalid: 500,
+  SerializationFailure: 409,
+  TenantRequired: 403,
+  TenantViolation: 403,
+  TransactionAlreadyActive: 409,
+  TransactionRollback: 409,
+  UniqueTargetRequired: 400,
+  UnknownField: 400,
+  UnsafeDisabled: 403,
   UnsafeMutation: 403,
+  UnsupportedCapability: 501,
+  ValidationError: 400,
+  WriteConflict: 409,
 }
 
 /** The context an operation attaches to a {@link OrmError}. */
-export interface OrmErrorOptions {
+export type OrmErrorOptions = {
   /** The underlying error. */
   cause?: unknown
   /** The raw server/SDK payload, for debugging. */
@@ -152,10 +152,10 @@ export class OrmError extends Error {
 }
 
 /** The structural slice of an SDK `ServerError` the normalizer reads (no runtime import needed). */
-interface ServerErrorLike {
+type ServerErrorLike = {
   cause?: unknown
   code?: number
-  details?: { details?: unknown; kind?: string } | null
+  details?: null | { details?: unknown; kind?: string }
   isCancelled?: boolean
   isNotExecuted?: boolean
   isParseError?: boolean
@@ -179,15 +179,15 @@ const hasIssues = (e: unknown): e is { issues: unknown[]; message: string } =>
 /** SDK error `kind` -> our code (refined by the structured details below). */
 const KIND_CODES: Record<string, OrmErrorCode> = {
   AlreadyExists: "RecordAlreadyExists",
-  NotFound: "RecordNotFound",
-  Validation: "ValidationError",
   Configuration: "UnsupportedCapability",
-  Thrown: "AssertionFailed",
-  Query: "DatabaseError",
-  Serialization: "SerializationFailure",
-  NotAllowed: "PermissionDenied",
   Connection: "DatabaseError",
   Internal: "DatabaseError",
+  NotAllowed: "PermissionDenied",
+  NotFound: "RecordNotFound",
+  Query: "DatabaseError",
+  Serialization: "SerializationFailure",
+  Thrown: "AssertionFailed",
+  Validation: "ValidationError",
 }
 
 /** Message heuristics — the fallback when the kind is generic (Query/Internal) or absent. */
@@ -209,54 +209,43 @@ const MESSAGE_CODES: readonly (readonly [RegExp, OrmErrorCode])[] = [
 
 function codeFromMessage(message: string): OrmErrorCode {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [re, code] of MESSAGE_CODES) {
-    if (re.test(message)) {
-      return code
-    }
-  }
+  for (const [re, code] of MESSAGE_CODES) if (re.test(message)) return code
+
   return "DatabaseError"
 }
 
 /** The table a server error names, when the structured details carry one. */
 function tableFrom(error: ServerErrorLike): string | undefined {
-  if (typeof error.tableName === "string" && error.tableName) {
-    return error.tableName
-  }
+  if (typeof error.tableName === "string" && error.tableName) return error.tableName
+
   const kind = error.details?.kind
-  const inner = error.details?.details as { id?: unknown; name?: unknown } | undefined
-  if (kind === "Table" && typeof inner?.name === "string") {
-    return inner.name
-  }
-  if (kind === "Record" && typeof inner?.id === "string") {
-    return inner.id.split(":")[0]
-  }
-  if (typeof error.recordId === "string" && error.recordId) {
-    return error.recordId.split(":")[0]
-  }
+  const inner = error.details?.details as undefined | { id?: unknown; name?: unknown }
+  if (kind === "Table" && typeof inner?.name === "string") return inner.name
+
+  if (kind === "Record" && typeof inner?.id === "string") return inner.id.split(":")[0]
+
+  if (typeof error.recordId === "string" && error.recordId) return error.recordId.split(":")[0]
+
   return undefined
 }
 
 /** Refine the kind-derived code with the structured `details.kind`. */
 function refineCode(error: ServerErrorLike, code: OrmErrorCode): OrmErrorCode {
   const detail = error.details?.kind
-  if (error.isParseError === true || detail === "Parse") {
-    return "ParseError"
-  }
-  if (error.kind === "NotAllowed" && detail === "Auth") {
-    return "NotAuthenticated"
-  }
-  if (error.isCancelled === true || detail === "Cancelled") {
-    return "TransactionRollback"
-  }
+  if (error.isParseError === true || detail === "Parse") return "ParseError"
+
+  if (error.kind === "NotAllowed" && detail === "Auth") return "NotAuthenticated"
+
+  if (error.isCancelled === true || detail === "Cancelled") return "TransactionRollback"
+
   if (error.isNotExecuted === true || detail === "NotExecuted") {
     // A statement skipped because a sibling failed — but a write conflict can arrive under this
     // shape too, and the message is the  discriminator.
     const byMessage = codeFromMessage(error.message)
     return byMessage === "DatabaseError" ? "TransactionRollback" : byMessage
   }
-  if (error.isTimedOut === true || detail === "TimedOut") {
-    return "DatabaseError"
-  }
+  if (error.isTimedOut === true || detail === "TimedOut") return "DatabaseError"
+
   return code
 }
 
@@ -265,19 +254,17 @@ function refineCode(error: ServerErrorLike, code: OrmErrorCode): OrmErrorCode {
  * for call sites that prefer it over the static {@link OrmError.from}.
  */
 export function normalizeError(error: unknown, context: OrmErrorOptions = {}): OrmError {
-  if (isOrmError(error)) {
-    return error
-  }
+  if (isOrmError(error)) return error
 
   if (hasIssues(error)) {
-    const first = error.issues[0] as { message?: string; path?: unknown[] } | undefined
+    const first = error.issues[0] as undefined | { message?: string; path?: unknown[] }
     const path = first?.path?.join(".")
     return new OrmError(
       "ValidationError",
       first?.message
         ? `Validation failed${path ? ` at "${path}"` : ""}: ${first.message}`
         : error.message,
-      { ...context, details: context.details ?? error.issues, cause: error },
+      { ...context, cause: error, details: context.details ?? error.issues },
     )
   }
 
@@ -287,9 +274,9 @@ export function normalizeError(error: unknown, context: OrmErrorOptions = {}): O
     const code = refined === "DatabaseError" ? codeFromMessage(error.message) : refined
     return new OrmError(code, error.message, {
       ...context,
-      table: context.table ?? tableFrom(error),
-      details: context.details ?? error.details,
       cause: context.cause ?? error.cause ?? error,
+      details: context.details ?? error.details,
+      table: context.table ?? tableFrom(error),
     })
   }
 

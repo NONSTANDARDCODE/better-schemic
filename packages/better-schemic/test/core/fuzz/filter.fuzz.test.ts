@@ -1,10 +1,11 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
 // Fuzzing for the core CLI kind-filter — arbitrary flag values and name lists, asserting it
 // never throws and always yields a well-formed `Filter`. (The property suite covers the token/`inCat`
 // semantics; this focuses on scale and odd input.)
 import { describe, expect, test } from "bun:test"
 import fc from "fast-check"
 
-import { type Filter, parseFilter } from "../../../src/core/cli-kit/filter"
+import { parseFilter } from "../../../src/core/cli-kit/filter"
 
 const RUNS = Number(process.env.FUZZ_RUNS ?? process.env.PBT_RUNS ?? 300)
 const SEED = process.env.PBT_SEED ? Number(process.env.PBT_SEED) : undefined
@@ -54,7 +55,7 @@ describe("fuzz: parseFilter", () => {
           maxLength: 200,
         }),
         (tokens) => {
-          const parsed = parseFilter({ tables: tokens.join(",") }) as Filter
+          const parsed = parseFilter({ tables: tokens.join(",") })
           expect([...(parsed.tables.names ?? [])].sort()).toEqual([...new Set(tokens)].sort())
         },
       ),
@@ -64,7 +65,7 @@ describe("fuzz: parseFilter", () => {
   test("arbitrary strings (with quotes/brackets/unicode) don't crash the splitter", () => {
     check(
       fc.property(fc.string({ maxLength: 500 }), (text) => {
-        const parsed = parseFilter({ events: text }) as Filter
+        const parsed = parseFilter({ events: text })
         expect(isCat(parsed.events)).toBe(true)
       }),
     )

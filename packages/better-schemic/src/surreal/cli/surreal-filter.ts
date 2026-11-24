@@ -5,6 +5,7 @@
 
 import { type Filter, inCat } from "../../core"
 import type { DefineStatement } from "../ddl"
+
 import type { DbStructured, Snapshot } from "./structure"
 
 /** Whether a `DefineStatement` passes the filter (table-scoped objects also need their table in). */
@@ -25,8 +26,10 @@ export function included(f: Filter, s: DefineStatement): boolean {
     case "access":
       return inCat(f.access, s.name)
     case "analyzer":
-      // Analyzers shar them infra a FULLTEXT index depends on — always kept (no filter category).
+      // Analyzers share the infra a FULLTEXT index depends on — always kept (no filter category).
       return true
+    default:
+      return false
   }
 }
 
@@ -34,11 +37,8 @@ export function included(f: Filter, s: DefineStatement): boolean {
 export function filterSnapshot(snap: Snapshot, f: Filter): Snapshot {
   const statements: Record<string, DefineStatement> = {}
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [k, s] of Object.entries(snap.statements)) {
-    if (included(f, s)) {
-      statements[k] = s
-    }
-  }
+  for (const [k, s] of Object.entries(snap.statements)) if (included(f, s)) statements[k] = s
+
   return { ...snap, statements }
 }
 
@@ -50,17 +50,11 @@ export function filterSnapshot(snap: Snapshot, f: Filter): Snapshot {
 export function mergeSnapshot(prev: Snapshot, next: Snapshot, f: Filter): Snapshot {
   const statements: Record<string, DefineStatement> = {}
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [k, s] of Object.entries(prev.statements)) {
-    if (!included(f, s)) {
-      statements[k] = s
-    }
-  }
+  for (const [k, s] of Object.entries(prev.statements)) if (!included(f, s)) statements[k] = s
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [k, s] of Object.entries(next.statements)) {
-    if (included(f, s)) {
-      statements[k] = s
-    }
-  }
+  for (const [k, s] of Object.entries(next.statements)) if (included(f, s)) statements[k] = s
+
   return { ...next, statements }
 }
 
@@ -75,11 +69,11 @@ export function filterStructured(db: DbStructured, f: Filter): DbStructured {
   const functions = db.functions.filter((fn) => inCat(f.functions, fn.name))
   const accesses = db.accesses.filter((a) => inCat(f.access, a.name))
   return {
-    tables,
-    functions,
     accesses,
     analyzers: db.analyzers,
+    functions,
     params: db.params,
     sequences: db.sequences ?? [],
+    tables,
   }
 }

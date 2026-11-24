@@ -17,6 +17,7 @@ import {
   overwriteStatement,
   removeStatement,
 } from "../ddl"
+
 import { formatSurql } from "./format"
 import { schemaStruct } from "./lower"
 import { deepEqual } from "./struct"
@@ -32,33 +33,27 @@ function structIndex(db: DbStructured): Map<string, unknown> {
   for (const t of db.tables) {
     // The table STATEMENT is the head — fields/indexes/events are their own statements.
     idx.set(`table::${t.name}`, {
-      kind: t.kind,
-      schemafull: t.schemafull,
-      drop: t.drop,
       comment: t.comment,
+      drop: t.drop,
+      kind: t.kind,
       permissions: t.permissions,
+      schemafull: t.schemafull,
     })
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const f of t.fields) {
-      idx.set(`field:${t.name}:${f.name}`, f)
-    }
+    for (const f of t.fields) idx.set(`field:${t.name}:${f.name}`, f)
+
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const i of t.indexes) {
-      idx.set(`index:${t.name}:${i.name}`, i)
-    }
+    for (const i of t.indexes) idx.set(`index:${t.name}:${i.name}`, i)
+
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const e of t.events) {
-      idx.set(`event:${t.name}:${e.name}`, e)
-    }
+    for (const e of t.events) idx.set(`event:${t.name}:${e.name}`, e)
   }
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const fn of db.functions) {
-    idx.set(`function::${fn.name}`, fn)
-  }
+  for (const fn of db.functions) idx.set(`function::${fn.name}`, fn)
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const a of db.accesses) {
-    idx.set(`access::${a.name}`, a)
-  }
+  for (const a of db.accesses) idx.set(`access::${a.name}`, a)
+
   return idx
 }
 
@@ -87,13 +82,12 @@ export function buildSnapshot(
     const file = fileFor(t)
     try {
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const s of emitStatements(t as unknown as Parameters<typeof emitStatements>[0])) {
+      for (const s of emitStatements(t as unknown as Parameters<typeof emitStatements>[0]))
         statements[keyOf(s)] = file ? { ...s, file } : s
-      }
     } catch (error) {
       // Pin an emit failure (e.g. a non-Surreal field type) to the source file.
       const msg = error instanceof Error ? error.message : String(error)
-      throw new Error(file ? `${msg}\n  in ${file}` : msg)
+      throw new Error(file ? `${msg}\n  in ${file}` : msg, { cause: error })
     }
   }
   // An analyzer's inline `.function(input => surql`…`)` carries an auto-defined FunctionDef — emit it
@@ -112,7 +106,7 @@ export function buildSnapshot(
     const file = fileFor(d)
     statements[keyOf(s)] = file ? { ...s, file } : s
   }
-  const snap: Snapshot = { version: 1, statements }
+  const snap: Snapshot = { statements, version: 1 }
   if (opts.withStruct)
   // Bridge the lib/src type duality (AnyTable is the built-lib TableDef; schemaStruct uses src).
   {
@@ -127,24 +121,24 @@ export function buildSnapshot(
 // Within a table, create order is table -> field -> index (each depends on the prior); drop
 // order is the reverse. Statements group them by table (see `diffSnapshots`).
 const RANK: Record<DefineStatement["kind"], number> = {
+  access: 5, // db-level; defined last (SIGNUP/SIGNIN reference tables)
   analyzer: 0, // db-level; defined first (a FULLTEXT index references its analyzer)
+  event: 4,
+  field: 2,
+  function: 0, // db-level; defined first (tables/events may reference fn::…)
+  index: 3,
   param: 0, // db-level; defined first (functions/events may reference $param)
   sequence: 0, // db-level; standalone
-  function: 0, // db-level; defined first (tables/events may reference fn::…)
   table: 1,
-  field: 2,
-  index: 3,
-  event: 4,
-  access: 5, // db-level; defined last (SIGNUP/SIGNIN reference tables)
 }
 const tableOf = (s: DefineStatement) => s.table ?? s.name
 
 /**
  * The up-migration statement(s) for a CHANGED object:
  *   - `table` -> a clause-level `ALTER TABLE` (falls back to `DEFINE … OVERWRITE` when the delta
- *     can't expresss it via ALTER, e.g. a `TYPE` NORMAL/RELATION change or an older snapshot),
+ * can't expresss it via ALTER, e.g. a `TYPE` NORMAL/RELATION change or an older snapshot),
  *   - `field` -> a clause-level `ALTER FIELD` (falls back to `DEFINE … OVERWRITE` when the delta
- *     can't expresss it via ALTER, e.g. a `COMPUTED` change or an older snapshot w/o clauses),
+ * can't expresss it via ALTER, e.g. a `COMPUTED` change or an older snapshot w/o clauses),
  *   - `index` -> `REMOVE` + `DEFINE` (ALTER INDEX can't change fields/kind),
  *   - everything else (event/function/access) -> `DEFINE … OVERWRITE`.
  */
@@ -157,9 +151,8 @@ function changeUp(old: DefineStatement, next: DefineStatement): string[] {
     const alt = alterField(tableOf(next), next.name, old.clauses, next.clauses)
     return [alt ?? overwriteStatement(next.ddl)]
   }
-  if (next.kind === "index") {
-    return [removeStatement(old), next.ddl]
-  }
+  if (next.kind === "index") return [removeStatement(old), next.ddl]
+
   return [overwriteStatement(next.ddl)]
 }
 /** The inverse (next -> old) statement(s) for the down migration. */
@@ -172,9 +165,8 @@ function changeDown(old: DefineStatement, next: DefineStatement): string[] {
     const alt = alterField(tableOf(old), old.name, next.clauses, old.clauses)
     return [alt ?? overwriteStatement(old.ddl)]
   }
-  if (next.kind === "index") {
-    return [removeStatement(next), old.ddl]
-  }
+  if (next.kind === "index") return [removeStatement(next), old.ddl]
+
   return [overwriteStatement(old.ddl)]
 }
 
@@ -185,8 +177,8 @@ function changeDown(old: DefineStatement, next: DefineStatement): string[] {
  * statement covers them).
  */
 /** Pretty-print a Diff's DDL for DISPLAY + migration rendering — WHITESPACE-, applied after
- *  every comparison (snapshots keep canonical single-line text). Idempotent, so the live-diff
- *  wrapper and renderMigration may re-apply freely. */
+ * every comparison (snapshots keep canonical single-line text). Idempotent, so the live-diff
+ * wrapper and renderMigration may re-apply freely. */
 export function fmtDiff<
   D extends {
     down: string[]
@@ -205,30 +197,22 @@ export function fmtDiff<
       ddl?: string
       old?: string
     }
-    if (typeof item.ddl === "string") {
-      item.ddl = formatSurql(item.ddl)
-    }
-    if (typeof item.before === "string") {
-      item.before = formatSurql(item.before)
-    }
-    if (typeof item.after === "string") {
-      item.after = formatSurql(item.after)
-    }
-    if (typeof item.old === "string") {
-      item.old = formatSurql(item.old)
-    }
+    if (typeof item.ddl === "string") item.ddl = formatSurql(item.ddl)
+
+    if (typeof item.before === "string") item.before = formatSurql(item.before)
+
+    if (typeof item.after === "string") item.after = formatSurql(item.after)
+
+    if (typeof item.old === "string") item.old = formatSurql(item.old)
   }
   if (diff.full) {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const f of diff.full) {
-      if (typeof f.ddl === "string") {
-        f.ddl = formatSurql(f.ddl)
-      }
-    }
+    for (const f of diff.full) if (typeof f.ddl === "string") f.ddl = formatSurql(f.ddl)
   }
   return diff
 }
 
+// eslint-disable-next-line unicorn/consistent-function-scoping -- helper local mantido junto do uso para coesão e legibilidade
 export function diffSnapshots(prev: Snapshot, next: Snapshot): Diff {
   const prevS = prev.statements
   const nextS = next.statements
@@ -238,9 +222,7 @@ export function diffSnapshots(prev: Snapshot, next: Snapshot): Diff {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const s of [...Object.values(nextS), ...Object.values(prevS)]) {
     const t = tableOf(s)
-    if (!tableOrder.has(t)) {
-      tableOrder.set(t, tableOrder.size)
-    }
+    if (!tableOrder.has(t)) tableOrder.set(t, tableOrder.size)
   }
   const ord = (s: DefineStatement) => tableOrder.get(tableOf(s)) ?? 0
   const byCreate = (a: DefineStatement, b: DefineStatement) =>
@@ -267,17 +249,15 @@ export function diffSnapshots(prev: Snapshot, next: Snapshot): Diff {
       added.push(s)
       continue
     }
-    if (prevS[k].ddl === s.ddl) {
-      continue
-    }
+    if (prevS[k].ddl === s.ddl) continue
+
     if (prevIdx && nextIdx) {
       const a = prevIdx.get(k)
       const b = nextIdx.get(k)
-      if (a !== undefined && b !== undefined && deepEqual(a, b)) {
-        continue
-      } // cosmetic-
+      if (a !== undefined && b !== undefined && deepEqual(a, b)) continue
+      // cosmetic-
     }
-    changed.push({ old: prevS[k], next: s })
+    changed.push({ next: s, old: prevS[k] })
   }
   const addedTables = new Set(added.filter((s) => s.kind === "table").map((s) => s.name))
 
@@ -287,31 +267,27 @@ export function diffSnapshots(prev: Snapshot, next: Snapshot): Diff {
 
   const up: string[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const s of removed.filter((s) => !isOrphan(s, removedTables)).sort(byDrop)) {
+  for (const s of removed.filter((s) => !isOrphan(s, removedTables)).sort(byDrop))
     up.push(removeStatement(s))
-  }
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const s of [...added].sort(byCreate)) {
-    up.push(s.ddl)
-  }
+  for (const s of [...added].sort(byCreate)) up.push(s.ddl)
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const c of [...changed].sort((a, b) => byCreate(a.next, b.next))) {
+  for (const c of [...changed].sort((a, b) => byCreate(a.next, b.next)))
     up.push(...changeUp(c.old, c.next))
-  }
 
   const down: string[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const s of added.filter((s) => !isOrphan(s, addedTables)).sort(byDrop)) {
+  for (const s of added.filter((s) => !isOrphan(s, addedTables)).sort(byDrop))
     down.push(removeStatement(s))
-  }
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const s of [...removed].sort(byCreate)) {
-    down.push(s.ddl)
-  }
+  for (const s of [...removed].sort(byCreate)) down.push(s.ddl)
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const c of [...changed].sort((a, b) => byCreate(a.next, b.next))) {
+  for (const c of [...changed].sort((a, b) => byCreate(a.next, b.next)))
     down.push(...changeDown(c.old, c.next))
-  }
 
   // Structured display items, grouped by table (table → its fields → its indexes).
   const tagged: { item: DiffItem; sort: [number, number] }[] = []
@@ -319,45 +295,45 @@ export function diffSnapshots(prev: Snapshot, next: Snapshot): Diff {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const s of removed.filter((s) => !isOrphan(s, removedTables))) {
     tagged.push({
-      sort: at(s),
       item: {
-        op: "remove",
-        kind: s.kind,
-        key: keyOf(s),
-        table: tableOf(s),
-        file: s.file,
         ddl: removeStatement(s),
+        file: s.file,
+        key: keyOf(s),
+        kind: s.kind,
         old: s.ddl,
+        op: "remove",
+        table: tableOf(s),
       },
+      sort: at(s),
     })
   }
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const s of added) {
     tagged.push({
-      sort: at(s),
       item: {
-        op: "add",
-        kind: s.kind,
-        key: keyOf(s),
-        table: tableOf(s),
-        file: s.file,
         ddl: s.ddl,
+        file: s.file,
+        key: keyOf(s),
+        kind: s.kind,
+        op: "add",
+        table: tableOf(s),
       },
+      sort: at(s),
     })
   }
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const c of changed) {
     tagged.push({
-      sort: at(c.next),
       item: {
-        op: "change",
-        kind: c.next.kind,
-        key: keyOf(c.next),
-        table: tableOf(c.next),
-        file: c.next.file ?? c.old.file,
-        before: c.old.ddl,
         after: c.next.ddl,
+        before: c.old.ddl,
+        file: c.next.file ?? c.old.file,
+        key: keyOf(c.next),
+        kind: c.next.kind,
+        op: "change",
+        table: tableOf(c.next),
       },
+      sort: at(c.next),
     })
   }
   tagged.sort((a, b) => a.sort[0] - b.sort[0] || a.sort[1] - b.sort[1])
@@ -365,17 +341,16 @@ export function diffSnapshots(prev: Snapshot, next: Snapshot): Diff {
 
   const full = Object.values(nextS)
     .sort(byCreate)
-    .map((s) => ({ key: keyOf(s), table: tableOf(s), ddl: s.ddl }))
+    .map((s) => ({ ddl: s.ddl, key: keyOf(s), table: tableOf(s) }))
 
-  return fmtDiff({ up, down, items, full })
+  return fmtDiff({ down, full, items, up })
 }
 
 /** The table a statement targets (for grouping the migration body). */
 function stmtTable(s: string): string {
   const on = /\bON (?:TABLE )?`?([^\s`;]+)`?/u.exec(s)
-  if (on) {
-    return on[1]
-  }
+  if (on) return on[1]
+
   const t = /\bTABLE (?:OVERWRITE |IF (?:NOT )?EXISTS )?`?([^\s`;]+)`?/u.exec(s)
   return t ? t[1] : ""
 }
@@ -387,9 +362,8 @@ const indent = (stmts: string[]): string => {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const s of stmts) {
     const t = stmtTable(s)
-    if (prev !== undefined && t !== prev) {
-      out.push("")
-    }
+    if (prev !== undefined && t !== prev) out.push("")
+
     // Line-aware: a FORMATTED (multi-line) statement indents every line.
     out.push(
       s
@@ -407,6 +381,7 @@ const indent = (stmts: string[]): string => {
  * `$direction` parameter bound to `"up"` or `"down"` — verified to support `DEFINE`/`REMOVE`
  * inside `IF` blocks on SurrealDB 3.x.
  */
+// eslint-disable-next-line unicorn/consistent-function-scoping -- helper local mantido junto do uso para coesão e legibilidade
 export function renderMigration(tag: string, diff: Diff): string {
   // A migration replays it from a fixed file regardless of the database's current state (unlike
   // `diff`/`push`, which recompute a delta each run), so its DEFINEs must be idempotent: re-marking

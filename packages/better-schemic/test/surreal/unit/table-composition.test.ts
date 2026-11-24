@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // Ratified table-composition surface (cross-driver): P1 table(s.object()) + public .fields,
 // P2 TableDef.extend(), P3 derived .create/.update/.object. This file grows with each part.
 import { describe, expect, test } from "bun:test"

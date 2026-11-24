@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // M6.4 — the official `timestamps` plugin: `app` mode stamps time::now() on create/update and
 // `database` mode strips the managed columns. Offline (expressions splice into the statement text).
 import { describe, expect, test } from "bun:test"

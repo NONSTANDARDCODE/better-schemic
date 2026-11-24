@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures assert values whose presence the test guarantees. */
 // The compiler's shared lowering primitives in isolation: `renderValue` (range / param def / param
 // ref / fragment), `renderBareFragment`, the arg validators, the record-id parser and `describeValue`.
 import { describe, expect, test } from "bun:test"
@@ -36,6 +37,7 @@ import {
 } from "../../../src/surreal/orm/compiler/shared"
 import { buildSchemaIndex, schema } from "../../../src/surreal/orm/schema"
 import { fakeConn, ok } from "../orm-fixtures"
+
 import { schemaDef, User } from "./orm-writes-fixtures"
 
 const code = (fn: () => unknown): string | undefined => {
@@ -143,9 +145,7 @@ describe("coerceRecordId / coerceRecordValue", () => {
       "user:x",
     )
     // Nullish text hits the non-empty guard.
-    expect(code(() => recordIdParts(null as never, "op", { fallbackTable: "user" }))).toBe(
-      "ValidationError",
-    )
+    expect(code(() => recordIdParts(null, "op", { fallbackTable: "user" }))).toBe("ValidationError")
     expect(code(() => recordIdParts("x", "op", {}))).toBe("ValidationError")
   })
 

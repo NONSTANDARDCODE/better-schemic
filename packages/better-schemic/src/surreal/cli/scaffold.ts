@@ -74,10 +74,10 @@ SURREAL_PASS=root
 /** The dialect-specific files `better-schemic init` writes, keyed by project-relative path. */
 export function initScaffold(): Record<string, string> {
   return {
+    ".env.example": ENV_EXAMPLE,
     "better-schemic.config.ts": CONFIG,
     "database/schema/tables/user.ts": USER_TABLE,
     "database/seed/index.ts": SEED,
-    ".env.example": ENV_EXAMPLE,
   }
 }
 

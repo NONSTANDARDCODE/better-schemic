@@ -56,26 +56,25 @@ const die = (msg: string): never => {
 // --- preflight: a clean main checkout ----------------------------------------------------------
 // (the gate phase re-execs AFTER the merge, so the preflight runs in the first phase)
 if (!GATE_PHASE) {
-  if (git("rev-parse", "--abbrev-ref", "HEAD") !== "main") {
+  if (git("rev-parse", "--abbrev-ref", "HEAD") !== "main")
     die("the main checkout must be on `main` (this script integrates into it).")
-  }
+
   // tracked changes block the merge; untracked scratch files are fine.
   if (
     git("status", "--porcelain")
       .split("\n")
       .some((l) => l && !l.startsWith("??"))
-  ) {
+  )
     die("main has uncommitted tracked changes — commit or stash them first.")
-  }
 
   git("fetch", remote, "-q")
 
   // Bring local main up to origin/main (fast-forward ).
   const behind = Number(git("rev-list", "--count", `HEAD..${main}`))
   if (behind) {
-    if (Number(git("rev-list", "--count", `${main}..HEAD`))) {
+    if (Number(git("rev-list", "--count", `${main}..HEAD`)))
       die(`local main has diverged from ${main} — reconcile manually.`)
-    }
+
     gitIO("merge", "--ff-only", main)
   }
 }
@@ -84,10 +83,8 @@ if (!GATE_PHASE) {
 function worktreeOf(b: string): null | string {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const block of git("worktree", "list", "--porcelain").split("\n\n")) {
-    const path = block.match(/^worktree (.+)$/mu)?.[1]
-    if (block.match(/^branch refs\/heads\/(.+)$/mu)?.[1] === b) {
-      return path ?? null
-    }
+    const path = /^worktree (.+)$/mu.exec(block)?.[1]
+    if (/^branch refs\/heads\/(.+)$/mu.exec(block)?.[1] === b) return path ?? null
   }
   return null
 }
@@ -106,27 +103,27 @@ const isFF = (() => {
 })()
 
 if (!isFF && !GATE_PHASE) {
-  if (!wt) {
-    die(`${branch} is behind ${main} and has no worktree to rebase in.`)
-  }
+  if (!wt) die(`${branch} is behind ${main} and has no worktree to rebase in.`)
+
   console.log(`rebasing ${branch} onto ${main}...`)
-  const rebaseWt = wt as string
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- `die` acima garante que `wt` existe; a regra `non-nullable-type-assertion-style` exige `!`
+  const rebaseWt = wt!
   try {
     execFileSync("git", ["-C", rebaseWt, "fetch", remote, "-q"])
     execFileSync("git", ["-C", rebaseWt, "rebase", main], { stdio: "inherit" })
   } catch {
     try {
       execFileSync("git", ["-C", rebaseWt, "rebase", "--abort"], { stdio: "ignore" })
-    } catch {}
+    } catch {
+      // O abort pode falhar se não houver rebase em curso; o erro original já é suficiente.
+    }
     die(`rebase of ${branch} onto ${main} conflicted — resolve it in ${wt}, then re-run.`)
   }
 }
 
 if (!GATE_PHASE) {
   const ahead = Number(git("rev-list", "--count", `HEAD..${branch}`))
-  if (ahead === 0) {
-    die(`${branch} has no commits beyond main — nothing to land.`)
-  }
+  if (ahead === 0) die(`${branch} has no commits beyond main — nothing to land.`)
 
   // --- ff-merge into main locally (not pushed) -----------------------------------------------
   console.log(`merging ${branch} -> main (${ahead} commit(s))...`)
@@ -142,7 +139,9 @@ if (!GATE_PHASE) {
   } catch (error) {
     // The gate phase exits non-zero when the gate fails — the child already rolled main back.
     process.exit(
-      typeof (error as { status?: number }).status === "number" ? (error as { status: number }).status : 1,
+      typeof (error as { status?: number }).status === "number"
+        ? (error as { status: number }).status
+        : 1,
     )
   }
   process.exit(0)
@@ -166,9 +165,8 @@ if (!flag("--no-test")) {
     // (surreal's live-server e2e boots) starves the e2e beforeAll
     // hooks into timeouts — repeated false gate failures. Sequential costs wall-clock, never truth.
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const dir of ["packages/better-schemic", "packages/create-better-schemic"]) {
+    for (const dir of ["packages/better-schemic", "packages/create-better-schemic"])
       run("bun", ["run", "--cwd", dir, "test"])
-    }
   } catch {
     console.error("gate FAILED — rolling main back, nothing pushed.")
     gitIO("reset", "--hard", main)
@@ -184,13 +182,17 @@ if (wt) {
 }
 try {
   execFileSync("git", ["branch", "-D", branch], { cwd: ROOT, stdio: "ignore" })
-} catch {}
+} catch {
+  // A branch pode não existir localmente (já removida); nada a fazer.
+}
 try {
   execFileSync("git", ["push", remote, "--delete", branch], {
     cwd: ROOT,
     stdio: "ignore",
   })
-} catch {}
+} catch {
+  // O remote pode não ter a branch (ou ser inalcançável); o merge local já aconteceu.
+}
 console.log(`landed ${branch}.`)
 
 // --- deploy (OPT-IN) -------------------------------------------------------------------------
@@ -202,8 +204,11 @@ if (!flag("--deploy")) {
 }
 console.log("deploying (release next)...")
 run("bun", ["scripts/release.ts", "next"])
-const newVer = JSON.parse(readFileSync(join(ROOT, "packages/better-schemic/package.json"), "utf8"))
-  .version as string
+const newVer = (
+  JSON.parse(readFileSync(join(ROOT, "packages/better-schemic/package.json"), "utf8")) as {
+    version: string
+  }
+).version
 gitIO(
   "add",
   ...["better-schemic", "create-better-schemic"].map((p) => `packages/${p}/package.json`),

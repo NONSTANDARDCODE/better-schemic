@@ -3,6 +3,7 @@
  * columns remounted client-side (`author.id AS author_id`), `{ include }` -> a nested FETCH path.
  */
 import { compileError, describeValue, isPlainObject, isTableMeta } from "../shared"
+
 import { compileLinkSelect } from "./projection"
 import type { CompileCtx, IncludeSpec } from "./specs"
 
@@ -32,14 +33,14 @@ export function compileLink(
   if (isFetch) {
     ctx.passthrough.push(key)
     ctx.fetch.push(key)
-    ctx.specs.push({ kind: "link-fetch", key, list, targets, nested: [] })
+    ctx.specs.push({ key, kind: "link-fetch", list, nested: [], targets })
     return
   }
   if (!isPlainObject(entry)) {
     throw compileError(
       "ValidationError",
       `${operation}: include."${key}" must be true, { select } or { include }, got ${describeValue(entry)}.`,
-      { operation, field: key },
+      { field: key, operation },
     )
   }
 
@@ -50,14 +51,14 @@ export function compileLink(
     throw compileError(
       "ValidationError",
       `${operation}: include."${key}" has unknown option "${unknownKey}" — a link include accepts "select" and "include".`,
-      { operation, field: key },
+      { field: key, operation },
     )
   }
   if (select !== undefined && nested !== undefined) {
     throw compileError(
       "ClauseNotSupported",
       `${operation}: include."${key}" cannot combine "select" and "include" — project the link fields OR fetch the nested link.`,
-      { operation, field: key },
+      { field: key, operation },
     )
   }
 
@@ -66,18 +67,18 @@ export function compileLink(
     return
   }
 
-  const { parts, leaves } = compileLinkSelect(key, select, ctx, !list)
+  const { leaves, parts } = compileLinkSelect(key, select, ctx, !list)
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const part of parts) {
     ctx.parts.push(part.sql)
     ctx.claimFlat(part.flatKey)
   }
   ctx.specs.push({
-    kind: "link-projection",
     key,
+    kind: "link-projection",
+    leaves,
     list,
     targets,
-    leaves,
   })
 }
 
@@ -88,19 +89,19 @@ function compileNestedLink(
   nested: unknown,
   ctx: CompileCtx,
 ): void {
-  const { operation, index } = ctx
+  const { index, operation } = ctx
   if (link.targets.length !== 1) {
     throw compileError(
       "ValidationError",
-      `${operation}: include."${key}.include" needs a single target table (got ${link.targets.length || "any"}) — fetch the union link and query it separately.`,
-      { operation, field: key },
+      `${operation}: include."${key}.include" needs a single target table (got ${link.targets.length > 0 ? link.targets.length : "any"}) — fetch the union link and query it separately.`,
+      { field: key, operation },
     )
   }
   if (!isPlainObject(nested)) {
     throw compileError(
       "ValidationError",
       `${operation}: include."${key}.include" must be an object, got ${describeValue(nested)}.`,
-      { operation, field: key },
+      { field: key, operation },
     )
   }
   const target = index.byName.get(link.targets[0])
@@ -108,52 +109,51 @@ function compileNestedLink(
     throw compileError(
       "ValidationError",
       `${operation}: include."${key}.include" targets "${link.targets[0]}", which is not a typed table of this schema.`,
-      { operation, field: key },
+      { field: key, operation },
     )
   }
   const linksOnly: IncludeSpec[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [nestedKey, nestedEntry] of Object.entries(nested)) {
-    if (nestedEntry === undefined || nestedEntry === false) {
-      continue
-    }
+    if (nestedEntry === undefined || nestedEntry === false) continue
+
     const nestedLink = target.links.get(nestedKey)
     if (!nestedLink) {
       throw compileError(
         "ValidationError",
         `${operation}: include."${key}.include"."${nestedKey}" is not a link of "${target.name}" — only link nesting is supported (no edges inside a FETCH).`,
-        { operation, field: nestedKey },
+        { field: nestedKey, operation },
       )
     }
     if (nestedEntry !== true && !(isPlainObject(nestedEntry) && onlyStar(nestedEntry))) {
       throw compileError(
         "ClauseNotSupported",
         `${operation}: include."${key}.include"."${nestedKey}" only supports true (a nested projected link would need a second statement — use $raw).`,
-        { operation, field: nestedKey },
+        { field: nestedKey, operation },
       )
     }
     ctx.fetch.push(`${key}.${nestedKey}`)
     linksOnly.push({
-      kind: "link-fetch",
       key: nestedKey,
+      kind: "link-fetch",
       list: nestedLink.cardinality === "many",
-      targets: nestedLink.targets ? [...nestedLink.targets] : [],
       nested: [],
+      targets: nestedLink.targets ? [...nestedLink.targets] : [],
     })
   }
   if (linksOnly.length === 0) {
     throw compileError(
       "ValidationError",
       `${operation}: include."${key}.include" is empty — pass at least one nested link (or use include."${key}": true).`,
-      { operation, field: key },
+      { field: key, operation },
     )
   }
   ctx.passthrough.push(key)
   ctx.specs.push({
-    kind: "link-fetch",
     key,
+    kind: "link-fetch",
     list: link.list,
-    targets: [...link.targets],
     nested: linksOnly,
+    targets: [...link.targets],
   })
 }

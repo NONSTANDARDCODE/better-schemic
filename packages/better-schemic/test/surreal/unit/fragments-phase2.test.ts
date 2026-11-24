@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-meaningless-void-operator, unicorn/consistent-function-scoping, unicorn/no-thenable -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally unused type-probe values. Helpers stay colocated with the tests that use them. Bun test calls return thenable handles that are not awaited. */
 // Typed-fragments PHASE 2: typed contextual callbacks on authoring slots — events ((e) => ...),
 // field clauses ((f) => ...), function bodies ((a) => ... typed by arg names), permissions
 // ((p) => ...), and .subject(User) authoring metadata on record accesses. Plain Expr forms remain.

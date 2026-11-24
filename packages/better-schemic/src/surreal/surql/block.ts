@@ -2,7 +2,7 @@
  * `block()` — the typed SurrealQL statement-block builder (`{ LET …; IF …; RETURN …; }`).
  * Statement parity for the places SurrealDB takes a block: event `THEN`s, function bodies, and
  * any `surql` interpolation. `LET` vars type through the chain — the refs handed to every later
- * callback carry the value's kind, so `s.n.gt(100)` works and `$n` splices correctly:
+ * callback carry the value's kind, so `s.n.gt(100)` works and `$n` splices :
  *
  * ```ts
  * block()
@@ -20,6 +20,7 @@
 import { BoundQuery } from "surrealdb"
 
 import { isRange, type ParamDef, type ParamRef, type Range } from "../pure"
+
 import {
   type Expr,
   type FieldRef,
@@ -43,45 +44,39 @@ import {
 } from "./render"
 
 /** Does `text` contain a top-level `;` (outside strings/braces/parens)? Decides the canonical
- *  block form: single statement `{ stmt }`, multi `{ s1; s2; }` — matching INFO's printer. */
+ * block form: single statement `{ stmt }`, multi `{ s1; s2; }` — matching INFO's printer. */
 export function hasTopLevelSemi(text: string): boolean {
   let depth = 0
-  let quote: '"' | "'" | null = null
+  let quote: "'" | '"' | null = null
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]
     if (quote) {
-      if (ch === "\\") {
-        i++
-      } else if (ch === quote) {
-        quote = null
-      }
+      if (ch === "\\") i++
+      else if (ch === quote) quote = null
+
       continue
     }
-    if (ch === '"' || ch === "'") {
-      quote = ch
-    } else if (ch === "(" || ch === "{" || ch === "[") {
-      depth++
-    } else if (ch === ")" || ch === "}" || ch === "]") {
-      depth--
-    } else if (ch === ";" && depth === 0) {
-      return true
-    }
+    if (ch === '"' || ch === "'") quote = ch
+    else if (ch === "(" || ch === "{" || ch === "[") depth++
+    else if (ch === ")" || ch === "}" || ch === "]") depth--
+    else if (ch === ";" && depth === 0) return true
   }
   return false
 }
 
 /** Anything that lowers to a composable fragment (builders, blocks, `Def.call(...)`). */
-interface ToQuery {
+type ToQuery = {
   toQuery(): BoundQuery
 }
 
 /** The app-value type a `LET` binds: builders unwrap to their result, typed fragments to their
- *  `[T]`, refs/`$param`s to their carried type, a predicate Expr to boolean; a literal is
- *  itself. */
+ * `[T]`, refs/`$param`s to their carried type, a predicate Expr to boolean; a literal is
+ * itself. */
 export type ValueOf<X> = X extends Expr
   ? boolean
-  : X extends Block<any, infer R>
+  : // eslint-disable-next-line @typescript-eslint/no-explicit-any -- any necessário na fronteira de internals Zod/SDK
+    X extends Block<any, infer R>
     ? R
     : X extends BoundQuery<[infer T]>
       ? T
@@ -115,49 +110,44 @@ type ElemOf<X> =
             : unknown
 
 /** The typed refs a block callback receives: every `LET` var (and `FOR` loop var) as a
- *  `FieldRef` splicing `$name`. */
+ * `FieldRef` splicing `$name`. */
 export type BlockRefs<V> = { readonly [K in keyof V]: FieldRef<V[K]> }
 
 /** What an `IF`/`FOR` body accepts: a fragment, a builder/block, or a callback of the block's
- *  typed refs returning one. */
+ * typed refs returning one. */
 type Body<V> = ((s: BlockRefs<V>) => BoundQuery | ToQuery) | BoundQuery | ToQuery
 
-interface VarMeta {
+type VarMeta = {
   elem?: RefKind
   kind: RefKind
   name: string
 }
 
 /** Runtime KIND of a `LET` value — picks the stdlib family its ref exposes. Builders/literals
- *  carry it; an untyped fragment is `other` (stdlib names on it throw with guidance). */
+ * carry it; an untyped fragment is `other` (stdlib names on it throw with guidance). */
 function kindOfValue(v: unknown): { elem?: RefKind; kind: RefKind } {
   const rs = refState(v)
-  if (rs) {
-    return { kind: rs.kind, elem: rs.elem }
-  }
+  if (rs) return { elem: rs.elem, kind: rs.kind }
+
   // A range ITERATES like an array of its bound type, so the loop var gets that type's stdlib.
   if (isRange(v)) {
     return {
-      kind: "array",
       elem: kindOfValue((v.start ?? v.end)?.value).kind,
+      kind: "array",
     }
   }
-  if (v instanceof Block) {
-    return v.out ?? { kind: "other" }
-  }
-  if (typeof v === "string") {
-    return { kind: "string" }
-  }
-  if (typeof v === "number") {
-    return { kind: "number" }
-  }
-  if (v instanceof Date) {
-    return { kind: "date" }
-  }
+  if (v instanceof Block) return v.out ?? { kind: "other" }
+
+  if (typeof v === "string") return { kind: "string" }
+
+  if (typeof v === "number") return { kind: "number" }
+
+  if (v instanceof Date) return { kind: "date" }
+
   if (Array.isArray(v)) {
     return {
-      kind: "array",
       elem: v.length > 0 ? kindOfValue(v[0]).kind : undefined,
+      kind: "array",
     }
   }
   return { kind: "other" }
@@ -166,8 +156,8 @@ function kindOfValue(v: unknown): { elem?: RefKind; kind: RefKind } {
 const VAR_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/u
 
 /** Render a VALUE slot (`LET =` / `RETURN` / `THROW`): a predicate Expr lowers as a boolean
- *  expression (`RETURN $res.id != NONE`); everything else goes through operand lowering.
- *  Redundant whole-wrap parens are stripped (canonical printer parity). */
+ * expression (`RETURN $res.id != NONE`); everything else goes through operand lowering.
+ * Redundant whole-wrap parens disappear (canonical printer parity). */
 function valueText(v: unknown, ctx: Ctx): string {
   return stripOuterParens(isExpr(v) ? lowerExpr(v, ctx) : operandText(v, ctx))
 }
@@ -186,9 +176,9 @@ export class Block<V extends Record<string, unknown>, R> {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const m of this.meta) {
       out[m.name] = mkRef({
-        root: { text: `$${m.name}` },
-        kind: m.kind,
         elem: m.elem,
+        kind: m.kind,
+        root: { text: `$${m.name}` },
       })
     }
     return out as BlockRefs<V>
@@ -211,14 +201,13 @@ export class Block<V extends Record<string, unknown>, R> {
   }
 
   /** Render a body as a braced `{ … }` block (a `block()`/`surql\`{ … }\`` passes through).
-   *  Canonical form (matches INFO's printer): single statement `{ stmt }`, multi `{ s1; s2; }`. */
+   * Canonical form (matches INFO's printer): single statement `{ stmt }`, multi `{ s1; s2; }`. */
   private bodyText(v: Body<V>, ctx: Ctx): string {
     const resolved = this.resolve(v as never) as BoundQuery | ToQuery
     const q = resolved instanceof BoundQuery ? resolved : (fragOf(resolved) ?? resolved.toQuery())
     const text = mergeRaw(q, ctx.vars).trim()
-    if (text.startsWith("{")) {
-      return text
-    }
+    if (text.startsWith("{")) return text
+
     const bare = text.replace(/;\s*$/u, "")
     return hasTopLevelSemi(bare) ? `{ ${bare}; }` : `{ ${bare} }`
   }
@@ -233,12 +222,12 @@ export class Block<V extends Record<string, unknown>, R> {
   }
 
   /** `LET $<key> = <value>` per entry — the binding is an OBJECT (`.let({ n: … })`), so the var
-   *  name is a real property: renaming `n` renames every `s.n` usage (refactor/go-to-reference
-   *  safe). Each var joins the chain TYPED: later callbacks get `s.<key>` as a ref of the
-   *  value's kind. Values: literals (bound), builders/blocks/fragments (spliced), or a callback
-   *  of the vars so far (`.let((s) => ({ next: s.n.plus(1) }))`).  keys emit 
-   *  `LET`s in order; keys of the SAME call can't see each other — chain another `.let` for
-   *  that. */
+   * name is a real property: renaming `n` renames every `s.n` usage (refactor/go-to-reference
+   * safe). Each var joins the chain TYPED: later callbacks get `s.<key>` as a ref of the
+   * value's kind. Values: literals (bound), builders/blocks/fragments (spliced), or a callback
+   * of the vars so far (`.let((s) => ({ next: s.n.plus(1) }))`). keys emit
+   * `LET`s in order; keys of the SAME call can't see each other — chain another `.let` for
+   * that. */
   let<O extends Record<string, unknown>>(
     vars: ((s: BlockRefs<V>) => O) | O,
   ): Block<V & { [K in keyof O]: ValueOf<O[K]> }, R> {
@@ -249,15 +238,16 @@ export class Block<V extends Record<string, unknown>, R> {
         "block().let() got an empty object — bind at least one var: .let({ name: value }).",
       )
     }
+    // eslint-disable-next-line unicorn/no-this-assignment, @typescript-eslint/no-this-alias, @typescript-eslint/no-explicit-any -- alias de this necessário no builder encadeável / any necessário na fronteira de internals Zod/SDK
     let out: Block<any, R> = this
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const [name, v] of entries) {
       Block.checkName("let", name)
-      const { kind, elem } = kindOfValue(v)
+      const { elem, kind } = kindOfValue(v)
       out = out.next((ctx) => `LET $${name} = ${valueText(v, ctx)}`, {
-        name,
-        kind,
         elem,
+        kind,
+        name,
       })
     }
     return out as Block<V & { [K in keyof O]: ValueOf<O[K]> }, R>
@@ -274,25 +264,25 @@ export class Block<V extends Record<string, unknown>, R> {
   }
 
   /** `IF <cond> { <then> } [ELSE { <else> }]` — cond is a predicate (`s.n.gt(100)`) or a
-   *  `Frag<boolean>`; branches are fragments, builders, or nested `block()`s. */
+   * `Frag<boolean>`; branches are fragments, builders, or nested `block()`s. */
   if(
     cond: ((s: BlockRefs<V>) => Predicate) | Predicate,
     then: Body<V>,
     otherwise?: Body<V>,
   ): Block<V, R> {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- asserção necessária para a inferência da API pública
     const c = toExpr(this.resolve(cond) as Predicate)
     return this.next<V, R>((ctx) => {
       let sql = `IF ${stripOuterParens(lowerExpr(c, ctx))} ${this.bodyText(then, ctx)}`
-      if (otherwise !== undefined) {
-        sql += ` ELSE ${this.bodyText(otherwise, ctx)}`
-      }
+      if (otherwise !== undefined) sql += ` ELSE ${this.bodyText(otherwise, ctx)}`
+
       return sql
     })
   }
 
   /** `FOR $<key> IN <iterable> { <body> }` — the loop binding is a ONE-KEY object
    *  (`.for({ item: iterable }, (s) => …s.item…)`), same refactor-safe shape as `.let`; the
-   *  loop var is typed to the iterable's element inside the body callback. */
+   * loop var matches to the iterable's element inside the body callback. */
   for<O extends Record<string, unknown>>(
     binding: ((s: BlockRefs<V>) => O) | O,
     body:
@@ -309,12 +299,12 @@ export class Block<V extends Record<string, unknown>, R> {
     }
     const [name, iter] = entries[0]
     Block.checkName("for", name)
-    const { kind, elem } = kindOfValue(iter)
+    const { elem, kind } = kindOfValue(iter)
     const elemKind: RefKind = kind === "array" ? (elem ?? "other") : "other"
     // The body sees the loop var too — a one-off child block scope carries it.
     const inner = new Block<V & { [K in keyof O]: ElemOf<O[K]> }, never>(
       [],
-      [...this.meta, { name, kind: elemKind }],
+      [...this.meta, { kind: elemKind, name }],
     )
     return this.next<V, R>(
       (ctx) => `FOR $${name} IN ${operandText(iter, ctx)} ${inner.bodyText(body, ctx)}`,
@@ -343,7 +333,7 @@ export class Block<V extends Record<string, unknown>, R> {
   }
 
   /** This block as a composable fragment: `{ stmt; …; }` with namespaced binds, typed by the
-   *  `RETURN` (`Frag<R>`). */
+   * `RETURN` (`Frag<R>`). */
   toQuery(): BoundQuery<[R]> {
     const ctx: Ctx = { vars: {} }
     const texts = this.stmts.map((f) => f(ctx))
@@ -352,7 +342,8 @@ export class Block<V extends Record<string, unknown>, R> {
     const body =
       texts.length === 0
         ? "{ }"
-        : texts.length === 1
+        : // eslint-disable-next-line unicorn/no-nested-ternary -- Prettier remove os parênteses exigidos pela regra; a expressão encadeada é mais legível que if/else aqui
+          texts.length === 1
           ? `{ ${texts[0]} }`
           : `{ ${texts.join("; ")}; }`
     return toFragment({ sql: body, vars: ctx.vars }, (sql) => sql)
@@ -360,6 +351,7 @@ export class Block<V extends Record<string, unknown>, R> {
 }
 
 /** Start a typed statement block — `block().let("n", …).if((s) => s.n.gt(100), …)`. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- {} é o padrão genérico que preserva a inferência do schema
 export function block(): Block<{}, never> {
   return new Block()
 }

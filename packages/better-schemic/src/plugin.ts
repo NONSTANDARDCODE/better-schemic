@@ -16,18 +16,18 @@
 import type { ZodCompilerPluginOptions } from "zod-compiler"
 import zodCompilerBun from "zod-compiler/bun"
 
-export type { ZodCompilerPluginOptions }
+export type { ZodCompilerPluginOptions } from "zod-compiler"
 
 /** The raw `zod-compiler/bun` adapter, for when you need full control of its options. */
-export { zodCompilerBun as bun }
+export { default as bun } from "zod-compiler/bun"
 
 /** Bun build plugin with the better-schemic defaults (`schemas: "auto"`, `output: "schema"`). */
 export function betterSchemic(
   options: ZodCompilerPluginOptions = {},
 ): ReturnType<typeof zodCompilerBun> {
   return zodCompilerBun({
-    schemas: "auto",
     output: "schema",
+    schemas: "auto",
     ...options,
   })
 }

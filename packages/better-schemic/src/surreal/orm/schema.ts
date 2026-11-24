@@ -11,6 +11,7 @@ import type { z } from "zod"
 
 import { type IdStrategy, stringIdsOf } from "../pure"
 import { type FieldInfo, inferField, zodDef } from "../wire"
+
 import { OrmError } from "./errors"
 import type {
   ColumnMeta,
@@ -36,6 +37,7 @@ import { SCHEMA_DEF } from "./types/schema"
 // --- schema branding / construction --------------------------------------------------------------
 
 /** Built-index cache — a schema walks it once, no matter how some clients read it. */
+// eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
 const INDEX_CACHE = new WeakMap<object, SchemaIndex>()
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null
@@ -56,7 +58,7 @@ export function isSchemaDef(v: unknown): v is SchemaDef {
  * ```
  */
 export function schema<const S extends SchemaInput>(entries: S): SchemaDef<S> {
-  const schemaDef: SchemaDef<S> = { [SCHEMA_DEF]: true, entries }
+  const schemaDef: SchemaDef<S> = { entries, [SCHEMA_DEF]: true }
   buildSchemaIndex(schemaDef)
   return schemaDef
 }
@@ -67,9 +69,7 @@ export function schema<const S extends SchemaInput>(entries: S): SchemaDef<S> {
  */
 export function buildSchemaIndex(input: SchemaDef | SchemaInput): SchemaIndex {
   const cached = INDEX_CACHE.get(input)
-  if (cached) {
-    return cached
-  }
+  if (cached) return cached
 
   const index = build(isSchemaDef(input) ? input.entries : input)
   INDEX_CACHE.set(input, index)
@@ -85,13 +85,10 @@ const isZodLike = (v: unknown): v is z.ZodType =>
 function schemaOf(v: unknown): z.ZodType {
   if (isObject(v)) {
     const inner = (v as { schema?: unknown }).schema
-    if (isZodLike(inner)) {
-      return inner
-    }
+    if (isZodLike(inner)) return inner
   }
-  if (isZodLike(v)) {
-    return v
-  }
+  if (isZodLike(v)) return v
+
   throw new OrmError(
     "SchemaInvalid",
     "expected an s.* field or a Zod schema, got a value with no `.schema`.",
@@ -121,6 +118,7 @@ function isRelationLike(def: AnyTableDef): def is AnyRelationDef {
 
 function invalid(
   message: string,
+  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- índice 2 = terceiro parâmetro de OrmError (options)
   options: ConstructorParameters<typeof OrmError>[2] = {},
 ): OrmError {
   return new OrmError("SchemaInvalid", `schema: ${message}`, options)
@@ -131,11 +129,14 @@ function columnMeta(name: string, field: unknown, table: string): ColumnMeta {
   try {
     info = inferField(schemaOf(field))
   } catch (error) {
-    throw invalid(`field "${name}" of "${table}" has no SurrealQL type — ${(error as Error).message}`, {
-      table,
-      field: name,
-      cause: error,
-    })
+    throw invalid(
+      `field "${name}" of "${table}" has no SurrealQL type — ${(error as Error).message}`,
+      {
+        cause: error,
+        field: name,
+        table,
+      },
+    )
   }
   const record: RecordLinkMeta | undefined = info.record
     ? {
@@ -146,10 +147,10 @@ function columnMeta(name: string, field: unknown, table: string): ColumnMeta {
       }
     : undefined
   return {
-    name,
-    type: info.type,
     family: info.family,
+    name,
     optional: info.optional,
+    type: info.type,
     ...(info.element ? { element: info.element } : {}),
     ...(record ? { record } : {}),
   }
@@ -163,11 +164,10 @@ function columnMeta(name: string, field: unknown, table: string): ColumnMeta {
  */
 function inferIdStrategy(def: AnyTableDef): "unsupported" | IdStrategy | undefined {
   const idField = (def.fields as Record<string, unknown> | undefined)?.id as
-    { valueType?: z.ZodType } | undefined
+    undefined | { valueType?: z.ZodType }
   const valueType = idField?.valueType
-  if (valueType === undefined) {
-    return undefined
-  }
+  if (valueType === undefined) return undefined
+
   // The Zod probe runs first: `inferField` maps every uuid string format to the native `uuid`
   // type, but `rand::uuid()` (v7) can it — a pinned v4/v6 id is unsatisfiable.
   const zod = zodDef(valueType)
@@ -175,14 +175,11 @@ function inferIdStrategy(def: AnyTableDef): "unsupported" | IdStrategy | undefin
     const version = zod.version
     return version === undefined || version === "v7" ? "uuid" : "unsupported"
   }
-  if (zod.format === "ulid") {
-    return "ulid"
-  }
+  if (zod.format === "ulid") return "ulid"
+
   try {
     // The native `s.uuid()` codec carries no Zod format — its SurrealQL type is `uuid`.
-    if (inferField(valueType).type === "uuid") {
-      return "uuid"
-    }
+    if (inferField(valueType).type === "uuid") return "uuid"
   } catch {
     // No SurrealQL mapping — no inference.
   }
@@ -191,7 +188,7 @@ function inferIdStrategy(def: AnyTableDef): "unsupported" | IdStrategy | undefin
 
 /**
  * Resolve a table's ORM create-id strategy: an explicit `.idStrategy(...)` wins, otherwise the
- * explicit id field's type, otherwise `"ulid"`. A declared strategy that cannot satisfy the id
+ * explicit id field's type, otherwise `"ulid"`. A declared strategy that cannot match the id
  * field's codec fails HERE (import time, `SchemaInvalid`) instead of decoding the first create;
  * an undeclared ungeneratable id field resolves to `"none"` (explicit-id writes stay valid, a
  * generated create fails at compile time).
@@ -217,9 +214,8 @@ function resolveIdStrategy(def: AnyTableDef): ResolvedIdStrategy {
     }
     return declared
   }
-  if (inferred !== undefined) {
-    return inferred
-  }
+  if (inferred !== undefined) return inferred
+
   return "ulid"
 }
 
@@ -259,17 +255,17 @@ function tableMeta(
   }
 
   return {
-    key,
-    name: def.name,
-    kind: relation ? "relation" : "table",
     def,
+    key,
+    kind: relation ? "relation" : "table",
+    name: def.name,
     ...(def.singletonId === undefined ? {} : { singletonId: def.singletonId }),
-    idStrategy: resolveIdStrategy(def),
     columns,
+    edges,
+    idStrategy: resolveIdStrategy(def),
+    incoming: adjacency.incoming,
     links,
     outgoing: adjacency.outgoing,
-    incoming: adjacency.incoming,
-    edges,
     uniqueFields: (def.config.indexes ?? [])
       .filter((index) => index.unique === true && index.fields.length === 1)
       .map((index) => index.fields[0]),
@@ -279,9 +275,9 @@ function tableMeta(
     ...(relation
       ? {
           endpoints: {
-            from: [...(relation.from ?? [])],
-            to: [...(relation.to ?? [])],
             enforced: relation.enforced === true,
+            from: [...relation.from],
+            to: [...relation.to],
           },
         }
       : {}),
@@ -291,26 +287,25 @@ function tableMeta(
 function functionMeta(key: string, def: AnyFunctionDef): FunctionMeta {
   const args = new Map<string, ColumnMeta>()
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [name, field] of Object.entries(def.args ?? {})) {
+  for (const [name, field] of Object.entries(def.args))
     args.set(name, columnMeta(name, field, `fn::${def.name}`))
-  }
+
   const returns = def.config.returns
   return {
+    args,
+    def,
     key,
     name: def.name,
-    def,
-    args,
     ...(returns ? { returns: columnMeta("$return", returns, `fn::${def.name}`) } : {}),
   }
 }
 
 const isSchemalessMeta = (meta: ModelMeta): meta is SchemalessMeta =>
-  "schemaless" in meta && meta.schemaless === true
+  "schemaless" in meta && meta.schemaless
 
 function build(entries: SchemaInput): SchemaIndex {
-  if (!isObject(entries)) {
+  if (!isObject(entries))
     throw invalid("the schema must be an object of defs and schemaless names.")
-  }
 
   const schemaless = new Map<string, SchemalessMeta>()
   const functions = new Map<string, FunctionMeta>()
@@ -348,23 +343,22 @@ function build(entries: SchemaInput): SchemaIndex {
       // Placeholder meta — pass 3 replaces it with the adjacency-carrying one; the name is
       // registered NOW so duplicates + relation endpoints check during pass 1/2.
       byName.set(entry.name, {
-        key,
-        name: entry.name,
-        kind: "table",
-        def: entry,
-        idStrategy: resolveIdStrategy(entry),
         columns: new Map(),
-        links: new Map(),
-        outgoing: [],
-        incoming: [],
+        def: entry,
         edges: [],
+        idStrategy: resolveIdStrategy(entry),
+        incoming: [],
+        key,
+        kind: "table",
+        links: new Map(),
+        name: entry.name,
+        outgoing: [],
         uniqueFields: [],
         uniqueGroups: [],
       })
-      tableDefs.push({ key, def: entry })
-      if (isRelationLike(entry)) {
-        relationDefs.push({ key, def: entry })
-      }
+      tableDefs.push({ def: entry, key })
+      if (isRelationLike(entry)) relationDefs.push({ def: entry, key })
+
       continue
     }
     if (isFunctionDefLike(entry)) {
@@ -388,15 +382,15 @@ function build(entries: SchemaInput): SchemaIndex {
   const adjFor = (name: string) => {
     let a = adjacency.get(name)
     if (!a) {
-      a = { outgoing: [], incoming: [] }
+      a = { incoming: [], outgoing: [] }
       adjacency.set(name, a)
     }
     return a
   }
 
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const { key, def } of relationDefs) {
-    const edge: EdgeRef = { key, name: def.name, def }
+  for (const { def, key } of relationDefs) {
+    const edge: EdgeRef = { def, key, name: def.name }
     const relation = def.config.relation
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const [dir, endpoints] of [
@@ -406,15 +400,16 @@ function build(entries: SchemaInput): SchemaIndex {
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
       for (const endpoint of endpoints) {
         const target = byName.get(endpoint)
+        // eslint-disable-next-line max-depth -- parser/compilador com despacho aninhado; achatar mudaria a precedência das cláusulas
         if (!target) {
           throw invalid(
             `relation "${def.name}" (.${dir}) points to table "${endpoint}", which no entry declares. Add it to the schema or fix the endpoint.`,
             { table: def.name },
           )
         }
-        if (!isSchemalessMeta(target)) {
+        // eslint-disable-next-line max-depth -- parser/compilador com despacho aninhado; achatar mudaria a precedência das cláusulas
+        if (!isSchemalessMeta(target))
           adjFor(target.name)[dir === "from" ? "outgoing" : "incoming"].push(edge)
-        }
       }
     }
   }
@@ -422,8 +417,8 @@ function build(entries: SchemaInput): SchemaIndex {
   // Pass 3 — build table metas (columns/links/adjacency) + reject link/edge name ambiguity.
   const tables = new Map<string, TableMeta>()
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const { key, def } of tableDefs) {
-    const adj = adjacency.get(def.name) ?? { outgoing: [], incoming: [] }
+  for (const { def, key } of tableDefs) {
+    const adj = adjacency.get(def.name) ?? { incoming: [], outgoing: [] }
     const meta = tableMeta(key, def, adj)
     const edgeNames = new Set([
       ...adj.outgoing.map((e) => e.name),
@@ -434,7 +429,7 @@ function build(entries: SchemaInput): SchemaIndex {
       if (edgeNames.has(field)) {
         throw invalid(
           `"${def.name}" has both a record-link field "${field}" and a relation named "${field}". The field wins — rename one (include/where would otherwise be ambiguous).`,
-          { table: def.name, field },
+          { field, table: def.name },
         )
       }
     }
@@ -442,5 +437,5 @@ function build(entries: SchemaInput): SchemaIndex {
     byName.set(def.name, meta)
   }
 
-  return { tables, schemaless, byName, functions }
+  return { byName, functions, schemaless, tables }
 }

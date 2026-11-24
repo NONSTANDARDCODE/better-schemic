@@ -11,15 +11,12 @@ export async function resolveTsgo(pkgDir: string): Promise<string> {
   for (const candidate of [
     join(pkgDir, "node_modules/.bin/tsgo"),
     join(root, "node_modules/.bin/tsgo"),
-  ]) {
-    if (await Bun.file(candidate).exists()) {
-      return candidate
-    }
-  }
+  ])
+    if (await Bun.file(candidate).exists()) return candidate
+
   const which = Bun.which("tsgo", { cwd: pkgDir })
-  if (which) {
-    return which
-  }
+  if (which) return which
+
   throw new Error(
     "tsgo not found — add `@typescript/native-preview` to the package's devDependencies.",
   )

@@ -10,6 +10,7 @@
  */
 import { escapeIdentSafe as escapeIdent } from "../../ident"
 import type { ModelMeta } from "../meta"
+
 import { relateStatement, relateSugar } from "./relate"
 import {
   type Binds,
@@ -65,12 +66,12 @@ export function compileCreate(
   if (relate.length === 0) {
     const sel = selectMode(proj, ret, operation, meta)
     return {
+      result: resultOf(ret, "row"),
+      resultIndexes: [0],
       statements: [
         `CREATE ${target} CONTENT ${payload(encoded, binds)}${mutationTail(ret, undefined, operation, sel?.mode === "server" ? sel.proj.text : undefined)}`,
       ],
       transactional: false,
-      resultIndexes: [0],
-      result: resultOf(ret, "row"),
       ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
     }
   }
@@ -91,10 +92,10 @@ export function compileCreate(
     ret === "after" ? "RETURN $__created;" : "RETURN NONE;",
   ]
   return {
+    result: ret === "after" ? "row" : "none",
+    resultIndexes: [statements.length - 1],
     statements,
     transactional: true,
-    resultIndexes: [statements.length - 1],
-    result: ret === "after" ? "row" : "none",
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
   }
 }
@@ -133,9 +134,9 @@ export function compileCreateMany(
   }
   const sel = selectMode(proj, ret, operation, meta)
   const data = requireArray(args.data, "data", operation)
-  if (args.skipDuplicates === true) {
+  if (args.skipDuplicates === true)
     return compileSkipDuplicates(meta, data, ret, binds, operation, sel)
-  }
+
   const projText = sel?.mode === "server" ? sel.proj.text : undefined
 
   const statements = data.map(
@@ -143,9 +144,9 @@ export function compileCreateMany(
       `CREATE ${createTarget(meta, item, false, operation)} CONTENT ${payload(encodeData(meta, item, "create", operation), binds)}${mutationTail(ret, undefined, operation, projText)}`,
   )
   return {
+    result: resultOf(ret, "many"),
     statements,
     transactional: statements.length > 1,
-    result: resultOf(ret, "many"),
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
   }
 }
@@ -164,9 +165,9 @@ function compileSkipDuplicates(
     insertStatement(meta, item, "ignore", ret, binds, operation, projText),
   )
   return {
+    result: resultOf(ret, "many"),
     statements,
     transactional: statements.length > 1,
-    result: resultOf(ret, "many"),
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
   }
 }
@@ -198,6 +199,8 @@ export function compileInsert(
   assertInsertProjectable(proj, ret, operation, meta)
   const sel = selectMode(proj, ret, operation, meta)
   return {
+    result: resultOf(ret, "row"),
+    resultIndexes: [0],
     statements: [
       insertStatement(
         meta,
@@ -210,8 +213,6 @@ export function compileInsert(
       ),
     ],
     transactional: false,
-    resultIndexes: [0],
-    result: resultOf(ret, "row"),
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
   }
 }
@@ -236,6 +237,7 @@ export function compileInsertMany(
   assertInsertProjectable(proj, ret, operation, meta)
   const sel = selectMode(proj, ret, operation, meta)
   return {
+    result: resultOf(ret, "many"),
     statements: [
       insertStatement(
         meta,
@@ -248,7 +250,6 @@ export function compileInsertMany(
       ),
     ],
     transactional: false,
-    result: resultOf(ret, "many"),
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
   }
 }
@@ -286,9 +287,8 @@ function insertStatement(
   const payloadText = payload(encoded, binds)
   let sql = `INSERT INTO ${table} ${payloadText}`
 
-  if (onDuplicate === "ignore") {
-    sql = `INSERT IGNORE INTO ${table} ${payloadText}`
-  } else if (onDuplicate === "update") {
+  if (onDuplicate === "ignore") sql = `INSERT IGNORE INTO ${table} ${payloadText}`
+  else if (onDuplicate === "update") {
     const fields = updatableFields(encoded)
     if (fields.length === 0) {
       throw compileError(

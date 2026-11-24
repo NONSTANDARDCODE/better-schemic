@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/require-await -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock methods match async interfaces without awaiting. */
 // M6.1 — the observation-hook dispatcher: routing by operation family, payloads (surql/vars/data/
 // result/durationMs/count), meta merging, error routing, raw/transaction hooks and the no-hook fast
 // path. Offline (recording fake connection).
@@ -34,7 +35,7 @@ function clientWith() {
 
 describe("hooks — read operations", () => {
   test("beforeQuery/afterQuery carry table/operation/surql/vars/count/durationMs", async () => {
-    const seen: { before?: HookPayload; after?: AfterHookPayload } = {}
+    const seen: { after?: AfterHookPayload; before?: HookPayload } = {}
     const { conn } = clientWith()
     const client = orm(conn, {
       schema: schemaDef,
@@ -117,7 +118,7 @@ describe("hooks — read operations", () => {
 
 describe("hooks — write operations", () => {
   test("beforeCreate/afterCreate carry data and result", async () => {
-    const seen: { before?: HookPayload; after?: AfterHookPayload } = {}
+    const seen: { after?: AfterHookPayload; before?: HookPayload } = {}
     const { conn } = clientWith()
     const client = orm(conn, {
       schema: schemaDef,
@@ -160,7 +161,7 @@ describe("hooks — write operations", () => {
   })
 
   test("upsertDelta routes to beforeUpdate/afterUpdate with the write payload", async () => {
-    const seen: { before?: HookPayload; after?: AfterHookPayload } = {}
+    const seen: { after?: AfterHookPayload; before?: HookPayload } = {}
     const before = { id: new RecordId("user", 1), name: "A", age: 1 }
     const after = { id: new RecordId("user", 1), name: "B", age: 1 }
     const { conn } = fakeConn((sql) =>
@@ -303,7 +304,9 @@ describe("hooks — errors, raw and transactions", () => {
       },
     })
     await client.$raw`SELECT * FROM user`
-    await client.$raw`SELECT * FROM dup`.catch(() => {})
+    await client.$raw`SELECT * FROM dup`.catch(() => {
+      /* empty */
+    })
     expect(events).toEqual(["before:$raw", "after:$raw", "before:$raw", "error:$raw"])
   })
 
@@ -366,7 +369,9 @@ describe("hooks — errors, raw and transactions", () => {
       .transaction(async () => {
         throw new Error("boom")
       })
-      .catch(() => {})
+      .catch(() => {
+        /* empty */
+      })
     expect(events).toEqual(["error", "rollback"])
   })
 })
@@ -415,7 +420,9 @@ describe("hooks — fast path and after-hook failures", () => {
 
   test("an after-hook failure with no onError listener logs and leaves the operation standing", async () => {
     const original = console.error
-    console.error = () => {}
+    console.error = () => {
+      /* empty */
+    }
     try {
       const { conn } = clientWith()
       const client = orm(conn, {
@@ -434,7 +441,9 @@ describe("hooks — fast path and after-hook failures", () => {
 
   test("an onError hook that throws is swallowed and logged", async () => {
     const original = console.error
-    console.error = () => {}
+    console.error = () => {
+      /* empty */
+    }
     try {
       const { conn } = clientWith()
       const client = orm(conn, {

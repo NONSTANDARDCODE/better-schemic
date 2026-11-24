@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion, unicorn/no-thenable -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Fixtures assert values whose presence the test guarantees. Bun test calls return thenable handles that are not awaited. */
 // M14 — the `createOnlyGuard` runtime plugin: update-family operations on tagged tables throw
 // `CreateOnlyViolation` BEFORE compiling; untagged tables pass untouched; `$withoutPlugins()`
 // escapes the client guard (the hard event, when declared, blocks the DB side instead). Offline.
@@ -261,6 +262,7 @@ describe("createOnlyGuard — the `tables` fallback", () => {
         schema: schemaDef,
         plugins: [createOnlyGuard({ tables: ["ghost"] })],
       })
+      // eslint-disable-next-line unicorn/catch-error-name -- outer error accumulator keeps this name
     } catch (e) {
       error = e
     }
@@ -275,6 +277,7 @@ describe("createOnlyGuard — the `tables` fallback", () => {
       let error: unknown
       try {
         createOnlyGuard({ tables: [bad as never] })
+        // eslint-disable-next-line unicorn/catch-error-name -- outer error accumulator keeps this name
       } catch (e) {
         error = e
       }
@@ -288,6 +291,7 @@ describe("createOnlyGuard — the `tables` fallback", () => {
     let error: unknown
     try {
       createOnlyGuard({ tables: "audit_log" as never })
+      // eslint-disable-next-line unicorn/catch-error-name -- outer error accumulator keeps this name
     } catch (e) {
       error = e
     }

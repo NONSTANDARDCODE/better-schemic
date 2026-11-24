@@ -17,6 +17,7 @@ export {
   snapshotObjects,
 } from "./plan"
 export {
+  type AnyKindEngine,
   type Definable,
   type KindDisplay,
   type KindEngine,

@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // zod-compiler integration — field unwrapping, markers and the generated module shapes.
 import { describe, expect, test } from "bun:test"
 import { z } from "zod"

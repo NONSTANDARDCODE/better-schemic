@@ -8,6 +8,7 @@
 import type { RecordId } from "surrealdb"
 
 import type { App, RecordIdTable } from "../../pure"
+
 import type {
   AnyRelationDef,
   AnyTableDef,
@@ -103,7 +104,7 @@ export type EdgeDefAt<S, K extends string> = K extends keyof EdgeAliases<S>
   : never
 
 /**
- * The edge aliases adjacent to `TD` (its physical name is one of the endpoints). A BROAD schema
+ * The edge aliases of `TD` (its physical name is one of the endpoints). A BROAD schema
  * (`SchemaInput`, the default when `S` isn't threaded) has no literal keys — resolving to `never`
  * keeps the default `Where<TD>`/`IncludeArg<TD>` from growing a `string` index signature.
  */

@@ -17,9 +17,6 @@ import {
   style,
 } from "../core"
 
-/** A loaded, opaque driver connection (each driver's `connect` returns its own type). */
-type Conn = unknown
-
 /**
  * Run `sz diff` against a driver's LIVE database. Authoring is that driver's `s.*` surface (exploded +
  * lowered via its registry); the diff is the generic `buildKindDiff`.
@@ -75,7 +72,7 @@ export async function portableDiff(
 }
 
 async function closeQuietly(conn: unknown): Promise<void> {
-  const close = (conn as { close?: () => Promise<void> } | null)?.close
+  const close = (conn as null | { close?: () => Promise<void> })?.close
   if (typeof close === "function") {
     try {
       await close.call(conn)

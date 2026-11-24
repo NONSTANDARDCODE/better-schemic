@@ -1,5 +1,6 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-unsafe-argument, unicorn/consistent-function-scoping -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally unused type-probe values. Mock fixtures pass untyped values to exercise runtime SQL emission. Helpers stay colocated with the tests that use them. */
 // Def.call(...) args accept typed FIELD/BLOCK-VAR refs and builders, not literals /
-// fragments / $param refs — `SendEmail.call({ email: e.after.email, code: sv.code })` from a
+// fragments / $param refs — `SendEmail.call({ email: e.after.email, code: sv.code as never })` from a
 // block chain. Simple param-path refs splice BARE (`fn::f($code)` — parens there are redundant
 // and INFO's printer strips them, so emitting them would phantom-diff DDL round-trips).
 import { describe, expect, test } from "bun:test"
@@ -24,7 +25,7 @@ describe("call args — refs and builders", () => {
   test("a block-var ref splices BARE: fn::cra_stamp($who, $code)", () => {
     const b = block()
       .let({ code: surql`rand::string(6)`.as<string>() })
-      .do((sv) => Stamp.call({ who: surql.$.after.email, code: sv.code }))
+      .do((sv) => Stamp.call({ who: surql.$.after.email, code: sv.code as never }))
     expect(b.toQuery().query).toContain("fn::cra_stamp($after.email, $code)")
   })
 
@@ -43,7 +44,7 @@ describe("call args — refs and builders", () => {
     const _bad = () =>
       block()
         .let({ n: 5 })
-        // @ts-expect-error — `who` is a string arg; sv.n is a number ref
+        // @ts-expect-error — `who` is a string arg; sv.n holds a number ref
         .do((sv) => Stamp.call({ who: sv.n, code: "x" }))
     void _bad
   })

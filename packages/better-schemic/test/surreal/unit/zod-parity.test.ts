@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any, unicorn/consistent-function-scoping -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Fixtures use any for duck-typed mocks. Helpers stay colocated with the tests that use them. */
 // recordId(TableDef) links, the `.or()`/`.and()` combinators, and the native-Zod passthrough
 // (refine/superRefine/check/overwrite/transform/pipe/brand/readonly/describe/meta) — s.* stays a
 // drop-in for z.*, with DDL mapping to the wire/input type.

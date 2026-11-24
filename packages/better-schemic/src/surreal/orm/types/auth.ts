@@ -8,7 +8,7 @@
  */
 import type { AccessRecordAuth, AnyAuth, Token, Tokens } from "surrealdb"
 
-export interface AuthOperations {
+export type AuthOperations = {
   /** Adopt an existing access token (or access+refresh pair). */
   authenticate(token: Token | Tokens): Promise<Tokens>
   /** End the session (the SDK clears the token). */

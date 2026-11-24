@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. */
 // SurrealQL RANGES (`1..=10`) as a first-class VALUE: the `range()` builder's bound spelling, its
 // lowering (bounds BIND as params), and its uses — `IN` membership and `FOR` iteration.
 // Grammar verified on live 3.1.4: `>` after the start excludes it, `=` before the end includes it.
@@ -50,7 +51,7 @@ describe("range() — bound spelling", () => {
   })
 
   test("a range with NO bound is meaningless", () => {
-    expect(() => range({} as never)).toThrow(/needs at least one bound/u)
+    expect(() => range({})).toThrow(/needs at least one bound/u)
   })
 
   test("isRange() brands cross-realm; range() builds a Range", () => {

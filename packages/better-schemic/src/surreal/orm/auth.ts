@@ -14,8 +14,8 @@ import { normalizeError, OrmError } from "./errors"
 import type { AuthOperations } from "./types/auth"
 
 /** The structural slice of the SDK session the runtime drives. */
-interface SdkAuth {
-  auth(): Promise<{ id?: unknown } | undefined>
+type SdkAuth = {
+  auth(): Promise<undefined | { id?: unknown }>
   authenticate(token: Token | Tokens): Promise<Tokens>
   invalidate(): Promise<void>
   signin(auth: AnyAuth): Promise<Tokens>
@@ -54,7 +54,7 @@ export function createAuthOperations(ctx: DelegateContext): AuthOperations {
         throw new OrmError(
           "NotAuthenticated",
           "auth.record(): this session has no authenticated RECORD user — sign in with record access (`auth.signin({ access, variables })`) first.",
-          { operation, cause: error },
+          { cause: error, operation },
         )
       }
       throw normalized
@@ -62,10 +62,10 @@ export function createAuthOperations(ctx: DelegateContext): AuthOperations {
   }
 
   return {
-    signin: (auth) => invoke("signin", "auth.signin", [auth]),
-    signup: (auth) => invoke("signup", "auth.signup", [auth]),
     authenticate: (token) => invoke("authenticate", "auth.authenticate", [token]),
     invalidate: () => invoke("invalidate", "auth.invalidate", []),
     record: () => invoke("auth", "auth.record", []),
+    signin: (auth) => invoke("signin", "auth.signin", [auth]),
+    signup: (auth) => invoke("signup", "auth.signup", [auth]),
   }
 }

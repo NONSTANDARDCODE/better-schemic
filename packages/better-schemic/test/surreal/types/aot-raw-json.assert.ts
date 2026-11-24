@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars -- Type queries and callback signatures need fixture values. */
 // Bun AOT — typed JSON payloads and typed raw bindings/results. Type-checked by `bun check`.
 import { describe, it } from "node:test"
 
@@ -7,29 +8,29 @@ import type { Client } from "../../../src/surreal/orm/client"
 import { schema } from "../../../src/surreal/orm/schema"
 
 const Log = table("log", {
-  payload: s.json<{ tool: string; ms: number }>(),
+  payload: s.json<{ ms: number; tool: string }>(),
   untyped: s.json(),
 })
 const schemaDef = schema({ logs: Log })
 declare const client: Client<typeof schemaDef>
 
-describe("AOT — raw/json boundary", () => {
-  it("s.json<T>() gives a fixed decoder shape", () => {
-    assertType<{ tool: string; ms: number }, App<typeof Log>["payload"]>()
+void describe("AOT — raw/json boundary", () => {
+  void it("s.json<T>() gives a fixed decoder shape", () => {
+    assertType<{ ms: number; tool: string }, App<typeof Log>["payload"]>()
   })
 
-  it("$query infers bindings and result rows from surqlWith", () => {
-    const q = surqlWith<{ limit: number }, Array<{ score: number }>>(
+  void it("$query infers bindings and result rows from surqlWith", () => {
+    const q = surqlWith<{ limit: number }, { score: number }[]>(
       "SELECT score FROM x LIMIT $limit",
       { limit: 10 },
     )
     assertType<{ limit: number }, typeof q.$bindings>()
     const rows = client.$query(q)
-    assertType<Promise<Array<{ score: number }>>, typeof rows>()
+    assertType<Promise<{ score: number }[]>, typeof rows>()
   })
 
-  it("selectQuery derives fixed row keys (and app types) from the allowlist", () => {
+  void it("selectQuery derives fixed row keys (and app types) from the allowlist", () => {
     const rows = client.$query(selectQuery(Log, ["payload"] as const))
-    assertType<Promise<Array<Pick<App<typeof Log>, "payload">>>, typeof rows>()
+    assertType<Promise<Pick<App<typeof Log>, "payload">[]>, typeof rows>()
   })
 })

@@ -2,6 +2,7 @@ import { existsSync, readdirSync, statSync } from "node:fs"
 import { join } from "node:path"
 
 import type { Authored, AuthoredDef } from "../index"
+
 import { makeJiti } from "./config"
 
 /**
@@ -25,9 +26,9 @@ async function importSchemaModule(
   }
 }
 
-export interface AnyTable extends Authored {
+export type AnyTable = {
   readonly config: { readonly relation?: unknown }
-}
+} & Authored
 
 /**
  * Duck-typed `TableDef` check. We avoid `instanceof` on purpose: the user's schema and the
@@ -35,9 +36,8 @@ export interface AnyTable extends Authored {
  * by shape instead. (Structural access into `emitStatements` works regardless.)
  */
 function isTableDef(v: unknown): v is AnyTable {
-  if (!v || typeof v !== "object") {
-    return false
-  }
+  if (!v || typeof v !== "object") return false
+
   const t = v as Record<string, unknown>
   return (
     typeof t.name === "string" &&
@@ -56,9 +56,8 @@ function isTableDef(v: unknown): v is AnyTable {
  * match them by `isTableDef` first, so they never reach here. See `isTableDef` on why not `instanceof`.
  */
 function isStandaloneDef(v: unknown): v is AuthoredDef {
-  if (!v || typeof v !== "object") {
-    return false
-  }
+  if (!v || typeof v !== "object") return false
+
   const d = v as Record<string, unknown>
   return typeof d.kind === "string" && d.kind.length > 0 && typeof d.name === "string"
 }
@@ -68,11 +67,8 @@ function tsFiles(dir: string): string[] {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const entry of readdirSync(dir).sort()) {
     const p = join(dir, entry)
-    if (statSync(p).isDirectory()) {
-      out.push(...tsFiles(p))
-    } else if (/\.(ts|mts|js|mjs)$/u.test(entry) && !entry.endsWith(".d.ts")) {
-      out.push(p)
-    }
+    if (statSync(p).isDirectory()) out.push(...tsFiles(p))
+    else if (/\.(ts|mts|js|mjs)$/u.test(entry) && !entry.endsWith(".d.ts")) out.push(p)
   }
   return out
 }
@@ -87,6 +83,33 @@ function schemaFiles(path: string): string[] {
  * tables/relations (ordered normal-before-relation, then by name, for stable DDL) and the standalone
  * defs (any non-table `{ kind, name }` definable — the driver's registry owns the kinds). One pass.
  */
+/** Record one exported schema value into the per-file collector's shared maps. */
+function recordEntry(
+  exportName: string,
+  value: unknown,
+  file: string,
+  tables: Map<string, AnyTable>,
+  defs: AuthoredDef[],
+  fileOf: Map<AnyTable | AuthoredDef, string>,
+  seen: Map<string, string[]>,
+  entities: LocalFileEntities["entities"],
+): void {
+  if (isTableDef(value)) {
+    const files = seen.get(value.name)
+    if (files) files.push(file)
+    else seen.set(value.name, [file])
+    tables.set(value.name, value) // last def of a name wins
+    fileOf.set(value, file)
+    entities.push({ exportName, kind: "table", name: value.name })
+    return
+  }
+  if (!isStandaloneDef(value)) return
+  defs.push(value)
+  fileOf.set(value, file)
+  if (value.kind === "function" || value.kind === "access")
+    entities.push({ exportName, kind: "def", name: value.name })
+}
+
 export async function loadDefs(schemaPath: string): Promise<{
   defs: AuthoredDef[]
   /** Table names defined in more than one file (same-name defs collapse; this is how `check`/
@@ -99,9 +122,8 @@ export async function loadDefs(schemaPath: string): Promise<{
   localEntities: Map<string, LocalFileEntities>
   tables: AnyTable[]
 }> {
-  if (!existsSync(schemaPath)) {
-    throw new Error(`Schema path not found: ${schemaPath}`)
-  }
+  if (!existsSync(schemaPath)) throw new Error(`Schema path not found: ${schemaPath}`)
+
   const jiti = makeJiti()
   const tables = new Map<string, AnyTable>()
   const defs: AuthoredDef[] = []
@@ -115,25 +137,8 @@ export async function loadDefs(schemaPath: string): Promise<{
     )
     const entities: LocalFileEntities["entities"] = []
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [exportName, value] of entries) {
-      if (isTableDef(value)) {
-        const files = seen.get(value.name)
-        if (files) {
-          files.push(file)
-        } else {
-          seen.set(value.name, [file])
-        }
-        tables.set(value.name, value) // last def of a name wins
-        fileOf.set(value, file)
-        entities.push({ exportName, kind: "table", name: value.name })
-      } else if (isStandaloneDef(value)) {
-        defs.push(value)
-        fileOf.set(value, file)
-        if (value.kind === "function" || value.kind === "access") {
-          entities.push({ exportName, kind: "def", name: value.name })
-        }
-      }
-    }
+    for (const [exportName, value] of entries)
+      recordEntry(exportName, value, file, tables, defs, fileOf, seen, entities)
     if (entities.length > 0) {
       localEntities.set(file, {
         entities,
@@ -155,7 +160,7 @@ export async function loadDefs(schemaPath: string): Promise<{
 }
 
 /** A schema file's exported entities (tables/functions/accesses) and whether it holds those. */
-export interface LocalFileEntities {
+export type LocalFileEntities = {
   /** Each schema entity by its export-const identifier + its DB name (table/function/access name). */
   entities: { exportName: string; kind: "def" | "table"; name: string }[]
   /** True when EVERY runtime export of the file is a schema entity (no helpers / other exports). */

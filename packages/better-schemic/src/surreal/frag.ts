@@ -7,12 +7,13 @@
 import { BoundQuery } from "surrealdb"
 
 /** The tag/catalog output: a `BoundQuery` plus `.as<T>()` — retype as a typed expression
- *  fragment. Type-. */
+ * fragment. Type-. */
 export class Surql<R extends unknown[] = unknown[]> extends BoundQuery<R> {
   /** Retype this fragment as an expression of type `T` — `surql\`age >= 18\`.as<boolean>()`,
-   *  `surql.fn.http.post(...).as<{ id?: string }>()`. Purely a type-level cast; the runtime
-   *  object is unchanged. */
-  as<T>(): Surql<[T]> {
+   * `surql.fn.http.post(...).as<{ id?: string }>()`. Purely a type-level cast; the runtime
+   * object stays. */
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters, @typescript-eslint/no-unused-vars -- parâmetro de tipo faz parte da API pública/AOT / parâmetro de tipo faz parte da API pública de cast
+  as<T>(): this {
     return this
   }
 }

@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-unsafe-argument, unicorn/consistent-function-scoping, @typescript-eslint/require-await -- Object key order mirrors expected serialized output and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Helpers stay colocated with the tests that use them. Mock methods match async interfaces without awaiting. */
 // The generic kind registry + planning spine. An in-test "driver" registers three kinds against one
 // KindRegistry — `table` (structured, field-level diff), `index` (owned, clustered after its table),
 // and `function` (opaque/native) — exercising the engine with NO real driver dependency. It asserts:
@@ -30,26 +31,26 @@ import {
 
 // --- an in-test driver: three kinds on one registry ---------------------------------------------
 
-interface PField {
+type PField = {
   name: string
   type: string
 }
-interface PTable {
+type PTable = {
+  deps: Ref[] // FK parents / functions an event calls
+  fields: PField[]
   kind: "table"
   name: string
-  fields: PField[]
-  deps: Ref[] // FK parents / functions an event calls
 }
-interface PIndex {
+type PIndex = {
+  cols: string[]
   kind: "index"
   name: string
   table: string
-  cols: string[]
 }
-interface PFunction {
+type PFunction = {
+  body: string
   kind: "function"
   name: string
-  body: string
 }
 
 const registry = new KindRegistry()
@@ -67,9 +68,10 @@ const tableEngine: KindEngine<PTable, PTable> = {
     const after = new Map(next.fields.map((f) => [f.name, f.type]))
     const lines: string[] = []
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [n, t] of after)
+    for (const [n, t] of after) {
       if (!before.has(n)) lines.push(`FIELD ${n}:${t} ON ${next.name}`)
       else if (before.get(n) !== t) lines.push(`ALTER FIELD ${n}:${t} ON ${next.name}`)
+    }
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const [n] of before) if (!after.has(n)) lines.push(`DROP FIELD ${n} ON ${next.name}`)
     return lines
@@ -305,10 +307,10 @@ describe("introspectKinds fans out across kinds off one connection", () => {
         fields: [],
         deps: [],
       }),
-      lower: (t: PTable) => t,
+      lower: (t: PTable) => t as never,
       emit: () => [],
       remove: () => [],
-      introspect: async () => [{ kind: "table", name: "user", fields: [], deps: [] } as PTable],
+      introspect: async () => [{ kind: "table", name: "user", fields: [], deps: [] }],
     })
     reg.define({
       name: "function",
@@ -391,12 +393,12 @@ describe("KindEngine.canonical separates change-detection from faithful emit", (
   // EXCLUDES it — so a comment- delta, or a faithful-vs-introspected (comment-less) pair, is NOT a
   // phantom change. The same shape a SQL driver needs for DEFAULT / CHECK / COMMENT: emit-faithful, but
   // dropped from equality.
-  interface PDoc extends PortableObject {
-    kind: "doc"
-    name: string
+  type PDoc = {
     body: string
     comment?: string
-  }
+    kind: "doc"
+    name: string
+  } & PortableObject
   const reg = new KindRegistry()
   const defineDoc = reg.define({
     name: "doc",
@@ -404,13 +406,13 @@ describe("KindEngine.canonical separates change-detection from faithful emit", (
       kind: "doc",
       name,
       body,
-      ...(comment !== undefined ? { comment } : {}),
+      ...(comment === undefined ? {} : { comment }),
     }),
     lower: (d: PDoc) => d,
     // emit is FAITHFUL — includes the comment (create-time).
     emit: (d: PDoc) => [
       `DOC ${d.name} body=${d.body}`,
-      ...(d.comment !== undefined ? [`NOTE ON ${d.name}: ${d.comment}`] : []),
+      ...(d.comment === undefined ? [] : [`NOTE ON ${d.name}: ${d.comment}`]),
     ],
     remove: (d: PDoc) => [`DROP DOC ${d.name}`],
     overwrite: (_p: PDoc, n: PDoc) => [`ALTER DOC ${n.name} body=${n.body}`],
@@ -448,11 +450,11 @@ describe("KindEngine.canonical separates change-detection from faithful emit", (
 // --- displayItems: per-field display granularity (grouped under the table) -----------------------
 
 describe("KindEngine.displayItems decomposes a change into per-field items", () => {
-  interface PTbl extends PortableObject {
+  type PTbl = {
+    cols: { name: string; type: string }[]
     kind: "tbl"
     name: string
-    cols: { name: string; type: string }[]
-  }
+  } & PortableObject
   const reg = new KindRegistry()
   const defineTbl = reg.define({
     name: "tbl",
@@ -480,7 +482,7 @@ describe("KindEngine.displayItems decomposes a change into per-field items", () 
         const key = `field:${table}:${n}`
         const ddl = `FIELD ${n}:${t} ON ${table}`
         if (b === undefined) out.push({ key, table, kind: "field", op: "add", ddl })
-        else if (b !== t)
+        else if (b !== t) {
           out.push({
             key,
             table,
@@ -489,10 +491,11 @@ describe("KindEngine.displayItems decomposes a change into per-field items", () 
             before: `FIELD ${n}:${b} ON ${table}`,
             after: ddl,
           })
+        }
       }
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const [n, t] of before)
-        if (!after.has(n))
+      for (const [n, t] of before) {
+        if (!after.has(n)) {
           out.push({
             key: `field:${table}:${n}`,
             table,
@@ -501,6 +504,8 @@ describe("KindEngine.displayItems decomposes a change into per-field items", () 
             ddl: `DROP FIELD ${n} ON ${table}`,
             old: `FIELD ${n}:${t} ON ${table}`,
           })
+        }
+      }
       return out
     },
   })
@@ -512,7 +517,7 @@ describe("KindEngine.displayItems decomposes a change into per-field items", () 
     expect(diff.items).toHaveLength(1)
     const it = (diff.items ?? [])[0]
     expect(it.key).toBe("field:user:name")
-    expect(it.table).toBe("user") // hierarchy: the field is grouped under its table
+    expect(it.table).toBe("user") // hierarchy: the field appears under its table
     expect(it.op).toBe("change")
     // up/down stay whole-object (the kind's overwrite), unaffected by display granularity.
     expect(diff.up).toEqual(["ALTER TABLE user"])
@@ -534,10 +539,10 @@ describe("KindEngine.displayItems decomposes a change into per-field items", () 
 // A loose shape mirroring core's DiffItem for the test's displayItems return (kept local + minimal).
 type DiffItemLike = {
   key: string
-  table: string
   kind: string
+  table: string
 } & (
-  | { op: "add"; ddl: string }
-  | { op: "change"; before: string; after: string }
-  | { op: "remove"; ddl: string; old: string }
+  | { after: string; before: string; op: "change" }
+  | { ddl: string; old: string; op: "remove" }
+  | { ddl: string; op: "add" }
 )

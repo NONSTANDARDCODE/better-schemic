@@ -1,7 +1,8 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
 // OTEL integration — the logger observes the executor (the ONE round-trip seam), so these tests
 // drive the real client and assert on the spans an in-memory SDK exporter receives. No mocks of
 // the OTEL API: a regression in the wiring (a logger that never fires) fails here.
-import { type Attributes, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
+import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
   type ReadableSpan,
@@ -37,17 +38,17 @@ afterEach(async () => {
   await provider.shutdown()
 })
 
-const failr = (code: string, message: string): QueryResponse<unknown> =>
+const failr = (code: string, message: string): QueryResponse =>
   ({
     success: false,
     error: { code, message },
-  }) as unknown as QueryResponse<unknown>
+  }) as unknown as QueryResponse
 
 /** The finished span (fails when the wiring emitted none). */
 function onlySpan(): ReadableSpan {
   const spans = exporter.getFinishedSpans()
   expect(spans).toHaveLength(1)
-  return spans[0] as ReadableSpan
+  return spans[0]
 }
 
 /** HrTime → milliseconds (the exporter reports `[seconds, nanoseconds]`). */
@@ -65,7 +66,7 @@ describe("createOtelLogger — executor wiring", () => {
     expect(span.name).toBe("SELECT user")
     expect(span.kind).toBe(SpanKind.CLIENT)
     expect(span.instrumentationScope.name).toBe("better-schemic")
-    const attrs = span.attributes as Attributes
+    const attrs = span.attributes
     expect(attrs["db.system.name"]).toBe("surrealdb")
     expect(attrs["db.operation.name"]).toBe("SELECT")
     expect(attrs["db.collection.name"]).toBe("user")
@@ -110,7 +111,7 @@ describe("createOtelLogger — executor wiring", () => {
     })
     await tenant.users.findMany()
 
-    const attrs = onlySpan().attributes as Attributes
+    const attrs = onlySpan().attributes
     expect(attrs["db.namespace"]).toBe("tenant_a|app")
     expect(attrs["db.query.text"]).not.toContain("USE NS")
   })
@@ -126,7 +127,7 @@ describe("createOtelLogger — executor wiring", () => {
     expect(calls).toHaveLength(1) // one round-trip, two statements
     const span = onlySpan()
     expect(span.name).toBe("BATCH SELECT user")
-    const attrs = span.attributes as Attributes
+    const attrs = span.attributes
     expect(attrs["db.operation.name"]).toBe("BATCH SELECT")
     expect(attrs["db.operation.batch.size"]).toBe(2)
     expect(attrs["db.query.text"]).toContain("; ")
@@ -140,7 +141,7 @@ describe("createOtelLogger — executor wiring", () => {
 
     const span = onlySpan()
     expect(span.name).toBe("EXPLAIN user")
-    const attrs = span.attributes as Attributes
+    const attrs = span.attributes
     expect(attrs["db.operation.name"]).toBe("EXPLAIN")
     expect(attrs["db.query.text"]).toContain("EXPLAIN")
   })
@@ -156,7 +157,7 @@ describe("createOtelLogger — security & config", () => {
 
     await client.users.findMany({ where: { name: "secret@example.com" } })
 
-    const attrs = onlySpan().attributes as Attributes
+    const attrs = onlySpan().attributes
     expect(attrs["db.query.text"]).toBeUndefined()
     expect(attrs["db.operation.name"]).toBe("SELECT")
   })
@@ -170,7 +171,7 @@ describe("createOtelLogger — security & config", () => {
 
     await client.users.findMany()
 
-    expect((onlySpan().attributes as Attributes)["db.query.text"]).toBe("SELECT *")
+    expect(onlySpan().attributes["db.query.text"]).toBe("SELECT *")
   })
 
   test("an invalid maxQueryTextLength fails fast at construction", () => {
@@ -192,7 +193,7 @@ describe("createOtelLogger — security & config", () => {
 
     await client.users.findMany()
 
-    const attrs = onlySpan().attributes as Attributes
+    const attrs = onlySpan().attributes
     expect(attrs["deployment.environment.name"]).toBe("test")
     expect(attrs["db.system.name"]).toBe("surrealdb")
   })
@@ -217,7 +218,7 @@ describe("createOtelLogger — security & config", () => {
         get boom(): never {
           throw new Error("telemetry broke")
         },
-      } as Attributes,
+      },
     })
     const client = orm(conn, { schema: schemaDef, logger })
 
@@ -252,7 +253,7 @@ describe("createOtelLogger — failures", () => {
     const span = onlySpan()
     expect(span.status.code).toBe(SpanStatusCode.ERROR)
     expect(span.status.message).toContain("the table is locked")
-    const attrs = span.attributes as Attributes
+    const attrs = span.attributes
     expect(attrs["error.type"]).toBe("ERR_LOCKED")
     expect(attrs["db.response.status_code"]).toBe("ERR_LOCKED")
     const exception = span.events.find((event) => event.name === "exception")
@@ -267,7 +268,7 @@ describe("createOtelLogger — failures", () => {
           ({
             success: false,
             error: "the table is locked",
-          }) as unknown as QueryResponse<unknown>,
+          }) as unknown as QueryResponse,
       ),
     )
     const client = orm(conn, { schema: schemaDef, logger: createOtelLogger() })
@@ -277,7 +278,7 @@ describe("createOtelLogger — failures", () => {
     const span = onlySpan()
     expect(span.status.code).toBe(SpanStatusCode.ERROR)
     expect(span.status.message).toBe("the table is locked")
-    expect((span.attributes as Attributes)["error.type"]).toBe("Error")
+    expect(span.attributes["error.type"]).toBe("Error")
     const exception = span.events.find((event) => event.name === "exception")
     expect(exception?.attributes?.["exception.message"]).toBe("the table is locked")
   })
@@ -289,7 +290,7 @@ describe("createOtelLogger — failures", () => {
           ({
             success: false,
             error: { kind: "Thrown", code: 0, message: "boom" },
-          }) as unknown as QueryResponse<unknown>,
+          }) as unknown as QueryResponse,
       ),
     )
     const client = orm(conn, { schema: schemaDef, logger: createOtelLogger() })
@@ -299,7 +300,7 @@ describe("createOtelLogger — failures", () => {
     const span = onlySpan()
     expect(span.status.code).toBe(SpanStatusCode.ERROR)
     expect(span.status.message).toContain("boom")
-    const attrs = span.attributes as Attributes
+    const attrs = span.attributes
     expect(attrs["error.type"]).toBe("Thrown")
     expect(attrs["db.response.status_code"]).toBeUndefined()
   })
@@ -311,14 +312,14 @@ describe("createOtelLogger — failures", () => {
           ({
             success: false,
             error: { code: -32_000, message: "parse error" },
-          }) as unknown as QueryResponse<unknown>,
+          }) as unknown as QueryResponse,
       ),
     )
     const client = orm(conn, { schema: schemaDef, logger: createOtelLogger() })
 
     await caught(() => client.users.findMany())
 
-    const attrs = onlySpan().attributes as Attributes
+    const attrs = onlySpan().attributes
     expect(attrs["db.response.status_code"]).toBe("-32000")
     expect(attrs["error.type"]).toBe("-32000")
   })
@@ -341,7 +342,7 @@ describe("createOtelLogger — failures", () => {
 
     await caught(() => client.users.findMany())
 
-    const attrs = onlySpan().attributes as Attributes
+    const attrs = onlySpan().attributes
     expect(attrs["error.type"]).toBe("ParseError")
     expect(attrs["db.response.status_code"]).toBe("-32000")
   })
@@ -363,6 +364,6 @@ describe("createOtelLogger — failures", () => {
     const span = onlySpan()
     expect(span.status.code).toBe(SpanStatusCode.ERROR)
     expect(span.status.message).toContain("socket closed")
-    expect((span.attributes as Attributes)["error.type"]).toBeDefined()
+    expect(span.attributes["error.type"]).toBeDefined()
   })
 })

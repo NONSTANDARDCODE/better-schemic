@@ -10,7 +10,7 @@ const DEFAULT_SPECIFIER = "better-schemic/zod"
 const ZOD_RUNTIME = "zod"
 const ZOD_CORE = "zod/v4/core"
 
-interface ZodSpecifiers {
+type ZodSpecifiers = {
   core: string
   runtime: string
 }

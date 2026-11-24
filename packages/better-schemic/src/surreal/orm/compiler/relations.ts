@@ -11,13 +11,14 @@
 import { escapeIdentSafe as escapeIdent } from "../../ident"
 import { OrmError } from "../errors"
 import type { EdgeRef, SchemaIndex, TableMeta } from "../meta"
+
 import { describeValue, isLowerableValue, isPlainObject } from "./shared"
 
 /** The requested/derived direction of an edge traversal. */
 export type EdgeDirection = "both" | "in" | "out"
 
 /** A resolved graph edge: the schema entry + the arrow direction relative to this table. */
-export interface ResolvedEdge {
+export type ResolvedEdge = {
   /** `out` = `->`, `in` = `<-`, `both` = `<->`. */
   readonly direction: "both" | Exclude<EdgeDirection, "both">
   readonly edge: EdgeRef
@@ -41,19 +42,19 @@ export function availableKeys(meta: TableMeta): {
   links: readonly string[]
 } {
   return {
-    links: [...meta.links.keys()],
     edges: edgesOf(meta).map((edge) => edge.name),
+    links: [...meta.links.keys()],
   }
 }
 
 /** A relation-resolution failure (`UnknownField` — a typo'd include/where key). */
 function unknownKey(meta: TableMeta, key: string, what: string, operation: string): OrmError {
-  const { links, edges } = availableKeys(meta)
+  const { edges, links } = availableKeys(meta)
   const known = [...links, ...edges]
   return new OrmError(
     "UnknownField",
     `${operation}: "${key}" is not a relation of "${meta.name}" (${what}). Known relations: ${known.length > 0 ? known.join(", ") : "(none)"}.`,
-    { table: meta.name, field: key, operation, details: { known } },
+    { details: { known }, field: key, operation, table: meta.name },
   )
 }
 
@@ -69,42 +70,38 @@ export function resolveEdge(
 ): ResolvedEdge {
   const outgoing = meta.outgoing.find((edge) => edge.name === name || edge.key === name)
   const incoming = meta.incoming.find((edge) => edge.name === name || edge.key === name)
-  if (!outgoing && !incoming) {
-    throw unknownKey(meta, name, "an edge", operation)
-  }
+  if (!outgoing && !incoming) throw unknownKey(meta, name, "an edge", operation)
 
   const requires = (direction: EdgeDirection): OrmError =>
     new OrmError(
       "ValidationError",
       `${operation}: "${name}" is not a ${direction === "out" ? "FROM" : "TO"} edge of "${meta.name}" — the declared endpoints do not allow direction "${direction}". Use the other direction or fix the relation.`,
-      { table: meta.name, field: name, operation },
+      { field: name, operation, table: meta.name },
     )
 
   if (explicit === "out") {
-    if (!outgoing) {
-      throw requires("out")
-    }
+    if (!outgoing) throw requires("out")
+
     return {
-      edge: outgoing,
       direction: "out",
+      edge: outgoing,
       targets: targetsOf(outgoing, "out"),
     }
   }
   if (explicit === "in") {
-    if (!incoming) {
-      throw requires("in")
-    }
+    if (!incoming) throw requires("in")
+
     return {
-      edge: incoming,
       direction: "in",
+      edge: incoming,
       targets: targetsOf(incoming, "in"),
     }
   }
   if (explicit === "both") {
-    if (!outgoing && !incoming) {
-      throw requires("out")
-    }
-    const edge = (outgoing ?? incoming) as EdgeRef
+    if (!outgoing && !incoming) throw requires("out")
+
+    const edge = outgoing ?? incoming
+    if (edge === undefined) throw requires("out")
     // `targets` for `both` is informational; the traversal reaches both endpoint sides.
     const targets = [
       ...new Set([
@@ -112,19 +109,20 @@ export function resolveEdge(
         ...(incoming ? targetsOf(incoming, "in") : []),
       ]),
     ]
-    return { edge, direction: "both", targets }
+    return { direction: "both", edge, targets }
   }
   if (outgoing) {
     return {
-      edge: outgoing,
       direction: "out",
+      edge: outgoing,
       targets: targetsOf(outgoing, "out"),
     }
   }
+  if (incoming === undefined) throw requires("in")
   return {
-    edge: incoming as EdgeRef,
     direction: "in",
-    targets: targetsOf(incoming as EdgeRef, "in"),
+    edge: incoming,
+    targets: targetsOf(incoming, "in"),
   }
 }
 
@@ -136,12 +134,10 @@ function targetsOf(edge: EdgeRef, direction: "in" | "out"): readonly string[] {
 
 /** The arrow token of a direction (`->` / `<-` / `<->`). */
 function arrowOf(direction: EdgeDirection): "->" | "<-" | "<->" {
-  if (direction === "in") {
-    return "<-"
-  }
-  if (direction === "both") {
-    return "<->"
-  }
+  if (direction === "in") return "<-"
+
+  if (direction === "both") return "<->"
+
   return "->"
 }
 
@@ -153,12 +149,10 @@ function edgeRef(name: string, filter?: string): string {
 
 /** `post` / `(post, user)` / `?` — the target ref of a traversal. */
 function targetRef(names: readonly string[]): string {
-  if (names.length === 0) {
-    return "?"
-  }
-  if (names.length === 1) {
-    return escapeIdent(names[0])
-  }
+  if (names.length === 0) return "?"
+
+  if (names.length === 1) return escapeIdent(names[0])
+
   return `(${names.map(escapeIdent).join(", ")})`
 }
 
@@ -175,9 +169,8 @@ export function edgeTraversal(args: {
 }): string {
   const arrow = arrowOf(args.direction)
   const head = `${arrow}${edgeRef(args.edge, args.edgeFilter)}`
-  if (args.targets === undefined) {
-    return head
-  }
+  if (args.targets === undefined) return head
+
   const base = targetRef(args.targets)
   const target = args.targetFilter ? `(${base} WHERE ${args.targetFilter})` : base
   return `${head}${arrow}${target}`
@@ -188,16 +181,13 @@ export function targetMetas(
   index: SchemaIndex,
   targets: readonly string[] | undefined,
 ): readonly TableMeta[] {
-  if (!targets) {
-    return []
-  }
+  if (!targets) return []
+
   const out: TableMeta[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const name of targets) {
     const meta = index.byName.get(name)
-    if (meta && !("schemaless" in meta)) {
-      out.push(meta)
-    }
+    if (meta && !("schemaless" in meta)) out.push(meta)
   }
   return out
 }
@@ -211,7 +201,7 @@ export function edgeMeta(index: SchemaIndex, name: string): TableMeta | undefine
 // --- where ownership (edge vs target) ------------------------------------------------------------
 
 /** A `where` split by column owner: the edge predicate, the target predicate, or a raw fragment. */
-export interface OwnedWhere {
+export type OwnedWhere = {
   readonly edge?: Record<string, unknown>
   /** A whole-clause fragment — spliced into the target-side WHERE (cannot splits it). */
   readonly fragment?: unknown
@@ -223,12 +213,10 @@ const LOGICAL = new Set(["AND", "OR", "NOT"])
 
 /** Does `meta` declare `field` as a column, link or edge? (`id` is implicit on every table.) */
 function ownsField(meta: TableMeta | undefined, field: string): boolean {
-  if (!meta) {
-    return false
-  }
-  if (field === "id") {
-    return true
-  }
+  if (!meta) return false
+
+  if (field === "id") return true
+
   return (
     meta.columns.has(field) ||
     meta.links.has(field) ||
@@ -243,6 +231,27 @@ function ownsField(meta: TableMeta | undefined, field: string): boolean {
  * the target predicate; a name on both is ambiguous (except `id`, which the caller routes);
  * a name on neither is an `UnknownField` typo.
  */
+/** Field names mentioned anywhere in a filter (recursively). */
+function fieldsIn(value: unknown): string[] {
+  const out: string[] = []
+  const walk = (v: unknown): void => {
+    if (Array.isArray(v)) {
+      // eslint-disable-next-line functional/no-loop-statements -- loop recursivo; map/reduce mudaria a semântica
+      for (const entry of v) walk(entry)
+      return
+    }
+    if (!isPlainObject(v)) return
+
+    // eslint-disable-next-line functional/no-loop-statements -- loop recursivo; map/reduce mudaria a semântica
+    for (const key of Object.keys(v)) {
+      if (LOGICAL.has(key)) walk(v[key])
+      else out.push(key)
+    }
+  }
+  walk(value)
+  return out
+}
+
 export function classifyWhereByOwner(args: {
   /** Extra label for messages (`"include.likes"`, `"where.likes"`). */
   readonly context: string
@@ -253,18 +262,16 @@ export function classifyWhereByOwner(args: {
   readonly targets: readonly TableMeta[]
   readonly where: unknown
 }): OwnedWhere {
-  const { operation, context } = args
-  if (args.where === undefined || args.where === null) {
-    return {}
-  }
-  if (isLowerableValue(args.where)) {
-    return { fragment: args.where }
-  }
+  const { context, operation } = args
+  if (args.where === undefined || args.where === null) return {}
+
+  if (isLowerableValue(args.where)) return { fragment: args.where }
+
   if (!isPlainObject(args.where)) {
     throw new OrmError(
       "ValidationError",
       `${operation}: ${context} expects a filter object, a fragment or { edge, target }, got ${describeValue(args.where)}.`,
-      { operation, details: { where: args.where } },
+      { details: { where: args.where }, operation },
     )
   }
 
@@ -279,25 +286,22 @@ export function classifyWhereByOwner(args: {
     const edge = ownsEdge(field)
     const target = ownsTarget(field)
     if (edge && target) {
-      if (field === "id") {
-        return args.idOwner
-      }
+      if (field === "id") return args.idOwner
+
       throw new OrmError(
         "ValidationError",
         `${operation}: "${field}" exists on both the edge and the target — separate the filter (e.g. a surql fragment) so it is unambiguous.`,
-        { operation, field },
+        { field, operation },
       )
     }
-    if (edge) {
-      return "edge"
-    }
-    if (target) {
-      return "target"
-    }
+    if (edge) return "edge"
+
+    if (target) return "target"
+
     throw new OrmError(
       "UnknownField",
       `${operation}: "${field}" is not a column of the edge or the target — check the relation schema.`,
-      { operation, field },
+      { field, operation },
     )
   }
 
@@ -305,37 +309,11 @@ export function classifyWhereByOwner(args: {
   const target: Record<string, unknown> = {}
 
   /** Gather every field name referenced inside a logical group (peeks one level of nesting). */
-  const fieldsIn = (value: unknown): string[] => {
-    const out: string[] = []
-    const walk = (v: unknown): void => {
-      if (Array.isArray(v)) {
-        // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-        for (const entry of v) {
-          walk(entry)
-        }
-        return
-      }
-      if (!isPlainObject(v)) {
-        return
-      }
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const key of Object.keys(v)) {
-        if (LOGICAL.has(key)) {
-          walk(v[key])
-        } else {
-          out.push(key)
-        }
-      }
-    }
-    walk(value)
-    return out
-  }
 
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [key, value] of Object.entries(args.where)) {
-    if (value === undefined) {
-      continue
-    }
+    if (value === undefined) continue
+
     if (LOGICAL.has(key)) {
       const fields = fieldsIn(value)
       const owners = new Set(fields.map(ownerOf))

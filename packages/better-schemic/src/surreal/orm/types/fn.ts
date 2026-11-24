@@ -1,14 +1,16 @@
 /**
- * Database functions — `client.fn.call<R>(name, args)` for any `fn::…`, plus a TYPED shortcut per
+ * Database functions — `client.fn.call<R>(name, args)` for any `fn::…`, plus a typed shortcut per
  * `defineFunction` entry in the schema (`client.fn.customerTier({ total })`).
  *
  * The typed shortcut takes a NAMED object (not positional args): the schema declares the argument
- * names, so `{ total }` autocompletes, renames safely and cannot passs it out of order. The runtime
+ * names, so `{ total }` autocompletes, survives renames and cannot passs it out of order. The runtime
  * lowers it to the positional call the server expects (`fn::customer_tier($p0, …)`).
  */
 
 import type { Surql } from "../../frag"
 import type { App, FunctionDef } from "../../pure"
+
+// eslint-disable-next-line unicorn/prefer-export-from -- re-export público preserva API; o tipo é usado aqui também
 import type { AnyFunctionDef, EntriesOf, FunctionKeys, SchemaInput } from "./schema"
 
 /** The decoded args of a `defineFunction` entry, by argument name. */

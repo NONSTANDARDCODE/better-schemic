@@ -8,6 +8,7 @@
 
 import { forcesBareType } from "../ddl"
 import { splitTopUnion, topLevelSplitOnce } from "../surql-type-expr"
+
 import type {
   DbStructured,
   StructAccess,
@@ -26,14 +27,14 @@ import type {
 /**
  * Canonical form of a SurrealQL type expression, applied recursively:
  *  - fold a top-level `none` member into `option<…>` (gotcha 1: `T | none` == `option<T>`), while
- *    keeping `T | null` distinct (nullable is a different type);
+ * keeping `T | null` distinct (nullable is a different type);
  *  - sort union members deterministically AND dedupe them — SurrealDB collapses a repeated member
  *    (`string | string | null`), so both sides must (`s.union([s.string().optional(),
- *    s.string().nullable()])` authoring must not phantom-diff);
+ * s.string().nullable()])` authoring must not phantom-diff);
  *  - at the top level AND inside `record<…>` (gotcha 3), `array<…>`, `set<…>`, `option<…>`;
  *  - leave a single literal / primitive untouched.
  *
- * `'a' | 'b'` literal unions and `record<b|a>`  converge regardless of authoring order, and
+ * `'a' | 'b'` literal unions and `record<b|a>` converge regardless of authoring order, and
  * enum-vs-union leaves it to the renderer (both produce the same sorted `kind`).
  */
 export function normalizeType(kind: string): string {
@@ -50,17 +51,14 @@ export function normalizeType(kind: string): string {
     const hasNone = parts.includes("none")
     const rest = [...new Set(parts.filter((p) => p !== "none").map(normalizeType))]
     const inner = rest.length === 1 ? rest[0] : [...rest].sort().join(" | ")
-    if (hasNone) {
-      return rest.length > 0 ? `option<${inner}>` : "none"
-    }
+    if (hasNone) return rest.length > 0 ? `option<${inner}>` : "none"
+
     return inner
   }
 
   // option<X> wrapper — normalize the inner type, stay `option<…>`.
   const opt = /^option<([\s\S]+)>$/u.exec(t)
-  if (opt) {
-    return `option<${normalizeType(opt[1])}>`
-  }
+  if (opt) return `option<${normalizeType(opt[1])}>`
 
   // Single constructor term `ctor<inner>`: recurse. record<…>'s inner is a `|`-list of targets.
   const ctor = /^(array|set|record|references)<([\s\S]+)>$/u.exec(t)
@@ -68,9 +66,9 @@ export function normalizeType(kind: string): string {
     const [, name, innerRaw] = ctor
     // array<T, N> / set<T, N>: keep a trailing size arg as-is, normalize the element .
     const comma = topLevelSplitOnce(innerRaw, ",")
-    if (comma && (name === "array" || name === "set")) {
+    if (comma && (name === "array" || name === "set"))
       return `${name}<${normalizeType(comma[0])}, ${comma[1].trim()}>`
-    }
+
     if (name === "record" || name === "references") {
       const targets = innerRaw
         .split("|")
@@ -96,7 +94,7 @@ function canonicalizeLiterals(s: string): string {
     } catch {
       return m
     }
-    return `'${value.replaceAll('\\', "\\\\").replaceAll('\'', "\\'")}'`
+    return `'${value.replaceAll("\\", "\\\\").replaceAll("'", "\\'")}'`
   })
 }
 
@@ -107,7 +105,7 @@ const FIELD_OPS = ["select", "create", "update"] as const
 
 /**
  * Canonical permissions (gotcha 5): `undefined` when every op is the kind default (FULL for
- * fields/functions, NONE for tables), else  the non-default ops, so an unspecified
+ * fields/functions, NONE for tables), else the non-default ops, so an unspecified
  * `PERMISSIONS` deep-compares equal to a materialized default on the other side.
  */
 function normalizePermissions(
@@ -124,9 +122,8 @@ function normalizePermissions(
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const op of ops) {
     const v = perms?.[op]
-    if (isDefault(v)) {
-      continue
-    }
+    if (isDefault(v)) continue
+
     out[op] = typeof v === "string" ? collapseWs(v) : v
     any = true
   }
@@ -146,11 +143,12 @@ function isFullPerms(
   perms: StructPermissions | undefined,
   ops: readonly (keyof StructPermissions)[],
 ): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
   return ops.every((op) => perms?.[op] === undefined || perms?.[op] === true)
 }
 
 /**
- * A trivial `x.*` element —  what SurrealDB auto-creates from `array<…>` (no extra clause) —
+ * A trivial `x.*` element — what SurrealDB auto-creates from `array<…>` (no extra clause) —
  * folds it into the parent type and dropped. A customized element keeps it.
  */
 function isTrivialElement(f: StructField): boolean {
@@ -188,43 +186,32 @@ function normalizeField(f: StructField): StructField {
   // DEFAULT/COMPUTED guarantee a populated column, so SurrealDB stores the BARE type (INFO drops
   // `option<>`). `fromTableDef` keeps the `option<>` — strip it on both sides via the SAME predicate
   // the emitter uses, so the two can't drift.
-  if (forcesBareType(f)) {
-    kind = stripOption(kind)
-  }
-  const out: StructField = { name: f.name, kind, table: f.table }
-  if (f.flexible) {
-    out.flexible = true
-  }
-  if (f.readonly) {
-    out.readonly = true
-  }
+  if (forcesBareType(f)) kind = stripOption(kind)
+
+  const out: StructField = { kind, name: f.name, table: f.table }
+  if (f.flexible) out.flexible = true
+
+  if (f.readonly) out.readonly = true
+
   // Clause exprs canonicaliz them for quotes too (inferField/inline emit double-quoted literals;
   // INFO returns single-quoted).
   if (f.default !== undefined) {
     out.default = collapseWs(canonicalizeLiterals(f.default))
-    if (f.default_always) {
-      out.default_always = true
-    }
+    if (f.default_always) out.default_always = true
   }
-  if (f.value !== undefined) {
-    out.value = collapseWs(canonicalizeLiterals(f.value))
-  }
-  if (f.computed !== undefined) {
-    out.computed = collapseWs(canonicalizeLiterals(f.computed))
-  }
-  if (f.assert !== undefined) {
-    out.assert = collapseWs(canonicalizeLiterals(f.assert))
-  }
-  if (f.comment !== undefined) {
-    out.comment = f.comment
-  }
-  if (f.reference !== undefined) {
-    out.reference = f.reference
-  }
+  if (f.value !== undefined) out.value = collapseWs(canonicalizeLiterals(f.value))
+
+  if (f.computed !== undefined) out.computed = collapseWs(canonicalizeLiterals(f.computed))
+
+  if (f.assert !== undefined) out.assert = collapseWs(canonicalizeLiterals(f.assert))
+
+  if (f.comment !== undefined) out.comment = f.comment
+
+  if (f.reference !== undefined) out.reference = f.reference
+
   const perms = normalizePermissions(f.permissions, FIELD_OPS, true)
-  if (perms) {
-    out.permissions = perms
-  }
+  if (perms) out.permissions = perms
+
   return out
 }
 
@@ -242,27 +229,22 @@ export function normalizeTable(t: StructTable): StructTable {
   const implicit = implicitFields(t)
   const byName = new Map(t.fields.map((f) => [f.name, f]))
   const elementOf = new Map<string, StructField>()
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const f of t.fields) {
-    if (f.name.endsWith(".*")) {
-      elementOf.set(f.name.slice(0, -2), f)
-    }
-  }
+  // eslint-disable-next-line functional/no-loop-statements, @typescript-eslint/no-magic-numbers -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  for (const f of t.fields) if (f.name.endsWith(".*")) elementOf.set(f.name.slice(0, -2), f)
 
   const fields: StructField[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const f of t.fields) {
     // A LITERAL-typed id (`'default'`) is a SINGLETON key — real, kept on both sides so it
     // emits, diffs, and pulls. the plain implicit id/in/out dropp them.
-    if (implicit.has(f.name) && !(f.name === "id" && /^'.*'$/u.test(f.kind))) {
-      continue
-    }
+    if (implicit.has(f.name) && !(f.name === "id" && /^'.*'$/u.test(f.kind))) continue
+
     if (f.name.endsWith(".*")) {
+      // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
       const parent = byName.get(f.name.slice(0, -2))
       const parentIsArray = parent ? /\b(?:array|set)\b/u.test(parent.kind) : false
-      if (parentIsArray && isTrivialElement(f)) {
-        continue
-      } // folded into the parent type
+      if (parentIsArray && isTrivialElement(f)) continue
+      // folded into the parent type
     }
     const elem = elementOf.get(f.name)
     const folded = elem ? { ...f, kind: foldArrayElement(f.kind, elem.kind) } : f
@@ -271,47 +253,40 @@ export function normalizeTable(t: StructTable): StructTable {
   fields.sort((a, b) => fieldSortKey(a.name).localeCompare(fieldSortKey(b.name)))
 
   const kind: StructTable["kind"] = { kind: t.kind.kind }
-  if (t.kind.in?.length) {
-    kind.in = [...t.kind.in].sort()
-  }
-  if (t.kind.out?.length) {
-    kind.out = [...t.kind.out].sort()
-  }
-  if (t.kind.enforced) {
-    kind.enforced = true
-  }
+  if (t.kind.in?.length) kind.in = [...t.kind.in].sort()
+
+  if (t.kind.out?.length) kind.out = [...t.kind.out].sort()
+
+  if (t.kind.enforced) kind.enforced = true
 
   const out: StructTable = {
-    name: t.name,
-    kind,
-    schemafull: t.schemafull,
+    events: [...t.events].map(normalizeEvent).sort((a, b) => a.name.localeCompare(b.name)),
     fields,
     indexes: [...t.indexes].map(normalizeIndex).sort((a, b) => a.name.localeCompare(b.name)),
-    events: [...t.events].map(normalizeEvent).sort((a, b) => a.name.localeCompare(b.name)),
+    kind,
+    name: t.name,
+    schemafull: t.schemafull,
   }
-  if (t.drop) {
-    out.drop = true
-  }
-  if (t.comment !== undefined) {
-    out.comment = t.comment
-  }
+  if (t.drop) out.drop = true
+
+  if (t.comment !== undefined) out.comment = t.comment
+
   const perms = normalizePermissions(t.permissions, TABLE_OPS, false)
-  if (perms) {
-    out.permissions = perms
-  }
+  if (perms) out.permissions = perms
+
   return out
 }
 
 function normalizeIndex(idx: StructIndex): StructIndex {
-  return { name: idx.name, cols: idx.cols, index: idx.index }
+  return { cols: idx.cols, index: idx.index, name: idx.name }
 }
 
 /** Strip backticks around PLAIN identifiers (quote-aware): SurrealDB's printer defensively
- *  backtick-escapes some idents (e.g. `` `rand`::string ``) that authors write bare — both spell
- *  the same ident, so canonicalize to the bare form. Backticks inside string literals are kept. */
+ * backtick-escapes some idents (e.g. `` `rand`::string ``) that authors write bare — both spell
+ * the same ident, so canonicalize to the bare form. Backticks inside string literals remain. */
 function stripPlainBackticks(s: string): string {
   let out = ""
-  let quote: '"' | "'" | null = null
+  let quote: "'" | '"' | null = null
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (let i = 0; i < s.length; i++) {
     const c = s[i]
@@ -320,14 +295,12 @@ function stripPlainBackticks(s: string): string {
       if (c === "\\" && i + 1 < s.length) {
         out += s[i + 1]
         i++
-      } else if (c === quote) {
-        quote = null
-      }
+      } else if (c === quote) quote = null
+
       continue
     }
-    if (c === '"' || c === "'") {
-      quote = c
-    } else if (c === "`") {
+    if (c === '"' || c === "'") quote = c
+    else if (c === "`") {
       const m = /^`([A-Za-z_][A-Za-z0-9_]*)`/u.exec(s.slice(i))
       if (m) {
         out += m[1]
@@ -341,15 +314,15 @@ function stripPlainBackticks(s: string): string {
 }
 
 /** Canonicalize FORMATTING (outside string literals) so it can never phantom-diff: authors write
- *  multi-line `surql` bodies, INFO prints blocks single-line — and the reverse also happens
+ * multi-line `surql` bodies, INFO prints blocks single-line — and the reverse also happens
  *  (nested multi-statement blocks print with NEWLINES). Whitespace runs collapse to one space,
- *  and punctuation spacing normalizs it to INFO's style: none inside `()`/`[]`,  one
- *  after `,`/`;`/`{`, one before `}`. `:` untouchs it (record ids vs object keys are lexically
- *  ambiguous). BOTH sides normalize through here, so the exact style  has to be
- *  deterministic. Whitespace inside strings is preserved. */
+ * and punctuation spacing normalizs it to INFO's style: none inside `()`/`[]`, one
+ * after `,`/`;`/`{`, one before `}`. `:` untouchs it (record ids vs object keys are lexically
+ * ambiguous). BOTH sides normalize through here, so the exact style has to be
+ * deterministic. Whitespace inside strings survives. */
 function collapseWs(s: string): string {
   let out = ""
-  let quote: '"' | "'" | null = null
+  let quote: "'" | '"' | null = null
   let pendingSpace = false
   const last = () => out.at(-1)
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
@@ -360,9 +333,8 @@ function collapseWs(s: string): string {
       if (c === "\\" && i + 1 < s.length) {
         out += s[i + 1]
         i++
-      } else if (c === quote) {
-        quote = null
-      }
+      } else if (c === quote) quote = null
+
       continue
     }
     if (/\s/u.test(c)) {
@@ -370,36 +342,30 @@ function collapseWs(s: string): string {
       continue
     }
     // No space BEFORE closers/separators; none right AFTER an opener.
-    if (c === ")" || c === "]" || c === "," || c === ";") {
-      pendingSpace = false
-    }
-    if (pendingSpace && last() !== "(" && last() !== "[") {
-      out += " "
-    }
+    if (c === ")" || c === "]" || c === "," || c === ";") pendingSpace = false
+
+    if (pendingSpace && last() !== "(" && last() !== "[") out += " "
+
     pendingSpace = false
-    if (c === "}" && last() !== " " && out.length > 0) {
-      out += " "
-    }
-    if (c === '"' || c === "'") {
-      quote = c
-    }
+    if (c === "}" && last() !== " " && out.length > 0) out += " "
+
+    if (c === '"' || c === "'") quote = c
+
     out += c
     // one space AFTER `,`/`;`/`{` (unless a closer follows — handled above).
-    if (c === "," || c === ";" || c === "{") {
-      pendingSpace = true
-    }
+    if (c === "," || c === ";" || c === "{") pendingSpace = true
   }
   return out
 }
 
 /** Drop a `;` that directly precedes a `}`, and a `,` that directly precedes a `}`/`]`/`)`
  *  (quote-aware). INFO keeps the trailing `;` in multi-statement blocks but drops it in
- *  single-statement ones — and never prints trailing commas — so stripping BOTH everywhere on
- *  both sides converges (and stays valid SurrealQL). Hand-authored trailing commas no longer
- *  phantom-diff. */
+ * single-statement ones — and never prints trailing commas — so stripping BOTH everywhere on
+ * both sides converges (and stays valid SurrealQL). Hand-authored trailing commas no longer
+ * phantom-diff. */
 function stripSemiBeforeBrace(s: string): string {
   let out = ""
-  let quote: '"' | "'" | null = null
+  let quote: "'" | '"' | null = null
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (let i = 0; i < s.length; i++) {
     const c = s[i]
@@ -408,20 +374,16 @@ function stripSemiBeforeBrace(s: string): string {
       if (c === "\\" && i + 1 < s.length) {
         out += s[i + 1]
         i++
-      } else if (c === quote) {
-        quote = null
-      }
+      } else if (c === quote) quote = null
+
       continue
     }
-    if (c === '"' || c === "'") {
-      quote = c
-    }
-    if (c === ";" && /^\s*\}/u.test(s.slice(i + 1))) {
-      continue
-    }
-    if (c === "," && /^\s*[}\])]/u.test(s.slice(i + 1))) {
-      continue
-    }
+    if (c === '"' || c === "'") quote = c
+
+    if (c === ";" && /^\s*\}/u.test(s.slice(i + 1))) continue
+
+    if (c === "," && /^\s*[}\])]/u.test(s.slice(i + 1))) continue
+
     out += c
   }
   return out
@@ -435,32 +397,28 @@ function normalizeEvent(ev: StructEvent): StructEvent {
   // compare equal.
   const out: StructEvent = {
     name: ev.name,
-    what: ev.what,
+    // eslint-disable-next-line unicorn/no-thenable -- then é o nome obrigatório do campo WHEN/THEN do DEFINE EVENT
     then: ev.then.map(normalizeExprText),
+    what: ev.what,
   }
-  if (ev.when !== undefined && ev.when !== "true") {
-    out.when = normalizeExprText(ev.when)
-  }
+  if (ev.when !== undefined && ev.when !== "true") out.when = normalizeExprText(ev.when)
+
   // ASYNC + comment round-trip: SurrealDB materializes RETRY 1 / MAXDEPTH 3 on read; `canonicalEvent`
   // strips those defaults via `renderAsync`, so an authored bare `ASYNC` compares equal to the read form.
   if (ev.async) {
     out.async = true
-    if (ev.retry !== undefined) {
-      out.retry = ev.retry
-    }
-    if (ev.maxdepth !== undefined) {
-      out.maxdepth = ev.maxdepth
-    }
+    if (ev.retry !== undefined) out.retry = ev.retry
+
+    if (ev.maxdepth !== undefined) out.maxdepth = ev.maxdepth
   }
-  if (ev.comment !== undefined) {
-    out.comment = ev.comment
-  }
+  if (ev.comment !== undefined) out.comment = ev.comment
+
   return out
 }
 
 /** Canonicalize a `{ … }` block body: collapse whitespace (multi-line authored bodies vs INFO's
- *  single-line printing — and INFO's own newlines in nested blocks) and strip a trailing `;`
- *  before the closing brace (INFO drops it, the emitter keeps it). */
+ * single-line printing — and INFO's own newlines in nested blocks) and strip a trailing `;`
+ * before the closing brace (INFO drops it, the emitter keeps it). */
 function normalizeBlock(block: string): string {
   return normalizeExprText(block)
 }
@@ -468,35 +426,30 @@ function normalizeBlock(block: string): string {
 /** Normalize a db-level function: default (FULL) execute permission becomes undefined. */
 export function normalizeFunction(fn: StructFunction): StructFunction {
   const out: StructFunction = {
-    name: fn.name,
     args: fn.args,
     block: normalizeBlock(fn.block),
+    name: fn.name,
   }
-  if (fn.returns !== undefined) {
-    out.returns = fn.returns
-  }
-  if (fn.permissions !== undefined && fn.permissions !== true) {
-    out.permissions = fn.permissions
-  }
-  if (fn.comment !== undefined) {
-    out.comment = fn.comment
-  }
+  if (fn.returns !== undefined) out.returns = fn.returns
+
+  if (fn.permissions !== undefined && fn.permissions !== true) out.permissions = fn.permissions
+
+  if (fn.comment !== undefined) out.comment = fn.comment
+
   return out
 }
 
 /** Normalize a MANAGED param: canonicalize the value literal ('...' quoting, formatting), drop a
- *  default FULL permission. */
+ * default FULL permission. */
 export function normalizeParam(p: StructParam): StructParam {
   const out: StructParam = {
     name: p.name,
     value: collapseWs(canonicalizeLiterals(p.value)),
   }
-  if (p.permissions === false) {
-    out.permissions = false
-  }
-  if (p.comment !== undefined) {
-    out.comment = p.comment
-  }
+  if (p.permissions === false) out.permissions = false
+
+  if (p.comment !== undefined) out.comment = p.comment
+
   return out
 }
 
@@ -506,31 +459,30 @@ export function normalizeAccess(a: StructAccess): StructAccess {
 }
 
 /** Normalize a `DEFINE SEQUENCE`: drop SurrealDB's materialized BATCH 1000 / START 0 defaults so an
- *  authored minimal sequence deep-compares equal to the introspected form. */
+ * authored minimal sequence deep-compares equal to the introspected form. */
 export function normalizeSequence(s: StructSequence): StructSequence {
   const out: StructSequence = { name: s.name }
-  if (s.batch !== undefined && s.batch !== 1000) {
-    out.batch = s.batch
-  }
-  if (s.start !== undefined && s.start !== 0) {
-    out.start = s.start
-  }
-  if (s.timeout !== undefined) {
-    out.timeout = s.timeout
-  }
+  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
+  if (s.batch !== undefined && s.batch !== 1000) out.batch = s.batch
+
+  if (s.start !== undefined && s.start !== 0) out.start = s.start
+
+  if (s.timeout !== undefined) out.timeout = s.timeout
+
   return out
 }
 
 /** Normalize a whole introspected/lowered database to its canonical Struct form. */
 export function normalizeDb(db: DbStructured): DbStructured {
   return {
-    tables: db.tables.map(normalizeTable),
-    functions: db.functions.map(normalizeFunction),
     accesses: db.accesses.map(normalizeAccess),
     // Analyzers carry an ordered tokenizer/filter pipeline (order-significant) — passed through as-is.
     analyzers: db.analyzers,
+    functions: db.functions.map(normalizeFunction),
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
     params: (db.params ?? []).map(normalizeParam),
     sequences: (db.sequences ?? []).map(normalizeSequence),
+    tables: db.tables.map(normalizeTable),
   }
 }
 
@@ -538,16 +490,13 @@ export function normalizeDb(db: DbStructured): DbStructured {
 
 /** Order-insensitive deep equality over plain JSON-ish values (the Struct shapes). */
 export function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) {
-    return true
-  }
-  if (typeof a !== typeof b || a === null || b === null) {
-    return false
-  }
+  if (a === b) return true
+
+  if (typeof a !== typeof b || a === null || b === null) return false
+
   if (Array.isArray(a) || Array.isArray(b)) {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
-      return false
-    }
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+
     return a.every((v, i) => deepEqual(v, b[i]))
   }
   if (typeof a === "object") {
@@ -555,9 +504,8 @@ export function deepEqual(a: unknown, b: unknown): boolean {
     const bo = b as Record<string, unknown>
     const ak = Object.keys(ao)
     const bk = Object.keys(bo)
-    if (ak.length !== bk.length) {
-      return false
-    }
+    if (ak.length !== bk.length) return false
+
     return ak.every((k) => k in bo && deepEqual(ao[k], bo[k]))
   }
   return false

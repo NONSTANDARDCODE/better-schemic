@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion -- A regra `non-nullable-type-assertion-style` (também error) exige `!` em vez de `as T`; nestes sites a presença é garantida pelo algoritmo. */
+
 // The GENERIC migration spine over a {@link KindRegistry} — core's kind-blind orchestration. It
 // classifies each portable object as add/change/remove, ORDERS them across kinds by a dependency
 // graph, and emits up/down DDL + the display {@link Diff}. It never names a kind: every kind-specific
@@ -17,12 +19,13 @@
 // NOTE: `Diff`/`DiffItem` are a type-import (erased at compile — no runtime cli->kind coupling),
 // the same arrangement as ./driver/portable-diff.ts.
 import type { Diff, DiffItem } from "../cli-kit/diff"
+
 import type { Definable, KindEngine, KindRegistry, PortableObject, Ref } from "./registry"
 
 const refKey = (r: Ref) => `${r.kind}:${r.name}`
 
 /** A node in the dependency graph: identity + the edges/owner used to order it. */
-export interface OrderNode {
+export type OrderNode = {
   /** Objects this node must come AFTER (intra-set refs constrain; external refs ignor them). */
   readonly deps: Ref[]
   readonly kind: string
@@ -31,8 +34,11 @@ export interface OrderNode {
   readonly owner?: Ref
 }
 
+/** Left-child index in a binary heap stored as an array. */
+const HEAP_CHILD_FACTOR = 2
+
 /**
- * A tiny binary min-heap over on-demand comparators. `orderObjects` keeps one "all ready" heap plus
+ * A compact binary min-heap over on-demand comparators. `orderObjects` keeps one "all ready" heap plus
  * one per owner, so picking the next node is O(log n) instead of a full sort per step (the old
  * `ready.sort(...)` made a 2000-object schema ~300ms of ordering alone). Stale entries skipp them
  * by the caller with a `done` set (lazy deletion).
@@ -52,9 +58,8 @@ class MinHeap<T> {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     while (i > 0) {
       const parent = (i - 1) >> 1
-      if (this.compare(items[i], items[parent]) >= 0) {
-        break
-      }
+      if (this.compare(items[i], items[parent]) >= 0) break
+
       ;[items[i], items[parent]] = [items[parent], items[i]]
       i = parent
     }
@@ -62,30 +67,25 @@ class MinHeap<T> {
 
   pop(): T | undefined {
     const items = this.items
-    if (items.length === 0) {
-      return undefined
-    }
+    if (items.length === 0) return undefined
+
     const top = items[0]
     const last = items.pop() as T
-    if (items.length === 0) {
-      return top
-    }
+    if (items.length === 0) return top
+
     items[0] = last
     let i = 0
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (;;) {
-      const left = i * 2 + 1
+      const left = i * HEAP_CHILD_FACTOR + 1
       const right = left + 1
       let smallest = i
-      if (left < items.length && this.compare(items[left], items[smallest]) < 0) {
-        smallest = left
-      }
-      if (right < items.length && this.compare(items[right], items[smallest]) < 0) {
-        smallest = right
-      }
-      if (smallest === i) {
-        break
-      }
+      if (left < items.length && this.compare(items[left], items[smallest]) < 0) smallest = left
+
+      if (right < items.length && this.compare(items[right], items[smallest]) < 0) smallest = right
+
+      if (smallest === i) break
+
       ;[items[i], items[smallest]] = [items[smallest], items[i]]
       i = smallest
     }
@@ -117,9 +117,8 @@ export function orderObjects<T extends OrderNode>(
   }
   const byKey = new Map<string, T>()
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const n of nodes) {
-    byKey.set(key(n), n)
-  }
+  for (const n of nodes) byKey.set(key(n), n)
+
   const indeg = new Map<string, number>()
   const dependents = new Map<string, string[]>()
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
@@ -133,11 +132,10 @@ export function orderObjects<T extends OrderNode>(
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const d of n.deps) {
       const dk = refKey(d)
-      if (!byKey.has(dk)) {
-        continue
-      } // external dep -> not a constraint within this set
+      if (!byKey.has(dk)) continue
+      // external dep -> not a constraint within this set
       indeg.set(nk, (indeg.get(nk) ?? 0) + 1)
-      ;(dependents.get(dk) as string[]).push(nk)
+      dependents.get(dk)!.push(nk)
     }
   }
 
@@ -158,11 +156,7 @@ export function orderObjects<T extends OrderNode>(
     }
   }
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const n of nodes) {
-    if (indeg.get(key(n)) === 0) {
-      pushReady(n)
-    }
-  }
+  for (const n of nodes) if (indeg.get(key(n)) === 0) pushReady(n)
 
   const done = new Set<string>()
   const out: T[] = []
@@ -170,10 +164,8 @@ export function orderObjects<T extends OrderNode>(
   const drain = (heap: MinHeap<T> | undefined): T | undefined => {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     while (heap && heap.size > 0) {
-      const top = heap.pop() as T
-      if (!done.has(key(top))) {
-        return top
-      }
+      const top = heap.pop()!
+      if (!done.has(key(top))) return top
     }
     return undefined
   }
@@ -191,16 +183,13 @@ export function orderObjects<T extends OrderNode>(
     }
     out.push(next)
     done.add(key(next))
-    if (!next.owner) {
-      group = key(next)
-    } // a top-level object opens a new cluster
+    if (!next.owner) group = key(next)
+    // a top-level object opens a new cluster
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const dep of dependents.get(key(next)) ?? []) {
       const left = (indeg.get(dep) ?? 1) - 1
       indeg.set(dep, left)
-      if (left === 0) {
-        pushReady(byKey.get(dep) as T)
-      }
+      if (left === 0) pushReady(byKey.get(dep)!)
     }
   }
   return out
@@ -217,9 +206,7 @@ export function lowerSchema(registry: KindRegistry, defs: Definable[]): Portable
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const d of defs) {
     const engine = registry.engine(d.kind)
-    if (engine) {
-      out.push(engine.lower(d))
-    }
+    if (engine) out.push(engine.lower(d) as PortableObject)
   }
   return out
 }
@@ -229,7 +216,7 @@ export function lowerSchema(registry: KindRegistry, defs: Definable[]): Portable
  * `PortableDb`'s fixed slots; serializes as plain JSON (it's plain data). Pre-launch: the format is
  * free to change, no version migration.
  */
-export interface KindSnapshot {
+export type KindSnapshot = {
   kinds: Record<string, PortableObject[]>
 }
 
@@ -243,17 +230,13 @@ export function snapshotKinds(schema: PortableObject[], registry?: KindRegistry)
   const kinds: Record<string, PortableObject[]> = {}
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const o of schema) {
-    if (registry?.isExcludedFromMigrations(o)) {
-      continue
-    }
+    if (registry?.isExcludedFromMigrations(o)) continue
+
     // `Object.hasOwn` (not `?? []`): a kind named `__proto__`/`constructor` must not read an
     // inherited member as its bucket.
     const bucket = Object.hasOwn(kinds, o.kind) ? kinds[o.kind] : undefined
-    if (bucket) {
-      bucket.push(o)
-    } else {
-      kinds[o.kind] = [o]
-    }
+    if (bucket) bucket.push(o)
+    else kinds[o.kind] = [o]
   }
   return { kinds }
 }
@@ -266,14 +249,14 @@ export function snapshotObjects(snap: KindSnapshot): PortableObject[] {
 // --- diff / plan --------------------------------------------------------------------------------
 
 /** One classified object change, carrying its ordering metadata + the portable sides for DDL. */
-interface Change extends OrderNode {
+type Change = {
   readonly next?: PortableObject
   readonly op: "add" | "change" | "remove"
   readonly prev?: PortableObject
-}
+} & OrderNode
 
 /** An up/down DDL program (each a list of statements). */
-export interface KindPlan {
+export type KindPlan = {
   down: string[]
   up: string[]
 }
@@ -312,27 +295,21 @@ function orderedChanges(
     const p = prevByKey.get(k)
     const n = nextByKey.get(k)
     const portable = n ?? p
-    if (!portable) {
-      continue
-    }
+    if (!portable) continue
+
     // Migration-unmanaged kinds/objects (e.g. key-bearing access) never diff — they're reconciled
     // out-of-band by driver commands, so they must not appear in gen/migrate/diff-live output.
     // Central choke point (a per-object predicate fs it the object that would emitts it).
-    if (registry.isExcludedFromMigrations(portable)) {
-      continue
-    }
+    if (registry.isExcludedFromMigrations(portable)) continue
+
     const engine = registry.engine(portable.kind)
-    if (!engine) {
-      continue
-    }
+    if (!engine) continue
+
     const node = orderNodeOf(engine, portable)
-    if (p && !n) {
-      changes.push({ op: "remove", prev: p, ...node })
-    } else if (!p && n) {
-      changes.push({ next: n, op: "add", ...node })
-    } else if (p && n && canonicalOf(engine, p) !== canonicalOf(engine, n)) {
+    if (p && !n) changes.push({ op: "remove", prev: p, ...node })
+    else if (!p && n) changes.push({ next: n, op: "add", ...node })
+    else if (p && n && canonicalOf(engine, p) !== canonicalOf(engine, n))
       changes.push({ next: n, op: "change", prev: p, ...node })
-    }
   }
   const ord = (kind: string) => registry.ordinal(kind)
   return {
@@ -378,40 +355,28 @@ function planFromChanges(
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const c of nonRemoves) {
     const e = registry.engine(c.kind)
-    if (!e) {
-      continue
-    }
-    if (c.op === "add" && c.next) {
-      up.push(...e.emit(c.next))
-    } else if (c.op === "change" && c.prev && c.next) {
-      up.push(...overwriteUp(e, c.prev, c.next))
-    }
+    if (!e) continue
+
+    if (c.op === "add" && c.next) up.push(...e.emit(c.next))
+    else if (c.op === "change" && c.prev && c.next) up.push(...overwriteUp(e, c.prev, c.next))
   }
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const c of [...removes].reverse()) {
     const e = registry.engine(c.kind) // drops child-first
-    if (e && c.prev) {
-      up.push(...e.remove(c.prev))
-    }
+    if (e && c.prev) up.push(...e.remove(c.prev))
   }
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const c of removes) {
     const e = registry.engine(c.kind) // recreate dropped objects parent-first
-    if (e && c.prev) {
-      down.push(...e.emit(c.prev))
-    }
+    if (e && c.prev) down.push(...e.emit(c.prev))
   }
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const c of [...nonRemoves].reverse()) {
     const e = registry.engine(c.kind) // undo creates/changes child-first
-    if (!e) {
-      continue
-    }
-    if (c.op === "add" && c.next) {
-      down.push(...e.remove(c.next))
-    } else if (c.op === "change" && c.prev && c.next) {
-      down.push(...overwriteUp(e, c.next, c.prev))
-    }
+    if (!e) continue
+
+    if (c.op === "add" && c.next) down.push(...e.remove(c.next))
+    else if (c.op === "change" && c.prev && c.next) down.push(...overwriteUp(e, c.next, c.prev))
   }
   return { down, up }
 }
@@ -425,17 +390,15 @@ function diffItems(registry: KindRegistry, nonRemoves: Change[], removes: Change
   const items: DiffItem[] = []
   const push = (c: Change) => {
     const e = registry.engine(c.kind)
-    if (!e) {
-      return
-    }
+    if (!e) return
+
     if (e.displayItems) {
       items.push(...e.displayItems(c.prev, c.next))
       return
     }
     const base = { key: itemKey(c), kind: c.kind, table: itemTable(c) }
-    if (c.op === "add" && c.next) {
-      items.push({ ...base, ddl: e.emit(c.next).join("\n"), op: "add" })
-    } else if (c.op === "remove" && c.prev) {
+    if (c.op === "add" && c.next) items.push({ ...base, ddl: e.emit(c.next).join("\n"), op: "add" })
+    else if (c.op === "remove" && c.prev) {
       items.push({
         ...base,
         ddl: e.remove(c.prev).join("\n"),
@@ -452,13 +415,11 @@ function diffItems(registry: KindRegistry, nonRemoves: Change[], removes: Change
     }
   }
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const c of nonRemoves) {
-    push(c)
-  }
+  for (const c of nonRemoves) push(c)
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const c of [...removes].reverse()) {
-    push(c)
-  }
+  for (const c of [...removes].reverse()) push(c)
+
   return items
 }
 
@@ -530,7 +491,7 @@ export function emitKinds(registry: KindRegistry, schema: PortableObject[]): str
 /**
  * Reverse direction, fanned out across kinds: introspect every introspectable kind off one live
  * connection and flatten into portable objects. The RESOLUTION of "per-kind vs one driver read":
- * the contract is per-kind ({@link KindEngine.introspect}), but a driver backs all of its kinds with
+ * the contract is per-kind ({@link KindEngine.introspect}), but a driver backs each of its kinds with
  * ONE shared (memoized) read of `conn` and slices out each kind's objects — so the fan-out here costs
  * a single round-trip, not N. A kind without `introspect` contributes nothing (not introspectable).
  */
@@ -541,16 +502,14 @@ export async function introspectKinds(
   const out: PortableObject[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [kind, engine] of registry.entries()) {
-    if (!engine.introspect) {
-      continue
-    }
+    if (!engine.introspect) continue
+
     // Skip STATICALLY migration-unmanaged kinds so the live side never phantom-diffs against a
     // schema that (by design) excludes them. A per-object predicate can't evaluats it without the
     // object — introspection still runs, and the diff choke point filters by object afterwards.
-    if (registry.skipsIntrospection(kind)) {
-      continue
-    }
-    out.push(...(await engine.introspect(conn)))
+    if (registry.skipsIntrospection(kind)) continue
+
+    out.push(...((await engine.introspect(conn)) as PortableObject[]))
   }
   return out
 }

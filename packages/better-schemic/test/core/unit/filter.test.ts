@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // The kind filter: filterKinds over PortableObject[], where owned objects (index/event with
 // owner -> table) follow their table's inclusion and an event honors --events.
 // A fake registry supplies the owner hooks the filter reads.
@@ -7,9 +8,9 @@ import { describe, expect, test } from "bun:test"
 import { filterKinds, parseFilter, passesFilter } from "../../../src/core/cli-kit/filter"
 import { KindRegistry, type PortableObject } from "../../../src/core/kind"
 
-interface Owned extends PortableObject {
+type Owned = {
   table?: string
-}
+} & PortableObject
 
 const reg = new KindRegistry()
 const opaque = {

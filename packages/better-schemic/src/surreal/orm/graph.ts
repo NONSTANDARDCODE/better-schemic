@@ -2,30 +2,97 @@ import { BoundQuery, RecordId } from "surrealdb"
 
 import { fragOf } from "../pure"
 import { isExpr, mkRef, toExpr } from "../surql/predicate"
-import type { GraphBuilderState, GraphStep } from "./compiler/graph"
+
+import type { GraphStep } from "./compiler/graph"
 import { compileGraph } from "./compiler/graph"
-import { createBinds } from "./compiler/shared"
+import { createBinds, isTableMeta } from "./compiler/shared"
 import { decodeRows } from "./decode"
 import type { DelegateContext } from "./delegate"
-import { execute } from "./execute"
+import { execute, type Statement } from "./execute"
 import type { ModelMeta, SchemaIndex } from "./meta"
-import { attachExplain, lazyResult } from "./results"
+import { attachExplain, type ExplainKey, lazyResult } from "./results"
+import type { AnyRelationDef } from "./types/schema"
 
-export interface GraphEntryPoint<TD, S, P> {
-  graph(fn: (g: any) => any): any
-  // tagged template deferred
+type Direction = "both" | "in" | "out"
+
+/** The duck-typed view of a relation def handed to the dynamic graph builder. */
+type EdgeLike = {
+  readonly config?: {
+    readonly relation?: {
+      readonly from?: readonly string[]
+      readonly to?: readonly string[]
+    }
+  }
+  readonly name?: unknown
 }
 
-export function createGraphEntryPoint(meta: ModelMeta, ctx: DelegateContext, anchor: unknown): any {
-  const entry = {
-    graph(fn: (g: any) => any) {
+/** Options accepted by an edge step (`where` may be a predicate callback). */
+type StepOpts = {
+  [key: string]: unknown
+  where?: unknown
+}
+
+/** The builder's steps are mutable while chaining; compilation reads them. */
+type MutableStep = { -readonly [K in keyof GraphStep]: GraphStep[K] } & {
+  edge?: EdgeLike
+  edgeRawWhere?: unknown
+}
+
+type BuilderState = {
+  _ctx: DelegateContext
+  _meta: ModelMeta
+  anchor: unknown
+  distinct?: boolean
+  finalWhere?: unknown
+  rawPath?: string
+  repeat?: { depth: unknown; opts: StepOpts; steps: MutableStep[] }
+  select?: unknown
+  steps: MutableStep[]
+}
+
+/** The fluent graph API — a thenable, so `await delegate.from(x).graph(g => …)` is awaitable. */
+export type GraphBuilderApi = {
+  readonly _state: BuilderState
+  both(edge: unknown, opts?: StepOpts): GraphBuilderApi
+  bothEdges(edge: unknown, opts?: StepOpts): GraphBuilderApi
+  collect(): GraphBuilderApi
+  distinct(): GraphBuilderApi
+  in(edge: unknown, opts?: StepOpts): GraphBuilderApi
+  inEdges(edge: unknown, opts?: StepOpts): GraphBuilderApi
+  node(targets?: unknown): GraphBuilderApi
+  out(edge: unknown, opts?: StepOpts): GraphBuilderApi
+  outEdges(edge: unknown, opts?: StepOpts): GraphBuilderApi
+  paths(): GraphBuilderApi
+  repeat(depth: unknown, fn: (g: GraphBuilderApi) => unknown, opts?: StepOpts): GraphBuilderApi
+  select(shape: unknown): GraphBuilderApi
+  shortest(target: unknown): GraphBuilderApi
+  then<Rejected = never, Resolved = unknown>(
+    onFulfilled?: ((value: unknown) => PromiseLike<Resolved> | Resolved) | null,
+    onRejected?: ((reason: unknown) => PromiseLike<Rejected> | Rejected) | null,
+  ): Promise<Rejected | Resolved>
+  where(filter: unknown): GraphBuilderApi
+}
+
+/** Entry point returned by `delegate.from(anchor)`. */
+export type GraphEntryPoint = {
+  graph(fn: (g: GraphBuilderApi) => unknown): unknown
+  traverse(strings: TemplateStringsArray, ...values: unknown[]): unknown
+}
+
+export function createGraphEntryPoint(
+  meta: ModelMeta,
+  ctx: DelegateContext,
+  anchor: unknown,
+): GraphEntryPoint {
+  return {
+    graph(fn) {
       const builder = createBuilder(meta, ctx, anchor)
       const terminal = fn(builder)
       return finishGraph(meta, ctx, terminal)
     },
-    traverse(strings: TemplateStringsArray, ...values: any[]) {
+    traverse(strings, ...values) {
       const path = strings.reduce(
-        (acc, s, i) => acc + s + (i < values.length ? String(values[i]) : ""),
+        (acc, s, i) => acc + s + (i < values.length ? valueText(values[i]) : ""),
         "",
       )
       const builder = createBuilder(meta, ctx, anchor)
@@ -33,389 +100,400 @@ export function createGraphEntryPoint(meta: ModelMeta, ctx: DelegateContext, anc
       return finishGraph(meta, ctx, builder)
     },
   }
-  return entry
 }
 
-function createBuilder(meta: ModelMeta, ctx: DelegateContext, anchor: unknown): any {
-  const state: any = {
-    anchor,
-    steps: [],
-    _meta: meta,
+/** Text used by the runtime-parsed traversal path for one interpolated value. */
+function valueText(value: unknown): string {
+  if (typeof value === "string") return value
+  if (value === undefined || value === null) return ""
+  if (typeof value === "object" && "name" in value) return targetNameOf(value)
+  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- interpolação legada: o path aceita qualquer valor
+  return String(value)
+}
+
+/** Duck-type an edge def; non-object inputs carry no config/targets. */
+function asEdgeLike(value: unknown): EdgeLike | undefined {
+  return typeof value === "object" && value !== null ? value : undefined
+}
+
+/** A relation/schema def's public name, used as an edge/target name in the path. */
+function targetNameOf(value: unknown): string {
+  if (typeof value === "string") return value
+  const edge = asEdgeLike(value)
+  return typeof edge?.name === "string" ? edge.name : ""
+}
+
+/** Extract the builder state from a terminal (a builder or a state bag). */
+function stateOf(terminal: unknown): BuilderState {
+  if (typeof terminal === "object" && terminal !== null && "_state" in terminal)
+    return (terminal as { readonly _state: BuilderState })._state
+
+  return terminal as BuilderState
+}
+
+function createBuilder(meta: ModelMeta, ctx: DelegateContext, anchor: unknown): GraphBuilderApi {
+  const state: BuilderState = {
     _ctx: ctx,
-    repeat: undefined,
+    _meta: meta,
+    anchor,
     // tagged template path (Slice B) — runtime-parsed steps
     rawPath: undefined,
+    repeat: undefined,
+    steps: [],
   }
 
-  const edgeStep = (direction: "both" | "in" | "out", edge: any, opts?: any) => {
-    const resolved = resolveEdgeRuntime(metaFor(state), edge, direction)
-    const newOpts = opts ? { ...opts } : undefined
+  const edgeStep = (direction: Direction, edge: unknown, opts?: StepOpts) => {
+    const resolved = resolveEdgeRuntime(edge, direction)
+    const newOpts: StepOpts | undefined = opts ? { ...opts } : undefined
     if (newOpts && typeof newOpts.where === "function") {
       const proxy = makeNodeProxy()
-      const res = newOpts.where(proxy)
-      const f = fragOf(res)
-      newOpts.where = f === undefined ? res : f
+      const res = (newOpts.where as (node: unknown) => unknown)(proxy)
+      const fragment = fragOf(res)
+      newOpts.where = fragment === undefined ? res : fragment
     }
-    const s: any = {
+    const step: MutableStep = {
       direction,
+      edge: asEdgeLike(edge),
+      edgeName: resolved.edgeName,
       kind: "edge",
-      edgeName: resolved.edgeName,
-      edge,
       opts: newOpts,
-      targets: [],
       rawWhere: newOpts?.where,
+      targets: [],
     }
-    state.steps.push(s)
+    state.steps.push(step)
     return api
   }
 
-  const step = (direction: "both" | "in" | "out", edge: any, opts?: any) => {
-    const resolved = resolveEdgeRuntime(metaFor(state), edge, direction)
-    const newOpts = opts ? { ...opts } : undefined
+  const step = (direction: Direction, edge: unknown, opts?: StepOpts) => {
+    const resolved = resolveEdgeRuntime(edge, direction)
+    const newOpts: StepOpts | undefined = opts ? { ...opts } : undefined
     if (newOpts && typeof newOpts.where === "function") {
       const proxy = makeNodeProxy()
-      const res = newOpts.where(proxy)
-      const f = fragOf(res)
-      newOpts.where = f === undefined ? res : f
+      const res = (newOpts.where as (node: unknown) => unknown)(proxy)
+      const fragment = fragOf(res)
+      newOpts.where = fragment === undefined ? res : fragment
     }
-    const s: GraphStep = {
+    const next: MutableStep = {
       direction,
-      kind: "node",
       edgeName: resolved.edgeName,
+      kind: "node",
       opts: newOpts,
-      targets: resolved.targets,
       rawWhere: newOpts?.where,
+      targets: resolved.targets,
     }
-    state.steps.push(s)
+    state.steps.push(next)
     return api
   }
 
-  const api: any = {
+  const api: GraphBuilderApi = {
     _state: state,
-    out(edge: any, opts?: any) {
-      return step("out", edge, opts)
-    },
-    in(edge: any, opts?: any) {
-      return step("in", edge, opts)
-    },
-    both(edge: any, opts?: any) {
+    both(edge, opts) {
       return step("both", edge, opts)
     },
-    outEdges(edge: any, opts?: any) {
-      return edgeStep("out", edge, opts)
-    },
-    inEdges(edge: any, opts?: any) {
-      return edgeStep("in", edge, opts)
-    },
-    bothEdges(edge: any, opts?: any) {
+    bothEdges(edge, opts) {
       return edgeStep("both", edge, opts)
     },
-    node(targets?: any) {
-      const last: any = state.steps.at(-1)
-      if (last && last.kind === "edge") {
-        last.kind = "node"
-        if (targets) {
-          last.targets = Array.isArray(targets)
-            ? targets.map((t: any) => t?.name ?? t)
-            : [targets?.name ?? targets]
-        } else {
-          const cfg = last.edge?.config?.relation ?? {}
-          const derived =
-            last.direction === "out"
-              ? [...(cfg.to ?? [])]
-              : last.direction === "in"
-                ? [...(cfg.from ?? [])]
-                : [...new Set([...(cfg.to ?? []), ...(cfg.from ?? [])])]
-          last.targets = derived.length > 0 ? derived : []
-        }
-      }
-      return api
-    },
-    where(filter: any) {
-      const last: any = state.steps.at(-1)
-      let raw: any = filter
-      if (typeof filter === "function") {
-        const proxy = makeNodeProxy()
-        const res = filter(proxy)
-        const f = fragOf(res)
-        raw = f === undefined ? res : f
-      }
-      if (last && last.kind === "edge") {
-        last.edgeRawWhere = raw
-      } else {
-        state.finalWhere = raw
-      }
-      return api
-    },
-    select(shape: any) {
-      if (typeof shape === "function") {
-        const proxy = makeNodeProxy()
-        const res = shape(proxy)
-        state.select = convertSelectRuntime(res)
-      } else {
-        state.select = shape
-      }
+    collect() {
+      if (state.repeat) state.repeat.opts = { ...state.repeat.opts, collect: true }
+
       return api
     },
     distinct() {
       state.distinct = true
       return api
     },
-    repeat(depth: any, fn: (g: any) => any, opts?: any) {
+    in(edge, opts) {
+      return step("in", edge, opts)
+    },
+    inEdges(edge, opts) {
+      return edgeStep("in", edge, opts)
+    },
+    node(targets) {
+      const last: MutableStep | undefined = state.steps.at(-1)
+      if (last?.kind === "edge") {
+        last.kind = "node"
+        if (targets) {
+          last.targets = Array.isArray(targets)
+            ? targets.map((target: unknown) => targetNameOf(target))
+            : [targetNameOf(targets)]
+        } else {
+          const cfg = last.edge?.config?.relation ?? {}
+          let derived: string[]
+          if (last.direction === "out") derived = [...(cfg.to ?? [])]
+          else if (last.direction === "in") derived = [...(cfg.from ?? [])]
+          else derived = [...new Set([...(cfg.to ?? []), ...(cfg.from ?? [])])]
+          last.targets = derived
+        }
+      }
+      return api
+    },
+    out(edge, opts) {
+      return step("out", edge, opts)
+    },
+    outEdges(edge, opts) {
+      return edgeStep("out", edge, opts)
+    },
+    paths() {
+      if (state.repeat) state.repeat.opts = { ...state.repeat.opts, paths: true }
+
+      return api
+    },
+    repeat(depth, fn, opts) {
       const innerBuilder = createBuilder(meta, ctx, anchor)
       const innerTerminal = fn(innerBuilder)
-      const innerState = innerTerminal?._state ?? innerTerminal
-      state.repeat = { depth, steps: innerState.steps ?? [], opts: opts ?? {} }
+      const innerState = stateOf(innerTerminal)
+      state.repeat = { depth, opts: opts ?? {}, steps: innerState.steps }
       state.steps = []
       return api
     },
-    collect() {
-      if (state.repeat) {
-        state.repeat.opts = { ...(state.repeat.opts ?? {}), collect: true }
-      }
+    select(shape) {
+      if (typeof shape === "function") {
+        const proxy = makeNodeProxy()
+        const res = (shape as (node: unknown) => unknown)(proxy)
+        state.select = convertSelectRuntime(res)
+      } else state.select = shape
+
       return api
     },
-    paths() {
-      if (state.repeat) {
-        state.repeat.opts = { ...(state.repeat.opts ?? {}), paths: true }
-      }
-      return api
-    },
-    shortest(target: any) {
+    shortest(target) {
       if (state.repeat) {
         state.repeat.opts = {
-          ...(state.repeat.opts ?? {}),
+          ...state.repeat.opts,
           shortest: target instanceof RecordId ? String(target) : target,
         }
       }
       return api
     },
-    then(onFulfilled?: any, onRejected?: any) {
-      // lazy compile
+    // eslint-disable-next-line unicorn/no-thenable -- thenable é contrato: o grafo só executa quando aguardado
+    then(onFulfilled, onRejected) {
       const result = finishGraph(state._meta, state._ctx, api)
       return Promise.resolve(result).then(onFulfilled, onRejected)
+    },
+    where(filter) {
+      const last: MutableStep | undefined = state.steps.at(-1)
+      let raw: unknown = filter
+      if (typeof filter === "function") {
+        const proxy = makeNodeProxy()
+        const res = (filter as (node: unknown) => unknown)(proxy)
+        const fragment = fragOf(res)
+        raw = fragment === undefined ? res : fragment
+      }
+      if (last?.kind === "edge") last.edgeRawWhere = raw
+      else state.finalWhere = raw
+
+      return api
     },
   }
   return api
 }
 
-function metaFor(state: any): ModelMeta {
-  // current node meta: last step's target or anchor meta
-  return state._meta
-}
+function findEdgeDef(
+  index: SchemaIndex,
+  name: string,
+  fromMeta?: ModelMeta,
+): AnyRelationDef | { readonly name: string } {
+  const candidates: AnyRelationDef[] = []
+  if (fromMeta && isTableMeta(fromMeta)) {
+    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+    for (const edge of fromMeta.outgoing)
+      if (edge.name === name || edge.key === name) candidates.push(edge.def)
 
-function findEdgeDef(index: SchemaIndex, name: string, fromMeta?: ModelMeta): any {
-  // search anchor meta's adjacent edges first
-  const candidates: any[] = []
-  if (fromMeta) {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const e of (fromMeta as any).outgoing ?? []) {
-      if (e.name === name || e.key === name) {
-        candidates.push(e.def)
-      }
-    }
-    // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const e of (fromMeta as any).incoming ?? []) {
-      if (e.name === name || e.key === name) {
-        candidates.push(e.def)
-      }
-    }
+    for (const edge of fromMeta.incoming)
+      if (edge.name === name || edge.key === name) candidates.push(edge.def)
   }
-  if (candidates.length > 0) {
-    return candidates[0]
-  }
+  if (candidates.length > 0) return candidates[0]
+
   // fallback: search all tables
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const m of (index as any).tables?.values?.() ?? []) {
+  for (const table of index.tables.values()) {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const e of m.outgoing ?? []) {
-      if (e.name === name || e.key === name) {
-        return e.def
-      }
-    }
+    for (const edge of table.outgoing) if (edge.name === name || edge.key === name) return edge.def
+
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const e of m.incoming ?? []) {
-      if (e.name === name || e.key === name) {
-        return e.def
-      }
-    }
+    for (const edge of table.incoming) if (edge.name === name || edge.key === name) return edge.def
   }
   return { name }
 }
 
-function parseTraversalPath(path: string, builder: any, meta: ModelMeta, ctx: DelegateContext) {
+function parseTraversalPath(
+  path: string,
+  builder: GraphBuilderApi,
+  meta: ModelMeta,
+  ctx: DelegateContext,
+) {
   const index = ctx.index
   // regex: (->|<-|<->) name (->|<-|<->) name  ... consume edge+target pairs
-  const re = /(->|<-|<->)\s*(\w+)\s*(->|<-|<->)\s*(\w+)/gu
-  let currentMeta: any = meta
-  let m: null | RegExpExecArray
+  const pattern = /(->|<-|<->)\s*(\w+)\s*(->|<-|<->)\s*(\w+)/gu
+  let currentMeta: ModelMeta = meta
+  let match: null | RegExpExecArray
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  while ((m = re.exec(path)) !== null) {
-    const arrow1 = m[1]
-    const edgeName = m[2]
+  while ((match = pattern.exec(path)) !== null) {
+    const arrow = match[1]
+    const edgeName = match[2]
     const edgeDef = findEdgeDef(index, edgeName, currentMeta)
-    const dir = arrow1 === "->" ? "out" : arrow1 === "<-" ? "in" : "both"
-    if (dir === "out") {
-      builder.out(edgeDef)
-    } else if (dir === "in") {
-      builder.in(edgeDef)
-    } else {
-      builder.both(edgeDef)
-    }
-    // advance currentMeta to target (m[4])
-    const targetName = m[4]
-    const tm = (index as any).byName?.get?.(targetName)
-    if (tm) {
-      currentMeta = tm
-    }
+    let direction: Direction = "both"
+    if (arrow === "->") direction = "out"
+    else if (arrow === "<-") direction = "in"
+    if (direction === "out") builder.out(edgeDef)
+    else if (direction === "in") builder.in(edgeDef)
+    else builder.both(edgeDef)
+
+    const targetName = match[4]
+    const targetMeta = index.byName.get(targetName)
+    if (targetMeta) currentMeta = targetMeta
   }
 }
 
-function resolveEdgeRuntime(meta: ModelMeta, edge: any, explicit: "both" | "in" | "out") {
-  // edge is a RelationDef instance; use its name
-  const edgeName = edge?.name ?? String(edge)
-  const index = (meta as any).__index // not available; need ctx. We'll resolve in compileGraph instead.
-  // We don't have index here; store edgeName and resolve targets later. But targets needed for path.
-  // Use edge.endpointDefs? Runtime edge has targets in config.
-  const cfg = edge?.config?.relation ?? {}
-  let targets: string[] = []
-  if (explicit === "out") {
-    targets = [...(cfg.to ?? [])]
-  } else if (explicit === "in") {
-    targets = [...(cfg.from ?? [])]
-  } else {
-    targets = [...new Set([...(cfg.to ?? []), ...(cfg.from ?? [])])]
-  }
-  return { edgeName, targets }
+/** Endpoint targets of one traversal step, derived from the relation endpoints. */
+function targetsFor(
+  cfg: { readonly from?: readonly string[]; readonly to?: readonly string[] },
+  explicit: Direction,
+): string[] {
+  if (explicit === "out") return [...(cfg.to ?? [])]
+  if (explicit === "in") return [...(cfg.from ?? [])]
+  return [...new Set([...(cfg.to ?? []), ...(cfg.from ?? [])])]
 }
 
-function finishGraph(meta: ModelMeta, ctx: DelegateContext, terminal: any): any {
-  const state = terminal?._state ?? terminal
-  const index = ctx.index
+function resolveEdgeRuntime(edge: unknown, explicit: Direction) {
+  // edge is a RelationDef instance; use its name (config carries the declared endpoints).
+  const edgeLike = asEdgeLike(edge)
+  const edgeName = edgeLike?.name ?? (typeof edge === "string" ? edge : "")
+  const cfg = edgeLike?.config?.relation ?? {}
+  return { edgeName: targetNameOf(edgeName), targets: targetsFor(cfg, explicit) }
+}
+
+function finishGraph(meta: ModelMeta, ctx: DelegateContext, terminal: unknown) {
+  const state = stateOf(terminal)
   const binds = createBinds()
   const anchor = state.anchor
   const builderState = {
     anchor,
-    steps: state.steps,
-    finalWhere: state.finalWhere,
-    select: state.select,
     distinct: state.distinct,
+    finalWhere: state.finalWhere,
     repeat: state.repeat,
+    select: state.select,
+    steps: state.steps,
   }
-  const compiled = compileGraph(meta, { index }, anchor, builderState, binds, "graph")
+  const compiled = compileGraph(meta, { index: ctx.index }, anchor, builderState, binds, "graph")
   const decode = (rows: readonly unknown[]) => {
     const raw = rows[0]
-    const arr = Array.isArray(raw) ? raw : raw == null ? [] : [raw]
-    return decodeRows(arr, compiled.finalMeta, compiled.spec, index)
+    let arr: readonly unknown[]
+    if (Array.isArray(raw)) arr = raw
+    else if (raw === null || raw === undefined) arr = []
+    else arr = [raw]
+    return decodeRows(arr, compiled.finalMeta, compiled.spec, ctx.index)
   }
-  const prepared = {
+  const prepared: {
+    readonly context: undefined
+    readonly decode: typeof decode
+    readonly explain: false
+    readonly hookMeta: undefined
+    readonly meta: ModelMeta
+    readonly operation: string
+    readonly resultMode: "many"
+    readonly statements: readonly { readonly key: ExplainKey; readonly statement: Statement }[]
+    readonly where: undefined
+  } = {
+    context: undefined,
+    decode,
+    explain: false,
+    hookMeta: undefined,
     meta: compiled.finalMeta,
     operation: "graph",
+    resultMode: "many",
     statements: [
       {
-        statement: { sql: compiled.sql, vars: compiled.binds.vars },
         key: "data",
+        statement: { sql: compiled.sql, vars: compiled.binds.vars },
       },
     ],
     where: undefined,
-    resultMode: "many" as const,
-    explain: false,
-    decode,
-    context: undefined,
-    hookMeta: undefined,
   }
   const runPrepared = async () => {
     const out = await execute(ctx.conn, {
-      statements: prepared.statements.map((e: any) => e.statement),
-      operation: prepared.operation,
-      table: prepared.meta.name,
       debug: ctx.debug,
       logger: ctx.logger,
+      operation: prepared.operation,
+      statements: prepared.statements.map((entry) => entry.statement),
+      table: prepared.meta.name,
     })
     return prepared.decode(out.rows)
   }
   const explainPrepared = async () => {
     const out = await execute(ctx.conn, {
-      statements: prepared.statements.map((e: any) => ({
-        sql: `EXPLAIN ${e.statement.sql}`,
-        vars: e.statement.vars,
-      })),
-      operation: prepared.operation,
-      table: prepared.meta.name,
       debug: ctx.debug,
       logger: ctx.logger,
+      operation: prepared.operation,
+      statements: prepared.statements.map((entry) => ({
+        sql: `EXPLAIN ${entry.statement.sql}`,
+        vars: entry.statement.vars,
+      })),
+      table: prepared.meta.name,
     })
     return {
       driver: "surrealdb" as const,
-      operation: prepared.operation,
-      statements: prepared.statements.map((e: any, i: number) => ({
-        key: e.key,
-        surql: e.statement.sql,
-        vars: e.statement.vars ?? {},
-        plan: out.rows[i],
-      })),
       ignoredOptions: [],
+      operation: prepared.operation,
+      statements: prepared.statements.map((entry, index) => ({
+        key: entry.key,
+        plan: out.rows[index],
+        surql: entry.statement.sql,
+        vars: entry.statement.vars ?? {},
+      })),
     }
   }
   const result = lazyResult(() => runPrepared())
   return attachExplain(result, () => explainPrepared())
 }
 
-// imports resolved via require to avoid circular? Use direct imports instead.
-function makeNodeProxy(): any {
-  const proxy: any = new Proxy(
+/** Node proxy: field reads become refs, `.match()` becomes a guarded expression or projection. */
+function makeNodeProxy(): unknown {
+  return new Proxy(
     {},
     {
-      get(_t, key) {
-        if (typeof key !== "string" || key === "then") {
-          return undefined
-        }
+      get(_target, key) {
+        if (typeof key !== "string" || key === "then") return
+
         if (key === "match") {
-          return (member: any, fn: (n: any) => any) => {
-            const memberName =
-              typeof member === "string" ? member : (member?.name ?? String(member))
+          // eslint-disable-next-line @typescript-eslint/consistent-return -- oProxy.get retorna undefined para chaves especiais
+          return (member: unknown, fn: (node: unknown) => unknown) => {
+            const memberName = typeof member === "string" ? member : targetNameOf(member)
             const memberProxy = makeNodeProxy()
             const res = fn(memberProxy)
             if (isExpr(res)) {
-              // where predicate: guard AND pred
               const guard = new BoundQuery(`record::tb(id) = '${memberName}'`, {})
-              const guardExpr = toExpr(guard)
-              return guardExpr.and(res)
+              return toExpr(guard).and(res)
             }
-            // select value: conditional
-            const frag = fragOf(res)
-            if (frag) {
-              const text = `IF record::tb(id) = '${memberName}' THEN ${frag.query} ELSE NONE END`
-              return new BoundQuery(text, { ...frag.bindings })
+            const fragment = fragOf(res)
+            if (fragment) {
+              const text = `IF record::tb(id) = '${memberName}' THEN ${fragment.query} ELSE NONE END`
+              return new BoundQuery(text, { ...fragment.bindings })
             }
             return res
           }
         }
-        return mkRef({ root: { col: key }, kind: "other" })
+        // eslint-disable-next-line @typescript-eslint/consistent-return -- oProxy.get retorna undefined para chaves especiais
+        return mkRef({ kind: "other", root: { col: key } })
       },
     },
   )
-  return proxy
 }
 
 function convertSelectRuntime(value: unknown): unknown {
-  if (value === null || value === undefined) {
-    return value
-  }
-  if (Array.isArray(value)) {
-    return value.map(convertSelectRuntime)
-  }
-  if (typeof value === "function") {
-    return value
-  }
-  if (typeof value !== "object") {
-    return value
-  }
+  if (value === null || value === undefined) return value
+
+  if (Array.isArray(value)) return value.map((entry: unknown) => convertSelectRuntime(entry))
+
+  if (typeof value === "function") return value
+
+  if (typeof value !== "object") return value
+
   const out: Record<string, unknown> = {}
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    const f = fragOf(v)
-    out[k] = f === undefined ? convertSelectRuntime(v) : f
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    const fragment = fragOf(entry)
+    out[key] = fragment === undefined ? convertSelectRuntime(entry) : fragment
   }
   return out
 }

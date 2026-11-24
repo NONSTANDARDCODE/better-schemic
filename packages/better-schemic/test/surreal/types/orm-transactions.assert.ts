@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/require-await, @typescript-eslint/no-unused-vars, @typescript-eslint/no-invalid-void-type -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally unused type-probe values. Mock methods match async interfaces without awaiting. Type queries and callback signatures need fixture values. Assertions place void in a generic argument to probe hook return types. */
 // M4.1 — TYPE assertions for `client.transaction`: the callback receives a `TransactionClient`
 // (delegates preserved, lifecycle/realtime stripped, `rollback` typed `never`), the options accept
 // retries/timeout/isolation, `mode` is "sdk"-and the root client keeps the after* scope hooks.
@@ -26,8 +27,8 @@ type Tx = TransactionClient<typeof schemaDef>
 const openRoot = (client: C) => client.transaction(async () => 1)
 const openNested = (tx: Tx) => tx.transaction(async () => "inner")
 
-describe("client.transaction — typing", () => {
-  it("the callback receives the transaction client and the call resolves the callback value", () => {
+void describe("client.transaction — typing", () => {
+  void it("the callback receives the transaction client and the call resolves the callback value", () => {
     assertType<Promise<number>, ReturnType<typeof openRoot>>()
     const tx = {} as Tx
     assertType<Delegate<typeof User, typeof schemaDef>, Tx["users"]>()
@@ -40,7 +41,7 @@ describe("client.transaction — typing", () => {
     void tx
   })
 
-  it("lifecycle, realtime and session-bound admin surfaces are NOT on the tx client", () => {
+  void it("lifecycle, realtime and session-bound admin surfaces are NOT on the tx client", () => {
     assertType<false, "close" extends keyof Tx ? true : false>()
     assertType<false, "forkSession" extends keyof Tx ? true : false>()
     assertType<false, "$withContext" extends keyof Tx ? true : false>()
@@ -57,13 +58,13 @@ describe("client.transaction — typing", () => {
     assertType<true, "info" extends keyof Tx ? true : false>()
   })
 
-  it("the root client exposes the transaction scope hooks", () => {
+  void it("the root client exposes the transaction scope hooks", () => {
     assertType<void, ReturnType<C["afterCommit"]>>()
     assertType<void, ReturnType<C["afterRollback"]>>()
     assertType<Promise<void>, ReturnType<C["close"]>>()
   })
 
-  it("options: retries/timeout/isolation are typed; mode accepts only 'sdk'", () => {
+  void it("options: retries/timeout/isolation are typed; mode accepts only 'sdk'", () => {
     assertType<false, "sql" extends NonNullable<TransactionOptions["mode"]> ? true : false>()
     assertType<true, "sdk" extends NonNullable<TransactionOptions["mode"]> ? true : false>()
     assertType<

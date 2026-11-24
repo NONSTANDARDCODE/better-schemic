@@ -34,9 +34,8 @@ import {
  * not a missing install — so the message says  that.
  */
 export function assertDriverAvailable(name: string): void {
-  if (driverNames().includes(name)) {
-    return
-  }
+  if (driverNames().includes(name)) return
+
   throw new Error(
     `unknown database driver "${name}". This build of Better-schemic ships SurrealDB only — ` +
       `use the \`surrealConnection\` factory from "better-schemic/connection" in your config.`,
@@ -44,7 +43,7 @@ export function assertDriverAvailable(name: string): void {
 }
 
 /** Addressing + connection overrides every command accepts. */
-export interface ResolveOpts extends ConnectionOverrides {
+export type ResolveOpts = {
   /** Resolve EVERY connection, fanning collections out to all their keyed elements. */
   all?: boolean
   /** `--arg k=v` (repeatable) sugar — merged into the resolver args. */
@@ -54,7 +53,7 @@ export interface ResolveOpts extends ConnectionOverrides {
   config?: string
   /** Address a single connection: `<name>` (whole connection/collection) or `<name>:<key>` (one element). */
   connection?: string
-}
+} & ConnectionOverrides
 
 /** A commander `collect` reducer for repeatable `--arg` flags. */
 export function collectArg(value: string, prev: string[]): string[] {
@@ -74,27 +73,24 @@ export function parseArgs(arg: string[] | undefined, argsJson?: string): Record<
     } catch {
       throw new Error(`--args must be a JSON object (got "${argsJson}").`)
     }
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
       throw new Error(`--args must be a JSON object (got "${argsJson}").`)
-    }
+
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const [key, value] of Object.entries(parsed)) {
-      if (UNSAFE_ARG_KEYS.has(key)) {
-        throw new Error(`--args key "${key}" is reserved.`)
-      }
+      if (UNSAFE_ARG_KEYS.has(key)) throw new Error(`--args key "${key}" is reserved.`)
+
       out[key] = value
     }
   }
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const a of arg ?? []) {
     const i = a.indexOf("=")
-    if (i < 0) {
-      throw new Error(`--arg must be key=value (got "${a}").`)
-    }
+    if (i < 0) throw new Error(`--arg must be key=value (got "${a}").`)
+
     const key = a.slice(0, i)
-    if (UNSAFE_ARG_KEYS.has(key)) {
-      throw new Error(`--arg key "${key}" is reserved.`)
-    }
+    if (UNSAFE_ARG_KEYS.has(key)) throw new Error(`--arg key "${key}" is reserved.`)
+
     out[key] = a.slice(i + 1)
   }
   return out
@@ -118,14 +114,14 @@ export async function resolveTargets(opts: ResolveOpts): Promise<ResolvedConfig[
   const names = Object.keys(config.connections)
 
   // Siblings the lazy proxy connected during resolution — closed before we return.
-  const opened = new Map<string, { conn: unknown; driver: Driver<unknown>; driverName: string }>()
+  const opened = new Map<string, { conn: unknown; driver: Driver; driverName: string }>()
   const resolving = new Set<string>()
 
   const entryOf = (name: string): AnyConnectionEntry => {
     const entry = Object.hasOwn(config.connections, name) ? config.connections[name] : undefined
-    if (!isConnectionEntry(entry)) {
+    if (!isConnectionEntry(entry))
       throw new Error(`No connection named "${name}". Known: ${names.join(", ") || "(none)"}.`)
-    }
+
     return entry
   }
 
@@ -133,12 +129,15 @@ export async function resolveTargets(opts: ResolveOpts): Promise<ResolvedConfig[
   const resolveOneConfig = async (name: string, key?: string): Promise<ResolvedConfig> => {
     const entry = entryOf(name)
     const list = await entry.resolve(ctx, args)
-    const picked =
-      key === undefined ? list.length === 1 ? list[0] : undefined : list.find((c) => c.key === key)
+    const only = (): (typeof list)[number] | undefined => {
+      if (key !== undefined) return list.find((c) => c.key === key)
+      return list.length === 1 ? list[0] : undefined
+    }
+    const picked = only()
     if (!picked) {
-      if (key !== undefined) {
+      if (key !== undefined)
         throw new Error(`Connection "${name}" has no element with key "${key}".`)
-      }
+
       throw new Error(
         `Connection "${name}" resolved to ${list.length} connections (a collection); address one with --connection ${name}:<key> or use --all.`,
       )
@@ -150,12 +149,10 @@ export async function resolveTargets(opts: ResolveOpts): Promise<ResolvedConfig[
   // access (A resolves via B resolves via A) throws instead of looping.
   const openConnection = async (name: string) => {
     const cached = opened.get(name)
-    if (cached) {
-      return cached
-    }
-    if (resolving.has(name)) {
-      throw new Error(`Connection cycle detected while resolving "${name}".`)
-    }
+    if (cached) return cached
+
+    if (resolving.has(name)) throw new Error(`Connection cycle detected while resolving "${name}".`)
+
     resolving.add(name)
     try {
       const resolved = await resolveOneConfig(name)
@@ -174,9 +171,8 @@ export async function resolveTargets(opts: ResolveOpts): Promise<ResolvedConfig[
     {},
     {
       get(_t, prop): ResolvedConnectionHandle | undefined {
-        if (typeof prop !== "string") {
-          return undefined
-        }
+        if (typeof prop !== "string") return undefined
+
         return {
           async query(sql, vars) {
             const { conn, driver, driverName } = await openConnection(prop)
@@ -206,14 +202,13 @@ export async function resolveTargets(opts: ResolveOpts): Promise<ResolvedConfig[
     if (opts.all) {
       targets = []
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const name of names) {
-        targets.push(...(await fanOut(name)))
-      }
+      for (const name of names) targets.push(...(await fanOut(name)))
     } else if (opts.connection) {
       const [name, key] = splitAddress(opts.connection)
       targets = key === undefined ? await fanOut(name) : [await resolveOneConfig(name, key)]
     } else {
       const name = config.defaultConnection ?? (names.length === 1 ? names[0] : "default")
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- índice de Record assume presença, mas a config vem de arquivo do usuário.
       if (!config.connections[name]) {
         throw new Error(
           `No default connection. Set "defaultConnection" or pass --connection. Known: ${names.join(", ") || "(none)"}.`,
@@ -221,13 +216,11 @@ export async function resolveTargets(opts: ResolveOpts): Promise<ResolvedConfig[
       }
       targets = [await resolveOneConfig(name)]
     }
-    if (targets.length === 0) {
-      throw new Error("No connections matched — nothing to do.")
-    }
+    if (targets.length === 0) throw new Error("No connections matched — nothing to do.")
+
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const driver of new Set(targets.map((t) => t.driver))) {
-      assertDriverAvailable(driver)
-    }
+    for (const driver of new Set(targets.map((t) => t.driver))) assertDriverAvailable(driver)
+
     return targets
   } finally {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica

@@ -1,10 +1,11 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-restricted-types, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. Fixtures use object to probe schema typing. Type queries and callback signatures need fixture values. */
 // TYPE assertions for the tenant plugin: the preset column is a typed `record<principal>` (create-
 // optional, absent from updates, available as `t.<column>` in index callbacks) and `$forTenant`
 // returns the FULL typed delegate (`this`), so reads/writes survive the scope clone.
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
 import { describe, it } from "node:test"
 
-import type { RecordIdValue, Surreal } from "surrealdb"
+import type { Surreal } from "surrealdb"
 import { RecordId } from "surrealdb"
 
 import { assertType } from "../../../../../scripts/type-assert"
@@ -36,13 +37,13 @@ const scopedCreate = (client: C) =>
   client.customers.$forTenant("user:abc").create({ data: { name: "A" } })
 const byRecordId = (client: C) => client.customers.$forTenant(new RecordId("user", "abc"))
 
-describe("tenant preset — types", () => {
-  it("the tenant column is a record<principal> carrying the principal's id value type", () => {
-    assertType<RecordId<"user", RecordIdValue>, App<typeof Customer>["tenant_id"]>()
-    assertType<RecordId<"user", RecordIdValue>, App<typeof Org>["org_id"]>()
+void describe("tenant preset — types", () => {
+  void it("the tenant column is a record<principal> carrying the principal's id value type", () => {
+    assertType<RecordId<"user">, App<typeof Customer>["tenant_id"]>()
+    assertType<RecordId<"user">, App<typeof Org>["org_id"]>()
   })
 
-  it("the column is create-optional ($default) and absent from updates ($readonly)", () => {
+  void it("the column is create-optional ($default) and absent from updates ($readonly)", () => {
     // A create payload without the column type-checks (the DB fills it from $auth.id).
     Customer.create.safeParse({ name: "A" })
     assertType<
@@ -51,30 +52,30 @@ describe("tenant preset — types", () => {
     >()
   })
 
-  it("a custom column name stays typed and rename-safe in .index() callbacks", () => {
+  void it("a custom column name stays typed and rename-safe in .index() callbacks", () => {
     const Indexed = table("indexed", {}).use(tenant(User, { column: "org_id" }))
     const withIndex = Indexed.index("by_org", (t) => [t.org_id])
     assertType<true, typeof withIndex extends object ? true : false>()
   })
 })
 
-describe("tenantRls — types", () => {
-  it("$forTenant lands on every delegate and returns the full typed delegate (`this`)", () => {
+void describe("tenantRls — types", () => {
+  void it("$forTenant lands on every delegate and returns the full typed delegate (`this`)", () => {
     assertType<true, "$forTenant" extends keyof C["customers"] ? true : false>()
     assertType<true, "$forTenant" extends keyof PluginModelExtras<[P]> ? true : false>()
     assertType<
       true,
-      ReturnType<typeof scoped> extends { findMany: unknown; create: unknown } ? true : false
+      ReturnType<typeof scoped> extends { create: unknown; findMany: unknown } ? true : false
     >()
   })
 
-  it("the scoped delegate keeps the read/write surface and accepts string | RecordId", () => {
+  void it("the scoped delegate keeps the read/write surface and accepts string | RecordId", () => {
     assertType<true, ReturnType<typeof scopedFind> extends object ? true : false>()
     assertType<true, ReturnType<typeof scopedCreate> extends object ? true : false>()
     assertType<true, ReturnType<typeof byRecordId> extends object ? true : false>()
   })
 
-  it("isTenantViolation is a boolean predicate", () => {
+  void it("isTenantViolation is a boolean predicate", () => {
     assertType<boolean, ReturnType<typeof isTenantViolation>>()
   })
 })

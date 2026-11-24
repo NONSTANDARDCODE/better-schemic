@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-meaningless-void-operator -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally unused type-probe values. */
 // ParamRef.as<T>() — the LEAF that types a `surql.$` param chain, so an out-of-band param
 // (`DEFINE PARAM $resend_api_key`) drops into typed positions: operands, Def.call args, and
 // surql.fn args. Type-cast; `as` joins path/toText/then as reserved proxy names.
@@ -12,6 +13,7 @@ describe("surql.$ leaf typing", () => {
   test("types a param chain and still splices as text", () => {
     const key = surql.$.resend_api_key.as<string>()
     expect(key.toText()).toBe("$resend_api_key")
+    // eslint-disable-next-line unicorn/prefer-spread -- SurrealQL fn.concat builder, not Array.concat
     const q = surql.fn.string.concat("Bearer ", key)
     expect(q.query).toMatch(/^string::concat\(\$r\d+, \$resend_api_key\)$/u)
   })

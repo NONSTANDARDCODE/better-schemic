@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Fixtures assert values whose presence the test guarantees. */
 // The RELATE lowering in isolation: the default operations, endpoint validation, named/empty edge
 // ids and the `create.relate` sugar guards. Direct calls pin the failure codes.
 import { describe, expect, test } from "bun:test"
@@ -15,6 +16,7 @@ import { createBinds } from "../../../src/surreal/orm/compiler/shared"
 import { schema } from "../../../src/surreal/orm/schema"
 import { relation } from "../../../src/surreal/pure"
 import { fakeConn, ok } from "../orm-fixtures"
+
 import { schemaDef } from "./orm-writes-fixtures"
 
 const code = (fn: () => unknown): string | undefined => {

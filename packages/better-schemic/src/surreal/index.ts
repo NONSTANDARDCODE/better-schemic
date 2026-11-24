@@ -38,28 +38,23 @@ const COLREF = Symbol.for("better-schemic.surrealdb.colref")
 
 /** Resolve a known schema reference to its spliced TEXT, or `undefined` to bind it as a value. */
 function markerText(v: unknown): string | undefined {
-  if (v instanceof TableDef) {
-    return escapeIdent(v.name)
-  }
-  if (v instanceof Table) {
-    return escapeIdent(v.name)
-  }
-  if (v instanceof FunctionDef) {
-    return `fn::${v.name}`
-  }
-  if (v instanceof ParamDef) {
-    return `$${v.name}`
-  }
-  if (isParamRef(v)) {
-    return v.toText()
-  }
-  if (v instanceof RecordIdField && v.tables.length === 1) {
-    return escapeIdent(v.tables[0] as string)
-  }
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- argumento any vem de internals do Zod/SDK (fronteira sem tipos)
+  if (v instanceof TableDef) return escapeIdent(v.name)
+
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- argumento any vem de internals do Zod/SDK (fronteira sem tipos)
+  if (v instanceof Table) return escapeIdent(v.name)
+
+  if (v instanceof FunctionDef) return `fn::${v.name}`
+
+  if (v instanceof ParamDef) return `$${v.name}`
+
+  if (isParamRef(v)) return v.toText()
+
+  if (v instanceof RecordIdField && v.tables.length === 1) return escapeIdent(v.tables[0] as string)
+
   const col = (v as null | Record<symbol, unknown>)?.[COLREF]
-  if (typeof col === "string") {
-    return escapeIdent(col)
-  }
+  if (typeof col === "string") return escapeIdent(col)
+
   return undefined
 }
 
@@ -80,7 +75,7 @@ function surqlTag<R extends unknown[] = unknown[]>(
   // (a nested BoundQuery composes natively).
   const parts: string[] = [strings[0]]
   const rest: unknown[] = []
-  // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+  // eslint-disable-next-line functional/no-loop-statements, unicorn-plugin/no-for-loop -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica / índice do loop é usado para alinhar duas listas paralelas
   for (let i = 0; i < values.length; i++) {
     const text = markerText(values[i])
     if (text !== undefined) {
@@ -99,8 +94,8 @@ function surqlTag<R extends unknown[] = unknown[]>(
     rest.push(frag ?? values[i])
     parts.push(strings[i + 1])
   }
-  const tsa = Object.assign(parts.slice(), {
-    raw: parts.slice(),
+  const tsa = Object.assign([...parts], {
+    raw: [...parts],
   }) as unknown as TemplateStringsArray
   const q = sdkSurql(tsa, ...rest)
   return new Surql<R>(q.query, { ...q.bindings })
@@ -119,14 +114,14 @@ function surqlTag<R extends unknown[] = unknown[]>(
  *
  * Helpers on the tag:
  *  - `surql\`…\`.as<T>()` — retype as a TYPED expression fragment (an expression of type `T` is a
- *    one-statement query `[T]` — the `[T]` rule), so sinks like `where` can take `Frag<boolean>`.
+ * one-statement query `[T]` — the `[T]` rule), so sinks like `where` can take `Frag<boolean>`.
  *  - `surql.record(Table, idFrag)` — `type::record(<table>, <id>)` with a typed table ref.
  *  - `surql.table(Table)` — the escaped table name as a fragment.
  *  - `surql.$` — the param-path proxy (`surql.$.after.email` -> `$after.email`). UNTYPED here;
- *    typed variants come from slot callbacks (see the typed-fragments proposal).
+ * typed variants come from slot callbacks (see the typed-fragments proposal).
  *  - `surql.fn.<ns>.<name>(...)` — SurrealDB's builtin function library, TYPED (the catalog in
- *    `./fn`): `surql.fn.crypto.bcrypt.compare(a, b)`, `surql.fn.string.len(x)` — every call a
- *    typed fragment that composes anywhere.
+ * `./fn`): `surql.fn.crypto.bcrypt.compare(a, b)`, `surql.fn.string.len(x)` — every call a
+ * typed fragment that composes anywhere.
  */
 export const surql: typeof surqlTag & {
   /** The param-path proxy: `surql.$.after.email` splices `$after.email`. */
@@ -134,22 +129,22 @@ export const surql: typeof surqlTag & {
   /** The typed builtin-function catalog: `surql.fn.string.len(x)` -> `Frag<number>`. */
   fn: typeof fn
   /** An ESCAPED identifier fragment (`escapeIdent`) — for presets/plugins composing a dynamic
-   *  column/field name: `surql\`${surql.ident(col)} = ${surql.$.auth.id}\``. Escaping happens
-   *  ALWAYS, so a caller-supplied name can never inject syntax. */
+   * column/field name: `surql\`${surql.ident(col)} = ${surql.$.auth.id}\``. Escaping happens
+   * ALWAYS, so a caller-supplied name can never inject syntax. */
   ident: (name: string) => BoundQuery
   /** `type::record(<table>, <id>)` — a record id from a typed table ref + the id VALUE: a typed
-   *  ref (`e.after.id`), a fragment, or a literal (bound). A TUPLE-id table takes the array form —
-   *  `surql.record(EmailVerification, [e.after.id])` (refs inside splice). */
+   * ref (`e.after.id`), a fragment, or a literal (bound). A TUPLE-id table takes the array form —
+   * `surql.record(EmailVerification, [e.after.id])` (refs inside splice). */
   record: (table: { name: string }, id: FnArg<unknown>) => BoundQuery<[unknown]>
   /** The escaped table name as a fragment. */
   table: (table: { name: string }) => BoundQuery<[unknown]>
 } = Object.assign(surqlTag, {
+  $: paramProxy([]) as unknown as Record<string, ParamRef & Record<string, ParamRef>>,
+  fn,
+  ident: (name: string): BoundQuery => new BoundQuery(escapeIdent(name)),
   record: (table: { name: string }, id: FnArg<unknown>): BoundQuery<[unknown]> =>
     surqlTag`type::record(${new Table(table.name)}, ${id})`,
   table: (table: { name: string }): BoundQuery<[unknown]> => surqlTag`${new Table(table.name)}`,
-  ident: (name: string): BoundQuery => new BoundQuery(escapeIdent(name)),
-  $: paramProxy([]) as unknown as Record<string, ParamRef & Record<string, ParamRef>>,
-  fn,
 })
 export type { RecordIdValue, SurrealSession } from "surrealdb"
 // The SDK surface apps need, re-exported so an app never has to depend on "surrealdb" directly —

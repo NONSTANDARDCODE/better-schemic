@@ -8,7 +8,7 @@
  * `DEFINE API "/articles" FOR get THEN { RETURN { status: 200, body: (SELECT * FROM article) }; } FOR post THEN { … };`
  */
 /** Query parameters / headers for an API call. */
-export interface ApiRequestOptions {
+export type ApiRequestOptions = {
   /** Request headers (merged with the API's defaults). */
   headers?: Record<string, string>
   /** Query-string parameters (`?limit=10`). */
@@ -16,12 +16,12 @@ export interface ApiRequestOptions {
 }
 
 /** An API call that carries a body (`post`/`put`/`patch`/`delete`). */
-export interface ApiBodyOptions extends ApiRequestOptions {
+export type ApiBodyOptions = {
   body?: unknown
-}
+} & ApiRequestOptions
 
 /** The five verbs `DEFINE API` supports. */
-export interface ApiOperations {
+export type ApiOperations = {
   delete<T = unknown>(path: string, options?: ApiBodyOptions): Promise<T>
   /** `DEFINE API … FOR get` — the decoded response body. */
   get<T = unknown>(path: string, options?: ApiRequestOptions): Promise<T>

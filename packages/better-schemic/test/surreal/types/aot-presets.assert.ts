@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally unused type-probe values. Type queries and callback signatures need fixture values. */
 // Bun AOT — preset idempotence without `as unknown as AnyTableDef`. Type-checked by `bun check`.
 import { describe, it } from "node:test"
 
@@ -32,27 +33,27 @@ const Customer = tenantTable("customer", {
   name: s.string(),
 })
 
-describe("AOT — idempotent presets", () => {
-  it("use() works on a generic S with no cast and preserves Name + S", () => {
+void describe("AOT — idempotent presets", () => {
+  void it("use() works on a generic S with no cast and preserves Name + S", () => {
     assertType<string, App<typeof Customer>["name"]>()
     assertType<"customer", (typeof Customer)["name"]>()
   })
 
-  it("the root entry exports the shape-erased helper types", () => {
+  void it("the root entry exports the shape-erased helper types", () => {
     const erased: AnyTableDef = Customer
     const ref: AnyTableRef = Customer
     void erased
     void ref
   })
 
-  it("apply the same preset twice at a concrete call site (idempotent)", () => {
+  void it("apply the same preset twice at a concrete call site (idempotent)", () => {
     const T = table("c", { tenant_id: s.recordId("tenant") })
       .use(tenant)
       .use(tenant)
     assertType<true, "tenant_id" extends keyof App<typeof T> ? true : false>()
   })
 
-  it("useUnchecked / useAs give explicit escapes that keep Name", () => {
+  void it("useUnchecked / useAs give explicit escapes that keep Name", () => {
     const U = table("u", { name: s.string() }).useUnchecked(tenant)
     assertType<string, App<typeof U>["name"]>()
     const A = table("a", { name: s.string() }).useAs<
@@ -62,7 +63,7 @@ describe("AOT — idempotent presets", () => {
     assertType<string, App<typeof A>["name"]>()
   })
 
-  it("a genuinely divergent column still fails to typecheck", () => {
+  void it("a genuinely divergent column still fails to typecheck", () => {
     const clash = table.preset({ columns: { name: s.number() } })
     // @ts-expect-error — `name` is a string on the table, a number in the preset
     table("x", { name: s.string() }).use(clash)

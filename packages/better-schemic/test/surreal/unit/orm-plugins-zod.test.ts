@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
 // M6.3 — the `zod` validation plugin: check write `data` with user Zod schemas (path in the
 // ValidationError), and skip unconfigured tables. Offline.
 import { describe, expect, test } from "bun:test"

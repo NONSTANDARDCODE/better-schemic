@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/require-await -- Object key order mirrors expected serialized output and must stay as authored. Mock methods match async interfaces without awaiting. */
 // M5.3 — `$withContext` (USE prefix, per-call override, session-bound fail-fast, auth overload),
 // `extends` reapplication across clones/transactions and `forkSession` isolation. Offline — the
 // "connection" is a recording fake (with optional session getters / fork support).
@@ -103,7 +104,9 @@ describe("$withContext — auth overload", () => {
           return token
         },
         query: (sql: string) => ({ responses: async () => echo(sql) }),
-        closeSession: async () => {},
+        closeSession: async () => {
+          /* empty */
+        },
       }),
     })
     const client = orm(conn, { schema: schemaDef })
@@ -147,8 +150,12 @@ describe("extends — reapplication", () => {
       query: (sql: string) => ({ responses: async () => echo(sql) }),
       beginTransaction: async () => ({
         query: (sql: string) => ({ responses: async () => echo(sql) }),
-        commit: async () => {},
-        cancel: async () => {},
+        commit: async () => {
+          /* empty */
+        },
+        cancel: async () => {
+          /* empty */
+        },
       }),
     }
     const txClient = orm(txConn as never, { schema: schemaDef }).extends({

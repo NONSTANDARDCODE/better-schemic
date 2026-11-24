@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // `describeSchema()` — a JSON-safe, agent-readable derivation of the authored schema. No DDL, no DB.
 import { describe, expect, test } from "bun:test"
 

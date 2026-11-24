@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/require-await -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock methods match async interfaces without awaiting. */
 // M5.2 — `api`/`auth`/admin: the `DEFINE API` envelope unwrap + status error, the auth passthrough
 // (and the record-session mapping), and `info`/`version`/`ping`/`export`/`import`. Offline.
 import { describe, expect, test } from "bun:test"
@@ -14,9 +15,9 @@ const schemaDef = schema({ users: User })
 
 const echo = (sql: string) => sql.split("\n").map((line) => ok(line))
 
-interface Envelope {
-  status?: number
+type Envelope = {
   body?: unknown
+  status?: number
 }
 
 /** A chainable SDK-shaped `ApiPromise` (header/query return the same thenable). */

@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures assert values whose presence the test guarantees. */
 // M1.6 — `paginate` (offset pages): the data + count statements compile in ONE round-trip and the
 // envelope math is golden-asserted. Offline. `cursor` lives in `orm-cursor.test.ts`.
 import { describe, expect, test } from "bun:test"
@@ -7,7 +8,6 @@ import { orm } from "../../../src/surreal/orm/client"
 import { compilePaginate } from "../../../src/surreal/orm/compiler/pagination"
 import { createBinds } from "../../../src/surreal/orm/compiler/shared"
 import type { OrmError } from "../../../src/surreal/orm/errors"
-import type { TableMeta } from "../../../src/surreal/orm/meta"
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema"
 import { s, table } from "../../../src/surreal/pure"
 import { fakeConn, lines, ok } from "../orm-fixtures"
@@ -19,7 +19,7 @@ const User = table("user", {
   tags: s.array(s.string()),
 })
 const index = buildSchemaIndex({ users: User })
-const meta = index.tables.get("users") as TableMeta
+const meta = index.tables.get("users")!
 
 const fullUser = (id: string, over: Record<string, unknown> = {}) => ({
   id: new RecordId("user", id),

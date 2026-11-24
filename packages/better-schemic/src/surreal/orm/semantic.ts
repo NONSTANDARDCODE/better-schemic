@@ -8,6 +8,7 @@
  * `surql` fragment to infer where a column came from.
  */
 import type { App } from "../pure"
+
 import type { SchemaIndex } from "./meta"
 import { buildSchemaIndex } from "./schema"
 import type { AnyTableDef, SchemaDef, SchemaInput } from "./types/schema"
@@ -16,7 +17,7 @@ import type { AnyTableDef, SchemaDef, SchemaInput } from "./types/schema"
 export type MetricOp = "avg" | "count" | "max" | "median" | "min" | "sum"
 
 /** A business metric: named, typed against its source table, and reusable by agents. */
-export interface MetricDef<F extends string = string> {
+export type MetricDef<F extends string = string> = {
   /**
    * The deterministic `combine` args for this metric (`select`/`groupBy`). The ORM's own result
    * typing derives from the literal, so spreading this into `delegate.combine()` stays typed.
@@ -36,7 +37,7 @@ export interface MetricDef<F extends string = string> {
   readonly table: string
 }
 
-const OPS: readonly MetricOp[] = ["count", "sum", "avg", "min", "max", "median"]
+const OPS: ReadonlySet<MetricOp> = new Set(["count", "sum", "avg", "min", "max", "median"])
 
 /** Declare a metric against a table — the measure field and dimensions check them at authoring. */
 export function defineMetric<
@@ -50,35 +51,32 @@ export function defineMetric<
   measure: { readonly field: F; readonly op: MetricOp } | { readonly op: "count" }
   name?: string
 }): MetricDef<F> {
-  if (!OPS.includes(spec.measure.op)) {
+  if (!OPS.has(spec.measure.op))
     throw new Error(`metric "${spec.key}": unsupported op "${spec.measure.op}".`)
-  }
-  if (!spec.key) {
-    throw new Error("metric: a stable `key` is required.")
-  }
+
+  if (!spec.key) throw new Error("metric: a stable `key` is required.")
+
   const dimensions = spec.dimensions ?? []
   const select: Record<string, unknown> = { _count: true }
-  if (spec.measure.op !== "count") {
-    select.value = { [spec.measure.op]: spec.measure.field }
-  }
+  if (spec.measure.op !== "count") select.value = { [spec.measure.op]: spec.measure.field }
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const dimension of dimensions) {
-    select[dimension] = dimension
-  }
+  for (const dimension of dimensions) select[dimension] = dimension
+
   return {
-    kind: "metric",
     key: spec.key,
+    kind: "metric",
     name: spec.name ?? spec.key,
     ...(spec.description ? { description: spec.description } : {}),
-    table: spec.from.name,
-    measure: spec.measure,
+    args: dimensions.length > 0 ? { groupBy: dimensions, select } : { select },
     dimensions,
-    args: dimensions.length > 0 ? { select, groupBy: dimensions } : { select },
+    measure: spec.measure,
+    table: spec.from.name,
   }
 }
 
 /** A glossary entry — authoring-metadata; the database never sees it and cannot round-trip it. */
-export interface GlossaryTerm {
+export type GlossaryTerm = {
   readonly definition: string
   /** The business metric key this term describes, when any. */
   readonly metric?: string
@@ -91,16 +89,14 @@ export function defineGlossary<const T extends Readonly<Record<string, GlossaryT
   terms: T,
 ): T {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [term, entry] of Object.entries(terms)) {
-    if (!entry?.definition) {
-      throw new Error(`glossary: term "${term}" needs a definition.`)
-    }
-  }
+  for (const [term, entry] of Object.entries(terms))
+    if (!entry.definition) throw new Error(`glossary: term "${term}" needs a definition.`)
+
   return terms
 }
 
 /** One declared lineage edge (metric → source fields). */
-export interface LineageEntry {
+export type LineageEntry = {
   readonly dimensions: readonly string[]
   /** The fields the metric reads (measure + dimensions). */
   readonly fields: readonly string[]
@@ -121,14 +117,14 @@ export function lineage(
 ): readonly LineageEntry[] {
   const seen = new Set<string>()
   return metrics.map((metric) => {
-    if (seen.has(metric.key)) {
+    if (seen.has(metric.key))
       throw new Error(`lineage: duplicate metric key "${metric.key}" — metric keys must be unique.`)
-    }
+
     seen.add(metric.key)
     const model = index.byName.get(metric.table)
-    if (!model || !("columns" in model)) {
+    if (!model || !("columns" in model))
       throw new Error(`lineage: metric "${metric.key}" names unknown table "${metric.table}".`)
-    }
+
     const fields = [
       ...(metric.measure.op === "count" ? [] : [metric.measure.field]),
       ...metric.dimensions,
@@ -142,11 +138,11 @@ export function lineage(
       }
     }
     return {
-      key: metric.key,
-      table: metric.table,
-      fields,
       dimensions: metric.dimensions,
+      fields,
+      key: metric.key,
       measure: metric.measure,
+      table: metric.table,
     }
   })
 }

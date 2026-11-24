@@ -20,7 +20,11 @@
  * neutral upper bound for a kind's authoring-object type (a driver's concrete `TableDef`/`FnDef` is a
  * structural subtype).
  */
-export interface Definable {
+/** Heterogeneous engine erasure — the seam where core forgets a kind's concrete authoring/portable types. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- apagamento bivariante no seam heterogêneo; `unknown` rejeitaria engines reais.
+export type AnyKindEngine = KindEngine<any, any>
+
+export type Definable = {
   readonly kind: string
   readonly name: string
 }
@@ -31,13 +35,13 @@ export interface Definable {
  * diff it); an opaque kind (function/access) carries a neutral identity + a `native` payload it
  * round-trips. Either way it's tagged with `kind`/`name` for cross-kind dispatch + ordering.
  */
-export interface PortableObject {
+export type PortableObject = {
   readonly kind: string
   readonly name: string
 }
 
 /** A reference to another object in the schema graph — the unit of cross-kind dependency ordering. */
-export interface Ref {
+export type Ref = {
   readonly kind: string
   readonly name: string
 }
@@ -52,10 +56,10 @@ import type { DiffItem } from "../cli-kit/diff"
  * is parity-checkable against the fixed-slot engine. `A` is the kind's authoring object, `P` its
  * portable object; both are opaque to core beyond the {@link Definable}/{@link PortableObject} bounds.
  */
-export interface KindEngine<
+export type KindEngine<
   A extends Definable = Definable,
   P extends PortableObject = PortableObject,
-> {
+> = {
   /**
    * The CANONICAL change-detection key: the spine treats prev/next of the same object as a CHANGE iff
    * their `canonical` differs. Default (omitted) = `emit(portable).join("\n")` — so a kind whose `emit`
@@ -109,8 +113,8 @@ export interface KindEngine<
    */
   excludeFromMigrations?: ((portable: PortableObject) => boolean) | boolean
   /**
-   * Live connection -> all portable objects of THIS kind (the reverse direction). Introspection is
-   * often one `INFO`/catalog read yielding every kind at once; a driver backs all of its kinds'
+   * Live connection -> portable objects of THIS kind (the reverse direction). Introspection is
+   * often one `INFO`/catalog read yielding every kind at once; a driver backs each of its kinds'
    * `introspect` with one shared (memoized) read and slices out this kind's objects. Omitted -> this
    * kind isn't introspectable (diff/emit still work from authored state).
    */
@@ -119,7 +123,7 @@ export interface KindEngine<
   lower(authored: A): P
   /**
    * In-place CHANGE DDL taking `prev` to `next` (the dialect's ALTER/OVERWRITE). The spine calls
-   * `overwrite(next, prev)` to roll a change back. A kind with no in-place form recreates: implement
+   * `overwrite(next, prev)` to roll a change back. A kind with no in-place form recreates: define
    * as `[...remove(prev), ...emit(next)]`. Default (omitted) = recreate via emit(next).
    */
   overwrite?(prev: P, next: P): string[]
@@ -142,7 +146,7 @@ export interface KindEngine<
 }
 
 /** Per-kind presentation metadata (labels + output folder). All optional; core fills defaults. */
-export interface KindDisplay {
+export type KindDisplay = {
   /** The directory this kind's objects render into. Default: the lowercase slug of `plural`. */
   folder?: string
   /** Title-Case singular, e.g. `"Table"`, `"Field"`. Default: the kind name, capitalized. */
@@ -168,12 +172,10 @@ function capitalize(s: string): string {
 
 /** A plain English pluralizer for kind labels: `Index` -> `Indexes`, `Policy` -> `Policies`. */
 function pluralize(s: string): string {
-  if (/[^aeiou]y$/iu.test(s)) {
-    return `${s.slice(0, -1)}ies`
-  }
-  if (/(s|x|z|ch|sh)$/iu.test(s)) {
-    return `${s}es`
-  }
+  if (/[^aeiou]y$/iu.test(s)) return `${s.slice(0, -1)}ies`
+
+  if (/(s|x|z|ch|sh)$/iu.test(s)) return `${s}es`
+
   return `${s}s`
 }
 
@@ -194,7 +196,7 @@ function slugify(s: string): string {
 export class KindRegistry {
   // Heterogeneous kinds erase at the engine seam (engine ops are structural); the AUTHORING side
   // keeps full types via `define`'s `Build` passthrough.
-  private readonly kinds = new Map<string, KindEngine<any, any>>()
+  private readonly kinds = new Map<string, AnyKindEngine>()
 
   /**
    * Register a KIND. `build` is the driver's own authoring entry — ANY shape/chain — and its type
@@ -214,7 +216,7 @@ export class KindRegistry {
   }
 
   /** The engine for `kind`, or undefined if no such kind registers it. */
-  engine(kind: string): KindEngine<any, any> | undefined {
+  engine(kind: string): AnyKindEngine | undefined {
     return this.kinds.get(kind)
   }
 
@@ -246,9 +248,8 @@ export class KindRegistry {
    */
   display(kind: string): ResolvedDisplay {
     const cached = this.displayCache.get(kind)
-    if (cached) {
-      return cached
-    }
+    if (cached) return cached
+
     const d = this.kinds.get(kind)?.display ?? {}
     const label = d.label ?? capitalize(kind)
     const plural = d.plural ?? pluralize(label)
@@ -280,7 +281,7 @@ export class KindRegistry {
   }
 
   /** [name, engine] pairs in registration order — the spine iterates these. */
-  entries(): [string, KindEngine<any, any>][] {
+  entries(): [string, AnyKindEngine][] {
     return [...this.kinds.entries()]
   }
 

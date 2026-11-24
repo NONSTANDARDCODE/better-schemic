@@ -13,6 +13,7 @@ import { BoundQuery, escapeIdent, type RecordId } from "surrealdb"
 
 import { refMethods, type RefMethodSpec } from "../fn"
 import type { ParamDef, ParamRef, Range } from "../pure"
+
 import { brandRef, type FieldRefBase } from "./ref"
 import {
   argRenderer,
@@ -72,9 +73,9 @@ type ExprNode =
   | { readonly kind: "refexpr"; readonly ref: RefState }
 
 /** Chainable boolean combinators — every predicate carries them, so `u.age.gte(18).and(...)`
- *  needs no standalone import. A raw `surql` fragment (`Frag<boolean>`) accepts it anywhere an
- *  `Expr` is. */
-interface ExprOps {
+ * needs no standalone import. A raw `surql` fragment (`Frag<boolean>`) accepts it anywhere an
+ * `Expr` is. */
+type ExprOps = {
   and(...more: (BoundQuery | Expr)[]): Expr
   not(): Expr
   or(...more: (BoundQuery | Expr)[]): Expr
@@ -92,15 +93,15 @@ export function isExpr(v: unknown): v is Expr {
 }
 
 const exprProto: ExprOps & { [EXPR_BRAND]: true } = {
-  [EXPR_BRAND]: true,
   and(this: Expr, ...more: Predicate[]): Expr {
     return mkExpr({ kind: "and", parts: [this, ...more.map(toExpr)] })
   },
-  or(this: Expr, ...more: Predicate[]): Expr {
-    return mkExpr({ kind: "or", parts: [this, ...more.map(toExpr)] })
-  },
+  [EXPR_BRAND]: true,
   not(this: Expr): Expr {
     return mkExpr({ kind: "not", part: this })
+  },
+  or(this: Expr, ...more: Predicate[]): Expr {
+    return mkExpr({ kind: "or", parts: [this, ...more.map(toExpr)] })
   },
 }
 function mkExpr(node: ExprNode): Expr {
@@ -113,14 +114,14 @@ export function toExpr(p: Predicate): Expr {
 
 /** An operand: a literal (BOUND as a param), a typed `$param` ref from a contextual callback
  *  (`u.age.gte(a.adultThreshold)` splices `$adultThreshold`), another field ref (spliced —
- *  `$parent.<col>` when it belongs to an outer row), or a `surql` fragment / builder (spliced,
- *  bindings merged). */
+ * `$parent.<col>` when it belongs to an outer row), or a `surql` fragment / builder (spliced,
+ * bindings merged). */
 export type Operand<T> = BoundQuery | FieldRefBase<T> | ParamDef<T> | ParamRef<T> | T
 
 // --- the typed ref surface ------------------------------------------------------------------------
 
 /** The operators every column carries (comparisons, set membership, NONE checks). */
-export interface FieldRefOps<T> extends FieldRefBase<T> {
+export type FieldRefOps<T> = {
   eq(v: Operand<T>): Expr
   gt(v: Operand<T>): Expr
   gte(v: Operand<T>): Expr
@@ -136,16 +137,16 @@ export interface FieldRefOps<T> extends FieldRefBase<T> {
   neq(v: Operand<T>): Expr
   /** `col NOT IN [...]` — likewise, list or {@link Range}. */
   notIn(values: Operand<readonly T[]> | Range<NonNullable<T>>): Expr
-}
+} & FieldRefBase<T>
 
 /** String operators + the string stdlib (each derived method returns a ref again, so
- *  `u.name.length().gt(3)` and `u.name.lowercase().startsWith("a")` keep chaining). */
-export interface StringRefOps {
+ * `u.name.length().gt(3)` and `u.name.lowercase().startsWith("a")` keep chaining). */
+export type StringRefOps = {
   endsWith(suffix: Operand<string>): Expr
   /** `col CONTAINS $substr` — CASE-SENSITIVE substring test (a NONE column doesn't match, like
-   *  `startsWith`/`endsWith`). Named `.includes` to match `z.string().includes()` and the ratified
-   *  cross-driver spelling — `.contains*` reservs it for ARRAY membership. Lowers to the native
-   *  SurrealQL `CONTAINS`. */
+   * `startsWith`/`endsWith`). Named `.includes` to match `z.string().includes()` and the ratified
+   * cross-driver spelling — `.contains*` reservs it for ARRAY membership. Lowers to the native
+   * SurrealQL `CONTAINS`. */
   includes(substring: Operand<string>): Expr
   /** `string::len(col)`. */
   length(): FieldRef<number>
@@ -164,7 +165,7 @@ export interface StringRefOps {
 }
 
 /** Numeric arithmetic + `math::*` stdlib — results chain (`p.views.plus(1)`, `u.score.round().gte(5)`). */
-export interface NumberRefOps {
+export type NumberRefOps = {
   abs(): FieldRef<number>
   ceil(): FieldRef<number>
   /** `(col / n)`. */
@@ -184,9 +185,9 @@ export interface NumberRefOps {
 }
 
 /** Array operators (`CONTAINS*`) + the `array::*` stdlib. */
-export interface ArrayRefOps<E> {
+export type ArrayRefOps<E> = {
   /** `array::all(col, |$v| <pred>)` — do ALL elements match? A boolean, so it lands in `.where(…)`
-   *  directly; for a projectable value use `.filter(…).length()`. */
+   * directly; for a projectable value use `.filter(…).length()`. */
   all(fn: (v: FieldRef<E>) => Predicate): Expr
   /** `array::any(col, |$v| <pred>)` — does ANY element match? See {@link ArrayRefOps.all}. */
   any(fn: (v: FieldRef<E>) => Predicate): Expr
@@ -222,7 +223,7 @@ export interface ArrayRefOps<E> {
 }
 
 /** Datetime decomposition (`time::*`) — each part is a chainable number ref. */
-export interface DateRefOps {
+export type DateRefOps = {
   day(): FieldRef<number>
   /** `time::format(col, fmt)` — strftime-style. */
   format(fmt: Operand<string>): FieldRef<string>
@@ -243,11 +244,11 @@ export interface DateRefOps {
 type IsAny<T> = 0 extends 1 & T ? true : false
 
 /** A reference to a column (or a derived expression over one) inside a builder callback.
- *  Extends the neutral `FieldRefBase<T>` (so core's projection inference can read its app type);
- *  the operator + stdlib set narrows by the value's app type — string methods on strings,
- *  `array::*` on arrays, `math::*` on numbers, `time::*` on datetimes. The `IsAny` guard keeps
- *  the shape-agnostic `TableDef<string, any>` row assignable (an `any` column gets  the base
- *  ops). */
+ * Extends the neutral `FieldRefBase<T>` (so core's projection inference can read its app type);
+ * the operator + stdlib set narrows by the value's app type — string methods on strings,
+ * `array::*` on arrays, `math::*` on numbers, `time::*` on datetimes. The `IsAny` guard keeps
+ * the shape-agnostic `TableDef<string, any>` row assignable (an `any` column gets the base
+ * ops). */
 export type FieldRef<T> = FieldRefOps<T> &
   (IsAny<T> extends true
     ? unknown
@@ -261,23 +262,24 @@ export type FieldRef<T> = FieldRefOps<T> &
           bigint | boolean | Date | number | readonly unknown[] | RecordId | string | Uint8Array,
         ]
           ? unknown
-          : [NonNullable<T>] extends [object]
+          : // eslint-disable-next-line @typescript-eslint/no-restricted-types -- object é o tipo exato das builtins object::* do SurrealDB
+            [NonNullable<T>] extends [object]
             ? { [K in keyof NonNullable<T>]-?: FieldRef<NonNullable<T>[K]> }
             : unknown))
 
 // --- the runtime ref ------------------------------------------------------------------------------
 
 /** Every stdlib method name across families — attached as a GUIDANCE thrower when a ref's runtime
- *  kind is unknown (`other`): the name is ambiguous (`length` = `string::len` vs `array::len`)
- *  without a kind, so the error explains the escape hatch instead of a bare "not a function". */
+ * kind is unknown (`other`): the name is ambiguous (`length` = `string::len` vs `array::len`)
+ * without a kind, so the error explains the escape hatch instead of a bare "not a function". */
 const allMethodNames: readonly string[] = [
   ...new Set(Object.values(refMethods).flatMap((family) => Object.keys(family))),
 ]
 
 /** Arithmetic precedence (SurrealQL: `*`/`/` bind over `+`/`-`; comparisons sit below both) —
- *  parens emit them  where precedence requires them, matching the DB's canonical printer
+ * parens emit them where precedence requires them, matching the DB's canonical printer
  *  (redundant parens would phantom-diff DDL round-trips). */
-const OP_PREC: Record<string, number> = { "+": 6, "-": 6, "*": 7, "/": 7 }
+const OP_PREC: Record<string, number> = { "*": 7, "+": 6, "-": 6, "/": 7 }
 
 function derivedMethod(state: RefState, spec: RefMethodSpec) {
   return (...args: unknown[]): FieldRef<unknown> => {
@@ -288,6 +290,7 @@ function derivedMethod(state: RefState, spec: RefMethodSpec) {
     let wrap: RefState["wrap"]
     let opPrec: number | undefined
     if (spec.fn.startsWith("op:")) {
+      // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
       const op = spec.fn.slice(3)
       const prec = OP_PREC[op]
       opPrec = prec
@@ -306,64 +309,58 @@ function derivedMethod(state: RefState, spec: RefMethodSpec) {
     }
     const kind: RefKind = spec.returns === "element" ? (state.elem ?? "other") : spec.returns
     const elem = spec.returns === "array" ? (spec.elem ?? state.elem) : undefined
-    return mkRef({ root: state.root, wrap, kind, elem, opPrec })
+    return mkRef({ elem, kind, opPrec, root: state.root, wrap })
   }
 }
 
 /** Build the runtime ref for a {@link RefState}: comparison ops + the stdlib family for its kind.
- *  Kind `other` gets guidance throwers on the stdlib names (see {@link allMethodNames}). */
+ * Kind `other` gets guidance throwers on the stdlib names (see {@link allMethodNames}). */
 // --- array closures (`array::filter(tags, |$v| $v > 2)`) -------------------------------------------
 
 /**
  * BUILD-TIME nesting depth of array closures. The closure's parameter name baks it into the refs
  * handed to the callback, so it must decids it when the callback RUNS — here — not at render time.
  * Naming by depth (`$v`, then `$v2` inside it) means a nested closure never shadows the outer one,
- * and the emitted SQL doesn't depend on how  closures built them earlier in the process (a
+ * and the emitted SQL doesn't depend on how closures built them earlier in the process (a
  * global counter would make identical queries lower to different text).
  */
 let closureDepth = 0
 
 /** The stdlib family a `fold` SEED carries, so `$acc` gets `.plus()` rather than the unknown-kind
- *  stub. A ref/`$param` seed reports its own kind; a bare literal reports its JS type's. */
+ * stub. A ref/`$param` seed reports its own kind; a bare literal reports its JS type's. */
 function seedKind(init: unknown): RefKind {
   const rs = refState(init)
-  if (rs) {
-    return rs.kind
-  }
-  if (typeof init === "number") {
-    return "number"
-  }
-  if (typeof init === "string") {
-    return "string"
-  }
-  if (init instanceof Date) {
-    return "date"
-  }
-  if (Array.isArray(init)) {
-    return "array"
-  }
+  if (rs) return rs.kind
+
+  if (typeof init === "number") return "number"
+
+  if (typeof init === "string") return "string"
+
+  if (init instanceof Date) return "date"
+
+  if (Array.isArray(init)) return "array"
+
   return "other"
 }
 
 /** Lower a closure BODY: a predicate lowers as a boolean expression, a ref renders, anything else
- *  lowers as an operand (so a literal binds). */
+ * lowers as an operand (so a literal binds). */
 function closureBody(body: unknown, ctx: Ctx): string {
-  if (isExpr(body)) {
-    return lowerExpr(body, ctx)
-  }
+  if (isExpr(body)) return lowerExpr(body, ctx)
+
   const rs = refState(body)
   return rs ? renderRef(rs, ctx) : operandText(body, ctx)
 }
 
 /** One `array::<fn>(<self>[, <init>], |$params| <body>)` closure method. `init` (fold's seed) is the
- *   value SurrealQL puts BETWEEN the array and the closure. */
+ * value SurrealQL puts BETWEEN the array and the closure. */
 function closureCall(
   state: RefState,
   fn: string,
   params: readonly string[],
   paramKinds: readonly RefKind[],
   cb: (...refs: FieldRef<unknown>[]) => unknown,
-  init: { readonly value: unknown } | undefined,
+  init: undefined | { readonly value: unknown },
 ): RefState {
   const suffix = closureDepth === 0 ? "" : String(closureDepth + 1)
   const names = params.map((p) => `${p}${suffix}`)
@@ -371,7 +368,7 @@ function closureCall(
   let body: unknown
   try {
     body = cb(
-      ...names.map((n, i) => mkRef({ root: { text: `$${n}` }, kind: paramKinds[i] ?? "other" })),
+      ...names.map((n, i) => mkRef({ kind: paramKinds[i] ?? "other", root: { text: `$${n}` } })),
     )
   } finally {
     closureDepth--
@@ -379,8 +376,8 @@ function closureCall(
   const prev = state.wrap
   const base = (inner: string, ctx: Ctx) => (prev ? prev(inner, ctx) : inner)
   return {
-    root: state.root,
     kind: "other",
+    root: state.root,
     wrap: (inner, ctx) => {
       const seed = init ? `, ${operandText(init.value, ctx)}` : ""
       const ps = names.map((n) => `$${n}`).join(", ")
@@ -390,13 +387,13 @@ function closureCall(
 }
 
 /** The closure-taking `array::*` builtins. They can't ride {@link RefMethodSpec} (which renders
- *  `fn(self, ...operands)`): a closure argument needs its own `$param` ref scope, minted here and
- *  handed to the callback. Verified on 3.1.4: `filter`/`map`/`all`/`any`/`find` take `|$v|`,
- *  `fold` takes `(arr, init, |$acc, $v|)` and `reduce` `(arr, |$acc, $v|)`. */
+ * `fn(self, ...operands)`): a closure argument needs its own `$param` ref scope, minted here and
+ * handed to the callback. Verified on 3.1.4: `filter`/`map`/`all`/`any`/`find` take `|$v|`,
+ * `fold` takes `(arr, init, |$acc, $v|)` and `reduce` `(arr, |$acc, $v|)`. */
 function attachClosureMethods(impl: Record<string | symbol, unknown>, state: RefState): void {
   const elem: RefKind = state.elem ?? "other"
   /** `all`/`any` yield a BOOLEAN, so they surface as a predicate `Expr` (usable in `.where`), not
-   *  a ref. For the value side, reach for `.filter(…).length()`. */
+   * a ref. For the value side, reach for `.filter(…).length()`. */
   const pred = (fn: string) => (cb: (v: FieldRef<unknown>) => unknown) =>
     mkExpr({
       kind: "refexpr",
@@ -406,8 +403,8 @@ function attachClosureMethods(impl: Record<string | symbol, unknown>, state: Ref
     (fn: string, kind: RefKind, elemOut?: RefKind) => (cb: (v: FieldRef<unknown>) => unknown) =>
       mkRef({
         ...closureCall(state, fn, ["v"], [elem], cb, undefined),
-        kind,
         elem: elemOut,
+        kind,
       })
 
   // filter keeps the element type; map's element type is whatever the body produced (unknown here).
@@ -446,35 +443,35 @@ export function mkRef(state: RefState): FieldRef<unknown> {
   const strfn =
     (fn: "string::ends_with" | "string::starts_with") =>
     (value: unknown): Expr =>
-      mkExpr({ kind: "strfn", fn, lhs: state, value })
+      mkExpr({ fn, kind: "strfn", lhs: state, value })
   const impl: Record<string | symbol, unknown> = {
-    [REF_STATE]: state,
+    contains: cmp("CONTAINS"),
+    containsAll: cmp("CONTAINSALL"),
+    containsAny: cmp("CONTAINSANY"),
+    endsWith: strfn("string::ends_with"),
     eq: cmp("="),
-    neq: cmp("!="),
-    lt: cmp("<"),
-    lte: cmp("<="),
     gt: cmp(">"),
     gte: cmp(">="),
     in: cmp("IN"),
-    notIn: cmp("NOT IN"),
     // `.includes` (string substring) and `.contains`/`Any`/`All` (array membership) both lower to
     // the native `CONTAINS`; the neutral builder names split by the ratified cross-driver
     // vocabulary while the emit stays dialect-faithful. The TYPE surface (StringRefOps vs
     // ArrayRefOps) gates which name is visible per column kind.
     includes: cmp("CONTAINS"),
-    contains: cmp("CONTAINS"),
-    containsAny: cmp("CONTAINSANY"),
-    containsAll: cmp("CONTAINSALL"),
-    startsWith: strfn("string::starts_with"),
-    endsWith: strfn("string::ends_with"),
     isNone: (): Expr => mkExpr({ kind: "none", lhs: state, negated: false }),
     isNotNone: (): Expr => mkExpr({ kind: "none", lhs: state, negated: true }),
+    lt: cmp("<"),
+    lte: cmp("<="),
+    neq: cmp("!="),
+    notIn: cmp("NOT IN"),
+    [REF_STATE]: state,
+    startsWith: strfn("string::starts_with"),
   }
   // Interpolation: a PLAIN column ref splices as its escaped column path (the tag's colref
   // brand); a derived/`$var` ref splices as its rendered fragment.
-  if (!state.wrap && "col" in state.root) {
+  if (!state.wrap && "col" in state.root)
     impl[Symbol.for("better-schemic.surrealdb.colref")] = state.root.col
-  }
+
   impl[FRAGMENT] = (): BoundQuery => {
     const ctx: Ctx = { vars: {} }
     const text = renderRef(state, ctx)
@@ -482,19 +479,16 @@ export function mkRef(state: RefState): FieldRef<unknown> {
   }
   if (state.kind !== "other") {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [name, spec] of Object.entries(refMethods[state.kind])) {
+    for (const [name, spec] of Object.entries(refMethods[state.kind]))
       impl[name] = derivedMethod(state, spec)
-    }
   }
-  if (state.kind === "array") {
-    attachClosureMethods(impl, state)
-  }
+  if (state.kind === "array") attachClosureMethods(impl, state)
+
   if (state.kind === "other") {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const name of allMethodNames) {
-      if (name in impl) {
-        continue
-      }
+      if (name in impl) continue
+
       impl[name] = () => {
         throw new Error(
           `.${name}() needs the value's runtime kind (string/number/array/datetime), which is unknown here — call the builtin explicitly instead: surql.fn.<ns>.<fn>(...).`,
@@ -507,19 +501,17 @@ export function mkRef(state: RefState): FieldRef<unknown> {
   // `sv.res.id` renders `$res.id`, `u.meta.tags` renders `meta.tags`. Names already on the ref
   // (ops, stdlib, `then`) reserv them and shadow same-named columns (escape hatch: surql
   // fragments). Derived expressions (`.length()`, arithmetic) have no property paths.
-  if (state.wrap) {
-    return ref as unknown as FieldRef<unknown>
-  }
+  if (state.wrap) return ref as unknown as FieldRef<unknown>
+
   return new Proxy(ref, {
     get(t, key, recv) {
-      if (typeof key !== "string" || key in t || key === "then") {
-        return Reflect.get(t, key, recv)
-      }
+      if (typeof key !== "string" || key in t || key === "then") return Reflect.get(t, key, recv)
+
       const root =
         "col" in state.root
           ? { col: `${state.root.col}.${key}`, row: state.root.row }
           : { text: `${state.root.text}.${escapeIdent(key)}` }
-      return mkRef({ root, kind: "other" })
+      return mkRef({ kind: "other", root })
     },
   }) as unknown as FieldRef<unknown>
 }
@@ -528,29 +520,23 @@ export function mkRef(state: RefState): FieldRef<unknown> {
 
 /** Lower an Expr tree in a context (bind map + current row scope). */
 export function lowerExpr(e: Expr, ctx: Ctx): string {
-  if (e.kind === "cmp") {
-    return `${renderRef(e.lhs, ctx)} ${e.op} ${operandText(e.value, ctx)}`
-  }
-  if (e.kind === "strfn") {
-    return `${e.fn}(${renderRef(e.lhs, ctx)}, ${operandText(e.value, ctx)})`
-  }
-  if (e.kind === "none") {
-    return `${renderRef(e.lhs, ctx)} ${e.negated ? "!=" : "="} NONE`
-  }
+  if (e.kind === "cmp") return `${renderRef(e.lhs, ctx)} ${e.op} ${operandText(e.value, ctx)}`
+
+  if (e.kind === "strfn") return `${e.fn}(${renderRef(e.lhs, ctx)}, ${operandText(e.value, ctx)})`
+
+  if (e.kind === "none") return `${renderRef(e.lhs, ctx)} ${e.negated ? "!=" : "="} NONE`
+
   if (e.kind === "fragcmp") {
     const frag = fragOf(e.lhs)
     const lhs = frag ? mergeRaw(frag, ctx.vars) : String(e.lhs)
     return `(${lhs}) ${e.op} ${operandText(e.value, ctx)}`
   }
-  if (e.kind === "raw") {
-    return `(${mergeRaw(e.q, ctx.vars)})`
-  }
-  if (e.kind === "refexpr") {
-    return renderRef(e.ref, ctx)
-  }
-  if (e.kind === "not") {
-    return `!(${lowerExpr(e.part, ctx)})`
-  }
+  if (e.kind === "raw") return `(${mergeRaw(e.q, ctx.vars)})`
+
+  if (e.kind === "refexpr") return renderRef(e.ref, ctx)
+
+  if (e.kind === "not") return `!(${lowerExpr(e.part, ctx)})`
+
   const joined = e.parts.map((p) => lowerExpr(p, ctx)).join(e.kind === "and" ? " AND " : " OR ")
   return `(${joined})`
 }

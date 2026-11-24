@@ -22,6 +22,7 @@
  */
 import { escapeIdentSafe as escapeIdent } from "../../ident"
 import type { ModelMeta, SchemaIndex } from "../meta"
+
 import type { AggregateArgs, CompiledAggregate } from "./aggregate"
 import {
   aggregateTail,
@@ -52,20 +53,6 @@ function reservedColumn(path: string): string {
 function splitResolver(meta: ModelMeta, split: string, groupBy: readonly string[]): ColumnResolver {
   const inners: string[] = []
   return {
-    inners,
-    // A group key names it by its OUTPUT KEY (`groupBy: ["customerName"]`), so it keeps that name;
-    // everything else flatts it under the reserved column the inner query projects.
-    of: (_path, out) =>
-      groupBy.includes(out) ? escapeIdent(out) : escapeIdent(reservedColumn(_path)),
-    inner: (path, out) =>
-      groupBy.includes(out)
-        ? `${renderPath(path)} AS ${escapeIdent(out)}`
-        : `${renderPath(path)} AS ${escapeIdent(reservedColumn(path))}`,
-    prefix: () => pathSegments(split),
-    guard: (key, op, operand, operation) =>
-      assertAggregateOperand(meta, key, op, operand, operation, {
-        throughSplit: true,
-      }),
     // A fragment must read the split ROW (the element plus whatever the parent projected), so it's
     // evaluated in the subquery and the outer select renames its column — the rows a
     // `findMany({ split })` would return.
@@ -74,6 +61,21 @@ function splitResolver(meta: ModelMeta, split: string, groupBy: readonly string[
       inners.push(`${expr} AS ${escapeIdent(alias)}`)
       return `${escapeIdent(alias)} AS ${escapeIdent(key)}`
     },
+    guard: (key, op, operand, operation) => {
+      assertAggregateOperand(meta, key, op, operand, operation, {
+        throughSplit: true,
+      })
+    },
+    inner: (path, out) =>
+      groupBy.includes(out)
+        ? `${renderPath(path)} AS ${escapeIdent(out)}`
+        : `${renderPath(path)} AS ${escapeIdent(reservedColumn(path))}`,
+    inners,
+    // A group key names it by its OUTPUT KEY (`groupBy: ["customerName"]`), so it keeps that name;
+    // everything else flatts it under the reserved column the inner query projects.
+    of: (_path, out) =>
+      groupBy.includes(out) ? escapeIdent(out) : escapeIdent(reservedColumn(_path)),
+    prefix: () => pathSegments(split),
   }
 }
 
@@ -89,7 +91,7 @@ export function compileSplitAggregate(
   const groupBy = assertAggregateShape(args, operation)
 
   const columns = splitResolver(meta, split, groupBy)
-  const { parts, fields, projectedKeys, hasExpression } = compileAggregateSelect(
+  const { fields, hasExpression, parts, projectedKeys } = compileAggregateSelect(
     meta,
     args.select as Record<string, unknown>,
     binds,
@@ -120,14 +122,12 @@ export function compileSplitAggregate(
     index: options.index,
     operation,
   })
-  if (where) {
-    statement.push(`WHERE ${where}`)
-  }
-  statement.push(`SPLIT ${renderPath(split)})`)
-  statement.push(...aggregateTail(args, groupBy, binds, operation))
+  if (where) statement.push(`WHERE ${where}`)
+
+  statement.push(`SPLIT ${renderPath(split)})`, ...aggregateTail(args, groupBy, binds, operation))
 
   return {
+    projection: { fields, includes: [], omit: [], star: false, value: false },
     sql: statement.join(" "),
-    projection: { star: false, fields, omit: [], value: false, includes: [] },
   }
 }

@@ -149,6 +149,7 @@ export {
 export type { PortableField, PortablePermissions } from "./driver/portable-ir"
 // --- kind registry (core-v2) — generic, open object kinds (docs/kind-registry.md) -------------
 export {
+  type AnyKindEngine,
   buildKindDiff,
   type Definable,
   emitKinds,

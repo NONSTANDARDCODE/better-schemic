@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. Fixtures assert values whose presence the test guarantees. */
 // The CHANGE layer's decision tables — one exhaustive case list per guard, so a marker, an
 // operand, a target column or a payload shape that falls on the wrong side of a rule fails here
 // rather than in production. Offline; the compiler drivs it directly.
@@ -8,7 +9,6 @@ import { surql } from "../../../src/surreal"
 import { adjustmentOf, stripAdjustments } from "../../../src/surreal/orm/arithmetic"
 import { extractArithmetic, setBody } from "../../../src/surreal/orm/compiler/adjustment"
 import { createBinds } from "../../../src/surreal/orm/compiler/shared"
-import type { TableMeta } from "../../../src/surreal/orm/meta"
 import { buildSchemaIndex } from "../../../src/surreal/orm/schema"
 import { s, table } from "../../../src/surreal/pure"
 
@@ -27,7 +27,7 @@ const Holder = table("adj", {
   meta: s.object({ a: s.string() }),
 })
 
-const meta = buildSchemaIndex({ t: Holder }).tables.get("t") as TableMeta
+const meta = buildSchemaIndex({ t: Holder }).tables.get("t")!
 
 /** Compile one write payload; `error` is the teaching message when refused. */
 function split(data: unknown, allow = true) {
@@ -98,9 +98,8 @@ describe("adjustment — the target field", () => {
       expect(out.steps[0]?.op).toBe("+=")
     }
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const field of ["name", "tags", "when", "blob", "flag", "meta", "owner"]) {
+    for (const field of ["name", "tags", "when", "blob", "flag", "meta", "owner"])
       expect(split({ [field]: { increment: 1 } }).error).toMatch(/needs a numeric field/u)
-    }
   })
 
   test("the array markers accept array AND set, and refuse the rest", () => {
@@ -118,9 +117,8 @@ describe("adjustment — the target field", () => {
       }
     }
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const field of ["score", "name"]) {
+    for (const field of ["score", "name"])
       expect(split({ [field]: { append: "x" } }).error).toMatch(/adjusts an array field/u)
-    }
   })
 
   test("a bare record link is not an array either", () => {
@@ -131,9 +129,8 @@ describe("adjustment — the target field", () => {
 describe("adjustment — the operand", () => {
   test("numeric: number, bigint, Decimal and a fragment pass", () => {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const operand of [1, 1n, new Decimal(1), surql`1`]) {
+    for (const operand of [1, 1n, new Decimal(1), surql`1`])
       expect(split({ score: { increment: operand } }).error).toBe("")
-    }
   })
 
   test("numeric: a string, bool, null and a function are refused", () => {
@@ -147,9 +144,8 @@ describe("adjustment — the operand", () => {
 
   test("array: a scalar, an array, a record and a date all pass", () => {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const operand of ["x", ["x"], { a: 1 }, new Date(), new RecordId("other", "1"), null]) {
+    for (const operand of ["x", ["x"], { a: 1 }, new Date(), new RecordId("other", "1"), null])
       expect(split({ tags: { append: operand } }).error).toBe("")
-    }
   })
 
   test("array: only a FUNCTION is refused — the element type is the schema's business", () => {
@@ -159,15 +155,8 @@ describe("adjustment — the operand", () => {
   test("`at` needs a non-negative integer index and a value", () => {
     expect(split({ tags: { at: { index: 0, value: "x" } } }).error).toBe("")
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const at of [
-      { index: -1, value: "x" },
-      { index: 1.5, value: "x" },
-      { index: 0 },
-      "x",
-      0,
-    ]) {
+    for (const at of [{ index: -1, value: "x" }, { index: 1.5, value: "x" }, { index: 0 }, "x", 0])
       expect(split({ tags: { at } }).error).not.toBe("")
-    }
   })
 })
 
@@ -175,7 +164,7 @@ describe("adjustment — the SET clause", () => {
   test("each lowering renders its own operator", () => {
     const body = (data: unknown) => {
       const { clean, steps } = extractArithmetic(meta, data, "update", true)
-      return setBody(clean as never, steps, createBinds(), false)
+      return setBody(clean, steps, createBinds(), false)
     }
     expect(body({ score: { increment: 1 } })).toContain("score += $p0")
     expect(body({ score: { decrement: 1 } })).toContain("score -= $p0")
@@ -192,7 +181,7 @@ describe("adjustment — the SET clause", () => {
   test("a DEEP merge flattens a nested object into leaf assignments", () => {
     const { steps } = extractArithmetic(meta, { score: { increment: 1 } }, "update", true)
     const binds = createBinds()
-    const body = setBody({ a: { b: 1, c: 2 }, d: 3 } as never, steps, binds, true)
+    const body = setBody({ a: { b: 1, c: 2 }, d: 3 }, steps, binds, true)
     expect(body).toContain("a.b = ")
     expect(body).toContain("a.c = ")
     expect(body).toContain("d = ")
@@ -202,19 +191,19 @@ describe("adjustment — the SET clause", () => {
 
   test("a SHALLOW `set` keeps the object as one assignment", () => {
     const binds = createBinds()
-    const body = setBody({ a: { b: 1 } } as never, [], binds, false)
+    const body = setBody({ a: { b: 1 } }, [], binds, false)
     expect(body).toContain("a = ")
     expect(body).not.toContain("a.b = ")
   })
 
   test("an empty nested object contributes no assignment", () => {
     const binds = createBinds()
-    expect(setBody({ a: {} } as never, [], binds, true)).toBe("SET ")
+    expect(setBody({ a: {} }, [], binds, true)).toBe("SET ")
   })
 
   test("an undefined value contributes no assignment", () => {
     const binds = createBinds()
-    expect(setBody({ a: undefined } as never, [], binds, false)).toBe("SET ")
+    expect(setBody({ a: undefined }, [], binds, false)).toBe("SET ")
   })
 
   test("no steps at all renders an empty SET rather than a dangling comma", () => {
@@ -240,9 +229,8 @@ describe("adjustment — the literal-operand type test", () => {
 
   test("a Set (the field family) takes the same operand set as an array", () => {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const operand of ["a", ["a"], { a: 1 }, new Date()]) {
+    for (const operand of ["a", ["a"], { a: 1 }, new Date()])
       expect(split({ seats: { union: operand } }).error).toBe("")
-    }
   })
 })
 
@@ -250,9 +238,9 @@ describe("adjustment — the modifiers (when/else/coalesce)", () => {
   test("`when` must be a Surql fragment and is refused on `at`", () => {
     expect(split({ score: { increment: 1, when: surql`score < 10` } }).error).toBe("")
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const when of ["score < 10", 10, true, () => true]) {
+    for (const when of ["score < 10", 10, true, () => true])
       expect(split({ score: { increment: 1, when } }).error).toMatch(/surql/u)
-    }
+
     expect(split({ tags: { at: { index: 0, value: "x" }, when: surql`true` } }).error).toMatch(
       /can't guard \{ at/u,
     )
@@ -264,9 +252,8 @@ describe("adjustment — the modifiers (when/else/coalesce)", () => {
       /must be "keep", "throw"/u,
     )
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const else_ of ["keep", "throw", 0, surql`score`]) {
+    for (const else_ of ["keep", "throw", 0, surql`score`])
       expect(split({ score: { increment: 1, when: surql`true`, else: else_ } }).error).toBe("")
-    }
   })
 
   test("`coalesce` is refused on numeric, remove and at", () => {
@@ -300,7 +287,7 @@ describe("adjustment — the modifiers (when/else/coalesce)", () => {
   test("no modifiers keeps the historical SET text; modifiers are one guarded assignment", () => {
     const body = (data: unknown) => {
       const { clean, steps } = extractArithmetic(meta, data, "update", true)
-      return setBody(clean as never, steps, createBinds(), false)
+      return setBody(clean, steps, createBinds(), false)
     }
     expect(body({ tags: { union: ["a"] } })).toBe("SET tags = array::union(tags, $p0)")
     expect(body({ tags: { union: ["a"], coalesce: [] } })).toBe(

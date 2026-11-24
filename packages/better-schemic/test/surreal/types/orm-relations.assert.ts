@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. Type queries and callback signatures need fixture values. */
 // M3 — TYPE assertions for relations & graph: `include` result shapes (links/edges/edge+target/
 // `_count`) and the relational `where` vocabulary, all derived from the authored schema.
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
@@ -34,8 +35,8 @@ type U = typeof User
 type P = typeof Post
 type Row = App<U>
 
-describe("include — link result shapes", () => {
-  it("true fetches the whole target (null for a missing single link, [] array link)", () => {
+void describe("include — link result shapes", () => {
+  void it("true fetches the whole target (null for a missing single link, [] array link)", () => {
     assertType<
       Simplify<Omit<Row, "mentor"> & { mentor: App<U> | null }>,
       ResultOf<U, { include: { mentor: true } }, S>
@@ -46,11 +47,11 @@ describe("include — link result shapes", () => {
     >()
   })
 
-  it("select projects the target; nested include recurses", () => {
+  void it("select projects the target; nested include recurses", () => {
     assertType<
       Simplify<
         Omit<Row, "mentor"> & {
-          mentor: { id: Row["id"]; name: string } | null
+          mentor: null | { id: Row["id"]; name: string }
         }
       >,
       ResultOf<U, { include: { mentor: { select: { id: true; name: true } } } }, S>
@@ -58,14 +59,14 @@ describe("include — link result shapes", () => {
     assertType<
       true,
       ResultOf<U, { include: { mentor: { include: { mentor: true } } } }, S> extends {
-        mentor: { mentor: App<U> | null } | null
+        mentor: null | { mentor: App<U> | null }
       }
         ? true
         : false
     >()
   })
 
-  it("unknown keys and `id` are rejected (excess property)", () => {
+  void it("unknown keys and `id` are rejected (excess property)", () => {
     // @ts-expect-error — "nope" is not a link/edge/_count
     const bad: IncludeArg<U, S> = { nope: true }
     // @ts-expect-error — `id` is the record identity, not a relation
@@ -75,8 +76,8 @@ describe("include — link result shapes", () => {
   })
 })
 
-describe("include — edge result shapes", () => {
-  it("true/select return target rows; edge returns edge rows", () => {
+void describe("include — edge result shapes", () => {
+  void it("true/select return target rows; edge returns edge rows", () => {
     assertType<
       Simplify<Omit<Row, "likes"> & { likes: App<P>[] }>,
       ResultOf<U, { include: { likes: true } }, S>
@@ -91,7 +92,7 @@ describe("include — edge result shapes", () => {
     >()
   })
 
-  it("edge+target remounts `{ edge, target }`", () => {
+  void it("edge+target remounts `{ edge, target }`", () => {
     assertType<
       true,
       ResultOf<
@@ -116,7 +117,7 @@ describe("include — edge result shapes", () => {
     >()
   })
 
-  it("the incoming side types the same way (schema key OR physical name)", () => {
+  void it("the incoming side types the same way (schema key OR physical name)", () => {
     assertType<
       true,
       ResultOf<P, { include: { likes: true } }, S> extends { likes: App<U>[] } ? true : false
@@ -131,11 +132,11 @@ describe("include — edge result shapes", () => {
     >()
   })
 
-  it("_count types one number per selected relation", () => {
+  void it("_count types one number per selected relation", () => {
     assertType<
       true,
-      ResultOf<U, { include: { _count: { select: { likes: true; friends: true } } } }, S> extends {
-        _count: { likes: number; friends: number }
+      ResultOf<U, { include: { _count: { select: { friends: true; likes: true } } } }, S> extends {
+        _count: { friends: number; likes: number }
       }
         ? true
         : false
@@ -143,15 +144,15 @@ describe("include — edge result shapes", () => {
   })
 })
 
-describe("relational where", () => {
-  it("is/isNot accept a target filter; some/every/none accept edge+target", () => {
+void describe("relational where", () => {
+  void it("is/isNot accept a target filter; some/every/none accept edge+target", () => {
     assertType<true, { mentor: { is: { name: "Alice" } } } extends Where<U, S> ? true : false>()
     assertType<true, { mentor: { isNot: { name: "Alice" } } } extends Where<U, S> ? true : false>()
     assertType<true, { likes: { some: { published: true } } } extends Where<U, S> ? true : false>()
     assertType<
       true,
       {
-        likes: { some: { score: { gt: 4 }; published: true }; direction: "in" }
+        likes: { direction: "in"; some: { published: true; score: { gt: 4 } } }
       } extends Where<U, S>
         ? true
         : false
@@ -163,7 +164,7 @@ describe("relational where", () => {
     assertType<true, { friends: { every: { age: 18 } } } extends Where<U, S> ? true : false>()
   })
 
-  it("wrong-family and wrong-target operators are rejected", () => {
+  void it("wrong-family and wrong-target operators are rejected", () => {
     // @ts-expect-error — `some` on a single link (use is/isNot)
     const bad1: Where<U, S> = { mentor: { some: { name: "x" } } }
     // @ts-expect-error — `is` is not an edge operator
@@ -175,13 +176,13 @@ describe("relational where", () => {
     void bad3
   })
 
-  it("the client delegate carries the schema-typed include/where", () => {
+  void it("the client delegate carries the schema-typed include/where", () => {
     type C = Client<S>
     type Args = Parameters<C["users"]["findMany"]>[0]
     assertType<
       true,
       {
-        include: { mentor: { select: { name: true } }; likes: true }
+        include: { likes: true; mentor: { select: { name: true } } }
         where: { likes: { some: { published: true } } }
       } extends Args
         ? true
@@ -189,7 +190,7 @@ describe("relational where", () => {
     >()
   })
 
-  it("write batches carry the same relational where (they lower it too)", () => {
+  void it("write batches carry the same relational where (they lower it too)", () => {
     type C = Client<S>
     type UpdateArgs = Parameters<C["users"]["updateMany"]>[0]
     type DeleteArgs = Parameters<C["users"]["deleteMany"]>[0]

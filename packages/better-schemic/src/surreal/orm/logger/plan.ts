@@ -13,8 +13,13 @@
  */
 import type { Palette } from "./colors"
 
+const NS_PER_US = 1e3
+const NS_PER_MS = 1e6
+const NS_PER_S = 1e9
+const ROUND_FACTOR = 100
+
 /** One rendered operator node. */
-export interface PlanNode {
+export type PlanNode = {
   readonly attrs?: string
   readonly badge?: string
   children: PlanNode[]
@@ -24,78 +29,63 @@ export interface PlanNode {
 
 /** A scan badge for the operators worth flagging (full scans vs index use). */
 function operatorBadge(operator: string): string | undefined {
-  if (/TableScan/u.test(operator)) {
-    return "⚠ full scan"
-  }
-  if (/Index(Count)?Scan|KnnScan|FullTextScan|IterateIndex/u.test(operator)) {
-    return "✓ index"
-  }
+  if (operator.includes("TableScan")) return "⚠ full scan"
+
+  if (/Index(Count)?Scan|KnnScan|FullTextScan|IterateIndex/u.test(operator)) return "✓ index"
+
   return undefined
 }
 
 /** Humanize a nanosecond duration (`9787` → `9.79µs`). */
 export function humanizeNs(ns: number): string {
-  if (!Number.isFinite(ns)) {
-    return String(ns)
-  }
-  if (ns < 1000) {
-    return `${Math.round(ns * 100) / 100}ns`
-  }
-  if (ns < 1e6) {
-    return `${Math.round((ns / 1e3) * 100) / 100}µs`
-  }
-  if (ns < 1e9) {
-    return `${Math.round((ns / 1e6) * 100) / 100}ms`
-  }
-  return `${Math.round((ns / 1e9) * 100) / 100}s`
+  if (!Number.isFinite(ns)) return String(ns)
+
+  if (ns < NS_PER_US) return `${Math.round(ns * ROUND_FACTOR) / ROUND_FACTOR}ns`
+
+  if (ns < NS_PER_MS) return `${Math.round((ns / NS_PER_US) * ROUND_FACTOR) / ROUND_FACTOR}µs`
+
+  if (ns < NS_PER_S) return `${Math.round((ns / NS_PER_MS) * ROUND_FACTOR) / ROUND_FACTOR}ms`
+
+  return `${Math.round((ns / NS_PER_S) * ROUND_FACTOR) / ROUND_FACTOR}s`
 }
 
 const scalar = (value: unknown): string => (typeof value === "string" ? value : String(value))
 
 /** The `rows · batches · elapsed` suffix of an operator's `metrics`. */
 function metricsText(metrics: unknown): string | undefined {
-  if (!metrics || typeof metrics !== "object") {
-    return undefined
-  }
+  if (!metrics || typeof metrics !== "object") return undefined
+
   const m = metrics as Record<string, unknown>
   const parts: string[] = []
-  if (typeof m.output_rows === "number") {
-    parts.push(`rows ${m.output_rows}`)
-  }
-  if (typeof m.output_batches === "number") {
-    parts.push(`batches ${m.output_batches}`)
-  }
-  if (typeof m.elapsed_ns === "number") {
-    parts.push(`elapsed ${humanizeNs(m.elapsed_ns)}`)
-  }
+  if (typeof m.output_rows === "number") parts.push(`rows ${m.output_rows}`)
+
+  if (typeof m.output_batches === "number") parts.push(`batches ${m.output_batches}`)
+
+  if (typeof m.elapsed_ns === "number") parts.push(`elapsed ${humanizeNs(m.elapsed_ns)}`)
+
   return parts.length > 0 ? parts.join(" · ") : undefined
 }
 
 /** The `ctx: … , attr: …` suffix an operator carries. */
 function attrsText(attributes: unknown, context: unknown): string | undefined {
   const parts: string[] = []
-  if (typeof context === "string" && context.length > 0) {
-    parts.push(`ctx: ${context}`)
-  }
+  if (typeof context === "string" && context.length > 0) parts.push(`ctx: ${context}`)
+
   if (attributes && typeof attributes === "object") {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [key, value] of Object.entries(attributes)) {
-      parts.push(`${key}: ${scalar(value)}`)
-    }
+    for (const [key, value] of Object.entries(attributes)) parts.push(`${key}: ${scalar(value)}`)
   }
   return parts.length > 0 ? parts.join(", ") : undefined
 }
 
 /** Build a node from a structured plan object; `undefined` when it's not one. */
 function objectNode(plan: unknown): PlanNode | undefined {
-  if (!plan || typeof plan !== "object" || Array.isArray(plan)) {
-    return undefined
-  }
+  if (!plan || typeof plan !== "object" || Array.isArray(plan)) return undefined
+
   const record = plan as Record<string, unknown>
   const operator = record.operator
-  if (typeof operator !== "string") {
-    return undefined
-  }
+  if (typeof operator !== "string") return undefined
+
   const children = Array.isArray(record.children)
     ? record.children.map(objectNode).filter((n): n is PlanNode => n !== undefined)
     : []
@@ -122,16 +112,15 @@ function stringNodes(text: string): PlanNode[] {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const rawLine of text.split("\n")) {
     const line = rawLine.replace(/\s+$/u, "")
-    if (line.trim() === "") {
-      continue
-    }
+    if (line.trim() === "") continue
+
     const total = /^Total rows:\s*(.+)$/iu.exec(line.trim())
     if (total) {
       trailing = `total rows ${total[1]}`
       continue
     }
     const indent = line.length - line.replace(/^\s+/u, "").length
-    const { operator, attrs, metrics } = parseOperatorLine(line.trim())
+    const { attrs, metrics, operator } = parseOperatorLine(line.trim())
     const badge = operatorBadge(operator)
     const node: PlanNode = {
       label: operator,
@@ -141,15 +130,12 @@ function stringNodes(text: string): PlanNode[] {
       children: [],
     }
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    while (stack.length > 0 && (stack.at(-1) as { indent: number }).indent >= indent) {
-      stack.pop()
-    }
+    while (stack.length > 0 && (stack.at(-1) as { indent: number }).indent >= indent) stack.pop()
+
     const parent = stack.at(-1)
-    if (parent) {
-      parent.node.children.push(node)
-    } else {
-      roots.push(node)
-    }
+    if (parent) parent.node.children.push(node)
+    else roots.push(node)
+
     stack.push({ indent, node })
   }
   if (trailing && roots[0]) {
@@ -182,17 +168,15 @@ function parseOperatorLine(line: string): {
 
 /** Normalize any supported plan shape into a node tree (legacy arrays included). */
 export function planToNodes(plan: unknown): PlanNode[] {
-  if (plan === undefined || plan === null) {
-    return []
-  }
+  if (plan === undefined || plan === null) return []
+
   if (typeof plan === "string") {
     const nodes = stringNodes(plan)
-    return nodes.length > 0 ? nodes : [{ label: plan.trim(), children: [] }]
+    return nodes.length > 0 ? nodes : [{ children: [], label: plan.trim() }]
   }
   const single = objectNode(plan)
-  if (single) {
-    return [single]
-  }
+  if (single) return [single]
+
   if (Array.isArray(plan)) {
     const nodes: PlanNode[] = []
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
@@ -207,22 +191,20 @@ export function planToNodes(plan: unknown): PlanNode[] {
         })
       } else {
         const node = objectNode(entry)
-        if (node) {
-          nodes.push(node)
-        }
+        // eslint-disable-next-line max-depth -- despacho de formatos aninhados; achatar muda a precedência
+        if (node) nodes.push(node)
       }
     }
-    if (nodes.length > 0) {
-      return nodes
-    }
+    if (nodes.length > 0) return nodes
   }
-  return [{ label: safeStringify(plan), children: [] }]
+  return [{ children: [], label: safeStringify(plan) }]
 }
 
 function safeStringify(value: unknown): string {
   try {
     const json = JSON.stringify(value)
-    return json === undefined ? String(value) : json
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- JSON.stringify pode devolver undefined em runtime
+    return json ?? String(value)
   } catch {
     return String(value)
   }
@@ -231,24 +213,21 @@ function safeStringify(value: unknown): string {
 /** Paint one operator node's label + attrs + metrics + badge. */
 function labelLine(node: PlanNode, palette: Palette): string {
   let line = palette.paint("\u001B[1;36m", node.label)
-  if (node.attrs) {
-    line += ` ${palette.paint("\u001B[90m", `[${node.attrs}]`)}`
-  }
-  if (node.metrics) {
-    line += ` ${palette.paint("\u001B[2;37m", `{${node.metrics}}`)}`
-  }
-  if (node.badge) {
+  if (node.attrs) line += ` ${palette.paint("\u001B[90m", `[${node.attrs}]`)}`
+
+  if (node.metrics) line += ` ${palette.paint("\u001B[2;37m", `{${node.metrics}}`)}`
+
+  if (node.badge)
     line += ` ${palette.paint(node.badge.startsWith("⚠") ? "\u001B[33m" : "\u001B[32m", node.badge)}`
-  }
+
   return line
 }
 
 /** Render a plan into display lines (operator tree with box connectors). */
 export function renderPlan(plan: unknown, palette: Palette): string[] {
   const nodes = planToNodes(plan)
-  if (nodes.length === 0) {
-    return [palette.paint("\u001B[90m", "(no plan)")]
-  }
+  if (nodes.length === 0) return [palette.paint("\u001B[90m", "(no plan)")]
+
   const out: string[] = []
   nodes.forEach((node, index) => {
     renderNode(node, "", index === nodes.length - 1, out, palette, true)
@@ -264,7 +243,8 @@ function renderNode(
   palette: Palette,
   root: boolean,
 ): void {
-  const connector = root ? "" : isLast ? "└─ " : "├─ "
+  let connector = ""
+  if (!root) connector = isLast ? "└─ " : "├─ "
   out.push(prefix + connector + labelLine(node, palette))
   const childPrefix = root ? "" : prefix + (isLast ? "   " : "│  ")
   node.children.forEach((child, index) => {

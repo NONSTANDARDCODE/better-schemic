@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-magic-numbers -- Literal values are intentional test data and must stay as authored. */
 // The SurrealQL highlighter + palette: tokenizer classes, top-level clause breaks, ANSI painting and
 // the width helpers the box renderer relies on. Offline (pure).
 import { describe, expect, test } from "bun:test"

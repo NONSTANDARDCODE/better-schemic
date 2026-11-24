@@ -1,13 +1,14 @@
 /**
  * The read operations of a delegate — `findMany`/`findFirst`/`findOne`/`findUnique`/`count`/
- * `exists`/`combine`/`paginate`/`cursor`. Every op compiles EAGERLY (a bad arg throws at the call
+ * `exists`/`combine`/`paginate`/`cursor`. Every op compiles at call time (a bad arg throws at the call
  * site), runs  (nothing touches the connection until awaited), and decodes its rows through
  * `./decode`. `./delegate` owns the public surface; this module owns the runtime.
  */
-import { RecordId } from "surrealdb"
+import { RecordId, type RecordIdValue } from "surrealdb"
 
 import { escapeIdentSafe as escapeIdent } from "../ident"
 import { bareIdValue } from "../pure"
+
 import type {
   AggregateArgs as AggregateRuntimeArgs,
   CountArgs as CountRuntimeArgs,
@@ -54,22 +55,22 @@ export function createReadOperations(
   ctx: DelegateContext,
 ): Record<string, unknown> {
   return {
-    findMany: (args: ReadArgs = {}) => finishRead(ctx, prepare(meta, ctx, args, "findMany")),
+    aggregate: (args: AggregateRuntimeArgs) => finishRead(ctx, aggregatePlan(meta, ctx, args)),
+    count: (args: CountRuntimeArgs = {}) => finishRead(ctx, countPlan(meta, ctx, args)),
+    cursor: (args: CursorRuntimeArgs) => finishRead(ctx, cursorPlan(meta, ctx, args)),
+    exists: (args: CountRuntimeArgs = {}) => finishRead(ctx, existsPlan(meta, ctx, args)),
     findFirst: (args: ReadArgs = {}) =>
       finishRead(ctx, prepare(meta, ctx, args, "findFirst", { one: true })),
+    findMany: (args: ReadArgs = {}) => finishRead(ctx, prepare(meta, ctx, args, "findMany")),
     findOne: (args: ReadArgs = {}) =>
       finishRead(ctx, prepare(meta, ctx, args, "findOne", { one: true })),
     findUnique: (args: ReadArgs) => finishRead(ctx, prepareUnique(meta, ctx, args)),
-    count: (args: CountRuntimeArgs = {}) => finishRead(ctx, countPlan(meta, ctx, args)),
-    exists: (args: CountRuntimeArgs = {}) => finishRead(ctx, existsPlan(meta, ctx, args)),
-    aggregate: (args: AggregateRuntimeArgs) => finishRead(ctx, aggregatePlan(meta, ctx, args)),
     paginate: (args: PaginateRuntimeArgs) => finishRead(ctx, paginatePlan(meta, ctx, args)),
-    cursor: (args: CursorRuntimeArgs) => finishRead(ctx, cursorPlan(meta, ctx, args)),
   }
 }
 
 /** The runtime context every prepared read derives from its args. */
-interface ReadRuntimeArgs {
+type ReadRuntimeArgs = {
   /** Per-call namespace/database override (`findMany({ context: { database } })`). */
   readonly context?: OperationContext
   readonly explain?: unknown
@@ -79,13 +80,13 @@ interface ReadRuntimeArgs {
 }
 
 /** One statement of a prepared read with its `ExplainResult` role. */
-interface PreparedStatement {
+type PreparedStatement = {
   readonly key: ExplainKey
   readonly statement: Statement
 }
 
 /** A compiled read plus everything the executor/`.throw()`/`.explain()` needs. */
-interface PreparedRead {
+type PreparedRead = {
   /** Per-call scope override, resolved against the client's context at run time. */
   readonly context?: OperationContext
   /** Interpret the raw rows of the prepared statements. */
@@ -105,8 +106,8 @@ interface PreparedRead {
 
 /** Wrap compiled SQL + the shared binds into a keyed prepared statement. */
 const stmt = (sql: string, binds: Binds, key: ExplainKey): PreparedStatement => ({
-  statement: { sql, vars: binds.vars },
   key,
+  statement: { sql, vars: binds.vars },
 })
 
 /** Compile a read into its statement + decode spec (eager — a bad arg throws here). */
@@ -125,23 +126,22 @@ function prepare(
   const binds = createBinds()
   const effective = options.one ? { ...args, limit: args.limit ?? 1 } : args
   const compiled = compileRead(meta, effective, binds, operation, {
-    ...(options.compile ?? {}),
+    ...options.compile,
     index: ctx.index,
   })
   const decode = (rows: readonly unknown[]): unknown => {
     const raw = rows[0]
-    if (compiled.only) {
-      return decodeRow(raw, meta, compiled.projection, ctx.index) ?? null
-    }
+    if (compiled.only) return decodeRow(raw, meta, compiled.projection, ctx.index) ?? null
+
     const page = Array.isArray(raw) ? raw : []
-    if (options.one === true) {
+    if (options.one === true)
       return page.length === 0 ? null : decodeRow(page[0], meta, compiled.projection, ctx.index)
-    }
+
     return decodeRows(page, meta, compiled.projection, ctx.index)
   }
   return prepared(meta, operation, [stmt(compiled.sql, binds, "data")], args, {
-    resultMode: options.resultMode ?? (options.one ? "one" : "many"),
     decode,
+    resultMode: options.resultMode ?? (options.one ? "one" : "many"),
   })
 }
 
@@ -157,13 +157,13 @@ function prepared(
   },
 ): PreparedRead {
   return {
+    decode: extras.decode,
+    explain: args.explain === true,
     meta,
     operation,
+    resultMode: extras.resultMode,
     statements,
     where: args.where,
-    resultMode: extras.resultMode,
-    explain: args.explain === true,
-    decode: extras.decode,
     ...(args.context ? { context: args.context } : {}),
     ...(args.meta === undefined ? {} : { hookMeta: args.meta }),
   }
@@ -175,17 +175,20 @@ const rowsAt = (rows: readonly unknown[], index: number): readonly unknown[] => 
   return Array.isArray(raw) ? raw : []
 }
 
+const countDecode = (rows: readonly unknown[]): unknown => {
+  const first = rowsAt(rows, 0)[0] as undefined | { count?: unknown }
+  return typeof first?.count === "number" ? first.count : 0
+}
+
+const existsDecode = (rows: readonly unknown[]): unknown => rowsAt(rows, 0).length > 0
+
 /** `count` plan: `[{ count: n }]` -> `n` (0 when the server returns nothing). */
 function countPlan(meta: ModelMeta, ctx: DelegateContext, args: CountRuntimeArgs): PreparedRead {
   const binds = createBinds()
   const sql = compileCount(meta, args, binds, "count", { index: ctx.index })
-  const decode = (rows: readonly unknown[]): unknown => {
-    const first = rowsAt(rows, 0)[0] as { count?: unknown } | undefined
-    return typeof first?.count === "number" ? first.count : 0
-  }
   return prepared(meta, "count", [stmt(sql, binds, "count")], args, {
+    decode: countDecode,
     resultMode: "many",
-    decode,
   })
 }
 
@@ -193,10 +196,9 @@ function countPlan(meta: ModelMeta, ctx: DelegateContext, args: CountRuntimeArgs
 function existsPlan(meta: ModelMeta, ctx: DelegateContext, args: CountRuntimeArgs): PreparedRead {
   const binds = createBinds()
   const sql = compileExists(meta, args, binds, "exists", { index: ctx.index })
-  const decode = (rows: readonly unknown[]): unknown => rowsAt(rows, 0).length > 0
   return prepared(meta, "exists", [stmt(sql, binds, "exists")], args, {
+    decode: existsDecode,
     resultMode: "many",
-    decode,
   })
 }
 
@@ -213,8 +215,8 @@ function aggregatePlan(
   const decode = (rows: readonly unknown[]): unknown =>
     decodeRows(rowsAt(rows, 0), meta, compiled.projection, ctx.index)
   return prepared(meta, "aggregate", [stmt(compiled.sql, binds, "data")], args, {
-    resultMode: "many",
     decode,
+    resultMode: "many",
   })
 }
 
@@ -242,27 +244,28 @@ function paginatePlan(
     )
     let total: number | undefined
     if (plan.count) {
-      const first = rowsAt(rows, 1)[0] as { count?: unknown } | undefined
+      const first = rowsAt(rows, 1)[0] as undefined | { count?: unknown }
       total = typeof first?.count === "number" ? first.count : 0
     }
+    const totalCount = total ?? 0
     const hasNext = plan.count
-      ? (total as number) > plan.start + data.length
+      ? totalCount > plan.start + data.length
       : pageRows.length > plan.limit
     return {
       data,
       pagination: {
-        type: "offset",
         page: Math.floor(plan.start / plan.limit) + 1,
         perPage: plan.limit,
-        ...(plan.count ? { total, pageCount: Math.ceil((total as number) / plan.limit) } : {}),
+        type: "offset",
+        ...(plan.count ? { pageCount: Math.ceil(totalCount / plan.limit), total } : {}),
         hasNext,
         hasPrevious: plan.start > 0,
       },
     }
   }
   return prepared(meta, "paginate", statements, args, {
-    resultMode: "many",
     decode,
+    resultMode: "many",
   })
 }
 
@@ -288,17 +291,16 @@ function cursorPlan(meta: ModelMeta, ctx: DelegateContext, args: CursorRuntimeAr
     const nextCursor = hasNext ? cursorOf(meta, raw.at(-1), plan.keyset) : null
     const previousCursor = hasPrevious ? cursorOf(meta, raw[0], plan.keyset) : null
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const row of data) {
-      stripKeyset(row, plan.keyset)
-    }
+    for (const row of data) stripKeyset(row, plan.keyset)
+
     return {
       data,
       pagination: {
-        type: "cursor",
         hasNext,
         hasPrevious,
         nextCursor,
         previousCursor,
+        type: "cursor",
       },
     }
   }
@@ -307,18 +309,17 @@ function cursorPlan(meta: ModelMeta, ctx: DelegateContext, args: CursorRuntimeAr
     "cursor",
     [stmt(plan.sql, binds, plan.backward ? "probe:hasPrevious" : "probe:hasNext")],
     args,
-    { resultMode: "many", decode },
+    { decode, resultMode: "many" },
   )
 }
 
 /** Extract a row's cursor value (the id for a single-id order, a tuple otherwise). */
 function cursorOf(meta: ModelMeta, row: unknown, keyset: readonly CursorKey[]): unknown {
-  if (row === undefined || row === null) {
-    return null
-  }
-  if (keyset.length === 1 && keyset[0]?.field === "id") {
+  if (row === undefined || row === null) return null
+
+  if (keyset.length === 1 && keyset[0]?.field === "id")
     return cursorValueOf(meta, keyset[0], keysetValue(row, keyset[0]))
-  }
+
   const tuple: Record<string, unknown> = {}
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const key of keyset) {
@@ -327,7 +328,7 @@ function cursorOf(meta: ModelMeta, row: unknown, keyset: readonly CursorKey[]): 
       throw compileError(
         "ValidationError",
         `cursor: the raw row is missing "${key.field}" — the server returned no value for an orderBy field (a NONE keyset value can't build a cursor).`,
-        { operation: "cursor", field: key.field },
+        { field: key.field, operation: "cursor" },
       )
     }
     tuple[key.field] = value
@@ -340,14 +341,12 @@ function cursorOf(meta: ModelMeta, row: unknown, keyset: readonly CursorKey[]): 
  * string (`01M…`); everything else keeps the raw stored value (a `DateTime` keeps its nanoseconds).
  */
 function cursorValueOf(meta: ModelMeta, key: CursorKey, value: unknown): unknown {
-  if (!(value instanceof RecordId) || !isTableMeta(meta)) {
-    return value
-  }
+  if (!(value instanceof RecordId) || !isTableMeta(meta)) return value
+
   const column = meta.columns.get(baseColumn(key.field))
-  if (!column?.record?.stringIds) {
-    return value
-  }
-  return bareIdValue(value.id)
+  if (!column?.record?.stringIds) return value
+
+  return bareIdValue(value.id as RecordIdValue)
 }
 
 /**
@@ -355,27 +354,20 @@ function cursorValueOf(meta: ModelMeta, key: CursorKey, value: unknown): unknown
  * path, falling back to the flat key a same-path `select` alias lands under.
  */
 function keysetValue(row: unknown, key: CursorKey): unknown {
-  if (key.alias !== undefined) {
-    return isRecord(row) ? row[key.alias] : undefined
-  }
+  if (key.alias !== undefined) return isRecord(row) ? row[key.alias] : undefined
+
   const nested = readPath(row, pathSegments(key.field))
-  if (nested !== undefined) {
-    return nested
-  }
+  if (nested !== undefined) return nested
+
   return isRecord(row) ? row[key.field] : undefined
 }
 
 /** Remove the reserved keyset aliases the compiler appended (they aren't part of the result). */
 function stripKeyset(row: unknown, keyset: readonly CursorKey[]): void {
-  if (!isRecord(row)) {
-    return
-  }
+  if (!isRecord(row)) return
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const key of keyset) {
-    if (key.alias !== undefined) {
-      delete row[key.alias]
-    }
-  }
+  for (const key of keyset) if (key.alias !== undefined) Reflect.deleteProperty(row, key.alias)
 }
 
 /** Read a dotted path off a raw row (`undefined` when an ancestor is missing or a scalar). */
@@ -383,9 +375,8 @@ function readPath(value: unknown, segments: readonly string[]): unknown {
   let current: unknown = value
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const segment of segments) {
-    if (!isRecord(current)) {
-      return undefined
-    }
+    if (!isRecord(current)) return undefined
+
     current = current[segment]
   }
   return current
@@ -395,9 +386,9 @@ function readPath(value: unknown, segments: readonly string[]): unknown {
 function prepareUnique(meta: ModelMeta, ctx: DelegateContext, args: ReadArgs): PreparedRead {
   const target = uniqueTarget(meta, args.where)
   if (target.kind === "id") {
-    return prepare(meta, ctx, { ...args, where: undefined, only: true }, "findUnique", {
-      resultMode: "one",
+    return prepare(meta, ctx, { ...args, only: true, where: undefined }, "findUnique", {
       compile: { target: `ONLY ${escapeIdent(meta.name)}:${target.id}` },
+      resultMode: "one",
     })
   }
   return prepare(
@@ -425,18 +416,19 @@ async function runPrepared(ctx: DelegateContext, prepared: PreparedRead): Promis
   return runWithHooks(
     hooks,
     {
-      table: prepared.meta.name,
       operation: prepared.operation as OperationKind,
+      table: prepared.meta.name,
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- tabela sem nome em runtime cairia em undefined; fallback defensivo
       ...(first ? { surql: first.sql, vars: first.vars ?? {} } : {}),
       ...(meta ? { meta } : {}),
     },
     async () => {
       const out = await execute(ctx.conn, {
-        statements: prepared.statements.map((entry) => entry.statement),
-        operation: prepared.operation,
-        table: prepared.meta.name,
         debug: ctx.debug,
         logger: ctx.logger,
+        operation: prepared.operation,
+        statements: prepared.statements.map((entry) => entry.statement),
+        table: prepared.meta.name,
         ...contextOption(ctx, prepared.context),
       })
       return prepared.decode(out.rows)
@@ -450,27 +442,27 @@ async function explainPrepared(
   prepared: PreparedRead,
 ): Promise<ExplainResult> {
   const out = await execute(ctx.conn, {
+    debug: ctx.debug,
+    logger: ctx.logger,
+    operation: prepared.operation,
+    phase: "explain",
     statements: prepared.statements.map(({ statement }) => ({
       sql: `EXPLAIN ${statement.sql}`,
       vars: statement.vars,
     })),
-    operation: prepared.operation,
     table: prepared.meta.name,
-    debug: ctx.debug,
-    phase: "explain",
-    logger: ctx.logger,
     ...contextOption(ctx, prepared.context),
   })
   return {
     driver: "surrealdb",
+    ignoredOptions: [],
     operation: prepared.operation,
-    statements: prepared.statements.map(({ statement, key }, index) => ({
+    statements: prepared.statements.map(({ key, statement }, index) => ({
       key,
+      plan: out.rows[index],
       surql: statement.sql,
       vars: statement.vars ?? {},
-      plan: out.rows[index],
     })),
-    ignoredOptions: [],
   }
 }
 
@@ -488,9 +480,8 @@ function finishRead(ctx: DelegateContext, prepared: PreparedRead): unknown {
         ...contextOption(ctx, prepared.context),
       },
     )
-  if (ctx.compileOnly) {
-    return preview()
-  }
+  if (ctx.compileOnly) return preview()
+
   const result = prepared.explain
     ? explainPrepared(ctx, prepared)
     : attachExplain(
@@ -510,10 +501,10 @@ function lazyPrepared(ctx: DelegateContext, prepared: PreparedRead): Promise<unk
 /** A lazy read with `.throw()` attached (the miss carries `NotFoundInfo`). */
 function throwingPrepared(ctx: DelegateContext, prepared: PreparedRead): ThrowingResult<unknown> {
   return attachThrow(lazyPrepared(ctx, prepared), () => ({
-    table: prepared.meta.name,
     operation: prepared.operation,
-    where: prepared.where,
     surql: prepared.statements[0]?.statement.sql,
+    table: prepared.meta.name,
     vars: ctx.debug ? prepared.statements[0]?.statement.vars : undefined,
+    where: prepared.where,
   }))
 }

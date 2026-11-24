@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-magic-numbers -- Literal values are intentional test data and must stay as authored. */
 import { describe, expect, test } from "bun:test"
 import * as z from "zod"
 

@@ -16,9 +16,10 @@ import { configureJiti, loadDefs, normalizeAliases, type ResolvedConfig } from "
 import { applyDirectives, type GeneratedOpts } from "../core/cli-kit/generated"
 import { rewriteZodSpecifiers } from "../core/cli-kit/zod-specifier"
 import type { AnyField } from "../surreal"
+
 import { resolveOne, type ResolveOpts } from "./resolve"
 
-export interface CompileTarget {
+export type CompileTarget = {
   /** Export name of the authored table in its source module. */
   readonly exportName: string
   readonly fields: readonly string[]
@@ -79,7 +80,7 @@ export type CompileOpts = {
   readonly sourcesOnly?: boolean
 } & ResolveOpts
 
-export interface CompileResult {
+export type CompileResult = {
   readonly bootstrap: string
   readonly compiled: string
   readonly schemaCount: number
@@ -123,16 +124,14 @@ export async function compileAotWith(
 
   const targets: CompileTarget[] = loaded.tables.flatMap((def) => {
     const sourceFile = loaded.fileOf.get(def)
-    if (!sourceFile) {
-      return []
-    }
+    if (!sourceFile) return []
+
     const entities = loaded.localEntities.get(sourceFile)?.entities ?? []
     const entity = entities.find(
       (e) => e.kind === "table" && e.name === (def as { name: string }).name,
     )
-    if (!entity) {
-      return []
-    }
+    if (!entity) return []
+
     const fields = Object.keys((def as unknown as { fields: Record<string, AnyField> }).fields)
     return fields.length > 0
       ? [

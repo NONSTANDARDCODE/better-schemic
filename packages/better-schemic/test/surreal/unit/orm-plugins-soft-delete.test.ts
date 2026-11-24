@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // M6.4 — the official `soft-delete` plugin: delete -> update, read filtering with `deleted:`, the
 // `deletedBy` actor and the `restore`/`restoreById` model methods. Offline.
 import { describe, expect, test } from "bun:test"

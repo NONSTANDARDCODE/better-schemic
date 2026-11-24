@@ -19,13 +19,16 @@ import * as z from "zod"
 // concrete `N` preservs it everywhere it matters — each driver's own field type keeps `N = <D>Meta`.
 
 /** Any field of ANY dialect — the base type the helpers + wrappers accept. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- apagamento bivariante do slot de metadados: tipo público, `unknown` rejeitaria fields reais.
 export type AnyField = SFieldBase<z.ZodType, string, any>
 
 /** The Zod schema a field (or a raw Zod schema) carries. */
 export type SchemaOf<F> =
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mesmo apagamento bivariante de `AnyField`.
   F extends SFieldBase<infer S, string, any> ? S : F extends z.ZodType ? F : never
 
 /** The `Flags` channel a field carries (driver `$`-methods brand it; widens to `string` for `Shape`). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- mesmo apagamento bivariante de `AnyField`.
 export type FlagsOf<F> = F extends SFieldBase<z.ZodType, infer Fl, any> ? Fl : never
 
 /** The schema one wrapper down — what `unwrap()` returns. */
@@ -135,16 +138,19 @@ export abstract class SFieldBase<
   }
   /** Zod's `.spa` alias for {@link safeParseAsync} (drop-in). */
   spa(value: unknown) {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- alias Zod `spa`: contrato de drop-in, não mudar para `safeDecodeAsync`.
     return this.safeParseAsync(value)
   }
 
   // --- Zod reflection + interop (drop-in for `z.*`), delegated to the inner schema ---
   /** Does this field accept `undefined`? (Zod reflection.) */
   isOptional(): boolean {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- reflexão Zod de drop-in: o campo expõe a API Zod sem alteração.
     return this.schema.isOptional()
   }
   /** Does this field accept `null`? (Zod reflection.) */
   isNullable(): boolean {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- reflexão Zod de drop-in: o campo expõe a API Zod sem alteração.
     return this.schema.isNullable()
   }
   /** Read back the description set via {@link describe} / {@link meta}. */
@@ -213,6 +219,7 @@ export abstract class SFieldBase<
   // --- Native Zod passthrough (drop-in for `z.*`): app-side validation / transform / metadata,
   // delegated to the inner schema. The dialect-DDL side stays under the driver's `$`-methods. ---
   refine(check: (arg: z.output<S>) => unknown, params?: string | z.core.$ZodCustomParams): this {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- a asserção preserva o subtipo `S` do schema encadeado.
     return this.rebuild(this.schema.refine(check, params) as S, this.native) as unknown as this
   }
   superRefine(
@@ -226,6 +233,7 @@ export abstract class SFieldBase<
   overwrite(fn: (x: z.output<S>) => z.output<S>): this {
     return this.rebuild(this.schema.overwrite(fn), this.native) as unknown as this
   }
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- `B` preserva a marca literal na API pública (DX de inferência).
   brand<B extends PropertyKey = PropertyKey>(value?: B): this {
     return this.rebuild(this.schema.brand(value), this.native) as unknown as this
   }
@@ -250,6 +258,7 @@ export abstract class SFieldBase<
   pipe<T extends z.core.$ZodType<unknown, z.output<S>>>(
     target: T,
   ): SFieldBase<z.ZodPipe<S, T>, Flags, N> {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- a asserção preserva `T` no tipo do pipe encadeado.
     return this.rebuild(this.schema.pipe(target) as z.ZodPipe<S, T>, this.native)
   }
   /** Peel one wrapper (optional/nullable/default/prefault/catch/readonly/array) off the field. */
@@ -279,15 +288,13 @@ export abstract class SFieldBase<
       loose?: () => z.ZodType
       strict?: () => z.ZodType
     }
-    if (typeof obj.loose !== "function" || typeof obj.strict !== "function") {
-      return this // not an object schema — no-op
-    }
+    if (typeof obj.loose !== "function" || typeof obj.strict !== "function") return this // not an object schema — no-op
+
     const next = (mode === "loose" ? obj.loose() : obj.strict()) as unknown as S
     // Carry the nested-field registry forward so DDL/create-shaping still see the subfields.
     const fields = objectFieldsRegistry.get(this.schema)
-    if (fields) {
-      objectFieldsRegistry.set(next, fields)
-    }
+    if (fields) objectFieldsRegistry.set(next, fields)
+
     return this.rebuild(next, this.native) as unknown as this
   }
 }
@@ -295,8 +302,13 @@ export abstract class SFieldBase<
 /** Is `v` an `s.*` field wrapper? Duck-typed (NOT `instanceof`): user code and the CLI can load
  *  different copies of core, and a field from the other copy must still unwrap. */
 function isFieldWrapper(v: unknown): v is { schema: z.ZodType } {
-  const schema = (v as { schema?: { safeParse?: unknown } } | null)?.schema
-  return typeof schema === "object" && schema !== null && typeof schema.safeParse === "function"
+  const schema = (v as null | { schema?: { safeParse?: unknown } })?.schema
+  return (
+    typeof schema === "object" &&
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- `null` passa como objeto: campo de outro copy do core pode trazer `schema: null`.
+    schema !== null &&
+    typeof schema.safeParse === "function"
+  )
 }
 
 /** Unwrap a field to its Zod schema (raw Zod schemas pass through). */

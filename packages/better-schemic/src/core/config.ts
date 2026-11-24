@@ -2,7 +2,7 @@
  * Configuration for the `better-schemic` CLI — author it in `better-schemic.config.ts`
  * (`schemic.config.ts` still loads as a legacy alias).
  *
- * A project declares one or more named CONNECTIONS, each built by the `surrealConnection` factory
+ * A project declares named CONNECTIONS, each built by the `surrealConnection` factory
  * (exported from `better-schemic/connection`). Connection values are EXPLICIT — there is no env-var
  * magic; read env yourself where you want it (`url: process.env.MY_URL`).
  * See `docs/MULTI-CONNECTION.md`.
@@ -23,7 +23,7 @@
  * });
  * ```
  *
- * For MULTIPLE databases (multi-tenant / heterogeneous / DB-per-user), add more named connections;
+ * For more than one database (multi-tenant / heterogeneous / DB-per-user), add named connections;
  * a connection may be a resolver (incl. an array → a collection). See docs/MULTI-CONNECTION.md.
  *
  * NOTE: this file is dialect-NEUTRAL. Driver-specific connection shapes (SurrealDB's
@@ -44,14 +44,14 @@ import type {
  * are relative to the project root; both the exact key and a trailing-`/*` wildcard register them,
  * so `{ "@": "./src" }` resolves `@/env` as well as `@`.
  */
-export interface ResolveConfig {
+export type ResolveConfig = {
   readonly alias?: Record<string, string>
   /** Also honour `compilerOptions.paths` from the project's tsconfig. Default false. */
   readonly tsconfigPaths?: boolean | string
 }
 
 /** Settings for the static-getter ORM façade generator (`sc generate --orm`). */
-export interface OrmGeneratorConfig {
+export type OrmGeneratorConfig = {
   /** Expression returning the client. Default `getOrmClient`. */
   readonly client?: string
   /** Output module, relative to the project root. */
@@ -67,7 +67,7 @@ export interface OrmGeneratorConfig {
 }
 
 /** Settings for the AOT validator generator (`sc generate --aot`). */
-export interface AotGeneratorConfig {
+export type AotGeneratorConfig = {
   /** Directory for the synthetic + compiled modules, relative to the project root. */
   readonly dir?: string
   /** Source files where the bootstrap import inserts it (idempotent). */
@@ -82,13 +82,13 @@ export interface AotGeneratorConfig {
 }
 
 /** Declarative generators run together by `sc generate`. `false` disables one. */
-export interface GeneratorsConfig {
+export type GeneratorsConfig = {
   readonly aot?: AotGeneratorConfig | false
   readonly orm?: false | OrmGeneratorConfig
 }
 
 /** Directives and tool-ignore conventions applied to every generated artifact. */
-export interface GeneratedConfig {
+export type GeneratedConfig = {
   /** Prepend `/* eslint-disable *\/`. Default true. */
   readonly eslintDisable?: boolean
   /** Add generated paths to knip/tsconfig/bunfig ignores. Default `ignore`. */
@@ -103,7 +103,7 @@ export interface GeneratedConfig {
   readonly zodSpecifier?: string
 }
 
-export interface OrmConfig {
+export type OrmConfig = {
   /** Named database connections — each produced by a per-driver `<driver>Connection(...)` factory. */
   connections: Record<string, AnyConnectionEntry>
   /**
@@ -129,8 +129,10 @@ export interface OrmConfig {
 export type SchemicConfig = OrmConfig
 
 /** The bound ORM client type a {@link ConnectionEntry} opens (inferred from the driver factory). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- curinga em tipo condicional: `unknown` restringiria a inferência do parâmetro não inferido.
 export type EntryClient<E> = E extends ConnectionEntry<infer Client, any> ? Client : never
 /** The typed resolver `args` a {@link ConnectionEntry} accepts (from its `args` schema). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- curinga em tipo condicional: `unknown` restringiria a inferência do parâmetro não inferido.
 export type EntryArgs<E> = E extends ConnectionEntry<any, infer Args> ? Args : never
 
 /**
@@ -141,7 +143,7 @@ export type EntryArgs<E> = E extends ConnectionEntry<any, infer Args> ? Args : n
  * connection whose resolver returns an ARRAY is bulk-: `connect` throws a teaching error — pass
  * `args` selecting ONE config. The client is disposable: `await using db = await orm.connect()`.
  */
-export interface OrmProject<Conns extends Record<string, AnyConnectionEntry>> {
+export type OrmProject<Conns extends Record<string, AnyConnectionEntry>> = {
   connect<N extends keyof Conns & string>(
     name?: N,
     args?: EntryArgs<Conns[N]>,
@@ -177,9 +179,11 @@ export type ChainCtx<Conns extends Record<string, AnyConnectionEntry>> = Omit<
 }
 
 /** The shape a driver connection factory must have to uss it as the `.connection()` driver marker. */
-export interface ChainableDriverFactory<C extends ConnectionConfigBase, Client> {
-  (input: ConnectionInput<C, any>): ConnectionEntry<Client, any>
-}
+export type ChainableDriverFactory<C extends ConnectionConfigBase, Client> = (
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- curinga no slot de args do factory: tipo público, `unknown` quebraria a inferência.
+  input: ConnectionInput<C, any>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mesmo curinga do slot de args.
+) => ConnectionEntry<Client, any>
 
 /**
  * The CHAINED config builder (`defineConfig().connection(...)`): each `.connection(name, factory,
@@ -187,9 +191,7 @@ export interface ChainableDriverFactory<C extends ConnectionConfigBase, Client> 
  * `ctx.connections` with everything declared so far. The literal `defineConfig({ connections })`
  * form remains for static maps.
  */
-export interface ChainedConfig<
-  Conns extends Record<string, AnyConnectionEntry>,
-> extends OrmProject<Conns> {
+export type ChainedConfig<Conns extends Record<string, AnyConnectionEntry>> = {
   connection<N extends string, C extends ConnectionConfigBase, Client, Args = undefined>(
     name: N,
     factory: ChainableDriverFactory<C, Client>,
@@ -202,11 +204,12 @@ export interface ChainedConfig<
   migrationsTable?: string
   resolve?: ResolveConfig
   seed?: string
-}
+} & OrmProject<Conns>
 
 /** Start a CHAINED config: `defineConfig().connection("main", surrealConnection, {...})`. */
 export function defineConfig(
   base?: Omit<OrmConfig, "connections">,
+  // eslint-disable-next-line @typescript-eslint/no-generated-empty-object-type -- `Record<never, never>` é INTENCIONAL: sem index signature, `keyof Conns` preserva só os nomes declarados (type-gate do connect).
 ): ChainedConfig<Record<never, never>>
 /** Type + enrich a literal config — returns it with the typed `connect()` attached. */
 export function defineConfig<const C extends OrmConfig>(config: C): C & OrmProject<C["connections"]>

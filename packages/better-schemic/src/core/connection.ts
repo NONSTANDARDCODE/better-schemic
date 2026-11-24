@@ -10,7 +10,7 @@ import type { ResolvedConfig } from "./cli-kit/config"
 type MaybePromise<T> = Promise<T> | T
 
 /** Minimal Standard Schema v1 surface — what a connection's `args` schema must expose. */
-export interface StandardSchemaLike {
+export type StandardSchemaLike = {
   "~standard": {
     validate(
       value: unknown,
@@ -19,7 +19,7 @@ export interface StandardSchemaLike {
 }
 
 /** The dialect-neutral fields the orchestration reads off every connection config. */
-export interface ConnectionConfigBase {
+export type ConnectionConfigBase = {
   /** Optional DISPLAY label for this config within a bulk (array) resolution — reporting/logs . */
   key?: string
   /** Migrations dir override; defaults relative to `schema`. */
@@ -29,7 +29,7 @@ export interface ConnectionConfigBase {
 }
 
 /** A live, queryable handle to ANOTHER (already-resolved) connection, for use inside a resolver. */
-export interface ResolvedConnectionHandle {
+export type ResolvedConnectionHandle = {
   query<T = unknown>(sql: string, vars?: Record<string, unknown>): Promise<T[]>
 }
 
@@ -38,7 +38,7 @@ export interface ResolvedConnectionHandle {
  * touching one resolves + connects it on demand (so the dependency graph falls out of access; cycles
  * error). `args` are CLI `--arg k=v` values (so a resolver can yield a SUBSET without resolving all).
  */
-export interface ResolveContext {
+export type ResolveContext = {
   connections: Record<string, ResolvedConnectionHandle>
   env: NodeJS.ProcessEnv
 }
@@ -48,7 +48,7 @@ export interface ResolveContext {
  * `connections` map accepts. Never hand-authored. `driver` is the package the CLI dynamically loads;
  * `resolve` always normalizes to an ARRAY (a single connection -> one element, a collection -> ).
  */
-export interface ConnectionEntry<Client = unknown, Args = undefined> {
+export type ConnectionEntry<Client = unknown, Args = undefined> = {
   readonly __orm: "connection"
   /** PHANTOM (never assigned) — anchors `Client`/`Args` so `config.connect` can infer them per entry. */
   readonly __types?: { args: Args; client: Client }
@@ -68,6 +68,7 @@ export interface ConnectionEntry<Client = unknown, Args = undefined> {
 }
 
 /** Cross-driver erasure of the entry generics (like `AnyField`) — the shape neutral maps hold. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- apagamento bivariante dos generics: tipo público, `unknown` rejeitaria entries reais.
 export type AnyConnectionEntry = ConnectionEntry<any, any>
 
 /** A connection factory's input: a static config, or a resolver yielding one config or a keyed collection. */

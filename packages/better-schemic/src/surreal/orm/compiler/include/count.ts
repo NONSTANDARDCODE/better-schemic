@@ -16,6 +16,7 @@ import {
 } from "../relations"
 import { compileError, describeValue, isPlainObject, renderPath } from "../shared"
 import { compileRelationFilter, compileWhere } from "../where"
+
 import type { CompileCtx, CountIncludeSpec } from "./specs"
 
 /** Compile `_count: { select: { <link/edge>: true | { where, direction } } }`. */
@@ -53,17 +54,18 @@ export function compileCount(meta: TableMeta, entry: unknown, ctx: CompileCtx): 
       throw compileError(
         "ValidationError",
         `${operation}: include._count.select."${key}" must be true or { where, direction }, got ${describeValue(options)}.`,
-        { operation, field: key },
+        { field: key, operation },
       )
     }
     if (isPlainObject(options)) {
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
       for (const option of Object.keys(options)) {
+        // eslint-disable-next-line max-depth -- parser/compilador com despacho aninhado; achatar mudaria a precedência das cláusulas
         if (option !== "where" && option !== "direction") {
           throw compileError(
             "ValidationError",
             `${operation}: include._count.select."${key}" has unknown option "${option}" — accepts "where" and "direction".`,
-            { operation, field: key },
+            { field: key, operation },
           )
         }
       }
@@ -80,7 +82,7 @@ export function compileCount(meta: TableMeta, entry: unknown, ctx: CompileCtx): 
       throw new OrmError(
         "UnknownField",
         `${operation}: _count."${key}" is not a link or edge of "${meta.name}".`,
-        { table: meta.name, field: key, operation },
+        { field: key, operation, table: meta.name },
       )
     }
     compileEdgeCount(meta, key, options, ctx, source)
@@ -98,19 +100,19 @@ function compileLinkCount(
   ctx: CompileCtx,
   source: string,
 ): void {
-  const { operation, binds, index } = ctx
+  const { binds, index, operation } = ctx
   if (link.cardinality === "one") {
     throw compileError(
       "ValidationError",
       `${operation}: _count."${key}" is a single link — counts need an array link or an edge (use where: { ${key}: { is: … } }).`,
-      { operation, field: key },
+      { field: key, operation },
     )
   }
   if (isPlainObject(options) && options.direction !== undefined) {
     throw compileError(
       "ValidationError",
       `${operation}: _count."${key}" is an array link — "direction" only applies to edges.`,
-      { operation, field: key },
+      { field: key, operation },
     )
   }
   const where = isPlainObject(options) ? options.where : undefined
@@ -125,7 +127,7 @@ function compileLinkCount(
   ctx.parts.push(
     `count(${renderPath(key)}${predicate ? `[WHERE ${predicate}]` : ""}) AS ${escapeIdent(source)}`,
   )
-  ctx.specs.push({ kind: "count", key, source })
+  ctx.specs.push({ key, kind: "count", source })
 }
 
 /** `count(->edge->(target WHERE …))` — a graph edge. */
@@ -136,7 +138,7 @@ function compileEdgeCount(
   ctx: CompileCtx,
   source: string,
 ): void {
-  const { operation, binds, index } = ctx
+  const { binds, index, operation } = ctx
   const direction = countDirection(options, ctx, key)
   const resolved = resolveEdge(meta, key, direction, operation)
   const edgeMeta = resolveEdgeMeta(index, resolved.edge.name)
@@ -144,22 +146,22 @@ function compileEdgeCount(
   const compiled = compileRelationFilter({
     where: isPlainObject(options) ? options.where : undefined,
     ...(edgeMeta ? { edge: edgeMeta } : {}),
-    targets,
+    binds,
+    context: `_count.${key}`,
     idOwner: "target",
     index,
-    binds,
     operation,
-    context: `_count.${key}`,
+    targets,
   })
   const targetWhere = [compiled.target, compiled.fragment].filter(Boolean).join(" AND ")
   const traversal = edgeTraversal({
-    edge: resolved.edge.name,
     direction: resolved.direction,
+    edge: resolved.edge.name,
     ...(compiled.edge ? { edgeFilter: compiled.edge } : {}),
     targets: resolved.targets,
     ...(targetWhere ? { targetFilter: targetWhere } : {}),
   })
-  const spec: CountIncludeSpec = { kind: "count", key, source }
+  const spec: CountIncludeSpec = { key, kind: "count", source }
   ctx.parts.push(`count(${traversal}) AS ${escapeIdent(source)}`)
   ctx.specs.push(spec)
 }
@@ -167,14 +169,13 @@ function compileEdgeCount(
 /** `direction` for an edge `_count` key. */
 function countDirection(options: unknown, ctx: CompileCtx, key: string): EdgeDirection | undefined {
   const raw = isPlainObject(options) ? options.direction : undefined
-  if (raw === undefined) {
-    return undefined
-  }
+  if (raw === undefined) return undefined
+
   if (raw !== "out" && raw !== "in" && raw !== "both") {
     throw compileError(
       "ValidationError",
       `${ctx.operation}: include._count.select."${key}.direction" must be "out", "in" or "both" (got ${describeValue(raw)}).`,
-      { operation: ctx.operation, field: key },
+      { field: key, operation: ctx.operation },
     )
   }
   return raw

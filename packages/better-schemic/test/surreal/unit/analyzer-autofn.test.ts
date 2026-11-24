@@ -1,3 +1,4 @@
+/* eslint-disable unicorn/consistent-function-scoping -- Helpers stay colocated with the tests that use them. Defensive checks document fixture intent. */
 import { describe, expect, test } from "bun:test"
 
 import { surql } from "../../../src/surreal"
@@ -18,10 +19,10 @@ describe("analyzer inline .function(cb) auto-defines fn::<analyzer>_fn", () => {
   test("emits the DEFINE FUNCTION, before the DEFINE ANALYZER that references it", () => {
     const snap = stmts(az)
     const keys = Object.keys(snap)
-    expect(snap["function::custom_fn"]?.ddl).toContain(
+    expect(snap["function::custom_fn"].ddl).toContain(
       "DEFINE FUNCTION fn::custom_fn($input: string)",
     )
-    expect(snap["analyzer::custom"]?.ddl).toContain("FUNCTION fn::custom_fn")
+    expect(snap["analyzer::custom"].ddl).toContain("FUNCTION fn::custom_fn")
     // function precedes the analyzer (the analyzer's FUNCTION clause depends on it existing first)
     expect(keys.indexOf("function::custom_fn")).toBeLessThan(keys.indexOf("analyzer::custom"))
   })
@@ -31,10 +32,10 @@ describe("analyzer inline .function(cb) auto-defines fn::<analyzer>_fn", () => {
       .function((input) => surql`string::lowercase(${input})`, "lower_tok")
       .tokenizers("blank")
     const snap = stmts(named)
-    expect(snap["function::lower_tok"]?.ddl).toContain(
+    expect(snap["function::lower_tok"].ddl).toContain(
       "DEFINE FUNCTION fn::lower_tok($input: string)",
     )
-    expect(snap["analyzer::custom"]?.ddl).toContain("FUNCTION fn::lower_tok")
+    expect(snap["analyzer::custom"].ddl).toContain("FUNCTION fn::lower_tok")
     expect(snap["function::custom_fn"]).toBeUndefined()
   })
 

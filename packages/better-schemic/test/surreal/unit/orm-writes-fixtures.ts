@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // Shared fixtures for the `/orm` write unit suites: the sample schema, golden rows, the recording
 // fake client factory and the golden-SQL/error helpers. Kept in ONE place so each write suite stays
 // focused on behavior (and no suite sprawls past a readable size).
@@ -55,26 +56,26 @@ export const data = {
 
 /** A client over a fake connection that answers every statement with `result` rows. */
 export function makeClient(result: unknown = [ROW]): {
-  client: Client<typeof schemaDef>
   calls: { sql: string; vars?: Record<string, unknown> }[]
+  client: Client<typeof schemaDef>
 } {
   const { conn, calls } = fakeConn((sql) => sql.split("\n").map(() => ok(result)))
   return {
-    client: orm(conn, { schema: schemaDef }) as Client<typeof schemaDef>,
+    client: orm(conn, { schema: schemaDef }),
     calls,
   }
 }
 
 /** Capture the LAST call's script + bindings (both always present on our statements). */
 export function lastCall(calls: { sql: string; vars?: Record<string, unknown> }[]) {
-  const call = calls[calls.length - 1]
+  const call = calls.at(-1)
   return { sql: call?.sql ?? "", vars: call?.vars ?? {} }
 }
 
 /** Normalize the SDK tag's counted `bind__N` names for stable fragment goldens. */
 export function stable(sql: string, vars: Record<string, unknown> | undefined) {
   const aliases = new Map<string, string>()
-  const text = sql.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/gu, (_, name: string) => {
+  const text = sql.replaceAll(/\$([A-Za-z_][A-Za-z0-9_]*)/gu, (_, name: string) => {
     if (!name.startsWith("bind__")) return `$${name}`
     let alias = aliases.get(name)
     if (!alias) {

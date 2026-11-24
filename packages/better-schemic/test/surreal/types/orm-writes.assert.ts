@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally unused type-probe values. Type queries and callback signatures need fixture values. */
 // M2.8 — TYPE assertions for the write surface: per-op args (`create`/`insert`/`update`/`patch`/
 // `upsert`/`delete`/`updateEach`/`relate`), the result envelopes dispatched by `return`, the
 // expression-carrying `data`, and the relation-RELATE surface.
@@ -195,6 +196,7 @@ function typeProbes(): void {
       assertType<FieldDelta<Row> | null, typeof row.delta>()
       assertType<readonly DeltaKey<Row>[], typeof row.changed>()
     }
+    return
   })
   void client.users.updateMany({ data: { active: false } })
   void client.users.deleteMany({ where: { age: { lt: 1 } } })
@@ -437,8 +439,8 @@ function typeProbes(): void {
 }
 void typeProbes
 
-describe("write results dispatch on the `return` literal", () => {
-  it("create resolves rows; none/before are null; diff is unknown[]", () => {
+void describe("write results dispatch on the `return` literal", () => {
+  void it("create resolves rows; none/before are null; diff is unknown[]", () => {
     assertType<Promise<Row>, CreatedResult<U, Record<string, never>>>()
     assertType<Promise<Row>, CreatedResult<U, { return: "after" }>>()
     assertType<Promise<null>, CreatedResult<U, { return: "none" }>>()
@@ -446,56 +448,56 @@ describe("write results dispatch on the `return` literal", () => {
     assertType<Promise<unknown[]>, CreatedResult<U, { return: "diff" }>>()
   })
 
-  it("insert/upsert `before` exposes the previous row (or null when created)", () => {
+  void it("insert/upsert `before` exposes the previous row (or null when created)", () => {
     assertType<Promise<null | Row>, WrittenResult<U, { return: "before" }>>()
     assertType<Promise<Row>, WrittenResult<U, Record<string, never>>>()
     assertType<Promise<null>, WrittenResult<U, { return: "none" }>>()
     assertType<Promise<unknown[]>, WrittenResult<U, { return: "diff" }>>()
   })
 
-  it("update/patch are ThrowingResults (a miss resolves null)", () => {
+  void it("update/patch are ThrowingResults (a miss resolves null)", () => {
     assertType<ThrowingResult<Row>, UpdatedResult<U, Record<string, never>>>()
     assertType<ThrowingResult<Row>, UpdatedResult<U, { return: "before" }>>()
     assertType<Promise<null>, UpdatedResult<U, { return: "none" }>>()
     assertType<Promise<unknown[]>, UpdatedResult<U, { return: "diff" }>>()
   })
 
-  it("delete only accepts before|none", () => {
+  void it("delete only accepts before|none", () => {
     assertType<ThrowingResult<Row>, DeletedResult<U, Record<string, never>>>()
     assertType<Promise<null>, DeletedResult<U, { return: "none" }>>()
   })
 
-  it("batches resolve a BatchResult, a patch list with diff", () => {
+  void it("batches resolve a BatchResult, a patch list with diff", () => {
     assertType<Promise<BatchResult<Row>>, BatchWriteResult<U, Record<string, never>>>()
     assertType<Promise<unknown[]>, BatchWriteResult<U, { return: "diff" }>>()
   })
 })
 
-describe("write data accepts fragments and partial updates", () => {
-  it("WriteData allows a surql expression per field", () => {
+void describe("write data accepts fragments and partial updates", () => {
+  void it("WriteData allows a surql expression per field", () => {
     assertType<true, { age: Surql<[number]> } extends WriteData<{ age: number }> ? true : false>()
     assertType<true, { name: string } extends WriteData<{ name: string }> ? true : false>()
   })
 
-  it("UpdateData is deep-partial (id/readonly excluded by the codec shape)", () => {
+  void it("UpdateData is deep-partial (id/readonly excluded by the codec shape)", () => {
     assertType<true, { age: number } extends UpdateData<U> ? true : false>()
     assertType<true, { age: 1 } extends UpdateData<U> ? true : false>()
   })
 })
 
-describe("updateEach and relate are typed", () => {
-  it("updateEach items carry the by field plus update data", () => {
+void describe("updateEach and relate are typed", () => {
+  void it("updateEach items carry the by field plus update data", () => {
     assertType<
       false,
-      { id: string; age: number } extends UpdateEachItem<U, "email"> ? true : false
+      { age: number; id: string } extends UpdateEachItem<U, "email"> ? true : false
     >()
     assertType<
       true,
-      { email: string; age: number } extends UpdateEachItem<U, "email"> ? true : false
+      { age: number; email: string } extends UpdateEachItem<U, "email"> ? true : false
     >()
   })
 
-  it("only RELATION delegates expose relate/unrelate", () => {
+  void it("only RELATION delegates expose relate/unrelate", () => {
     assertType<true, "relate" extends keyof Likess ? true : false>()
     assertType<true, "relateMany" extends keyof Likess ? true : false>()
     assertType<true, "unrelate" extends keyof Likess ? true : false>()
@@ -503,7 +505,7 @@ describe("updateEach and relate are typed", () => {
     assertType<true, Likess extends ModelDelegate<L> ? true : false>()
   })
 
-  it("the delegate exposes the write surface", () => {
+  void it("the delegate exposes the write surface", () => {
     assertType<true, "create" extends keyof Users ? true : false>()
     assertType<true, "createMany" extends keyof Users ? true : false>()
     assertType<true, "insert" extends keyof Users ? true : false>()

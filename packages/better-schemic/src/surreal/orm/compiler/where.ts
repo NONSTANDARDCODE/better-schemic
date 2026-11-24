@@ -10,6 +10,7 @@
  * rejected with a teaching `UnsupportedCapability` instead of emitts it.
  */
 import type { EdgeRef, FieldFamily, ModelMeta, SchemaIndex, TableMeta } from "../meta"
+
 import {
   classifyWhereByOwner,
   type EdgeDirection,
@@ -35,8 +36,12 @@ import {
   renderValue,
 } from "./shared"
 
+/** A `[min, max]` pair and even/odd backslash parity. */
+const BOUNDS_LENGTH = 2
+const PARITY = 2
+
 /** Options shared by every clause compiler. */
-export interface WhereOptions {
+export type WhereOptions = {
   /** The schema index — required for RELATIONAL operators (`some`/`every`/`none`/`is`/`isNot`). */
   readonly index?: SchemaIndex
   /** Table metadata, for family-aware operators (`length`, `outside`, `near`). */
@@ -53,12 +58,10 @@ export function compileWhere(
   binds: Binds,
   options: WhereOptions = {},
 ): string | undefined {
-  if (where === undefined || where === null) {
-    return undefined
-  }
-  if (isLowerableValue(where)) {
-    return renderValue(where, binds, binds.ctx())
-  }
+  if (where === undefined || where === null) return undefined
+
+  if (isLowerableValue(where)) return renderValue(where, binds, binds.ctx())
+
   if (!isPlainObject(where)) {
     throw compileError(
       "ValidationError",
@@ -70,9 +73,8 @@ export function compileWhere(
   const parts: string[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [key, value] of Object.entries(where)) {
-    if (value === undefined) {
-      continue
-    }
+    if (value === undefined) continue
+
     if (key === "AND" || key === "OR") {
       parts.push(paren(compileLogical(key, value, binds, options)))
       continue
@@ -82,9 +84,7 @@ export function compileWhere(
       continue
     }
     const compiled = compileFieldValue(key, value, binds, options)
-    if (compiled !== undefined) {
-      parts.push(compiled)
-    }
+    if (compiled !== undefined) parts.push(compiled)
   }
   return parts.length > 0 ? joinAnd(parts) : undefined
 }
@@ -107,12 +107,10 @@ function isAbsentFilter(value: unknown): boolean {
  * -created scope bag must never reach it).
  */
 export function mergeScope(where: unknown, scope: unknown): unknown {
-  if (isAbsentFilter(scope)) {
-    return where
-  }
-  if (isAbsentFilter(where)) {
-    return scope
-  }
+  if (isAbsentFilter(scope)) return where
+
+  if (isAbsentFilter(where)) return scope
+
   return { AND: [where, scope] }
 }
 
@@ -123,9 +121,8 @@ export function scopePredicate(
   meta: ModelMeta,
   index?: SchemaIndex,
 ): string {
-  if (scope === undefined) {
-    return ""
-  }
+  if (scope === undefined) return ""
+
   const options: WhereOptions = {
     operation: "scope",
     ...(index === undefined ? {} : { index }),
@@ -176,7 +173,7 @@ function compileLogical(
 }
 
 /** The compiled context of one field's filter (escaped path, family, binds). */
-interface FieldFilterContext {
+type FieldFilterContext = {
   readonly arrayPath: boolean
   readonly binds: Binds
   readonly family: FieldFamily | undefined
@@ -198,29 +195,27 @@ function compileFieldValue(
   options: WhereOptions,
 ): string | undefined {
   const context: FieldFilterContext = {
-    path: renderPath(options.prefix ? `${options.prefix}.${field}` : field),
-    field,
-    family: familyOf(field, options.meta),
     arrayPath: isArrayPath(field),
     binds,
+    family: familyOf(field, options.meta),
+    field,
     options,
+    path: renderPath(options.prefix ? `${options.prefix}.${field}` : field),
   }
   if (!isFilterObject(value)) {
     // A fragment on a relation key is a whole correlated PREDICATE, not a value
     // (`{ likes: surql`count(->likes) > ${2}` }`).
-    if (relationOf(context) && isLowerableValue(value)) {
+    if (relationOf(context) && isLowerableValue(value))
       return paren(renderValue(value, binds, binds.ctx()))
-    }
+
     return equality(context, value)
   }
   const operators = Object.entries(value).filter(([, v]) => v !== undefined)
-  if (operators.length === 0) {
-    return undefined
-  }
+  if (operators.length === 0) return undefined
+
   const relationOps = operators.filter(([op]) => RELATION_OPS.has(op))
-  if (relationOps.length === 0) {
-    return compileOperators(context, operators)
-  }
+  if (relationOps.length === 0) return compileOperators(context, operators)
+
   const foreign = operators.filter(([op]) => !RELATION_OPS.has(op) && op !== "direction")
   if (foreign.length > 0) {
     throw compileError(
@@ -251,22 +246,21 @@ type RelationKind =
 
 /** Resolve a key to a relation of the CURRENT scope's table (links win over same-named edges). */
 function relationOf(context: FieldFilterContext): RelationKind | undefined {
-  const { meta, index } = context.options
-  if (!meta || !index) {
-    return undefined
-  }
+  const { index, meta } = context.options
+  if (!meta || !index) return undefined
+
   const link = meta.links.get(context.field)
   if (link) {
     return {
-      kind: "link",
       cardinality: link.cardinality,
-      targets: targetMetas(index, link.targets),
-      meta,
       index,
+      kind: "link",
+      meta,
+      targets: targetMetas(index, link.targets),
     }
   }
   const edge = findEdge(meta, context.field)
-  return edge ? { kind: "edge", edge, meta, index } : undefined
+  return edge ? { edge, index, kind: "edge", meta } : undefined
 }
 
 /** Compile `is`/`isNot` (links) and `some`/`every`/`none` (edges and array links). */
@@ -287,9 +281,9 @@ function compileRelation(
   }
   const direction = relationFilterDirection(value, operation, field)
 
-  if (relation.kind === "link" && relation.cardinality === "one") {
+  if (relation.kind === "link" && relation.cardinality === "one")
     return compileSingleLink(context, relation, operators, direction)
-  }
+
   return compileCollection(context, relation, operators, direction)
 }
 
@@ -300,9 +294,8 @@ function relationFilterDirection(
   field: string,
 ): EdgeDirection | undefined {
   const raw = value.direction
-  if (raw === undefined) {
-    return undefined
-  }
+  if (raw === undefined) return undefined
+
   if (raw !== "out" && raw !== "in" && raw !== "both") {
     throw compileError(
       "ValidationError",
@@ -320,7 +313,7 @@ function compileSingleLink(
   operators: readonly (readonly [string, unknown])[],
   direction: EdgeDirection | undefined,
 ): string {
-  const { field, path, binds } = context
+  const { binds, field, path } = context
   const operation = context.options.operation ?? "where"
   if (direction !== undefined) {
     throw compileError(
@@ -351,8 +344,8 @@ function compileSingleLink(
     const predicate = compileWhere(operand, binds, {
       ...(target ? { meta: target } : {}),
       ...(context.options.index ? { index: context.options.index } : {}),
-      prefix: path,
       operation,
+      prefix: path,
     })
     if (predicate === undefined) {
       throw compileError(
@@ -376,7 +369,7 @@ function compileOperators(
 
 /** One operator of a field filter. */
 function compileOperator(context: FieldFilterContext, op: string, operand: unknown): string {
-  const { path, field, family, arrayPath, binds } = context
+  const { arrayPath, binds, family, field, path } = context
   const ctx = binds.ctx()
   const value = (v: unknown = operand) => renderValue(coerceRecord(context, v), binds, ctx)
   switch (op) {
@@ -504,14 +497,14 @@ function compileOperator(context: FieldFilterContext, op: string, operand: unkno
       throw compileError(
         "ValidationError",
         `unknown where operator "${op}" on "${field}". See docs/orm-syntax-map.md §4 for the vocabulary.`,
-        { field, details: { operator: op } },
+        { details: { operator: op }, field },
       )
   }
 }
 
 /** The `any`/`all` comparison family — `f ?< $p` / `f *>= $p`, AND-joined. */
-function compileAnyAll(prefix: "?" | "*", context: FieldFilterContext, operand: unknown): string {
-  const { path, field, binds } = context
+function compileAnyAll(prefix: "*" | "?", context: FieldFilterContext, operand: unknown): string {
+  const { binds, field, path } = context
   const ctx = binds.ctx()
   const label = prefix === "?" ? "any" : "all"
   if (!isFilterObject(operand)) {
@@ -522,18 +515,17 @@ function compileAnyAll(prefix: "?" | "*", context: FieldFilterContext, operand: 
     )
   }
   const SYMBOLS: Record<string, string> = {
-    lt: "<",
-    lte: "<=",
+    equals: "=",
     gt: ">",
     gte: ">=",
-    equals: "=",
+    lt: "<",
+    lte: "<=",
   }
   const parts: string[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [op, bound] of Object.entries(operand)) {
-    if (bound === undefined) {
-      continue
-    }
+    if (bound === undefined) continue
+
     const symbol = SYMBOLS[op]
     if (!symbol) {
       throw compileError(
@@ -558,11 +550,10 @@ function compileAnyAll(prefix: "?" | "*", context: FieldFilterContext, operand: 
 
 /** `matchesFullText: 'term'` / `{ query, index?|indexes?, operator? }` -> `@@` / `@n@`. */
 function compileFullText(context: FieldFilterContext, operand: unknown): string {
-  const { path, field, binds } = context
+  const { binds, field, path } = context
   const ctx = binds.ctx()
-  if (typeof operand === "string") {
-    return `${path} @@ ${renderValue(operand, binds, ctx)}`
-  }
+  if (typeof operand === "string") return `${path} @@ ${renderValue(operand, binds, ctx)}`
+
   if (!isFilterObject(operand)) {
     throw compileError(
       "ValidationError",
@@ -585,12 +576,9 @@ function compileFullText(context: FieldFilterContext, operand: unknown): string 
       { field },
     )
   }
-  const rawIndexes =
-    operand.indexes === undefined
-      ? operand.index === undefined
-        ? []
-        : [operand.index]
-      : (operand.indexes as unknown[])
+  let rawIndexes: readonly unknown[] = []
+  if (operand.indexes !== undefined) rawIndexes = operand.indexes as unknown[]
+  else if (operand.index !== undefined) rawIndexes = [operand.index]
   const indexes = rawIndexes.map((i) => {
     if (!Number.isInteger(i) || (i as number) < 0) {
       throw compileError(
@@ -610,16 +598,15 @@ function compileFullText(context: FieldFilterContext, operand: unknown): string 
     )
   }
   const bind = renderValue(query, binds, ctx)
-  if (indexes.length === 0) {
-    return `${path} @@ ${bind}`
-  }
+  if (indexes.length === 0) return `${path} @@ ${bind}`
+
   const parts = indexes.map((i) => `${path} @${i}@ ${bind}`)
   return parts.length === 1 ? parts[0] : paren(parts.join(` ${operator} `))
 }
 
 /** `near: { vector, k, distance? }` (KNN) or `{ point, distance }` (geo radius). */
 function compileNear(context: FieldFilterContext, operand: unknown): string {
-  const { path, field, binds } = context
+  const { binds, field, path } = context
   const ctx = binds.ctx()
   if (!isFilterObject(operand)) {
     throw compileError(
@@ -698,13 +685,13 @@ function compileCollection(
         )
       }
       base = edgeTraversal({
-        edge: resolved.edge.name,
         direction: resolved.direction,
+        edge: resolved.edge.name,
         targets: resolved.targets,
       })
       filtered = edgeTraversal({
-        edge: resolved.edge.name,
         direction: resolved.direction,
+        edge: resolved.edge.name,
         ...(compiled.edge ? { edgeFilter: compiled.edge } : {}),
         targets: resolved.targets,
         ...(compiled.target ? { targetFilter: compiled.target } : {}),
@@ -724,19 +711,15 @@ function compileCollection(
       }
       filtered = `${path}[WHERE ${predicate}]`
     }
-    if (op === "some") {
-      parts.push(`count(${filtered}) > 0`)
-    } else if (op === "none") {
-      parts.push(`count(${filtered}) = 0`)
-    } else {
-      parts.push(`count(${base}) = count(${filtered})`)
-    }
+    if (op === "some") parts.push(`count(${filtered}) > 0`)
+    else if (op === "none") parts.push(`count(${filtered}) = 0`)
+    else parts.push(`count(${base}) = count(${filtered})`)
   }
   return joinAnd(parts)
 }
 
 /** A relation filter compiled per column owner (edge predicate / target predicate / fragment). */
-export interface CompiledRelationFilter {
+export type CompiledRelationFilter = {
   readonly edge?: string
   /** A whole-clause fragment, already parenthesized (`surql` / param ref). */
   readonly fragment?: string
@@ -766,10 +749,10 @@ export function compileRelationFilter(args: {
   const owned = classifyWhereByOwner({
     where: args.where,
     ...(args.edge ? { edge: args.edge } : {}),
-    targets: args.targets,
+    context: args.context,
     idOwner: args.idOwner,
     operation: args.operation,
-    context: args.context,
+    targets: args.targets,
   })
   const edge = owned.edge
     ? compileWhere(owned.edge, args.binds, {
@@ -806,9 +789,8 @@ function compileEdgeOperand(
   const { binds } = context
   const operation = context.options.operation ?? "where"
   const index = context.options.index
-  if (isLowerableValue(operand)) {
-    return { target: paren(renderValue(operand, binds, binds.ctx())) }
-  }
+  if (isLowerableValue(operand)) return { target: paren(renderValue(operand, binds, binds.ctx())) }
+
   if (!isFilterObject(operand)) {
     throw compileError(
       "ValidationError",
@@ -826,14 +808,14 @@ function compileEdgeOperand(
     }
   }
   const compiled = compileRelationFilter({
-    where: operand,
     edge: edgeMeta,
-    targets,
     idOwner: "target",
+    targets,
+    where: operand,
     ...(index ? { index } : {}),
     binds,
-    operation,
     context: `where.${context.field}`,
+    operation,
   })
   const target = [compiled.target, compiled.fragment].filter(Boolean).join(" AND ")
   return {
@@ -851,9 +833,8 @@ function compileLinkOperand(
   const { binds } = context
   const operation = context.options.operation ?? "where"
   const index = context.options.index
-  if (isLowerableValue(operand)) {
-    return paren(renderValue(operand, binds, binds.ctx()))
-  }
+  if (isLowerableValue(operand)) return paren(renderValue(operand, binds, binds.ctx()))
+
   if (!isFilterObject(operand)) {
     throw compileError(
       "ValidationError",
@@ -883,10 +864,9 @@ function metricName(metric: unknown, field: string): string {
 
 /** `f = $p` / `f != $p`; a `[*]` path's value is an ARRAY, so equality is membership (`CONTAINS`). */
 function equality(context: FieldFilterContext, value: unknown): string {
-  const { path, arrayPath, binds } = context
-  if (value === null) {
-    return `${path} = NULL`
-  }
+  const { arrayPath, binds, path } = context
+  if (value === null) return `${path} = NULL`
+
   return arrayPath
     ? `${path} CONTAINS ${renderValue(coerceRecord(context, value), binds, binds.ctx())}`
     : `${path} = ${renderValue(coerceRecord(context, value), binds, binds.ctx())}`
@@ -899,13 +879,11 @@ function equality(context: FieldFilterContext, value: unknown): string {
  *  match nothing.
  */
 function coerceRecord(context: FieldFilterContext, value: unknown): unknown {
-  if (context.field.includes(".")) {
-    return value
-  }
+  if (context.field.includes(".")) return value
+
   const column = context.options.meta?.columns.get(baseColumn(context.field))
-  if (!column?.record) {
-    return value
-  }
+  if (!column?.record) return value
+
   return coerceRecordValue(
     value,
     column.record.targets,
@@ -927,7 +905,7 @@ function isComparable(family: FieldFamily | undefined): boolean {
 
 /** A `[a, b]` tuple operand for `between`/`outside`/`inRange`. */
 function bounds(op: string, operand: unknown): [unknown, unknown] {
-  if (!Array.isArray(operand) || operand.length !== 2) {
+  if (!Array.isArray(operand) || operand.length !== BOUNDS_LENGTH) {
     throw compileError(
       "ValidationError",
       `"${op}" expects exactly two bounds: [min, max] (got ${describeValue(operand)}).`,
@@ -948,7 +926,7 @@ function requireFlag(op: string, operand: unknown): void {
 
 /**
  * Escape  UNESCAPED `/` in a regex source. JS already escapes a slash in most positions
- * (`a/b` -> `a\/b`) but leaves it raw inside a character class (`[a/]`), which would terminate the
+ * (`a/b` -> `a\/b`) but leaves it raw inside a character class (`[a/]`), which would close the
  * SurrealQL regex literal. A slash preceded by an ODD number of backslashes is already escaped.
  */
 function escapeRegexSlashes(source: string): string {
@@ -961,7 +939,7 @@ function escapeRegexSlashes(source: string): string {
       out += ch
       continue
     }
-    out += ch === "/" && backslashes % 2 === 0 ? "\\/" : ch
+    out += ch === "/" && backslashes % PARITY === 0 ? "\\/" : ch
     backslashes = 0
   }
   return out

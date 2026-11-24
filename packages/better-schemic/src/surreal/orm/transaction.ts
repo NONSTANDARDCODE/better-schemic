@@ -28,11 +28,14 @@ import type {
   TransactionOptions,
 } from "./types/transaction"
 
+/** Jitter base: spread retries over [0.5, 1.5). */
+const JITTER_BASE = 0.5
+
 /** The managed transaction connection the SDK hands back (structurally — no SDK import needed). */
-export interface TransactionConnection extends Queryable {
+export type TransactionConnection = {
   cancel(): Promise<void>
   commit(): Promise<void>
-}
+} & Queryable
 
 /**
  * The per-transaction bookkeeping shared by every client bound to it (the `tx` handle, nested
@@ -104,7 +107,7 @@ export function rollbackTransaction(state: TransactionState, reason?: unknown): 
  * What {@link runTransaction} needs from the bound client (implemented by `ClientRuntime` as
  * `$`-prefixed internals so the class can keep its fields private).
  */
-export interface TransactionHost {
+export type TransactionHost = {
   /** The observation-hook dispatcher (absent = no hooks). */
   $hooks(): HookDispatcher | undefined
   /** Root clients : the scope of the transaction running on this client. */
@@ -122,7 +125,7 @@ export interface TransactionHost {
 }
 
 /** The resolved (validated) options one `transaction` call runs with. */
-interface ResolvedOptions {
+type ResolvedOptions = {
   readonly meta?: Record<string, unknown>
   readonly retries: {
     readonly attempts: number
@@ -152,6 +155,7 @@ function resolveOptions(
       ? { retries: { ...defaults?.retries, ...options?.retries } }
       : {}),
   }
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- modo inválido pode chegar via JS sem tipagem; checagem é load-bearing
   if (merged.mode !== undefined && merged.mode !== "sdk") {
     throw new OrmError(
       "UnsupportedCapability",
@@ -167,9 +171,7 @@ function resolveOptions(
         operation,
       })
     }
-    if (policy === "warn") {
-      console.warn(`[better-schemic] ${message}`)
-    }
+    if (policy === "warn") console.warn(`[better-schemic] ${message}`)
   }
 
   const retries = merged.retries ?? {}
@@ -182,7 +184,12 @@ function resolveOptions(
     )
   }
   const on = retries.on ?? ["writeConflict"]
-  if (!Array.isArray(on) || on.some((r) => !RETRY_REASONS.includes(r))) {
+  if (
+    !Array.isArray(on) ||
+    (on as readonly unknown[]).some(
+      (reason: unknown) => !RETRY_REASONS.includes(reason as RetryReason),
+    )
+  ) {
     throw new OrmError(
       "ValidationError",
       `${operation}: retries.on accepts ${RETRY_REASONS.join(", ")} (got ${JSON.stringify(retries.on)}).`,
@@ -208,9 +215,9 @@ function resolveOptions(
   return {
     retries: {
       attempts,
-      on,
       delayMs,
       jitter: retries.jitter === true,
+      on,
     },
     ...(merged.timeout === undefined
       ? {}
@@ -240,14 +247,12 @@ async function begin(conn: Queryable, operation: string): Promise<TransactionCon
 
 /** A connection-level failure (SDK socket/reconnect errors) — retryable when requested. */
 function isConnectionError(error: OrmError): boolean {
-  const cause = error.cause as { kind?: unknown; name?: unknown } | undefined
+  const cause = error.cause as undefined | { kind?: unknown; name?: unknown }
   const name = typeof cause?.name === "string" ? cause.name : ""
-  if (/connection|reconnect|socket/iu.test(name)) {
-    return true
-  }
-  if (cause?.kind === "Connection") {
-    return true
-  }
+  if (/connection|reconnect|socket/iu.test(name)) return true
+
+  if (cause?.kind === "Connection") return true
+
   return (
     error.code === "DatabaseError" &&
     /connection|socket|reconnect|disconnected|unavailable|network/iu.test(error.message)
@@ -258,15 +263,11 @@ function isConnectionError(error: OrmError): boolean {
 function isRetryable(error: OrmError, on: readonly RetryReason[]): boolean {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const reason of on) {
-    if (reason === "writeConflict" && error.code === "WriteConflict") {
-      return true
-    }
-    if (reason === "serializationFailure" && error.code === "SerializationFailure") {
-      return true
-    }
-    if (reason === "connectionError" && isConnectionError(error)) {
-      return true
-    }
+    if (reason === "writeConflict" && error.code === "WriteConflict") return true
+
+    if (reason === "serializationFailure" && error.code === "SerializationFailure") return true
+
+    if (reason === "connectionError" && isConnectionError(error)) return true
   }
   return false
 }
@@ -275,15 +276,18 @@ function isRetryable(error: OrmError, on: readonly RetryReason[]): boolean {
 function retryDelay(retries: ResolvedOptions["retries"], attempt: number, error: Error): number {
   const base =
     typeof retries.delayMs === "function" ? retries.delayMs(attempt, error) : retries.delayMs
-  if (!Number.isFinite(base) || base < 0) {
-    return 0
-  }
-  const factor = retries.jitter ? 0.5 + Math.random() : 1
+  if (!Number.isFinite(base) || base < 0) return 0
+
+  const factor = retries.jitter ? JITTER_BASE + Math.random() : 1
   return Math.round(base * factor)
 }
 
 const sleep = (ms: number): Promise<void> =>
-  ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve()
+  ms > 0
+    ? new Promise((resolve) => {
+        setTimeout(resolve, ms)
+      })
+    : Promise.resolve()
 
 /** A process-wide monotonic id, so hook payloads can tell transactions apart. */
 let transactionSeq = 0
@@ -296,17 +300,16 @@ function attemptError(e: unknown, resolved: ResolvedOptions): OrmError {
       "TransactionRollback",
       `transaction: rolled back${e.reason === undefined ? "" : ` (${typeof e.reason === "string" ? e.reason : JSON.stringify(e.reason)})`}.`,
       {
-        operation: "transaction",
         details: {
           reason: e.reason,
           ...(meta ? { meta } : {}),
         },
+        operation: "transaction",
       },
     )
   }
-  if (isOrmError(e)) {
-    return e
-  }
+  if (isOrmError(e)) return e
+
   return normalizeError(e, { operation: "transaction" })
 }
 
@@ -380,12 +383,12 @@ export async function runTransaction<T, S extends SchemaInput = SchemaInput>(
       "DatabaseError",
       `transaction: timed out after ${resolved.timeoutMs}ms — the transaction was cancelled.`,
       {
-        operation: "transaction",
         details: {
           timedOut: true,
           timeoutMs: resolved.timeoutMs,
           ...(resolved.meta ? { meta: resolved.meta } : {}),
         },
+        operation: "transaction",
       },
     )
 
@@ -397,9 +400,7 @@ export async function runTransaction<T, S extends SchemaInput = SchemaInput>(
     id: txId,
     ...(resolved.meta ? { meta: resolved.meta } : {}),
   }
-  if (hooks) {
-    await hooks.beforeTransaction(txPayload)
-  }
+  if (hooks) await hooks.beforeTransaction(txPayload)
 
   let timedOut = false
   let current: TransactionConnection | undefined
@@ -410,9 +411,12 @@ export async function runTransaction<T, S extends SchemaInput = SchemaInput>(
       : new Promise<never>((_, reject) => {
           timer = setTimeout(() => {
             timedOut = true
-            void current?.cancel().catch(() => {})
+            void current?.cancel().catch(() => {
+              /* cancelbest-effort */
+            })
             reject(timeoutError())
-          }, resolved.timeoutMs as number)
+          }, resolved.timeoutMs)
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- checagem defensiva em runtime (valores ausentes/mutados por callback); tipo TS é otimista
           timer.unref?.()
         })
 
@@ -426,15 +430,14 @@ export async function runTransaction<T, S extends SchemaInput = SchemaInput>(
       try {
         txConn = await begin(host.conn, "transaction")
         current = txConn
-        if (timedOut) {
-          throw timeoutError()
-        }
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- checagem defensiva em runtime (valores ausentes/mutados por callback); tipo TS é otimista
+        if (timedOut) throw timeoutError()
+
         const txHost = host.buildTransactionClient(txConn, state)
         const value = await fn(txHost as unknown as TransactionClient<S>)
         // A swallowed rollback signal still aborts: the state is the source of truth.
-        if (state.rolledBack) {
-          throw new RollbackSignal(state.rollbackReason)
-        }
+        if (state.rolledBack) throw new RollbackSignal(state.rollbackReason)
+
         await txConn.commit()
         state.active = false
         current = undefined
@@ -450,12 +453,15 @@ export async function runTransaction<T, S extends SchemaInput = SchemaInput>(
         state.active = false
         current = undefined
         if (txConn) {
-          await txConn.cancel().catch(() => {})
+          await txConn.cancel().catch(() => {
+            /* cancel é best-effort */
+          })
         }
+
         await runAfterRollback(state, error)
-        if (timedOut) {
-          throw timeoutError()
-        }
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- checagem defensiva em runtime (valores ausentes/mutados por callback); tipo TS é otimista
+        if (timedOut) throw timeoutError()
+
         const normalized = attemptError(error, resolved)
         lastError = normalized
         if (attempt < resolved.retries.attempts && isRetryable(normalized, resolved.retries.on)) {
@@ -484,9 +490,8 @@ export async function runTransaction<T, S extends SchemaInput = SchemaInput>(
     }
     throw error
   } finally {
-    if (timer) {
-      clearTimeout(timer)
-    }
+    if (timer) clearTimeout(timer)
+
     host.$setRootScope(undefined)
   }
 }

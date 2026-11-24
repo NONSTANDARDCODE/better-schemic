@@ -16,7 +16,7 @@ import { compile as zodCompile, isCompiledSchema } from "zod-compiler"
 import { type AnyField, SField } from "./surreal"
 
 export type { CompiledSchema } from "zod-compiler"
-export { isCompiledSchema }
+export { isCompiledSchema } from "zod-compiler"
 
 /** Unwrap an authored field to the Zod schema that actually validates it. Raw Zod schemas are
  *  accepted too — `Shape` allows them alongside `s.*` fields. */

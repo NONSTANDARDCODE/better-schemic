@@ -25,7 +25,7 @@ import type { SecretProvider, SecretRef } from "../secrets"
  * contributes  its `name`; this is the upper bound for a driver's table-authoring type. The
  * Surreal `TableDef` is a structural subtype, as is any future dialect's table builder.
  */
-export interface Authored {
+export type Authored = {
   readonly name: string
 }
 
@@ -35,10 +35,10 @@ export interface Authored {
  * name (so the snapshot can file-link a child object under its parent). The Surreal `StandaloneDef`
  * union is a structural subtype.
  */
-export interface AuthoredDef extends Authored {
+export type AuthoredDef = {
   readonly kind: string
   readonly table?: string
-}
+} & Authored
 
 /**
  * A single emitted DDL statement, structured: object identity (`kind`/`name`/`table`) + the dialect
@@ -46,7 +46,7 @@ export interface AuthoredDef extends Authored {
  * diff clause-level. `kind` is a dialect-defined string the orchestration treats opaquely — the
  * SurrealDB `DefineStatement` (with its fixed kind union) is a structural subtype of this.
  */
-export interface Statement {
+export type Statement = {
   /**
    * Apply-time secret bindings for this statement's `$param` placeholders — `param` name ->
    * a write- {@link SecretRef}. Collected into {@link Diff.bindings}; the value never lives here
@@ -61,13 +61,13 @@ export interface Statement {
 }
 
 /** Options for {@link Driver.emit} — mirrors the existing `DefineOptions` (e.g. IF NOT EXISTS). */
-export interface EmitOptions {
+export type EmitOptions = {
   ifNotExists?: boolean
   overwrite?: boolean
 }
 
 /** Options for {@link Driver.apply}. */
-export interface ApplyOptions {
+export type ApplyOptions = {
   /**
    * Run the whole batch atomically. `migrate` wraps up/down + `_migrations` bookkeeping in one
    * transaction; a driver that can't MUST surface that (the migration model degrades to best-effort).
@@ -76,7 +76,7 @@ export interface ApplyOptions {
 }
 
 /** Per-connection overrides (url/namespace/credentials) — superset across dialects. */
-export interface ConnectionOverrides {
+export type ConnectionOverrides = {
   authLevel?: string
   database?: string
   namespace?: string
@@ -89,7 +89,7 @@ export interface ConnectionOverrides {
 export type MigrationDirection = "down" | "up"
 
 /** A migration's bookkeeping identity, recorded in the migrations-tracking table. */
-export interface MigrationRecord {
+export type MigrationRecord = {
   /** sha of the migration file at apply time (drift detection). */
   checksum: string
   file: string
@@ -103,7 +103,7 @@ export interface MigrationRecord {
  * atomic apply+record. A driver WITHOUT it can't run migrations (diff/gen still work). `Conn` is the
  * driver's own connection type.
  */
-export interface MigrationStore<Conn = unknown> {
+export type MigrationStore<Conn = unknown> = {
   /** Applied migrations: tag -> checksum recorded at apply time. */
   applied(conn: Conn, table: string): Promise<Map<string, string>>
   /**
@@ -140,7 +140,7 @@ export interface MigrationStore<Conn = unknown> {
  * migration replay. Absent -> `check`/replay-verification degrads it/unavailable (diff/apply still
  * work, since a kind's `lower`/`introspectAll` already canonicalize).
  */
-export interface ShadowCapability<Conn> {
+export type ShadowCapability<Conn> = {
   /** Spin up a fully-isolated ephemeral instance (for migration replay). Caller must `stop()`. */
   ephemeral?(): Promise<{ conn: Conn; stop: () => Promise<void> }>
   /** Apply `ddl` to a fresh scratch DB, introspect it back to portable objects, then drop it. */
@@ -155,7 +155,7 @@ export interface ShadowCapability<Conn> {
  * function's `.returns(R)` schema (the driver-side call surface decodes it). A defined function still
  * emits/migrates via the schema engine regardless; this capability  adds INVOCATION.
  */
-export interface CallableFunctions<Conn = unknown> {
+export type CallableFunctions<Conn = unknown> = {
   invoke(conn: Conn, name: string, args: Record<string, unknown>): Promise<unknown>
 }
 
@@ -167,7 +167,7 @@ export interface CallableFunctions<Conn = unknown> {
 // and the meaning of each kind/verb/arg — core never names one. Depth fixs it at kind/verb.
 
 /** A declared argument for a {@link DriverCommand} — used for parsing + `--help`. */
-export interface CommandArgs {
+export type CommandArgs = {
   /** Named flags. `value: true` takes a value (`--user U`); otherwise it's a boolean (`--dry-run`). */
   flags?: readonly {
     help?: string
@@ -188,7 +188,7 @@ export interface CommandArgs {
 }
 
 /** argv parsed against a command's {@link CommandArgs}: positional tokens (driver-interpreted) + flags. */
-export interface ParsedCommandArgs {
+export type ParsedCommandArgs = {
   /** Flags: a value-flag -> its string, a boolean flag -> `true`, an absent flag -> `undefined`. */
   flags: Record<string, boolean | string | undefined>
   /** Every positional token in order (incl. raw `key=value`); the driver interprets them. */
@@ -196,7 +196,7 @@ export interface ParsedCommandArgs {
 }
 
 /** Output + input helpers core hands a command (so a driver never touches stdio directly). */
-export interface CommandIo {
+export type CommandIo = {
   fail(message: string): void
   info(message: string): void
   ok(message: string): void
@@ -205,7 +205,7 @@ export interface CommandIo {
 }
 
 /** The context core hands a {@link DriverCommand.run}: a connected db + the resolved config + io + secrets. */
-export interface CommandContext<Conn = unknown> {
+export type CommandContext<Conn = unknown> = {
   config: ResolvedConfig
   conn: Conn
   io: CommandIo
@@ -217,7 +217,7 @@ export interface CommandContext<Conn = unknown> {
  * A driver-contributed CLI command — `sc <kind> <verb> [args]`. Core dispatches; the driver owns the
  * dialect logic in {@link run}. The driver validates positional arity itself (core  collects them).
  */
-export interface DriverCommand<Conn = unknown> {
+export type DriverCommand<Conn = unknown> = {
   /** Declared args for parsing + `--help`. */
   args?: CommandArgs
   /** Kind namespace — `sc <kind> …` (e.g. `"access"`, `"table"`). */
@@ -237,11 +237,11 @@ export interface DriverCommand<Conn = unknown> {
  * dialect-specific command capabilities. The field/type substrate (`PortableType`/`s.*`) stays core.
  * See docs/kind-registry-flip-plan.md.
  */
-export interface Driver<
+export type Driver<
   Conn = unknown,
   Tbl extends Authored = Authored,
   Def extends AuthoredDef = AuthoredDef,
-> {
+> = {
   apply(conn: Conn, statements: string[], opts?: ApplyOptions): Promise<void>
 
   /**
@@ -376,17 +376,17 @@ export interface Driver<
 // while the CLI reads an empty one. Keyed by a REGISTERED symbol (`Symbol.for`) — same key in every
 // instance, but no string-keyed `globalThis` pollution and namespaced so it can't collide.
 const REGISTRY_KEY = Symbol.for("better-schemic.driverRegistry")
-const REGISTRY: Map<string, Driver<unknown>> = ((
-  globalThis as Record<symbol, Map<string, Driver<unknown>> | undefined>
-)[REGISTRY_KEY] ??= new Map<string, Driver<unknown>>())
+const REGISTRY: Map<string, Driver> = ((
+  globalThis as Record<symbol, Map<string, Driver> | undefined>
+)[REGISTRY_KEY] ??= new Map<string, Driver>())
 
 /** Register a driver under its `name` (idempotent; last write wins). */
-export function registerDriver(driver: Driver<unknown>): void {
+export function registerDriver(driver: Driver): void {
   REGISTRY.set(driver.name, driver)
 }
 
 /** Look up a registered driver, or throw with the list of known names. */
-export function getDriver(name: string): Driver<unknown> {
+export function getDriver(name: string): Driver {
   const d = REGISTRY.get(name)
   if (!d) {
     const known = [...REGISTRY.keys()].join(", ") || "(none registered)"

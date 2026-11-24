@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // Bun AOT — fluent builder at runtime: the chain is an identity/DDL-preserving authoring surface.
 import { describe, expect, test } from "bun:test"
 

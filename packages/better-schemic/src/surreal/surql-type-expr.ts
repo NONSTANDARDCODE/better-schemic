@@ -10,17 +10,12 @@ export function splitTopUnion(expr: string): string[] {
   let cur = ""
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const c of expr) {
-    if (c === "<") {
-      depth++
-    } else if (c === ">") {
-      depth--
-    }
+    if (c === "<") depth++
+    else if (c === ">") depth--
     if (c === "|" && depth === 0) {
       parts.push(cur.trim())
       cur = ""
-    } else {
-      cur += c
-    }
+    } else cur += c
   }
   parts.push(cur.trim())
   return parts
@@ -32,13 +27,9 @@ export function topLevelSplitOnce(s: string, sep: string): [string, string] | nu
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (let i = 0; i < s.length; i++) {
     const c = s[i]
-    if (c === "<") {
-      depth++
-    } else if (c === ">") {
-      depth--
-    } else if (c === sep && depth === 0) {
-      return [s.slice(0, i), s.slice(i + 1)]
-    }
+    if (c === "<") depth++
+    else if (c === ">") depth--
+    else if (c === sep && depth === 0) return [s.slice(0, i), s.slice(i + 1)]
   }
   return null
 }

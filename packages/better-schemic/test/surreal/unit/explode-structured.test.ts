@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-magic-numbers -- Literal values are intentional test data and must stay as authored. */
 // The driver-side EXPLODE's inverse: `fromStructured` fans a schema into per-kind portable objects and
 // `toStructured` reassembles the `DbStructured` (every opaque kind carrying its `native`), plus the
 // `fn::` dependency-edge dedupe.

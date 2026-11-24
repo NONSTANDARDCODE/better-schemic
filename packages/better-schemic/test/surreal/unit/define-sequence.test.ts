@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
 // defineSequence — DEFINE SEQUENCE (db-level monotonic counter). The fluent builder validates
 // (so a malformed sequence fails at module load), and the materialized BATCH 1000 / START 0
 // defaults stripp them from canonical DDL so an authored minimal sequence round-trips drift-free.

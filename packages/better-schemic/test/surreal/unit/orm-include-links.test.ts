@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Fixtures assert values whose presence the test guarantees. */
 // The link branch of the include compiler: bare/union links (no single target), nested FETCH paths
 // and the star-forms. A tailored schema exercises the shapes the shared fixtures don't have.
 import { describe, expect, test } from "bun:test"
@@ -16,7 +17,7 @@ const Node = NodeBase.extend({
   parent: s.recordId(() => NodeBase).optional(),
 })
 const schema = { nodes: Node, audit_log: "audit_log" }
-const index = buildSchemaIndex(schema as never)
+const index = buildSchemaIndex(schema)
 
 function compile(args: ReadArgs, table = "nodes") {
   const meta = index.tables.get(table)
@@ -50,7 +51,7 @@ describe("include — link edge shapes", () => {
     const idx = buildSchemaIndex({
       items: Schemaless,
       audit_log: "audit_log",
-    } as never)
+    })
     const meta = idx.tables.get("items")!
     expect(
       codeOf(() =>

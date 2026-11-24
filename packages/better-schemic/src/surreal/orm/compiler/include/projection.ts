@@ -21,6 +21,7 @@ import {
   renderPath,
   renderValue,
 } from "../shared"
+
 import type { CompileCtx, EdgeProjection, LinkLeafSpec, TargetProjection } from "./specs"
 
 /** The projection meta of an undeclared/wildcard target (no codec, passes through). */
@@ -31,13 +32,13 @@ const SCHEMALESS_TARGET: SchemalessMeta = {
 }
 
 /** One selected leaf: how it nests in the remounted object and where it lives in the raw row. */
-export interface ProjectionLeaf {
+export type ProjectionLeaf = {
   readonly out: readonly string[]
   readonly source: readonly string[]
 }
 
 /** `*` handling + the leaf callback for {@link walkProjection}. */
-interface WalkOptions {
+type WalkOptions = {
   /** Label for teaching messages (`include."author.select"`). */
   readonly label: string
   readonly onLeaf: (leaf: ProjectionLeaf) => void
@@ -59,14 +60,12 @@ function walkProjection(select: unknown, options: WalkOptions): void {
   ): void => {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const [key, entry] of Object.entries(obj)) {
-      if (entry === undefined || entry === false) {
-        continue
-      }
+      if (entry === undefined || entry === false) continue
+
       if (key === "*") {
         const star = options.star
-        if (star.mode === "no") {
-          throw compileError("ClauseNotSupported", star.error)
-        }
+        if (star.mode === "no") throw compileError("ClauseNotSupported", star.error)
+
         if (outBase.length > 0) {
           throw compileError(
             "ValidationError",
@@ -141,7 +140,7 @@ export function compileLinkSelect(
     throw compileError(
       "ValidationError",
       `${operation}: include."${key}" needs "select" (or pass true to FETCH the whole link).`,
-      { operation, field: key },
+      { field: key, operation },
     )
   }
 
@@ -154,30 +153,32 @@ export function compileLinkSelect(
       throw compileError(
         "ValidationError",
         `${label} produces "${flatKey}" twice — alias the fields so each leaf is unique.`,
-        { operation, field: key },
+        { field: key, operation },
       )
     }
     seen.add(flatKey)
     parts.push({
-      sql: `${renderPath([key, ...source].join("."))} AS ${escapeIdent(flatKey)}`,
       flatKey,
+      sql: `${renderPath([key, ...source].join("."))} AS ${escapeIdent(flatKey)}`,
     })
-    leaves.push({ out, source: flatKey, schemaPath: source })
+    leaves.push({ out, schemaPath: source, source: flatKey })
   }
 
   walkProjection(select, {
     label,
-    onLeaf: ({ out, source }) => add(out, source),
+    onLeaf: ({ out, source }) => {
+      add(out, source)
+    },
     star: {
-      mode: "no",
       error: `${label} cannot mix "*" with explicit fields — use true to FETCH the whole link.`,
+      mode: "no",
     },
   })
 
   if (parts.length === 0) {
     throw compileError("ValidationError", `${label} is empty — project at least one field.`, {
-      operation,
       field: key,
+      operation,
     })
   }
 
@@ -185,19 +186,18 @@ export function compileLinkSelect(
   if (presence && !seen.has(presenceKey) && !leaves.some((leaf) => isIdPath(leaf.schemaPath))) {
     seen.add(presenceKey)
     parts.push({
-      sql: `${renderPath(`${key}.id`)} AS ${escapeIdent(presenceKey)}`,
       flatKey: presenceKey,
+      sql: `${renderPath(`${key}.id`)} AS ${escapeIdent(presenceKey)}`,
     })
-    leaves.push({ out: [], source: presenceKey, schemaPath: ["id"] })
+    leaves.push({ out: [], schemaPath: ["id"], source: presenceKey })
   }
-  return { parts, leaves }
+  return { leaves, parts }
 }
 
 /** The projection text of a wildcard target (`out.*` / `out.<path>` — the target undeclars it). */
 export function wildcardTargetText(rawSelect: unknown, alias: string, ctx: CompileCtx): string {
-  if (rawSelect === undefined || rawSelect === true) {
-    return `${alias}.*`
-  }
+  if (rawSelect === undefined || rawSelect === true) return `${alias}.*`
+
   if (!Array.isArray(rawSelect) && !isPlainObject(rawSelect)) {
     throw compileError(
       "ValidationError",
@@ -243,7 +243,7 @@ export function compileTargetProjection(
   const select = rawSelect === true ? undefined : rawSelect
   if (targets.length === 0) {
     // Wildcard/undeclared targets — project and pass through.
-    const { text, spec } = compileProjection(
+    const { spec, text } = compileProjection(
       SCHEMALESS_TARGET,
       select,
       undefined,
@@ -252,21 +252,21 @@ export function compileTargetProjection(
       operation,
     )
     return {
-      text,
       projection: { entries: [{ name: "", spec }], wildcard: true },
+      text,
     }
   }
   const compiled = targets.map((meta) => {
-    const { text, spec } = compileProjection(meta, select, undefined, false, binds, operation)
-    return { name: meta.name, meta, spec, text }
+    const { spec, text } = compileProjection(meta, select, undefined, false, binds, operation)
+    return { meta, name: meta.name, spec, text }
   })
   const first = compiled[0]
   return {
-    text: first.text,
     projection: {
-      entries: compiled.map(({ name, meta, spec }) => ({ name, meta, spec })),
+      entries: compiled.map(({ meta, name, spec }) => ({ meta, name, spec })),
       wildcard: false,
     },
+    text: first.text,
   }
 }
 
@@ -278,7 +278,7 @@ export function compileEdgeProjection(
 ): { projection: EdgeProjection; spec: ProjectionSpec; text: string } {
   const { binds, operation } = ctx
   const select = isPlainObject(edge) ? edge.select : undefined
-  const { text, spec } = compileProjection(
+  const { spec, text } = compileProjection(
     edgeMeta ?? SCHEMALESS_TARGET,
     select,
     undefined,
@@ -287,9 +287,9 @@ export function compileEdgeProjection(
     operation,
   )
   return {
-    text,
-    spec,
     projection: edgeMeta ? { meta: edgeMeta, spec, wildcard: false } : { spec, wildcard: true },
+    spec,
+    text,
   }
 }
 
@@ -304,20 +304,18 @@ export function subquery(args: {
   readonly start?: unknown
   readonly where?: string
 }): string {
-  const { projection, from, where, orderBy, limit, start, binds, operation } = args
+  const { binds, from, limit, operation, orderBy, projection, start, where } = args
   const parts = [`SELECT ${projection} FROM ${from}`]
-  if (where) {
-    parts.push(`WHERE ${where}`)
-  }
-  if (orderBy) {
-    parts.push(orderBy)
-  }
-  if (limit !== undefined) {
+  if (where) parts.push(`WHERE ${where}`)
+
+  if (orderBy) parts.push(orderBy)
+
+  if (limit !== undefined)
     parts.push(`LIMIT ${binds.add(nonNegativeInt(limit, "limit", operation))}`)
-  }
-  if (start !== undefined) {
+
+  if (start !== undefined)
     parts.push(`START ${binds.add(nonNegativeInt(start, "start", operation))}`)
-  }
+
   return paren(parts.join(" "))
 }
 
@@ -329,9 +327,8 @@ export function compileIncludeOrderBy(
   key: string,
   scope: "edge" | "target",
 ): string | undefined {
-  if (orderBy === undefined) {
-    return undefined
-  }
+  if (orderBy === undefined) return undefined
+
   const entries = Array.isArray(orderBy) ? orderBy : [orderBy]
   const star = spec?.star === true
   const projected = new Set<string>()
@@ -343,9 +340,8 @@ export function compileIncludeOrderBy(
   const parts: string[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const entry of entries) {
-    if (entry === undefined) {
-      continue
-    }
+    if (entry === undefined) continue
+
     if (isLowerableValue(entry)) {
       parts.push(renderValue(entry, ctx.binds, ctx.binds.ctx()))
       continue
@@ -354,14 +350,13 @@ export function compileIncludeOrderBy(
       throw compileError(
         "ValidationError",
         `${ctx.operation}: include."${key}.orderBy" entries must be { field: "asc" | "desc" } or a fragment, got ${describeValue(entry)}.`,
-        { operation: ctx.operation, field: key },
+        { field: key, operation: ctx.operation },
       )
     }
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const [field, dir] of Object.entries(entry)) {
-      if (dir === undefined) {
-        continue
-      }
+      if (dir === undefined) continue
+
       if (
         typeof dir !== "string" ||
         (dir.toUpperCase() !== "ASC" && dir.toUpperCase() !== "DESC")
@@ -369,21 +364,20 @@ export function compileIncludeOrderBy(
         throw compileError(
           "ValidationError",
           `${ctx.operation}: include."${key}.orderBy.${field}" must be "asc" or "desc" (got ${describeValue(dir)}).`,
-          { operation: ctx.operation, field: key },
+          { field: key, operation: ctx.operation },
         )
       }
       if (!star && !projected.has(field)) {
         throw compileError(
           "ValidationError",
           `${ctx.operation}: include."${key}.orderBy" field "${field}" is not in the ${scope} projection — SurrealDB requires the order idiom in the selection (project "*" or add the field to "select").`,
-          { operation: ctx.operation, field },
+          { field, operation: ctx.operation },
         )
       }
       parts.push(`${renderPath(field)} ${dir.toUpperCase()}`)
     }
   }
-  if (parts.length === 0) {
-    return undefined
-  }
+  if (parts.length === 0) return undefined
+
   return `ORDER BY ${parts.join(", ")}`
 }

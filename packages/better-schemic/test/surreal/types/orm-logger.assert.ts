@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Type queries and callback signatures need fixture values. */
 // TYPE assertions for the query logger: the `logger` client option union (flag/preset/options), the
 // `createQueryLogger`/`resolveLogger` return shapes, the resolved-option fields and the invalid
 // values the types reject. Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
@@ -23,8 +24,8 @@ import { s, table } from "../../../src/surreal/pure"
 const User = table("user", { name: s.string() })
 const schemaDef = schema({ users: User })
 
-describe("logger option — accepted shapes", () => {
-  it("the flag, a preset and an options bag all typecheck on the client", () => {
+void describe("logger option — accepted shapes", () => {
+  void it("the flag, a preset and an options bag all typecheck on the client", () => {
     const flag = (conn: Queryable) => orm(conn, { schema: schemaDef, logger: true })
     const preset = (conn: Queryable) => orm(conn, { schema: schemaDef, logger: "json" })
     const bag = (conn: Queryable) =>
@@ -34,7 +35,7 @@ describe("logger option — accepted shapes", () => {
     assertType<Client<typeof schemaDef>, ReturnType<typeof bag>>()
   })
 
-  it("LoggerOption is exactly boolean | preset | options | a built QueryLogger", () => {
+  void it("LoggerOption is exactly boolean | preset | options | a built QueryLogger", () => {
     assertType<true, boolean extends LoggerOption ? true : false>()
     assertType<true, "pretty" extends LoggerOption ? true : false>()
     assertType<true, "json" extends LoggerOption ? true : false>()
@@ -44,12 +45,12 @@ describe("logger option — accepted shapes", () => {
     assertType<true, QueryLogger extends LoggerOption ? true : false>()
   })
 
-  it("a pre-built QueryLogger typechecks on the client", () => {
+  void it("a pre-built QueryLogger typechecks on the client", () => {
     const built = (conn: Queryable) => orm(conn, { schema: schemaDef, logger: createQueryLogger() })
     assertType<Client<typeof schemaDef>, ReturnType<typeof built>>()
   })
 
-  it("options fields are the narrow unions", () => {
+  void it("options fields are the narrow unions", () => {
     assertType<LoggerLevel | undefined, LoggerOptions["level"]>()
     assertType<LogFormat | undefined, LoggerOptions["format"]>()
     assertType<ExplainPolicy | undefined, LoggerOptions["explain"]>()
@@ -57,7 +58,7 @@ describe("logger option — accepted shapes", () => {
     assertType<((line: string) => void) | undefined, LoggerOptions["write"]>()
   })
 
-  it("rejects unknown levels/formats/explain policies and non-option flags", () => {
+  void it("rejects unknown levels/formats/explain policies and non-option flags", () => {
     assertType<false, { level: "trace" } extends LoggerOptions ? true : false>()
     assertType<false, { format: "xml" } extends LoggerOptions ? true : false>()
     assertType<false, { explain: "always" } extends LoggerOptions ? true : false>()
@@ -66,8 +67,8 @@ describe("logger option — accepted shapes", () => {
   })
 })
 
-describe("logger factory — runtime surface", () => {
-  it("createQueryLogger returns a QueryLogger with resolved options", () => {
+void describe("logger factory — runtime surface", () => {
+  void it("createQueryLogger returns a QueryLogger with resolved options", () => {
     const logger = createQueryLogger({ slowMs: 5 })
     assertType<QueryLogger, typeof logger>()
     assertType<boolean, QueryLogger["enabled"]>()
@@ -78,7 +79,7 @@ describe("logger factory — runtime surface", () => {
     assertType<string | undefined, ReturnType<QueryLogger["planStatement"]>>()
   })
 
-  it("resolveLogger is optional (off) and reads the env", () => {
+  void it("resolveLogger is optional (off) and reads the env", () => {
     assertType<QueryLogger | undefined, ReturnType<typeof resolveLogger>>()
     assertType<QueryLogger | undefined, ReturnType<typeof resolveLogger>>()
   })

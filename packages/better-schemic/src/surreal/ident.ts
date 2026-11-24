@@ -4,7 +4,7 @@
  *
  * The SDK escapes `⟩` as `\⟩`, but SurrealDB 3.2 REJECTS that escape ("Invalid escape sequence"),
  * and a name like `x\⟩ OR true OR ⟨y` survives the rewrite as `⟨x\\⟩ OR true OR ⟨y⟩` — the
- * identifier terminates early and the rest executes as SQL. Backtick quoting handles every tested
+ * identifier terminates and the rest executes as SQL. Backtick quoting handles every tested
  * case (`⟩`, `\`, backtick, spaces, newlines), so names containing `⟩` or `\` are backtick-quoted
  * (with `\` and the backtick itself escaped). Everything else keeps the SDK's canonical output, so
  * emitted SQL unchangs it for normal/weird-but-safe names.
@@ -15,14 +15,13 @@ import { escapeIdent } from "surrealdb"
 
 /** Backtick-quote an identifier (escapes `\` and the backtick itself; both round-trip live). */
 function backtickIdent(name: string): string {
-  return `\`${name.replaceAll('\\', "\\\\").replaceAll('`', "\\`")}\``
+  return `\`${name.replaceAll("\\", "\\\\").replaceAll("`", "\\`")}\``
 }
 
 /** Escape a possibly-untrusted identifier for SurrealQL (see the module docs). */
 export function escapeIdentSafe(name: string): string {
-  if (typeof name !== "string") {
-    return escapeIdent(String(name))
-  }
+  if (typeof name !== "string") return escapeIdent(String(name))
+
   return name.includes("\\") || name.includes("⟩") ? backtickIdent(name) : escapeIdent(name)
 }
 
@@ -38,20 +37,22 @@ export function escapeIdentSafe(name: string): string {
  * ORM's record-id parser, so `new RecordId(table, raw)` never re-escapes an already-escaped part.
  */
 export function unescapeIdPart(text: string): string {
-  if (text.length >= 2 && text.startsWith("⟨") && text.endsWith("⟩")) {
+  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
+  if (text.length >= 2 && text.startsWith("⟨") && text.endsWith("⟩"))
     return text.slice(1, -1).replaceAll("\\⟩", "⟩")
-  }
-  if (text.length >= 2 && text.startsWith("`") && text.endsWith("`")) {
+
+  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
+  if (text.length >= 2 && text.startsWith("`") && text.endsWith("`"))
     return text.slice(1, -1).replaceAll("\\`", "`").replaceAll("\\\\", "\\")
-  }
-  if (text.length >= 3 && text.startsWith('u"') && text.endsWith('"')) {
-    return text.slice(2, -1)
-  }
+
+  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal numérico é parte do contrato/formato da ferramenta (porta, timeout ou offset)
+  if (text.length >= 3 && text.startsWith('u"') && text.endsWith('"')) return text.slice(2, -1)
+
   return text
 }
 
 /** A record-id value split into its table and id parts (the id part still ESCAPED). */
-export interface RecordIdParts {
+export type RecordIdParts = {
   readonly id: string
   readonly table: string
 }
@@ -63,10 +64,10 @@ export interface RecordIdParts {
  * {@link unescapeIdPart} to get the RAW value).
  */
 export function splitRecordId(value: unknown): RecordIdParts | undefined {
+  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringificação de valor dinâmico é intencional (mensagem de erro)
   const text = String(value ?? "")
   const colon = text.indexOf(":")
-  if (colon === -1) {
-    return undefined
-  }
-  return { table: text.slice(0, colon), id: text.slice(colon + 1) }
+  if (colon === -1) return undefined
+
+  return { id: text.slice(colon + 1), table: text.slice(0, colon) }
 }

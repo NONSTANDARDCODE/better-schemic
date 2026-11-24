@@ -25,32 +25,32 @@ import type {
 export type OperationFamily = "create" | "delete" | "query" | "relate" | "update"
 
 const FAMILY_BY_OPERATION: Record<OperationKind, OperationFamily> = {
-  findMany: "query",
-  findFirst: "query",
-  findOne: "query",
-  findUnique: "query",
-  count: "query",
-  exists: "query",
   aggregate: "query",
-  paginate: "query",
-  cursor: "query",
+  count: "query",
   create: "create",
   createMany: "create",
-  insert: "create",
-  insertMany: "create",
-  update: "update",
-  updateMany: "update",
-  updateEach: "update",
-  upsert: "update",
-  upsertDelta: "update",
-  upsertMany: "update",
-  patch: "update",
+  cursor: "query",
   delete: "delete",
   deleteMany: "delete",
+  exists: "query",
+  findFirst: "query",
+  findMany: "query",
+  findOne: "query",
+  findUnique: "query",
+  insert: "create",
+  insertMany: "create",
+  paginate: "query",
+  patch: "update",
   relate: "relate",
   relateMany: "relate",
   unrelate: "relate",
   unrelateMany: "relate",
+  update: "update",
+  updateEach: "update",
+  updateMany: "update",
+  upsert: "update",
+  upsertDelta: "update",
+  upsertMany: "update",
 }
 
 /** The family of one operation — the ONE classification hooks and plugins share. */
@@ -71,7 +71,7 @@ export const isUpdateOperation = (operation: OperationKind): boolean =>
   FAMILY_BY_OPERATION[operation] === "update"
 
 /** The observer the operation runtimes drive (built once per client). */
-export interface HookDispatcher {
+export type HookDispatcher = {
   /** Delegate-op `after*` (routes to `afterQuery`/`afterCreate`/…). */
   after(operation: OperationKind, payload: AfterHookPayload): Promise<void>
   afterRaw(payload: RawAfterHookPayload): Promise<void>
@@ -90,38 +90,30 @@ export interface HookDispatcher {
 type Handler = (info: never) => Promise<void> | void
 
 /** The hooks of one event, from every source, in order. */
-function collect<K extends keyof Hooks>(sources: readonly Hooks[], key: K): readonly Handler[] {
+function collect(sources: readonly Hooks[], key: keyof Hooks): readonly Handler[] {
   const out: Handler[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const source of sources) {
     const handler = source[key]
-    if (typeof handler === "function") {
-      out.push(handler)
-    }
+    if (typeof handler === "function") out.push(handler)
   }
   return out
 }
 
 /** How some records a decoded result represents (the `after*` `count`). */
 export function resultCount(result: unknown): number {
-  if (typeof result === "number") {
-    return result
-  }
-  if (typeof result === "boolean") {
-    return result ? 1 : 0
-  }
-  if (Array.isArray(result)) {
-    return result.length
-  }
+  if (typeof result === "number") return result
+
+  if (typeof result === "boolean") return result ? 1 : 0
+
+  if (Array.isArray(result)) return result.length
+
   if (result !== null && typeof result === "object") {
     const shaped = result as { count?: unknown; data?: unknown }
     // `.data` first: a page's `count` is the total, but the hook reports the rows RETURNED.
-    if (Array.isArray(shaped.data)) {
-      return shaped.data.length
-    }
-    if (typeof shaped.count === "number") {
-      return shaped.count
-    }
+    if (Array.isArray(shaped.data)) return shaped.data.length
+
+    if (typeof shaped.count === "number") return shaped.count
   }
   return result === null || result === undefined ? 0 : 1
 }
@@ -137,18 +129,17 @@ export async function runWithHooks<T>(
   payload: HookPayload,
   execute: () => Promise<T>,
 ): Promise<T> {
-  if (!hooks) {
-    return execute()
-  }
+  if (!hooks) return execute()
+
   await hooks.before(payload.operation, payload)
   const started = performance.now()
   try {
     const result = await execute()
     await hooks.after(payload.operation, {
       ...payload,
-      result,
-      durationMs: performance.now() - started,
       count: resultCount(result),
+      durationMs: performance.now() - started,
+      result,
     })
     return result
   } catch (error) {
@@ -163,17 +154,16 @@ export async function runWithRawHooks<T>(
   payload: RawHookPayload,
   execute: () => Promise<T>,
 ): Promise<T> {
-  if (!hooks) {
-    return execute()
-  }
+  if (!hooks) return execute()
+
   await hooks.beforeRaw(payload)
   const started = performance.now()
   try {
     const result = await execute()
     await hooks.afterRaw({
       ...payload,
-      result,
       durationMs: performance.now() - started,
+      result,
     })
     return result
   } catch (error) {
@@ -190,34 +180,31 @@ export function createHookDispatcher(
   sources: readonly (Hooks | undefined)[],
 ): HookDispatcher | undefined {
   const present = sources.filter((source): source is Hooks => {
-    if (!source) {
-      return false
-    }
+    if (!source) return false
+
     return Object.values(source).some((value) => typeof value === "function")
   })
-  if (present.length === 0) {
-    return undefined
-  }
+  if (present.length === 0) return undefined
 
   const query = {
-    before: collect(present, "beforeQuery"),
     after: collect(present, "afterQuery"),
+    before: collect(present, "beforeQuery"),
   }
   const create = {
-    before: collect(present, "beforeCreate"),
     after: collect(present, "afterCreate"),
+    before: collect(present, "beforeCreate"),
   }
   const update = {
-    before: collect(present, "beforeUpdate"),
     after: collect(present, "afterUpdate"),
+    before: collect(present, "beforeUpdate"),
   }
   const remove = {
-    before: collect(present, "beforeDelete"),
     after: collect(present, "afterDelete"),
+    before: collect(present, "beforeDelete"),
   }
   const relate = {
-    before: collect(present, "beforeRelate"),
     after: collect(present, "afterRelate"),
+    before: collect(present, "beforeRelate"),
   }
   const onError = collect(present, "onError")
   const beforeRaw = collect(present, "beforeRaw")
@@ -233,19 +220,17 @@ export function createHookDispatcher(
     OperationFamily,
     { readonly after: readonly Handler[]; readonly before: readonly Handler[] }
   > = {
-    query,
     create,
-    update,
     delete: remove,
+    query,
     relate,
+    update,
   }
 
   /** Run `before*` handlers in order; a throw propagates (aborting the operation). */
   const runBefore = async (handlers: readonly Handler[], payload: unknown): Promise<void> => {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const handler of handlers) {
-      await handler(payload as never)
-    }
+    for (const handler of handlers) await handler(payload as never)
   }
 
   /** Route a hook failure to `onError` (console when nobody listens). */
@@ -286,8 +271,8 @@ export function createHookDispatcher(
       } catch (error) {
         await report({
           ...(payload.table === undefined ? {} : { table: payload.table }),
-          operation: payload.operation ?? fallback,
           error: error,
+          operation: payload.operation ?? fallback,
           ...(payload.surql === undefined ? {} : { surql: payload.surql }),
           ...(payload.vars === undefined ? {} : { vars: payload.vars }),
           ...(payload.meta === undefined ? {} : { meta: payload.meta }),
@@ -300,15 +285,15 @@ export function createHookDispatcher(
     runObserved(handlers, payload, payload.operation)
 
   return {
-    before: (operation, payload) => runBefore(families[operationFamily(operation)].before, payload),
     after: (operation, payload) => runAfter(families[operationFamily(operation)].after, payload),
-    error: (payload) => runObserved(onError, payload, payload.operation),
-    beforeRaw: (payload) => runBefore(beforeRaw, payload),
     afterRaw: (payload) => runObserved(afterRaw, payload, payload.operation),
-    rawError: (payload) => runObserved(onRawError, payload, payload.operation),
-    beforeTransaction: (payload) => runBefore(beforeTransaction, payload),
     afterTransactionCommit: (payload) => runObserved(afterCommit, payload, "transaction"),
     afterTransactionRollback: (payload) => runObserved(afterRollback, payload, "transaction"),
+    before: (operation, payload) => runBefore(families[operationFamily(operation)].before, payload),
+    beforeRaw: (payload) => runBefore(beforeRaw, payload),
+    beforeTransaction: (payload) => runBefore(beforeTransaction, payload),
+    error: (payload) => runObserved(onError, payload, payload.operation),
+    rawError: (payload) => runObserved(onRawError, payload, payload.operation),
     transactionError: (payload) => runObserved(onTransactionError, payload, "transaction"),
   }
 }

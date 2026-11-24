@@ -21,6 +21,7 @@ import type {
   QueryLogger,
   ResolvedLoggerOptions,
 } from "../types/logger"
+
 import { createPalette, padEnd, type Palette, visibleWidth } from "./colors"
 import { sqlLines } from "./highlight"
 import { resolveLoggerOptions } from "./options"
@@ -28,69 +29,79 @@ import { renderPlan } from "./plan"
 
 /** The default inner width of a pretty box. */
 const MIN_BOX_WIDTH = 48
+/** Time-format thresholds and precision (milliseconds). */
+const MS_PER_SECOND = 1000
+const MS_LONG = 100
+const MS_MID = 10
+const DECIMALS_ONE = 1
+const DECIMALS_TWO = 2
+const CLOCK_START = 11
+const CLOCK_END = 23
+const BOX_GUTTER = 2
+const STACK_LINES = 6
 
 /** The operation → emoji map (falling back to the statement verb; overridable off via `icons:false`). */
 const ICON_BY_OPERATION: Record<string, string> = {
-  findMany: "🔍",
-  findFirst: "🔍",
-  findOne: "🔍",
-  findUnique: "🔍",
-  count: "🔢",
-  exists: "🔍",
+  $query: "⚡",
+  $raw: "⚡",
+  $unsafe: "⚡",
   aggregate: "📊",
-  paginate: "📄",
-  cursor: "📄",
+  changes: "🔁",
+  count: "🔢",
   create: "➕",
   createMany: "➕",
+  cursor: "📄",
+  delete: "🗑️",
+  deleteMany: "🗑️",
+  exists: "🔍",
+  export: "📤",
+  findFirst: "🔍",
+  findMany: "🔍",
+  findOne: "🔍",
+  findUnique: "🔍",
+  "fn.call": "ƒ",
+  import: "📥",
+  info: "ℹ️",
   insert: "➕",
   insertMany: "➕",
+  kill: "📡",
+  live: "📡",
+  paginate: "📄",
+  patch: "🩹",
+  ping: "🏓",
+  relate: "🔗",
+  relateMany: "🔗",
+  transaction: "🔒",
+  unrelate: "🔗",
+  unrelateMany: "🔗",
   update: "✏️",
-  updateMany: "✏️",
   updateEach: "✏️",
+  updateMany: "✏️",
   upsert: "✏️",
   upsertDelta: "🧾",
   upsertMany: "✏️",
-  patch: "🩹",
-  delete: "🗑️",
-  deleteMany: "🗑️",
-  relate: "🔗",
-  relateMany: "🔗",
-  unrelate: "🔗",
-  unrelateMany: "🔗",
-  live: "📡",
-  kill: "📡",
-  changes: "🔁",
-  info: "ℹ️",
-  import: "📥",
-  export: "📤",
-  ping: "🏓",
   version: "🏷️",
-  "fn.call": "ƒ",
-  transaction: "🔒",
-  $raw: "⚡",
-  $query: "⚡",
-  $unsafe: "⚡",
 }
 
 const ICON_BY_VERB: Record<string, string> = {
-  SELECT: "🔍",
+  BEGIN: "🔒",
+  CANCEL: "🔒",
+  COMMIT: "🔒",
   CREATE: "➕",
+  DELETE: "🗑️",
+  EXPLAIN: "🔎",
+  INFO: "ℹ️",
   INSERT: "➕",
+  KILL: "📡",
+  LET: "⚡",
+  LIVE: "📡",
+  RELATE: "🔗",
+  REMOVE: "🗑️",
+  RETURN: "⚡",
+  SELECT: "🔍",
+  SHOW: "🔁",
   UPDATE: "✏️",
   UPSERT: "✏️",
-  DELETE: "🗑️",
-  REMOVE: "🗑️",
-  RELATE: "🔗",
-  LIVE: "📡",
-  KILL: "📡",
-  EXPLAIN: "🔎",
-  BEGIN: "🔒",
-  COMMIT: "🔒",
-  CANCEL: "🔒",
-  INFO: "ℹ️",
-  SHOW: "🔁",
-  RETURN: "⚡",
-  LET: "⚡",
 }
 
 const firstVerb = (sql: string): string | undefined =>
@@ -99,18 +110,14 @@ const firstVerb = (sql: string): string | undefined =>
 /** Read the `BETTER_SCHEMIC_LOG` env into a logger input (`undefined` = not set). */
 function envInput(env: Record<string, string | undefined>): boolean | LogFormat | undefined {
   const raw = env.BETTER_SCHEMIC_LOG?.trim().toLowerCase()
-  if (!raw) {
-    return undefined
-  }
-  if (raw === "0" || raw === "false" || raw === "off" || raw === "no") {
-    return false
-  }
-  if (raw === "1" || raw === "true" || raw === "on" || raw === "yes") {
-    return true
-  }
-  if (raw === "pretty" || raw === "json" || raw === "compact" || raw === "silent") {
-    return raw
-  }
+  if (!raw) return undefined
+
+  if (raw === "0" || raw === "false" || raw === "off" || raw === "no") return false
+
+  if (raw === "1" || raw === "true" || raw === "on" || raw === "yes") return true
+
+  if (raw === "pretty" || raw === "json" || raw === "compact" || raw === "silent") return raw
+
   return true
 }
 
@@ -118,13 +125,13 @@ function envInput(env: Record<string, string | undefined>): boolean | LogFormat 
 function envOptions(env: Record<string, string | undefined>): LoggerOptions | undefined {
   const options: Record<string, unknown> = {}
   const level = env.BETTER_SCHEMIC_LOG_LEVEL?.trim().toLowerCase()
-  if (level === "debug" || level === "info" || level === "warn" || level === "silent") {
+  if (level === "debug" || level === "info" || level === "warn" || level === "silent")
     options.level = level
-  }
+
   const slow = Number(env.BETTER_SCHEMIC_LOG_SLOW_MS)
-  if (env.BETTER_SCHEMIC_LOG_SLOW_MS !== undefined && Number.isFinite(slow) && slow >= 0) {
+  if (env.BETTER_SCHEMIC_LOG_SLOW_MS !== undefined && Number.isFinite(slow) && slow >= 0)
     options.slowMs = slow
-  }
+
   return Object.keys(options).length > 0 ? options : undefined
 }
 
@@ -139,58 +146,47 @@ export function createQueryLogger(options: LoggerOptions = {}): QueryLogger {
   let counter = 0
 
   const severity = (event: QueryLogEvent): "debug" | "error" | "warn" =>
-    event.error === undefined ? event.durationMs >= resolved.slowMs ? "warn" : "debug" : "error"
+    event.error === undefined ? (event.durationMs >= resolved.slowMs ? "warn" : "debug") : "error"
 
   const shouldLog = (event: QueryLogEvent): boolean => {
-    if (event.phase === "explain") {
-      return true
-    }
-    if (event.error !== undefined) {
-      return true
-    }
-    if (resolved.level === "debug") {
-      return true
-    }
-    if (resolved.level === "info") {
-      return event.durationMs >= resolved.slowMs
-    }
+    if (event.phase === "explain") return true
+
+    if (event.error !== undefined) return true
+
+    if (resolved.level === "debug") return true
+
+    if (resolved.level === "info") return event.durationMs >= resolved.slowMs
+
     return false
   }
 
   return {
+    emit(event: QueryLogEvent): void {
+      if (!enabled || !shouldLog(event)) return
+
+      counter++
+      let lines: readonly string[]
+      if (resolved.format === "json") lines = [renderJson(event, severity(event), resolved)]
+      else if (resolved.format === "compact")
+        lines = [renderCompact(event, resolved, palette, counter)]
+      else lines = renderPretty(event, resolved, palette, counter)
+      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+      for (const line of lines) resolved.write(line)
+    },
     enabled,
     options: resolved,
-    emit(event: QueryLogEvent): void {
-      if (!enabled || !shouldLog(event)) {
-        return
-      }
-      counter++
-      const lines =
-        resolved.format === "json"
-          ? [renderJson(event, severity(event), resolved)]
-          : resolved.format === "compact"
-            ? [renderCompact(event, resolved, palette, counter)]
-            : renderPretty(event, resolved, palette, counter)
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const line of lines) {
-        resolved.write(line)
-      }
-    },
     planStatement(sql: string, durationMs: number, phase): string | undefined {
-      if (!enabled || phase === "explain" || resolved.explain === false) {
-        return undefined
-      }
+      if (!enabled || phase === "explain" || resolved.explain === false) return undefined
+
       const body = sql.trim().replace(/;\s*$/u, "")
-      if (body.includes(";") || firstVerb(body) !== "SELECT") {
-        return undefined
-      }
+      if (body.includes(";") || firstVerb(body) !== "SELECT") return undefined
+
       const wanted =
         resolved.explain === "all" ||
         resolved.explain === "analyze" ||
         durationMs >= resolved.slowMs
-      if (!wanted) {
-        return undefined
-      }
+      if (!wanted) return undefined
+
       const prefix =
         resolved.explain === "analyze" ? "EXPLAIN ANALYZE FORMAT JSON" : "EXPLAIN FORMAT JSON"
       return `${prefix} ${body};`
@@ -202,6 +198,7 @@ export function createQueryLogger(options: LoggerOptions = {}): QueryLogger {
 function isQueryLogger(value: LoggerOption): value is QueryLogger {
   return (
     typeof value === "object" &&
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- null é possível em runtime apesar do tipo
     value !== null &&
     "emit" in value &&
     typeof value.emit === "function" &&
@@ -223,38 +220,31 @@ export function resolveLogger(
   let input: LoggerOption | undefined = option
   if (input === undefined) {
     const fromEnv = envInput(env)
-    if (fromEnv === undefined || fromEnv === false) {
-      return undefined
-    }
+    if (fromEnv === undefined || fromEnv === false) return undefined
+
     input = fromEnv
   }
-  if (input === false) {
-    return undefined
-  }
-  if (isQueryLogger(input)) {
-    return input
-  }
+  if (input === false) return undefined
+
+  if (isQueryLogger(input)) return input
+
   const base = envOptions(env)
-  if (input === true) {
-    return createQueryLogger(base ?? {})
-  }
-  if (typeof input === "string") {
-    return createQueryLogger({ ...(base ?? {}), format: input })
-  }
-  return createQueryLogger({ ...(base ?? {}), ...input })
+  if (input === true) return createQueryLogger(base ?? {})
+
+  if (typeof input === "string") return createQueryLogger({ ...base, format: input })
+
+  return createQueryLogger({ ...base, ...input })
 }
 
 // --- rendering ---------------------------------------------------------------------------------
 
 /** The emoji for an event (explain wins; then operation; then the statement verb). */
 function iconOf(event: QueryLogEvent): string {
-  if (event.phase === "explain") {
-    return "🔎"
-  }
+  if (event.phase === "explain") return "🔎"
+
   const byOperation = event.operation ? ICON_BY_OPERATION[event.operation] : undefined
-  if (byOperation) {
-    return byOperation
-  }
+  if (byOperation) return byOperation
+
   const verb = event.statements[0]?.sql ? firstVerb(event.statements[0].sql) : undefined
   return (verb && ICON_BY_VERB[verb]) || "▸"
 }
@@ -267,21 +257,18 @@ function operationLabel(event: QueryLogEvent): string {
 
 /** Format a duration in ms (`0.42ms`, `12.4ms`, `120ms`, `1.20s`). */
 function formatMs(ms: number): string {
-  if (ms >= 1000) {
-    return `${(ms / 1000).toFixed(2)}s`
-  }
-  if (ms >= 100) {
-    return `${Math.round(ms)}ms`
-  }
-  if (ms >= 10) {
-    return `${ms.toFixed(1)}ms`
-  }
-  return `${ms.toFixed(2)}ms`
+  if (ms >= MS_PER_SECOND) return `${(ms / MS_PER_SECOND).toFixed(DECIMALS_TWO)}s`
+
+  if (ms >= MS_LONG) return `${Math.round(ms)}ms`
+
+  if (ms >= MS_MID) return `${ms.toFixed(DECIMALS_ONE)}ms`
+
+  return `${ms.toFixed(DECIMALS_TWO)}ms`
 }
 
 /** A compact `HH:MM:SS.mmm` (UTC) label for an event's timestamp. */
 function clock(epochMs: number): string {
-  return new Date(epochMs).toISOString().slice(11, 23)
+  return new Date(epochMs).toISOString().slice(CLOCK_START, CLOCK_END)
 }
 
 /** The `N rows` / `count N` summary across the OK results, when any result reports one. */
@@ -292,9 +279,8 @@ function rowLabel(event: QueryLogEvent): string | undefined {
     return `count ${total}`
   }
   const known = event.results.filter((r) => r.status === "OK" && r.rows !== undefined)
-  if (known.length === 0) {
-    return undefined
-  }
+  if (known.length === 0) return undefined
+
   const rows = known.reduce((sum, r) => sum + (r.rows ?? 0), 0)
   return `${rows} ${rows === 1 ? "row" : "rows"}`
 }
@@ -305,34 +291,28 @@ function displaySql(sql: string, phase: QueryLogEvent["phase"]): string {
 }
 
 /** A JSON-safe rendering of one bound value (used by the `json` format). */
+// eslint-disable-next-line @typescript-eslint/no-restricted-types -- conjunto de ciclos precisa aceitar QUALQUER objeto (inclusive instâncias de classe)
 function jsonSafe(value: unknown, seen = new Set<object>()): unknown {
-  if (value === null || value === undefined) {
-    return value
-  }
-  if (value instanceof Date) {
-    return value.toISOString()
-  }
-  if (typeof value === "bigint") {
-    return String(value)
-  }
-  if (isStringly(value)) {
-    return String(value)
-  }
-  if (typeof value !== "object") {
-    return value
-  }
-  if (seen.has(value)) {
-    return "[circular]"
-  }
+  if (value === null || value === undefined) return value
+
+  if (value instanceof Date) return value.toISOString()
+
+  if (typeof value === "bigint") return String(value)
+
+  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- conversão de valor de log opaco para texto; toString customizado é intencional
+  if (isStringly(value)) return String(value)
+
+  if (typeof value !== "object") return value
+
+  if (seen.has(value)) return "[circular]"
+
   seen.add(value)
-  if (Array.isArray(value)) {
-    return value.map((v) => jsonSafe(v, seen))
-  }
+  if (Array.isArray(value)) return value.map((v) => jsonSafe(v, seen))
+
   const out: Record<string, unknown> = {}
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [k, v] of Object.entries(value)) {
-    out[k] = jsonSafe(v, seen)
-  }
+  for (const [k, v] of Object.entries(value)) out[k] = jsonSafe(v, seen)
+
   return out
 }
 
@@ -353,44 +333,33 @@ function isStringly(value: unknown): boolean {
 function renderValue(value: unknown, palette: Palette, maxLen: number): string {
   const text = valueText(value)
   const clipped = text.length > maxLen ? `${text.slice(0, maxLen)}…` : text
-  const code =
-    value === null || value === undefined
-      ? "\u001B[2m"
-      : typeof value === "string"
-        ? "\u001B[32m"
-        : typeof value === "number" || typeof value === "bigint"
-          ? "\u001B[36m"
-          : typeof value === "boolean"
-            ? "\u001B[33m"
-            : value instanceof Date || isStringly(value)
-              ? "\u001B[96m"
-              : "\u001B[35m"
+  let code = "\u001B[35m"
+  if (value === null || value === undefined) code = "\u001B[2m"
+  else if (typeof value === "string") code = "\u001B[32m"
+  else if (typeof value === "number" || typeof value === "bigint") code = "\u001B[36m"
+  else if (typeof value === "boolean") code = "\u001B[33m"
+  else if (value instanceof Date || isStringly(value)) code = "\u001B[96m"
   return palette.paint(code, clipped)
 }
 
 /** A readable string for one value (`null`, `"str"`, `42`, `table:id`, `{…}`, `[circular]`). */
 function valueText(value: unknown): string {
-  if (value === undefined) {
-    return "undefined"
-  }
-  if (value === null) {
-    return "null"
-  }
-  if (value instanceof Date) {
-    return value.toISOString()
-  }
-  if (typeof value === "bigint") {
-    return `${value}n`
-  }
-  if (typeof value === "string") {
-    return JSON.stringify(value)
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value)
-  }
-  if (isStringly(value)) {
-    return String(value)
-  }
+  if (value === undefined) return "undefined"
+
+  if (value === null) return "null"
+
+  if (value instanceof Date) return value.toISOString()
+
+  if (typeof value === "bigint") return `${value}n`
+
+  if (typeof value === "string") return JSON.stringify(value)
+
+  if (typeof value === "number" || typeof value === "boolean") return String(value)
+
+  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- conversão de valor de log opaco para texto; toString customizado é intencional
+  if (isStringly(value)) return String(value)
+
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-base-to-string -- JSON.stringify devolve undefined; stringify de valor opaco é intencional
   return JSON.stringify(jsonSafe(value)) ?? String(value)
 }
 
@@ -404,9 +373,8 @@ function bindsLine(
   opts: ResolvedLoggerOptions,
 ): string | undefined {
   const keys = Object.keys(vars)
-  if (keys.length === 0) {
-    return undefined
-  }
+  if (keys.length === 0) return undefined
+
   const parts = keys.map(
     (key) =>
       `${palette.paint("\u001B[90m", `$${key} =`)} ${
@@ -427,20 +395,15 @@ function renderPretty(
 ): string[] {
   const icon = opts.icons ? `${iconOf(event)} ` : ""
   let title = `${icon}${operationLabel(event)}`
-  if (event.table) {
-    title += ` · ${event.table}`
-  }
+  if (event.table) title += ` · ${event.table}`
 
   const body: string[] = []
   event.statements.forEach((statement, index) => {
-    if (index > 0) {
-      body.push("")
-    }
+    if (index > 0) body.push("")
+
     body.push(...sqlLines(displaySql(statement.sql, event.phase), palette, opts.prettySql))
     const binds = bindsLine(statement.vars, palette, opts)
-    if (binds) {
-      body.push(binds)
-    }
+    if (binds) body.push(binds)
   })
   if (event.context) {
     body.push(
@@ -450,9 +413,7 @@ function renderPretty(
   if (event.plans && event.plans.length > 0) {
     body.push(palette.paint("\u001B[2m", "plan"))
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const plan of event.plans) {
-      body.push(...renderPlan(plan, palette))
-    }
+    for (const plan of event.plans) body.push(...renderPlan(plan, palette))
   }
   if (event.preview && event.preview.length > 0) {
     body.push(palette.paint("\u001B[2m", "rows"))
@@ -463,9 +424,7 @@ function renderPretty(
       )
     }
   }
-  if (event.error !== undefined) {
-    body.push(...errorLines(event.error, palette, opts.stack))
-  }
+  if (event.error !== undefined) body.push(...errorLines(event.error, palette, opts.stack))
 
   return box(title, body, footer(event, opts, palette, counter))
 }
@@ -479,20 +438,16 @@ function footer(
 ): string {
   const parts: string[] = []
   const rows = rowLabel(event)
-  if (rows) {
-    parts.push(rows)
-  }
+  if (rows) parts.push(rows)
+
   const slow = event.durationMs >= opts.slowMs
   parts.push(palette.paint(slow ? "\u001B[31m" : "\u001B[32m", formatMs(event.durationMs)))
-  if (slow) {
-    parts.push(palette.paint("\u001B[33m", "🐌 SLOW"))
-  }
-  if (opts.counter) {
-    parts.push(`#${counter}`)
-  }
-  if (opts.time) {
-    parts.push(clock(event.time))
-  }
+  if (slow) parts.push(palette.paint("\u001B[33m", "🐌 SLOW"))
+
+  if (opts.counter) parts.push(`#${counter}`)
+
+  if (opts.time) parts.push(clock(event.time))
+
   return parts.join(" · ")
 }
 
@@ -501,13 +456,12 @@ function box(title: string, body: readonly string[], foot: string): string[] {
   const titleW = visibleWidth(title)
   const footW = visibleWidth(foot)
   const bodyW = body.reduce((max, line) => Math.max(max, visibleWidth(line)), 0)
-  const width = Math.max(MIN_BOX_WIDTH, titleW + 2, footW + 2, bodyW)
-  const lines = [`╭─ ${title} ${"─".repeat(Math.max(0, width - titleW - 1))}╮`]
+  const width = Math.max(MIN_BOX_WIDTH, titleW + BOX_GUTTER, footW + BOX_GUTTER, bodyW)
+  const lines = [`╭─ ${title} ${"─".repeat(Math.max(0, width - titleW - DECIMALS_ONE))}╮`]
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const line of body) {
-    lines.push(`│ ${padEnd(line, width)} │`)
-  }
-  lines.push(`╰─ ${foot} ${"─".repeat(Math.max(0, width - footW - 1))}╯`)
+  for (const line of body) lines.push(`│ ${padEnd(line, width)} │`)
+
+  lines.push(`╰─ ${foot} ${"─".repeat(Math.max(0, width - footW - DECIMALS_ONE))}╯`)
   return lines
 }
 
@@ -522,13 +476,13 @@ function errorLines(error: unknown, palette: Palette, stack: boolean): string[] 
   const code = record.code ?? record.name ?? "Error"
   const message = record.message ?? String(error)
   const lines = [
+    // eslint-disable-next-line @typescript-eslint/no-base-to-string -- conversão de valor de log opaco para texto; toString customizado é intencional
     `${palette.paint("\u001B[1;31m", `⛔ [${String(code)}]`)} ${palette.paint("\u001B[31m", String(message))}`,
   ]
   if (stack && typeof record.stack === "string") {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const line of record.stack.split("\n").slice(1, 6)) {
+    for (const line of record.stack.split("\n").slice(1, STACK_LINES))
       lines.push(palette.paint("\u001B[2m", line.trim()))
-    }
   }
   return lines
 }
@@ -542,21 +496,18 @@ function renderCompact(
 ): string {
   const icon = opts.icons ? `${iconOf(event)} ` : ""
   const parts: string[] = [`${icon}${operationLabel(event)}`]
-  if (event.table) {
-    parts.push(event.table)
-  }
+  if (event.table) parts.push(event.table)
+
   const rows = rowLabel(event)
-  if (rows) {
-    parts.push(rows)
-  }
+  if (rows) parts.push(rows)
+
   const slow = event.durationMs >= opts.slowMs
   parts.push(
     palette.paint(slow ? "\u001B[31m" : "\u001B[32m", formatMs(event.durationMs)) +
       (slow ? palette.paint("\u001B[33m", " 🐌") : ""),
   )
-  if (opts.counter) {
-    parts.push(`#${counter}`)
-  }
+  if (opts.counter) parts.push(`#${counter}`)
+
   const sql = event.statements
     .map((s) => displaySql(s.sql, event.phase).replaceAll(/\s+/gu, " ").trim())
     .join(" ")
@@ -565,6 +516,7 @@ function renderCompact(
     const record = event.error as { code?: unknown; message?: unknown }
     line += `  ${palette.paint(
       "\u001B[31m",
+      // eslint-disable-next-line @typescript-eslint/no-base-to-string -- conversão de valor de log opaco para texto; toString customizado é intencional
       `⛔ [${String(record.code ?? "Error")}] ${String(record.message ?? event.error)}`,
     )}`
   }
@@ -575,33 +527,33 @@ function renderCompact(
 function renderJson(event: QueryLogEvent, level: string, opts: ResolvedLoggerOptions): string {
   const rows = rowLabel(event)
   return JSON.stringify({
-    level,
-    time: new Date(event.time).toISOString(),
-    phase: event.phase,
-    operation: event.operation,
-    table: event.table,
-    durationMs: Math.round(event.durationMs * 1000) / 1000,
-    transactional: event.transactional,
+    durationMs: Math.round(event.durationMs * MS_PER_SECOND) / MS_PER_SECOND,
     inTransaction: event.inTransaction,
+    level,
+    operation: event.operation,
+    phase: event.phase,
+    table: event.table,
+    time: new Date(event.time).toISOString(),
+    transactional: event.transactional,
     ...(event.context
       ? {
           context: {
-            namespace: event.context.namespace,
             database: event.context.database,
+            namespace: event.context.namespace,
           },
         }
       : {}),
+    results: event.results.map((r) => ({
+      count: r.count,
+      rows: r.rows,
+      status: r.status,
+      time: r.time,
+    })),
     statements: event.statements.map((s) => ({
       sql: s.sql,
       vars: opts.redact
         ? Object.fromEntries(Object.keys(s.vars).map((k) => [k, REDACTED]))
         : jsonSafe(s.vars),
-    })),
-    results: event.results.map((r) => ({
-      status: r.status,
-      rows: r.rows,
-      count: r.count,
-      time: r.time,
     })),
     ...(rows ? { rows } : {}),
     ...(event.plans && event.plans.length > 0 ? { plans: event.plans } : {}),
@@ -612,9 +564,10 @@ function renderJson(event: QueryLogEvent, level: string, opts: ResolvedLoggerOpt
       ? {}
       : {
           error: {
-            name: (event.error as { name?: unknown }).name ?? "Error",
             code: (event.error as { code?: unknown }).code,
+            // eslint-disable-next-line @typescript-eslint/no-base-to-string -- mensagem de erro opaca cai no toString original
             message: (event.error as { message?: unknown }).message ?? String(event.error),
+            name: (event.error as { name?: unknown }).name ?? "Error",
           },
         }),
   })

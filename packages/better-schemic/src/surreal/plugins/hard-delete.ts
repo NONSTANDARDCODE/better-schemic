@@ -3,15 +3,15 @@
  *
  * The counterpart of `soft-delete`, for the tables where a tombstone is the wrong shape: machine
  * state rewritten on every event (a Signal session key, a queue entry, an idempotency record), where
- * a `deletedAt` tombstone would  accumulate garbage and a UNIQUE index over the row would keep
+ * a `deletedAt` tombstone would accumulate garbage and a UNIQUE index over the row would keep
  * blocking the next write.
  *
  * What it does — and, more importantly, what it does NOT:
  * - `delete`/`deleteMany` stay real `DELETE` statements (the server removes the row, edges included);
  * - reads untouch them — no `deleted:` filter injects it, because there is no tombstone to hide;
  * - `purge` is NOT added: that is what `delete` already is. The plugin's whole job is to make the
- *   destructive intent EXPLICIT in code review and to be a no-op that documents itself, so it marks
- *    the tables it's scoped to.
+ * destructive intent EXPLICIT in code review and to be a no-op that documents itself, so it marks
+ * the tables it's scoped to.
  *
  * Composing with `soft-delete`: give each plugin a `tables` list and they partition the schema —
  * a tombstoned table keeps its tombstones, a rewritten-state table loses its row. Without scoping,
@@ -27,7 +27,7 @@
 import { definePlugin } from "../orm/plugins"
 
 /** The `hard-delete` plugin options. */
-export interface HardDeleteOptions {
+export type HardDeleteOptions = {
   /** A one-line reason recorded on the operation (shows up in the query log). */
   readonly reason?: string
   /**
@@ -55,21 +55,19 @@ function hardDeleteReason(reason: string | undefined): Record<string, string> {
 export function hardDelete(options: HardDeleteOptions = {}) {
   const owned = options.tables ? new Set(options.tables) : undefined
   return definePlugin({
+    config: { reason: options.reason, tables: options.tables ?? [] },
+    description: "delete removes the row for good — no tombstone, no restore.",
     id: PLUGIN_ID,
     name: "Hard delete",
-    description: "delete removes the row for good — no tombstone, no restore.",
-    config: { tables: options.tables ?? [], reason: options.reason },
     transform(op) {
-      if (op.kind !== "delete" && op.kind !== "deleteMany") {
-        return
-      }
-      if (owned && !owned.has(op.table)) {
-        return
-      }
+      if (op.kind !== "delete" && op.kind !== "deleteMany") return
+
+      if (owned && !owned.has(op.table)) return
+
       // The intent travels with the operation: hooks, the rules plugin and the query log all see
       // that this DELETE is permanent (and why, when a reason gives it).
       op.meta = {
-        ...(op.meta ?? {}),
+        ...op.meta,
         hardDelete: true,
         ...hardDeleteReason(options.reason),
       }

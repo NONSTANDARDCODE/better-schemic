@@ -1,5 +1,5 @@
 /**
- * A `BoundQuery` whose BINDINGS and RESULT rows type them. The SDK's `BoundQuery<R>` types 
+ * A `BoundQuery` whose BINDINGS and RESULT rows type them. The SDK's `BoundQuery<R>` types
  * the result tuple (`R`) and leaves `bindings` as `Record<string, unknown>` — that's why app code
  * writes `$query<unknown[]>(new BoundQuery(sql, { limit, query, … }))` and then casts every row.
  * `surqlWith` keeps both ends of the boundary typed with no cast.
@@ -30,7 +30,7 @@ export function surqlWith<B extends Record<string, unknown>, R extends unknown[]
 }
 
 /** A projection source: an authored table def (column types know them) or a physical table name. */
-export interface QueryShapeArg<C, Sel> {
+export type QueryShapeArg<C, Sel> = {
   readonly from: C
   readonly select: Sel
 }
@@ -46,7 +46,7 @@ type ProjectedRow<C, K extends PropertyKey> = C extends { name: string }
  * call site, and identifiers escap them via the SDK.
  */
 export function selectQuery<
-  C extends { readonly name: string } | string,
+  C extends string | { readonly name: string },
   const Sel extends readonly string[],
 >(from: C, select: Sel): TypedBoundQuery<Record<string, never>, ProjectedRow<C, Sel[number]>[]> {
   const table = typeof from === "string" ? from : from.name

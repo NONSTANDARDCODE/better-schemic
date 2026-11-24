@@ -22,15 +22,25 @@ import {
   type ParsedCommandArgs,
   style,
 } from "../core"
+
 import { runAction } from "./action"
 import { registerInspectVerbs } from "./inspect"
 import { assertDriverAvailable, resolveOne, type ResolveOpts } from "./resolve"
 
+/** `process.argv` starts with the runtime and the script path. */
+const ARGV_START = 2
+
 /** Stdio + prompt helpers handed to a command, so a driver never touches stdio directly. */
 const io: CommandIo = {
-  fail: (m) => console.error(fail(m)),
-  info: (m) => console.log(m),
-  ok: (m) => console.log(ok(m)),
+  fail: (m) => {
+    console.error(fail(m))
+  },
+  info: (m) => {
+    console.log(m)
+  },
+  ok: (m) => {
+    console.log(ok(m))
+  },
   async prompt(question, opts) {
     if (!process.stdin.isTTY) {
       throw new Error(
@@ -48,12 +58,14 @@ const io: CommandIo = {
         const onData = () => out.write("[2K\r")
         process.stdin.on("data", onData)
         try {
-          return (await rl.question(`${question} `)).trim()
+          const answer = await rl.question(`${question} `)
+          return answer.trim()
         } finally {
           process.stdin.off("data", onData)
         }
       }
-      return (await rl.question(`${question} `)).trim()
+      const answer = await rl.question(`${question} `)
+      return answer.trim()
     } finally {
       rl.close()
     }
@@ -64,12 +76,9 @@ const io: CommandIo = {
 function configFromArgv(argv: string[]): string | undefined {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === "-c" || argv[i] === "--config") {
-      return argv[i + 1]
-    }
-    if (argv[i].startsWith("--config=")) {
-      return argv[i].slice("--config=".length)
-    }
+    if (argv[i] === "-c" || argv[i] === "--config") return argv[i + 1]
+
+    if (argv[i].startsWith("--config=")) return argv[i].slice("--config=".length)
   }
   return undefined
 }
@@ -88,10 +97,10 @@ export function toParsedArgs(
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const f of cmd.args?.flags ?? []) {
     const v = opts[f.name]
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-boolean-literal-compare -- `=== true` normaliza flags ausentes (undefined) para false; removê-lo altera o contrato.
     flags[f.name] = f.value ? (v as string | undefined) : (v as boolean) === true
-    if (f.required && (v === undefined || v === false)) {
+    if (f.required && (v === undefined || v === false))
       throw new Error(`\`sc ${cmd.kind} ${cmd.verb}\` requires --${f.name}`)
-    }
   }
   return { flags, positionals }
 }
@@ -114,7 +123,7 @@ function addCommand(kindGroup: Command, cmd: DriverCommand, resolveOpts: () => R
     verb.option(flag, f.help ?? "")
   }
 
-  verb.action((args: string[], opts: Record<string, unknown>) =>
+  verb.action((args: string[], opts: Record<string, unknown>) => {
     runAction(async () => {
       const parsed = toParsedArgs(cmd, args, opts)
 
@@ -132,8 +141,8 @@ function addCommand(kindGroup: Command, cmd: DriverCommand, resolveOpts: () => R
       } finally {
         await driver.close(conn)
       }
-    }),
-  )
+    })
+  })
 }
 
 /**
@@ -145,15 +154,14 @@ function addCommand(kindGroup: Command, cmd: DriverCommand, resolveOpts: () => R
  */
 export async function registerDriverCommands(program: Command): Promise<void> {
   let driverName: string
-  const configPath = configFromArgv(process.argv.slice(2))
+  const configPath = configFromArgv(process.argv.slice(ARGV_START))
   try {
     const { config } = await loadProject({ config: configPath })
     // Each connection entry carries its driver name directly (no resolve/connect needed): read it off
     // any entry. A project's connections share one driver, so the first is enough.
-    const entry = Object.values(config.connections)[0] as { driver?: string } | undefined
-    if (!entry?.driver) {
-      return
-    }
+    const entry = Object.values(config.connections)[0] as undefined | { driver?: string }
+    if (!entry?.driver) return
+
     driverName = entry.driver
   } catch {
     return // no/invalid config (e.g. `sc init`) — driver commands aren't available
@@ -185,7 +193,7 @@ export async function registerDriverCommands(program: Command): Promise<void> {
 
   // The invoked verb command carries the global addressing flags; read them at action time.
   const resolveOpts = (): ResolveOpts => {
-    const opts = program.opts() as { config?: string; connection?: string }
+    const opts = program.opts<{ config?: string; connection?: string }>()
     return { config: opts.config ?? configPath, connection: opts.connection }
   }
 
@@ -194,7 +202,5 @@ export async function registerDriverCommands(program: Command): Promise<void> {
 
   // The driver's own verbs (e.g. `access rotate`) on top of the universal ls/info.
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const cmd of driver.commands ?? []) {
-    addCommand(groupFor(cmd.kind), cmd, resolveOpts)
-  }
+  for (const cmd of driver.commands ?? []) addCommand(groupFor(cmd.kind), cmd, resolveOpts)
 }

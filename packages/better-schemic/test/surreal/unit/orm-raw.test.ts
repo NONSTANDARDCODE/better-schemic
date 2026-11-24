@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-confusing-void-expression -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally ignored values. */
 // M5.1 — the raw escape hatches: `$raw`/`$query`/`$unsafe`, parameterization, `throwOnError:false`,
 // `raw.requireComment`/`raw.timeoutMs`, and the `USE NS … DB …` scope prefix. Offline — the
 // "connection" is a recording fake.

@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-unsafe-call, unicorn/consistent-function-scoping -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally unused type-probe values. Mock fixtures pass untyped values to exercise runtime SQL emission. Helpers stay colocated with the tests that use them. */
 import { describe, expect, test } from "bun:test"
 
 import { surql } from "../../../src/surreal"
@@ -8,7 +9,6 @@ import {
   defineAccess,
   defineAnalyzer,
   defineFunction,
-  RecordAccessDef,
   s,
   type StandaloneDef,
   table,
@@ -35,7 +35,7 @@ test("DEFINE ACCESS scope is a type-enforced first step (.onDatabase()/.onNamesp
     // @ts-expect-error — `.withRefresh()` is not on a JWT access
     defineAccess("a").onDatabase().jwt({ url: "u" }).withRefresh()
     // RECORD is database-— `.record()` isn't offered on the namespace stage:
-    // @ts-expect-error — no `.record()` on ON NAMESPACE
+    // @ts-expect-error — no `.record()` on a namespace
     defineAccess("a").onNamespace().record()
     // The TYPE is a required, explicit step — no implicit-record shortcut:
     defineAccess("a")

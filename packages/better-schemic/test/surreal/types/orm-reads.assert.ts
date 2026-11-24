@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. The void operator discards intentionally unused type-probe values. Type queries and callback signatures need fixture values. */
 // M1.8 — TYPE assertions for the read surface: `where`, `select`/`omit`/`value`/``/`split`
 // result shapes, the throwing reads, the combine/count/paginate/cursor envelopes, and `explain`.
 // Type-checked by `bun check` as part of `typecheck` — no runtime: see docs/TYPE-PERF-TESTING.md.
@@ -42,39 +43,39 @@ type Row = App<U>
 type C = Client<typeof schemaDef>
 type Users = C["users"]
 
-describe("where — family-aware filters and paths", () => {
-  it("pure values, operators and paths typecheck", () => {
+void describe("where — family-aware filters and paths", () => {
+  void it("pure values, operators and paths typecheck", () => {
     assertType<
       true,
       {
         active: true
-        age: { gte: 18; lt: 65 }
-        name: { startsWith: "A" }
-        tags: { containsAny: ["db"] }
         "address.city": "SP"
+        age: { gte: 18; lt: 65 }
         "contacts[*].type": "email"
-        OR: [{ age: 1 }, { age: 2 }]
+        name: { startsWith: "A" }
         NOT: { active: false }
+        OR: [{ age: 1 }, { age: 2 }]
+        tags: { containsAny: ["db"] }
       } extends Where<U>
         ? true
         : false
     >()
   })
 
-  it("rejects wrong-family operators and wrong value types", () => {
+  void it("rejects wrong-family operators and wrong value types", () => {
     assertType<false, { age: { contains: "x" } } extends Where<U> ? true : false>()
     assertType<false, { name: { containsAll: ["a"] } } extends Where<U> ? true : false>()
     assertType<false, { age: "old" } extends Where<U> ? true : false>()
     assertType<false, { active: { between: [1, 2] } } extends Where<U> ? true : false>()
   })
 
-  it("a typo (not a path) is rejected by excess-property checking", () => {
+  void it("a typo (not a path) is rejected by excess-property checking", () => {
     // @ts-expect-error — "nmae" is neither a field nor a dotted path
     const bad: Where<U> = { nmae: "x" }
     void bad
   })
 
-  it("record ids accept strings; the logical combinators recurse", () => {
+  void it("record ids accept strings; the logical combinators recurse", () => {
     assertType<true, { id: "user:aeon" } extends Where<U> ? true : false>()
     assertType<
       true,
@@ -83,26 +84,26 @@ describe("where — family-aware filters and paths", () => {
   })
 })
 
-describe("select — result shapes", () => {
-  it("no projection is the decoded row", () => {
+void describe("select — result shapes", () => {
+  void it("no projection is the decoded row", () => {
     assertType<Row, ResultOf<U, Record<string, never>>>()
   })
 
-  it("field lists, paths (nested), aliases and fragments", () => {
+  void it("field lists, paths (nested), aliases and fragments", () => {
     assertType<
       {
-        id: Row["id"]
         address: { city: string }
         city: string
+        id: Row["id"]
         name: string
       },
       ResultOf<
         U,
         {
           select: {
-            id: true
             "address.city": true
             city: "address.city"
+            id: true
             name: true
           }
         }
@@ -112,7 +113,7 @@ describe("select — result shapes", () => {
     assertType<{ bump: number }, ResultOf<U, { select: { bump: Surql<[number]> } }>>()
   })
 
-  it("nested sub-objects and star + expression", () => {
+  void it("nested sub-objects and star + expression", () => {
     assertType<
       { address: { city: string; country: string } },
       ResultOf<U, { select: { address: { city: true; country: true } } }>
@@ -123,14 +124,14 @@ describe("select — result shapes", () => {
     >()
   })
 
-  it("omit removes keys; value unwraps; only unwraps the page", () => {
+  void it("omit removes keys; value unwraps; only unwraps the page", () => {
     assertType<Omit<Row, "age">, ResultOf<U, { omit: ["age"] }>>()
     assertType<string, ResultOf<U, { select: { name: true }; value: true }>>()
     // `` unwraps the PAGE (see FindManyResult) — ResultOf stays the row shape.
     assertType<Row, ResultOf<U, { only: true }>>()
   })
 
-  it("split changes the field to its element type", () => {
+  void it("split changes the field to its element type", () => {
     assertType<Omit<Row, "tags"> & { tags: string }, ResultOf<U, { split: "tags" }>>()
     assertType<
       { name: string; tags: string },
@@ -139,8 +140,8 @@ describe("select — result shapes", () => {
   })
 })
 
-describe("read envelopes", () => {
-  it("findMany is a lazy promise with .explain(); explain:true yields the plan", () => {
+void describe("read envelopes", () => {
+  void it("findMany is a lazy promise with .explain(); explain:true yields the plan", () => {
     assertType<
       Promise<Row[]> & {
         explain(): Promise<ExplainResult>
@@ -154,7 +155,7 @@ describe("read envelopes", () => {
     >()
   })
 
-  it("findFirst/findOne/findUnique are ThrowingResults with .explain()/.toSQL()", () => {
+  void it("findFirst/findOne/findUnique are ThrowingResults with .explain()/.toSQL()", () => {
     assertType<
       ThrowingResult<Row> & {
         explain(): Promise<ExplainResult>
@@ -171,7 +172,7 @@ describe("read envelopes", () => {
     >()
   })
 
-  it("count/exists/aggregate/paginate/cursor carry their payloads", () => {
+  void it("count/exists/aggregate/paginate/cursor carry their payloads", () => {
     assertType<
       Promise<number> & {
         explain(): Promise<ExplainResult>
@@ -197,14 +198,14 @@ describe("read envelopes", () => {
     assertType<CursorResult<Row>, Awaited<ReadResult<CursorResult<Row>, Record<string, never>>>>()
   })
 
-  it("cursor: select may omit the orderBy fields; value/only/start are off-surface", () => {
+  void it("cursor: select may omit the orderBy fields; value/only/start are off-surface", () => {
     assertType<
       { name: string },
       ResultOf<
         U,
         {
-          select: { name: true }
           orderBy: [{ age: "desc" }, { id: "asc" }]
+          select: { name: true }
         }
       >
     >()
@@ -219,7 +220,7 @@ describe("read envelopes", () => {
     void withStart
   })
 
-  it("cursor: the LAST orderBy field must be unique (typed from the schema)", () => {
+  void it("cursor: the LAST orderBy field must be unique (typed from the schema)", () => {
     // `id` is unique by construction — the portable tiebreaker.
     const byId: CursorArgs<U> = {
       limit: 2,
@@ -250,31 +251,31 @@ describe("read envelopes", () => {
     void badOrder
   })
 
-  it("aggregate shapes dispatch per operator", () => {
+  void it("aggregate shapes dispatch per operator", () => {
     assertType<
       {
-        total: number
         first: Date
         last: Date
-        tagSets: string[][]
         tags: string[]
+        tagSets: string[][]
+        total: number
         upper: string
       },
       AggregateShape<
         U,
         {
-          total: { sum: "age" }
           first: { min: "at" }
           last: { max: "at" }
-          tagSets: { collect: "tags" }
           tags: { distinct: "name" }
+          tagSets: { collect: "tags" }
+          total: { sum: "age" }
           upper: Surql<[string]>
         }
       >
     >()
   })
 
-  it("explain: true flips count/exists to the plan (still previewable)", () => {
+  void it("explain: true flips count/exists to the plan (still previewable)", () => {
     assertType<
       Promise<ExplainResult> & { toSQL(): SqlPreview },
       ReadResult<number, { explain: true }>
@@ -285,7 +286,7 @@ describe("read envelopes", () => {
     >()
   })
 
-  it("the delegate exposes the read surface", () => {
+  void it("the delegate exposes the read surface", () => {
     assertType<true, "findMany" extends keyof Users ? true : false>()
     assertType<true, "findUnique" extends keyof Users ? true : false>()
     assertType<true, "aggregate" extends keyof Users ? true : false>()

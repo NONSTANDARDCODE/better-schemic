@@ -8,6 +8,7 @@
  */
 import { escapeIdentSafe as escapeIdent } from "../../ident"
 import type { ModelMeta, SchemaIndex } from "../meta"
+
 import {
   aggregateTail,
   assertAggregateShape,
@@ -15,7 +16,6 @@ import {
   compileAggregateSelect,
   directColumns,
 } from "./aggregate-entries"
-import { assertAggregateOperand } from "./aggregate-operand"
 import { compileSplitAggregate } from "./aggregate-split"
 import type { ProjectionSpec } from "./projection"
 import {
@@ -25,15 +25,13 @@ import {
   datetimeLiteral,
   durationLiteral,
   isTableMeta,
-  pathList,
   rangeTarget,
   rejectRemovedArgs,
-  renderPath,
 } from "./shared"
 import { compileWhere, mergeScope } from "./where"
 
 /** The clauses `count`/`exists` accept (no projection/order — they don't apply). */
-export interface CountArgs {
+export type CountArgs = {
   /** Return the `EXPLAIN` plan instead of executing. */
   explain?: unknown
   meta?: Record<string, unknown>
@@ -65,24 +63,20 @@ export function compileCount(
 ): string {
   rejectRemovedArgs(args, operation)
   const parts: string[] = ["SELECT count()", `FROM ${aggregateTarget(meta, args.range, operation)}`]
-  if (args.with !== undefined) {
-    parts.push(compileWithClause(args.with, operation))
-  }
+  if (args.with !== undefined) parts.push(compileWithClause(args.with, operation))
+
   const where = compileWhere(mergeScope(args.where, args.scope), binds, {
     ...(isTableMeta(meta) ? { meta } : {}),
     index: options.index,
     operation,
   })
-  if (where) {
-    parts.push(`WHERE ${where}`)
-  }
+  if (where) parts.push(`WHERE ${where}`)
+
   parts.push("GROUP ALL")
-  if (args.version !== undefined) {
-    parts.push(`VERSION ${datetimeLiteral(args.version, operation)}`)
-  }
-  if (args.timeout !== undefined) {
-    parts.push(`TIMEOUT ${durationLiteral(args.timeout, operation)}`)
-  }
+  if (args.version !== undefined) parts.push(`VERSION ${datetimeLiteral(args.version, operation)}`)
+
+  if (args.timeout !== undefined) parts.push(`TIMEOUT ${durationLiteral(args.timeout, operation)}`)
+
   return parts.join(" ")
 }
 
@@ -99,30 +93,26 @@ export function compileExists(
     "SELECT VALUE id",
     `FROM ${aggregateTarget(meta, args.range, operation)}`,
   ]
-  if (args.with !== undefined) {
-    parts.push(compileWithClause(args.with, operation))
-  }
+  if (args.with !== undefined) parts.push(compileWithClause(args.with, operation))
+
   const where = compileWhere(mergeScope(args.where, args.scope), binds, {
     ...(isTableMeta(meta) ? { meta } : {}),
     index: options.index,
     operation,
   })
-  if (where) {
-    parts.push(`WHERE ${where}`)
-  }
+  if (where) parts.push(`WHERE ${where}`)
+
   parts.push(`LIMIT ${binds.add(1)}`)
-  if (args.version !== undefined) {
-    parts.push(`VERSION ${datetimeLiteral(args.version, operation)}`)
-  }
-  if (args.timeout !== undefined) {
-    parts.push(`TIMEOUT ${durationLiteral(args.timeout, operation)}`)
-  }
+  if (args.version !== undefined) parts.push(`VERSION ${datetimeLiteral(args.version, operation)}`)
+
+  if (args.timeout !== undefined) parts.push(`TIMEOUT ${durationLiteral(args.timeout, operation)}`)
+
   return parts.join(" ")
 }
 
 /** The clauses `combine` accepts (having does NOT exist in SurrealQL — rejected). */
 
-export interface AggregateArgs {
+export type AggregateArgs = {
   /** Return the `EXPLAIN` plan instead of executing. */
   explain?: unknown
   groupAll?: unknown
@@ -149,7 +139,7 @@ export interface AggregateArgs {
 }
 
 /** A compiled combine: the statement + how to decode its rows. */
-export interface CompiledAggregate {
+export type CompiledAggregate = {
   readonly projection: ProjectionSpec
   readonly sql: string
 }
@@ -190,7 +180,7 @@ export function compileAggregate(
   }
 
   const groupBy = assertAggregateShape(args, operation)
-  const { parts, fields, projectedKeys, hasExpression } = compileAggregateSelect(
+  const { fields, hasExpression, parts, projectedKeys } = compileAggregateSelect(
     meta,
     args.select as Record<string, unknown>,
     binds,
@@ -211,26 +201,25 @@ export function compileAggregate(
   assertGroupKeysProjected(groupBy, projectedKeys, hasExpression, operation)
 
   const statement: string[] = [`SELECT ${parts.join(", ")}`, `FROM ${escapeIdent(meta.name)}`]
-  if (args.with !== undefined) {
-    statement.push(compileWithClause(args.with, operation))
-  }
+  if (args.with !== undefined) statement.push(compileWithClause(args.with, operation))
+
   const where = compileWhere(mergeScope(args.where, args.scope), binds, {
     ...(isTableMeta(meta) ? { meta } : {}),
     index: options.index,
     operation,
   })
-  if (where) {
-    statement.push(`WHERE ${where}`)
-  }
+  if (where) statement.push(`WHERE ${where}`)
+
   statement.push(...aggregateTail(args, groupBy, binds, operation, { version: true }))
 
   return {
+    projection: { fields, includes: [], omit: [], star: false, value: false },
     sql: statement.join(" "),
-    projection: { star: false, fields, omit: [], value: false, includes: [] },
   }
 }
 
 // Keep the operand guard reachable from this module's own namespace: it's the policy half of the
 // combine compiler, re-exported so `reads.ts` can check an operand without importing the
 // lowering internals.
-export { assertAggregateOperand, pathList, renderPath }
+export { assertAggregateOperand } from "./aggregate-operand"
+export { pathList, renderPath } from "./shared"

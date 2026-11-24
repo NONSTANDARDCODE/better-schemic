@@ -40,6 +40,7 @@ import type {
   TablePermissions,
 } from "../pure"
 import { assertCompleteDef, requireFunctionBody, unknownDefKind } from "../pure"
+
 import { normalizeDb } from "./struct"
 import type {
   DbStructured,
@@ -74,24 +75,21 @@ function lowerPermissions(
   const out: StructPermissions = {}
   if (spec === true) {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const op of ops) {
-      out[op] = true
-    }
+    for (const op of ops) out[op] = true
+
     return out
   }
   if (spec === false) {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const op of ops) {
-      out[op] = false
-    }
+    for (const op of ops) out[op] = false
+
     return out
   }
   if (spec instanceof BoundQuery) {
     const where = inline(spec)
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const op of ops) {
-      out[op] = where
-    }
+    for (const op of ops) out[op] = where
+
     return out
   }
 
@@ -99,35 +97,31 @@ function lowerPermissions(
   const resolved = new Map<PermOp, StructPerm>()
   const resolve = (op: PermOp, chain: PermOp[]): StructPerm => {
     const cached = resolved.get(op)
-    if (cached !== undefined) {
-      return cached
-    }
+    if (cached !== undefined) return cached
+
     const rule = rules[op]
     if (rule === undefined) {
       throw new Error(
         `PERMISSIONS: "same as ${op}" references op "${op}", which is not in the spec`,
       )
     }
-    if (chain.includes(op)) {
+    if (chain.includes(op))
       throw new Error(`PERMISSIONS: "same as" reference cycle: ${[...chain, op].join(" -> ")}`)
-    }
+
     let value: StructPerm
-    if (typeof rule === "string") {
+    if (typeof rule === "string")
       value = resolve(rule.slice("same as ".length).trim() as PermOp, [...chain, op])
-    } else if (rule instanceof BoundQuery) {
-      value = inline(rule)
-    } else {
-      value = rule
-    }
+    else if (rule instanceof BoundQuery) value = inline(rule)
+    else value = rule
+
     resolved.set(op, value)
     return value
   }
 
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const op of ops) {
-    if (rules[op] === undefined) {
-      continue
-    }
+    if (rules[op] === undefined) continue
+
     out[op] = resolve(op, [])
   }
   return out
@@ -137,9 +131,8 @@ function lowerPermissions(
 function lowerReference(ref: NonNullable<SurrealMeta["reference"]>): {
   on_delete?: string
 } {
-  if (ref === true || ref.onDelete === undefined) {
-    return {}
-  }
+  if (ref === true || ref.onDelete === undefined) return {}
+
   const onDelete = ref.onDelete
   return {
     on_delete: onDelete instanceof BoundQuery ? inline(onDelete) : onDelete.toUpperCase(),
@@ -147,7 +140,7 @@ function lowerReference(ref: NonNullable<SurrealMeta["reference"]>): {
 }
 
 /**
- * Walk an `inferField` node into flattened dotted `StructField`s —  the paths the emitter
+ * Walk an `inferField` node into flattened dotted `StructField`s — the paths the emitter
  * produces (`address`, `address.city`, `tags.*`). Unlike the emitter this keeps `option<>` (it does
  * NOT strip it for defaulted/valued/computed fields), and it EMITS the `x.*` element node (rather
  * than folding it) — `normalizeTable` does both folds. Single-field indexes (`.$index()`/`.$unique()`)
@@ -161,43 +154,34 @@ function lowerField(
   fields: StructField[],
   indexes: StructIndex[],
 ): void {
-  const sf: StructField = { name: path, kind: info.type, table }
-  if (info.flexible) {
-    sf.flexible = true
-  }
+  const sf: StructField = { kind: info.type, name: path, table }
+  if (info.flexible) sf.flexible = true
+
   if (surreal) {
-    if (surreal.reference) {
-      sf.reference = lowerReference(surreal.reference)
-    }
+    if (surreal.reference) sf.reference = lowerReference(surreal.reference)
+
     if (surreal.default) {
       sf.default = inline(surreal.default)
-      if (surreal.defaultAlways) {
-        sf.default_always = true
-      }
+      if (surreal.defaultAlways) sf.default_always = true
     }
-    if (surreal.value) {
-      sf.value = inline(surreal.value)
-    }
-    if (surreal.computed) {
-      sf.computed = inline(surreal.computed)
-    }
+    if (surreal.value) sf.value = inline(surreal.value)
+
+    if (surreal.computed) sf.computed = inline(surreal.computed)
+
     const assert = assertExpr(surreal.asserts)
-    if (assert) {
-      sf.assert = admitNullAssert(info.type, assert)
-    }
-    if (surreal.readonly) {
-      sf.readonly = true
-    }
-    if (surreal.comment !== undefined) {
-      sf.comment = surreal.comment
-    }
+    if (assert) sf.assert = admitNullAssert(info.type, assert)
+
+    if (surreal.readonly) sf.readonly = true
+
+    if (surreal.comment !== undefined) sf.comment = surreal.comment
+
     // An internal field grants no record-user access (PERMISSIONS NONE) — it wins over `$permissions`.
-    if (surreal.internal) {
-      sf.permissions = { select: false, create: false, update: false }
-    } else if (surreal.permissions !== undefined) {
+    if (surreal.internal) sf.permissions = { create: false, select: false, update: false }
+    else if (surreal.permissions !== undefined)
       sf.permissions = lowerPermissions(surreal.permissions, FIELD_PERM_OPS)
-    }
+
     if (surreal.index) {
+      // eslint-disable-next-line unicorn/consistent-function-scoping -- helper local mantido junto do uso para coesão e legibilidade
       const sanitize = (p: string) => p.replaceAll(/[`]/gu, "").replaceAll(/[^a-zA-Z0-9]+/gu, "_")
       const base = `${table}_${sanitize(path)}`
 
@@ -205,14 +189,15 @@ function lowerField(
         // Two indexes on the same field — each independently nameable (mirrors `emit`): spec index
         // takes `name`, UNIQUE index takes `uniqueName`.
         indexes.push({
-          name: surreal.index.name ?? `${base}_idx`,
           cols: [path],
           index: surreal.index.spec,
+          name: surreal.index.name ?? `${base}_idx`,
         })
+        // eslint-disable-next-line unicorn/prefer-single-call -- dois pushes preservam a ordem explícita dos campos
         indexes.push({
-          name: surreal.index.uniqueName ?? `${base}_uq`,
           cols: [path],
           index: "UNIQUE",
+          name: surreal.index.uniqueName ?? `${base}_uq`,
         })
       } else {
         const idxName =
@@ -220,10 +205,10 @@ function lowerField(
             ? (surreal.index.uniqueName ?? surreal.index.name)
             : surreal.index.name) ?? `${base}_idx`
         indexes.push({
-          name: idxName,
           cols: [path],
           // FULLTEXT/HNSW/DISKANN spec (`.$fulltext()`/`.$hnsw()`/`.$diskann()`) or UNIQUE/plain.
           index: surreal.index.spec ?? (surreal.index.unique ? "UNIQUE" : ""),
+          name: idxName,
         })
       }
     }
@@ -231,34 +216,29 @@ function lowerField(
   fields.push(sf)
 
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const child of info.children) {
+  for (const child of info.children)
     lowerField(`${path}${child.suffix}`, table, child.info, child.surreal, fields, indexes)
-  }
 }
 
-/** Lower a table/relation event to a `StructEvent` (one or  `THEN` exprs, bare; a
- *  multi-statement entry auto-blocks `{ …; }` — matching `emitEvent` + INFO's canonical form). */
+/** Lower a table/relation event to a `StructEvent` (one or `THEN` exprs, bare; a
+ * multi-statement entry auto-blocks `{ …; }` — matching `emitEvent` + INFO's canonical form). */
 function lowerEvent(table: string, ev: TableEvent): StructEvent {
   const thens = (Array.isArray(ev.then) ? ev.then : [ev.then]).map(blockThen)
-  const out: StructEvent = { name: ev.name, what: table, then: thens }
-  if (ev.when !== undefined) {
-    out.when = eventClause(ev.when)
-  }
+  // eslint-disable-next-line unicorn/no-thenable -- then é o nome obrigatório do campo WHEN/THEN do DEFINE EVENT
+  const out: StructEvent = { name: ev.name, then: thens, what: table }
+  if (ev.when !== undefined) out.when = eventClause(ev.when)
+
   // `ASYNC [RETRY n] [MAXDEPTH n]` — carried so the event round-trips and diffs (canonical strips
   // SurrealDB's materialized defaults, so an omitted retry/maxDepth converges with the introspected 1/3).
   if (ev.async) {
     out.async = true
     const a = ev.async === true ? {} : ev.async
-    if (a.retry !== undefined) {
-      out.retry = a.retry
-    }
-    if (a.maxDepth !== undefined) {
-      out.maxdepth = a.maxDepth
-    }
+    if (a.retry !== undefined) out.retry = a.retry
+
+    if (a.maxDepth !== undefined) out.maxdepth = a.maxDepth
   }
-  if (ev.comment !== undefined) {
-    out.comment = ev.comment
-  }
+  if (ev.comment !== undefined) out.comment = ev.comment
+
   return out
 }
 
@@ -275,14 +255,13 @@ export function fromTableDef(t: TableDef<string, Shape>): StructTable {
   const fields: StructField[] = []
   const indexes: StructIndex[] = []
   // SINGLETON: the id field is REAL (a literal type the DB enforces), not implicit.
-  if (cfg.singleton !== undefined) {
-    fields.push({ name: "id", kind: `'${cfg.singleton}'`, table: t.name })
-  }
+  if (cfg.singleton !== undefined)
+    fields.push({ kind: `'${cfg.singleton}'`, name: "id", table: t.name })
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [name, field] of Object.entries(t.fields)) {
-    if (implicit.has(name)) {
-      continue
-    }
+    if (implicit.has(name)) continue
+
     const f = field as SField
     lowerField(escapeIdent(name), t.name, inferField(f.schema), f.surreal, fields, indexes)
   }
@@ -290,9 +269,9 @@ export function fromTableDef(t: TableDef<string, Shape>): StructTable {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const idx of cfg.indexes ?? []) {
     indexes.push({
-      name: idx.name,
       cols: idx.count ? [] : idx.fields.map(escapeIdent),
       index: idx.count ? "COUNT" : (idx.spec ?? (idx.unique ? "UNIQUE" : "")), // HNSW/DISKANN/FULLTEXT or UNIQUE/plain
+      name: idx.name,
       ...(idx.comment === undefined ? {} : { comment: idx.comment }),
     })
   }
@@ -300,70 +279,57 @@ export function fromTableDef(t: TableDef<string, Shape>): StructTable {
   let kind: StructTableKind
   if (rel) {
     kind = { kind: "RELATION" }
-    if (rel.from.length > 0) {
-      kind.in = [...rel.from]
-    }
-    if (rel.to.length > 0) {
-      kind.out = [...rel.to]
-    }
-    if (rel.enforced) {
-      kind.enforced = true
-    }
-  } else if (cfg.type === "any") {
-    kind = { kind: "ANY" }
-  } else {
-    kind = { kind: "NORMAL" }
-  }
+    if (rel.from.length > 0) kind.in = [...rel.from]
+
+    if (rel.to.length > 0) kind.out = [...rel.to]
+
+    if (rel.enforced) kind.enforced = true
+  } else if (cfg.type === "any") kind = { kind: "ANY" }
+  else kind = { kind: "NORMAL" }
 
   const out: StructTable = {
-    name: t.name,
-    kind,
-    schemafull: cfg.schemafull,
+    events: (cfg.events ?? []).map((ev) => lowerEvent(t.name, ev)),
     fields,
     indexes,
-    events: (cfg.events ?? []).map((ev) => lowerEvent(t.name, ev)),
+    kind,
+    name: t.name,
+    schemafull: cfg.schemafull,
   }
-  if (cfg.drop) {
-    out.drop = true
-  }
-  if (cfg.comment !== undefined) {
-    out.comment = cfg.comment
-  }
-  if (cfg.permissions !== undefined) {
+  if (cfg.drop) out.drop = true
+
+  if (cfg.comment !== undefined) out.comment = cfg.comment
+
+  if (cfg.permissions !== undefined)
     out.permissions = lowerPermissions(cfg.permissions, TABLE_PERM_OPS)
-  }
+
   // A pre-computed VIEW — the inlined `SELECT …` (without the `AS ` keyword; canonical adds it).
-  if (cfg.view !== undefined) {
-    out.view = eventClause(cfg.view)
-  }
+  if (cfg.view !== undefined) out.view = eventClause(cfg.view)
+
   return out
 }
 
 /** Lower a `defineFunction` to a `StructFunction` (block wrapped as `{ … }` to match INFO). */
 function lowerFunction(fn: FunctionDef): StructFunction {
   const args: [string, string][] = Object.entries(fn.args).map(([n, f]) => [n, fieldType(f)])
-  // A bodyless function is an ERROR, not an empty `{}` block —  lowering it would land an
-  // empty function in the snapshot while `emit` throws on the  same def.
+  // A bodyless function is an ERROR, not an empty `{}` block — lowering it would land an
+  // empty function in the snapshot while `emit` throws on the same def.
   const out: StructFunction = {
-    name: fn.name,
     args,
     block: braceBody(requireFunctionBody(fn)),
+    name: fn.name,
   }
-  if (fn.config.returns) {
-    out.returns = fieldType(fn.config.returns)
-  }
+  if (fn.config.returns) out.returns = fieldType(fn.config.returns)
+
   const p = fn.config.permissions
-  if (p !== undefined) {
-    out.permissions = typeof p === "boolean" ? p : eventClause(p)
-  }
-  if (fn.config.comment !== undefined) {
-    out.comment = fn.config.comment
-  }
+  if (p !== undefined) out.permissions = typeof p === "boolean" ? p : eventClause(p)
+
+  if (fn.config.comment !== undefined) out.comment = fn.config.comment
+
   return out
 }
 
 /** Lower a `defineAccess` to a `StructAccess`. Signing keys are NOT carried (SurrealDB redacts them, so
- *  they can't round-trip / diffs it). Used by the migration lowering and by `sc access diff`. */
+ * they can't round-trip / diffs it). Used by the migration lowering and by `sc access diff`. */
 export function lowerAccess(a: AccessDef): StructAccess {
   const cfg = a.config
   const k = cfg.kind
@@ -375,17 +341,15 @@ export function lowerAccess(a: AccessDef): StructAccess {
     }
   } else if (k.type === "jwt") {
     kind = {
-      kind: "JWT",
       jwt: { verify: k.url ? { url: k.url } : { alg: k.alg ?? "HS512" } },
+      kind: "JWT",
     }
   } else {
     kind = { kind: "RECORD" }
-    if (cfg.signup) {
-      kind.signup = braceBody(cfg.signup)
-    }
-    if (cfg.signin) {
-      kind.signin = braceBody(cfg.signin)
-    }
+    if (cfg.signup) kind.signup = braceBody(cfg.signup)
+
+    if (cfg.signin) kind.signin = braceBody(cfg.signin)
+
     // RECORD `WITH JWT` — carry the verify method (url/alg) for diffing; keys stay redacted.
     if (cfg.withJwt) {
       kind.jwt = {
@@ -393,31 +357,23 @@ export function lowerAccess(a: AccessDef): StructAccess {
           "url" in cfg.withJwt ? { url: cfg.withJwt.url } : { alg: cfg.withJwt.alg ?? "HS512" },
       }
     }
-    if (cfg.refresh) {
-      kind.refresh = true
-    }
-    if (cfg.authenticate) {
-      kind.authenticate = braceBody(cfg.authenticate)
-    }
+    if (cfg.refresh) kind.refresh = true
+
+    if (cfg.authenticate) kind.authenticate = braceBody(cfg.authenticate)
   }
 
-  const out: StructAccess = { name: a.name, kind }
+  const out: StructAccess = { kind, name: a.name }
   const d = cfg.duration
   if (d && (d.grant || d.token || d.session)) {
     out.duration = {}
-    if (d.grant) {
-      out.duration.grant = d.grant
-    }
-    if (d.token) {
-      out.duration.token = d.token
-    }
-    if (d.session) {
-      out.duration.session = d.session
-    }
+    if (d.grant) out.duration.grant = d.grant
+
+    if (d.token) out.duration.token = d.token
+
+    if (d.session) out.duration.session = d.session
   }
-  if (cfg.comment) {
-    out.comment = cfg.comment
-  }
+  if (cfg.comment) out.comment = cfg.comment
+
   return out
 }
 
@@ -425,49 +381,40 @@ export function lowerAccess(a: AccessDef): StructAccess {
 function lowerAnalyzer(a: AnalyzerDef): StructAnalyzer {
   const out: StructAnalyzer = { name: a.name }
   // Store `function` bare (strip an optional `fn::`) to match INFO … STRUCTURE, so it round-trips.
-  if (a.config.function) {
-    out.function = a.config.function.replace(/^fn::/u, "")
-  }
-  if (a.config.tokenizers?.length) {
-    out.tokenizers = a.config.tokenizers.map((t) => t.toUpperCase())
-  }
-  if (a.config.filters?.length) {
-    out.filters = a.config.filters.map(upperFilterClause)
-  }
-  if (a.config.comment) {
-    out.comment = a.config.comment
-  }
+  if (a.config.function) out.function = a.config.function.replace(/^fn::/u, "")
+
+  if (a.config.tokenizers?.length) out.tokenizers = a.config.tokenizers.map((t) => t.toUpperCase())
+
+  if (a.config.filters?.length) out.filters = a.config.filters.map(upperFilterClause)
+
+  if (a.config.comment) out.comment = a.config.comment
+
   return out
 }
 
 /** Lower a MANAGED `defineParam` (inline literal value) to its `StructParam` — the value is the
- *  canonical SurrealQL literal TEXT (what INFO stores), so it round-trips. */
+ * canonical SurrealQL literal TEXT (what INFO stores), so it round-trips. */
 export function lowerParam(p: ParamDef): StructParam {
   const out: StructParam = {
     name: p.name,
     value: toSurqlString(p.config.value),
   }
-  if (p.config.permissions === false) {
-    out.permissions = false
-  }
-  if (p.config.comment) {
-    out.comment = p.config.comment
-  }
+  if (p.config.permissions === false) out.permissions = false
+
+  if (p.config.comment) out.comment = p.config.comment
+
   return out
 }
 
 /** Lower a `defineSequence` to its `StructSequence` (normalize strips the materialized defaults). */
 export function lowerSequence(seq: SequenceDef): StructSequence {
   const out: StructSequence = { name: seq.name }
-  if (seq.config.batch !== undefined) {
-    out.batch = seq.config.batch
-  }
-  if (seq.config.start !== undefined) {
-    out.start = seq.config.start
-  }
-  if (seq.config.timeout !== undefined) {
-    out.timeout = seq.config.timeout
-  }
+  if (seq.config.batch !== undefined) out.batch = seq.config.batch
+
+  if (seq.config.start !== undefined) out.start = seq.config.start
+
+  if (seq.config.timeout !== undefined) out.timeout = seq.config.timeout
+
   return out
 }
 
@@ -479,26 +426,21 @@ export function fromStandalone(
   // here rather than mis-dispatching below.
   assertCompleteDef(def)
   // An `EventDef` already carries `name`/`when`/`then` — the `TableEvent` shape `lowerEvent` reads.
-  if (def.kind === "event") {
-    return lowerEvent(def.table, def)
-  }
-  if (def.kind === "function") {
-    return lowerFunction(def)
-  }
-  if (def.kind === "analyzer") {
-    return lowerAnalyzer(def)
-  }
-  if (def.kind === "param") {
-    return lowerParam(def)
-  }
-  if (def.kind === "sequence") {
-    return lowerSequence(def)
-  }
+  if (def.kind === "event") return lowerEvent(def.table, def)
+
+  if (def.kind === "function") return lowerFunction(def)
+
+  if (def.kind === "analyzer") return lowerAnalyzer(def)
+
+  if (def.kind === "param") return lowerParam(def)
+
+  if (def.kind === "sequence") return lowerSequence(def)
+
   // EXHAUSTIVE: never fall through to a sibling's lowerer (an unknown kind used to land in
   // `lowerAccess` and die on `cfg.kind`).
-  if (def.kind === "access") {
-    return lowerAccess(def)
-  }
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
+  if (def.kind === "access") return lowerAccess(def)
+
   throw unknownDefKind(def)
 }
 
@@ -520,39 +462,34 @@ export function schemaStruct(
   const sequences: StructSequence[] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const d of defs) {
-    if (d.kind === "function") {
-      functions.push(fromStandalone(d) as StructFunction)
-    } else if (d.kind === "access") {
-      accesses.push(fromStandalone(d) as StructAccess)
-    } else if (d.kind === "analyzer") {
-      analyzers.push(fromStandalone(d))
-    }
-    //  MANAGED params (inline literal value) enter the migration flow; secret/declared params
+    // eslint-disable-next-line unicorn-plugin/prefer-switch -- cadeia else-if preserva a ordem semântica das verificações
+    if (d.kind === "function") functions.push(fromStandalone(d) as StructFunction)
+    else if (d.kind === "access") accesses.push(fromStandalone(d) as StructAccess)
+    else if (d.kind === "analyzer") analyzers.push(fromStandalone(d))
+
+    // MANAGED params (inline literal value) enter the migration flow; secret/declared params
     // are out-of-band (`sc param push/check`) — SurrealDB stores param values READABLY, so a
     // secret value must never reach a snapshot or migration.
     else if (d.kind === "param") {
-      if (d.managed) {
-        params.push(fromStandalone(d) as StructParam)
-      }
-    } else if (d.kind === "event") {
+      if (d.managed) params.push(fromStandalone(d) as StructParam)
+    } else if (d.kind === "event")
       byName.get(d.table)?.events.push(fromStandalone(d) as StructEvent)
-    } else if (d.kind === "sequence") {
-      sequences.push(fromStandalone(d))
-    }
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
+    else if (d.kind === "sequence") sequences.push(fromStandalone(d))
   }
   // An inline `.function(input => surql`…`)` carries an auto-created function — expand it into the
   // functions list (deduped, collision-checked) so it emits/diffs/pulls as a normal `defineFunction`
   // the analyzer references. Same helper the emit path uses, so both agree on collisions.
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const fn of inlineAnalyzerFunctions(defs)) {
+  for (const fn of inlineAnalyzerFunctions(defs))
     functions.push(fromStandalone(fn) as StructFunction)
-  }
+
   return normalizeDb({
-    tables: structTables,
-    functions,
     accesses,
     analyzers,
+    functions,
     params,
     sequences,
+    tables: structTables,
   })
 }

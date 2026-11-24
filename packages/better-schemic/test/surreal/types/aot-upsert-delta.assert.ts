@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars -- Type queries and callback signatures need fixture values. */
 // Bun AOT / DX — `upsertDelta` result inference without `as unknown as UpsertDeltaResult`.
 import { describe, it } from "node:test"
 
@@ -14,13 +15,13 @@ const Customer = table("customer", {
 const schemaDef = schema({ customers: Customer })
 type D = Client<typeof schemaDef>["customers"]
 
-describe("AOT — upsertDelta inference", () => {
-  it("ReturnType of the delegate method keeps the typed record (no cast)", () => {
+void describe("AOT — upsertDelta inference", () => {
+  void it("ReturnType of the delegate method keeps the typed record (no cast)", () => {
     type R = Awaited<ReturnType<D["upsertDelta"]>>
     assertType<number, R["record"]["balance"]>()
   })
 
-  it("explicit public helpers spell the result type for a call site", () => {
+  void it("explicit public helpers spell the result type for a call site", () => {
     type R = UpsertDeltaFor<typeof schemaDef, "customers", { data: { balance: number } }>
     assertType<number, R["record"]["balance"]>()
     type I = InferWriteResult<D["upsertDelta"], { data: { balance: number } }>

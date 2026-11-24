@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/no-thenable -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Bun test calls return thenable handles that are not awaited. */
 // The `tenant()` schema PRESET — the tenant column + per-op permissions + guard event + indexes,
 // matching the hand-written multi-tenant recipe line-by-line (zero-diff), with the column typed as
 // a `record<principal>` and `meta.tenant` stamped for the runtime plugin.

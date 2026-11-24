@@ -2,14 +2,19 @@ import { existsSync, statSync } from "node:fs"
 import { createRequire } from "node:module"
 import { basename, dirname, resolve } from "node:path"
 
+import type { createJiti } from "jiti"
+
 import type { OrmConfig } from "../config"
 import type { ConnectionConfigBase, ResolveContext } from "../connection"
+
+/** The slice of jiti's module this file uses (loaded on demand via `createRequire`). */
+type JitiModule = { createJiti: typeof createJiti }
 
 // `jiti` (its transpiler + babel) is ~60ms of module init that `sc --help`, `sc snapshot` and other
 // schema-less commands never need. Load it on FIRST config/schema read (createRequire keeps
 // `makeJiti` synchronous, so no call site changes) instead of at barrel import.
 const require_ = createRequire(import.meta.url)
-let jitiModule: typeof import("jiti") | undefined
+let jitiModule: JitiModule | undefined
 
 // `better-schemic.ts` is the scaffolded name (the config IS the app's DB module — `orm.connect()`);
 // the legacy `schemic.config.*` / `schemic.ts` spellings keep working. Checked LAST + shape-guarded, so an unrelated
@@ -31,9 +36,8 @@ const CONFIG_NAMES = [
  * it exists, else inferred from a `.ts`/`.js`-ish extension.
  */
 function schemaIsFilePath(path: string): boolean {
-  if (existsSync(path)) {
-    return statSync(path).isFile()
-  }
+  if (existsSync(path)) return statSync(path).isFile()
+
   return /\.[mc]?[jt]s$/u.test(path)
 }
 
@@ -46,15 +50,13 @@ function loadDotEnv(dir: string): void {
   const proc = process as typeof process & {
     loadEnvFile?: (path: string) => void
   }
-  if (typeof proc.loadEnvFile !== "function") {
-    return
-  }
+  if (typeof proc.loadEnvFile !== "function") return
+
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const name of [".env.local", ".env"]) {
     const file = resolve(dir, name)
-    if (!existsSync(file)) {
-      continue
-    }
+    if (!existsSync(file)) continue
+
     try {
       proc.loadEnvFile(file)
     } catch {
@@ -68,7 +70,7 @@ function loadDotEnv(dir: string): void {
  * connection at a time). `params` are the driver-specific connection params (opaque to core; the
  * driver's `connect` reads them). Built by resolving one entry of `config.connections`.
  */
-export interface ResolvedConfig {
+export type ResolvedConfig = {
   /** Resolved connection name (e.g. `default`, or `tenants:abc` within a collection). */
   connection: string
   /** The driver this connection uses (the package the CLI dynamically loads). */
@@ -99,9 +101,8 @@ export interface ResolvedConfig {
  * edited schema files. (The engine's own modules are native-imported, so registries stay shared.)
  */
 export function makeJiti() {
-  if (!jitiModule) {
-    jitiModule = require_("jiti") as typeof import("jiti")
-  }
+  if (!jitiModule) jitiModule = require_("jiti") as JitiModule
+
   const { createJiti } = jitiModule
   // ONE instance per process (its caches are off, so `--watch` still re-reads edited files).
   if (!sharedJiti) {
@@ -115,7 +116,7 @@ export function makeJiti() {
   return sharedJiti
 }
 
-let sharedJiti: ReturnType<typeof import("jiti").createJiti> | undefined
+let sharedJiti: ReturnType<typeof createJiti> | undefined
 let jitiOptions: {
   alias?: Record<string, string>
   tsconfigPaths?: boolean | string
@@ -129,9 +130,8 @@ export function normalizeAliases(opts: {
   return Object.fromEntries(
     Object.entries(opts.alias ?? {}).flatMap(([key, value]) => {
       const target = resolve(opts.root, value).replace(/\/*$/u, "")
-      if (key.endsWith("/*")) {
-        return [[key, `${target}/*`]]
-      }
+      if (key.endsWith("/*")) return [[key, `${target}/*`]]
+
       return [
         [key, target],
         [`${key}/*`, `${target}/*`],
@@ -177,11 +177,13 @@ export async function loadProject(opts?: {
   for (const path of candidates) {
     const root = dirname(path)
     loadDotEnv(root) // populate process.env before the config module's explicit reads
-    const loaded = (await jiti.import(path)) as {
-      default?: OrmConfig
-      orm?: OrmConfig
-      schemic?: OrmConfig
-    } & OrmConfig
+    const loaded = await jiti.import<
+      {
+        default?: OrmConfig
+        orm?: OrmConfig
+        schemic?: OrmConfig
+      } & OrmConfig
+    >(path)
     // Accept a default export OR the named `orm` export (legacy: `schemic`) — the scaffolded
     // form is the NAMED one (`export const orm = defineConfig(...)`), so app code auto-imports
     // a deterministic identifier (`import { orm } from "./better-schemic.config"` ->
@@ -191,18 +193,17 @@ export async function loadProject(opts?: {
     const config = [loaded.default, loaded.orm, loaded.schemic, loaded].find(
       (c): c is OrmConfig => !!c && typeof c === "object" && "connections" in c,
     )
-    if (config?.connections && Object.keys(config.connections).length > 0) {
-      return { config, root }
-    }
+    if (config?.connections && Object.keys(config.connections).length > 0) return { config, root }
+
     // An AUTO-discovered bare `better-schemic.ts` (or legacy `schemic.ts`) without a connections map is
     // an unrelated helper module, not a config — skip it (an explicitly-passed or `*.config.*` file
     // still errors ).
     if (
       !opts?.config &&
       (basename(path) === "better-schemic.ts" || basename(path) === "schemic.ts")
-    ) {
+    )
       continue
-    }
+
     throw new Error(`Invalid config at ${path}: expected a "connections" map.`)
   }
   throw new Error(
@@ -264,6 +265,7 @@ export async function loadConfig(opts?: {
   const names = Object.keys(config.connections)
   const name = config.defaultConnection ?? (names.length === 1 ? names[0] : "default")
   const entry = config.connections[name]
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- índice de Record assume presença, mas a config vem de arquivo do usuário.
   if (!entry) {
     throw new Error(
       `No connection named "${name}". Set "defaultConnection" or pass --connection. Known: ${names.join(", ")}.`,
@@ -280,7 +282,7 @@ export async function loadConfig(opts?: {
 }
 
 /** Per-command connection flag overrides (CLI args, applied by the driver over `params`). */
-export interface ConnectionOverrides {
+export type ConnectionOverrides = {
   authLevel?: string
   database?: string
   namespace?: string

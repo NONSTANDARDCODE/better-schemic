@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // The semantic layer: typed metric declarations, glossary, and declared (validated) lineage. No new
 // SQL — metric args are the ORM's existing `combine` args.
 import { describe, expect, test } from "bun:test"

@@ -7,6 +7,7 @@
 import { escapeIdentSafe as escapeIdent, unescapeIdPart } from "../../ident"
 import { hasRefDeep } from "../../pure"
 import type { ModelMeta, SchemaIndex } from "../meta"
+
 import {
   type Binds,
   compileError,
@@ -34,7 +35,7 @@ import {
 
 // --- relate / unrelate ---------------------------------------------------------------------------
 
-export interface RelateRuntimeArgs {
+export type RelateRuntimeArgs = {
   data?: unknown
   from?: unknown
   id?: unknown
@@ -47,7 +48,7 @@ export interface RelateRuntimeArgs {
 }
 
 /** One compiled RELATE clause (shared by `relate` and `create.relate` sugar). */
-export interface RelateEntry {
+export type RelateEntry = {
   readonly data?: unknown
   readonly edge: string
   readonly from: unknown
@@ -83,20 +84,20 @@ export function compileRelate(
   }
   const sel = selectMode(proj, ret, operation, meta)
   const entry: RelateEntry = {
-    from: args.from,
     edge: relateEdgeName(meta, args.id, operation),
+    from: args.from,
     to: args.to,
     ...(args.data === undefined ? {} : { data: args.data }),
-    ret,
     meta,
+    ret,
   }
   return {
+    result: resultOf(ret, "row"),
+    resultIndexes: [0],
     statements: [
       relateStatement(entry, binds, operation, sel?.mode === "server" ? sel.proj.text : undefined),
     ],
     transactional: false,
-    resultIndexes: [0],
-    result: resultOf(ret, "row"),
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
   }
 }
@@ -140,18 +141,18 @@ export function compileRelateMany(
       )
     }
     return {
-      from: item.from,
       edge: relateEdgeName(meta, item.id, operation),
+      from: item.from,
       to: item.to,
       ...(item.data === undefined ? {} : { data: item.data }),
-      ret: "after",
       meta,
+      ret: "after",
     } satisfies RelateEntry
   })
   return {
+    result: resultOf("after", "many"),
     statements: entries.map((entry) => relateStatement(entry, binds, operation, projText)),
     transactional: entries.length > 1,
-    result: resultOf("after", "many"),
     ...(sel ? { select: sel.proj.spec, selectMode: sel.mode } : {}),
   }
 }
@@ -194,10 +195,10 @@ export function compileUnrelate(
   const to = endpointText(args.to, binds, operation, meta, "to")
   const sql = `DELETE ${escapeIdent(meta.name)} WHERE in = ${from} AND out = ${to}${mutationTail("before", args.timeout, operation)}`
   return {
+    result: "many",
+    resultIndexes: [0],
     statements: [sql],
     transactional: false,
-    resultIndexes: [0],
-    result: "many",
   }
 }
 
@@ -222,16 +223,15 @@ export function compileUnrelateMany(
     ? `DELETE ${escapeIdent(meta.name)}${where}`
     : `DELETE ${escapeIdent(meta.name)}`
   return {
+    result: "many",
     statements: [`${sql}${mutationTail("before", args.timeout, operation)}`],
     transactional: false,
-    result: "many",
   }
 }
 
 function requireRelation(meta: ModelMeta, operation: string): void {
-  if (isTableMeta(meta) && meta.kind === "relation") {
-    return
-  }
+  if (isTableMeta(meta) && meta.kind === "relation") return
+
   throw compileError(
     "ValidationError",
     `${operation}: "${meta.name}" is not a relation — call it on the edge delegate whose schema entry is a relation(...).`,
@@ -254,19 +254,19 @@ function endpointText(
       { operation },
     )
   }
-  if (hasRefDeep(value)) {
-    return renderValue(value, binds, binds.ctx())
-  }
+  if (hasRefDeep(value)) return renderValue(value, binds, binds.ctx())
+
   const declared =
     meta !== undefined && isTableMeta(meta) ? (meta.endpoints?.[direction] ?? []) : []
+  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringify de valor opaco é intencional (toJSON/toString definidos pelo chamador)
   const text = String(value)
   const parts = splitRecordId(text)
   if (!parts) {
     // A BARE endpoint is unambiguous when the relation declares one table for this
     // direction (string-id mode's app representation).
-    if (declared.length === 1) {
+    if (declared.length === 1)
       return `${escapeIdent(declared[0])}:${escapeRecordIdPart(unescapeIdPart(text))}`
-    }
+
     throw compileError(
       "ValidationError",
       `${operation}: endpoint "${text}" is not a record id — pass "table:id" (or a surql expression).`,
@@ -277,7 +277,7 @@ function endpointText(
     throw compileError(
       "ValidationError",
       `${operation}: "${parts.table}" is not a declared ${direction === "from" ? "FROM" : "TO"} endpoint of "${meta?.name}" (declared: ${declared.join(", ")}).`,
-      { operation, table: meta?.name, field: direction },
+      { field: direction, operation, table: meta?.name },
     )
   }
   return `${escapeIdent(parts.table)}:${escapeRecordIdPart(unescapeIdPart(parts.id))}`
@@ -286,9 +286,8 @@ function endpointText(
 /** `edge` / `edge:<id>` (the edge table is the delegate itself). */
 function relateEdgeName(meta: ModelMeta, id: unknown, operation: string): string {
   const table = escapeIdent(meta.name)
-  if (id === undefined) {
-    return table
-  }
+  if (id === undefined) return table
+
   if (typeof id !== "string" || !id) {
     throw compileError(
       "ValidationError",
@@ -311,9 +310,8 @@ export function relateSugar(
   meta: ModelMeta,
   resolveEdge?: (name: string) => ModelMeta | undefined,
 ): readonly RelateEntry[] {
-  if (value === undefined) {
-    return []
-  }
+  if (value === undefined) return []
+
   const entries = requireArray(value, "relate", operation)
   return entries.map((entry) => {
     if (!isPlainObject(entry)) {
@@ -330,12 +328,10 @@ export function relateSugar(
         { operation, table: meta.name },
       )
     }
-    const edgeName =
-      typeof entry.edge === "string"
-        ? entry.edge
-        : isPlainObject(entry.edge) && typeof entry.edge.name === "string"
-          ? entry.edge.name
-          : undefined
+    let edgeName: string | undefined
+    if (typeof entry.edge === "string") edgeName = entry.edge
+    else if (isPlainObject(entry.edge) && typeof entry.edge.name === "string")
+      edgeName = entry.edge.name
     if (typeof edgeName !== "string" || !edgeName) {
       throw compileError(
         "ValidationError",
@@ -359,8 +355,8 @@ export function relateSugar(
       )
     }
     return {
-      from: entry.from,
       edge: escapeIdent(edgeName),
+      from: entry.from,
       to: entry.to,
       ...(entry.data === undefined ? {} : { data: entry.data }),
       ret: "after",

@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures assert values whose presence the test guarantees. */
 // The create/insert lowering in isolation: the default operations, the singleton id, the
 // skipDuplicates id guard and the insert/insertMany shape guards.
 import { describe, expect, test } from "bun:test"
@@ -14,6 +15,7 @@ import {
 } from "../../../src/surreal/orm/compiler/write"
 import { schema } from "../../../src/surreal/orm/schema"
 import { fakeConn, ok } from "../orm-fixtures"
+
 import { schemaDef } from "./orm-writes-fixtures"
 
 const code = (fn: () => unknown): string | undefined => {

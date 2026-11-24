@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/require-await, @typescript-eslint/no-unused-vars -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Mock methods match async interfaces without awaiting. Type queries and callback signatures need fixture values. */
 // Write projections (`select`/`omit` riding `RETURN <projection>`) and numeric adjustments
 // (`{ increment }`/`{ decrement }` → `SET f ±= $p`): the server-vs-client lowering, the decode,
 // and the teaching guards. Core write goldens live in `orm-writes.test.ts`.
@@ -11,6 +12,7 @@ import type { OrmError } from "../../../src/surreal/orm/errors"
 import { schema } from "../../../src/surreal/orm/schema"
 import { s, table } from "../../../src/surreal/pure"
 import { fakeConn, ok } from "../orm-fixtures"
+
 import { codeOf, data, lastCall, makeClient, ROW, schemaDef, stable } from "./orm-writes-fixtures"
 
 describe("write projections — server-side RETURN", () => {
@@ -55,7 +57,7 @@ describe("write projections — server-side RETURN", () => {
       data: { age: 2 },
       select: { upper: surql`string::uppercase(name)`.as<string>() },
     })
-    expect(calls[calls.length - 1]?.sql).toContain("AS upper")
+    expect(calls.at(-1)?.sql).toContain("AS upper")
   })
 
   test("`*` + extra entries and ONLY forms", async () => {
@@ -306,7 +308,7 @@ describe("write projections — client-side (before/delete/omit)", () => {
       omit: ["email"],
     })
     expect(out.record).not.toHaveProperty("email")
-    expect(out.record?.age).toBe(31)
+    expect(out.record.age).toBe(31)
 
     const each = makeClient([ROW])
     const result = await each.client.users.updateEach({
@@ -580,7 +582,7 @@ describe("arithmetic adjustments — lowering", () => {
       where: { id: "ledger:1" },
       data: { balance: { increment: new Decimal("1.5") } },
     })
-    const call = calls[calls.length - 1]
+    const call = calls.at(-1)
     expect(call?.sql).toBe("UPDATE ledger:1 SET balance += $p0;")
     expect(call?.vars?.p0).toBeInstanceOf(Decimal)
 
@@ -704,7 +706,7 @@ describe("arithmetic adjustments — guards", () => {
       where: { id: "loose_table:1" },
       data: { counter: { increment: 1 } },
     })
-    const call = calls[calls.length - 1]
+    const call = calls.at(-1)
     expect(call?.sql).toBe("UPDATE loose_table:1 SET counter += $p0;")
   })
 })
@@ -1053,7 +1055,6 @@ describe("adjustment operand classification — the decision table", () => {
         where: { id: "operand:1" },
         data: { [field]: marker } as never,
       })
-      calls.length
       return "OK"
     } catch (error) {
       return (error as OrmError).code

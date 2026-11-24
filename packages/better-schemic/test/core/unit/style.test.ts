@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures assert values whose presence the test guarantees. */
 // The ANSI styling helper — the COLOR-ON path (TTY + NO_COLOR unset) and the color-OFF fallback.
 // `process.stdout.isTTY` is a getter, so it's overridden with `Object.defineProperty` and restored.
 import { afterEach, describe, expect, test } from "bun:test"
@@ -15,7 +16,7 @@ function setIsTTY(v: boolean): void {
 }
 
 afterEach(() => {
-  setIsTTY(realIsTTY as boolean)
+  setIsTTY(realIsTTY!)
   delete process.env.NO_COLOR
 })
 

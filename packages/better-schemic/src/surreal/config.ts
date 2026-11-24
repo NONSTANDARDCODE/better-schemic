@@ -6,7 +6,7 @@
 export type AuthLevel = "database" | "namespace" | "root"
 
 /** A SurrealDB connection's params (the surreal-specific half of a `surrealConnection` config). */
-export interface SurrealZodConnection {
+export type SurrealZodConnection = {
   /**
    * Level to sign in at: `root` (default), `namespace`, or `database`. Determines the
    * signin payload — `namespace`/`database` scope the credentials to that ns/db.
@@ -25,13 +25,13 @@ export interface SurrealZodConnection {
 }
 
 /** An allow/deny list for a single capability — mirrors `@surrealdb/node`. */
-export interface CapabilityList {
+export type CapabilityList = {
   allow?: boolean | string[]
   deny?: boolean | string[]
 }
 
 /** Capabilities for the embedded check engine — mirrors `@surrealdb/node`'s `capabilities` option. */
-export interface EmbeddedCapabilities {
+export type EmbeddedCapabilities = {
   experimental?: boolean | CapabilityList | string[]
   functions?: boolean | CapabilityList | string[]
   guest_access?: boolean
@@ -45,7 +45,7 @@ export interface EmbeddedCapabilities {
  * package (install it yourself — `npm i -D @surrealdb/node`). Options pass through to
  * `createNodeEngines`; `backend`/`path` choose the storage. No external server, your data untouched.
  */
-export interface SurrealZodCheckEmbedded {
+export type SurrealZodCheckEmbedded = {
   /** Storage backend. `memory` (default) is throwaway in-RAM; the others persist to `path`. */
   backend?: "memory" | "rocksdb" | "surrealkv" | "surrealkv+versioned"
   /** Capabilities for the instance. Default: all allowed, so asserts/defaults/functions work. */
@@ -61,7 +61,7 @@ export interface SurrealZodCheckEmbedded {
 }
 
 /** `better-schemic check` options (lives on a SurrealDB connection's config; rides into `params.check`). */
-export interface SurrealZodCheck {
+export type SurrealZodCheck = {
   /** Path to the `surreal` CLI for the `auto`/`binary` engines. Default: `surreal` on PATH. */
   binary?: string
   /**
@@ -75,11 +75,11 @@ export interface SurrealZodCheck {
    * Engine for the migration replay:
    *  - `"auto"` (default) — if the `surreal` CLI is on PATH, spin up an ephemeral in-memory instance
    *    (your EXACT SurrealDB version, no external server, your data untouched); otherwise fall back to
-   *    the `check.db` server.
+   * the `check.db` server.
    *  - `"binary"` — require the local `surreal` CLI (error if it's missing).
    *  - `"remote"` — always use the `check.db` server (throwaway scratch databases on it).
    *  - an embedded object (`{ backend, capabilities, … }`) — run in-process via the optional
-   *    `@surrealdb/node` package. See {@link SurrealZodCheckEmbedded}.
+   * `@surrealdb/node` package. See {@link SurrealZodCheckEmbedded}.
    */
   engine?: "auto" | "binary" | "remote" | SurrealZodCheckEmbedded
 }
@@ -88,7 +88,7 @@ export interface SurrealZodCheck {
  * The SurrealDB-specific bag carried in `ResolvedConfig.params`: the connection params plus the optional
  * `check` replay config. `connect`/`introspect`/`checkReplay` read `config.params as SurrealParams`.
  */
-export interface SurrealParams extends SurrealZodConnection {
+export type SurrealParams = {
   /** `better-schemic check` overrides — e.g. a dedicated connection for its migration replay. */
   check?: SurrealZodCheck
-}
+} & SurrealZodConnection

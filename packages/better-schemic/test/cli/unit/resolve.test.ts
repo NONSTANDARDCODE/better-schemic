@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/require-await, @typescript-eslint/no-confusing-void-expression -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock methods match async interfaces without awaiting. The void operator discards intentionally ignored values. */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
@@ -14,18 +15,20 @@ const BASE = join(import.meta.dir, "..", ".tmp-resolve")
 // connect/close/query exercis them (by the cross-connection proxy tests); the IR ops unus them.
 // The registry shars it with jiti-loaded config modules (core is native-imported), so registering
 // "faux" here makes `connectionEntry("faux", …)` configs resolvable.
-const queries: { url: unknown; sql: string }[] = []
+const queries: { sql: string; url: unknown }[] = []
 const faux = {
   name: "faux",
   async connect(config: { params: Record<string, unknown> }) {
     return { url: config.params.url }
   },
-  async close() {},
+  async close() {
+    /* empty */
+  },
   async query(conn: { url: unknown }, sql: string) {
     queries.push({ url: conn.url, sql })
     return [{ ok: 1 }]
   },
-} as unknown as Driver<unknown>
+} as unknown as Driver
 
 function writeConfig(body: string): string {
   const dir = mkdtempSync(join(BASE, "p-"))

@@ -10,6 +10,7 @@
 import { BoundQuery, DateTime } from "surrealdb"
 
 import type { ModelMeta, SchemaIndex } from "../meta"
+
 import { compileCount } from "./aggregate"
 import { type CursorKey, keysetProjection } from "./keyset"
 import type { ProjectionSpec } from "./projection"
@@ -33,13 +34,13 @@ import {
 } from "./shared"
 
 /** One parsed `orderBy` entry (`f1: "desc"`). */
-export interface CursorOrder {
+export type CursorOrder = {
   readonly direction: "asc" | "desc"
   readonly field: string
 }
 
 /** `paginate` args: a read with a required `limit` (the page size). */
-export interface PaginateArgs {
+export type PaginateArgs = {
   /** `false` skips the count statement and probes `LIMIT n+1` for `hasNext`. Default `true`. */
   count?: unknown
   /** Return the `EXPLAIN` plan instead of executing. */
@@ -68,7 +69,7 @@ export interface PaginateArgs {
 }
 
 /** The compiled `paginate` plan. */
-export interface PaginatePlan {
+export type PaginatePlan = {
   readonly count: boolean
   /** The count statement (absent with `count: false`). */
   readonly countSql?: string
@@ -107,12 +108,12 @@ export function compilePaginate(
 
   if (!count) {
     return {
-      dataSql,
-      projection: compiled.projection,
-      limit,
-      start,
       count,
+      dataSql,
+      limit,
       probe,
+      projection: compiled.projection,
+      start,
     }
   }
 
@@ -126,17 +127,17 @@ export function compilePaginate(
     const core =
       groupBy.length > 0
         ? {
-            select: Object.fromEntries(groupBy.map((key) => [key, true])),
             groupBy,
+            select: Object.fromEntries(groupBy.map((key) => [key, true])),
           }
-        : { select: { [split as string]: true }, split }
+        : { select: { [split ?? ""]: true }, split }
     const inner = compileRead(
       meta,
       {
-        where: args.where,
-        with: args.with,
         range: args.range,
         scope: args.scope,
+        where: args.where,
+        with: args.with,
         ...core,
       },
       binds,
@@ -150,13 +151,13 @@ export function compilePaginate(
     })
   }
   return {
-    dataSql,
-    projection: compiled.projection,
-    countSql,
-    limit,
-    start,
     count,
+    countSql,
+    dataSql,
+    limit,
     probe,
+    projection: compiled.projection,
+    start,
   }
 }
 
@@ -166,7 +167,7 @@ export function compilePaginate(
  * keyset columns it's missing, and the delegate reads the cursors from them and strips them from
  * the returned rows.
  */
-export interface CursorArgs {
+export type CursorArgs = {
   after?: unknown
   before?: unknown
   /** Return the `EXPLAIN` plan instead of executing. */
@@ -201,7 +202,7 @@ export interface CursorArgs {
 }
 
 /** The compiled `cursor` plan. */
-export interface CursorPlan {
+export type CursorPlan = {
   /** The page fetchs it in reverse; the delegate reverses the rows back. */
   readonly backward: boolean
   /**
@@ -243,8 +244,8 @@ export function compileCursor(
   const order = cursorOrder(args.orderBy, meta, operation)
   const effective: readonly CursorOrder[] = backward
     ? order.map((entry) => ({
-        field: entry.field,
         direction: entry.direction === "asc" ? "desc" : "asc",
+        field: entry.field,
       }))
     : order
 
@@ -252,39 +253,35 @@ export function compileCursor(
     cursor === undefined
       ? undefined
       : cursorComparison(effective, cursorValues(meta, order, cursor, operation))
-  const where =
-    predicate === undefined
-      ? args.where
-      : args.where === undefined
-        ? predicate
-        : { AND: [args.where, predicate] }
+  let where: unknown = args.where
+  if (predicate !== undefined) where = where === undefined ? predicate : { AND: [where, predicate] }
 
   const keyset = keysetProjection(meta, args.select, args.omit, order, operation)
   const compiled = compileRead(
     meta,
     {
       ...args,
-      where,
+      groupAll: undefined,
+      groupBy: undefined,
+      limit: limit + 1,
       orderBy: effective.map((entry) => ({
         [entry.field]: entry.direction,
       })),
-      limit: limit + 1,
-      start: undefined,
-      groupBy: undefined,
-      groupAll: undefined,
       split: undefined,
+      start: undefined,
+      where,
     },
     binds,
     operation,
-    { index: options.index, aliases: keyset.aliases },
+    { aliases: keyset.aliases, index: options.index },
   )
   return {
-    sql: compiled.sql,
-    projection: compiled.projection,
-    limit,
-    order,
     backward,
     keyset: keyset.keys,
+    limit,
+    order,
+    projection: compiled.projection,
+    sql: compiled.sql,
   }
 }
 
@@ -327,9 +324,8 @@ function rejectPaginationArgs(args: CursorArgs, operation: string): void {
 /** Parse `orderBy` into plain field/direction entries (default: `id asc`). */
 function cursorOrder(orderBy: unknown, meta: ModelMeta, operation: string): readonly CursorOrder[] {
   const order: CursorOrder[] = []
-  if (orderBy === undefined) {
-    order.push({ field: "id", direction: "asc" })
-  } else {
+  if (orderBy === undefined) order.push({ direction: "asc", field: "id" })
+  else {
     const entries = Array.isArray(orderBy) ? orderBy : [orderBy]
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const entry of entries) {
@@ -342,9 +338,10 @@ function cursorOrder(orderBy: unknown, meta: ModelMeta, operation: string): read
       }
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
       for (const [field, direction] of Object.entries(entry)) {
-        if (direction === undefined) {
-          continue
-        }
+        // eslint-disable-next-line max-depth -- parser/compilador com despacho aninhado; achatar mudaria a precedência das cláusulas
+        if (direction === undefined) continue
+
+        // eslint-disable-next-line max-depth -- parser/compilador com despacho aninhado; achatar mudaria a precedência das cláusulas
         if (direction !== "asc" && direction !== "desc") {
           throw compileError(
             "CursorTiebreakerRequired",
@@ -352,7 +349,7 @@ function cursorOrder(orderBy: unknown, meta: ModelMeta, operation: string): read
             { operation },
           )
         }
-        order.push({ field, direction })
+        order.push({ direction, field })
       }
     }
   }
@@ -363,11 +360,12 @@ function cursorOrder(orderBy: unknown, meta: ModelMeta, operation: string): read
       { operation },
     )
   }
-  const last = order.at(-1) as (typeof order)[number]
-  if (!isUniqueField(meta, last.field)) {
+  const last = order.at(-1)
+  if (last === undefined || !isUniqueField(meta, last.field)) {
+    const field = last?.field ?? "(none)"
     throw compileError(
       "CursorTiebreakerRequired",
-      `${operation}: the last orderBy field must be unique (got "${last.field}") — add "{ id: "asc" }" as the tiebreaker.`,
+      `${operation}: the last orderBy field must be unique (got "${field}") — add "{ id: "asc" }" as the tiebreaker.`,
       { operation },
     )
   }
@@ -387,9 +385,8 @@ function cursorValues(
   operation: string,
 ): readonly unknown[] {
   const singleId = order.length === 1 && order[0].field === "id"
-  if (singleId && !isPlainObject(cursor)) {
-    return [coerceCursorValue(meta, "id", cursor, operation)]
-  }
+  if (singleId && !isPlainObject(cursor)) return [coerceCursorValue(meta, "id", cursor, operation)]
+
   if (!isPlainObject(cursor)) {
     throw compileError(
       "ValidationError",
@@ -414,7 +411,7 @@ function cursorValues(
 /**
  * Coerce a cursor value to the column's WIRE value before binding: a record column takes a
  * `RecordId` (bare/`table:id` strings and numbers included), a datetime takes a `DateTime`
- * (string/`Date` accepted). The keyset compares type-vs-type, so a raw string would 
+ * (string/`Date` accepted). The keyset compares type-vs-type, so a raw string would
  * not filter.
  */
 function coerceCursorValue(
@@ -423,23 +420,19 @@ function coerceCursorValue(
   value: unknown,
   operation: string,
 ): unknown {
-  if (value === undefined || !isTableMeta(meta)) {
-    return value
-  }
+  if (value === undefined || !isTableMeta(meta)) return value
+
   const column = meta.columns.get(baseColumn(field))
-  if (!column) {
-    return value
-  }
-  if (column.family === "record" || column.record) {
+  if (!column) return value
+
+  if (column.family === "record" || column.record)
     return coerceRecordValue(value, column.record?.targets, operation, `cursor "${field}"`)
-  }
+
   if (column.family === "date") {
-    if (value instanceof DateTime) {
-      return value
-    }
-    if (value instanceof Date) {
-      return new DateTime(value)
-    }
+    if (value instanceof DateTime) return value
+
+    if (value instanceof Date) return new DateTime(value)
+
     if (typeof value === "string") {
       try {
         return new DateTime(value)
@@ -447,7 +440,7 @@ function coerceCursorValue(
         throw compileError(
           "ValidationError",
           `${operation}: the cursor for "${field}" must be a Date, DateTime or ISO-8601 string (got ${describeValue(value)}).`,
-          { operation, field },
+          { field, operation },
         )
       }
     }
@@ -468,9 +461,8 @@ function cursorComparison(order: readonly CursorOrder[], values: readonly unknow
     const op = entry.direction === "asc" ? ">" : "<"
     const ref = refs[index]
     const head = `${field} ${op} ${ref}`
-    if (index === order.length - 1) {
-      return head
-    }
+    if (index === order.length - 1) return head
+
     const rest = `${head} OR (${field} = ${ref} AND ${compare(index + 1)})`
     return index === 0 ? rest : paren(rest)
   }

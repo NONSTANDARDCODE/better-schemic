@@ -6,7 +6,7 @@
  * A driver types its `defineSeed(fn)` helper as `(db: Conn, ctx: SeedContext) => …`; the connection is
  * the driver's own type, this context is dialect-neutral.
  */
-export interface SeedContext {
+export type SeedContext = {
   /** Absolute path of the directory containing the running seed. */
   readonly dir: string
   /** Read a supporting file (resolved relative to {@link SeedContext.dir}) as a UTF-8 string. */

@@ -54,9 +54,7 @@ const CANONICAL = [
 describe("surql-type bridge (Milestone 2 losslessness)", () => {
   test("emit∘parse reproduces the canonical SurrealQL spelling", () => {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const kind of CANONICAL) {
-      expect(emitSurqlType(parseSurqlType(kind))).toBe(kind)
-    }
+    for (const kind of CANONICAL) expect(emitSurqlType(parseSurqlType(kind))).toBe(kind)
   })
 
   test("parse∘emit is identity on PortableType", () => {

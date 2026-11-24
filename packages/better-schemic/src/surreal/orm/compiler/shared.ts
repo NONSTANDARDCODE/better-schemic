@@ -16,6 +16,7 @@
  */
 import { BoundQuery, RecordId, type RecordIdValue } from "surrealdb"
 
+// eslint-disable-next-line unicorn/prefer-export-from -- re-export é o ponto único do parser de record id para os compilers
 import {
   escapeIdentSafe as escapeIdent,
   type RecordIdParts,
@@ -25,6 +26,7 @@ import {
 
 // The record-id parser lives in the neutral `ident` module (shared with the authoring codec);
 // re-exported here so the compiler modules keep their single import site.
+// para os compilers; o import local abaixo serve o uso interno
 export { type RecordIdParts, splitRecordId }
 
 import {
@@ -45,7 +47,7 @@ import { OrmError, type OrmErrorCode, type OrmErrorOptions } from "../errors"
 import type { ModelMeta, TableMeta } from "../meta"
 
 /** The bind accumulator one compiled operation carries. */
-export interface Binds {
+export type Binds = {
   /** Bind a value under a fresh `$p<n>` and return its reference text. */
   add(value: unknown): string
   /** A lowering {@link Ctx} over this bind map (`row` sets the current row token for `$parent`). */
@@ -59,21 +61,20 @@ export function createBinds(prefix = "p"): Binds {
   const vars: Record<string, unknown> = {}
   let next = 0
   return {
-    vars,
     add(value) {
       // Skip names a merged fragment already claimed: `mergeRaw` writes into the SAME vars map, so
       // handing out an existing name would overwrite the fragment's bind.
       let name: string
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      do {
-        name = `${prefix}${next++}`
-      } while (name in vars)
+      do name = `${prefix}${next++}`
+      while (name in vars)
       vars[name] = value
       return `$${name}`
     },
     ctx(row) {
-      return row === undefined ? { vars } : { vars, row }
+      return row === undefined ? { vars } : { row, vars }
     },
+    vars,
   }
 }
 
@@ -103,30 +104,24 @@ export function isLowerableValue(v: unknown): boolean {
  * `a..=b` (its bounds bind); anything else binds as a fresh `$p<n>` — never interpolated text.
  */
 export function renderValue(value: unknown, binds: Binds, ctx: Ctx): string {
-  if (isParamRef(value)) {
-    return value.toText()
-  }
-  if (isRange(value)) {
-    return renderRange(value, binds, ctx)
-  }
+  if (isParamRef(value)) return value.toText()
+
+  if (isRange(value)) return renderRange(value, binds, ctx)
+
   const param = paramDefName(value)
-  if (param !== undefined) {
-    return `$${param}`
-  }
+  if (param !== undefined) return `$${param}`
+
   const ref = refState(value)
-  if (ref) {
-    return renderRef(ref, ctx)
-  }
-  if (value instanceof BoundQuery) {
-    return `(${mergeRaw(value, ctx.vars)})`
-  }
+  if (ref) return renderRef(ref, ctx)
+
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- SDK SurrealDB tipa BoundQuery como any; valor foi validado por instanceof
+  if (value instanceof BoundQuery) return `(${mergeRaw(value, ctx.vars)})`
+
   const frag = fragOf(value)
-  if (frag) {
-    return mergeRaw(frag, ctx.vars)
-  }
-  if (hasRefDeep(value)) {
-    return renderData(value, ctx)
-  }
+  if (frag) return mergeRaw(frag, ctx.vars)
+
+  if (hasRefDeep(value)) return renderData(value, ctx)
+
   rejectDefValue(value)
   return binds.add(value)
 }
@@ -145,9 +140,9 @@ function renderRange(r: Range, binds: Binds, ctx: Ctx): string {
  * parse error (e.g. `ORDER BY (expr)`). Returns `undefined` when the value isn't a fragment.
  */
 export function renderBareFragment(value: unknown, binds: Binds): string | undefined {
-  if (value instanceof BoundQuery) {
-    return mergeRaw(value, binds.vars)
-  }
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- SDK SurrealDB tipa BoundQuery como any; valor foi validado por instanceof
+  if (value instanceof BoundQuery) return mergeRaw(value, binds.vars)
+
   const frag = fragOf(value)
   return frag ? mergeRaw(frag, binds.vars) : undefined
 }
@@ -164,13 +159,11 @@ const SEGMENT = /^([^[\]]+)((?:\[\d+\]|\[\*\])*)$/u
 const PATH_CACHE_MAX = 4000
 function memoPath<V>(cache: Map<string, V>, path: string, compute: () => V): V {
   const hit = cache.get(path)
-  if (hit !== undefined) {
-    return hit
-  }
+  if (hit !== undefined) return hit
+
   const value = compute()
-  if (cache.size >= PATH_CACHE_MAX) {
-    cache.clear()
-  }
+  if (cache.size >= PATH_CACHE_MAX) cache.clear()
+
   cache.set(path, value)
   return value
 }
@@ -228,7 +221,7 @@ export function paren(part: string): string {
 // --- canonical arg guards / schema metadata -------------------------------------------------------
 
 /** The args every read op rejects (removed or renamed in the M1 surface). */
-export interface RemovedArgs {
+export type RemovedArgs = {
   /** Removed: SurrealDB 3.2 rejects PARALLEL (parse error). */
   parallel?: unknown
   /** Renamed to `start`. */
@@ -239,7 +232,7 @@ export interface RemovedArgs {
 
 /**
  * Reject the args that no longer exist: `parallel` (SurrealDB 3.2 has no PARALLEL) and the
- * prototype aliases `take`/`skip` (canonical is `limit`/`start`). Failing loudly beats ignoring.
+ * prototype aliases `take`/`skip` (canonical is `limit`/`start`). Failing beats ignoring.
  * The ONE place this rule lives — every read compiler calls it.
  */
 export function rejectRemovedArgs(args: RemovedArgs, operation: string): void {
@@ -273,9 +266,8 @@ export function isTableMeta(meta: ModelMeta): meta is TableMeta {
 
 /** The single-field UNIQUE indexes of a table (precomputed at index build; empty for schemaless). */
 export function uniqueFields(meta: ModelMeta): readonly string[] {
-  if (!isTableMeta(meta)) {
-    return []
-  }
+  if (!isTableMeta(meta)) return []
+
   return meta.uniqueFields
 }
 
@@ -294,9 +286,8 @@ export function baseColumn(path: string): string {
 
 /** Normalize a single-or-list field-path arg (`groupBy`, `split`-adjacent lists). */
 export function pathList(value: unknown, name: string, operation?: string): readonly string[] {
-  if (value === undefined || value === null) {
-    return []
-  }
+  if (value === undefined || value === null) return []
+
   const entries = Array.isArray(value) ? value : [value]
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const entry of entries) {
@@ -372,9 +363,8 @@ export function compileWithClause(withArg: unknown, operation: string): string {
       { operation },
     )
   }
-  if (noIndex) {
-    return "WITH NOINDEX"
-  }
+  if (noIndex) return "WITH NOINDEX"
+
   if (index === undefined) {
     throw compileError(
       "ValidationError",
@@ -395,8 +385,9 @@ export function compileWithClause(withArg: unknown, operation: string): string {
 
 /** `VERSION d'…'` — a datetime literal (binds are not accepted in VERSION). */
 export function datetimeLiteral(value: unknown, operation: string): string {
-  const iso =
-    value instanceof Date ? value.toISOString() : typeof value === "string" ? value : undefined
+  let iso: string | undefined
+  if (value instanceof Date) iso = value.toISOString()
+  else if (typeof value === "string") iso = value
   if (iso === undefined || !/^\d{4}-\d{2}-\d{2}(?:T[\d:.]+Z?)?$/u.test(iso)) {
     throw compileError(
       "ValidationError",
@@ -409,16 +400,16 @@ export function datetimeLiteral(value: unknown, operation: string): string {
 
 /** SurrealDB duration units → milliseconds (the ONE unit table). */
 const DURATION_MS: Record<string, number> = {
-  ns: 1e-6,
-  us: 1e-3,
-  µs: 1e-3,
-  ms: 1,
-  s: 1e3,
-  m: 6e4,
-  h: 3.6e6,
   d: 8.64e7,
+  h: 3.6e6,
+  m: 6e4,
+  ms: 1,
+  ns: 1e-6,
+  s: 1e3,
+  us: 1e-3,
   w: 6.048e8,
   y: 3.1536e10,
+  µs: 1e-3,
 }
 
 /**
@@ -438,9 +429,7 @@ export function parseDurationMs(value: unknown, operation: string): number {
   }
   if (typeof value === "string") {
     const match = /^(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h|d|w|y)$/u.exec(value)
-    if (match) {
-      return Number(match[1]) * DURATION_MS[match[2]]
-    }
+    if (match) return Number(match[1]) * DURATION_MS[match[2]]
   }
   throw compileError(
     "ValidationError",
@@ -461,9 +450,9 @@ export function durationLiteral(value: unknown, operation: string): string {
     }
     return `${value}ms`
   }
-  if (typeof value === "string" && /^\d+(?:\.\d+)?(?:ns|us|µs|ms|s|m|h|d|w|y)$/u.test(value)) {
+  if (typeof value === "string" && /^\d+(?:\.\d+)?(?:ns|us|µs|ms|s|m|h|d|w|y)$/u.test(value))
     return value
-  }
+
   throw compileError(
     "ValidationError",
     `${operation}: timeout must be milliseconds (number) or a duration string like "10s" (got ${describeValue(value)}).`,
@@ -480,8 +469,8 @@ export function recordIdSuffix(
 ): string {
   return escapeRecordIdPart(
     recordIdParts(value, operation, {
-      table: tableName,
       fallbackTable: tableName,
+      table: tableName,
       what: `range.${side} record id`,
     }).id,
   )
@@ -516,6 +505,7 @@ export function recordIdParts(
     ...(options.table ? { table: options.table } : {}),
     ...(options.field ? { field: options.field } : {}),
   }
+  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringify de valor opaco é intencional (toJSON/toString definidos pelo chamador)
   const text = String(value ?? "")
   if (!text) {
     throw compileError(
@@ -533,7 +523,7 @@ export function recordIdParts(
         context,
       )
     }
-    return { table: options.fallbackTable, id: unescapeIdPart(text) }
+    return { id: unescapeIdPart(text), table: options.fallbackTable }
   }
   if (options.table !== undefined && parts.table !== options.table) {
     throw compileError(
@@ -542,7 +532,7 @@ export function recordIdParts(
       context,
     )
   }
-  return { table: parts.table, id: unescapeIdPart(parts.id) }
+  return { id: unescapeIdPart(parts.id), table: parts.table }
 }
 
 /**
@@ -562,9 +552,8 @@ export function coerceRecordId(
     readonly what?: string
   } = {},
 ): RecordId {
-  if (value instanceof RecordId) {
-    return value
-  }
+  if (value instanceof RecordId) return value
+
   const what = options.what ?? "record id"
   const context = {
     operation,
@@ -615,12 +604,11 @@ export function coerceRecordValue(
   operation: string,
   field: string,
 ): unknown {
-  if (Array.isArray(value)) {
+  if (Array.isArray(value))
     return value.map((entry) => coerceRecordValue(entry, targets, operation, field))
-  }
-  if (value instanceof RecordId) {
-    return value
-  }
+
+  if (value instanceof RecordId) return value
+
   if (typeof value === "string") {
     const parts = splitRecordId(value)
     if (parts) {
@@ -633,9 +621,8 @@ export function coerceRecordValue(
       }
       return new RecordId(parts.table, unescapeIdPart(parts.id))
     }
-    if (targets?.length === 1) {
-      return new RecordId(targets[0], unescapeIdPart(value))
-    }
+    if (targets?.length === 1) return new RecordId(targets[0], unescapeIdPart(value))
+
     throw compileError(
       "ValidationError",
       `${operation}: "${value}" is a bare id, but "${field}" ${
@@ -647,9 +634,8 @@ export function coerceRecordValue(
     )
   }
   if (typeof value === "number" || typeof value === "bigint") {
-    if (targets?.length === 1) {
-      return new RecordId(targets[0], value)
-    }
+    if (targets?.length === 1) return new RecordId(targets[0], value)
+
     throw compileError(
       "ValidationError",
       `${operation}: a numeric id on "${field}" needs a single target table.`,
@@ -661,38 +647,34 @@ export function coerceRecordValue(
 
 /** The target tables of a record column (`id` included); `undefined` = any/not a record column. */
 export function recordTargets(meta: ModelMeta, field: string): readonly string[] | undefined {
-  if (field === "id") {
-    return [meta.name]
-  }
+  if (field === "id") return [meta.name]
+
   return isTableMeta(meta) ? meta.columns.get(field)?.record?.targets : undefined
 }
 
 /** A plain data object (not a class instance). */
 export function isPlainObject(v: unknown): v is Record<string, unknown> {
-  if (v === null || typeof v !== "object") {
-    return false
-  }
-  const proto = Object.getPrototypeOf(v)
+  if (v === null || typeof v !== "object") return false
+
+  const proto = Object.getPrototypeOf(v) as null | Record<string, unknown>
   return proto === Object.prototype || proto === null
 }
 
 /** Short, safe rendering of a value for teaching messages. */
 export function describeValue(v: unknown): string {
-  if (v === null) {
-    return "null"
-  }
-  if (Array.isArray(v)) {
-    return `[${v.length} item(s)]`
-  }
-  if (v instanceof Date) {
-    return v.toISOString()
-  }
-  if (v instanceof RecordId) {
-    return `"${v}"`
-  }
+  if (v === null) return "null"
+
+  if (Array.isArray(v)) return `[${v.length} item(s)]`
+
+  if (v instanceof Date) return v.toISOString()
+
+  if (v instanceof RecordId) return `"${v}"`
+
   if (typeof v === "object") {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- objetos sem protótipo (Object.create(null)) não têm constructor em runtime
     const ctor = v.constructor?.name
     return ctor && ctor !== "Object" ? ctor : "{…}"
   }
+  // eslint-disable-next-line @typescript-eslint/no-base-to-string,@typescript-eslint/no-unnecessary-condition -- stringify de valor opaco é intencional
   return JSON.stringify(v) ?? String(v)
 }

@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
 // The portable type model's constructors + fold invariants: `option<any>`/`nullable<any>` collapse,
 // and `nullable(option(X))` folds to `option(nullable(X))` so `.optional().nullable()` ≡ `.nullish()`.
 import { describe, expect, test } from "bun:test"

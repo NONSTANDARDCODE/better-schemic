@@ -11,6 +11,7 @@
 import type { SurrealSession } from "surrealdb"
 
 import { asyncDisposable, type OrmClientBase } from "../../core"
+
 import { createAdminOperations } from "./admin"
 import { createApiOperations } from "./api"
 import { createAuthOperations } from "./auth"
@@ -41,11 +42,7 @@ import type { QueryLogger } from "./types/logger"
 import type { Plugin } from "./types/plugins"
 import type { RawDefaults } from "./types/raw"
 import type { SchemaInput } from "./types/schema"
-import type {
-  TransactionClient,
-  TransactionDefaults,
-  TransactionOptions,
-} from "./types/transaction"
+import type { TransactionDefaults, TransactionOptions } from "./types/transaction"
 
 export type { Client, OrmOptions, OrmSurface, SchemaArg } from "./types/client"
 
@@ -130,8 +127,8 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
     this.context = scope.context
     this.delegateContext = {
       conn,
-      index: $index,
       debug,
+      index: $index,
       ...(scope.txState ? { inTransaction: true } : {}),
       ...(scope.context ? { context: scope.context } : {}),
       ...(scope.hooks ? { hooks: scope.hooks } : {}),
@@ -162,8 +159,8 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
       // Lazy: the delegate (and its ~26 operation closures) builts it on FIRST access, so
       // transaction/fork clients over a large schema don't rebuild every delegate per attempt.
       Object.defineProperty(this, key, {
-        enumerable: true,
         configurable: false,
+        enumerable: true,
         get: () => this.delegateFor(key, meta),
       })
     }
@@ -171,8 +168,8 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
     if (scope.pipeline) {
       scope.pipeline.setup($index)
       const methods = scope.pipeline.extendClient({
-        index: $index,
         client: this,
+        index: $index,
       })
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
       for (const [name, value] of Object.entries(methods)) {
@@ -181,9 +178,7 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
       }
     }
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const extension of scope.extensions ?? []) {
-      this.applyExtension(extension)
-    }
+    for (const extension of scope.extensions ?? []) this.applyExtension(extension)
   }
 
   /**
@@ -192,9 +187,8 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
    * source of truth; `then` guards it explicitly (a thenable client would break `await`).
    */
   private assertMemberAvailable(name: string, source: "extends" | "schema key"): void {
-    if (name !== "then" && !name.startsWith("$") && !(name in this)) {
-      return
-    }
+    if (name !== "then" && !name.startsWith("$") && !(name in this)) return
+
     throw new OrmError(
       source === "schema key" ? "SchemaInvalid" : "PluginError",
       `${source} "${name}" collides with a client member (or the reserved "then") — pick another name.`,
@@ -213,6 +207,7 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
    * (`$query`/`$unsafe`, options, multi-statement) use the `$`-prefixed escape hatches.
    */
   query<T = unknown>(sql: string, vars?: Record<string, unknown>): Promise<T[]> {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime de SDK pode devolver menos resultados que o tipo promete
     return this.conn.query<[T[]]>(sql, vars).then((r) => r[0] ?? [])
   }
 
@@ -224,9 +219,8 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
   /** Build (once) and cache a delegate for a schema key. */
   private delegateFor(key: string, meta: ModelMeta): Delegate {
     const existing = this.delegates.get(key)
-    if (existing) {
-      return existing
-    }
+    if (existing) return existing
+
     const delegate = createDelegate(meta, this.delegateContext)
     this.delegates.set(key, delegate)
     return delegate
@@ -235,9 +229,8 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
   /** Resolve a delegate by schema key OR physical table name. */
   repository(name: string): Delegate {
     const meta = resolveModel(this.$index, name)
-    if (meta) {
-      return this.delegateFor(meta.key, meta)
-    }
+    if (meta) return this.delegateFor(meta.key, meta)
+
     throw new OrmError(
       "RepositoryNotFound",
       `repository("${name}"): no schema entry has that key or physical name. Known: ${this.tables.join(", ") || "(none)"}.`,
@@ -291,11 +284,8 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
 
   /** The authoritative scope for callback registration: the tx handle, else the root scope. */
   private activeScope(name: string): TransactionState {
-    const state = this.txState?.active
-      ? this.txState
-      : this.rootScope?.active
-        ? this.rootScope
-        : undefined
+    let state = this.txState?.active ? this.txState : undefined
+    if (state === undefined && this.rootScope?.active) state = this.rootScope
     if (!state) {
       throw new OrmError(
         "ValidationError",
@@ -338,18 +328,19 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
   }
 
   /**
-   * Attach project helpers to the client (object or factory receiving the client). A name
-   * colliding with an existing member fails fast — silent shadowing of the ORM surface is a DX
+   * Attach project helpers to the client (object or factory receiving the client). An existing member name
+   * fails fast — silent shadowing of the ORM surface is a DX
    * trap, not a feature.
    *
    * ```ts
    * const db = orm(conn, { schema }).extends({
-   *   async activeUsers(this: Client<type of schema>) {
+   *   async activeUsers(this: Client<Schema>) {
    *     return this.repository("users"); // M1: this.users.findMany({ where: { active: true } })
    *   },
    * });
    * ```
    */
+  // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
   extends<T extends object>(extension: ((client: this) => T) | T): this & T {
     const entry = extension as Extension
     this.extensions.push(entry)
@@ -361,7 +352,8 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
   private applyExtension(extension: Extension): void {
     const resolved =
       typeof extension === "function"
-        ? (extension as (client: ClientRuntime) => object)(this)
+        ? // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
+          (extension as (client: ClientRuntime) => object)(this)
         : extension
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
     for (const [name, value] of Object.entries(resolved)) {
@@ -374,7 +366,7 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
    * Fork a scoped, disposable session (its own auth/session context) with the same schema
    * delegates. Project helpers added via {@link extends} are re-applied to the fork.
    */
-  async forkSession(): Promise<ClientRuntime<Queryable>> {
+  async forkSession(): Promise<ClientRuntime> {
     const sdk = this.conn as unknown as {
       forkSession?: () => Promise<SurrealSession>
     }
@@ -397,9 +389,8 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
   $withContext(context: ContextScope = {}): ClientRuntime | Promise<ClientRuntime> {
     const { auth, ...scope } = context
     assertContextKeys(scope)
-    if (auth !== undefined) {
-      return this.scopedSession(scope, auth)
-    }
+    if (auth !== undefined) return this.scopedSession(scope, auth)
+
     return new ClientRuntime(this.conn, this.$index, false, this.debug, {
       ...this.childScope(false),
       context: scope,
@@ -429,7 +420,7 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
         "$withContext({ auth }) needs the SurrealDB SDK connection (a forkable session).",
       )
     }
-    await sdk.use({ namespace, database })
+    await sdk.use({ database, namespace })
     await sdk.authenticate(auth)
     return session
   }
@@ -454,18 +445,14 @@ export class ClientRuntime<C extends Queryable = Queryable> implements OrmClient
    * they opened; a BYO client is a NO-OP (never close the user's connection).
    */
   async close(): Promise<void> {
-    if (!this.managed) {
-      return
-    }
+    if (!this.managed) return
+
     const sdk = this.conn as unknown as {
       close?: () => Promise<void>
       closeSession?: () => Promise<void>
     }
-    if (typeof sdk.close === "function") {
-      await sdk.close()
-    } else if (typeof sdk.closeSession === "function") {
-      await sdk.closeSession()
-    }
+    if (typeof sdk.close === "function") await sdk.close()
+    else if (typeof sdk.closeSession === "function") await sdk.closeSession()
   }
 }
 asyncDisposable(ClientRuntime.prototype)
@@ -519,6 +506,7 @@ export function orm<
   C extends Queryable,
   const P extends readonly Plugin[] = readonly [],
 >(
+  // eslint-disable-next-line @typescript-eslint/unified-signatures -- sobrecargas separadas preservam a inferência literal de `schema` e `plugins`
   factory: () => C,
   options: {
     readonly plugins?: P
@@ -543,11 +531,11 @@ export function orm<
 /** A factory that hands out ORM clients over BYO connections, optionally caching one client per
  *  connection (WeakMap). This is the library-side replacement for an app-level
  *  `WeakMap<object, OrmClient>`: `peek`/`dispose` are explicit, and `Name`/`S` survive the cache. */
-export interface OrmClientFactory<
+export type OrmClientFactory<
   S extends SchemaInput,
   C extends Queryable,
   P extends readonly Plugin[] = readonly [],
-> {
+> = {
   (conn: C): Client<S, C, P>
   /** Forget the cached client (the connection itself untouchs it). */
   dispose(conn: C): void
@@ -566,20 +554,23 @@ export function createOrmClientFactory<
     readonly schema: SchemaArg<S>
   } & Omit<OrmOptions, "cache" | "plugins">,
 ): OrmClientFactory<S, C, P> {
+  // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
   const cache = options.cache === "weak" ? new WeakMap<object, Client<S, C, P>>() : undefined
   const build = (conn: C): Client<S, C, P> => {
+    // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
     const key = conn as object
     const hit = cache?.get(key)
-    if (hit) {
-      return hit
-    }
+    if (hit) return hit
+
     const client = orm<S, C, P>(conn, options)
     cache?.set(key, client)
     return client
   }
   return Object.assign(build, {
-    peek: (conn: C) => cache?.get(conn as object),
+    // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
     dispose: (conn: C) => void cache?.delete(conn as object),
+    // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
+    peek: (conn: C) => cache?.get(conn as object),
   })
 }
 

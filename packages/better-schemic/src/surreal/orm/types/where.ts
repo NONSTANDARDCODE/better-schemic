@@ -21,6 +21,7 @@
 import type { BoundQuery, Decimal, Duration, Geometry, RecordId } from "surrealdb"
 
 import type { App, ParamRef, Range } from "../../pure"
+
 import type {
   AdjacentEdgeAliases,
   EdgeDefAt,
@@ -37,7 +38,7 @@ import type { AnyTableDef, ElementOf, SchemaInput } from "./schema"
 export type EdgeDirection = "both" | "in" | "out"
 
 /** Any fragment (`surql` tag / catalog call) usable in a value position. */
-export type Fragment = BoundQuery<unknown[]>
+export type Fragment = BoundQuery
 
 /**
  * The input type a field accepts: the decoded value, plus record-id STRING/`RecordId` forms for
@@ -51,7 +52,7 @@ export type FamilyInput<T> = [RecordIdName<NonNullish<T>>] extends [never]
 export type FilterInput<T> = FamilyInput<T> | Fragment | ParamRef<FamilyInput<T>>
 
 /** Equality / comparison / presence — valid on every family. */
-export interface UniversalFilter<T> {
+export type UniversalFilter<T> = {
   /** `f *< $p` … — every element satisfies the comparison. */
   all?: ComparisonFilter<T>
   /** `f ?< $p` … — some element satisfies the comparison. */
@@ -71,7 +72,7 @@ export interface UniversalFilter<T> {
 }
 
 /** `lt`/`lte`/`gt`/`gte`/`equals` — the shared comparison core. */
-export interface ComparisonFilter<T> {
+export type ComparisonFilter<T> = {
   equals?: FilterInput<T>
   gt?: FilterInput<T>
   gte?: FilterInput<T>
@@ -80,14 +81,14 @@ export interface ComparisonFilter<T> {
 }
 
 /** Ordered families (number/date/duration/string) also get interval operators. */
-export interface OrderedFilter<T> extends ComparisonFilter<T> {
+export type OrderedFilter<T> = {
   between?: readonly [T, T]
   inRange?: readonly [T, T]
   outside?: readonly T[]
-}
+} & ComparisonFilter<T>
 
 /** String-operators (`startsWith`/`matches`/… are functions, not operators, in SurrealQL). */
-export interface StringFilter<T> extends OrderedFilter<T> {
+export type StringFilter<T> = {
   contains?: FilterInput<T>
   containsInsensitive?: FilterInput<T>
   endsWith?: FilterInput<T>
@@ -96,10 +97,10 @@ export interface StringFilter<T> extends OrderedFilter<T> {
   matches?: RegExp
   matchesFullText?: FilterInput<T> | FullTextFilter
   startsWith?: FilterInput<T>
-}
+} & OrderedFilter<T>
 
 /** Full-text search: all indexes (`@@`) or specific ones (`@n@`). */
-export interface FullTextFilter {
+export type FullTextFilter = {
   index?: number
   indexes?: readonly number[]
   operator?: "AND" | "OR"
@@ -107,7 +108,7 @@ export interface FullTextFilter {
 }
 
 /** Array/set operators (element type `E`). */
-export interface ArrayFilter<A> {
+export type ArrayFilter<A> = {
   allEquals?: FilterInput<ElementOf<A>>
   allInside?: Fragment | readonly ElementOf<A>[]
   anyEquals?: FilterInput<ElementOf<A>>
@@ -126,7 +127,7 @@ export interface ArrayFilter<A> {
 }
 
 /** Geometry operators. */
-export interface GeometryFilter<T> {
+export type GeometryFilter<T> = {
   inside?: FilterInput<T>
   intersects?: FilterInput<T>
   /** KNN (`vector`) or a geo radius (`point`). */
@@ -135,7 +136,7 @@ export interface GeometryFilter<T> {
 }
 
 /** Record-link operators. */
-export interface RecordFilter<T> {
+export type RecordFilter<T> = {
   in?: Fragment | readonly FamilyInput<T>[]
   inRange?: readonly [FamilyInput<T>, FamilyInput<T>]
   notIn?: Fragment | readonly FamilyInput<T>[]
@@ -219,7 +220,8 @@ export type FamilyOf<T> = [NonNullish<T>] extends [never]
                   ? "array"
                   : [NonNullish<T>] extends [Uint8Array]
                     ? "bytes"
-                    : [NonNullish<T>] extends [object]
+                    : // eslint-disable-next-line @typescript-eslint/no-restricted-types -- tipo `object` é contrato público/duck-typing: trocar por Record<string, unknown> estreita a API e quebra inferência
+                      [NonNullish<T>] extends [object]
                       ? "object"
                       : "any"
     : "record"
@@ -239,10 +241,12 @@ type LogicalWhere<TD extends AnyTableDef, S, D extends number> = D extends 0
       OR?: readonly Where<TD, S, Step<D>>[]
     }
 
-interface DepthStep {
+type DepthStep = {
   0: 0
   1: 0
+  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal de profundidade faz parte do contrato recursivo do tipo (API pública)
   2: 1
+  // eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal de profundidade faz parte do contrato recursivo do tipo (API pública)
   3: 2
 }
 export type Step<D extends number> = D extends keyof DepthStep ? DepthStep[D] : 0
@@ -253,13 +257,13 @@ export type TargetWhere<Targets, S, D extends number> = [Targets] extends [never
   : Where<Targets extends AnyTableDef ? Targets : never, S, D>
 
 /** `is`/`isNot` on a single record link — a filter over the TARGET table. */
-export interface SingleRelationFilter<Targets, S, D extends number> {
+export type SingleRelationFilter<Targets, S, D extends number> = {
   is?: TargetWhere<Targets, S, Step<D>>
   isNot?: TargetWhere<Targets, S, Step<D>>
 }
 
 /** `some`/`every`/`none` on an array link — the elements are the target records. */
-export interface CollectionRelationFilter<Targets, S, D extends number> {
+export type CollectionRelationFilter<Targets, S, D extends number> = {
   every?: TargetWhere<Targets, S, Step<D>>
   none?: TargetWhere<Targets, S, Step<D>>
   some?: TargetWhere<Targets, S, Step<D>>
@@ -271,7 +275,7 @@ export type EdgeOperand<E, Targets, S, D extends number> = [E] extends [never]
   : Where<E extends AnyTableDef ? E : never, S, Step<D>> & TargetWhere<Targets, S, Step<D>>
 
 /** `some`/`every`/`none` on a graph edge, with an optional direction override. */
-export interface EdgeRelationFilter<E, Targets, S, D extends number> {
+export type EdgeRelationFilter<E, Targets, S, D extends number> = {
   direction?: EdgeDirection
   every?: EdgeOperand<E, Targets, S, D>
   none?: EdgeOperand<E, Targets, S, D>
@@ -306,6 +310,7 @@ type EdgeRelationFilters<TD extends AnyTableDef, S, D extends number> = {
  * same relational operators + `direction`), dotted/bracketed paths and the `AND`/`OR`/`NOT`
  * combinators (recursed up to `D` levels).
  */
+// eslint-disable-next-line @typescript-eslint/no-magic-numbers -- literal de profundidade faz parte do contrato recursivo do tipo (API pública)
 export type Where<TD extends AnyTableDef, S = SchemaInput, D extends number = 3> = {
   [K in keyof App<TD>]?: FieldFilter<App<TD>[K]> | RelationFilterFor<TD, S, K, D> | undefined
 } & EdgeRelationFilters<TD, S, D> &

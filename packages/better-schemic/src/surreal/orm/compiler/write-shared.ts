@@ -4,14 +4,15 @@
  * codec-validated `data` with expression splice, record targets/ids, RETURN mapping, update
  * modes, patch/unset validation and the small arg guards. One place per rule, like `./shared`.
  */
-import { BoundQuery, Decimal, RecordId, toSurqlString } from "surrealdb"
+import { BoundQuery, RecordId, toSurqlString } from "surrealdb"
 
 import { escapeIdentSafe as escapeIdent, unescapeIdPart } from "../../ident"
 import { hasRefDeep, type IdStrategy } from "../../pure"
-import { type Adjustment, adjustmentOf } from "../arithmetic"
+import { adjustmentOf } from "../arithmetic"
 import { normalizeError } from "../errors"
 import type { ModelMeta, ResolvedIdStrategy, SchemaIndex } from "../meta"
-import { type ArithmeticStep, extractArithmetic, setBody as buildSetBody } from "./adjustment"
+
+import { extractArithmetic, setBody as buildSetBody } from "./adjustment"
 import { compileProjection, type ProjectionSpec } from "./projection"
 import {
   type Binds,
@@ -20,7 +21,6 @@ import {
   describeValue,
   durationLiteral,
   escapeRecordIdPart,
-  isLowerableValue,
   isPlainObject,
   isTableMeta,
   recordIdParts,
@@ -37,7 +37,7 @@ export type WriteMode = "content" | "merge" | "patch" | "replace" | "set"
 export type WriteRet = "after" | "before" | "diff" | "none"
 
 /** A compiled write: the statements to run and how to read their rows. */
-export interface WritePlan {
+export type WritePlan = {
   /** The row may be absent (`.throw()` attaches `NotFoundInfo`) — singular update/patch/delete. */
   readonly mayMiss?: boolean
   /** A miss is an ERROR, not a null: the decode raises `ResultNotFound` — `upsert` with
@@ -72,7 +72,7 @@ export interface WritePlan {
 }
 // --- runtime arg shapes (types live in `../types/write`) -----------------------------------------
 
-export interface CreateRuntimeArgs {
+export type CreateRuntimeArgs = {
   data?: unknown
   meta?: Record<string, unknown>
   omit?: unknown
@@ -82,7 +82,7 @@ export interface CreateRuntimeArgs {
   select?: unknown
 }
 
-export interface CreateManyRuntimeArgs {
+export type CreateManyRuntimeArgs = {
   data?: unknown
   meta?: Record<string, unknown>
   omit?: unknown
@@ -91,7 +91,7 @@ export interface CreateManyRuntimeArgs {
   skipDuplicates?: unknown
 }
 
-export interface InsertRuntimeArgs {
+export type InsertRuntimeArgs = {
   data?: unknown
   meta?: Record<string, unknown>
   omit?: unknown
@@ -100,7 +100,7 @@ export interface InsertRuntimeArgs {
   select?: unknown
 }
 
-export interface UpdateRuntimeArgs {
+export type UpdateRuntimeArgs = {
   data?: unknown
   meta?: Record<string, unknown>
   mode?: unknown
@@ -116,7 +116,7 @@ export interface UpdateRuntimeArgs {
   where?: unknown
 }
 
-export interface UpdateManyRuntimeArgs {
+export type UpdateManyRuntimeArgs = {
   data?: unknown
   meta?: Record<string, unknown>
   mode?: unknown
@@ -130,7 +130,7 @@ export interface UpdateManyRuntimeArgs {
   where?: unknown
 }
 
-export interface UpsertRuntimeArgs {
+export type UpsertRuntimeArgs = {
   create?: unknown
   data?: unknown
   meta?: Record<string, unknown>
@@ -146,7 +146,7 @@ export interface UpsertRuntimeArgs {
   where?: unknown
 }
 
-export interface UpsertDeltaRuntimeArgs {
+export type UpsertDeltaRuntimeArgs = {
   create?: unknown
   data?: unknown
   meta?: Record<string, unknown>
@@ -160,7 +160,7 @@ export interface UpsertDeltaRuntimeArgs {
   where?: unknown
 }
 
-export interface UpsertManyRuntimeArgs {
+export type UpsertManyRuntimeArgs = {
   conflict?: unknown
   data?: unknown
   meta?: Record<string, unknown>
@@ -171,7 +171,7 @@ export interface UpsertManyRuntimeArgs {
   update?: unknown
 }
 
-export interface DeleteRuntimeArgs {
+export type DeleteRuntimeArgs = {
   meta?: Record<string, unknown>
   omit?: unknown
   return?: unknown
@@ -181,7 +181,7 @@ export interface DeleteRuntimeArgs {
   where?: unknown
 }
 
-export interface DeleteManyRuntimeArgs {
+export type DeleteManyRuntimeArgs = {
   all?: unknown
   meta?: Record<string, unknown>
   return?: unknown
@@ -190,7 +190,7 @@ export interface DeleteManyRuntimeArgs {
   where?: unknown
 }
 
-export interface UpdateEachRuntimeArgs {
+export type UpdateEachRuntimeArgs = {
   by?: unknown
   data?: unknown
   meta?: Record<string, unknown>
@@ -235,29 +235,24 @@ export function encodeData(
       throw compileError(
         "ValidationError",
         `${operation}: "${key}" uses { ${marker.kind}: … } — an adjustment needs an EXISTING value, so it can't be written by a create/insert/relate or an ON DUPLICATE map. Use update/updateMany/updateEach (or pass a plain value here).`,
-        { operation, table: meta.name, field: key },
+        { field: key, operation, table: meta.name },
       )
     }
   }
-  if (!isTableMeta(meta)) {
-    return data
-  }
+  if (!isTableMeta(meta)) return data
+
   const normalized: Record<string, unknown> = { ...data }
-  if (normalized.id !== undefined && !(normalized.id instanceof RecordId)) {
+  if (normalized.id !== undefined && !(normalized.id instanceof RecordId))
     normalized.id = toRecordId(meta, normalized.id, operation)
-  }
+
   const literals: Record<string, unknown> = {}
   const expressions: Record<string, unknown> = {}
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [key, value] of Object.entries(normalized)) {
-    if (value === undefined) {
-      continue
-    }
-    if (hasRefDeep(value)) {
-      expressions[key] = value
-    } else {
-      literals[key] = value
-    }
+    if (value === undefined) continue
+
+    if (hasRefDeep(value)) expressions[key] = value
+    else literals[key] = value
   }
   let encoded: Record<string, unknown> = {}
   if (Object.keys(literals).length > 0) {
@@ -265,9 +260,9 @@ export function encodeData(
       kind === "create" ? meta.def.safeEncode(literals) : meta.def.safeEncodePartial(literals)
     if (!result.success) {
       throw normalizeError(result.error, {
-        table: meta.name,
-        operation,
         details: result.error,
+        operation,
+        table: meta.name,
       })
     }
     encoded = result.data
@@ -283,8 +278,8 @@ export function payload(value: unknown, binds: Binds): string {
 /** `t:<id>` with the id part escaped and the table validated (`user:aeon` / bare ids accepted). */
 export function recordTarget(meta: ModelMeta, id: unknown, operation: string): string {
   const parts = recordIdParts(id, operation, {
-    table: meta.name,
     fallbackTable: meta.name,
+    table: meta.name,
   })
   return `${escapeIdent(meta.name)}:${escapeRecordIdPart(parts.id)}`
 }
@@ -298,9 +293,9 @@ export function recordIdText(id: unknown): string {
 
 /** The server expression that generates a record id for a strategy. */
 const ID_FN: Record<IdStrategy, string> = {
+  rand: "rand::id()",
   ulid: "rand::ulid()",
   uuid: "rand::uuid()",
-  rand: "rand::id()",
 }
 
 /** The ORM create-id strategy of a model: typed tables carry the resolved strategy; schemaless
@@ -322,17 +317,14 @@ type IdGeneration =
 
 /** Resolve the ONE generation decision every create path shares. */
 function idGenerationOf(meta: ModelMeta): IdGeneration {
-  if (isTableMeta(meta) && meta.singletonId !== undefined) {
-    return { kind: "server" }
-  }
+  if (isTableMeta(meta) && meta.singletonId !== undefined) return { kind: "server" }
+
   const strategy = idStrategyOf(meta)
-  if (strategy === "rand") {
-    return { kind: "server" }
-  }
-  if (strategy === "none") {
-    return { kind: "explicit" }
-  }
-  return { kind: "target", fn: ID_FN[strategy] }
+  if (strategy === "rand") return { kind: "server" }
+
+  if (strategy === "none") return { kind: "explicit" }
+
+  return { fn: ID_FN[strategy], kind: "target" }
 }
 
 /** The teaching error for a create that needs a generated id on an explicit-table. */
@@ -346,13 +338,11 @@ function explicitIdError(meta: ModelMeta): ReturnType<typeof compileError> {
 
 /** The explicit `id` of a payload, or a singleton delegate's fixed id. */
 export function createId(meta: ModelMeta, data: unknown): unknown {
-  if (isPlainObject(data) && data.id !== undefined) {
-    return data.id
-  }
+  if (isPlainObject(data) && data.id !== undefined) return data.id
+
   const singleton = isTableMeta(meta) ? meta.singletonId : undefined
-  if (singleton !== undefined) {
-    return `${meta.name}:${singleton}`
-  }
+  if (singleton !== undefined) return `${meta.name}:${singleton}`
+
   return undefined
 }
 
@@ -367,12 +357,10 @@ export function createId(meta: ModelMeta, data: unknown): unknown {
  */
 export function generatedTarget(meta: ModelMeta): string | undefined {
   const generation = idGenerationOf(meta)
-  if (generation.kind === "explicit") {
-    throw explicitIdError(meta)
-  }
-  if (generation.kind === "server") {
-    return undefined
-  }
+  if (generation.kind === "explicit") throw explicitIdError(meta)
+
+  if (generation.kind === "server") return undefined
+
   return `type::record(${toSurqlString(meta.name)}, ${generation.fn})`
 }
 
@@ -386,13 +374,11 @@ export function createTarget(
 ): string {
   const id = createId(meta, data)
   const prefix = only ? "ONLY " : ""
-  if (id !== undefined) {
-    return `${prefix}${recordTarget(meta, id, operation)}`
-  }
+  if (id !== undefined) return `${prefix}${recordTarget(meta, id, operation)}`
+
   const generated = generatedTarget(meta)
-  if (generated !== undefined) {
-    return `${prefix}${generated}`
-  }
+  if (generated !== undefined) return `${prefix}${generated}`
+
   return `${prefix}${escapeIdent(meta.name)}`
 }
 
@@ -402,25 +388,22 @@ export function createTarget(
  * as a SurrealQL literal with per-field binds (object spread + expression is a parse error on 3.2).
  */
 export function withGeneratedId(meta: ModelMeta, encoded: unknown): unknown {
-  if (!isPlainObject(encoded) || encoded.id !== undefined) {
-    return encoded
-  }
+  if (!isPlainObject(encoded) || encoded.id !== undefined) return encoded
+
   const generation = idGenerationOf(meta)
-  if (generation.kind === "explicit") {
-    throw explicitIdError(meta)
-  }
-  if (generation.kind === "server") {
-    return encoded
-  }
+  if (generation.kind === "explicit") throw explicitIdError(meta)
+
+  if (generation.kind === "server") return encoded
+
   return { ...encoded, id: new BoundQuery(generation.fn) }
 }
 
 /** Coerce an `id` payload to the SDK `RecordId` the codec expects (bare ids use the delegate's table). */
 function toRecordId(meta: ModelMeta, value: unknown, operation: string): RecordId {
   return coerceRecordId(value, operation, {
-    table: meta.name,
     fallbackTable: meta.name,
     field: "id",
+    table: meta.name,
     what: "id",
   })
 }
@@ -429,7 +412,7 @@ function toRecordId(meta: ModelMeta, value: unknown, operation: string): RecordI
 export function toRecord(value: unknown, operation: string, targets?: readonly string[]): RecordId {
   const single = targets?.length === 1 ? targets[0] : undefined
   return coerceRecordId(value, operation, {
-    ...(single === undefined ? {} : { table: single, fallbackTable: single }),
+    ...(single === undefined ? {} : { fallbackTable: single, table: single }),
     what: "record link",
   })
 }
@@ -476,9 +459,8 @@ export function readReturn(
   allowed: readonly WriteRet[],
   fallback: WriteRet,
 ): WriteRet {
-  if (value === undefined) {
-    return fallback
-  }
+  if (value === undefined) return fallback
+
   if (typeof value !== "string" || !allowed.includes(value as WriteRet)) {
     throw compileError(
       "ReturnNotSupported",
@@ -498,12 +480,9 @@ export function mutationTail(
   operation: string,
   projText?: string,
 ): string {
-  const returnClause =
-    ret === "after"
-      ? projText === undefined
-        ? ""
-        : ` RETURN ${projText}`
-      : ` RETURN ${ret.toUpperCase()}`
+  let returnClause: string
+  if (ret === "after") returnClause = projText === undefined ? "" : ` RETURN ${projText}`
+  else returnClause = ` RETURN ${ret.toUpperCase()}`
   const timeoutClause =
     timeout === undefined ? "" : ` TIMEOUT ${durationLiteral(timeout, operation)}`
   return `${returnClause}${timeoutClause}`
@@ -522,7 +501,7 @@ export function deltaTail(timeout: unknown, operation: string): string {
 // --- write projections (`select`/`omit` on the returned rows) ------------------------------------
 
 /** A compiled write projection: the server text + the decode spec + where it can apply. */
-export interface CompiledWriteProjection {
+export type CompiledWriteProjection = {
   /** The RETURN clause can carry it (no OMIT — `RETURN … OMIT` is a parse error, live-probed). */
   readonly server: boolean
   readonly spec: ProjectionSpec
@@ -537,19 +516,17 @@ export function compileWriteProjection(
   binds: Binds,
   operation: string,
 ): CompiledWriteProjection | undefined {
-  if (args.select === undefined && args.omit === undefined) {
-    return undefined
-  }
-  const { text, spec } = compileProjection(meta, args.select, args.omit, false, binds, operation)
+  if (args.select === undefined && args.omit === undefined) return undefined
+
+  const { spec, text } = compileProjection(meta, args.select, args.omit, false, binds, operation)
   // `select: { "*": true }` / `omit: []` project nothing — skip the clause (and the client decode).
-  if (spec.star && spec.omit.length === 0 && spec.fields.length === 0) {
-    return undefined
-  }
-  return { text, spec, server: spec.omit.length === 0 }
+  if (spec.star && spec.omit.length === 0 && spec.fields.length === 0) return undefined
+
+  return { server: spec.omit.length === 0, spec, text }
 }
 
 /** A resolved write projection: how it applies + the compiled pieces. */
-export interface ProjectionPlan {
+export type ProjectionPlan = {
   readonly mode: "client" | "server"
   readonly proj: CompiledWriteProjection
 }
@@ -568,9 +545,8 @@ export function selectMode(
   meta: ModelMeta,
   options: { readonly clientOnly?: boolean } = {},
 ): ProjectionPlan | undefined {
-  if (!proj || ret === "none" || ret === "diff") {
-    return undefined
-  }
+  if (!proj || ret === "none" || ret === "diff") return undefined
+
   if (options.clientOnly === true || !proj.server || ret === "before") {
     if (proj.spec.fields.some((field) => field.computed === true)) {
       throw compileError(
@@ -593,9 +569,8 @@ export function assertProjectable(
   operation: string,
   meta: ModelMeta,
 ): void {
-  if (!proj || ret !== "diff") {
-    return
-  }
+  if (!proj || ret !== "diff") return
+
   throw compileError(
     "ReturnNotSupported",
     `${operation}: RETURN DIFF returns a JSON Patch list, not rows — drop select/omit, or use return: "after"/"before".`,
@@ -613,9 +588,9 @@ export function flattenAssignments(
 ): void {
   if (isPlainObject(value)) {
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [key, child] of Object.entries(value)) {
+    for (const [key, child] of Object.entries(value))
       flattenAssignments(child, [...path, key], out, binds)
-    }
+
     return
   }
   out.push(`${path.map(renderPath).join(".")} = ${renderValue(value, binds, binds.ctx())}`)
@@ -661,20 +636,17 @@ export function updateBody(
 
 /** Map a `return` + cardinality to the plan's result interpretation. */
 export function resultOf(ret: WriteRet, cardinality: "many" | "row"): WritePlan["result"] {
-  if (ret === "none") {
-    return "none"
-  }
-  if (ret === "diff") {
-    return "diff"
-  }
+  if (ret === "none") return "none"
+
+  if (ret === "diff") return "diff"
+
   return cardinality
 }
 
 /** Check an update `mode`. */
 export function updateMode(value: unknown, operation: string, fallback: WriteMode): WriteMode {
-  if (value === undefined) {
-    return fallback
-  }
+  if (value === undefined) return fallback
+
   if (
     typeof value !== "string" ||
     !["content", "merge", "patch", "replace", "set"].includes(value)
@@ -701,14 +673,16 @@ export function encodedBody(mode: WriteMode, encoded: unknown, binds: Binds): st
       return `SET ${setAssignments(encoded, binds)}`
     case "patch":
       return `PATCH ${binds.add(encoded)}`
+    default:
+      throw compileError("ValidationError", `unknown write mode "${String(mode)}".`)
   }
 }
 
 /** `SET f = $p, g = <expr>` — literals bind per field (already codec-encoded), expressions splice. */
 export function setAssignments(encoded: unknown, binds: Binds): string {
-  if (!isPlainObject(encoded) || Object.keys(encoded).length === 0) {
+  if (!isPlainObject(encoded) || Object.keys(encoded).length === 0)
     throw compileError("ValidationError", 'mode "set" needs "data" with at least one field.')
-  }
+
   return Object.entries(encoded)
     .map(([field, value]) => `${renderPath(field)} = ${renderValue(value, binds, binds.ctx())}`)
     .join(", ")
@@ -716,31 +690,26 @@ export function setAssignments(encoded: unknown, binds: Binds): string {
 
 /** `f = $p.f, g = <expr>` for `ON DUPLICATE KEY UPDATE` from an encoded update payload. */
 export function assignmentList(encoded: unknown, binds: Binds): string {
-  if (!isPlainObject(encoded)) {
-    return ""
-  }
+  if (!isPlainObject(encoded)) return ""
+
   const literals: Record<string, unknown> = {}
   const expressions: [string, unknown][] = []
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const [field, value] of Object.entries(encoded)) {
-    if (hasRefDeep(value)) {
-      expressions.push([field, value])
-    } else {
-      literals[field] = value
-    }
+    if (hasRefDeep(value)) expressions.push([field, value])
+    else literals[field] = value
   }
   const parts: string[] = []
   if (Object.keys(literals).length > 0) {
     const bind = binds.add(literals)
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const field of Object.keys(literals)) {
+    for (const field of Object.keys(literals))
       parts.push(`${renderPath(field)} = ${bind}.${renderPath(field)}`)
-    }
   }
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [field, value] of expressions) {
+  for (const [field, value] of expressions)
     parts.push(`${renderPath(field)} = ${renderValue(value, binds, binds.ctx())}`)
-  }
+
   return parts.join(", ")
 }
 
@@ -752,11 +721,9 @@ export function updatableFields(encoded: unknown): string[] {
   for (const item of items) {
     if (isPlainObject(item)) {
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const field of Object.keys(item)) {
-        if (field !== "id" && field !== "in" && field !== "out") {
-          fields.add(field)
-        }
-      }
+      for (const field of Object.keys(item))
+        // eslint-disable-next-line max-depth -- parser/compilador com despacho aninhado; achatar mudaria a precedência das cláusulas
+        if (field !== "id" && field !== "in" && field !== "out") fields.add(field)
     }
   }
   return [...fields]
@@ -764,9 +731,8 @@ export function updatableFields(encoded: unknown): string[] {
 
 /** Check `unset` and return the field list (id is identity, unknown fields are typos). */
 export function unsetList(value: unknown, meta: ModelMeta, operation: string): readonly string[] {
-  if (value === undefined) {
-    return []
-  }
+  if (value === undefined) return []
+
   const entries = Array.isArray(value) ? value : [value]
   if (entries.length === 0) {
     throw compileError(
@@ -788,7 +754,7 @@ export function unsetList(value: unknown, meta: ModelMeta, operation: string): r
       throw compileError(
         "ValidationError",
         `${operation}: "id" cannot be unset (it is the record identity).`,
-        { operation, table: meta.name, field },
+        { field, operation, table: meta.name },
       )
     }
     requireColumn(meta, field, operation)
@@ -869,21 +835,19 @@ export function requireString(value: unknown, name: string, operation: string): 
 
 /** A field of the table (schemaless delegates accept anything). */
 export function requireColumn(meta: ModelMeta, field: string, operation: string): void {
-  if (!isTableMeta(meta) || meta.columns.has(field)) {
-    return
-  }
+  if (!isTableMeta(meta) || meta.columns.has(field)) return
+
   throw compileError(
     "ValidationError",
     `${operation}: "${field}" is not a field of "${meta.name}". Known fields: ${[...meta.columns.keys()].join(", ")}.`,
-    { operation, table: meta.name, field },
+    { field, operation, table: meta.name },
   )
 }
 
 /** Is `field` the record id or a record-link column (values coerce to `RecordId`)? */
 export function isRecordColumn(meta: ModelMeta, field: string): boolean {
-  if (field === "id") {
-    return true
-  }
+  if (field === "id") return true
+
   return isTableMeta(meta) && meta.columns.get(field)?.record !== undefined
 }
 

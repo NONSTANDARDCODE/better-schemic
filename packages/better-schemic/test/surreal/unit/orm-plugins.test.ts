@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock fixtures pass untyped values to exercise runtime SQL emission. Fixtures assert values whose presence the test guarantees. */
 // M6.2 — `definePlugin`: transforms (mutate where/data/kind), operationArgs passthrough, hooks,
 // extendClient/extendModel, setup fail-fast, per-delegate state and `$withoutPlugins`. Offline.
 import { describe, expect, test } from "bun:test"
@@ -237,7 +238,7 @@ describe("plugin runtime — edge paths", () => {
   test("a plugin without transform is skipped by the pipeline", () => {
     const pipeline = createPluginPipeline([definePlugin({ id: "noop" })])!
     expect(pipeline.hasTransforms).toBe(false)
-    const op = new RuntimeOperation("create", "user", {}, {} as never, {} as never)
+    const op = new RuntimeOperation("create", "user", {}, {}, {} as never)
     expect(pipeline.transform(op)).toBe(false)
   })
 
@@ -270,7 +271,7 @@ describe("plugin runtime — edge paths", () => {
     })
     const pipeline = createPluginPipeline([p])!
     expect(() => pipeline.extendClient({} as never)).toThrow(/extendClient/u)
-    expect(() => pipeline.extendModel({} as never, {} as never)).toThrow(/extendModel/u)
+    expect(() => pipeline.extendModel({} as never, {})).toThrow(/extendModel/u)
   })
 
   test("RuntimeOperation proxies where/data/scope and commits only what changed", () => {
@@ -278,7 +279,7 @@ describe("plugin runtime — edge paths", () => {
       "create",
       "user",
       { where: { a: 1 }, data: { b: 2 }, scope: { e: 5 } },
-      {} as never,
+      {},
       {} as never,
     )
     expect(op.where).toEqual({ a: 1 }) // existing args.where
@@ -295,7 +296,7 @@ describe("plugin runtime — edge paths", () => {
     expect(op.args.scope).toEqual({ f: 6 })
 
     // A fresh op creates empty bags (and returns the SAME bag on re-read).
-    const fresh = new RuntimeOperation("create", "user", {}, {} as never, {} as never)
+    const fresh = new RuntimeOperation("create", "user", {}, {}, {} as never)
     const bag = fresh.where
     expect(bag).toEqual({})
     expect(fresh.where).toBe(bag)
@@ -306,7 +307,7 @@ describe("plugin runtime — edge paths", () => {
     fresh.commit()
     expect(fresh.args.scope).toBe(scopeBag)
     // A transform that never touches `scope` does not inject an empty bag.
-    const untouched = new RuntimeOperation("create", "user", {}, {} as never, {} as never)
+    const untouched = new RuntimeOperation("create", "user", {}, {}, {} as never)
     untouched.commit()
     expect("scope" in untouched.args).toBe(false)
   })

@@ -10,13 +10,19 @@ import * as p from "@clack/prompts"
 import { version as BETTER_SCHEMIC_VERSION } from "../package.json"
 
 const RANGE = `^${BETTER_SCHEMIC_VERSION}`
+/** Pretty-print indent for generated JSON files. */
+const JSON_INDENT = 2
+/** `process.argv` starts with the runtime and the script path. */
+const ARGV_START = 2
+/** Tail of the install log shown when installation fails. */
+const INSTALL_ERROR_TAIL = 8
 const bold = (s: string) => `\u001B[1m${s}\u001B[0m`
 const dim = (s: string) => `\u001B[2m${s}\u001B[0m`
 
 const PMS = ["bun", "npm", "pnpm", "yarn"] as const
 type Pm = (typeof PMS)[number]
 
-interface Options {
+type Options = {
   dir?: string
   git: boolean
   install?: boolean // undefined = ask
@@ -29,25 +35,20 @@ function parseArgs(argv: string[]): Options {
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
-    if (a === "-y" || a === "--yes") {
-      o.yes = true
-    } else if (a === "--no-install") {
-      o.install = false
-    } else if (a === "--no-git") {
-      o.git = false
-    } else if (a === "--pm") {
-      o.pm = argv[++i]
-    } else if (a === "-h" || a === "--help") {
+    if (a === "-y" || a === "--yes") o.yes = true
+    else if (a === "--no-install") o.install = false
+    else if (a === "--no-git") o.git = false
+    else if (a === "--pm") o.pm = argv[++i]
+    else if (a === "-h" || a === "--help") {
       printHelp()
+      // eslint-disable-next-line unicorn/no-process-exit -- CLI: `--help` encerra com código 0.
       process.exit(0)
     } else if (a.startsWith("-"))
-    // An unknown OPTION is an error, never a directory name — a typo must not scaffold a folder
-    // named after the flag's value.
-    {
+      // An unknown OPTION is an error, never a directory name — a typo must not scaffold a folder
+      // named after the flag's value.
+
       unknownOption(a)
-    } else if (o.dir === undefined) {
-      o.dir = a
-    }
+    else if (o.dir === undefined) o.dir = a
   }
   return o
 }
@@ -56,6 +57,7 @@ function parseArgs(argv: string[]): Options {
 function unknownOption(option: string): never {
   console.error(`Unknown option: ${option}\n`)
   printHelp()
+  // eslint-disable-next-line unicorn/no-process-exit -- CLI: opção inválida encerra com código 1.
   process.exit(1)
 }
 
@@ -76,11 +78,8 @@ Options:
 function detectPm(): Pm {
   const ua = process.env.npm_config_user_agent ?? ""
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const pm of PMS) {
-    if (ua.startsWith(pm)) {
-      return pm
-    }
-  }
+  for (const pm of PMS) if (ua.startsWith(pm)) return pm
+
   return "npm"
 }
 
@@ -88,6 +87,7 @@ function detectPm(): Pm {
 function abortIfCancel<T>(value: T): Exclude<T, symbol> {
   if (p.isCancel(value)) {
     p.cancel("Cancelled.")
+    // eslint-disable-next-line unicorn/no-process-exit -- CLI: cancelamento do prompt encerra com código 1.
     process.exit(1)
   }
   return value as Exclude<T, symbol>
@@ -130,7 +130,7 @@ const TSCONFIG = `${JSON.stringify(
     exclude: ["node_modules"],
   },
   null,
-  2,
+  JSON_INDENT,
 )}\n`
 
 /** NEW project → write a fresh package.json. EXISTING → MERGE deps + scripts (never clobber). */
@@ -147,7 +147,7 @@ function applyPackageJson(target: string, name: string): string {
       type: "module",
       version: "0.0.0",
     }
-    writeFileSync(path, `${JSON.stringify(fresh, null, 2)}\n`)
+    writeFileSync(path, `${JSON.stringify(fresh, null, JSON_INDENT)}\n`)
     return "+ package.json"
   }
   const pkg = JSON.parse(readFileSync(path, "utf8")) as {
@@ -166,12 +166,9 @@ function applyPackageJson(target: string, name: string): string {
   pkg.dependencies = Object.fromEntries(Object.entries(pkg.dependencies).sort())
   pkg.scripts ??= {}
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-  for (const [k, v] of Object.entries(SCRIPTS)) {
-    if (!(k in pkg.scripts)) {
-      pkg.scripts[k] = v
-    }
-  }
-  writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`)
+  for (const [k, v] of Object.entries(SCRIPTS)) if (!(k in pkg.scripts)) pkg.scripts[k] = v
+
+  writeFileSync(path, `${JSON.stringify(pkg, null, JSON_INDENT)}\n`)
   return added.length > 0
     ? `~ package.json (added ${added.join(", ")})`
     : dim("· package.json (deps already present)")
@@ -199,9 +196,8 @@ const GITIGNORE = `node_modules/
 
 function writeIfAbsent(dir: string, file: string, content: string): string {
   const path = join(dir, file)
-  if (existsSync(path)) {
-    return dim(`· ${file} (exists, skipped)`)
-  }
+  if (existsSync(path)) return dim(`· ${file} (exists, skipped)`)
+
   writeFileSync(path, content)
   return `+ ${file}`
 }
@@ -217,6 +213,7 @@ function run(
     encoding: "utf8",
     stdio: capture ? "pipe" : "inherit",
   })
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- com `stdio: inherit`, spawnSync devolve stdout/stderr null em runtime.
   return { ok: r.status === 0, out: `${r.stdout ?? ""}${r.stderr ?? ""}` }
 }
 
@@ -242,8 +239,8 @@ function resolveCliEntry(target: string): string {
 }
 
 async function main(): Promise<void> {
-  const opts = parseArgs(process.argv.slice(2))
-  const tty = !!process.stdin.isTTY && !opts.yes
+  const opts = parseArgs(process.argv.slice(ARGV_START))
+  const tty = process.stdin.isTTY && !opts.yes
 
   p.intro(bold("create-better-schemic"))
 
@@ -273,6 +270,7 @@ async function main(): Promise<void> {
     )
     if (!ok) {
       p.cancel("Aborted.")
+      // eslint-disable-next-line unicorn/no-process-exit -- CLI: recusa de sobrescrever diretório encerra com código 1.
       process.exit(1)
     }
   }
@@ -290,12 +288,14 @@ async function main(): Promise<void> {
         )
       : true
   }
-  let pm: Pm = (opts.pm as Pm) ?? detected
+  let pm: Pm = (opts.pm as Pm | undefined) ?? detected
   if (!PMS.includes(pm)) {
     p.cancel(`Unknown package manager "${pm}". Known: ${PMS.join(", ")}.`)
+    // eslint-disable-next-line unicorn/no-process-exit -- CLI: gerenciador inválido encerra com código 1.
     process.exit(1)
   }
   if (install && !opts.pm && tty) {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- estreita o resultado do prompt (string | symbol) para a união Pm.
     pm = abortIfCancel(
       await p.select({
         initialValue: detected,
@@ -316,9 +316,7 @@ async function main(): Promise<void> {
   ]
   const header = isExisting ? `Adding Better-schemic to ${name}` : name
   p.log.step(`${bold(header)} ${dim("(SurrealDB)")}\n${written.join("\n")}`)
-  if (opts.git && !existsSync(join(target, ".git"))) {
-    run("git", ["init", "-q"], target)
-  }
+  if (opts.git && !existsSync(join(target, ".git"))) run("git", ["init", "-q"], target)
 
   // 4. install + compose on `better-schemic init` (which scaffolds the config + database/)
   if (install) {
@@ -327,8 +325,9 @@ async function main(): Promise<void> {
     const r = run(pm, ["install"], target, true)
     if (!r.ok) {
       s.stop(`${pm} install failed`)
-      p.log.error(r.out.trim().split("\n").slice(-8).join("\n"))
+      p.log.error(r.out.trim().split("\n").slice(-INSTALL_ERROR_TAIL).join("\n"))
       p.outro(`Fix the install, then run ${bold("better-schemic init")}.`)
+      // eslint-disable-next-line unicorn/no-process-exit -- CLI: falha na instalação encerra com código 1.
       process.exit(1)
     }
     s.stop("Dependencies installed")
@@ -349,7 +348,10 @@ async function main(): Promise<void> {
   p.outro(`${bold(name)} is ready.`)
 }
 
-main().catch((error: unknown) => {
+try {
+  await main()
+} catch (error: unknown) {
   p.log.error(error instanceof Error ? error.message : String(error))
+  // eslint-disable-next-line unicorn/no-process-exit -- CLI: erro não tratado encerra com código 1.
   process.exit(1)
-})
+}

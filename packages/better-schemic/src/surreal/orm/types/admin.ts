@@ -10,7 +10,7 @@
 import type { SqlExportOptions } from "surrealdb"
 
 /** `INFO FOR ROOT`. */
-export interface RootInfo {
+export type RootInfo = {
   [key: string]: unknown
   accesses?: Record<string, string>
   config?: Record<string, string>
@@ -22,7 +22,7 @@ export interface RootInfo {
 }
 
 /** `INFO FOR NS`. */
-export interface NsInfo {
+export type NsInfo = {
   [key: string]: unknown
   accesses?: Record<string, string>
   databases?: Record<string, string>
@@ -30,7 +30,7 @@ export interface NsInfo {
 }
 
 /** `INFO FOR DB`. */
-export interface DbInfo {
+export type DbInfo = {
   [key: string]: unknown
   accesses?: Record<string, string>
   analyzers?: Record<string, string>
@@ -47,7 +47,7 @@ export interface DbInfo {
 }
 
 /** `INFO FOR TABLE <table>`. */
-export interface TableInfo {
+export type TableInfo = {
   [key: string]: unknown
   events?: Record<string, string>
   fields?: Record<string, string>
@@ -57,7 +57,7 @@ export interface TableInfo {
 }
 
 /** `client.version()` — the SDK's `VersionInfo`. */
-export interface ServerVersion {
+export type ServerVersion = {
   version: string
 }
 
@@ -65,7 +65,7 @@ export interface ServerVersion {
 export type ExportOptions = Partial<SqlExportOptions>
 
 /** The `info` levels, with `table` required for the table level. */
-export interface AdminOperations {
+export type AdminOperations = {
   /** Dump the current database as SurrealQL (session-bound). */
   export(options?: ExportOptions): Promise<string>
   /** Replay a dump (context-aware, transaction-aware). */

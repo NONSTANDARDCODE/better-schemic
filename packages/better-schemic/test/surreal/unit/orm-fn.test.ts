@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/require-await -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Mock methods match async interfaces without awaiting. */
 // M5.2 — database functions: `fn.call` compilation (RETURN fn::name($p0, …)), name validation and
 // the typed per-schema shortcut (named args → positional binds). Offline.
 import { describe, expect, test } from "bun:test"
@@ -162,7 +163,9 @@ describe("fn.expr — the fragment form (composes inside a statement)", () => {
   test("name validation and the named-arg guard hold on the fragment form", async () => {
     const { conn } = fakeConn((sql) => sql.split("\n").map(() => ok([])))
     const client = orm(conn, { schema: schemaDef })
-    expect(() => client.fn.expr.call("fn::x; DROP TABLE user")).toThrow(/not a valid function name/u)
+    expect(() => client.fn.expr.call("fn::x; DROP TABLE user")).toThrow(
+      /not a valid function name/u,
+    )
     expect(() => client.fn.expr.customerTier(1 as never)).toThrow(/fn\.expr\.customerTier/u)
   })
 })

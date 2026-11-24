@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. */
 // Phase-2a: DEFINE ACCESS keys as env()/secret() references — emitted as bound `$param` placeholders
 // (value never in the DDL), with the `$param -> SecretRef` bindings attached for apply-time resolution.
 import { describe, expect, spyOn, test } from "bun:test"
@@ -58,7 +59,9 @@ describe("DEFINE ACCESS secret keys (env/secret -> $param)", () => {
   })
 
   test("inline-key lint: symmetric KEY warns; an asymmetric verify KEY is PUBLIC — no warning", () => {
-    const warn = spyOn(console, "warn").mockImplementation(() => {})
+    const warn = spyOn(console, "warn").mockImplementation(() => {
+      /* empty */
+    })
     try {
       // Asymmetric verify KEY = the public key: inline is fine, no lint.
       st(

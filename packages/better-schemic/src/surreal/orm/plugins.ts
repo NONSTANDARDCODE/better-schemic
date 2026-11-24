@@ -58,18 +58,17 @@ function pluginContext<Cfg>(
 
 /** Wrap a plugin failure with its id so the source is obvious. */
 function pluginFailure(plugin: Plugin, phase: string, cause: unknown): OrmError {
-  if (cause instanceof OrmError) {
-    return cause
-  }
+  if (cause instanceof OrmError) return cause
+
   return new OrmError(
     "PluginError",
     `plugin "${plugin.id}": ${phase} failed${cause instanceof Error ? ` — ${cause.message}` : ""}.`,
-    { operation: phase, cause },
+    { cause, operation: phase },
   )
 }
 
 /** The resolved plugin pipeline of one client (absent when no plugin registers it). */
-export interface PluginPipeline {
+export type PluginPipeline = {
   /** The methods every plugin's `extendClient` contributes. */
   extendClient(ctx: PluginClientContext): Record<string, unknown>
   /** The methods every plugin's `extendModel` contributes (for one delegate's state). */
@@ -90,9 +89,9 @@ function validatePlugins(plugins: readonly Plugin[]): void {
   const seen = new Set<string>()
   // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
   for (const plugin of plugins) {
-    if (typeof plugin.id !== "string" || plugin.id.length === 0) {
+    if (typeof plugin.id !== "string" || plugin.id.length === 0)
       throw new OrmError("PluginError", "every plugin needs a non-empty `id`.")
-    }
+
     if (seen.has(plugin.id)) {
       throw new OrmError(
         "PluginError",
@@ -107,9 +106,8 @@ function validatePlugins(plugins: readonly Plugin[]): void {
 export function createPluginPipeline(
   plugins: readonly Plugin[] | undefined,
 ): PluginPipeline | undefined {
-  if (!plugins || plugins.length === 0) {
-    return undefined
-  }
+  if (!plugins || plugins.length === 0) return undefined
+
   validatePlugins(plugins)
   const hooks = plugins
     .map((plugin) => plugin.hooks)
@@ -117,46 +115,12 @@ export function createPluginPipeline(
   const hasTransforms = plugins.some((plugin) => typeof plugin.transform === "function")
 
   return {
-    plugins,
-    hooks,
-    hasTransforms,
-    setup(index) {
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const plugin of plugins) {
-        if (typeof plugin.setup !== "function") {
-          continue
-        }
-        try {
-          plugin.setup.call(pluginContext(plugin, {}), { index })
-        } catch (error) {
-          throw pluginFailure(plugin, "setup", error)
-        }
-      }
-    },
-    transform(operation) {
-      let skipped = false
-      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-      for (const plugin of plugins) {
-        if (typeof plugin.transform !== "function") {
-          continue
-        }
-        const result = plugin.transform.call(pluginContext(plugin, operation.state), operation)
-        if (result === false) {
-          skipped = true
-        }
-      }
-      // A `where`/`data` bag created by a transform flushs it into `args` now, so a plugin
-      // that merely READS `op.where` never injects an empty object into the compiled operation.
-      operation.commit()
-      return skipped
-    },
     extendClient(ctx) {
       const out: Record<string, unknown> = {}
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
       for (const plugin of plugins) {
-        if (typeof plugin.extendClient !== "function") {
-          continue
-        }
+        if (typeof plugin.extendClient !== "function") continue
+
         try {
           Object.assign(out, plugin.extendClient.call(pluginContext(plugin, {}), ctx))
         } catch (error) {
@@ -169,9 +133,8 @@ export function createPluginPipeline(
       const out: Record<string, unknown> = {}
       // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
       for (const plugin of plugins) {
-        if (typeof plugin.extendModel !== "function") {
-          continue
-        }
+        if (typeof plugin.extendModel !== "function") continue
+
         try {
           Object.assign(out, plugin.extendModel.call(pluginContext(plugin, state), ctx))
         } catch (error) {
@@ -179,6 +142,35 @@ export function createPluginPipeline(
         }
       }
       return out
+    },
+    hasTransforms,
+    hooks,
+    plugins,
+    setup(index) {
+      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+      for (const plugin of plugins) {
+        if (typeof plugin.setup !== "function") continue
+
+        try {
+          plugin.setup.call(pluginContext(plugin, {}), { index })
+        } catch (error) {
+          throw pluginFailure(plugin, "setup", error)
+        }
+      }
+    },
+    transform(operation) {
+      let skipped = false
+      // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
+      for (const plugin of plugins) {
+        if (typeof plugin.transform !== "function") continue
+
+        const result = plugin.transform.call(pluginContext(plugin, operation.state), operation)
+        if (result === false) skipped = true
+      }
+      // A `where`/`data` bag created by a transform flushs it into `args` now, so a plugin
+      // that merely READS `op.where` never injects an empty object into the compiled operation.
+      operation.commit()
+      return skipped
     },
   }
 }
@@ -208,19 +200,15 @@ export class RuntimeOperation implements Operation {
     this.args = args
     this.state = state
     this.index = index
-    if (meta !== undefined) {
-      this.meta = meta
-    }
+    if (meta !== undefined) this.meta = meta
   }
 
   get where(): Record<string, unknown> {
-    if (this.#where) {
-      return this.#where
-    }
+    if (this.#where) return this.#where
+
     const existing = this.args.where
-    if (existing !== undefined) {
-      return existing as Record<string, unknown>
-    }
+    if (existing !== undefined) return existing as Record<string, unknown>
+
     this.#where = {}
     return this.#where
   }
@@ -230,13 +218,11 @@ export class RuntimeOperation implements Operation {
   }
 
   get data(): Record<string, unknown> {
-    if (this.#data) {
-      return this.#data
-    }
+    if (this.#data) return this.#data
+
     const existing = this.args.data
-    if (existing !== undefined) {
-      return existing as Record<string, unknown>
-    }
+    if (existing !== undefined) return existing as Record<string, unknown>
+
     this.#data = {}
     return this.#data
   }
@@ -247,13 +233,11 @@ export class RuntimeOperation implements Operation {
 
   /** A plugin-written filter the WRITE compilers AND into every statement (see `Operation.scope`). */
   get scope(): Record<string, unknown> {
-    if (this.#scope) {
-      return this.#scope
-    }
+    if (this.#scope) return this.#scope
+
     const existing = this.args.scope
-    if (existing !== undefined) {
-      return existing as Record<string, unknown>
-    }
+    if (existing !== undefined) return existing as Record<string, unknown>
+
     this.#scope = {}
     return this.#scope
   }
@@ -264,15 +248,11 @@ export class RuntimeOperation implements Operation {
 
   /** Flush a `where`/`data`/`scope` bag created by a transform back into `args` (no-op if untouched). */
   commit(): void {
-    if (this.#where !== undefined) {
-      this.args.where = this.#where
-    }
-    if (this.#data !== undefined) {
-      this.args.data = this.#data
-    }
-    if (this.#scope !== undefined) {
-      this.args.scope = this.#scope
-    }
+    if (this.#where !== undefined) this.args.where = this.#where
+
+    if (this.#data !== undefined) this.args.data = this.#data
+
+    if (this.#scope !== undefined) this.args.scope = this.#scope
   }
 }
 

@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-deprecated -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures exercise deprecated aliases. */
 import { describe, expect, test } from "bun:test"
 import { DateTime, RecordId, Uuid } from "surrealdb"
 import { z } from "zod"
@@ -11,7 +12,7 @@ describe("native codecs (schema-level)", () => {
     const schema = s.datetime().schema
     const decoded = z.decode(schema, new DateTime(new Date("2020-01-01T00:00:00.000Z")))
     expect(decoded).toBeInstanceOf(Date)
-    expect((decoded as Date).toISOString()).toBe("2020-01-01T00:00:00.000Z")
+    expect(decoded.toISOString()).toBe("2020-01-01T00:00:00.000Z")
 
     const encoded = z.encode(schema, new Date("2020-01-01T00:00:00.000Z"))
     expect(encoded).toBeInstanceOf(DateTime)
@@ -24,7 +25,7 @@ describe("native codecs (schema-level)", () => {
 
     const encoded = z.encode(schema, UUID)
     expect(encoded).toBeInstanceOf(Uuid)
-    expect((encoded as Uuid).toString()).toBe(UUID)
+    expect(encoded.toString()).toBe(UUID)
   })
 
   test("uuid: encoding an invalid string fails", () => {
@@ -38,7 +39,7 @@ describe("native codecs (schema-level)", () => {
 
     const fromBuffer = z.decode(schema, u8.buffer)
     expect(fromBuffer).toBeInstanceOf(Uint8Array)
-    expect(Array.from(fromBuffer as Uint8Array)).toEqual([1, 2, 3])
+    expect([...(fromBuffer as Uint8Array)]).toEqual([1, 2, 3])
   })
 
   test("recordId is identity (no codec), but enforces the table", () => {
@@ -66,7 +67,7 @@ describe("field-level codec (SField.decode / encode)", () => {
     expect(f.decode(new Uuid(UUID))).toBe(UUID)
     const encoded = f.encode(UUID)
     expect(encoded).toBeInstanceOf(Uuid)
-    expect((encoded as Uuid).toString()).toBe(UUID)
+    expect(encoded.toString()).toBe(UUID)
   })
 
   test("encode throws on an invalid value; safeEncode reports it", () => {

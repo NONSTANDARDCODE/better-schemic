@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-meaningless-void-operator, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, unicorn/consistent-function-scoping, @typescript-eslint/no-unnecessary-condition -- Object key order mirrors expected serialized output and must stay as authored. The void operator discards intentionally unused type-probe values. Mock fixtures pass untyped values to exercise runtime SQL emission. Helpers stay colocated with the tests that use them. Defensive checks document fixture intent. */
 // FULL-TS function bodies — zero raw surql. Three features compose: (1) plain object/array args
 // SPLICE embedded refs/fragments (pure data still binds whole); (2) refs expose PROPERTY PATHS
 // (`sv.res.id` -> `$res.id`); (3) block `.return`/`.let`/`.throw` take predicate Exprs
@@ -5,7 +6,7 @@
 // (`http.post<R>(...)` — shorthand for `.as<R>()`).
 import { describe, expect, test } from "bun:test"
 
-import { defineFunction, s, surql, table } from "../../../src/surreal"
+import { defineFunction, s, surql } from "../../../src/surreal"
 import { emitDefStatement } from "../../../src/surreal/ddl"
 import { block } from "../../../src/surreal/query"
 
@@ -18,6 +19,7 @@ const SendVerificationEmail = defineFunction("fts_send_email", {
   .body(({ email, code }) =>
     block()
       .let({
+        // eslint-disable-next-line unicorn/prefer-spread -- SurrealQL fn.concat builder, not Array.concat
         html: surql.fn.string.concat(
           "<h2>Verify your email</h2><p>Your verification code is <strong>",
           code,
@@ -34,6 +36,7 @@ const SendVerificationEmail = defineFunction("fts_send_email", {
             html: sv.html,
           },
           {
+            // eslint-disable-next-line unicorn/prefer-spread -- SurrealQL fn.concat builder, not Array.concat
             Authorization: surql.fn.string.concat("Bearer ", surql.$.resend_api_key.as<string>()),
           },
         ),
@@ -89,7 +92,7 @@ describe("ref property paths", () => {
 
 describe("http response generics + .as on fn results", () => {
   test("http.post<R> and .as<R> are equivalent shorthands", () => {
-    const norm = (q: string) => q.replace(/\$r\d+/gu, "$R")
+    const norm = (q: string) => q.replaceAll(/\$r\d+/gu, "$R")
     const a = surql.fn.http.post<{ id?: string }>("https://x.dev", {})
     const b = surql.fn.http.post("https://x.dev", {}).as<{ id?: string }>()
     expect(norm(a.query)).toBe(norm(b.query))

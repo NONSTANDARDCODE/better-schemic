@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures assert values whose presence the test guarantees. */
 // Property-based tests (fast-check) for the PURE compiler/parser helpers — the string and value
 // plumbing that every SurrealQL fragment rides on. These assert INVARIANTS over generated, adversarial
 // inputs rather than golden strings, so they catch whole classes of escaping/binding/round-trip bugs
@@ -47,14 +48,14 @@ const check = (prop: fc.IProperty<unknown>): void => {
 /** Strip escaped identifiers + string literals so a `$` inside them isn't read as a bind. */
 const stripEscaped = (sql: string): string =>
   sql
-    .replace(/⟨(?:\\.|[^⟩])*⟩/gu, "⟨⟩")
-    .replace(/`(?:\\.|[^`])*`/gu, "``")
-    .replace(/'(?:\\.|[^'\\])*'/gu, "''")
-    .replace(/"(?:\\.|[^"\\])*"/gu, '""')
+    .replaceAll(/⟨(?:\\.|[^⟩])*⟩/gu, "⟨⟩")
+    .replaceAll(/`(?:\\.|[^`])*`/gu, "``")
+    .replaceAll(/'(?:\\.|[^'\\])*'/gu, "''")
+    .replaceAll(/"(?:\\.|[^"\\])*"/gu, '""')
 
 /** Every `$name` referenced by a compiled fragment (outside escaped identifiers / literals). */
 const bindRefs = (sql: string): Set<string> =>
-  new Set([...stripEscaped(sql).matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)/gu)].map((m) => m[1] as string))
+  new Set([...stripEscaped(sql).matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)/gu)].map((m) => m[1]))
 
 /** Bind totality: referenced binds == declared binds (no dangling, no unused). */
 function expectBindTotality(sql: string, vars: Record<string, unknown>): void {
@@ -92,7 +93,7 @@ describe("compileWhere — pure compiler invariants", () => {
         const sql = compileWhere({ [field]: value }, binds)
         const rendered = renderPath(field)
         // Anything `escapeIdentSafe` leaves bare is injection-safe; anything else MUST wrapps it —
-        // `⟨…⟩` normally, backticks when the name contains `⟩`/`\` (the SDK escaping mishandles both).
+        // `⟨…⟩` by default, backticks when the name contains `⟩`/`\` (the SDK escaping mishandles both).
         if (rendered !== field) {
           const angle = rendered.startsWith("⟨") && rendered.endsWith("⟩")
           const tick = rendered.startsWith("`") && rendered.endsWith("`")
@@ -101,7 +102,7 @@ describe("compileWhere — pure compiler invariants", () => {
         }
         expect(sql).toBe(`${rendered} = $p0`)
         expect(binds.vars).toEqual({ p0: value })
-        expectBindTotality(sql as string, binds.vars)
+        expectBindTotality(sql!, binds.vars)
       }),
     )
   })
@@ -154,7 +155,7 @@ describe("compileWhere — pure compiler invariants", () => {
           expect(error).toBeInstanceOf(OrmError)
           return
         }
-        expectBindTotality(sql as string, binds.vars)
+        expectBindTotality(sql!, binds.vars)
       }),
     )
   })
@@ -187,7 +188,7 @@ describe("paths and joins", () => {
     check(
       fc.property(dottedPath, (path) => {
         expect(pathSegments(path)).toEqual(
-          path.split(".").map((s) => s.replace(/\[\d+\]|\[\*\]/gu, "")),
+          path.split(".").map((s) => s.replaceAll(/\[\d+\]|\[\*\]/gu, "")),
         )
       }),
     )
@@ -216,11 +217,12 @@ describe("record ids", () => {
         const parts = splitRecordId(text)
         const colon = text.indexOf(":")
         if (colon === -1) expect(parts).toBeUndefined()
-        else
+        else {
           expect(parts).toEqual({
             table: text.slice(0, colon),
             id: text.slice(colon + 1),
           })
+        }
       }),
     )
   })
@@ -291,7 +293,7 @@ describe("parseSurqlType / emitSurqlType", () => {
   // A CANONICAL SurrealQL type expression: sorted, de-duplicated union members, sorted record
   // targets, single-quoted literals —  what normalizeType/emit produce. A union member is a
   // `member` (never a bare `option<…>`): a union of `null` + `option<X>` folds to `option<X | null>`,
-  // so such a member would not be canonical. `option` still nests inside arrays/sets.
+  // such a member would not be canonical. `option` still nests inside arrays/sets.
   const canonicalType = fc.letrec((tie) => {
     const s = (key: string): fc.Arbitrary<string> => tie(key) as fc.Arbitrary<string>
     const atom: fc.Arbitrary<string> = fc.oneof(
@@ -407,7 +409,7 @@ describe("check + literal bridges", () => {
       fc.property(fc.constantFrom(...FORMATS), (format) => {
         const assert = formatAssert(format)
         expect(assert).toBeDefined()
-        expect(formatForAssert(assert as string)).toBe(format)
+        expect(formatForAssert(assert!)).toBe(format)
       }),
     )
   })

@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, unicorn/consistent-function-scoping, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-confusing-void-expression -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Helpers stay colocated with the tests that use them. Fixtures assert values whose presence the test guarantees. The void operator discards intentionally ignored values. */
 import { describe, expect, test } from "bun:test"
 import { DateTime, RecordId, surql, Table } from "surrealdb"
 import { z } from "zod"
@@ -194,8 +195,8 @@ describe("nested create-optionality (runtime)", () => {
     })
     const tags = payload.tags as Record<string, unknown>[]
     expect(tags[0]).not.toHaveProperty("color")
-    expect(Object.keys(tags[0]!)).toEqual(["name"])
-    expect(tags[1]!.color).toBe("#000")
+    expect(Object.keys(tags[0])).toEqual(["name"])
+    expect(tags[1].color).toBe("#000")
   })
 
   test("encodePartial is deep-partial: a partial nested object round-trips (no sibling added)", () => {
@@ -231,10 +232,11 @@ describe("encode / safeEncode agreement on nested input (Fix 1)", () => {
     expect(encodeThrew(input)).toBe(false)
     const res = T.safeEncode(input)
     expect(res.success).toBe(true)
-    if (res.success)
+    if (res.success) {
       expect(res.data as Record<string, unknown>).toEqual({
         settings: { tz: "utc" },
       })
+    }
   })
 
   test("an invalid nested field: encode throws and safeEncode agrees (rejects, correct path)", () => {

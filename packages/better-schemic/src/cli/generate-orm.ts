@@ -13,9 +13,10 @@ import { dirname, join, relative, resolve } from "node:path"
 import { configureJiti, makeJiti, type ResolvedConfig } from "../core"
 import { applyDirectives, type GeneratedOpts } from "../core/cli-kit/generated"
 import { SCHEMA_DEF } from "../surreal/orm/types/schema"
+
 import { resolveOne, type ResolveOpts } from "./resolve"
 
-export interface RenderOrmSurfaceOpts {
+export type RenderOrmSurfaceOpts = {
   /** Expression that returns the client, e.g. `getOrmClient`. */
   readonly clientExpr: string
   readonly models: readonly string[]
@@ -101,9 +102,8 @@ export async function generateOrmWith(
   const configured = typeof ormConfig === "object" ? ormConfig : undefined
   const out = resolve(config.root, opts.out ?? configured?.out ?? "db/orm.generated.ts")
   const schemaFile = resolve(config.root, opts.schema ?? configured?.schema ?? config.schemaPath)
-  if (!existsSync(schemaFile)) {
+  if (!existsSync(schemaFile))
     throw new Error(`generate:orm: schema module not found: ${schemaFile}`)
-  }
 
   const jiti = makeJiti()
   const mod = await jiti.import<Record<string, unknown>>(schemaFile)

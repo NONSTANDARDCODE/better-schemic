@@ -25,7 +25,7 @@ export type ScalarName =
   | "float"
   | "int"
   | "null" // the unit SQL NULL / Surreal `null` (distinct from `option`'s absence)
-  | "number" // a numeric whose int/float/decimal-ness is unconstrained
+  | "number" // a numeric with unspecified int/float/decimal precision
   | "string"
   | "uuid"
 
@@ -105,12 +105,10 @@ export const option = (inner: PortableType): PortableType =>
  * `.optional().nullable()` ≡ `.nullish()`, and `nullable(any)` collapses to `any`.
  */
 export const nullable = (inner: PortableType): PortableType => {
-  if (inner.t === "scalar" && inner.name === "any") {
-    return inner
-  }
-  if (inner.t === "option") {
-    return { inner: nullable(inner.inner), t: "option" }
-  }
+  if (inner.t === "scalar" && inner.name === "any") return inner
+
+  if (inner.t === "option") return { inner: nullable(inner.inner), t: "option" }
+
   return { inner, t: "nullable" }
 }
 

@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-non-null-assertion -- Object key order mirrors expected serialized output and must stay as authored. Literal values are intentional test data and must stay as authored. Fixtures assert values whose presence the test guarantees. */
 // The write-compiler shared helpers in isolation: the validation guards for data / set / unset /
 // patch / arrays / strings / columns, plus the pure renderers. Direct calls keep each guard's exact
 // failure code pinned (the delegate suites exercise the happy paths).
@@ -27,6 +28,7 @@ import {
 } from "../../../src/surreal/orm/compiler/write-shared"
 import { schema } from "../../../src/surreal/orm/schema"
 import { fakeConn, ok } from "../orm-fixtures"
+
 import { schemaDef } from "./orm-writes-fixtures"
 
 const code = (fn: () => unknown): string | undefined => {
@@ -113,7 +115,11 @@ describe("requireArray / requireString / requireColumn", () => {
     expect(code(() => requireString("", "id", "op"))).toBe("ValidationError")
     expect(requireString("x", "id", "op")).toBe("x")
 
-    expect(code(() => requireColumn(meta, "ghost", "op"))).toBe("ValidationError")
+    expect(
+      code(() => {
+        requireColumn(meta, "ghost", "op")
+      }),
+    ).toBe("ValidationError")
     requireColumn(meta, "name", "op")
   })
 })

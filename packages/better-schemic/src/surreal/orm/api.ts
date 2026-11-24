@@ -15,8 +15,10 @@ import type { DelegateContext } from "./delegate"
 import { normalizeError, OrmError } from "./errors"
 import type { ApiBodyOptions, ApiOperations, ApiRequestOptions } from "./types/api"
 
+const HTTP_BAD_REQUEST = 400
+
 /** The structural slice of the SDK's `SurrealApi` the runtime drives. */
-interface SdkApi {
+type SdkApi = {
   delete(path: string, body?: unknown): SdkApiPromise
   get(path: string): SdkApiPromise
   patch(path: string, body?: unknown): SdkApiPromise
@@ -24,13 +26,13 @@ interface SdkApi {
   put(path: string, body?: unknown): SdkApiPromise
 }
 
-interface SdkApiPromise extends Promise<SdkApiResponse> {
+type SdkApiPromise = {
   header(name: string, value: string): SdkApiPromise
   query(name: string, value: string): SdkApiPromise
-}
+} & Promise<SdkApiResponse>
 
 /** The SDK's `ApiResponse` envelope. */
-interface SdkApiResponse {
+type SdkApiResponse = {
   body?: unknown
   headers?: Record<string, string>
   request_id?: string
@@ -64,13 +66,12 @@ export function createApiOperations(ctx: DelegateContext): ApiOperations {
 
     let request = verb === "get" ? source.api().get(path) : source.api()[verb](path, options?.body)
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [name, value] of Object.entries(options?.headers ?? {})) {
+    for (const [name, value] of Object.entries(options?.headers ?? {}))
       request = request.header(name, value)
-    }
+
     // eslint-disable-next-line functional/no-loop-statements -- loop com break/await/estado mutável; conversão para map/reduce mudaria a semântica
-    for (const [name, value] of Object.entries(options?.query ?? {})) {
+    for (const [name, value] of Object.entries(options?.query ?? {}))
       request = request.query(name, String(value))
-    }
 
     let response: SdkApiResponse
     try {
@@ -78,37 +79,37 @@ export function createApiOperations(ctx: DelegateContext): ApiOperations {
     } catch (error) {
       throw normalizeError(error, { operation })
     }
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- checagem defensiva em runtime (valores ausentes/mutados por callback); tipo TS é otimista
     const status = response?.status ?? 0
-    if (status >= 400) {
+    if (status >= HTTP_BAD_REQUEST) {
       throw new OrmError(
         "DatabaseError",
         `${operation} "${path}" failed with status ${status}: ${describeBody(response.body)}`,
-        { operation, status, details: response.body },
+        { details: response.body, operation, status },
       )
     }
-    return response?.body as T
+    return response.body as T
   }
 
   return {
+    delete: <T>(path: string, options?: ApiBodyOptions) => invoke<T>("delete", path, options),
     get: <T>(path: string, options?: ApiRequestOptions) => invoke<T>("get", path, options),
+    patch: <T>(path: string, options?: ApiBodyOptions) => invoke<T>("patch", path, options),
     post: <T>(path: string, options?: ApiBodyOptions) => invoke<T>("post", path, options),
     put: <T>(path: string, options?: ApiBodyOptions) => invoke<T>("put", path, options),
-    patch: <T>(path: string, options?: ApiBodyOptions) => invoke<T>("patch", path, options),
-    delete: <T>(path: string, options?: ApiBodyOptions) => invoke<T>("delete", path, options),
   }
 }
 
 /** A short rendering of an error body for the thrown message. */
 function describeBody(body: unknown): string {
-  if (body === undefined || body === null) {
-    return "(no body)"
-  }
-  if (typeof body === "string") {
-    return body
-  }
+  if (body === undefined || body === null) return "(no body)"
+
+  if (typeof body === "string") return body
+
   try {
     return JSON.stringify(body)
   } catch {
+    // eslint-disable-next-line @typescript-eslint/no-base-to-string -- stringify de valor opaco é intencional (toJSON/toString definidos pelo chamador)
     return String(body)
   }
 }

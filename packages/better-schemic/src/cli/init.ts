@@ -3,7 +3,10 @@ import { dirname, resolve } from "node:path"
 
 import type { Driver } from "../core"
 
-export interface InitResult {
+/** Pretty-print indent for generated JSON. */
+const JSON_INDENT = 2
+
+export type InitResult = {
   created: string[]
   skipped: string[]
 }
@@ -21,7 +24,7 @@ function initialSnapshot(driver: string): string {
       version: 3,
     },
     null,
-    2,
+    JSON_INDENT,
   )}\n`
 }
 
@@ -30,7 +33,7 @@ function initialSnapshot(driver: string): string {
  * from the driver's {@link Driver.initScaffold}; the CLI adds the neutral migration snapshot. Never
  * overwrites existing files. The CLI itself stays dialect-free — it  knows the file map.
  */
-export function init(cwd: string, driver: Driver<unknown>): InitResult {
+export function init(cwd: string, driver: Driver): InitResult {
   const scaffold = driver.initScaffold?.()
   if (!scaffold) {
     throw new Error(

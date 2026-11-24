@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects -- Object key order mirrors expected serialized output and must stay as authored. */
 // Bun AOT — ORM-side surfaces: client cache, lazy resolver, and the generated static façade.
 import { describe, expect, test } from "bun:test"
 

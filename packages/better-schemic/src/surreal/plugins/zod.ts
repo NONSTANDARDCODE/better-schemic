@@ -6,8 +6,8 @@
  * ```ts
  * import { zod } from "./zod";
  * const client = orm(db, {
- *   schema,
- *   plugins: [zod({ schemas: { user: z.object({ email: z.email() }) } })],
+ * schema,
+ * plugins: [zod({ schemas: { user: z.object({ email: z.email() }) } })],
  * });
  * ```
  */
@@ -20,7 +20,7 @@ import { definePlugin } from "../orm/plugins"
 import type { Plugin } from "../orm/types/plugins"
 
 /** The zod plugin options. */
-export interface ZodPluginOptions {
+export type ZodPluginOptions = {
   /** A Zod schema per PHYSICAL table name (`user`, `likes`, …). */
   readonly schemas: Record<string, z.ZodType>
   /** Which write families to check (default: both). */
@@ -35,16 +35,17 @@ function validateData(schema: z.ZodType, data: unknown, operation: string, table
   const items = Array.isArray(data) ? data : [data]
   items.forEach((item, index) => {
     const result = schema.safeParse(item)
-    if (result.success) {
-      return
-    }
+    if (result.success) return
+
     const issue = result.error.issues[0]
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
     const path = issue?.path?.join(".")
     const where = Array.isArray(data) ? ` (item ${index})` : ""
     throw new OrmError(
       "ValidationError",
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
       `zod: ${operation} on "${table}"${where}${path ? ` at "${path}"` : ""}: ${issue?.message ?? "invalid data"}.`,
-      { operation, table, field: path, details: result.error.issues },
+      { details: result.error.issues, field: path, operation, table },
     )
   })
 }
@@ -56,32 +57,28 @@ export function zod(options: ZodPluginOptions): Plugin {
     update: options.validate?.update !== false,
   }
   return definePlugin({
+    config: options,
+    description: "Validate write data with Zod schemas.",
     id: "better-schemic/zod",
     name: "Zod",
-    description: "Validate write data with Zod schemas.",
-    config: options,
     transform(op) {
       const isCreate = isCreateOperation(op.kind)
       const isUpdate = isUpdateOperation(op.kind)
-      if (!isCreate && !isUpdate) {
-        return
-      }
-      if (isCreate && !validate.create) {
-        return
-      }
-      if (isUpdate && !validate.update) {
-        return
-      }
+      if (!isCreate && !isUpdate) return
+
+      if (isCreate && !validate.create) return
+
+      if (isUpdate && !validate.update) return
+
       const schema = options.schemas[op.table]
-      if (!schema) {
-        return
-      }
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- verificação defensiva: chamadores JS/SDK podem violar o tipo estático
+      if (!schema) return
+
       // `{ increment/decrement: n }` wrappers become their operand so the app schema validates
       // the numeric value, not the marker object (the compiler lowers them to `SET f ±= $p`).
       const data = stripAdjustments(op.args.data)
-      if (data === undefined) {
-        return
-      }
+      if (data === undefined) return
+
       validateData(schema, data, op.kind, op.table)
     },
   })
